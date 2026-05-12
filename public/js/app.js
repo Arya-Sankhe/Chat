@@ -29,6 +29,11 @@ const els = {
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
+  confirmBody: document.querySelector("#confirmBody"),
+  confirmCancelButton: document.querySelector("#confirmCancelButton"),
+  confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
+  confirmDialog: document.querySelector("#confirmDialog"),
+  confirmTitle: document.querySelector("#confirmTitle"),
   conversationList: document.querySelector("#conversationList"),
   imageAttach: document.querySelector("#imageAttach"),
   imageFileInput: document.querySelector("#imageFileInput"),
@@ -97,12 +102,38 @@ function openSettings() {
   els.settingsDrawer.classList.add("open");
   els.settingsDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
+  els.overlay.dataset.mode = "settings";
 }
 
 function closeSettings() {
   els.settingsDrawer.classList.remove("open");
   els.settingsDrawer.setAttribute("aria-hidden", "true");
-  els.overlay.hidden = true;
+  if (els.overlay.dataset.mode === "settings") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+}
+
+function openConfirmDialog(conversation) {
+  els.confirmDialog.dataset.chatId = conversation.id;
+  els.confirmTitle.textContent = "Delete chat?";
+  els.confirmBody.textContent = `Delete "${conversation.title}" from this device?`;
+  els.confirmDialog.classList.add("open");
+  els.confirmDialog.setAttribute("aria-hidden", "false");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "confirm";
+  els.confirmDeleteButton.focus();
+}
+
+function closeConfirmDialog() {
+  els.confirmDialog.classList.remove("open");
+  els.confirmDialog.setAttribute("aria-hidden", "true");
+  delete els.confirmDialog.dataset.chatId;
+
+  if (els.overlay.dataset.mode === "confirm") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
 }
 
 function toggleModelDropdown() {
@@ -188,9 +219,14 @@ function renderConversationList() {
     .map((conversation) => {
       const active = conversation.id === state.activeConversationId ? "active" : "";
       return `
-        <button class="conversation-item ${active}" type="button" data-chat-id="${escapeHtml(conversation.id)}">
-          <span>${escapeHtml(conversation.title)}</span>
-        </button>
+        <div class="conversation-row ${active}" data-chat-id="${escapeHtml(conversation.id)}">
+          <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+            <span>${escapeHtml(conversation.title)}</span>
+          </button>
+          <button class="conversation-delete" type="button" data-delete-chat-id="${escapeHtml(conversation.id)}" aria-label="Delete ${escapeHtml(conversation.title)}" title="Delete chat">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
+          </button>
+        </div>
       `;
     })
     .join("");
@@ -372,6 +408,32 @@ function addConversation() {
   document.body.classList.remove("sidebar-open");
 }
 
+function requestDeleteConversation(id) {
+  const conversation = state.conversations.find((item) => item.id === id);
+  if (!conversation) return;
+  openConfirmDialog(conversation);
+}
+
+function deleteConversation(id) {
+  state.conversations = state.conversations.filter((item) => item.id !== id);
+
+  if (!state.conversations.length) {
+    state.conversations = [createConversation()];
+  }
+
+  if (state.activeConversationId === id) {
+    state.activeConversationId = state.conversations
+      .slice()
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0].id;
+  }
+
+  activeImages = [];
+  closeConfirmDialog();
+  persist();
+  renderAll();
+  showToast("Chat deleted.");
+}
+
 function applyComposerHeight() {
   els.promptInput.style.height = "auto";
   els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
@@ -499,7 +561,23 @@ function bindEvents() {
   els.settingsButton.addEventListener("click", openSettings);
   els.settingsButtonAlt.addEventListener("click", openSettings);
   els.closeSettingsButton.addEventListener("click", closeSettings);
-  els.overlay.addEventListener("click", closeSettings);
+  els.confirmCancelButton.addEventListener("click", closeConfirmDialog);
+  els.confirmDeleteButton.addEventListener("click", () => {
+    const id = els.confirmDialog.dataset.chatId;
+    if (id) deleteConversation(id);
+  });
+  els.overlay.addEventListener("click", () => {
+    if (els.overlay.dataset.mode === "confirm") {
+      closeConfirmDialog();
+      return;
+    }
+    closeSettings();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && els.confirmDialog.classList.contains("open")) {
+      closeConfirmDialog();
+    }
+  });
 
   els.sidebarButton.addEventListener("click", () => {
     document.body.classList.toggle("sidebar-expanded");
@@ -519,9 +597,15 @@ function bindEvents() {
   });
 
   els.conversationList.addEventListener("click", (event) => {
-    const item = event.target.closest("[data-chat-id]");
+    const deleteButton = event.target.closest("[data-delete-chat-id]");
+    if (deleteButton) {
+      requestDeleteConversation(deleteButton.dataset.deleteChatId);
+      return;
+    }
+
+    const item = event.target.closest("[data-open-chat-id]");
     if (!item) return;
-    state.activeConversationId = item.dataset.chatId;
+    state.activeConversationId = item.dataset.openChatId;
     document.body.classList.remove("sidebar-open");
     persist();
     renderAll();

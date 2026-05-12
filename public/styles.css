@@ -102,43 +102,68 @@ body.sidebar-expanded .sidebar {
   background: var(--bg-secondary);
 }
 
-.conversation-item {
+.conversation-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   width: 100%;
-  text-align: left;
-  padding: 8px 10px;
   border-radius: 8px;
-  color: var(--text);
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   transition: background var(--transition);
   opacity: 0;
   pointer-events: none;
 }
 
-body.sidebar-expanded .conversation-item {
+body.sidebar-expanded .conversation-row {
   opacity: 1;
   pointer-events: auto;
 }
 
-.conversation-item:hover,
-.conversation-item.active {
+.conversation-row:hover,
+.conversation-row.active {
   background: var(--bg-secondary);
 }
 
-.conversation-item small {
-  display: none;
+.conversation-item {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 8px 8px 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-body.sidebar-expanded .conversation-item small {
+.conversation-item span {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 4px;
+  border-radius: 8px;
   color: var(--text-tertiary);
-  font-size: 12px;
-  margin-top: 1px;
+  opacity: 0;
+  transition: background var(--transition), color var(--transition), opacity var(--transition);
+  flex-shrink: 0;
+}
+
+.conversation-row:hover .conversation-delete,
+.conversation-row.active .conversation-delete,
+.conversation-delete:focus-visible {
+  opacity: 1;
+}
+
+.conversation-delete:hover {
+  background: #fef2f2;
+  color: var(--danger);
 }
 
 /* ─── Chat Panel ─── */
@@ -838,11 +863,104 @@ body.sidebar-expanded .conversation-item small {
   font-weight: 500;
 }
 
+/* ─── Confirm Dialog ─── */
+.confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 45;
+}
+
+.confirm-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.confirm-copy {
+  min-width: 0;
+}
+
+.confirm-copy h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.confirm-copy p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.confirm-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.confirm-cancel,
+.confirm-danger {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.confirm-cancel {
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.confirm-cancel:hover {
+  background: var(--bg-secondary);
+}
+
+.confirm-danger {
+  color: white;
+  background: var(--danger);
+}
+
+.confirm-danger:hover {
+  background: #dc2626;
+}
+
 /* ─── Overlay & Toast ─── */
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.24);
   z-index: 35;
   backdrop-filter: blur(2px);
 }

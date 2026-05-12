@@ -144,6 +144,20 @@
         <div class="model-details" id="modelDetails"></div>
       </aside>
 
+      <section class="confirm-dialog" id="confirmDialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody" aria-hidden="true">
+        <div class="confirm-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
+        </div>
+        <div class="confirm-copy">
+          <h2 id="confirmTitle">Delete chat?</h2>
+          <p id="confirmBody">This chat will be removed from this device.</p>
+        </div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" id="confirmCancelButton" type="button">Cancel</button>
+          <button class="confirm-danger" id="confirmDeleteButton" type="button">Delete</button>
+        </div>
+      </section>
+
       <div class="overlay" id="overlay" hidden></div>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </div>
