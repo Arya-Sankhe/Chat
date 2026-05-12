@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS } from "./constants.js";
 
-const STORAGE_KEY = "crofchat.state.v1";
+const STORAGE_KEY = "smartyfy-chat.state.v1";
 
 export function createId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;

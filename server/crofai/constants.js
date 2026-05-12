@@ -18,12 +18,12 @@ export function normalizeBaseUrl(value = DEFAULT_CROFAI_BASE_URL) {
   try {
     url = new URL(raw);
   } catch {
-    throw new HttpError(400, "CrofAI base URL is invalid.");
+    throw new HttpError(400, "Smartyfy API base URL is invalid.");
   }
 
   const normalized = `${url.origin}${url.pathname}`;
   if (!allowedBaseUrlSet.has(normalized)) {
-    throw new HttpError(400, "Only CrofAI OpenAI-compatible endpoints are allowed.");
+    throw new HttpError(400, "Only Smartyfy API endpoints are allowed.");
   }
 
   return normalized;

@@ -180,9 +180,9 @@ function closeLightbox() {
 }
 
 function endpointLabel(url) {
-  if (url.endsWith("/v2")) return "Smartfy API v2";
-  if (url.endsWith("/v1")) return "Smartfy API v1";
-  return "Smartfy API";
+  if (url.endsWith("/v2")) return "Smartyfy API v2";
+  if (url.endsWith("/v1")) return "Smartyfy API v1";
+  return "Smartyfy API";
 }
 
 function renderBaseUrls() {
@@ -314,7 +314,7 @@ function renderMessages() {
         <div class="message-avatar">${message.role === "user" ? "U" : "C"}</div>
         <div class="message-body">
           <div class="message-meta">
-            <strong>${message.role === "user" ? "You" : "Smartfy"}</strong>
+            <strong>${message.role === "user" ? "You" : "Smartyfy"}</strong>
             ${message.model ? `<span>${escapeHtml(message.model)}</span>` : ""}
           </div>
           ${
@@ -386,7 +386,7 @@ async function loadModels({ quiet = false } = {}) {
   if (!canLoadModels()) {
     models = [];
     renderModelOptions();
-    if (!quiet) showToast("Add your Smartfy API key first.");
+    if (!quiet) showToast("Add your Smartyfy API key first.");
     return;
   }
 
@@ -541,7 +541,7 @@ async function sendPrompt() {
   if (!text.trim() && !activeImages.length) return;
 
   if (!state.settings.model.trim()) {
-    showToast("Pick a Smartfy model first.");
+    showToast("Pick a Smartyfy model first.");
     openSettings();
     return;
   }

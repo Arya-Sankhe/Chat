@@ -1,5 +1,5 @@
 services:
-  crofchat:
+  smartyfy-chat:
     build: .
     ports:
       - "3000:3000"

@@ -25,5 +25,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`CrofChat listening on http://${config.host}:${config.port}`);
+  console.log(`Smartyfy Chat listening on http://${config.host}:${config.port}`);
 });

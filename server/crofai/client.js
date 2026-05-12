@@ -19,13 +19,13 @@ async function crofaiError(response) {
   if (contentType.includes("application/json")) {
     try {
       const json = JSON.parse(text);
-      return new HttpError(response.status, json?.error?.message || json?.error || `CrofAI request failed with ${response.status}.`, json);
+      return new HttpError(response.status, json?.error?.message || json?.error || `Smartyfy request failed with ${response.status}.`, json);
     } catch {
-      return new HttpError(response.status, `CrofAI request failed with ${response.status}.`, text.slice(0, 2000));
+      return new HttpError(response.status, `Smartyfy request failed with ${response.status}.`, text.slice(0, 2000));
     }
   }
 
-  return new HttpError(response.status, text.slice(0, 2000) || `CrofAI request failed with ${response.status}.`);
+  return new HttpError(response.status, text.slice(0, 2000) || `Smartyfy request failed with ${response.status}.`);
 }
 
 export async function listModels({ apiKey, baseUrl, signal }) {

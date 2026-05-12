@@ -8,7 +8,7 @@ export async function handleApiRequest(req, res, url, config) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       sendJson(res, 200, {
         ok: true,
-        app: "crofchat",
+        app: "smartyfy-chat",
         serverApiKeyConfigured: Boolean(config.serverApiKey)
       });
       return;
@@ -37,7 +37,7 @@ export async function handleApiRequest(req, res, url, config) {
       const apiKey = extractApiKey(req.headers, config.serverApiKey);
 
       if (!apiKey) {
-        throw new HttpError(401, "Add a CrofAI API key in settings or set CROFAI_API_KEY on the server.");
+        throw new HttpError(401, "Add a Smartyfy API key in settings or configure the server API key.");
       }
 
       const chatRequest = normalizeChatRequest(body);
@@ -54,7 +54,7 @@ export async function handleApiRequest(req, res, url, config) {
       });
 
       if (!upstream.body) {
-        throw new HttpError(502, "CrofAI returned an empty response stream.");
+        throw new HttpError(502, "Smartyfy returned an empty response stream.");
       }
 
       res.writeHead(200, {

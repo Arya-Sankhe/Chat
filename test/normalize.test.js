@@ -3,13 +3,13 @@ import test from "node:test";
 import { normalizeBaseUrl } from "../server/crofai/constants.js";
 import { normalizeChatRequest } from "../server/crofai/normalize.js";
 
-test("normalizeBaseUrl accepts CrofAI endpoints", () => {
+test("normalizeBaseUrl accepts provider endpoints", () => {
   assert.equal(normalizeBaseUrl("https://crof.ai/v1/"), "https://crof.ai/v1");
   assert.equal(normalizeBaseUrl("https://crof.ai/v2"), "https://crof.ai/v2");
 });
 
-test("normalizeBaseUrl rejects non-CrofAI endpoints", () => {
-  assert.throws(() => normalizeBaseUrl("https://example.com/v1"), /Only CrofAI/);
+test("normalizeBaseUrl rejects non-provider endpoints", () => {
+  assert.throws(() => normalizeBaseUrl("https://example.com/v1"), /Only Smartyfy API/);
 });
 
 test("normalizeChatRequest keeps only supported chat fields", () => {
