@@ -35,10 +35,12 @@ const els = {
   confirmDialog: document.querySelector("#confirmDialog"),
   confirmTitle: document.querySelector("#confirmTitle"),
   conversationList: document.querySelector("#conversationList"),
-  imageAttach: document.querySelector("#imageAttach"),
   imageFileInput: document.querySelector("#imageFileInput"),
-  imageList: document.querySelector("#imageList"),
+  imagePreviews: document.querySelector("#imagePreviews"),
   imageToggle: document.querySelector("#imageToggle"),
+  lightbox: document.querySelector("#lightbox"),
+  lightboxClose: document.querySelector("#lightboxClose"),
+  lightboxImg: document.querySelector("#lightboxImg"),
   maxTokensInput: document.querySelector("#maxTokensInput"),
   messages: document.querySelector("#messages"),
   modelButton: document.querySelector("#modelButton"),
@@ -150,11 +152,18 @@ function closeModelDropdown() {
   els.modelDropdown.classList.add("hidden");
 }
 
-function toggleImageAttach() {
-  els.imageAttach.classList.toggle("hidden");
-  if (!els.imageAttach.classList.contains("hidden")) {
-    els.imageFileInput.focus();
-  }
+function openFilePicker() {
+  els.imageFileInput.click();
+}
+
+function openLightbox(src) {
+  els.lightboxImg.src = src;
+  els.lightbox.classList.remove("hidden");
+}
+
+function closeLightbox() {
+  els.lightbox.classList.add("hidden");
+  els.lightboxImg.src = "";
 }
 
 function renderBaseUrls() {
@@ -299,13 +308,12 @@ function queueRenderMessages() {
 }
 
 function renderImages() {
-  els.imageList.innerHTML = activeImages
+  els.imagePreviews.innerHTML = activeImages
     .map((image, index) => `
-      <button class="image-chip" type="button" data-image-index="${index}" title="Remove ${escapeHtml(image.name)}">
-        <img src="${escapeHtml(image.dataUrl)}" alt="">
-        <span>${escapeHtml(image.name)}</span>
-        <strong>&times;</strong>
-      </button>
+      <div class="preview-thumb" data-image-index="${index}" data-preview-src="${escapeHtml(image.dataUrl)}" title="${escapeHtml(image.name)}">
+        <img src="${escapeHtml(image.dataUrl)}" alt="${escapeHtml(image.name)}">
+        <span class="preview-remove" data-remove-index="${index}">&times;</span>
+      </div>
     `)
     .join("");
 }
@@ -588,7 +596,7 @@ function bindEvents() {
     toggleModelDropdown();
   });
 
-  els.imageToggle.addEventListener("click", toggleImageAttach);
+  els.imageToggle.addEventListener("click", openFilePicker);
 
   document.addEventListener("click", (e) => {
     if (!els.modelDropdown.contains(e.target) && !els.modelButton.contains(e.target)) {
@@ -620,12 +628,33 @@ function bindEvents() {
     els.promptInput.focus();
   });
 
-  els.imageList.addEventListener("click", (event) => {
-    const chip = event.target.closest("[data-image-index]");
-    if (!chip) return;
-    activeImages.splice(Number(chip.dataset.imageIndex), 1);
-    renderImages();
-    updateSendButton();
+  els.imagePreviews.addEventListener("click", (event) => {
+    const removeBtn = event.target.closest("[data-remove-index]");
+    if (removeBtn) {
+      event.stopPropagation();
+      activeImages.splice(Number(removeBtn.dataset.removeIndex), 1);
+      renderImages();
+      updateSendButton();
+      return;
+    }
+
+    const thumb = event.target.closest("[data-preview-src]");
+    if (thumb) {
+      openLightbox(thumb.dataset.previewSrc);
+    }
+  });
+
+  els.lightboxClose.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeLightbox();
+  });
+  els.lightbox.addEventListener("click", (event) => {
+    if (event.target === els.lightbox) closeLightbox();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.lightbox.classList.contains("hidden")) {
+      closeLightbox();
+    }
   });
 
   els.imageFileInput.addEventListener("change", (event) => {
