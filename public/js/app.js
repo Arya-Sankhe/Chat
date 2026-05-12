@@ -23,12 +23,12 @@ let renderQueued = false;
 let modelRefreshTimer = null;
 let modelAutoRefreshTimer = null;
 let modelsLoading = false;
-let lastModelRefresh = "";
 
 const els = {
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
+  composerModelWrap: document.querySelector("#composerModelWrap"),
   confirmBody: document.querySelector("#confirmBody"),
   confirmCancelButton: document.querySelector("#confirmCancelButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
@@ -50,7 +50,6 @@ const els = {
   modelInput: document.querySelector("#modelInput"),
   modelLabel: document.querySelector("#modelLabel"),
   modelOptions: document.querySelector("#modelOptions"),
-  modelStatus: document.querySelector("#modelStatus"),
   newChatButton: document.querySelector("#newChatButton"),
   overlay: document.querySelector("#overlay"),
   promptInput: document.querySelector("#promptInput"),
@@ -141,6 +140,9 @@ function closeConfirmDialog() {
 function toggleModelDropdown() {
   const isOpen = !els.modelDropdown.classList.contains("hidden");
   els.modelDropdown.classList.toggle("hidden", isOpen);
+  const nowOpen = !els.modelDropdown.classList.contains("hidden");
+  els.modelButton.setAttribute("aria-expanded", String(nowOpen));
+  els.composerModelWrap.classList.toggle("is-open", nowOpen);
   if (!isOpen) {
     els.modelInput.value = "";
     renderModelCatalog();
@@ -150,6 +152,8 @@ function toggleModelDropdown() {
 
 function closeModelDropdown() {
   els.modelDropdown.classList.add("hidden");
+  els.modelButton.setAttribute("aria-expanded", "false");
+  els.composerModelWrap.classList.remove("is-open");
 }
 
 function openFilePicker() {
@@ -184,23 +188,23 @@ function renderModelCatalog() {
   const query = els.modelInput.value.trim().toLowerCase();
   const visibleModels = models
     .filter((model) => {
-      const haystack = `${model.id} ${model.name || ""} ${model.quantization || ""}`.toLowerCase();
+      const haystack = `${model.id} ${model.name || ""}`.toLowerCase();
       return !query || haystack.includes(query);
     })
     .slice(0, 80);
 
   if (modelsLoading) {
-    els.modelStatus.textContent = "Loading CrofAI models...";
-  } else if (!canLoadModels()) {
-    els.modelStatus.textContent = "Connect a CrofAI key to load live models.";
-  } else if (lastModelRefresh) {
-    els.modelStatus.textContent = `${models.length} live models · updated ${lastModelRefresh}`;
-  } else {
-    els.modelStatus.textContent = "Models have not been loaded yet.";
+    els.modelCatalog.innerHTML = `<div class="model-empty">Loading…</div>`;
+    return;
+  }
+
+  if (!canLoadModels()) {
+    els.modelCatalog.innerHTML = `<div class="model-empty">No models. Add a key in settings.</div>`;
+    return;
   }
 
   if (!visibleModels.length) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">${models.length ? "No models match your search." : "No models loaded."}</div>`;
+    els.modelCatalog.innerHTML = `<div class="model-empty">${models.length ? "No matches." : "No models."}</div>`;
     return;
   }
 
@@ -215,9 +219,10 @@ function renderModelOptions() {
     .join("");
   els.modelDetails.innerHTML = renderModelDetails(selectedModel());
 
-  const modelName = state.settings.model || "CrofAI";
-  els.modelLabel.textContent = modelName;
-  els.promptInput.placeholder = `Message ${modelName}`;
+  const selected = selectedModel();
+  const displayName = selected?.name || state.settings.model || "Model";
+  els.modelLabel.textContent = displayName;
+  els.promptInput.placeholder = displayName ? `Message ${displayName}` : "Message CrofAI";
   renderModelCatalog();
 }
 
@@ -349,7 +354,6 @@ function renderAll() {
 async function loadModels({ quiet = false } = {}) {
   if (!canLoadModels()) {
     models = [];
-    lastModelRefresh = "";
     renderModelOptions();
     if (!quiet) showToast("Add your CrofAI API key first.");
     return;
@@ -361,7 +365,6 @@ async function loadModels({ quiet = false } = {}) {
   try {
     const payload = await fetchModels(state.settings);
     models = normalizeModelList(payload);
-    lastModelRefresh = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
     if (!state.settings.model && models[0]) {
       state.settings.model = models[0].id;
@@ -582,8 +585,17 @@ function bindEvents() {
     closeSettings();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && els.confirmDialog.classList.contains("open")) {
+    if (event.key !== "Escape") return;
+    if (els.confirmDialog.classList.contains("open")) {
       closeConfirmDialog();
+      return;
+    }
+    if (!els.lightbox.classList.contains("hidden")) {
+      closeLightbox();
+      return;
+    }
+    if (!els.modelDropdown.classList.contains("hidden")) {
+      closeModelDropdown();
     }
   });
 
@@ -599,7 +611,7 @@ function bindEvents() {
   els.imageToggle.addEventListener("click", openFilePicker);
 
   document.addEventListener("click", (e) => {
-    if (!els.modelDropdown.contains(e.target) && !els.modelButton.contains(e.target)) {
+    if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {
       closeModelDropdown();
     }
   });
@@ -651,12 +663,6 @@ function bindEvents() {
   els.lightbox.addEventListener("click", (event) => {
     if (event.target === els.lightbox) closeLightbox();
   });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !els.lightbox.classList.contains("hidden")) {
-      closeLightbox();
-    }
-  });
-
   els.imageFileInput.addEventListener("change", (event) => {
     addImageFiles(event.target.files);
     event.target.value = "";

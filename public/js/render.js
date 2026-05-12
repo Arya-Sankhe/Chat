@@ -97,20 +97,11 @@ export function inferModelBadges(model) {
 }
 
 export function renderModelOption(model, isActive = false) {
-  const meta = formatModelMeta(model);
-  const badges = inferModelBadges(model);
-  const input = perMillionPrice(model?.pricing?.prompt);
-  const output = perMillionPrice(model?.pricing?.completion);
-
+  const label = escapeHtml(model.name || model.id);
   return `
-    <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}">
-      <span class="model-option-main">
-        <strong>${escapeHtml(model.name || model.id)}</strong>
-        <small>${escapeHtml(model.id)}</small>
-      </span>
-      ${badges.length ? `<span class="model-badges">${badges.map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}</span>` : ""}
-      ${meta.length ? `<span class="model-option-meta">${meta.map(escapeHtml).join(" · ")}</span>` : ""}
-      ${input || output ? `<span class="model-option-price">${input ? `In ${escapeHtml(input)}` : ""}${input && output ? " · " : ""}${output ? `Out ${escapeHtml(output)}` : ""}</span>` : ""}
+    <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}" role="option" aria-selected="${isActive ? "true" : "false"}">
+      <span class="model-option-name">${label}</span>
+      <span class="model-option-check" aria-hidden="true">${isActive ? "✓" : ""}</span>
     </button>
   `;
 }
