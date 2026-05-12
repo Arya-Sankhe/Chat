@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CrofChat</title>
+    <title>Smartfy Chat</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
@@ -40,7 +40,7 @@
           <div class="composer-wrap">
             <div class="composer">
               <div class="composer-previews" id="imagePreviews"></div>
-              <textarea id="promptInput" rows="1" placeholder="Message CrofAI" spellcheck="true"></textarea>
+              <textarea id="promptInput" rows="1" placeholder="Message Smartfy" spellcheck="true"></textarea>
               <div class="composer-bottom">
                 <div class="composer-actions">
                   <button class="composer-tool" type="button" id="imageToggle" aria-label="Attach image" title="Attach image">
@@ -48,7 +48,8 @@
                   </button>
                   <div class="composer-model-wrap" id="composerModelWrap">
                     <button class="composer-model-btn" id="modelButton" type="button" aria-haspopup="listbox" aria-expanded="false">
-                      <svg class="composer-model-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M18.36 5.64l1.41-1.41"/></svg>
+                      <img class="composer-model-logo hidden" id="modelLogoImg" alt="" width="22" height="22" decoding="async" aria-hidden="true">
+                      <svg class="composer-model-icon" id="modelFallbackIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M18.36 5.64l1.41-1.41"/></svg>
                       <span class="composer-model-label" id="modelLabel">Model</span>
                       <svg class="composer-model-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
@@ -74,7 +75,7 @@
             </div>
           </div>
           <footer class="app-footer">
-            <span>CrofChat v0.1.0 &middot; AI for Everyone</span>
+            <span>Smartfy Chat v0.1.0</span>
           </footer>
         </section>
       </main>
@@ -88,7 +89,7 @@
         </div>
 
         <div class="field-group">
-          <label for="apiKeyInput">CrofAI API key</label>
+          <label for="apiKeyInput">Smartfy API key</label>
           <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-...">
           <label class="check-row">
             <input id="rememberKeyInput" type="checkbox">

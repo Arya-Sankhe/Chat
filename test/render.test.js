@@ -4,6 +4,7 @@ import {
   compactModelDisplayName,
   formatModelMeta,
   inferModelBadges,
+  modelBrandLogoUrl,
   normalizeModelList
 } from "../public/js/render.js";
 
@@ -37,7 +38,29 @@ test("compactModelDisplayName keeps text after first colon only", () => {
   assert.equal(compactModelDisplayName("deepseek-v3.2"), "deepseek-v3.2");
 });
 
-test("model metadata helpers expose useful CrofAI /models fields", () => {
+test("normalizeModelList drops gemma and greg models from the selector list", () => {
+  const models = normalizeModelList({
+    data: [
+      { id: "deepseek-v3.2", name: "DeepSeek: DeepSeek V3.2" },
+      { id: "google/gemma-2-9b", name: "Google: Gemma 2 9B" },
+      { id: "some-greg-test", name: "Vendor: Greg Pro" }
+    ]
+  });
+  assert.equal(models.length, 1);
+  assert.equal(models[0].id, "deepseek-v3.2");
+});
+
+test("modelBrandLogoUrl maps known vendors to bundled SVG paths", () => {
+  assert.match(modelBrandLogoUrl({ id: "deepseek/deepseek-v3.2", rawName: "DeepSeek: V3.2", name: "V3.2" }), /deepseek%20logo\.svg$/);
+  assert.match(modelBrandLogoUrl({ id: "qwen/qwen3", rawName: "Qwen 3", name: "Qwen 3" }), /qwen%20logo\.svg$/);
+  assert.match(modelBrandLogoUrl({ id: "moonshot/kimi", rawName: "Moonshot: Kimi", name: "Kimi" }), /kimi%20logo\.svg$/);
+  assert.match(modelBrandLogoUrl({ id: "zhipu/glm-4", rawName: "Zhipu GLM-4", name: "GLM-4" }), /zai%20logo\.svg$/);
+  assert.match(modelBrandLogoUrl({ id: "minimax/m2", rawName: "MiniMax M2", name: "M2" }), /minimax%20logo\.svg$/);
+  assert.match(modelBrandLogoUrl({ id: "xiaomi/mimo", rawName: "Xiaomi Mimo", name: "Mimo" }), /xiaomimimo%20logo\.svg$/);
+  assert.equal(modelBrandLogoUrl({ id: "unknown-vendor/foo", rawName: "Foo", name: "Foo" }), "");
+});
+
+test("model metadata helpers expose useful /models fields", () => {
   const model = {
     id: "kimi-k2-thinking-turbo",
     context_length: 262144,

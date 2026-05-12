@@ -69,6 +69,36 @@ export function compactModelDisplayName(raw) {
   return rest || s;
 }
 
+/** Filenames under `/img/model-brands/` (spaces encoded in URLs). */
+const MODEL_BRAND_LOGO_RULES = [
+  [/deepseek/i, "deepseek logo.svg"],
+  [/qwen|alibaba/i, "qwen logo.svg"],
+  [/kimi|moonshot/i, "kimi logo.svg"],
+  [/zhipu|z-ai|glm|thudm/i, "zai logo.svg"],
+  [/minimax|abab/i, "minimax logo.svg"],
+  [/xiaomi|mimo/i, "xiaomimimo logo.svg"]
+];
+
+/**
+ * Public URL for a brand logo SVG, or "" when none matches.
+ */
+export function modelBrandLogoUrl(model) {
+  const haystack = `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`;
+  for (const [re, file] of MODEL_BRAND_LOGO_RULES) {
+    if (re.test(haystack)) {
+      return `/img/model-brands/${encodeURIComponent(file)}`;
+    }
+  }
+  return "";
+}
+
+function isSelectorExcludedModel(model) {
+  const t = `${model.id} ${model.rawName}`.toLowerCase();
+  if (t.includes("gemma")) return true;
+  if (t.includes("greg")) return true;
+  return false;
+}
+
 export function normalizeModelList(payload) {
   const list = Array.isArray(payload) ? payload : payload?.data;
   if (!Array.isArray(list)) return [];
@@ -86,6 +116,7 @@ export function normalizeModelList(payload) {
         name: compactModelDisplayName(rawName)
       };
     })
+    .filter((model) => !isSelectorExcludedModel(model))
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
 }
 
@@ -119,9 +150,16 @@ export function inferModelBadges(model) {
 
 export function renderModelOption(model, isActive = false) {
   const label = escapeHtml(model.name || model.id);
+  const logo = modelBrandLogoUrl(model);
+  const logoHtml = logo
+    ? `<img class="model-option-logo" src="${escapeHtml(logo)}" alt="" width="24" height="24" decoding="async">`
+    : `<span class="model-option-logo-placeholder" aria-hidden="true"></span>`;
   return `
     <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}" role="option" aria-selected="${isActive ? "true" : "false"}">
-      <span class="model-option-name">${label}</span>
+      <span class="model-option-main">
+        ${logoHtml}
+        <span class="model-option-name">${label}</span>
+      </span>
       <span class="model-option-check" aria-hidden="true">${isActive ? "✓" : ""}</span>
     </button>
   `;

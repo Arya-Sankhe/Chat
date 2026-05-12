@@ -11,6 +11,7 @@ import {
 import {
   compactModelDisplayName,
   escapeHtml,
+  modelBrandLogoUrl,
   normalizeModelList,
   renderContent,
   renderModelDetails,
@@ -54,8 +55,10 @@ const els = {
   modelCatalog: document.querySelector("#modelCatalog"),
   modelDetails: document.querySelector("#modelDetails"),
   modelDropdown: document.querySelector("#modelDropdown"),
+  modelFallbackIcon: document.querySelector("#modelFallbackIcon"),
   modelInput: document.querySelector("#modelInput"),
   modelLabel: document.querySelector("#modelLabel"),
+  modelLogoImg: document.querySelector("#modelLogoImg"),
   newChatButton: document.querySelector("#newChatButton"),
   overlay: document.querySelector("#overlay"),
   promptInput: document.querySelector("#promptInput"),
@@ -176,9 +179,15 @@ function closeLightbox() {
   els.lightboxImg.src = "";
 }
 
+function endpointLabel(url) {
+  if (url.endsWith("/v2")) return "Smartfy API v2";
+  if (url.endsWith("/v1")) return "Smartfy API v1";
+  return "Smartfy API";
+}
+
 function renderBaseUrls() {
   els.baseUrlInput.innerHTML = serverConfig.allowedBaseUrls
-    .map((url) => `<option value="${escapeHtml(url)}">${escapeHtml(url)}</option>`)
+    .map((url) => `<option value="${escapeHtml(url)}">${escapeHtml(endpointLabel(url))}</option>`)
     .join("");
 }
 
@@ -224,6 +233,25 @@ function renderModelOptions() {
 
   const selected = selectedModel();
   const displayName = compactModelDisplayName(selected?.name || state.settings.model) || "Model";
+  const logoUrl = selected ? modelBrandLogoUrl(selected) : "";
+
+  els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
+  els.modelButton.classList.toggle("has-brand-logo", Boolean(logoUrl));
+
+  if (logoUrl) {
+    els.modelLogoImg.src = logoUrl;
+    els.modelLogoImg.classList.remove("hidden");
+    els.modelLogoImg.removeAttribute("aria-hidden");
+    els.modelLabel.classList.add("hidden");
+    els.modelFallbackIcon?.classList.add("hidden");
+  } else {
+    els.modelLogoImg.removeAttribute("src");
+    els.modelLogoImg.classList.add("hidden");
+    els.modelLogoImg.setAttribute("aria-hidden", "true");
+    els.modelLabel.classList.remove("hidden");
+    els.modelFallbackIcon?.classList.remove("hidden");
+  }
+
   els.modelLabel.textContent = displayName;
   els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
@@ -286,7 +314,7 @@ function renderMessages() {
         <div class="message-avatar">${message.role === "user" ? "U" : "C"}</div>
         <div class="message-body">
           <div class="message-meta">
-            <strong>${message.role === "user" ? "You" : "CrofAI"}</strong>
+            <strong>${message.role === "user" ? "You" : "Smartfy"}</strong>
             ${message.model ? `<span>${escapeHtml(message.model)}</span>` : ""}
           </div>
           ${
@@ -358,7 +386,7 @@ async function loadModels({ quiet = false } = {}) {
   if (!canLoadModels()) {
     models = [];
     renderModelOptions();
-    if (!quiet) showToast("Add your CrofAI API key first.");
+    if (!quiet) showToast("Add your Smartfy API key first.");
     return;
   }
 
@@ -513,7 +541,7 @@ async function sendPrompt() {
   if (!text.trim() && !activeImages.length) return;
 
   if (!state.settings.model.trim()) {
-    showToast("Pick a CrofAI model first.");
+    showToast("Pick a Smartfy model first.");
     openSettings();
     return;
   }
