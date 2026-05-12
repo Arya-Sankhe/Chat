@@ -8,7 +8,14 @@ import {
   createUserMessage,
   titleFromMessage
 } from "./chat.js";
-import { escapeHtml, normalizeModelList, renderContent, renderModelDetails, renderModelOption } from "./render.js";
+import {
+  compactModelDisplayName,
+  escapeHtml,
+  normalizeModelList,
+  renderContent,
+  renderModelDetails,
+  renderModelOption
+} from "./render.js";
 import { createConversation, loadState, saveState } from "./storage.js";
 
 const state = loadState();
@@ -49,7 +56,6 @@ const els = {
   modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
   modelLabel: document.querySelector("#modelLabel"),
-  modelOptions: document.querySelector("#modelOptions"),
   newChatButton: document.querySelector("#newChatButton"),
   overlay: document.querySelector("#overlay"),
   promptInput: document.querySelector("#promptInput"),
@@ -214,15 +220,12 @@ function renderModelCatalog() {
 }
 
 function renderModelOptions() {
-  els.modelOptions.innerHTML = models
-    .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
-    .join("");
   els.modelDetails.innerHTML = renderModelDetails(selectedModel());
 
   const selected = selectedModel();
-  const displayName = selected?.name || state.settings.model || "Model";
+  const displayName = compactModelDisplayName(selected?.name || state.settings.model) || "Model";
   els.modelLabel.textContent = displayName;
-  els.promptInput.placeholder = displayName ? `Message ${displayName}` : "Message CrofAI";
+  els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
 }
 

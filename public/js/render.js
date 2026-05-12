@@ -54,6 +54,34 @@ export function renderContent(content) {
   return renderCodeAwareText(content);
 }
 
+/**
+ * UI label: use text after the first ":"; if that text starts with the same
+ * vendor (left of ":"), strip that one duplicate prefix. Otherwise keep the
+ * post-colon text as-is (e.g. "Google: Gemma 4" → "Gemma 4").
+ */
+export function compactModelDisplayName(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+
+  const colon = s.indexOf(":");
+  if (colon === -1) return s;
+
+  const vendor = s.slice(0, colon).trim();
+  let rest = s.slice(colon + 1).trim();
+  if (!rest) return vendor;
+  if (!vendor) return rest;
+
+  const vendorLc = vendor.toLowerCase();
+  const restLc = rest.toLowerCase();
+
+  if (restLc.startsWith(vendorLc)) {
+    rest = rest.slice(vendor.length);
+    rest = rest.replace(/^\s+/, "").trim();
+  }
+
+  return rest || vendor;
+}
+
 export function normalizeModelList(payload) {
   const list = Array.isArray(payload) ? payload : payload?.data;
   if (!Array.isArray(list)) return [];
@@ -97,7 +125,7 @@ export function inferModelBadges(model) {
 }
 
 export function renderModelOption(model, isActive = false) {
-  const label = escapeHtml(model.name || model.id);
+  const label = escapeHtml(compactModelDisplayName(model.name || model.id));
   return `
     <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}" role="option" aria-selected="${isActive ? "true" : "false"}">
       <span class="model-option-name">${label}</span>

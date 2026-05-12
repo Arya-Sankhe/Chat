@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatModelMeta, inferModelBadges, normalizeModelList } from "../public/js/render.js";
+import {
+  compactModelDisplayName,
+  formatModelMeta,
+  inferModelBadges,
+  normalizeModelList
+} from "../public/js/render.js";
 
 test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
   const models = normalizeModelList({
@@ -20,6 +25,14 @@ test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
 
   assert.equal(models[0].id, "deepseek-v3.2");
   assert.equal(models[0].name, "DeepSeek: DeepSeek V3.2");
+});
+
+test("compactModelDisplayName drops repeated vendor prefix", () => {
+  assert.equal(compactModelDisplayName("DeepSeek: DeepSeek V4 Flash"), "V4 Flash");
+  assert.equal(compactModelDisplayName("DeepSeek:DeepSeek V4 Flash"), "V4 Flash");
+  assert.equal(compactModelDisplayName("Google: Gemma 4 31B"), "Gemma 4 31B");
+  assert.equal(compactModelDisplayName("MoonshotAI: Kimi K2.5"), "Kimi K2.5");
+  assert.equal(compactModelDisplayName("deepseek-v3.2"), "deepseek-v3.2");
 });
 
 test("model metadata helpers expose useful CrofAI /models fields", () => {
