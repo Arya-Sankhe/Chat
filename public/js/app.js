@@ -26,15 +26,19 @@ const els = {
   apiKeyInput: document.querySelector("#apiKeyInput"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
-  connectionLabel: document.querySelector("#connectionLabel"),
   conversationList: document.querySelector("#conversationList"),
+  imageAttach: document.querySelector("#imageAttach"),
+  imageToggle: document.querySelector("#imageToggle"),
   imageUrlRow: document.querySelector("#imageUrlRow"),
   imageUrlForm: document.querySelector("#imageUrlForm"),
   imageUrlInput: document.querySelector("#imageUrlInput"),
   maxTokensInput: document.querySelector("#maxTokensInput"),
   messages: document.querySelector("#messages"),
+  modelButton: document.querySelector("#modelButton"),
   modelDetails: document.querySelector("#modelDetails"),
+  modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
+  modelLabel: document.querySelector("#modelLabel"),
   modelOptions: document.querySelector("#modelOptions"),
   newChatButton: document.querySelector("#newChatButton"),
   overlay: document.querySelector("#overlay"),
@@ -44,6 +48,7 @@ const els = {
   seedInput: document.querySelector("#seedInput"),
   sendButton: document.querySelector("#sendButton"),
   settingsButton: document.querySelector("#settingsButton"),
+  settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
   sidebarButton: document.querySelector("#sidebarButton"),
   stopButton: document.querySelector("#stopButton"),
@@ -61,6 +66,13 @@ function activeConversation() {
 
 function persist() {
   saveState(state);
+}
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 function showToast(message) {
@@ -90,6 +102,25 @@ function closeSettings() {
   els.overlay.hidden = true;
 }
 
+function toggleModelDropdown() {
+  const isOpen = !els.modelDropdown.classList.contains("hidden");
+  els.modelDropdown.classList.toggle("hidden", isOpen);
+  if (!isOpen) {
+    els.modelInput.focus();
+  }
+}
+
+function closeModelDropdown() {
+  els.modelDropdown.classList.add("hidden");
+}
+
+function toggleImageAttach() {
+  els.imageAttach.classList.toggle("hidden");
+  if (!els.imageAttach.classList.contains("hidden")) {
+    els.imageUrlInput.focus();
+  }
+}
+
 function renderBaseUrls() {
   els.baseUrlInput.innerHTML = serverConfig.allowedBaseUrls
     .map((url) => `<option value="${escapeHtml(url)}">${escapeHtml(url)}</option>`)
@@ -105,6 +136,10 @@ function renderModelOptions() {
     .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
     .join("");
   els.modelDetails.innerHTML = renderModelDetails(selectedModel());
+
+  const modelName = state.settings.model || "CrofAI";
+  els.modelLabel.textContent = modelName;
+  els.promptInput.placeholder = `Message ${modelName}`;
 }
 
 function renderConversationList() {
@@ -116,7 +151,6 @@ function renderConversationList() {
       return `
         <button class="conversation-item ${active}" type="button" data-chat-id="${escapeHtml(conversation.id)}">
           <span>${escapeHtml(conversation.title)}</span>
-          <small>${conversation.messages.length} messages</small>
         </button>
       `;
     })
@@ -144,9 +178,11 @@ function renderMessages() {
   const conversation = activeConversation();
 
   if (!conversation.messages.length) {
+    const greeting = getGreeting();
     els.messages.innerHTML = `
       <div class="empty-state">
-        <h1>CrofChat</h1>
+        <svg class="empty-state-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+        <h1>${greeting}</h1>
       </div>
     `;
     return;
@@ -155,7 +191,7 @@ function renderMessages() {
   els.messages.innerHTML = conversation.messages
     .map((message) => `
       <article class="message ${message.role}">
-        <div class="message-avatar">${message.role === "user" ? "You" : "AI"}</div>
+        <div class="message-avatar">${message.role === "user" ? "U" : "C"}</div>
         <div class="message-body">
           <div class="message-meta">
             <strong>${message.role === "user" ? "You" : "CrofAI"}</strong>
@@ -192,7 +228,7 @@ function renderImageUrls() {
     .map((url, index) => `
       <button class="image-chip" type="button" data-image-index="${index}">
         <span>${escapeHtml(url)}</span>
-        <strong>Remove</strong>
+        <strong>&times;</strong>
       </button>
     `)
     .join("");
@@ -210,10 +246,11 @@ function renderSettings() {
   els.stopInput.value = state.settings.stop;
   els.systemPromptInput.value = state.settings.systemPrompt;
   els.toolsInput.value = state.settings.toolsText;
+}
 
-  const hasKey = Boolean(state.settings.apiKey || serverConfig.serverApiKeyConfigured);
-  els.connectionLabel.textContent = hasKey ? "Connected" : "Needs key";
-  document.body.classList.toggle("connected", hasKey);
+function updateSendButton() {
+  const hasContent = els.promptInput.value.trim().length > 0 || activeImageUrls.length > 0;
+  els.sendButton.classList.toggle("active", hasContent);
 }
 
 function renderAll() {
@@ -223,6 +260,7 @@ function renderAll() {
   renderMessages();
   renderImageUrls();
   renderSettings();
+  updateSendButton();
 }
 
 async function loadModels({ quiet = false } = {}) {
@@ -266,11 +304,12 @@ function addConversation() {
   persist();
   renderAll();
   els.promptInput.focus();
+  document.body.classList.remove("sidebar-open");
 }
 
 function applyComposerHeight() {
   els.promptInput.style.height = "auto";
-  els.promptInput.style.height = `${Math.min(180, els.promptInput.scrollHeight)}px`;
+  els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
 }
 
 function addImageUrlFromInput() {
@@ -291,6 +330,7 @@ function addImageUrlFromInput() {
   activeImageUrls.push(url);
   els.imageUrlInput.value = "";
   renderImageUrls();
+  updateSendButton();
 }
 
 async function sendPrompt() {
@@ -358,9 +398,26 @@ async function sendPrompt() {
 function bindEvents() {
   els.newChatButton.addEventListener("click", addConversation);
   els.settingsButton.addEventListener("click", openSettings);
+  els.settingsButtonAlt.addEventListener("click", openSettings);
   els.closeSettingsButton.addEventListener("click", closeSettings);
   els.overlay.addEventListener("click", closeSettings);
-  els.sidebarButton.addEventListener("click", () => document.body.classList.toggle("sidebar-open"));
+
+  els.sidebarButton.addEventListener("click", () => {
+    document.body.classList.toggle("sidebar-expanded");
+  });
+
+  els.modelButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleModelDropdown();
+  });
+
+  els.imageToggle.addEventListener("click", toggleImageAttach);
+
+  document.addEventListener("click", (e) => {
+    if (!els.modelDropdown.contains(e.target) && !els.modelButton.contains(e.target)) {
+      closeModelDropdown();
+    }
+  });
 
   els.conversationList.addEventListener("click", (event) => {
     const item = event.target.closest("[data-chat-id]");
@@ -376,6 +433,7 @@ function bindEvents() {
     if (!chip) return;
     activeImageUrls.splice(Number(chip.dataset.imageIndex), 1);
     renderImageUrls();
+    updateSendButton();
   });
 
   els.imageUrlForm.addEventListener("submit", (event) => {
@@ -387,7 +445,10 @@ function bindEvents() {
   els.stopButton.addEventListener("click", () => abortController?.abort());
   els.refreshModelsButton.addEventListener("click", () => loadModels());
 
-  els.promptInput.addEventListener("input", applyComposerHeight);
+  els.promptInput.addEventListener("input", () => {
+    applyComposerHeight();
+    updateSendButton();
+  });
   els.promptInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();

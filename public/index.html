@@ -8,53 +8,87 @@
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar" aria-label="Conversations">
-        <div class="brand-row">
-          <div class="brand-mark" aria-hidden="true">C</div>
-          <div>
-            <strong>CrofChat</strong>
-            <span id="connectionLabel">Disconnected</span>
-          </div>
-        </div>
-
-        <button class="primary-action" id="newChatButton" type="button">New chat</button>
-        <nav class="conversation-list" id="conversationList" aria-label="Saved conversations"></nav>
+      <aside class="sidebar" aria-label="Navigation">
+        <nav class="sidebar-top">
+          <button class="sidebar-icon" id="sidebarButton" type="button" aria-label="Toggle sidebar" title="Menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          </button>
+          <button class="sidebar-icon" id="newChatButton" type="button" aria-label="New chat" title="New chat">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </button>
+        </nav>
+        <nav class="sidebar-mid" id="conversationList" aria-label="Saved conversations"></nav>
+        <nav class="sidebar-bottom">
+          <button class="sidebar-icon" id="settingsButton" type="button" aria-label="Settings" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
+        </nav>
       </aside>
 
       <main class="chat-panel">
         <header class="topbar">
-          <button class="icon-button mobile-only" id="sidebarButton" type="button" aria-label="Toggle conversations">Menu</button>
-          <div class="model-picker">
-            <label for="modelInput">Model</label>
-            <input id="modelInput" list="modelOptions" autocomplete="off" spellcheck="false" placeholder="Select model">
+          <button class="topbar-model" id="modelButton" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+            <span id="modelLabel">CrofAI</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="topbar-model-dropdown hidden" id="modelDropdown">
+            <label for="modelInput" class="sr-only">Model</label>
+            <input id="modelInput" list="modelOptions" autocomplete="off" spellcheck="false" placeholder="Search models...">
             <datalist id="modelOptions"></datalist>
           </div>
-          <button class="secondary-action" id="refreshModelsButton" type="button">Refresh models</button>
-          <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings">Settings</button>
+          <div class="topbar-right">
+            <button class="topbar-icon" id="refreshModelsButton" type="button" aria-label="Refresh models" title="Refresh models">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+          </div>
         </header>
 
         <section class="messages" id="messages" aria-live="polite"></section>
 
-        <section class="composer-shell" aria-label="Message composer">
-          <div class="image-url-row">
-            <form class="image-url-form" id="imageUrlForm">
-              <input id="imageUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="https://image.example/file.png">
-              <button class="secondary-action compact" type="submit">Add image</button>
-            </form>
-            <div class="image-chip-list" id="imageUrlRow"></div>
+        <section class="composer-area" aria-label="Message composer">
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea id="promptInput" rows="1" placeholder="Message CrofAI" spellcheck="true"></textarea>
+              <div class="composer-bottom">
+                <div class="composer-actions">
+                  <button class="composer-tool" type="button" id="imageToggle" aria-label="Attach image" title="Attach image">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.49"/></svg>
+                  </button>
+                  <button class="composer-tool" type="button" id="settingsButtonAlt" aria-label="Settings" title="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                  </button>
+                </div>
+                <div class="composer-send">
+                  <button class="send-btn" id="sendButton" type="button" aria-label="Send">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+                  </button>
+                  <button class="stop-btn hidden" id="stopButton" type="button" aria-label="Stop">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="image-attach hidden" id="imageAttach">
+              <form class="image-url-form" id="imageUrlForm">
+                <input id="imageUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="Paste image URL...">
+                <button class="image-add-btn" type="submit">Add</button>
+              </form>
+              <div class="image-chip-list" id="imageUrlRow"></div>
+            </div>
           </div>
-          <div class="composer">
-            <textarea id="promptInput" rows="1" placeholder="Message CrofAI" spellcheck="true"></textarea>
-            <button class="primary-action compact" id="sendButton" type="button">Send</button>
-            <button class="danger-action compact hidden" id="stopButton" type="button">Stop</button>
-          </div>
+          <footer class="app-footer">
+            <span>CrofChat v0.1.0 &middot; AI for Everyone</span>
+          </footer>
         </section>
       </main>
 
       <aside class="settings-drawer" id="settingsDrawer" aria-label="Settings" aria-hidden="true">
         <div class="drawer-header">
           <strong>Settings</strong>
-          <button class="icon-button" id="closeSettingsButton" type="button" aria-label="Close settings">Close</button>
+          <button class="drawer-close" id="closeSettingsButton" type="button" aria-label="Close settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
 
         <div class="field-group">
