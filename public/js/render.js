@@ -55,10 +55,8 @@ export function renderContent(content) {
 }
 
 /**
- * UI label: use text after the first ":". If that text starts with the same
- * vendor (left of ":"), remove that duplicate once. If what remains has no
- * spaces but looks like a version slug (digits), show "Vendor remainder"
- * (e.g. "DeepSeek V3.2"); otherwise show the remainder alone ("V4 Flash").
+ * UI label: drop everything before the first ":" and show the rest as-is (trimmed).
+ * If there is no ":", return the full string.
  */
 export function compactModelDisplayName(raw) {
   const s = String(raw ?? "").trim();
@@ -67,28 +65,8 @@ export function compactModelDisplayName(raw) {
   const colon = s.indexOf(":");
   if (colon === -1) return s;
 
-  const vendor = s.slice(0, colon).trim();
-  let rest = s.slice(colon + 1).trim();
-  if (!rest) return vendor;
-  if (!vendor) return rest;
-
-  const vendorLc = vendor.toLowerCase();
-  const restLc = rest.toLowerCase();
-
-  if (restLc.startsWith(vendorLc)) {
-    const trimmed = rest.slice(vendor.length).replace(/^\s+/, "").trim();
-    if (!trimmed) return vendor;
-
-    const noSpace = !/\s/.test(trimmed);
-    const hasDigit = /\d/.test(trimmed);
-    if (noSpace && hasDigit && trimmed.length <= 24) {
-      return `${vendor} ${trimmed}`;
-    }
-
-    return trimmed;
-  }
-
-  return rest;
+  const rest = s.slice(colon + 1).trim();
+  return rest || s;
 }
 
 export function normalizeModelList(payload) {
