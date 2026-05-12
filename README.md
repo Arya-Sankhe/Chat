@@ -7,7 +7,7 @@ A focused LibreChat-style MVP for CrofAI: paste or configure a CrofAI API key, f
 - Live CrofAI `/v1/models` discovery with searchable model metadata.
 - Streaming `/chat/completions` chat.
 - Reasoning delta display for models that stream `reasoning_content`.
-- Vision prompts using image URLs.
+- Vision prompts using local image upload or pasted clipboard images. Uploaded image bytes are sent with the current request but omitted from browser-local history to avoid storage quota failures.
 - Raw tool schema forwarding and streamed tool-call display.
 - CrofAI-supported request controls: `temperature`, `top_p`, `max_tokens`, `seed`, and `stop`.
 - Browser-local conversations.

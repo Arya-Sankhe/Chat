@@ -32,7 +32,7 @@ export async function handleApiRequest(req, res, url, config) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/chat") {
-      const body = await parseJsonBody(req);
+      const body = await parseJsonBody(req, 12 * 1024 * 1024);
       const baseUrl = normalizeBaseUrl(body.baseUrl || config.defaultBaseUrl);
       const apiKey = extractApiKey(req.headers, config.serverApiKey);
 

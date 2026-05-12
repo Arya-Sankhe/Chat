@@ -17,7 +17,7 @@ let serverConfig = {
   serverApiKeyConfigured: false
 };
 let models = [];
-let activeImageUrls = [];
+let activeImages = [];
 let abortController = null;
 let renderQueued = false;
 let modelRefreshTimer = null;
@@ -31,10 +31,9 @@ const els = {
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
   conversationList: document.querySelector("#conversationList"),
   imageAttach: document.querySelector("#imageAttach"),
+  imageFileInput: document.querySelector("#imageFileInput"),
+  imageList: document.querySelector("#imageList"),
   imageToggle: document.querySelector("#imageToggle"),
-  imageUrlRow: document.querySelector("#imageUrlRow"),
-  imageUrlForm: document.querySelector("#imageUrlForm"),
-  imageUrlInput: document.querySelector("#imageUrlInput"),
   maxTokensInput: document.querySelector("#maxTokensInput"),
   messages: document.querySelector("#messages"),
   modelButton: document.querySelector("#modelButton"),
@@ -91,8 +90,7 @@ function setRunning(isRunning) {
   els.sendButton.classList.toggle("hidden", isRunning);
   els.stopButton.classList.toggle("hidden", !isRunning);
   els.promptInput.disabled = isRunning;
-  els.imageUrlInput.disabled = isRunning;
-  els.imageUrlForm.querySelector("button").disabled = isRunning;
+  els.imageFileInput.disabled = isRunning;
 }
 
 function openSettings() {
@@ -124,7 +122,7 @@ function closeModelDropdown() {
 function toggleImageAttach() {
   els.imageAttach.classList.toggle("hidden");
   if (!els.imageAttach.classList.contains("hidden")) {
-    els.imageUrlInput.focus();
+    els.imageFileInput.focus();
   }
 }
 
@@ -264,11 +262,12 @@ function queueRenderMessages() {
   });
 }
 
-function renderImageUrls() {
-  els.imageUrlRow.innerHTML = activeImageUrls
-    .map((url, index) => `
-      <button class="image-chip" type="button" data-image-index="${index}">
-        <span>${escapeHtml(url)}</span>
+function renderImages() {
+  els.imageList.innerHTML = activeImages
+    .map((image, index) => `
+      <button class="image-chip" type="button" data-image-index="${index}" title="Remove ${escapeHtml(image.name)}">
+        <img src="${escapeHtml(image.dataUrl)}" alt="">
+        <span>${escapeHtml(image.name)}</span>
         <strong>&times;</strong>
       </button>
     `)
@@ -289,7 +288,7 @@ function renderSettings() {
 }
 
 function updateSendButton() {
-  const hasContent = els.promptInput.value.trim().length > 0 || activeImageUrls.length > 0;
+  const hasContent = els.promptInput.value.trim().length > 0 || activeImages.length > 0;
   els.sendButton.classList.toggle("active", hasContent);
 }
 
@@ -298,7 +297,7 @@ function renderAll() {
   renderModelOptions();
   renderConversationList();
   renderMessages();
-  renderImageUrls();
+  renderImages();
   renderSettings();
   updateSendButton();
 }
@@ -366,7 +365,7 @@ function addConversation() {
   const conversation = createConversation();
   state.conversations.unshift(conversation);
   state.activeConversationId = conversation.id;
-  activeImageUrls = [];
+  activeImages = [];
   persist();
   renderAll();
   els.promptInput.focus();
@@ -378,30 +377,64 @@ function applyComposerHeight() {
   els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
 }
 
-function addImageUrlFromInput() {
-  const url = els.imageUrlInput.value.trim();
-  if (!url) {
-    els.imageUrlInput.focus();
+const maxImageBytes = 6 * 1024 * 1024;
+const maxImageCount = 4;
+const supportedImageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!supportedImageTypes.has(file.type)) {
+      reject(new Error(`${file.name} is not a supported image type.`));
+      return;
+    }
+
+    if (file.size > maxImageBytes) {
+      reject(new Error(`${file.name} is larger than 6 MB.`));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({
+        name: file.name || "Pasted image",
+        type: file.type,
+        size: file.size,
+        dataUrl: String(reader.result || "")
+      });
+    };
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addImageFiles(files) {
+  const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+  if (!imageFiles.length) return;
+
+  const remainingSlots = maxImageCount - activeImages.length;
+  if (remainingSlots <= 0) {
+    showToast(`You can attach up to ${maxImageCount} images.`);
     return;
   }
 
+  const selectedFiles = imageFiles.slice(0, remainingSlots);
   try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Invalid URL");
-  } catch {
-    showToast("Use an http or https image URL.");
-    return;
+    const images = await Promise.all(selectedFiles.map(readImageFile));
+    activeImages.push(...images);
+    if (imageFiles.length > selectedFiles.length) {
+      showToast(`Attached ${selectedFiles.length}; limit is ${maxImageCount} images.`);
+    }
+  } catch (error) {
+    showToast(error.message);
   }
 
-  activeImageUrls.push(url);
-  els.imageUrlInput.value = "";
-  renderImageUrls();
+  renderImages();
   updateSendButton();
 }
 
 async function sendPrompt() {
   const text = els.promptInput.value;
-  if (!text.trim() && !activeImageUrls.length) return;
+  if (!text.trim() && !activeImages.length) return;
 
   if (!state.settings.model.trim()) {
     showToast("Pick a CrofAI model first.");
@@ -411,7 +444,7 @@ async function sendPrompt() {
 
   let payload;
   const conversation = activeConversation();
-  const userMessage = createUserMessage(buildUserContent(text, activeImageUrls));
+  const userMessage = createUserMessage(buildUserContent(text, activeImages));
   const assistantMessage = createAssistantMessage(state.settings.model.trim());
 
   conversation.messages.push(userMessage, assistantMessage);
@@ -419,7 +452,7 @@ async function sendPrompt() {
   conversation.updatedAt = new Date().toISOString();
 
   els.promptInput.value = "";
-  activeImageUrls = [];
+  activeImages = [];
   applyComposerHeight();
   renderAll();
   persist();
@@ -503,17 +536,17 @@ function bindEvents() {
     els.promptInput.focus();
   });
 
-  els.imageUrlRow.addEventListener("click", (event) => {
+  els.imageList.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-image-index]");
     if (!chip) return;
-    activeImageUrls.splice(Number(chip.dataset.imageIndex), 1);
-    renderImageUrls();
+    activeImages.splice(Number(chip.dataset.imageIndex), 1);
+    renderImages();
     updateSendButton();
   });
 
-  els.imageUrlForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    addImageUrlFromInput();
+  els.imageFileInput.addEventListener("change", (event) => {
+    addImageFiles(event.target.files);
+    event.target.value = "";
   });
 
   els.sendButton.addEventListener("click", sendPrompt);
@@ -529,6 +562,12 @@ function bindEvents() {
       event.preventDefault();
       sendPrompt();
     }
+  });
+  els.promptInput.addEventListener("paste", (event) => {
+    const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+    if (!files.length) return;
+    event.preventDefault();
+    addImageFiles(files);
   });
 
   els.apiKeyInput.addEventListener("input", (event) => {

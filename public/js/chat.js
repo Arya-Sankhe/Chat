@@ -30,9 +30,9 @@ export function titleFromMessage(content) {
   return clean.length > 48 ? `${clean.slice(0, 45)}...` : clean || "New chat";
 }
 
-export function buildUserContent(text, imageUrls) {
+export function buildUserContent(text, images) {
   const cleanText = text.trim();
-  const cleanImages = imageUrls.map((url) => url.trim()).filter(Boolean);
+  const cleanImages = images.map((image) => image.dataUrl?.trim()).filter(Boolean);
 
   if (!cleanImages.length) return cleanText;
 

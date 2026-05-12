@@ -72,11 +72,11 @@
               </div>
             </div>
             <div class="image-attach hidden" id="imageAttach">
-              <form class="image-url-form" id="imageUrlForm">
-                <input id="imageUrlInput" type="url" autocomplete="off" spellcheck="false" placeholder="Paste image URL...">
-                <button class="image-add-btn" type="submit">Add</button>
-              </form>
-              <div class="image-chip-list" id="imageUrlRow"></div>
+              <label class="image-upload" for="imageFileInput">
+                <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
+                <span>Upload images</span>
+              </label>
+              <div class="image-chip-list" id="imageList"></div>
             </div>
           </div>
           <footer class="app-footer">

@@ -35,8 +35,18 @@ function cleanString(value, label, { required = true, max = 20000 } = {}) {
   return value;
 }
 
-function cleanUrl(value, label) {
-  const url = cleanString(value, label, { max: 4000 });
+const imageDataUrlPattern = /^data:image\/(png|jpe?g|webp|gif);base64,[a-z0-9+/=\s]+$/i;
+
+function cleanImageReference(value, label) {
+  const url = cleanString(value, label, { max: 10 * 1024 * 1024 });
+
+  if (url.startsWith("data:")) {
+    if (!imageDataUrlPattern.test(url)) {
+      throw new HttpError(400, `${label} must be a png, jpeg, webp, or gif data URL.`);
+    }
+
+    return url.replace(/\s/g, "");
+  }
 
   try {
     const parsed = new URL(url);
@@ -44,7 +54,7 @@ function cleanUrl(value, label) {
       throw new Error("Invalid protocol");
     }
   } catch {
-    throw new HttpError(400, `${label} must be an http or https URL.`);
+    throw new HttpError(400, `${label} must be an http, https, or image data URL.`);
   }
 
   return url;
@@ -76,7 +86,7 @@ function normalizeContent(content) {
       return {
         type: "image_url",
         image_url: {
-          url: cleanUrl(imageUrl.url, `message content part ${index + 1} image URL`)
+          url: cleanImageReference(imageUrl.url, `message content part ${index + 1} image URL`)
         }
       };
     }

@@ -26,6 +26,43 @@ function defaultState() {
   };
 }
 
+function sanitizeContentForStorage(content) {
+  if (!Array.isArray(content)) return content;
+
+  const sanitized = [];
+  let omittedImages = 0;
+
+  for (const part of content) {
+    if (part?.type === "image_url" && String(part.image_url?.url || "").startsWith("data:image/")) {
+      omittedImages += 1;
+      continue;
+    }
+
+    sanitized.push(part);
+  }
+
+  if (omittedImages) {
+    sanitized.push({
+      type: "text",
+      text: `[${omittedImages} uploaded image${omittedImages === 1 ? "" : "s"} omitted from local history]`
+    });
+  }
+
+  return sanitized;
+}
+
+function sanitizeForStorage(state) {
+  const copy = structuredClone(state);
+
+  for (const conversation of copy.conversations || []) {
+    for (const message of conversation.messages || []) {
+      message.content = sanitizeContentForStorage(message.content);
+    }
+  }
+
+  return copy;
+}
+
 export function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -47,9 +84,14 @@ export function loadState() {
 }
 
 export function saveState(state) {
-  const copy = structuredClone(state);
+  const copy = sanitizeForStorage(state);
   if (!copy.settings.rememberKey) {
     copy.settings.apiKey = "";
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
+  } catch {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultState()));
+  }
 }

@@ -54,3 +54,20 @@ test("normalizeChatRequest supports vision content", () => {
 
   assert.equal(payload.messages[0].content[1].image_url.url, "https://files.nahcrof.com/file/crofai-black.png");
 });
+
+test("normalizeChatRequest supports uploaded image data URLs", () => {
+  const payload = normalizeChatRequest({
+    model: "kimi-k2.5",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is this?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } }
+        ]
+      }
+    ]
+  });
+
+  assert.equal(payload.messages[0].content[1].image_url.url, "data:image/png;base64,iVBORw0KGgo=");
+});

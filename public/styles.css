@@ -610,37 +610,33 @@ body.sidebar-expanded .conversation-item small {
   margin-top: 8px;
 }
 
-.image-url-form {
+.image-upload {
   display: flex;
-  gap: 6px;
-}
-
-.image-url-form input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 13px;
-  outline: none;
-}
-
-.image-url-form input:focus {
-  border-color: #ccc;
-}
-
-.image-add-btn {
-  padding: 8px 14px;
-  background: var(--accent);
-  color: white;
-  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
+  transition: border-color var(--transition), background var(--transition), color var(--transition);
+  cursor: pointer;
 }
 
-.image-add-btn:hover {
-  background: var(--accent-hover);
+.image-upload:hover {
+  border-color: #cccccc;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.image-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .image-chip-list {
@@ -654,11 +650,11 @@ body.sidebar-expanded .conversation-item small {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
+  max-width: min(240px, 100%);
   padding: 4px 10px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
+  border-radius: 10px;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -667,6 +663,15 @@ body.sidebar-expanded .conversation-item small {
 .image-chip:hover {
   background: #fef2f2;
   border-color: #fecaca;
+}
+
+.image-chip img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  flex-shrink: 0;
 }
 
 .image-chip span {
