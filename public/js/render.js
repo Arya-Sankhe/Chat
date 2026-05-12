@@ -55,9 +55,10 @@ export function renderContent(content) {
 }
 
 /**
- * UI label: use text after the first ":"; if that text starts with the same
- * vendor (left of ":"), strip that one duplicate prefix. Otherwise keep the
- * post-colon text as-is (e.g. "Google: Gemma 4" → "Gemma 4").
+ * UI label: use text after the first ":". If that text starts with the same
+ * vendor (left of ":"), remove that duplicate once. If what remains has no
+ * spaces but looks like a version slug (digits), show "Vendor remainder"
+ * (e.g. "DeepSeek V3.2"); otherwise show the remainder alone ("V4 Flash").
  */
 export function compactModelDisplayName(raw) {
   const s = String(raw ?? "").trim();
@@ -75,11 +76,19 @@ export function compactModelDisplayName(raw) {
   const restLc = rest.toLowerCase();
 
   if (restLc.startsWith(vendorLc)) {
-    rest = rest.slice(vendor.length);
-    rest = rest.replace(/^\s+/, "").trim();
+    const trimmed = rest.slice(vendor.length).replace(/^\s+/, "").trim();
+    if (!trimmed) return vendor;
+
+    const noSpace = !/\s/.test(trimmed);
+    const hasDigit = /\d/.test(trimmed);
+    if (noSpace && hasDigit && trimmed.length <= 24) {
+      return `${vendor} ${trimmed}`;
+    }
+
+    return trimmed;
   }
 
-  return rest || vendor;
+  return rest;
 }
 
 export function normalizeModelList(payload) {

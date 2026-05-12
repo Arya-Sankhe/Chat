@@ -30,6 +30,7 @@ test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
 test("compactModelDisplayName drops repeated vendor prefix", () => {
   assert.equal(compactModelDisplayName("DeepSeek: DeepSeek V4 Flash"), "V4 Flash");
   assert.equal(compactModelDisplayName("DeepSeek:DeepSeek V4 Flash"), "V4 Flash");
+  assert.equal(compactModelDisplayName("DeepSeek: DeepSeek V3.2"), "DeepSeek V3.2");
   assert.equal(compactModelDisplayName("Google: Gemma 4 31B"), "Gemma 4 31B");
   assert.equal(compactModelDisplayName("MoonshotAI: Kimi K2.5"), "Kimi K2.5");
   assert.equal(compactModelDisplayName("deepseek-v3.2"), "deepseek-v3.2");
