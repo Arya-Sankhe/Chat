@@ -75,11 +75,17 @@ export function normalizeModelList(payload) {
 
   return list
     .filter((model) => model && typeof model.id === "string")
-    .map((model) => ({
-      ...model,
-      id: model.id.trim(),
-      name: typeof model.name === "string" && model.name.trim() ? model.name.trim() : model.id.trim()
-    }))
+    .map((model) => {
+      const id = model.id.trim();
+      const rawName = typeof model.name === "string" && model.name.trim() ? model.name.trim() : id;
+
+      return {
+        ...model,
+        id,
+        rawName,
+        name: compactModelDisplayName(rawName)
+      };
+    })
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
 }
 
@@ -112,7 +118,7 @@ export function inferModelBadges(model) {
 }
 
 export function renderModelOption(model, isActive = false) {
-  const label = escapeHtml(compactModelDisplayName(model.name || model.id));
+  const label = escapeHtml(model.name || model.id);
   return `
     <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}" role="option" aria-selected="${isActive ? "true" : "false"}">
       <span class="model-option-name">${label}</span>

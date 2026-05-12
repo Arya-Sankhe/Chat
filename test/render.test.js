@@ -24,7 +24,8 @@ test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
   });
 
   assert.equal(models[0].id, "deepseek-v3.2");
-  assert.equal(models[0].name, "DeepSeek: DeepSeek V3.2");
+  assert.equal(models[0].rawName, "DeepSeek: DeepSeek V3.2");
+  assert.equal(models[0].name, "DeepSeek V3.2");
 });
 
 test("compactModelDisplayName keeps text after first colon only", () => {
