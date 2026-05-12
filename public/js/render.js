@@ -56,7 +56,59 @@ export function normalizeModelList(payload) {
 
   return list
     .filter((model) => model && typeof model.id === "string")
+    .map((model) => ({
+      ...model,
+      id: model.id.trim(),
+      name: typeof model.name === "string" && model.name.trim() ? model.name.trim() : model.id.trim()
+    }))
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+}
+
+function perMillionPrice(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "";
+  return `$${(number * 1000000).toFixed(number * 1000000 < 1 ? 2 : 2)}/M`;
+}
+
+export function formatModelMeta(model) {
+  const meta = [];
+  if (model?.context_length) meta.push(`${Number(model.context_length).toLocaleString()} ctx`);
+  if (model?.max_completion_tokens) meta.push(`${Number(model.max_completion_tokens).toLocaleString()} out`);
+  if (model?.quantization) meta.push(model.quantization);
+  if (model?.speed) meta.push(`~${model.speed} tok/s`);
+  return meta;
+}
+
+export function inferModelBadges(model) {
+  const text = `${model?.id || ""} ${model?.name || ""}`.toLowerCase();
+  const badges = [];
+
+  if (text.includes("vision")) badges.push("vision");
+  if (text.includes("thinking") || text.includes("reasoning") || text.includes("deepseek")) badges.push("reasoning");
+  if (text.includes("turbo")) badges.push("turbo");
+  if (text.includes("free") || Number(model?.pricing?.prompt) === 0 || Number(model?.pricing?.completion) === 0) badges.push("free");
+
+  return badges;
+}
+
+export function renderModelOption(model, isActive = false) {
+  const meta = formatModelMeta(model);
+  const badges = inferModelBadges(model);
+  const input = perMillionPrice(model?.pricing?.prompt);
+  const output = perMillionPrice(model?.pricing?.completion);
+
+  return `
+    <button class="model-option ${isActive ? "active" : ""}" type="button" data-model-id="${escapeHtml(model.id)}">
+      <span class="model-option-main">
+        <strong>${escapeHtml(model.name || model.id)}</strong>
+        <small>${escapeHtml(model.id)}</small>
+      </span>
+      ${badges.length ? `<span class="model-badges">${badges.map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}</span>` : ""}
+      ${meta.length ? `<span class="model-option-meta">${meta.map(escapeHtml).join(" · ")}</span>` : ""}
+      ${input || output ? `<span class="model-option-price">${input ? `In ${escapeHtml(input)}` : ""}${input && output ? " · " : ""}${output ? `Out ${escapeHtml(output)}` : ""}</span>` : ""}
+    </button>
+  `;
 }
 
 export function renderModelDetails(model) {
@@ -68,8 +120,8 @@ export function renderModelDetails(model) {
     ["Max output", model.max_completion_tokens],
     ["Quantization", model.quantization],
     ["Speed", model.speed ? `${model.speed} tok/s` : ""],
-    ["Input", model.pricing?.prompt ? `$${Number(model.pricing.prompt) * 1000000}/M` : ""],
-    ["Output", model.pricing?.completion ? `$${Number(model.pricing.completion) * 1000000}/M` : ""]
+    ["Input", perMillionPrice(model.pricing?.prompt)],
+    ["Output", perMillionPrice(model.pricing?.completion)]
   ].filter(([, value]) => value !== undefined && value !== null && value !== "");
 
   return rows

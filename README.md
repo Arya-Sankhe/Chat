@@ -4,7 +4,7 @@ A focused LibreChat-style MVP for CrofAI: paste or configure a CrofAI API key, f
 
 ## What is included
 
-- CrofAI `/v1/models` discovery.
+- Live CrofAI `/v1/models` discovery with searchable model metadata.
 - Streaming `/chat/completions` chat.
 - Reasoning delta display for models that stream `reasoning_content`.
 - Vision prompts using image URLs.
@@ -40,7 +40,5 @@ The app allows CrofAI's OpenAI-compatible endpoints:
 
 - `https://crof.ai/v1`
 - `https://crof.ai/v2`
-- `https://ai.nahcrof.com/v1`
-- `https://ai.nahcrof.com/v2`
 
-The official CrofAI docs describe OpenAI-compatible chat completions, streaming, reasoning deltas, tools, vision content, `/v1/models`, and the supported parameters used here.
+The official CrofAI docs describe OpenAI-compatible chat completions, streaming, reasoning deltas, tools, vision content, `/v1/models`, and the supported parameters used here. The model picker is not hardcoded; it calls the selected endpoint's `/models` route after a key is configured and refreshes the live list periodically.

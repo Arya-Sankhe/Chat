@@ -4,9 +4,7 @@ export const DEFAULT_CROFAI_BASE_URL = "https://crof.ai/v1";
 
 export const CROFAI_BASE_URLS = [
   "https://crof.ai/v1",
-  "https://crof.ai/v2",
-  "https://ai.nahcrof.com/v1",
-  "https://ai.nahcrof.com/v2"
+  "https://crof.ai/v2"
 ];
 
 export const SUPPORTED_CHAT_PARAMS = ["max_tokens", "temperature", "top_p", "stop", "seed", "tools"];

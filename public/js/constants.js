@@ -14,7 +14,5 @@ export const DEFAULT_SETTINGS = {
 
 export const DEFAULT_BASE_URLS = [
   "https://crof.ai/v1",
-  "https://crof.ai/v2",
-  "https://ai.nahcrof.com/v1",
-  "https://ai.nahcrof.com/v2"
+  "https://crof.ai/v2"
 ];

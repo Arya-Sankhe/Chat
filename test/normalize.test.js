@@ -5,7 +5,7 @@ import { normalizeChatRequest } from "../server/crofai/normalize.js";
 
 test("normalizeBaseUrl accepts CrofAI endpoints", () => {
   assert.equal(normalizeBaseUrl("https://crof.ai/v1/"), "https://crof.ai/v1");
-  assert.equal(normalizeBaseUrl("https://ai.nahcrof.com/v2"), "https://ai.nahcrof.com/v2");
+  assert.equal(normalizeBaseUrl("https://crof.ai/v2"), "https://crof.ai/v2");
 });
 
 test("normalizeBaseUrl rejects non-CrofAI endpoints", () => {

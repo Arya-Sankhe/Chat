@@ -8,7 +8,7 @@ import {
   createUserMessage,
   titleFromMessage
 } from "./chat.js";
-import { escapeHtml, normalizeModelList, renderContent, renderModelDetails } from "./render.js";
+import { escapeHtml, normalizeModelList, renderContent, renderModelDetails, renderModelOption } from "./render.js";
 import { createConversation, loadState, saveState } from "./storage.js";
 
 const state = loadState();
@@ -21,6 +21,9 @@ let activeImageUrls = [];
 let abortController = null;
 let renderQueued = false;
 let modelRefreshTimer = null;
+let modelAutoRefreshTimer = null;
+let modelsLoading = false;
+let lastModelRefresh = "";
 
 const els = {
   apiKeyInput: document.querySelector("#apiKeyInput"),
@@ -35,11 +38,13 @@ const els = {
   maxTokensInput: document.querySelector("#maxTokensInput"),
   messages: document.querySelector("#messages"),
   modelButton: document.querySelector("#modelButton"),
+  modelCatalog: document.querySelector("#modelCatalog"),
   modelDetails: document.querySelector("#modelDetails"),
   modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
   modelLabel: document.querySelector("#modelLabel"),
   modelOptions: document.querySelector("#modelOptions"),
+  modelStatus: document.querySelector("#modelStatus"),
   newChatButton: document.querySelector("#newChatButton"),
   overlay: document.querySelector("#overlay"),
   promptInput: document.querySelector("#promptInput"),
@@ -106,6 +111,8 @@ function toggleModelDropdown() {
   const isOpen = !els.modelDropdown.classList.contains("hidden");
   els.modelDropdown.classList.toggle("hidden", isOpen);
   if (!isOpen) {
+    els.modelInput.value = "";
+    renderModelCatalog();
     els.modelInput.focus();
   }
 }
@@ -131,6 +138,39 @@ function selectedModel() {
   return models.find((model) => model.id === state.settings.model);
 }
 
+function canLoadModels() {
+  return Boolean(state.settings.apiKey || serverConfig.serverApiKeyConfigured);
+}
+
+function renderModelCatalog() {
+  const query = els.modelInput.value.trim().toLowerCase();
+  const visibleModels = models
+    .filter((model) => {
+      const haystack = `${model.id} ${model.name || ""} ${model.quantization || ""}`.toLowerCase();
+      return !query || haystack.includes(query);
+    })
+    .slice(0, 80);
+
+  if (modelsLoading) {
+    els.modelStatus.textContent = "Loading CrofAI models...";
+  } else if (!canLoadModels()) {
+    els.modelStatus.textContent = "Connect a CrofAI key to load live models.";
+  } else if (lastModelRefresh) {
+    els.modelStatus.textContent = `${models.length} live models · updated ${lastModelRefresh}`;
+  } else {
+    els.modelStatus.textContent = "Models have not been loaded yet.";
+  }
+
+  if (!visibleModels.length) {
+    els.modelCatalog.innerHTML = `<div class="model-empty">${models.length ? "No models match your search." : "No models loaded."}</div>`;
+    return;
+  }
+
+  els.modelCatalog.innerHTML = visibleModels
+    .map((model) => renderModelOption(model, model.id === state.settings.model))
+    .join("");
+}
+
 function renderModelOptions() {
   els.modelOptions.innerHTML = models
     .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
@@ -140,6 +180,7 @@ function renderModelOptions() {
   const modelName = state.settings.model || "CrofAI";
   els.modelLabel.textContent = modelName;
   els.promptInput.placeholder = `Message ${modelName}`;
+  renderModelCatalog();
 }
 
 function renderConversationList() {
@@ -238,7 +279,6 @@ function renderSettings() {
   els.apiKeyInput.value = state.settings.apiKey;
   els.rememberKeyInput.checked = state.settings.rememberKey;
   els.baseUrlInput.value = state.settings.baseUrl;
-  els.modelInput.value = state.settings.model;
   els.temperatureInput.value = state.settings.temperature;
   els.topPInput.value = state.settings.top_p;
   els.maxTokensInput.value = state.settings.max_tokens;
@@ -264,11 +304,25 @@ function renderAll() {
 }
 
 async function loadModels({ quiet = false } = {}) {
+  if (!canLoadModels()) {
+    models = [];
+    lastModelRefresh = "";
+    renderModelOptions();
+    if (!quiet) showToast("Add your CrofAI API key first.");
+    return;
+  }
+
+  modelsLoading = true;
+  renderModelCatalog();
+
   try {
     const payload = await fetchModels(state.settings);
     models = normalizeModelList(payload);
+    lastModelRefresh = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
     if (!state.settings.model && models[0]) {
+      state.settings.model = models[0].id;
+    } else if (state.settings.model && models.length && !models.some((model) => model.id === state.settings.model)) {
       state.settings.model = models[0].id;
     }
 
@@ -278,6 +332,9 @@ async function loadModels({ quiet = false } = {}) {
     if (!quiet) showToast(models.length ? "Models refreshed." : "No models returned.");
   } catch (error) {
     if (!quiet) showToast(error.message);
+  } finally {
+    modelsLoading = false;
+    renderModelOptions();
   }
 }
 
@@ -294,6 +351,15 @@ function updateSetting(key, value) {
   state.settings[key] = value;
   persist();
   renderSettings();
+}
+
+function startModelAutoRefresh() {
+  window.clearInterval(modelAutoRefreshTimer);
+  modelAutoRefreshTimer = window.setInterval(() => {
+    if (canLoadModels() && !document.hidden) {
+      loadModels({ quiet: true });
+    }
+  }, 5 * 60 * 1000);
 }
 
 function addConversation() {
@@ -428,6 +494,15 @@ function bindEvents() {
     renderAll();
   });
 
+  els.modelCatalog.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-model-id]");
+    if (!item) return;
+    updateSetting("model", item.dataset.modelId);
+    closeModelDropdown();
+    renderModelOptions();
+    els.promptInput.focus();
+  });
+
   els.imageUrlRow.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-image-index]");
     if (!chip) return;
@@ -466,7 +541,15 @@ function bindEvents() {
     loadModels({ quiet: true });
   });
   els.modelInput.addEventListener("input", (event) => {
-    updateSetting("model", event.target.value.trim());
+    renderModelCatalog();
+  });
+  els.modelInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const modelId = event.target.value.trim();
+    if (!modelId) return;
+    event.preventDefault();
+    updateSetting("model", modelId);
+    closeModelDropdown();
     renderModelOptions();
   });
   els.temperatureInput.addEventListener("input", (event) => updateSetting("temperature", Number(event.target.value)));
@@ -482,6 +565,7 @@ async function boot() {
   bindEvents();
   renderAll();
   applyComposerHeight();
+  startModelAutoRefresh();
 
   try {
     serverConfig = { ...serverConfig, ...(await fetchConfig()) };
