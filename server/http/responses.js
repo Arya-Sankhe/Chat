@@ -26,6 +26,17 @@ export function sendProblem(res, error) {
 }
 
 export async function parseJsonBody(req, maxBytes = 1024 * 1024) {
+  const raw = await readRawBody(req, maxBytes);
+  if (!raw.length) return {};
+
+  try {
+    return JSON.parse(raw.toString("utf8"));
+  } catch {
+    throw new HttpError(400, "Request body must be valid JSON.");
+  }
+}
+
+export async function readRawBody(req, maxBytes = 1024 * 1024) {
   const chunks = [];
   let size = 0;
 
@@ -37,13 +48,5 @@ export async function parseJsonBody(req, maxBytes = 1024 * 1024) {
     chunks.push(chunk);
   }
 
-  if (chunks.length === 0) {
-    return {};
-  }
-
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new HttpError(400, "Request body must be valid JSON.");
-  }
+  return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
 }

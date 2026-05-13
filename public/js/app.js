@@ -1,771 +1,630 @@
-import { DEFAULT_BASE_URLS } from "./constants.js";
-import { fetchConfig, fetchModels, streamChat } from "./api.js";
 import {
-  applyStreamEvent,
-  buildChatPayload,
-  buildUserContent,
-  createAssistantMessage,
-  createUserMessage,
-  titleFromMessage
-} from "./chat.js";
+  createBillingPortal,
+  createCheckout,
+  createConversation,
+  deleteConversation,
+  fetchAdminSummary,
+  fetchConfig,
+  fetchConversation,
+  fetchMe,
+  fetchModels,
+  fetchPlans,
+  listConversations,
+  streamConversationMessage,
+  uploadImage
+} from "./api.js";
 import {
-  compactModelDisplayName,
-  escapeHtml,
-  modelBrandLogoUrl,
-  normalizeModelList,
-  renderContent,
-  renderModelDetails,
-  renderModelOption
-} from "./render.js";
-import { createConversation, loadState, saveState } from "./storage.js";
+  clearSession,
+  googleSignInUrl,
+  loadSession,
+  parseSessionFromUrl,
+  refreshSession,
+  saveSession,
+  sendMagicLink,
+  signOut
+} from "./auth.js";
+import { escapeHtml, normalizeModelList, renderContent } from "./render.js";
 
-const state = loadState();
-let serverConfig = {
-  allowedBaseUrls: DEFAULT_BASE_URLS,
-  serverApiKeyConfigured: false
+const SETTINGS_KEY = "smartyfy.chat.controls.v1";
+
+const defaultSettings = {
+  temperature: 0.7,
+  top_p: 1,
+  max_tokens: "",
+  seed: "",
+  systemPrompt: ""
 };
-let models = [];
-let activeImages = [];
-let abortController = null;
-let renderQueued = false;
-let modelRefreshTimer = null;
-let modelAutoRefreshTimer = null;
-let modelsLoading = false;
+
+const state = {
+  config: null,
+  session: null,
+  me: null,
+  plans: [],
+  conversations: [],
+  activeConversationId: "",
+  messages: [],
+  models: [],
+  settings: loadSettings(),
+  images: [],
+  running: false,
+  abortController: null,
+  pendingDeleteId: ""
+};
 
 const els = {
-  apiKeyInput: document.querySelector("#apiKeyInput"),
-  baseUrlInput: document.querySelector("#baseUrlInput"),
-  closeSettingsButton: document.querySelector("#closeSettingsButton"),
-  composerModelWrap: document.querySelector("#composerModelWrap"),
-  confirmBody: document.querySelector("#confirmBody"),
-  confirmCancelButton: document.querySelector("#confirmCancelButton"),
-  confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
-  confirmDialog: document.querySelector("#confirmDialog"),
-  confirmTitle: document.querySelector("#confirmTitle"),
+  setupView: document.querySelector("#setupView"),
+  authView: document.querySelector("#authView"),
+  paywallView: document.querySelector("#paywallView"),
+  chatView: document.querySelector("#chatView"),
+  serviceList: document.querySelector("#serviceList"),
+  publicPlans: document.querySelector("#publicPlans"),
+  paywallPlans: document.querySelector("#paywallPlans"),
+  googleButton: document.querySelector("#googleButton"),
+  magicForm: document.querySelector("#magicForm"),
+  emailInput: document.querySelector("#emailInput"),
+  authNotice: document.querySelector("#authNotice"),
+  refreshAuthButton: document.querySelector("#refreshAuthButton"),
+  paywallEmail: document.querySelector("#paywallEmail"),
+  paywallSignOutButton: document.querySelector("#paywallSignOutButton"),
   conversationList: document.querySelector("#conversationList"),
-  imageFileInput: document.querySelector("#imageFileInput"),
-  imagePreviews: document.querySelector("#imagePreviews"),
-  imageToggle: document.querySelector("#imageToggle"),
-  lightbox: document.querySelector("#lightbox"),
-  lightboxClose: document.querySelector("#lightboxClose"),
-  lightboxImg: document.querySelector("#lightboxImg"),
-  maxTokensInput: document.querySelector("#maxTokensInput"),
-  messages: document.querySelector("#messages"),
-  modelButton: document.querySelector("#modelButton"),
-  modelCatalog: document.querySelector("#modelCatalog"),
-  modelDetails: document.querySelector("#modelDetails"),
-  modelDropdown: document.querySelector("#modelDropdown"),
-  modelFallbackIcon: document.querySelector("#modelFallbackIcon"),
-  modelInput: document.querySelector("#modelInput"),
-  modelLabel: document.querySelector("#modelLabel"),
-  modelLogoImg: document.querySelector("#modelLogoImg"),
   newChatButton: document.querySelector("#newChatButton"),
-  overlay: document.querySelector("#overlay"),
+  accountButton: document.querySelector("#accountButton"),
+  modelSelect: document.querySelector("#modelSelect"),
+  usagePill: document.querySelector("#usagePill"),
+  messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
-  refreshModelsButton: document.querySelector("#refreshModelsButton"),
-  rememberKeyInput: document.querySelector("#rememberKeyInput"),
-  seedInput: document.querySelector("#seedInput"),
+  imagePreviews: document.querySelector("#imagePreviews"),
+  imageFileInput: document.querySelector("#imageFileInput"),
+  imageButton: document.querySelector("#imageButton"),
   sendButton: document.querySelector("#sendButton"),
-  settingsButton: document.querySelector("#settingsButton"),
-  settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
-  settingsDrawer: document.querySelector("#settingsDrawer"),
-  sidebarButton: document.querySelector("#sidebarButton"),
   stopButton: document.querySelector("#stopButton"),
-  stopInput: document.querySelector("#stopInput"),
-  systemPromptInput: document.querySelector("#systemPromptInput"),
+  settingsButton: document.querySelector("#settingsButton"),
+  accountDrawer: document.querySelector("#accountDrawer"),
+  closeAccountButton: document.querySelector("#closeAccountButton"),
+  accountSummary: document.querySelector("#accountSummary"),
+  billingPortalButton: document.querySelector("#billingPortalButton"),
+  signOutButton: document.querySelector("#signOutButton"),
+  adminSection: document.querySelector("#adminSection"),
+  loadAdminButton: document.querySelector("#loadAdminButton"),
+  adminOutput: document.querySelector("#adminOutput"),
+  settingsDrawer: document.querySelector("#settingsDrawer"),
+  closeSettingsButton: document.querySelector("#closeSettingsButton"),
   temperatureInput: document.querySelector("#temperatureInput"),
-  toast: document.querySelector("#toast"),
-  toolsInput: document.querySelector("#toolsInput"),
-  topPInput: document.querySelector("#topPInput")
+  topPInput: document.querySelector("#topPInput"),
+  maxTokensInput: document.querySelector("#maxTokensInput"),
+  seedInput: document.querySelector("#seedInput"),
+  systemPromptInput: document.querySelector("#systemPromptInput"),
+  confirmDialog: document.querySelector("#confirmDialog"),
+  confirmText: document.querySelector("#confirmText"),
+  cancelDeleteButton: document.querySelector("#cancelDeleteButton"),
+  confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
+  overlay: document.querySelector("#overlay"),
+  toast: document.querySelector("#toast")
 };
 
-function activeConversation() {
-  return state.conversations.find((conversation) => conversation.id === state.activeConversationId) || state.conversations[0];
+function loadSettings() {
+  try {
+    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch {
+    return { ...defaultSettings };
+  }
 }
 
-function persist() {
-  saveState(state);
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
-function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+function applyStreamEvent(message, event) {
+  const choice = event?.choices?.[0];
+  const delta = choice?.delta || {};
+
+  if (typeof delta.reasoning_content === "string") message.reasoning += delta.reasoning_content;
+  if (typeof delta.content === "string") message.content += delta.content;
+
+  if (Array.isArray(delta.tool_calls)) {
+    for (const callDelta of delta.tool_calls) {
+      const index = Number.isInteger(callDelta.index) ? callDelta.index : message.toolCalls.length;
+      const existing = message.toolCalls[index] || {
+        id: "",
+        type: "function",
+        function: { name: "", arguments: "" }
+      };
+      existing.id = callDelta.id || existing.id;
+      existing.type = callDelta.type || existing.type;
+      existing.function.name = callDelta.function?.name || existing.function.name;
+      existing.function.arguments += callDelta.function?.arguments || "";
+      message.toolCalls[index] = existing;
+    }
+  }
+
+  if (choice?.finish_reason) message.finishReason = choice.finish_reason;
 }
 
 function showToast(message) {
   els.toast.textContent = message;
-  els.toast.classList.add("visible");
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => els.toast.classList.remove("visible"), 3200);
+  els.toast.classList.add("show");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 3200);
 }
 
-function setRunning(isRunning) {
-  els.sendButton.classList.toggle("hidden", isRunning);
-  els.stopButton.classList.toggle("hidden", !isRunning);
-  els.promptInput.disabled = isRunning;
-  els.imageFileInput.disabled = isRunning;
+function showOnly(view) {
+  [els.setupView, els.authView, els.paywallView, els.chatView].forEach((el) => el.classList.add("hidden"));
+  view.classList.remove("hidden");
 }
 
-function openSettings() {
-  els.settingsDrawer.classList.add("open");
-  els.settingsDrawer.setAttribute("aria-hidden", "false");
-  els.overlay.hidden = false;
-  els.overlay.dataset.mode = "settings";
+function servicesReady() {
+  const services = state.config?.services || {};
+  return Boolean(services.supabase && services.stripe && services.r2 && services.crof);
 }
 
-function closeSettings() {
-  els.settingsDrawer.classList.remove("open");
-  els.settingsDrawer.setAttribute("aria-hidden", "true");
-  if (els.overlay.dataset.mode === "settings") {
-    els.overlay.hidden = true;
-    delete els.overlay.dataset.mode;
-  }
+function hasActiveSubscription() {
+  return ["active", "trialing"].includes(state.me?.subscription?.status);
 }
 
-function openConfirmDialog(conversation) {
-  els.confirmDialog.dataset.chatId = conversation.id;
-  els.confirmTitle.textContent = "Delete chat?";
-  els.confirmBody.textContent = `Delete "${conversation.title}" from this device?`;
-  els.confirmDialog.classList.add("open");
-  els.confirmDialog.setAttribute("aria-hidden", "false");
-  els.overlay.hidden = false;
-  els.overlay.dataset.mode = "confirm";
-  els.confirmDeleteButton.focus();
-}
-
-function closeConfirmDialog() {
-  els.confirmDialog.classList.remove("open");
-  els.confirmDialog.setAttribute("aria-hidden", "true");
-  delete els.confirmDialog.dataset.chatId;
-
-  if (els.overlay.dataset.mode === "confirm") {
-    els.overlay.hidden = true;
-    delete els.overlay.dataset.mode;
-  }
-}
-
-function toggleModelDropdown() {
-  const isOpen = !els.modelDropdown.classList.contains("hidden");
-  els.modelDropdown.classList.toggle("hidden", isOpen);
-  const nowOpen = !els.modelDropdown.classList.contains("hidden");
-  els.modelButton.setAttribute("aria-expanded", String(nowOpen));
-  els.composerModelWrap.classList.toggle("is-open", nowOpen);
-  if (!isOpen) {
-    els.modelInput.value = "";
-    renderModelCatalog();
-    els.modelInput.focus();
-  }
-}
-
-function closeModelDropdown() {
-  els.modelDropdown.classList.add("hidden");
-  els.modelButton.setAttribute("aria-expanded", "false");
-  els.composerModelWrap.classList.remove("is-open");
-}
-
-function openFilePicker() {
-  els.imageFileInput.click();
-}
-
-function openLightbox(src) {
-  els.lightboxImg.src = src;
-  els.lightbox.classList.remove("hidden");
-}
-
-function closeLightbox() {
-  els.lightbox.classList.add("hidden");
-  els.lightboxImg.src = "";
-}
-
-function endpointLabel(url) {
-  if (url.endsWith("/v2")) return "Smartyfy API v2";
-  if (url.endsWith("/v1")) return "Smartyfy API v1";
-  return "Smartyfy API";
-}
-
-function renderBaseUrls() {
-  els.baseUrlInput.innerHTML = serverConfig.allowedBaseUrls
-    .map((url) => `<option value="${escapeHtml(url)}">${escapeHtml(endpointLabel(url))}</option>`)
-    .join("");
-}
-
-function selectedModel() {
-  return models.find((model) => model.id === state.settings.model);
-}
-
-function canLoadModels() {
-  return Boolean(state.settings.apiKey || serverConfig.serverApiKeyConfigured);
-}
-
-function renderModelCatalog() {
-  const query = els.modelInput.value.trim().toLowerCase();
-  const visibleModels = models
-    .filter((model) => {
-      const haystack = `${model.id} ${model.name || ""}`.toLowerCase();
-      return !query || haystack.includes(query);
-    })
-    .slice(0, 80);
-
-  if (modelsLoading) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">Loading…</div>`;
-    return;
-  }
-
-  if (!canLoadModels()) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">No models. Add a key in settings.</div>`;
-    return;
-  }
-
-  if (!visibleModels.length) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">${models.length ? "No matches." : "No models."}</div>`;
-    return;
-  }
-
-  els.modelCatalog.innerHTML = visibleModels
-    .map((model) => renderModelOption(model, model.id === state.settings.model))
-    .join("");
-}
-
-function renderModelOptions() {
-  els.modelDetails.innerHTML = renderModelDetails(selectedModel());
-
-  const selected = selectedModel();
-  const displayName = compactModelDisplayName(selected?.name || state.settings.model) || "Model";
-  const logoUrl = selected ? modelBrandLogoUrl(selected) : "";
-
-  els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
-  els.modelButton.classList.toggle("has-brand-logo", Boolean(logoUrl));
-
-  if (logoUrl) {
-    els.modelLogoImg.src = logoUrl;
-    els.modelLogoImg.classList.remove("hidden");
-    els.modelLogoImg.removeAttribute("aria-hidden");
-    els.modelLabel.classList.add("hidden");
-    els.modelFallbackIcon?.classList.add("hidden");
-  } else {
-    els.modelLogoImg.removeAttribute("src");
-    els.modelLogoImg.classList.add("hidden");
-    els.modelLogoImg.setAttribute("aria-hidden", "true");
-    els.modelLabel.classList.remove("hidden");
-    els.modelFallbackIcon?.classList.remove("hidden");
-  }
-
-  els.modelLabel.textContent = displayName;
-  els.promptInput.placeholder = `Message ${displayName}`;
-  renderModelCatalog();
-}
-
-function renderConversationList() {
-  els.conversationList.innerHTML = state.conversations
-    .slice()
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-    .map((conversation) => {
-      const active = conversation.id === state.activeConversationId ? "active" : "";
-      return `
-        <div class="conversation-row ${active}" data-chat-id="${escapeHtml(conversation.id)}">
-          <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
-            <span>${escapeHtml(conversation.title)}</span>
-          </button>
-          <button class="conversation-delete" type="button" data-delete-chat-id="${escapeHtml(conversation.id)}" aria-label="Delete ${escapeHtml(conversation.title)}" title="Delete chat">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
-          </button>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderToolCalls(message) {
-  if (!message.toolCalls?.length) return "";
-
-  return `
-    <div class="tool-call-list">
-      ${message.toolCalls
-        .map((call) => `
-          <details class="tool-call" open>
-            <summary>${escapeHtml(call.function?.name || "Tool call")}</summary>
-            <pre><code>${escapeHtml(call.function?.arguments || "")}</code></pre>
-          </details>
-        `)
-        .join("")}
+function renderServices() {
+  const services = state.config?.services || {};
+  els.serviceList.innerHTML = Object.entries({
+    supabase: "Supabase Auth and Postgres",
+    stripe: "Stripe billing",
+    r2: "Cloudflare R2 storage",
+    crof: "Managed model API key"
+  }).map(([key, label]) => `
+    <div class="service-row">
+      <span>${escapeHtml(label)}</span>
+      <span class="${services[key] ? "status-ok" : "status-missing"}">${services[key] ? "Ready" : "Missing"}</span>
     </div>
+  `).join("");
+}
+
+function planCard(plan, mode) {
+  const button = mode === "checkout"
+    ? `<button class="primary-button full" data-checkout-plan="${escapeHtml(plan.id)}" ${plan.checkoutEnabled ? "" : "disabled"}>${plan.checkoutEnabled ? "Subscribe" : "Price not configured"}</button>`
+    : "";
+  return `
+    <article class="plan-card">
+      <h3>${escapeHtml(plan.name)}</h3>
+      <div class="price">${escapeHtml(plan.priceLabel)}</div>
+      <p>${escapeHtml(plan.description)}</p>
+      <ul>
+        <li>${Number(plan.dailyMessageLimit).toLocaleString()} messages per day</li>
+        <li>${Number(plan.monthlyImageLimit).toLocaleString()} images per month</li>
+        <li>${Number(plan.maxImagesPerMessage).toLocaleString()} images per message</li>
+      </ul>
+      ${button}
+    </article>
   `;
 }
 
-function renderMessages() {
-  const conversation = activeConversation();
+function renderPlans() {
+  els.publicPlans.innerHTML = state.plans.map((plan) => planCard(plan, "preview")).join("");
+  els.paywallPlans.innerHTML = state.plans.map((plan) => planCard(plan, "checkout")).join("");
+}
 
-  if (!conversation.messages.length) {
-    const greeting = getGreeting();
-    els.messages.innerHTML = `
-      <div class="empty-state">
-        <svg class="empty-state-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-        <h1>${greeting}</h1>
-      </div>
-    `;
+function renderShell() {
+  renderPlans();
+
+  if (!servicesReady()) {
+    renderServices();
+    showOnly(els.setupView);
     return;
   }
 
-  els.messages.innerHTML = conversation.messages
-    .map((message) => `
-      <article class="message ${message.role}">
-        <div class="message-avatar">${message.role === "user" ? "U" : "C"}</div>
-        <div class="message-body">
-          <div class="message-meta">
-            <strong>${message.role === "user" ? "You" : "Smartyfy"}</strong>
-            ${message.model ? `<span>${escapeHtml(message.model)}</span>` : ""}
-          </div>
-          ${
-            message.reasoning
-              ? `<details class="reasoning" open><summary>Reasoning</summary><div>${renderContent(message.reasoning)}</div></details>`
-              : ""
-          }
-          <div class="message-content">${renderContent(message.content)}</div>
-          ${renderToolCalls(message)}
-          ${message.error ? `<div class="message-error">${escapeHtml(message.error)}</div>` : ""}
-          ${message.stopped ? `<div class="message-note">Stopped</div>` : ""}
-        </div>
-      </article>
-    `)
-    .join("");
+  if (!state.session) {
+    showOnly(els.authView);
+    return;
+  }
 
+  if (!hasActiveSubscription()) {
+    els.paywallEmail.textContent = state.me?.user?.email || "";
+    showOnly(els.paywallView);
+    return;
+  }
+
+  showOnly(els.chatView);
+  renderUsage();
+  renderAccount();
+  renderConversations();
+  renderModels();
+  renderMessages();
+}
+
+function renderUsage() {
+  const plan = state.me?.plan;
+  const usage = state.me?.usage || {};
+  if (!plan) {
+    els.usagePill.textContent = "";
+    return;
+  }
+  els.usagePill.textContent = `${usage.message_count || 0}/${plan.dailyMessageLimit} today`;
+}
+
+function renderAccount() {
+  const sub = state.me?.subscription;
+  const plan = state.me?.plan;
+  els.accountSummary.innerHTML = `
+    <div class="section-title">${escapeHtml(state.me?.user?.email || "Signed in")}</div>
+    <p class="muted">Plan: ${escapeHtml(plan?.name || "No active plan")}</p>
+    <p class="muted">Status: ${escapeHtml(sub?.status || "none")}</p>
+    ${sub?.currentPeriodEnd ? `<p class="muted">Renews: ${escapeHtml(new Date(sub.currentPeriodEnd).toLocaleDateString())}</p>` : ""}
+  `;
+  els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
+}
+
+function renderConversations() {
+  els.conversationList.innerHTML = state.conversations.map((conversation) => `
+    <div class="conversation-row ${conversation.id === state.activeConversationId ? "active" : ""}">
+      <button class="conversation-open" type="button" data-open-conversation="${escapeHtml(conversation.id)}">${escapeHtml(conversation.title || "New chat")}</button>
+      <button class="conversation-delete" type="button" data-delete-conversation="${escapeHtml(conversation.id)}" aria-label="Delete chat">x</button>
+    </div>
+  `).join("");
+}
+
+function renderModels() {
+  const active = state.settings.model;
+  els.modelSelect.innerHTML = state.models.length
+    ? state.models.map((model) => `<option value="${escapeHtml(model.id)}" ${model.id === active ? "selected" : ""}>${escapeHtml(model.name || model.id)}</option>`).join("")
+    : `<option value="">No models loaded</option>`;
+  els.modelSelect.disabled = !state.models.length;
+}
+
+function normalizeMessage(message) {
+  return {
+    ...message,
+    toolCalls: message.toolCalls || message.tool_calls || []
+  };
+}
+
+function renderMessages() {
+  if (!state.messages.length) {
+    els.messages.innerHTML = `<div class="empty-state"><div><h1>Good to see you.</h1><p>Start a new Smartyfy conversation below.</p></div></div>`;
+    return;
+  }
+
+  els.messages.innerHTML = state.messages.map((raw) => {
+    const message = normalizeMessage(raw);
+    const role = message.role === "user" ? "user" : "assistant";
+    const body = renderContent(message.content || (state.running && role === "assistant" ? "Thinking..." : ""));
+    const reasoning = message.reasoning ? `<div class="reasoning">${renderContent(message.reasoning)}</div>` : "";
+    const error = message.error ? `<div class="reasoning">${escapeHtml(message.error)}</div>` : "";
+    return `
+      <article class="message ${role}">
+        <div class="avatar">${role === "user" ? "You" : "S"}</div>
+        <div class="bubble">${reasoning}${body}${error}</div>
+      </article>
+    `;
+  }).join("");
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function queueRenderMessages() {
-  if (renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(() => {
-    renderQueued = false;
-    renderMessages();
-  });
-}
-
 function renderImages() {
-  els.imagePreviews.innerHTML = activeImages
-    .map((image, index) => `
-      <div class="preview-thumb" data-image-index="${index}" data-preview-src="${escapeHtml(image.dataUrl)}" title="${escapeHtml(image.name)}">
-        <img src="${escapeHtml(image.dataUrl)}" alt="${escapeHtml(image.name)}">
-        <span class="preview-remove" data-remove-index="${index}">&times;</span>
-      </div>
-    `)
-    .join("");
+  els.imagePreviews.innerHTML = state.images.map((image, index) => `
+    <div class="preview">
+      <img src="${escapeHtml(image.previewUrl)}" alt="${escapeHtml(image.file.name)}">
+      <button type="button" data-remove-image="${index}" aria-label="Remove image">x</button>
+    </div>
+  `).join("");
 }
 
-function renderSettings() {
-  els.apiKeyInput.value = state.settings.apiKey;
-  els.rememberKeyInput.checked = state.settings.rememberKey;
-  els.baseUrlInput.value = state.settings.baseUrl;
-  els.temperatureInput.value = state.settings.temperature;
-  els.topPInput.value = state.settings.top_p;
-  els.maxTokensInput.value = state.settings.max_tokens;
-  els.seedInput.value = state.settings.seed;
-  els.stopInput.value = state.settings.stop;
-  els.systemPromptInput.value = state.settings.systemPrompt;
-  els.toolsInput.value = state.settings.toolsText;
+function setRunning(running) {
+  state.running = running;
+  els.sendButton.classList.toggle("hidden", running);
+  els.stopButton.classList.toggle("hidden", !running);
+  els.promptInput.disabled = running;
+  els.imageButton.disabled = running;
 }
 
-function updateSendButton() {
-  const hasContent = els.promptInput.value.trim().length > 0 || activeImages.length > 0;
-  els.sendButton.classList.toggle("active", hasContent);
+async function loadMeState() {
+  state.me = await fetchMe(state.session);
 }
 
-function renderAll() {
-  renderBaseUrls();
-  renderModelOptions();
-  renderConversationList();
-  renderMessages();
-  renderImages();
-  renderSettings();
-  updateSendButton();
-}
-
-async function loadModels({ quiet = false } = {}) {
-  if (!canLoadModels()) {
-    models = [];
-    renderModelOptions();
-    if (!quiet) showToast("Add your Smartyfy API key first.");
-    return;
-  }
-
-  modelsLoading = true;
-  renderModelCatalog();
-
+async function loadModelsState() {
   try {
-    const payload = await fetchModels(state.settings);
-    models = normalizeModelList(payload);
-
-    if (!state.settings.model && models[0]) {
-      state.settings.model = models[0].id;
-    } else if (state.settings.model && models.length && !models.some((model) => model.id === state.settings.model)) {
-      state.settings.model = models[0].id;
-    }
-
-    renderModelOptions();
-    renderSettings();
-    persist();
-    if (!quiet) showToast(models.length ? "Models refreshed." : "No models returned.");
-  } catch (error) {
-    if (!quiet) showToast(error.message);
-  } finally {
-    modelsLoading = false;
-    renderModelOptions();
-  }
-}
-
-function scheduleModelRefresh() {
-  window.clearTimeout(modelRefreshTimer);
-  modelRefreshTimer = window.setTimeout(() => {
-    if (state.settings.apiKey || serverConfig.serverApiKeyConfigured) {
-      loadModels({ quiet: true });
-    }
-  }, 450);
-}
-
-function updateSetting(key, value) {
-  state.settings[key] = value;
-  persist();
-  renderSettings();
-}
-
-function startModelAutoRefresh() {
-  window.clearInterval(modelAutoRefreshTimer);
-  modelAutoRefreshTimer = window.setInterval(() => {
-    if (canLoadModels() && !document.hidden) {
-      loadModels({ quiet: true });
-    }
-  }, 5 * 60 * 1000);
-}
-
-function addConversation() {
-  const conversation = createConversation();
-  state.conversations.unshift(conversation);
-  state.activeConversationId = conversation.id;
-  activeImages = [];
-  persist();
-  renderAll();
-  els.promptInput.focus();
-  document.body.classList.remove("sidebar-open");
-}
-
-function requestDeleteConversation(id) {
-  const conversation = state.conversations.find((item) => item.id === id);
-  if (!conversation) return;
-  openConfirmDialog(conversation);
-}
-
-function deleteConversation(id) {
-  state.conversations = state.conversations.filter((item) => item.id !== id);
-
-  if (!state.conversations.length) {
-    state.conversations = [createConversation()];
-  }
-
-  if (state.activeConversationId === id) {
-    state.activeConversationId = state.conversations
-      .slice()
-      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0].id;
-  }
-
-  activeImages = [];
-  closeConfirmDialog();
-  persist();
-  renderAll();
-  showToast("Chat deleted.");
-}
-
-function applyComposerHeight() {
-  els.promptInput.style.height = "auto";
-  els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
-}
-
-const maxImageBytes = 6 * 1024 * 1024;
-const maxImageCount = 4;
-const supportedImageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-
-function readImageFile(file) {
-  return new Promise((resolve, reject) => {
-    if (!supportedImageTypes.has(file.type)) {
-      reject(new Error(`${file.name} is not a supported image type.`));
-      return;
-    }
-
-    if (file.size > maxImageBytes) {
-      reject(new Error(`${file.name} is larger than 6 MB.`));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve({
-        name: file.name || "Pasted image",
-        type: file.type,
-        size: file.size,
-        dataUrl: String(reader.result || "")
-      });
-    };
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function addImageFiles(files) {
-  const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
-  if (!imageFiles.length) return;
-
-  const remainingSlots = maxImageCount - activeImages.length;
-  if (remainingSlots <= 0) {
-    showToast(`You can attach up to ${maxImageCount} images.`);
-    return;
-  }
-
-  const selectedFiles = imageFiles.slice(0, remainingSlots);
-  try {
-    const images = await Promise.all(selectedFiles.map(readImageFile));
-    activeImages.push(...images);
-    if (imageFiles.length > selectedFiles.length) {
-      showToast(`Attached ${selectedFiles.length}; limit is ${maxImageCount} images.`);
+    const payload = await fetchModels(state.session);
+    state.models = normalizeModelList(payload);
+    if (!state.settings.model && state.models[0]) {
+      state.settings.model = state.models[0].id;
+      saveSettings();
     }
   } catch (error) {
     showToast(error.message);
   }
+}
 
+async function loadConversationsState({ ensure = true } = {}) {
+  const payload = await listConversations(state.session);
+  state.conversations = payload.conversations || [];
+  if (!state.conversations.length && ensure) {
+    const created = await createConversation(state.session, { model: state.settings.model });
+    state.conversations = [created.conversation];
+  }
+  state.activeConversationId ||= state.conversations[0]?.id || "";
+  if (state.activeConversationId) await loadActiveConversation();
+}
+
+async function loadActiveConversation() {
+  if (!state.activeConversationId) {
+    state.messages = [];
+    return;
+  }
+  const payload = await fetchConversation(state.session, state.activeConversationId);
+  state.messages = payload.messages || [];
+}
+
+async function loadPaidApp() {
+  await Promise.all([loadModelsState(), loadConversationsState()]);
+  renderShell();
+}
+
+async function checkout(planId) {
+  const payload = await createCheckout(state.session, planId);
+  window.location.href = payload.url;
+}
+
+async function openPortal() {
+  const payload = await createBillingPortal(state.session);
+  window.location.href = payload.url;
+}
+
+async function addConversation() {
+  const payload = await createConversation(state.session, { model: state.settings.model });
+  state.conversations.unshift(payload.conversation);
+  state.activeConversationId = payload.conversation.id;
+  state.messages = [];
+  renderShell();
+}
+
+function addImages(files) {
+  const max = state.me?.plan?.maxImagesPerMessage || 4;
+  const accepted = [...files].filter((file) => file.type.startsWith("image/"));
+  const remaining = Math.max(0, max - state.images.length);
+  const chosen = accepted.slice(0, remaining);
+  if (accepted.length > chosen.length) showToast(`Attach up to ${max} images.`);
+
+  for (const file of chosen) {
+    state.images.push({ file, previewUrl: URL.createObjectURL(file) });
+  }
   renderImages();
-  updateSendButton();
 }
 
 async function sendPrompt() {
-  const text = els.promptInput.value;
-  if (!text.trim() && !activeImages.length) return;
-
-  if (!state.settings.model.trim()) {
-    showToast("Pick a Smartyfy model first.");
-    openSettings();
+  const text = els.promptInput.value.trim();
+  if (!text && !state.images.length) return;
+  if (!state.settings.model) {
+    showToast("Choose a model first.");
     return;
   }
 
-  let payload;
-  const conversation = activeConversation();
-  const userMessage = createUserMessage(buildUserContent(text, activeImages));
-  const assistantMessage = createAssistantMessage(state.settings.model.trim());
+  if (!state.activeConversationId) await addConversation();
 
-  conversation.messages.push(userMessage, assistantMessage);
-  conversation.title = conversation.messages.length === 2 ? titleFromMessage(userMessage.content) : conversation.title;
-  conversation.updatedAt = new Date().toISOString();
+  const localUser = {
+    id: `local_${Date.now()}`,
+    role: "user",
+    content: state.images.length
+      ? [
+          ...(text ? [{ type: "text", text }] : []),
+          ...state.images.map((image) => ({ type: "image_url", image_url: { url: image.previewUrl } }))
+        ]
+      : text
+  };
+  const localAssistant = {
+    id: `local_assistant_${Date.now()}`,
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
 
+  state.messages.push(localUser, localAssistant);
+  const images = state.images;
+  state.images = [];
   els.promptInput.value = "";
-  activeImages = [];
-  applyComposerHeight();
-  renderAll();
-  persist();
+  renderImages();
+  renderMessages();
 
-  try {
-    payload = buildChatPayload(conversation, assistantMessage, state.settings);
-  } catch (error) {
-    assistantMessage.error = error.message;
-    renderMessages();
-    persist();
-    return;
-  }
-
-  abortController = new AbortController();
+  state.abortController = new AbortController();
   setRunning(true);
 
   try {
-    await streamChat(payload, state.settings, {
-      signal: abortController.signal,
+    const uploaded = [];
+    for (const image of images) {
+      uploaded.push(await uploadImage(state.session, image.file));
+      URL.revokeObjectURL(image.previewUrl);
+    }
+
+    await streamConversationMessage(state.session, state.activeConversationId, {
+      text,
+      attachments: uploaded.map((item) => item.id),
+      model: state.settings.model,
+      settings: state.settings
+    }, {
+      signal: state.abortController.signal,
       onEvent: (event) => {
-        applyStreamEvent(assistantMessage, event);
-        conversation.updatedAt = new Date().toISOString();
-        queueRenderMessages();
-        persist();
+        applyStreamEvent(localAssistant, event);
+        renderMessages();
       }
     });
+
+    await Promise.all([loadMeState(), loadConversationsState({ ensure: false })]);
   } catch (error) {
     if (error.name === "AbortError") {
-      assistantMessage.stopped = true;
+      localAssistant.error = "Stopped.";
     } else {
-      assistantMessage.error = error.message;
+      localAssistant.error = error.message;
     }
   } finally {
-    abortController = null;
+    state.abortController = null;
     setRunning(false);
-    conversation.updatedAt = new Date().toISOString();
-    renderAll();
-    persist();
+    await loadActiveConversation().catch(() => {});
+    renderShell();
+  }
+}
+
+function openDrawer(drawer) {
+  els.overlay.classList.remove("hidden");
+  drawer.classList.remove("hidden");
+}
+
+function closeDrawers() {
+  els.overlay.classList.add("hidden");
+  els.accountDrawer.classList.add("hidden");
+  els.settingsDrawer.classList.add("hidden");
+  els.confirmDialog.classList.add("hidden");
+}
+
+function syncSettingsInputs() {
+  els.temperatureInput.value = state.settings.temperature;
+  els.topPInput.value = state.settings.top_p;
+  els.maxTokensInput.value = state.settings.max_tokens;
+  els.seedInput.value = state.settings.seed;
+  els.systemPromptInput.value = state.settings.systemPrompt;
+}
+
+function updateSetting(key, value) {
+  state.settings[key] = value;
+  saveSettings();
+}
+
+async function signOutAndReset() {
+  await signOut(state.config, state.session);
+  state.session = null;
+  state.me = null;
+  state.conversations = [];
+  state.messages = [];
+  closeDrawers();
+  renderShell();
+}
+
+async function bootstrap() {
+  try {
+    state.config = await fetchConfig();
+    const plansPayload = await fetchPlans();
+    state.plans = plansPayload.plans || [];
+    state.session = parseSessionFromUrl() || loadSession();
+    if (state.session) {
+      state.session = await refreshSession(state.config, state.session);
+      if (state.session) saveSession(state.session);
+    }
+    if (state.session) {
+      try {
+        await loadMeState();
+      } catch {
+        clearSession();
+        state.session = null;
+      }
+    }
+    renderShell();
+    if (state.session && hasActiveSubscription()) await loadPaidApp();
+  } catch (error) {
+    showToast(error.message);
   }
 }
 
 function bindEvents() {
-  els.newChatButton.addEventListener("click", addConversation);
-  els.settingsButton.addEventListener("click", openSettings);
-  els.settingsButtonAlt.addEventListener("click", openSettings);
-  els.closeSettingsButton.addEventListener("click", closeSettings);
-  els.confirmCancelButton.addEventListener("click", closeConfirmDialog);
-  els.confirmDeleteButton.addEventListener("click", () => {
-    const id = els.confirmDialog.dataset.chatId;
-    if (id) deleteConversation(id);
+  els.googleButton.addEventListener("click", () => {
+    window.location.href = googleSignInUrl(state.config);
   });
-  els.overlay.addEventListener("click", () => {
-    if (els.overlay.dataset.mode === "confirm") {
-      closeConfirmDialog();
-      return;
-    }
-    closeSettings();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    if (els.confirmDialog.classList.contains("open")) {
-      closeConfirmDialog();
-      return;
-    }
-    if (!els.lightbox.classList.contains("hidden")) {
-      closeLightbox();
-      return;
-    }
-    if (!els.modelDropdown.classList.contains("hidden")) {
-      closeModelDropdown();
+
+  els.magicForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await sendMagicLink(state.config, els.emailInput.value.trim());
+      els.authNotice.textContent = "Check your email for the sign-in link.";
+    } catch (error) {
+      els.authNotice.textContent = error.message;
     }
   });
 
-  els.sidebarButton.addEventListener("click", () => {
-    document.body.classList.toggle("sidebar-expanded");
+  els.refreshAuthButton.addEventListener("click", bootstrap);
+  els.paywallSignOutButton.addEventListener("click", signOutAndReset);
+  els.signOutButton.addEventListener("click", signOutAndReset);
+  els.billingPortalButton.addEventListener("click", () => openPortal().catch((error) => showToast(error.message)));
+
+  els.paywallPlans.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-checkout-plan]");
+    if (button) checkout(button.dataset.checkoutPlan).catch((error) => showToast(error.message));
   });
 
-  els.modelButton.addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleModelDropdown();
+  els.newChatButton.addEventListener("click", () => addConversation().catch((error) => showToast(error.message)));
+  els.accountButton.addEventListener("click", () => openDrawer(els.accountDrawer));
+  els.closeAccountButton.addEventListener("click", closeDrawers);
+  els.settingsButton.addEventListener("click", () => {
+    syncSettingsInputs();
+    openDrawer(els.settingsDrawer);
+  });
+  els.closeSettingsButton.addEventListener("click", closeDrawers);
+  els.overlay.addEventListener("click", closeDrawers);
+
+  els.modelSelect.addEventListener("change", () => {
+    updateSetting("model", els.modelSelect.value);
   });
 
-  els.imageToggle.addEventListener("click", openFilePicker);
-
-  document.addEventListener("click", (e) => {
-    if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {
-      closeModelDropdown();
+  els.conversationList.addEventListener("click", async (event) => {
+    const open = event.target.closest("[data-open-conversation]");
+    const remove = event.target.closest("[data-delete-conversation]");
+    if (open) {
+      state.activeConversationId = open.dataset.openConversation;
+      await loadActiveConversation();
+      renderShell();
+    }
+    if (remove) {
+      state.pendingDeleteId = remove.dataset.deleteConversation;
+      const conversation = state.conversations.find((item) => item.id === state.pendingDeleteId);
+      els.confirmText.textContent = `Delete "${conversation?.title || "New chat"}" from your account?`;
+      openDrawer(els.confirmDialog);
     }
   });
 
-  els.conversationList.addEventListener("click", (event) => {
-    const deleteButton = event.target.closest("[data-delete-chat-id]");
-    if (deleteButton) {
-      requestDeleteConversation(deleteButton.dataset.deleteChatId);
-      return;
-    }
-
-    const item = event.target.closest("[data-open-chat-id]");
-    if (!item) return;
-    state.activeConversationId = item.dataset.openChatId;
-    document.body.classList.remove("sidebar-open");
-    persist();
-    renderAll();
-  });
-
-  els.modelCatalog.addEventListener("click", (event) => {
-    const item = event.target.closest("[data-model-id]");
-    if (!item) return;
-    updateSetting("model", item.dataset.modelId);
-    closeModelDropdown();
-    renderModelOptions();
-    els.promptInput.focus();
-  });
-
-  els.imagePreviews.addEventListener("click", (event) => {
-    const removeBtn = event.target.closest("[data-remove-index]");
-    if (removeBtn) {
-      event.stopPropagation();
-      activeImages.splice(Number(removeBtn.dataset.removeIndex), 1);
-      renderImages();
-      updateSendButton();
-      return;
-    }
-
-    const thumb = event.target.closest("[data-preview-src]");
-    if (thumb) {
-      openLightbox(thumb.dataset.previewSrc);
+  els.cancelDeleteButton.addEventListener("click", closeDrawers);
+  els.confirmDeleteButton.addEventListener("click", async () => {
+    if (!state.pendingDeleteId) return;
+    try {
+      await deleteConversation(state.session, state.pendingDeleteId);
+      state.pendingDeleteId = "";
+      state.activeConversationId = "";
+      await loadConversationsState();
+      closeDrawers();
+      renderShell();
+    } catch (error) {
+      showToast(error.message);
     }
   });
 
-  els.lightboxClose.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeLightbox();
-  });
-  els.lightbox.addEventListener("click", (event) => {
-    if (event.target === els.lightbox) closeLightbox();
-  });
+  els.imageButton.addEventListener("click", () => els.imageFileInput.click());
   els.imageFileInput.addEventListener("change", (event) => {
-    addImageFiles(event.target.files);
+    addImages(event.target.files || []);
     event.target.value = "";
   });
-
-  els.sendButton.addEventListener("click", sendPrompt);
-  els.stopButton.addEventListener("click", () => abortController?.abort());
-  els.refreshModelsButton.addEventListener("click", () => loadModels());
-
-  els.promptInput.addEventListener("input", () => {
-    applyComposerHeight();
-    updateSendButton();
+  els.imagePreviews.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-image]");
+    if (!button) return;
+    const [removed] = state.images.splice(Number(button.dataset.removeImage), 1);
+    if (removed) URL.revokeObjectURL(removed.previewUrl);
+    renderImages();
   });
+
+  els.sendButton.addEventListener("click", () => sendPrompt());
   els.promptInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendPrompt();
     }
   });
-  els.promptInput.addEventListener("paste", (event) => {
-    const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
-    if (!files.length) return;
-    event.preventDefault();
-    addImageFiles(files);
-  });
+  els.stopButton.addEventListener("click", () => state.abortController?.abort());
 
-  els.apiKeyInput.addEventListener("input", (event) => {
-    updateSetting("apiKey", event.target.value.trim());
-    scheduleModelRefresh();
-  });
-  els.rememberKeyInput.addEventListener("change", (event) => updateSetting("rememberKey", event.target.checked));
-  els.baseUrlInput.addEventListener("change", (event) => {
-    updateSetting("baseUrl", event.target.value);
-    loadModels({ quiet: true });
-  });
-  els.modelInput.addEventListener("input", (event) => {
-    renderModelCatalog();
-  });
-  els.modelInput.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    const modelId = event.target.value.trim();
-    if (!modelId) return;
-    event.preventDefault();
-    updateSetting("model", modelId);
-    closeModelDropdown();
-    renderModelOptions();
-  });
-  els.temperatureInput.addEventListener("input", (event) => updateSetting("temperature", Number(event.target.value)));
-  els.topPInput.addEventListener("input", (event) => updateSetting("top_p", Number(event.target.value)));
-  els.maxTokensInput.addEventListener("input", (event) => updateSetting("max_tokens", event.target.value));
-  els.seedInput.addEventListener("input", (event) => updateSetting("seed", event.target.value));
-  els.stopInput.addEventListener("input", (event) => updateSetting("stop", event.target.value));
-  els.systemPromptInput.addEventListener("input", (event) => updateSetting("systemPrompt", event.target.value));
-  els.toolsInput.addEventListener("input", (event) => updateSetting("toolsText", event.target.value));
-}
+  els.temperatureInput.addEventListener("input", () => updateSetting("temperature", Number(els.temperatureInput.value)));
+  els.topPInput.addEventListener("input", () => updateSetting("top_p", Number(els.topPInput.value)));
+  els.maxTokensInput.addEventListener("input", () => updateSetting("max_tokens", els.maxTokensInput.value));
+  els.seedInput.addEventListener("input", () => updateSetting("seed", els.seedInput.value));
+  els.systemPromptInput.addEventListener("input", () => updateSetting("systemPrompt", els.systemPromptInput.value));
 
-async function boot() {
-  bindEvents();
-  renderAll();
-  applyComposerHeight();
-  startModelAutoRefresh();
-
-  try {
-    serverConfig = { ...serverConfig, ...(await fetchConfig()) };
-    if (!serverConfig.allowedBaseUrls.includes(state.settings.baseUrl)) {
-      state.settings.baseUrl = serverConfig.defaultBaseUrl;
+  els.loadAdminButton.addEventListener("click", async () => {
+    try {
+      els.adminOutput.textContent = JSON.stringify(await fetchAdminSummary(state.session), null, 2);
+    } catch (error) {
+      els.adminOutput.textContent = error.message;
     }
-    renderAll();
-    await loadModels({ quiet: true });
-  } catch (error) {
-    showToast(error.message);
-  }
+  });
 }
 
-boot();
+bindEvents();
+bootstrap();

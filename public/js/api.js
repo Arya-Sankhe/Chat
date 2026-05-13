@@ -7,8 +7,11 @@ async function readProblem(response) {
   }
 }
 
-function authHeaders(settings) {
-  return settings.apiKey ? { "x-crofai-key": settings.apiKey } : {};
+function apiHeaders(session, extra = {}) {
+  return {
+    ...extra,
+    ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {})
+  };
 }
 
 export async function fetchConfig() {
@@ -17,24 +20,114 @@ export async function fetchConfig() {
   return response.json();
 }
 
-export async function fetchModels(settings) {
-  const params = new URLSearchParams({ baseUrl: settings.baseUrl });
-  const response = await fetch(`/api/models?${params.toString()}`, {
-    headers: authHeaders(settings)
-  });
-
+export async function fetchPlans() {
+  const response = await fetch("/api/plans");
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
 
-export async function streamChat(payload, settings, { signal, onEvent }) {
-  const response = await fetch("/api/chat", {
+export async function fetchMe(session) {
+  const response = await fetch("/api/me", { headers: apiHeaders(session) });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createCheckout(session, planId) {
+  const response = await fetch("/api/billing/checkout", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders(settings)
-    },
-    body: JSON.stringify({ ...payload, baseUrl: settings.baseUrl }),
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify({ planId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createBillingPortal(session) {
+  const response = await fetch("/api/billing/portal", {
+    method: "POST",
+    headers: apiHeaders(session)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchModels(session) {
+  const response = await fetch("/api/models", { headers: apiHeaders(session) });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function listConversations(session) {
+  const response = await fetch("/api/conversations", { headers: apiHeaders(session) });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createConversation(session, body = {}) {
+  const response = await fetch("/api/conversations", {
+    method: "POST",
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchConversation(session, id) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { headers: apiHeaders(session) });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteConversation(session, id) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: apiHeaders(session)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function presignUpload(session, file) {
+  const response = await fetch("/api/uploads/presign", {
+    method: "POST",
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify({
+      fileName: file.name,
+      contentType: file.type,
+      sizeBytes: file.size
+    })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function completeUpload(session, uploadId) {
+  const response = await fetch("/api/uploads/complete", {
+    method: "POST",
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify({ uploadId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function uploadImage(session, file) {
+  const upload = await presignUpload(session, file);
+  const put = await fetch(upload.uploadUrl, {
+    method: upload.method || "PUT",
+    headers: { "content-type": file.type },
+    body: file
+  });
+  if (!put.ok) throw new Error("Image upload failed.");
+  return completeUpload(session, upload.uploadId);
+}
+
+export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: "POST",
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify(payload),
     signal
   });
 
@@ -65,4 +158,10 @@ export async function streamChat(payload, settings, { signal, onEvent }) {
       onEvent(JSON.parse(data));
     }
   }
+}
+
+export async function fetchAdminSummary(session) {
+  const response = await fetch("/api/admin/summary", { headers: apiHeaders(session) });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
 }

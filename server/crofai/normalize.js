@@ -2,12 +2,6 @@ import { HttpError } from "../http/responses.js";
 
 const roles = new Set(["system", "user", "assistant", "tool"]);
 
-export function extractApiKey(headers, fallback = "") {
-  const incoming = headers["x-crofai-key"];
-  const key = Array.isArray(incoming) ? incoming[0] : incoming;
-  return String(key || fallback || "").trim();
-}
-
 function assertPlainObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new HttpError(400, `${label} must be an object.`);
