@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { assertImageUpload, safeFileName } from "../server/storage/r2.js";
@@ -47,4 +48,43 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   assert.match(npmrc, /min-release-age=7/);
   assert.match(npmrc, /ignore-scripts=true/);
   assert.deepEqual(lock.packages[""].dependencies, undefined);
+});
+
+test("deleteConversation hard-deletes chat data in Supabase", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+
+    if (String(url).includes("/attachments?")) {
+      return new Response(null, { status: 204 });
+    }
+
+    return new Response(JSON.stringify([{ id: "conversation_1" }]), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const db = new SupabaseRest({
+      supabase: {
+        url: "https://example.supabase.co",
+        serviceRoleKey: "service-role-key"
+      }
+    });
+
+    const deleted = await db.deleteConversation("user_1", "conversation_1");
+
+    assert.equal(deleted.id, "conversation_1");
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].options.method, "DELETE");
+    assert.match(calls[0].url, /\/attachments\?/);
+    assert.match(calls[0].url, /conversation_id=eq\.conversation_1/);
+    assert.equal(calls[1].options.method, "DELETE");
+    assert.match(calls[1].url, /\/conversations\?/);
+    assert.match(calls[1].url, /deleted_at=is\.null/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

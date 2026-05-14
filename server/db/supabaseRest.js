@@ -171,7 +171,28 @@ export class SupabaseRest {
   }
 
   async deleteConversation(userId, conversationId, { signal } = {}) {
-    return this.updateConversation(userId, conversationId, { deleted_at: new Date().toISOString() }, { signal });
+    await this.request("attachments", {
+      method: "DELETE",
+      query: {
+        user_id: `eq.${userId}`,
+        conversation_id: `eq.${conversationId}`
+      },
+      prefer: "return=minimal",
+      signal
+    });
+
+    const rows = await this.request("conversations", {
+      method: "DELETE",
+      query: {
+        id: `eq.${conversationId}`,
+        user_id: `eq.${userId}`,
+        deleted_at: "is.null"
+      },
+      prefer: "return=representation",
+      signal
+    });
+
+    return single(rows);
   }
 
   async listMessages(userId, conversationId, { signal } = {}) {
