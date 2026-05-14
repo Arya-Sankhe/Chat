@@ -1,12 +1,11 @@
 import { requireUser } from "./auth/supabase.js";
-import { StripeClient, subscriptionRecordFromStripe, verifyStripeSignature } from "./billing/stripe.js";
 import { listModels, streamChatCompletion } from "./crofai/client.js";
 import { normalizeBaseUrl } from "./crofai/constants.js";
 import { normalizeChatRequest } from "./crofai/normalize.js";
 import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
-import { HttpError, parseJsonBody, readRawBody, sendJson, sendProblem } from "./http/responses.js";
-import { consumeUsageOrThrow, requireActiveEntitlement } from "./saas/entitlements.js";
+import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
+import { consumeUsageOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
   buildProviderMessages,
   buildStoredUserContent,
@@ -30,7 +29,6 @@ function pathParts(url) {
 function bearerContext(config) {
   return {
     db: new SupabaseRest(config),
-    stripe: new StripeClient(config),
     r2: new R2Client(config)
   };
 }
@@ -42,12 +40,13 @@ async function authContext(req, config) {
   return { ...services, user, profile };
 }
 
-async function requirePaidContext(req, config) {
+async function requireChatContext(req, config) {
   const context = await authContext(req, config);
   const entitlement = await requireActiveEntitlement({
     db: context.db,
     userId: context.user.id,
     plans: config.plans,
+    access: config.access,
     signal: req.signal
   });
 
@@ -64,8 +63,7 @@ function publicMe({ user, profile, subscription, plan, usage, config }) {
   return {
     user: { id: user.id, email: user.email },
     profile: {
-      role: profile?.role || "user",
-      stripeCustomerId: profile?.stripe_customer_id || ""
+      role: profile?.role || "user"
     },
     subscription: subscription ? {
       status: subscription.status,
@@ -75,139 +73,36 @@ function publicMe({ user, profile, subscription, plan, usage, config }) {
     } : null,
     plan: plan ? publicPlan(plan) : null,
     usage: usage || { message_count: 0, image_count: 0 },
+    access: {
+      mode: config.access.mode,
+      active: Boolean(plan)
+    },
     services: configuredServices(config)
   };
 }
 
 async function handleMe(req, res, config) {
   const context = await authContext(req, config);
-  const subscription = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
-  const plan = config.plans.find((item) => item.id === subscription?.plan_id) || null;
-  const usage = await context.db.getTodayUsage(context.user.id, { signal: req.signal });
-  sendJson(res, 200, publicMe({ ...context, subscription, plan, usage, config }));
-}
-
-async function handleCheckout(req, res, config) {
-  const context = await authContext(req, config);
-  const body = await parseJsonBody(req);
-  const plan = config.plans.find((item) => item.id === body.planId);
-  if (!plan) throw new HttpError(400, "Choose a valid Smartyfy plan.");
-  if (!plan.stripePriceId) throw new HttpError(503, "This plan is missing its Stripe price ID.");
-
-  let profile = context.profile;
-  let customerId = profile?.stripe_customer_id || "";
-
-  if (!customerId) {
-    const customer = await context.stripe.createCustomer({
-      email: context.user.email,
-      userId: context.user.id
-    }, { signal: req.signal });
-    customerId = customer.id;
-    profile = await context.db.updateProfile(context.user.id, { stripe_customer_id: customerId }, { signal: req.signal });
-  }
-
-  const session = await context.stripe.createCheckoutSession({
-    customerId,
-    customerEmail: context.user.email,
-    priceId: plan.stripePriceId,
-    planId: plan.id,
+  const entitlement = await getCurrentEntitlement({
+    db: context.db,
     userId: context.user.id,
-    successUrl: config.stripe.successUrl,
-    cancelUrl: config.stripe.cancelUrl
-  }, { signal: req.signal });
-
-  sendJson(res, 200, { url: session.url });
-}
-
-async function handlePortal(req, res, config) {
-  const context = await authContext(req, config);
-  const customerId = context.profile?.stripe_customer_id;
-  if (!customerId) throw new HttpError(400, "No billing customer exists yet.");
-
-  const session = await context.stripe.createPortalSession({
-    customerId,
-    returnUrl: config.stripe.portalReturnUrl
-  }, { signal: req.signal });
-
-  sendJson(res, 200, { url: session.url });
-}
-
-async function syncStripeSubscription({ db, stripe, config, subscription, fallbackUserId, signal }) {
-  const customerId = subscription?.customer || "";
-  const profile = customerId ? await db.getProfileByStripeCustomer(customerId, { signal }) : null;
-  const record = subscriptionRecordFromStripe(subscription, config.plans, fallbackUserId || profile?.id || "");
-  if (!profile && fallbackUserId) {
-    await db.updateProfile(fallbackUserId, { stripe_customer_id: record.stripe_customer_id }, { signal });
-  }
-  return db.upsertSubscription(record, { signal });
-}
-
-async function handleStripeWebhook(req, res, config) {
-  if (!config.stripe.webhookSecret) throw new HttpError(503, "Stripe webhook secret is not configured.");
-
-  const { db, stripe } = bearerContext(config);
-  const raw = await readRawBody(req, 1024 * 1024);
-  verifyStripeSignature(raw, req.headers["stripe-signature"], config.stripe.webhookSecret);
-
-  const event = JSON.parse(raw.toString("utf8"));
-  if (await db.hasWebhookEvent(event.id, { signal: req.signal })) {
-    sendJson(res, 200, { received: true, duplicate: true });
-    return;
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data?.object || {};
-    if (session.subscription) {
-      const subscription = await stripe.retrieveSubscription(session.subscription, { signal: req.signal });
-      await syncStripeSubscription({
-        db,
-        stripe,
-        config,
-        subscription,
-        fallbackUserId: session.client_reference_id || session.metadata?.user_id || "",
-        signal: req.signal
-      });
-    }
-  }
-
-  if (event.type?.startsWith("customer.subscription.")) {
-    await syncStripeSubscription({
-      db,
-      stripe,
-      config,
-      subscription: event.data?.object,
-      fallbackUserId: event.data?.object?.metadata?.user_id || "",
-      signal: req.signal
-    });
-  }
-
-  if ((event.type === "invoice.payment_succeeded" || event.type === "invoice.payment_failed") && event.data?.object?.subscription) {
-    const subscriptionRef = event.data.object.subscription;
-    const subscriptionId = typeof subscriptionRef === "string" ? subscriptionRef : subscriptionRef?.id;
-    const subscription = await stripe.retrieveSubscription(subscriptionId, { signal: req.signal });
-    await syncStripeSubscription({
-      db,
-      stripe,
-      config,
-      subscription,
-      fallbackUserId: subscription?.metadata?.user_id || "",
-      signal: req.signal
-    });
-  }
-
-  await db.recordWebhookEvent({
-    id: event.id,
-    type: event.type,
-    payload: event,
-    processed_at: new Date().toISOString()
-  }, { signal: req.signal });
-
-  sendJson(res, 200, { received: true });
+    plans: config.plans,
+    access: config.access,
+    signal: req.signal
+  });
+  const usage = await context.db.getTodayUsage(context.user.id, { signal: req.signal });
+  sendJson(res, 200, publicMe({
+    ...context,
+    subscription: entitlement.subscription,
+    plan: entitlement.plan,
+    usage,
+    config
+  }));
 }
 
 async function handleModels(req, res, config) {
   requireServerCrofKey(config);
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
 
   const baseUrl = normalizeBaseUrl(urlSafeSearch(req, "baseUrl") || config.defaultBaseUrl);
   const cached = modelCache.get(baseUrl);
@@ -239,7 +134,7 @@ function urlSafeSearch(req, key) {
 }
 
 async function handlePresignUpload(req, res, config) {
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req);
 
   assertImageUpload({
@@ -267,7 +162,7 @@ async function handlePresignUpload(req, res, config) {
 }
 
 async function handleCompleteUpload(req, res, config) {
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req);
   const attachment = await context.db.getAttachment(context.user.id, body.uploadId, { signal: req.signal });
   if (!attachment) throw new HttpError(404, "Upload not found.");
@@ -293,7 +188,7 @@ async function handleCompleteUpload(req, res, config) {
 }
 
 async function handleConversations(req, res, config) {
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
   if (req.method === "GET") {
     const conversations = await context.db.listConversations(context.user.id, { signal: req.signal });
     sendJson(res, 200, { conversations });
@@ -314,7 +209,7 @@ async function handleConversations(req, res, config) {
 }
 
 async function handleConversationById(req, res, config, conversationId) {
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");
 
@@ -358,7 +253,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   requireServerCrofKey(config);
 
-  const context = await requirePaidContext(req, config);
+  const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req, 2 * 1024 * 1024);
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");
@@ -493,21 +388,6 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/me" && req.method === "GET") {
       await handleMe(req, res, config);
-      return;
-    }
-
-    if (url.pathname === "/api/billing/checkout" && req.method === "POST") {
-      await handleCheckout(req, res, config);
-      return;
-    }
-
-    if (url.pathname === "/api/billing/portal" && req.method === "POST") {
-      await handlePortal(req, res, config);
-      return;
-    }
-
-    if (url.pathname === "/api/stripe/webhook" && req.method === "POST") {
-      await handleStripeWebhook(req, res, config);
       return;
     }
 

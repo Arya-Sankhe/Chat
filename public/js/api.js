@@ -32,25 +32,6 @@ export async function fetchMe(session) {
   return response.json();
 }
 
-export async function createCheckout(session, planId) {
-  const response = await fetch("/api/billing/checkout", {
-    method: "POST",
-    headers: apiHeaders(session, { "content-type": "application/json" }),
-    body: JSON.stringify({ planId })
-  });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
-export async function createBillingPortal(session) {
-  const response = await fetch("/api/billing/portal", {
-    method: "POST",
-    headers: apiHeaders(session)
-  });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
 export async function fetchModels(session) {
   const response = await fetch("/api/models", { headers: apiHeaders(session) });
   if (!response.ok) throw new Error(await readProblem(response));

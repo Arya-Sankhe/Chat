@@ -12,7 +12,7 @@
         <div class="panel narrow-panel">
           <div class="brand-mark"></div>
           <h1>Smartyfy Chat</h1>
-          <p class="muted">Server setup is incomplete. Configure Supabase, Stripe, R2, and the managed model API key to launch the SaaS app.</p>
+          <p class="muted">Server setup is incomplete. Configure Supabase, R2, testing access, and the managed model API key to launch the app.</p>
           <div class="service-list" id="serviceList"></div>
         </div>
       </section>
@@ -29,7 +29,7 @@
         <main class="public-grid">
           <section class="hero-copy">
             <h1>Managed AI chat for everyday work.</h1>
-            <p>Subscribe once, sign in anywhere, and use the supported Smartyfy model catalog with synced conversations and private image uploads.</p>
+            <p>Sign in once, use the supported Smartyfy model catalog, and keep conversations synced with private image uploads.</p>
             <div class="auth-card">
               <button class="primary-button full" id="googleButton" type="button">Continue with Google</button>
               <form class="magic-form" id="magicForm">
@@ -59,8 +59,8 @@
         </header>
         <main class="paywall-main">
           <div class="paywall-copy">
-            <h1>Choose your plan to start chatting.</h1>
-            <p>Smartyfy Chat is paid-first so model access, storage, and usage limits stay predictable.</p>
+            <h1>Access is not enabled yet.</h1>
+            <p>Testing mode gives signed-in users access automatically. Production subscriptions will be connected when the new payment gateway is added.</p>
           </div>
           <section class="plan-grid wide" id="paywallPlans"></section>
         </main>
@@ -107,7 +107,6 @@
           <button class="icon-button" id="closeAccountButton" type="button" aria-label="Close">x</button>
         </div>
         <div class="drawer-section" id="accountSummary"></div>
-        <button class="primary-button full" id="billingPortalButton" type="button">Manage billing</button>
         <button class="secondary-button full" id="signOutButton" type="button">Sign out</button>
         <div class="drawer-section hidden" id="adminSection">
           <div class="section-title">Admin</div>

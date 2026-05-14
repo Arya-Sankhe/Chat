@@ -1,6 +1,4 @@
 import {
-  createBillingPortal,
-  createCheckout,
   createConversation,
   deleteConversation,
   fetchAdminSummary,
@@ -82,7 +80,6 @@ const els = {
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountSummary: document.querySelector("#accountSummary"),
-  billingPortalButton: document.querySelector("#billingPortalButton"),
   signOutButton: document.querySelector("#signOutButton"),
   adminSection: document.querySelector("#adminSection"),
   loadAdminButton: document.querySelector("#loadAdminButton"),
@@ -154,18 +151,18 @@ function showOnly(view) {
 
 function servicesReady() {
   const services = state.config?.services || {};
-  return Boolean(services.supabase && services.stripe && services.r2 && services.crof);
+  return Boolean(services.supabase && services.access && services.r2 && services.crof);
 }
 
-function hasActiveSubscription() {
-  return ["active", "trialing"].includes(state.me?.subscription?.status);
+function hasChatAccess() {
+  return Boolean(state.me?.access?.active || ["active", "trialing", "testing"].includes(state.me?.subscription?.status));
 }
 
 function renderServices() {
   const services = state.config?.services || {};
   els.serviceList.innerHTML = Object.entries({
     supabase: "Supabase Auth and Postgres",
-    stripe: "Stripe billing",
+    access: "Access mode",
     r2: "Cloudflare R2 storage",
     crof: "Managed model API key"
   }).map(([key, label]) => `
@@ -176,10 +173,7 @@ function renderServices() {
   `).join("");
 }
 
-function planCard(plan, mode) {
-  const button = mode === "checkout"
-    ? `<button class="primary-button full" data-checkout-plan="${escapeHtml(plan.id)}" ${plan.checkoutEnabled ? "" : "disabled"}>${plan.checkoutEnabled ? "Subscribe" : "Price not configured"}</button>`
-    : "";
+function planCard(plan) {
   return `
     <article class="plan-card">
       <h3>${escapeHtml(plan.name)}</h3>
@@ -190,14 +184,13 @@ function planCard(plan, mode) {
         <li>${Number(plan.monthlyImageLimit).toLocaleString()} images per month</li>
         <li>${Number(plan.maxImagesPerMessage).toLocaleString()} images per message</li>
       </ul>
-      ${button}
     </article>
   `;
 }
 
 function renderPlans() {
-  els.publicPlans.innerHTML = state.plans.map((plan) => planCard(plan, "preview")).join("");
-  els.paywallPlans.innerHTML = state.plans.map((plan) => planCard(plan, "checkout")).join("");
+  els.publicPlans.innerHTML = state.plans.map((plan) => planCard(plan)).join("");
+  els.paywallPlans.innerHTML = state.plans.map((plan) => planCard(plan)).join("");
 }
 
 function renderShell() {
@@ -214,7 +207,7 @@ function renderShell() {
     return;
   }
 
-  if (!hasActiveSubscription()) {
+  if (!hasChatAccess()) {
     els.paywallEmail.textContent = state.me?.user?.email || "";
     showOnly(els.paywallView);
     return;
@@ -244,7 +237,7 @@ function renderAccount() {
   els.accountSummary.innerHTML = `
     <div class="section-title">${escapeHtml(state.me?.user?.email || "Signed in")}</div>
     <p class="muted">Plan: ${escapeHtml(plan?.name || "No active plan")}</p>
-    <p class="muted">Status: ${escapeHtml(sub?.status || "none")}</p>
+    <p class="muted">Access: ${escapeHtml(sub?.status || state.me?.access?.mode || "none")}</p>
     ${sub?.currentPeriodEnd ? `<p class="muted">Renews: ${escapeHtml(new Date(sub.currentPeriodEnd).toLocaleDateString())}</p>` : ""}
   `;
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
@@ -350,19 +343,9 @@ async function loadActiveConversation() {
   state.messages = payload.messages || [];
 }
 
-async function loadPaidApp() {
+async function loadChatApp() {
   await Promise.all([loadModelsState(), loadConversationsState()]);
   renderShell();
-}
-
-async function checkout(planId) {
-  const payload = await createCheckout(state.session, planId);
-  window.location.href = payload.url;
-}
-
-async function openPortal() {
-  const payload = await createBillingPortal(state.session);
-  window.location.href = payload.url;
 }
 
 async function addConversation() {
@@ -513,7 +496,7 @@ async function bootstrap() {
       }
     }
     renderShell();
-    if (state.session && hasActiveSubscription()) await loadPaidApp();
+    if (state.session && hasChatAccess()) await loadChatApp();
   } catch (error) {
     showToast(error.message);
   }
@@ -537,12 +520,6 @@ function bindEvents() {
   els.refreshAuthButton.addEventListener("click", bootstrap);
   els.paywallSignOutButton.addEventListener("click", signOutAndReset);
   els.signOutButton.addEventListener("click", signOutAndReset);
-  els.billingPortalButton.addEventListener("click", () => openPortal().catch((error) => showToast(error.message)));
-
-  els.paywallPlans.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-checkout-plan]");
-    if (button) checkout(button.dataset.checkoutPlan).catch((error) => showToast(error.message));
-  });
 
   els.newChatButton.addEventListener("click", () => addConversation().catch((error) => showToast(error.message)));
   els.accountButton.addEventListener("click", () => openDrawer(els.accountDrawer));

@@ -1,18 +1,60 @@
 import { HttpError } from "../http/responses.js";
-import { findPlanById, hasActiveSubscription } from "./plans.js";
+import { findPlanById } from "./plans.js";
 
-export async function requireActiveEntitlement({ db, userId, plans, signal }) {
+const activeStatuses = new Set(["active", "trialing"]);
+
+function hasActiveSubscription(subscription) {
+  return activeStatuses.has(subscription?.status);
+}
+
+function testingSubscription(planId) {
+  return {
+    id: null,
+    provider: "testing",
+    status: "testing",
+    plan_id: planId,
+    current_period_end: null,
+    cancel_at_period_end: false
+  };
+}
+
+export async function getCurrentEntitlement({ db, userId, plans, access, signal }) {
+  if (access?.mode === "testing") {
+    const plan = findPlanById(plans, access.testingPlanId) || plans[0];
+    return {
+      active: Boolean(plan),
+      subscription: plan ? testingSubscription(plan.id) : null,
+      plan: plan || null
+    };
+  }
+
   const subscription = await db.getLatestSubscription(userId, { signal });
   if (!hasActiveSubscription(subscription)) {
-    throw new HttpError(402, "Choose a Smartyfy plan to start chatting.");
+    return { active: false, subscription, plan: null };
   }
 
   const plan = findPlanById(plans, subscription.plan_id);
-  if (!plan) {
+  return {
+    active: Boolean(plan),
+    subscription,
+    plan: plan || null
+  };
+}
+
+export async function requireActiveEntitlement({ db, userId, plans, access, signal }) {
+  const entitlement = await getCurrentEntitlement({ db, userId, plans, access, signal });
+  if (!entitlement.active || !entitlement.subscription) {
+    throw new HttpError(402, "Choose a Smartyfy plan to start chatting.");
+  }
+
+  if (!entitlement.plan) {
     throw new HttpError(402, "Your subscription plan is not available. Contact support.");
   }
 
-  return { subscription, plan };
+  return {
+    subscription: entitlement.subscription,
+    plan: entitlement.plan
+  };
 }
 
 export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, signal }) {
@@ -30,7 +72,7 @@ export async function consumeUsageOrThrow({ db, userId, subscription, plan, imag
 
   await db.recordUsageEvent({
     user_id: userId,
-    subscription_id: subscription.id,
+    subscription_id: subscription.id || null,
     plan_id: plan.id,
     event_type: "chat.completion",
     image_count: imageCount,

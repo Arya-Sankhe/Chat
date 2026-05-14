@@ -99,14 +99,6 @@ export class SupabaseRest {
     return single(rows);
   }
 
-  async getProfileByStripeCustomer(customerId, { signal } = {}) {
-    const rows = await this.request("profiles", {
-      query: { stripe_customer_id: `eq.${customerId}`, select: "*", limit: "1" },
-      signal
-    });
-    return single(rows);
-  }
-
   async getLatestSubscription(userId, { signal } = {}) {
     const rows = await this.request("subscriptions", {
       query: {
@@ -123,7 +115,7 @@ export class SupabaseRest {
   async upsertSubscription(subscription, { signal } = {}) {
     const rows = await this.request("subscriptions", {
       method: "POST",
-      query: { on_conflict: "stripe_subscription_id" },
+      query: { on_conflict: "provider_subscription_id" },
       body: subscription,
       prefer: "resolution=merge-duplicates,return=representation",
       signal
@@ -293,33 +285,14 @@ export class SupabaseRest {
     return single(rows);
   }
 
-  async hasWebhookEvent(eventId, { signal } = {}) {
-    const rows = await this.request("webhook_events", {
-      query: { id: `eq.${eventId}`, select: "id", limit: "1" },
-      signal
-    });
-    return Boolean(single(rows));
-  }
-
-  async recordWebhookEvent(event, { signal } = {}) {
-    const rows = await this.request("webhook_events", {
-      method: "POST",
-      body: event,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
-  }
-
   async adminSummary({ signal } = {}) {
-    const [profiles, subscriptions, webhooks, usage] = await Promise.all([
+    const [profiles, subscriptions, usage] = await Promise.all([
       this.request("profiles", { query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "25" }, signal }),
       this.request("subscriptions", { query: { select: "*", order: "updated_at.desc", limit: "25" }, signal }),
-      this.request("webhook_events", { query: { select: "id,type,processed_at,created_at", order: "created_at.desc", limit: "25" }, signal }),
       this.request("usage_daily", { query: { select: "*", order: "day.desc", limit: "25" }, signal })
     ]);
 
-    return { profiles, subscriptions, webhooks, usage };
+    return { profiles, subscriptions, usage };
   }
 
   async getModelCache(id, { signal } = {}) {

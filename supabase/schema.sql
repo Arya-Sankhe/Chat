@@ -3,7 +3,6 @@ create extension if not exists pgcrypto;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
-  stripe_customer_id text unique,
   role text not null default 'user' check (role in ('user', 'admin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -12,11 +11,10 @@ create table if not exists public.profiles (
 create table if not exists public.plans (
   id text primary key,
   name text not null,
-  stripe_price_id text unique,
   daily_message_limit integer not null,
   monthly_image_limit integer not null,
   max_images_per_message integer not null,
-  price_label text not null default 'Configured in Stripe',
+  price_label text not null default 'Testing access',
   active boolean not null default true,
   sort_order integer not null default 100,
   created_at timestamptz not null default now(),
@@ -35,9 +33,10 @@ on conflict (id) do nothing;
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  stripe_customer_id text not null,
-  stripe_subscription_id text not null unique,
-  stripe_price_id text,
+  provider text not null default 'manual',
+  provider_customer_id text,
+  provider_subscription_id text unique,
+  provider_price_id text,
   plan_id text references public.plans(id),
   status text not null,
   cancel_at_period_end boolean not null default false,
@@ -119,24 +118,37 @@ create table if not exists public.usage_events (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.webhook_events (
-  id text primary key,
-  type text not null,
-  payload jsonb not null,
-  processed_at timestamptz,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.model_cache (
   id text primary key,
   payload jsonb not null,
   fetched_at timestamptz not null default now()
 );
 
+alter table public.profiles drop column if exists stripe_customer_id;
+alter table public.plans drop column if exists stripe_price_id;
+alter table public.plans alter column price_label set default 'Testing access';
+alter table public.subscriptions drop column if exists stripe_customer_id;
+alter table public.subscriptions drop column if exists stripe_subscription_id;
+alter table public.subscriptions drop column if exists stripe_price_id;
+alter table public.subscriptions add column if not exists provider text not null default 'manual';
+alter table public.subscriptions add column if not exists provider_customer_id text;
+alter table public.subscriptions add column if not exists provider_subscription_id text unique;
+alter table public.subscriptions add column if not exists provider_price_id text;
+drop table if exists public.webhook_events;
+
+update public.plans
+set price_label = 'Testing access', updated_at = now()
+where price_label = 'Configured in Stripe';
+
 create index if not exists subscriptions_user_updated_idx on public.subscriptions (user_id, updated_at desc);
 create index if not exists conversations_user_updated_idx on public.conversations (user_id, updated_at desc) where deleted_at is null;
 create index if not exists messages_conversation_created_idx on public.messages (conversation_id, created_at);
 create index if not exists attachments_user_status_idx on public.attachments (user_id, status);
+
+grant usage on schema public to anon, authenticated, service_role;
+grant select on public.plans to anon, authenticated;
+grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.usage_daily, public.usage_monthly to authenticated;
+grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.usage_daily, public.usage_monthly, public.usage_events, public.model_cache to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.plans enable row level security;
@@ -147,7 +159,6 @@ alter table public.attachments enable row level security;
 alter table public.usage_daily enable row level security;
 alter table public.usage_monthly enable row level security;
 alter table public.usage_events enable row level security;
-alter table public.webhook_events enable row level security;
 alter table public.model_cache enable row level security;
 
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);

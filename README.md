@@ -1,13 +1,12 @@
 # Smartyfy Chat
 
-Smartyfy Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible model API. Users sign in with Supabase Auth, subscribe through Stripe, store chat history in Supabase Postgres, upload images to private Cloudflare R2, and chat through a server-only model API key.
+Smartyfy Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible model API. Users sign in with Supabase Auth, store chat history in Supabase Postgres, upload images to private Cloudflare R2, and chat through a server-only model API key.
 
 ## What Is Included
 
-- Paid-first access: active Stripe subscription required before chat.
+- Testing access mode: signed-in users can chat without a payment gateway while the product is in MVP testing.
 - Supabase Auth with Google OAuth and email magic links.
-- Supabase Postgres persistence for profiles, plans, subscriptions, conversations, messages, usage, attachments, and webhooks.
-- Stripe Checkout, Customer Portal, and signed webhook handling.
+- Supabase Postgres persistence for profiles, plans, gateway-neutral subscriptions, conversations, messages, usage, and attachments.
 - Cloudflare R2 signed uploads for user images.
 - Server-only Crof model API key and cached `/models` access.
 - Streaming chat responses with usage metering and plan limits.
@@ -32,10 +31,9 @@ For future packages:
 1. Create a Supabase project.
 2. Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL editor.
 3. Enable Supabase Google OAuth and email magic links.
-4. Create Stripe products/prices for `hobby`, `pro`, `intermediate`, `scale`, and `max`.
-5. Add a Stripe webhook endpoint for `/api/stripe/webhook`.
-6. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
-7. Copy `.env.example` to `.env` and fill in all required values.
+4. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
+5. Copy `.env.example` to `.env` and fill in all required values.
+6. Keep `ACCESS_MODE=testing` for MVP testing. Switch it to `subscription` only after the new payment gateway is implemented.
 
 ## Environment
 
@@ -46,13 +44,12 @@ Required:
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
 - `R2_ACCOUNT_ID`
 - `R2_ACCESS_KEY_ID`
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET`
-- `PLAN_*_STRIPE_PRICE_ID`
+- `ACCESS_MODE`
+- `TEST_PLAN_ID`
 
 Optional plan limit overrides are available in `.env.example`.
 

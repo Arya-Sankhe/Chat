@@ -19,11 +19,17 @@ function readInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readAccessMode(value) {
+  const mode = clean(value || "testing").toLowerCase();
+  return mode === "subscription" ? "subscription" : "testing";
+}
+
 export function loadConfig(env = process.env) {
   const port = readPort(env.PORT);
   const defaultBaseUrl = normalizeBaseUrl(env.CROFAI_BASE_URL || DEFAULT_CROFAI_BASE_URL);
   const appUrl = cleanUrl(env.APP_URL) || `http://localhost:${port}`;
   const plans = loadPlans(env);
+  const accessMode = readAccessMode(env.ACCESS_MODE);
   const r2AccountId = clean(env.R2_ACCOUNT_ID);
 
   return {
@@ -34,17 +40,14 @@ export function loadConfig(env = process.env) {
     allowedBaseUrls: CROFAI_BASE_URLS,
     serverApiKey: clean(env.CROFAI_API_KEY),
     plans,
+    access: {
+      mode: accessMode,
+      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
+    },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),
       anonKey: clean(env.SUPABASE_ANON_KEY),
       serviceRoleKey: clean(env.SUPABASE_SERVICE_ROLE_KEY)
-    },
-    stripe: {
-      secretKey: clean(env.STRIPE_SECRET_KEY),
-      webhookSecret: clean(env.STRIPE_WEBHOOK_SECRET),
-      successUrl: clean(env.STRIPE_SUCCESS_URL) || `${appUrl}/?billing=success`,
-      cancelUrl: clean(env.STRIPE_CANCEL_URL) || `${appUrl}/?billing=cancel`,
-      portalReturnUrl: clean(env.STRIPE_PORTAL_RETURN_URL) || `${appUrl}/?account=billing`
     },
     r2: {
       accountId: r2AccountId,
@@ -63,7 +66,7 @@ export function configuredServices(config) {
   return {
     crof: Boolean(config.serverApiKey),
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
-    stripe: Boolean(config.stripe.secretKey && config.stripe.webhookSecret),
+    access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket)
   };
 }

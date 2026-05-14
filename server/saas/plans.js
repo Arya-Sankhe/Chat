@@ -3,7 +3,7 @@ const PLAN_DEFAULTS = [
     id: "hobby",
     name: "Hobby",
     description: "Light personal chat usage.",
-    priceLabel: "Configured in Stripe",
+    priceLabel: "Testing access",
     dailyMessageLimit: 150,
     monthlyImageLimit: 200,
     maxImagesPerMessage: 4,
@@ -13,7 +13,7 @@ const PLAN_DEFAULTS = [
     id: "pro",
     name: "Pro",
     description: "Everyday model access for regular users.",
-    priceLabel: "Configured in Stripe",
+    priceLabel: "Testing access",
     dailyMessageLimit: 600,
     monthlyImageLimit: 1000,
     maxImagesPerMessage: 4,
@@ -23,7 +23,7 @@ const PLAN_DEFAULTS = [
     id: "intermediate",
     name: "Intermediate",
     description: "Higher daily capacity for heavier workflows.",
-    priceLabel: "Configured in Stripe",
+    priceLabel: "Testing access",
     dailyMessageLimit: 1500,
     monthlyImageLimit: 2500,
     maxImagesPerMessage: 4,
@@ -33,7 +33,7 @@ const PLAN_DEFAULTS = [
     id: "scale",
     name: "Scale",
     description: "Large-volume chat and image usage.",
-    priceLabel: "Configured in Stripe",
+    priceLabel: "Testing access",
     dailyMessageLimit: 5000,
     monthlyImageLimit: 7500,
     maxImagesPerMessage: 6,
@@ -43,15 +43,13 @@ const PLAN_DEFAULTS = [
     id: "max",
     name: "Max",
     description: "Highest managed Smartyfy limits.",
-    priceLabel: "Configured in Stripe",
+    priceLabel: "Testing access",
     dailyMessageLimit: 15000,
     monthlyImageLimit: 20000,
     maxImagesPerMessage: 8,
     sortOrder: 50
   }
 ];
-
-const activeStatuses = new Set(["active", "trialing"]);
 
 function envName(planId, suffix) {
   return `PLAN_${planId.toUpperCase()}_${suffix}`;
@@ -69,7 +67,6 @@ function readInt(value, fallback) {
 export function loadPlans(env = process.env) {
   return PLAN_DEFAULTS.map((plan) => ({
     ...plan,
-    stripePriceId: clean(env[envName(plan.id, "STRIPE_PRICE_ID")]),
     priceLabel: clean(env[envName(plan.id, "PRICE_LABEL")]) || plan.priceLabel,
     dailyMessageLimit: readInt(env[envName(plan.id, "DAILY_MESSAGES")], plan.dailyMessageLimit),
     monthlyImageLimit: readInt(env[envName(plan.id, "MONTHLY_IMAGES")], plan.monthlyImageLimit),
@@ -85,19 +82,10 @@ export function publicPlan(plan) {
     priceLabel: plan.priceLabel,
     dailyMessageLimit: plan.dailyMessageLimit,
     monthlyImageLimit: plan.monthlyImageLimit,
-    maxImagesPerMessage: plan.maxImagesPerMessage,
-    checkoutEnabled: Boolean(plan.stripePriceId)
+    maxImagesPerMessage: plan.maxImagesPerMessage
   };
 }
 
 export function findPlanById(plans, id) {
   return plans.find((plan) => plan.id === id);
-}
-
-export function findPlanByPriceId(plans, priceId) {
-  return plans.find((plan) => plan.stripePriceId && plan.stripePriceId === priceId);
-}
-
-export function hasActiveSubscription(subscription) {
-  return activeStatuses.has(subscription?.status);
 }
