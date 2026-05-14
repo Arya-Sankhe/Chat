@@ -14,7 +14,7 @@ This document describes the app after removing Stripe and switching the MVP to p
 ## Current App Flow
 
 1. The browser loads `/api/config` to get public runtime config.
-2. The user signs in with Supabase Google OAuth or email magic link.
+2. The user signs in with a Supabase email magic link. Google OAuth can be shown later by enabling the provider in Supabase and setting `SUPABASE_GOOGLE_ENABLED=true`.
 3. The browser sends the Supabase access token to the Node backend.
 4. The backend upserts the user profile in Supabase Postgres.
 5. In testing mode, the backend grants the configured test plan.
@@ -46,6 +46,7 @@ CROFAI_API_KEY=
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_GOOGLE_ENABLED=false
 ACCESS_MODE=testing
 TEST_PLAN_ID=pro
 R2_ACCOUNT_ID=

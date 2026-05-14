@@ -375,6 +375,7 @@ export async function handleApiRequest(req, res, url, config) {
         app: "smartyfy-chat",
         supabaseUrl: config.supabase.url,
         supabaseAnonKey: config.supabase.anonKey,
+        auth: config.auth,
         defaultBaseUrl: config.defaultBaseUrl,
         services: configuredServices(config)
       });

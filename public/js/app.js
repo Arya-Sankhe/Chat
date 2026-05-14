@@ -193,8 +193,13 @@ function renderPlans() {
   els.paywallPlans.innerHTML = state.plans.map((plan) => planCard(plan)).join("");
 }
 
+function renderAuthOptions() {
+  els.googleButton.classList.toggle("hidden", !state.config?.auth?.googleEnabled);
+}
+
 function renderShell() {
   renderPlans();
+  renderAuthOptions();
 
   if (!servicesReady()) {
     renderServices();
@@ -504,6 +509,7 @@ async function bootstrap() {
 
 function bindEvents() {
   els.googleButton.addEventListener("click", () => {
+    if (!state.config?.auth?.googleEnabled) return;
     window.location.href = googleSignInUrl(state.config);
   });
 

@@ -132,9 +132,23 @@ alter table public.subscriptions drop column if exists stripe_subscription_id;
 alter table public.subscriptions drop column if exists stripe_price_id;
 alter table public.subscriptions add column if not exists provider text not null default 'manual';
 alter table public.subscriptions add column if not exists provider_customer_id text;
-alter table public.subscriptions add column if not exists provider_subscription_id text unique;
+alter table public.subscriptions add column if not exists provider_subscription_id text;
 alter table public.subscriptions add column if not exists provider_price_id text;
 drop table if exists public.webhook_events;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'subscriptions_provider_subscription_id_key'
+      and conrelid = 'public.subscriptions'::regclass
+  ) then
+    alter table public.subscriptions
+      add constraint subscriptions_provider_subscription_id_key unique (provider_subscription_id);
+  end if;
+end;
+$$;
 
 update public.plans
 set price_label = 'Testing access', updated_at = now()
@@ -160,6 +174,15 @@ alter table public.usage_daily enable row level security;
 alter table public.usage_monthly enable row level security;
 alter table public.usage_events enable row level security;
 alter table public.model_cache enable row level security;
+
+drop policy if exists "profiles read own" on public.profiles;
+drop policy if exists "plans read active" on public.plans;
+drop policy if exists "subscriptions read own" on public.subscriptions;
+drop policy if exists "conversations read own" on public.conversations;
+drop policy if exists "messages read own" on public.messages;
+drop policy if exists "attachments read own" on public.attachments;
+drop policy if exists "usage daily read own" on public.usage_daily;
+drop policy if exists "usage monthly read own" on public.usage_monthly;
 
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);
 create policy "plans read active" on public.plans for select using (active = true);

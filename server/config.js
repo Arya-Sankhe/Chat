@@ -24,6 +24,12 @@ function readAccessMode(value) {
   return mode === "subscription" ? "subscription" : "testing";
 }
 
+function readBoolean(value, fallback = false) {
+  const normalized = clean(value).toLowerCase();
+  if (!normalized) return fallback;
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
 export function loadConfig(env = process.env) {
   const port = readPort(env.PORT);
   const defaultBaseUrl = normalizeBaseUrl(env.CROFAI_BASE_URL || DEFAULT_CROFAI_BASE_URL);
@@ -48,6 +54,9 @@ export function loadConfig(env = process.env) {
       url: cleanUrl(env.SUPABASE_URL),
       anonKey: clean(env.SUPABASE_ANON_KEY),
       serviceRoleKey: clean(env.SUPABASE_SERVICE_ROLE_KEY)
+    },
+    auth: {
+      googleEnabled: readBoolean(env.SUPABASE_GOOGLE_ENABLED, false)
     },
     r2: {
       accountId: r2AccountId,
