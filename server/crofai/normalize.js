@@ -176,12 +176,16 @@ export function normalizeChatRequest(input) {
   const stop = normalizeStop(input.stop);
   const tools = normalizeTools(input.tools);
 
+  const validEfforts = new Set(["low", "medium", "high"]);
+  const reasoningEffort = validEfforts.has(input.reasoning_effort) ? input.reasoning_effort : undefined;
+
   if (maxTokens !== undefined) normalized.max_tokens = maxTokens;
   if (temperature !== undefined) normalized.temperature = temperature;
   if (topP !== undefined) normalized.top_p = topP;
   if (seed !== undefined) normalized.seed = seed;
   if (stop !== undefined) normalized.stop = stop;
   if (tools !== undefined) normalized.tools = tools;
+  if (reasoningEffort !== undefined) normalized.reasoning_effort = reasoningEffort;
 
   return normalized;
 }

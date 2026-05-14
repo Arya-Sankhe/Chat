@@ -39,7 +39,8 @@ const defaultSettings = {
   top_p: 1,
   max_tokens: "",
   seed: "",
-  systemPrompt: ""
+  systemPrompt: "",
+  thinkingEffort: "medium"
 };
 
 const state = {
@@ -102,6 +103,7 @@ const els = {
   adminSection: document.querySelector("#adminSection"),
   loadAdminButton: document.querySelector("#loadAdminButton"),
   adminOutput: document.querySelector("#adminOutput"),
+  thinkingEffort: document.querySelector("#thinkingEffort"),
   composerModelWrap: document.querySelector("#composerModelWrap"),
   modelButton: document.querySelector("#modelButton"),
   modelLogoImg: document.querySelector("#modelLogoImg"),
@@ -194,6 +196,7 @@ function renderShell() {
   renderUsage();
   renderConversations();
   renderModelOptions();
+  renderThinkingEffort();
   renderMessages();
 }
 
@@ -352,6 +355,17 @@ function renderModelOptions() {
   els.modelLabel.textContent = displayName;
   els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
+}
+
+/* ─── Thinking Effort ─── */
+
+function renderThinkingEffort() {
+  const current = state.settings.thinkingEffort || "medium";
+  for (const btn of els.thinkingEffort.querySelectorAll(".effort-seg")) {
+    const active = btn.dataset.effort === current;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-checked", String(active));
+  }
 }
 
 /* ─── Messages ─── */
@@ -688,7 +702,10 @@ async function sendPrompt() {
       text,
       attachments: uploaded.map((item) => item.id),
       model: state.settings.model,
-      settings: state.settings
+      settings: {
+        ...state.settings,
+        reasoning_effort: state.settings.thinkingEffort || "medium"
+      }
     }, {
       signal: state.abortController.signal,
       onEvent: (event) => {
@@ -815,6 +832,13 @@ function bindEvents() {
     closeModelDropdown();
     renderModelOptions();
     els.promptInput.focus();
+  });
+
+  els.thinkingEffort.addEventListener("click", (e) => {
+    const seg = e.target.closest("[data-effort]");
+    if (!seg) return;
+    updateSetting("thinkingEffort", seg.dataset.effort);
+    renderThinkingEffort();
   });
 
   els.modelInput.addEventListener("input", renderModelCatalog);

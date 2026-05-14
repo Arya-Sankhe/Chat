@@ -673,6 +673,45 @@ body.sidebar-expanded .conversation-row {
   background: var(--accent-hover);
 }
 
+/* ─── Thinking Effort Selector ─── */
+.thinking-effort {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.effort-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+  transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+
+.effort-seg:hover {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
+.effort-seg.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.effort-seg.active:hover {
+  background: var(--accent-hover);
+}
+
 /* ─── Model selector (inside composer) ─── */
 .composer-model-wrap {
   position: relative;
@@ -1354,6 +1393,21 @@ body.sidebar-expanded .conversation-row {
 
   .composer-model-wrap {
     max-width: min(150px, 38vw);
+  }
+
+  .thinking-effort {
+    height: 28px;
+    padding: 2px;
+  }
+
+  .effort-seg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .effort-seg svg {
+    width: 12px;
+    height: 12px;
   }
 
   .composer-tool,
