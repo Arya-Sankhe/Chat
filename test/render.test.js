@@ -5,7 +5,8 @@ import {
   formatModelMeta,
   inferModelBadges,
   modelBrandLogoUrl,
-  normalizeModelList
+  normalizeModelList,
+  renderContent
 } from "../public/js/render.js";
 
 test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
@@ -71,4 +72,60 @@ test("model metadata helpers expose useful /models fields", () => {
 
   assert.deepEqual(formatModelMeta(model), ["262,144 ctx", "8,192 out", "fp8", "~105 tok/s"]);
   assert.deepEqual(inferModelBadges(model), ["reasoning", "turbo"]);
+});
+
+test("renderContent strips unsafe HTML from marked output", () => {
+  globalThis.marked = {
+    parse(src) {
+      return `<p>${src}</p><img src="x" onerror="alert(1)"><a href="javascript:alert(1)">bad</a><script>alert(1)</script>`;
+    },
+    use() {}
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  const html = renderContent("hello");
+  assert.match(html, /<p>hello<\/p>/);
+  assert.doesNotMatch(html, /onerror/i);
+  assert.doesNotMatch(html, /javascript:/i);
+  assert.doesNotMatch(html, /<script/i);
+});
+
+test("renderContent renders likely single-dollar math but leaves prices alone", () => {
+  globalThis.marked = {
+    parse(src) {
+      return `<p>${src}</p>`;
+    },
+    use() {}
+  };
+  globalThis.katex = {
+    renderToString(tex, options) {
+      return `<span class="katex" data-display="${String(options.displayMode)}">${tex}</span>`;
+    }
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.hljs;
+
+  assert.match(renderContent("Formula $x_1 + y$."), /<span class="katex" data-display="false">x_1 \+ y<\/span>/);
+  assert.match(renderContent("Costs are $5 and $10 today."), /Costs are \$5 and \$10 today\./);
+});
+
+test("renderContent does not extract math inside code spans or fences", () => {
+  globalThis.marked = {
+    parse(src) {
+      return `<p>${src}</p>`;
+    },
+    use() {}
+  };
+  globalThis.katex = {
+    renderToString(tex) {
+      return `<span class="katex">${tex}</span>`;
+    }
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.hljs;
+
+  assert.doesNotMatch(renderContent("Use `$x_1$` literally."), /class="katex"/);
+  assert.doesNotMatch(renderContent("```js\nconst price = '$x_1$';\n```"), /class="katex"/);
 });

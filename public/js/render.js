@@ -7,7 +7,7 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-/* ─── Fallback renderer (when CDN libs haven't loaded) ─── */
+/* Fallback renderer (when CDN libs haven't loaded) */
 
 function renderFallback(text) {
   const parts = String(text || "").split("```");
@@ -22,40 +22,62 @@ function renderFallback(text) {
     .join("");
 }
 
-/* ─── Math extraction (protect LaTeX from the markdown parser) ─── */
+/* Math extraction (protect LaTeX from the markdown parser) */
+
+function protectCodeSpans(text) {
+  const slots = [];
+  let id = 0;
+  let s = String(text ?? "").replace(/```[\s\S]*?```/g, (raw) => {
+    const token = `SMARTYFYCODEHOLD${id}END`;
+    slots.push({ token, raw });
+    id++;
+    return token;
+  });
+  s = s.replace(/`[^`\n]+`/g, (raw) => {
+    const token = `SMARTYFYCODEHOLD${id}END`;
+    slots.push({ token, raw });
+    id++;
+    return token;
+  });
+  return { text: s, slots };
+}
+
+function restoreCodeSpans(text, slots) {
+  let s = text;
+  for (const { token, raw } of slots) s = s.replaceAll(token, raw);
+  return s;
+}
+
+function isLikelySingleDollarMath(tex) {
+  const t = String(tex ?? "").trim();
+  if (!t || t.length > 240) return false;
+  if (/^\d+(?:[.,]\d+)?(?:\s|$)/.test(t)) return false;
+  return /\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t);
+}
 
 function extractMath(text) {
   const slots = [];
   let id = 0;
 
   function hold(latex, display) {
-    const token = `MATHHOLD${id}ENDMATH`;
+    const token = `SMARTYFYMATHHOLD${id}END`;
     slots.push({ token, latex, display });
     id++;
     return token;
   }
 
-  const codeHolds = [];
-  let cid = 0;
-  let s = text.replace(/```[\s\S]*?```/g, (m) => {
-    const t = `CODEHOLD${cid}ENDCODE`;
-    codeHolds.push({ t, m });
-    cid++;
-    return t;
-  });
-  s = s.replace(/`[^`\n]+`/g, (m) => {
-    const t = `CODEHOLD${cid}ENDCODE`;
-    codeHolds.push({ t, m });
-    cid++;
-    return t;
-  });
+  const code = protectCodeSpans(text);
+  let s = code.text;
 
   s = s.replace(/\$\$([\s\S]*?)\$\$/g, (_, tex) => hold(tex.trim(), true));
   s = s.replace(/\\\[([\s\S]*?)\\\]/g, (_, tex) => hold(tex.trim(), true));
-  s = s.replace(/(?<!\$)\$(?!\$)([^\n$]+?)\$(?!\$)/g, (_, tex) => hold(tex.trim(), false));
   s = s.replace(/\\\((.*?)\\\)/g, (_, tex) => hold(tex.trim(), false));
+  s = s.replace(/(^|[^\\\w$])\$(?!\$)([^\n$]+?)\$(?!\$)/g, (raw, before, tex) => {
+    if (!isLikelySingleDollarMath(tex)) return raw;
+    return `${before}${hold(tex.trim(), false)}`;
+  });
 
-  for (const { t, m } of codeHolds) s = s.replaceAll(t, m);
+  s = restoreCodeSpans(s, code.slots);
 
   return { text: s, slots };
 }
@@ -78,7 +100,7 @@ function restoreMath(html, slots) {
   return html;
 }
 
-/* ─── Syntax highlighting for code blocks ─── */
+/* Syntax highlighting for code blocks */
 
 function highlightCodeBlocks(html) {
   const hljs = globalThis.hljs;
@@ -92,7 +114,8 @@ function highlightCodeBlocks(html) {
         .replaceAll("&lt;", "<")
         .replaceAll("&gt;", ">")
         .replaceAll("&quot;", '"')
-        .replaceAll("&#39;", "'");
+        .replaceAll("&#39;", "'")
+        .replaceAll("&#039;", "'");
       try {
         const result = lang && hljs.getLanguage(lang)
           ? hljs.highlight(decoded, { language: lang })
@@ -106,7 +129,30 @@ function highlightCodeBlocks(html) {
   );
 }
 
-/* ─── Rich text rendering (marked + KaTeX + hljs) ─── */
+/* Sanitization */
+
+function sanitizeUrl(url) {
+  const s = String(url ?? "").trim();
+  if (/^(https?:|mailto:|tel:|\/|#)/i.test(s)) return s;
+  return "";
+}
+
+function sanitizeRenderedHtml(html) {
+  const purifier = globalThis.DOMPurify;
+  if (purifier && typeof purifier.sanitize === "function") {
+    return purifier.sanitize(html, {
+      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+      ADD_ATTR: ["target", "rel"]
+    });
+  }
+
+  return String(html)
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, "");
+}
+
+/* Rich text rendering (marked + KaTeX + hljs) */
 
 let markedReady = false;
 
@@ -116,7 +162,20 @@ function ensureMarkedConfig() {
   const m = globalThis.marked;
   if (!m) return;
   try {
-    m.use({ breaks: true, gfm: true });
+    const renderer = {
+      html(token) {
+        return escapeHtml(typeof token === "string" ? token : token?.raw ?? token?.text ?? "");
+      },
+      link(token) {
+        if (typeof token === "string") return false;
+        const href = sanitizeUrl(token?.href);
+        const title = token?.title ? ` title="${escapeHtml(token.title)}"` : "";
+        const text = token?.text ?? "";
+        if (!href) return text;
+        return `<a href="${escapeHtml(href)}"${title} target="_blank" rel="noopener noreferrer">${text}</a>`;
+      }
+    };
+    m.use({ breaks: true, gfm: true, renderer });
   } catch {
     try { m.setOptions({ breaks: true, gfm: true }); } catch { /* ignore */ }
   }
@@ -135,11 +194,12 @@ function renderRichText(raw) {
   let html = m.parse(processed);
   html = restoreMath(html, slots);
   html = highlightCodeBlocks(html);
+  html = sanitizeRenderedHtml(html);
 
   return html;
 }
 
-/* ─── Image URL validation ─── */
+/* Image URL validation */
 
 function safeImageUrl(url) {
   if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(String(url || ""))) return url;
@@ -151,7 +211,7 @@ function safeImageUrl(url) {
   }
 }
 
-/* ─── Public content renderer ─── */
+/* Public content renderer */
 
 export function renderContent(content) {
   if (Array.isArray(content)) {
