@@ -388,7 +388,7 @@ function renderMessages() {
 
     let reasoning = "";
     if (msg.reasoning) {
-      reasoning = `<details class="reasoning" open><summary>Thinking</summary><div>${renderContent(msg.reasoning)}</div></details>`;
+      reasoning = `<details class="reasoning"><summary>Thinking</summary><div>${renderContent(msg.reasoning)}</div></details>`;
     }
 
     let toolHtml = "";

@@ -7,15 +7,13 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function renderCodeAwareText(text) {
-  const parts = String(text || "").split("```");
+/* ─── Fallback renderer (when CDN libs haven't loaded) ─── */
 
+function renderFallback(text) {
+  const parts = String(text || "").split("```");
   return parts
     .map((part, index) => {
-      if (index % 2 === 1) {
-        return `<pre><code>${escapeHtml(part.trim())}</code></pre>`;
-      }
-
+      if (index % 2 === 1) return `<pre><code>${escapeHtml(part.trim())}</code></pre>`;
       return escapeHtml(part)
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/`([^`]+)`/g, "<code>$1</code>")
@@ -24,11 +22,127 @@ function renderCodeAwareText(text) {
     .join("");
 }
 
-function safeImageUrl(url) {
-  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(String(url || ""))) {
-    return url;
+/* ─── Math extraction (protect LaTeX from the markdown parser) ─── */
+
+function extractMath(text) {
+  const slots = [];
+  let id = 0;
+
+  function hold(latex, display) {
+    const token = `MATHHOLD${id}ENDMATH`;
+    slots.push({ token, latex, display });
+    id++;
+    return token;
   }
 
+  const codeHolds = [];
+  let cid = 0;
+  let s = text.replace(/```[\s\S]*?```/g, (m) => {
+    const t = `CODEHOLD${cid}ENDCODE`;
+    codeHolds.push({ t, m });
+    cid++;
+    return t;
+  });
+  s = s.replace(/`[^`\n]+`/g, (m) => {
+    const t = `CODEHOLD${cid}ENDCODE`;
+    codeHolds.push({ t, m });
+    cid++;
+    return t;
+  });
+
+  s = s.replace(/\$\$([\s\S]*?)\$\$/g, (_, tex) => hold(tex.trim(), true));
+  s = s.replace(/\\\[([\s\S]*?)\\\]/g, (_, tex) => hold(tex.trim(), true));
+  s = s.replace(/(?<!\$)\$(?!\$)([^\n$]+?)\$(?!\$)/g, (_, tex) => hold(tex.trim(), false));
+  s = s.replace(/\\\((.*?)\\\)/g, (_, tex) => hold(tex.trim(), false));
+
+  for (const { t, m } of codeHolds) s = s.replaceAll(t, m);
+
+  return { text: s, slots };
+}
+
+function restoreMath(html, slots) {
+  const k = globalThis.katex;
+  for (const { token, latex, display } of slots) {
+    let rendered;
+    if (k) {
+      try {
+        rendered = k.renderToString(latex, { displayMode: display, throwOnError: false });
+      } catch {
+        rendered = `<code>${escapeHtml(latex)}</code>`;
+      }
+    } else {
+      rendered = `<code>${escapeHtml(latex)}</code>`;
+    }
+    html = html.replaceAll(token, rendered);
+  }
+  return html;
+}
+
+/* ─── Syntax highlighting for code blocks ─── */
+
+function highlightCodeBlocks(html) {
+  const hljs = globalThis.hljs;
+  if (!hljs) return html;
+
+  return html.replace(
+    /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g,
+    (match, lang, code) => {
+      const decoded = code
+        .replaceAll("&amp;", "&")
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&quot;", '"')
+        .replaceAll("&#39;", "'");
+      try {
+        const result = lang && hljs.getLanguage(lang)
+          ? hljs.highlight(decoded, { language: lang })
+          : hljs.highlightAuto(decoded);
+        const cls = lang ? ` language-${escapeHtml(lang)}` : "";
+        return `<pre><code class="hljs${cls}">${result.value}</code></pre>`;
+      } catch {
+        return match;
+      }
+    }
+  );
+}
+
+/* ─── Rich text rendering (marked + KaTeX + hljs) ─── */
+
+let markedReady = false;
+
+function ensureMarkedConfig() {
+  if (markedReady) return;
+  markedReady = true;
+  const m = globalThis.marked;
+  if (!m) return;
+  try {
+    m.use({ breaks: true, gfm: true });
+  } catch {
+    try { m.setOptions({ breaks: true, gfm: true }); } catch { /* ignore */ }
+  }
+}
+
+function renderRichText(raw) {
+  const text = String(raw ?? "");
+  if (!text) return "";
+
+  const m = globalThis.marked;
+  if (!m || typeof m.parse !== "function") return renderFallback(text);
+
+  ensureMarkedConfig();
+
+  const { text: processed, slots } = extractMath(text);
+  let html = m.parse(processed);
+  html = restoreMath(html, slots);
+  html = highlightCodeBlocks(html);
+
+  return html;
+}
+
+/* ─── Image URL validation ─── */
+
+function safeImageUrl(url) {
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(String(url || ""))) return url;
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
@@ -37,11 +151,13 @@ function safeImageUrl(url) {
   }
 }
 
+/* ─── Public content renderer ─── */
+
 export function renderContent(content) {
   if (Array.isArray(content)) {
     return content
       .map((part) => {
-        if (part.type === "text") return renderCodeAwareText(part.text);
+        if (part.type === "text") return renderRichText(part.text);
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" alt="User supplied image">` : "";
@@ -50,8 +166,7 @@ export function renderContent(content) {
       })
       .join("");
   }
-
-  return renderCodeAwareText(content);
+  return renderRichText(content);
 }
 
 /**
