@@ -8,151 +8,196 @@
   </head>
   <body>
     <div id="app">
-      <section class="view center-view hidden" id="setupView">
-        <div class="panel narrow-panel">
-          <div class="brand-mark"></div>
-          <h1>Smartyfy Chat</h1>
-          <p class="muted">Server setup is incomplete. Configure Supabase, R2, testing access, and the managed model API key to launch the app.</p>
+
+      <section class="fullscreen-view hidden" id="setupView">
+        <div class="auth-panel">
+          <div class="auth-brand">Smartyfy</div>
+          <h1>Setup required</h1>
+          <p class="auth-sub">Configure all services to launch Smartyfy Chat.</p>
           <div class="service-list" id="serviceList"></div>
         </div>
       </section>
 
-      <section class="view public-view hidden" id="authView">
-        <header class="public-header">
-          <div class="brand-row">
-            <div class="brand-mark"></div>
-            <strong>Smartyfy Chat</strong>
+      <section class="fullscreen-view hidden" id="authView">
+        <div class="auth-panel">
+          <div class="auth-brand">Smartyfy</div>
+          <h1>Sign in to Smartyfy Chat</h1>
+          <p class="auth-sub">Managed AI chat for everyday work.</p>
+          <div class="auth-actions">
+            <button class="auth-google hidden" id="googleButton" type="button">
+              <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59A14.5 14.5 0 019.5 24c0-1.59.28-3.14.76-4.59l-7.98-6.19A23.97 23.97 0 000 24c0 3.77.9 7.35 2.56 10.52l7.97-5.93z"/><path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 5.93C6.51 42.62 14.62 48 24 48z"/></svg>
+              Continue with Google
+            </button>
+            <form class="magic-form" id="magicForm">
+              <input id="emailInput" type="email" autocomplete="email" placeholder="you@example.com" required>
+              <button class="auth-submit" type="submit">Send magic link</button>
+            </form>
+            <p class="auth-notice" id="authNotice"></p>
           </div>
-          <button class="text-button" id="refreshAuthButton" type="button">Refresh</button>
-        </header>
-
-        <main class="public-grid">
-          <section class="hero-copy">
-            <h1>Managed AI chat for everyday work.</h1>
-            <p>Sign in once, use the supported Smartyfy model catalog, and keep conversations synced with private image uploads.</p>
-            <div class="auth-card">
-              <button class="primary-button full hidden" id="googleButton" type="button">Continue with Google</button>
-              <form class="magic-form" id="magicForm">
-                <label for="emailInput">Email magic link</label>
-                <div class="inline-form">
-                  <input id="emailInput" type="email" autocomplete="email" placeholder="you@example.com" required>
-                  <button class="secondary-button" type="submit">Send link</button>
-                </div>
-              </form>
-              <p class="fine-print" id="authNotice"></p>
-            </div>
-          </section>
-          <section class="plan-grid" id="publicPlans"></section>
-        </main>
+        </div>
       </section>
 
-      <section class="view paywall-view hidden" id="paywallView">
-        <header class="app-topbar">
-          <div class="brand-row">
-            <div class="brand-mark"></div>
-            <strong>Smartyfy Chat</strong>
-          </div>
-          <div class="topbar-actions">
-            <span class="muted" id="paywallEmail"></span>
-            <button class="secondary-button" id="paywallSignOutButton" type="button">Sign out</button>
-          </div>
-        </header>
-        <main class="paywall-main">
-          <div class="paywall-copy">
-            <h1>Access is not enabled yet.</h1>
-            <p>Testing mode gives signed-in users access automatically. Production subscriptions will be connected when the new payment gateway is added.</p>
-          </div>
-          <section class="plan-grid wide" id="paywallPlans"></section>
-        </main>
+      <section class="fullscreen-view hidden" id="paywallView">
+        <div class="auth-panel">
+          <div class="auth-brand">Smartyfy</div>
+          <h1>Access not enabled</h1>
+          <p class="auth-sub">Testing mode gives signed-in users access automatically. Production subscriptions will be connected when the payment gateway is added.</p>
+          <p class="auth-email" id="paywallEmail"></p>
+          <div class="plan-grid" id="paywallPlans"></div>
+          <button class="auth-signout" id="paywallSignOutButton" type="button">Sign out</button>
+        </div>
       </section>
 
-      <section class="view chat-view hidden" id="chatView">
-        <aside class="sidebar">
-          <div class="sidebar-header">
-            <button class="icon-button" id="newChatButton" type="button" aria-label="New chat" title="New chat">
-              <span>+</span>
+      <div class="app-shell hidden" id="chatView">
+        <aside class="sidebar" aria-label="Navigation">
+          <nav class="sidebar-top">
+            <button class="sidebar-icon" id="sidebarButton" type="button" aria-label="Toggle sidebar" title="Menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
             </button>
-            <button class="icon-button" id="accountButton" type="button" aria-label="Account" title="Account">
-              <span>A</span>
+            <button class="sidebar-icon" id="newChatButton" type="button" aria-label="New chat" title="New chat">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             </button>
-          </div>
-          <nav class="conversation-list" id="conversationList" aria-label="Conversations"></nav>
+          </nav>
+          <nav class="sidebar-mid" id="conversationList" aria-label="Saved conversations"></nav>
+          <nav class="sidebar-bottom">
+            <button class="sidebar-icon" id="accountButton" type="button" aria-label="Account" title="Account">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </button>
+            <button class="sidebar-icon" id="settingsButton" type="button" aria-label="Settings" title="Settings">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            </button>
+          </nav>
         </aside>
 
-        <main class="chat-main">
-          <header class="chat-topbar">
-            <select id="modelSelect" aria-label="Model"></select>
+        <main class="chat-panel">
+          <header class="topbar">
             <div class="usage-pill" id="usagePill"></div>
           </header>
 
           <section class="messages" id="messages" aria-live="polite"></section>
 
-          <section class="composer-shell">
-            <div class="image-previews" id="imagePreviews"></div>
-            <textarea id="promptInput" rows="1" placeholder="Message Smartyfy" spellcheck="true"></textarea>
-            <div class="composer-actions">
-              <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
-              <button class="icon-button" id="imageButton" type="button" aria-label="Attach image" title="Attach image">Img</button>
-              <button class="secondary-button" id="settingsButton" type="button">Controls</button>
-              <button class="primary-button send-button" id="sendButton" type="button">Send</button>
-              <button class="secondary-button hidden" id="stopButton" type="button">Stop</button>
+          <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only">
+
+          <section class="composer-area" aria-label="Message composer">
+            <div class="composer-wrap">
+              <div class="composer">
+                <div class="composer-previews" id="imagePreviews"></div>
+                <textarea id="promptInput" rows="1" placeholder="Message Smartyfy" spellcheck="true"></textarea>
+                <div class="composer-bottom">
+                  <div class="composer-actions">
+                    <button class="composer-tool" type="button" id="imageToggle" aria-label="Attach image" title="Attach image">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.49"/></svg>
+                    </button>
+                    <div class="composer-model-wrap" id="composerModelWrap">
+                      <button class="composer-model-btn" id="modelButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+                        <img class="composer-model-logo hidden" id="modelLogoImg" alt="" width="22" height="22" decoding="async" aria-hidden="true">
+                        <svg class="composer-model-icon" id="modelFallbackIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M18.36 5.64l1.41-1.41"/></svg>
+                        <span class="composer-model-label" id="modelLabel">Model</span>
+                        <svg class="composer-model-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      <div class="composer-model-dropdown hidden" id="modelDropdown" role="listbox" aria-label="Models">
+                        <label for="modelInput" class="sr-only">Search models</label>
+                        <input id="modelInput" type="text" autocomplete="off" spellcheck="false" placeholder="Search models">
+                        <div class="model-catalog" id="modelCatalog"></div>
+                      </div>
+                    </div>
+                    <button class="composer-tool" type="button" id="settingsButtonAlt" aria-label="Settings" title="Settings">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                    </button>
+                  </div>
+                  <div class="composer-send">
+                    <button class="send-btn" id="sendButton" type="button" aria-label="Send">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+                    </button>
+                    <button class="stop-btn hidden" id="stopButton" type="button" aria-label="Stop">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
+            <footer class="app-footer">
+              <span>Smartyfy Chat</span>
+            </footer>
           </section>
         </main>
-      </section>
 
-      <aside class="drawer hidden" id="accountDrawer" aria-label="Account">
-        <div class="drawer-header">
-          <strong>Account</strong>
-          <button class="icon-button" id="closeAccountButton" type="button" aria-label="Close">x</button>
-        </div>
-        <div class="drawer-section" id="accountSummary"></div>
-        <button class="secondary-button full" id="signOutButton" type="button">Sign out</button>
-        <div class="drawer-section hidden" id="adminSection">
-          <div class="section-title">Admin</div>
-          <button class="secondary-button full" id="loadAdminButton" type="button">Load admin summary</button>
-          <pre class="admin-output" id="adminOutput"></pre>
-        </div>
-      </aside>
+        <aside class="settings-drawer" id="settingsDrawer" aria-label="Settings" aria-hidden="true">
+          <div class="drawer-header">
+            <strong>Settings</strong>
+            <button class="drawer-close" id="closeSettingsButton" type="button" aria-label="Close settings">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
 
-      <aside class="drawer hidden" id="settingsDrawer" aria-label="Controls">
-        <div class="drawer-header">
-          <strong>Controls</strong>
-          <button class="icon-button" id="closeSettingsButton" type="button" aria-label="Close">x</button>
-        </div>
-        <label class="field">
-          <span>Temperature</span>
-          <input id="temperatureInput" type="number" min="0" max="2" step="0.1">
-        </label>
-        <label class="field">
-          <span>Top P</span>
-          <input id="topPInput" type="number" min="0" max="1" step="0.05">
-        </label>
-        <label class="field">
-          <span>Max tokens</span>
-          <input id="maxTokensInput" type="number" min="1" step="1">
-        </label>
-        <label class="field">
-          <span>Seed</span>
-          <input id="seedInput" type="number" min="0" step="1">
-        </label>
-        <label class="field">
-          <span>System prompt</span>
-          <textarea id="systemPromptInput" rows="5"></textarea>
-        </label>
-      </aside>
+          <div class="field-grid">
+            <label>
+              <span>Temperature</span>
+              <input id="temperatureInput" type="number" min="0" max="2" step="0.1">
+            </label>
+            <label>
+              <span>Top P</span>
+              <input id="topPInput" type="number" min="0" max="1" step="0.05">
+            </label>
+            <label>
+              <span>Max tokens</span>
+              <input id="maxTokensInput" type="number" min="1" step="1">
+            </label>
+            <label>
+              <span>Seed</span>
+              <input id="seedInput" type="number" min="0" step="1">
+            </label>
+          </div>
 
-      <section class="confirm-dialog hidden" id="confirmDialog" role="dialog" aria-modal="true">
-        <h2>Delete chat?</h2>
-        <p id="confirmText">This conversation will be removed from your account.</p>
-        <div class="dialog-actions">
-          <button class="secondary-button" id="cancelDeleteButton" type="button">Cancel</button>
-          <button class="danger-button" id="confirmDeleteButton" type="button">Delete</button>
-        </div>
-      </section>
+          <div class="field-group">
+            <label for="systemPromptInput">System prompt</label>
+            <textarea id="systemPromptInput" rows="4" spellcheck="true"></textarea>
+          </div>
 
-      <div class="overlay hidden" id="overlay"></div>
+          <div class="model-details" id="modelDetails"></div>
+        </aside>
+
+        <aside class="account-drawer" id="accountDrawer" aria-label="Account" aria-hidden="true">
+          <div class="drawer-header">
+            <strong>Account</strong>
+            <button class="drawer-close" id="closeAccountButton" type="button" aria-label="Close account">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="account-info" id="accountInfo"></div>
+          <button class="signout-btn" id="signOutButton" type="button">Sign out</button>
+          <div class="admin-section hidden" id="adminSection">
+            <div class="admin-title">Admin</div>
+            <button class="admin-load" id="loadAdminButton" type="button">Load admin summary</button>
+            <pre class="admin-output" id="adminOutput"></pre>
+          </div>
+        </aside>
+
+        <section class="confirm-dialog" id="confirmDialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmBody" aria-hidden="true">
+          <div class="confirm-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
+          </div>
+          <div class="confirm-copy">
+            <h2 id="confirmTitle">Delete chat?</h2>
+            <p id="confirmBody">This conversation will be removed from your account.</p>
+          </div>
+          <div class="confirm-actions">
+            <button class="confirm-cancel" id="confirmCancelButton" type="button">Cancel</button>
+            <button class="confirm-danger" id="confirmDeleteButton" type="button">Delete</button>
+          </div>
+        </section>
+
+        <div class="overlay" id="overlay" hidden></div>
+      </div>
+
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="lightbox hidden" id="lightbox" role="dialog" aria-label="Image preview">
+        <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close preview">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <img id="lightboxImg" src="" alt="Expanded image preview">
+      </div>
     </div>
 
     <script type="module" src="/js/app.js"></script>

@@ -6,8 +6,8 @@
   "description": "A focused Dockerized Smartyfy Chat UI.",
   "packageManager": "npm@11.14.1",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js",
+    "start": "node --env-file=.env server/index.js",
+    "dev": "node --env-file=.env --watch server/index.js",
     "test": "node --test"
   },
   "engines": {
