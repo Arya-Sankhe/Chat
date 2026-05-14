@@ -171,15 +171,19 @@ export class SupabaseRest {
   }
 
   async deleteConversation(userId, conversationId, { signal } = {}) {
-    await this.request("attachments", {
-      method: "DELETE",
-      query: {
-        user_id: `eq.${userId}`,
-        conversation_id: `eq.${conversationId}`
-      },
-      prefer: "return=minimal",
-      signal
-    });
+    const attachments = await this.listConversationAttachments(userId, conversationId, { signal });
+
+    if (attachments.length) {
+      await this.request("attachments", {
+        method: "DELETE",
+        query: {
+          user_id: `eq.${userId}`,
+          conversation_id: `eq.${conversationId}`
+        },
+        prefer: "return=minimal",
+        signal
+      });
+    }
 
     const rows = await this.request("conversations", {
       method: "DELETE",
@@ -193,6 +197,56 @@ export class SupabaseRest {
     });
 
     return single(rows);
+  }
+
+  async listConversationAttachments(userId, conversationId, { signal } = {}) {
+    return this.request("attachments", {
+      query: {
+        user_id: `eq.${userId}`,
+        conversation_id: `eq.${conversationId}`,
+        select: "id,object_key"
+      },
+      signal
+    });
+  }
+
+  async deleteMessage(userId, messageId, { signal } = {}) {
+    const attachments = await this.listMessageAttachments(userId, messageId, { signal });
+
+    if (attachments.length) {
+      await this.request("attachments", {
+        method: "DELETE",
+        query: {
+          user_id: `eq.${userId}`,
+          message_id: `eq.${messageId}`
+        },
+        prefer: "return=minimal",
+        signal
+      });
+    }
+
+    const rows = await this.request("messages", {
+      method: "DELETE",
+      query: {
+        id: `eq.${messageId}`,
+        user_id: `eq.${userId}`
+      },
+      prefer: "return=representation",
+      signal
+    });
+
+    return single(rows);
+  }
+
+  async listMessageAttachments(userId, messageId, { signal } = {}) {
+    return this.request("attachments", {
+      query: {
+        user_id: `eq.${userId}`,
+        message_id: `eq.${messageId}`,
+        select: "id,object_key"
+      },
+      signal
+    });
   }
 
   async listMessages(userId, conversationId, { signal } = {}) {

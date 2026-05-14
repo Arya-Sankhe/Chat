@@ -132,6 +132,10 @@ export class R2Client {
     return this.presign("GET", key, this.config.readExpiresSeconds);
   }
 
+  deleteUrl(key) {
+    return this.presign("DELETE", key, 60);
+  }
+
   headUrl(key) {
     return this.presign("HEAD", key, 60);
   }
@@ -147,5 +151,22 @@ export class R2Client {
       sizeBytes: Number.parseInt(response.headers.get("content-length") || "0", 10),
       etag: response.headers.get("etag") || ""
     };
+  }
+
+  async deleteObject(key, { signal } = {}) {
+    const response = await fetch(this.deleteUrl(key), { method: "DELETE", signal });
+    if (!response.ok && response.status !== 404) {
+      throw new HttpError(502, "Uploaded image could not be deleted from storage.");
+    }
+
+    return true;
+  }
+
+  async deleteObjects(keys = [], { signal } = {}) {
+    const uniqueKeys = [...new Set(keys.filter(Boolean))];
+    for (const key of uniqueKeys) {
+      await this.deleteObject(key, { signal });
+    }
+    return uniqueKeys.length;
   }
 }

@@ -4,7 +4,7 @@ import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { loadPlans } from "../server/saas/plans.js";
-import { assertImageUpload, safeFileName } from "../server/storage/r2.js";
+import { assertImageUpload, R2Client, safeFileName } from "../server/storage/r2.js";
 
 test("loadPlans maps Crof-style tiers from env", () => {
   const plans = loadPlans({
@@ -56,7 +56,14 @@ test("deleteConversation hard-deletes chat data in Supabase", async () => {
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
 
-    if (String(url).includes("/attachments?")) {
+    if (options.method === "GET" && String(url).includes("/attachments?")) {
+      return new Response(JSON.stringify([{ id: "attachment_1", object_key: "users/user_1/image.png" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (options.method === "DELETE" && String(url).includes("/attachments?")) {
       return new Response(null, { status: 204 });
     }
 
@@ -77,13 +84,47 @@ test("deleteConversation hard-deletes chat data in Supabase", async () => {
     const deleted = await db.deleteConversation("user_1", "conversation_1");
 
     assert.equal(deleted.id, "conversation_1");
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0].options.method, "DELETE");
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].options.method, "GET");
     assert.match(calls[0].url, /\/attachments\?/);
     assert.match(calls[0].url, /conversation_id=eq\.conversation_1/);
     assert.equal(calls[1].options.method, "DELETE");
-    assert.match(calls[1].url, /\/conversations\?/);
-    assert.match(calls[1].url, /deleted_at=is\.null/);
+    assert.match(calls[1].url, /\/attachments\?/);
+    assert.equal(calls[2].options.method, "DELETE");
+    assert.match(calls[2].url, /\/conversations\?/);
+    assert.match(calls[2].url, /deleted_at=is\.null/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const r2 = new R2Client({
+      r2: {
+        endpoint: "https://account.r2.cloudflarestorage.com",
+        accessKeyId: "access-key",
+        secretAccessKey: "secret-key",
+        bucket: "smartyfy-chat",
+        uploadExpiresSeconds: 300,
+        readExpiresSeconds: 900
+      }
+    });
+
+    const deleted = await r2.deleteObjects(["users/user_1/image.png", "users/user_1/image.png"]);
+
+    assert.equal(deleted, 1);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options.method, "DELETE");
+    assert.match(calls[0].url, /^https:\/\/account\.r2\.cloudflarestorage\.com\/smartyfy-chat\/users\/user_1\/image\.png\?/);
+    assert.match(calls[0].url, /X-Amz-Signature=/);
   } finally {
     globalThis.fetch = originalFetch;
   }

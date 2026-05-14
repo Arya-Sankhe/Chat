@@ -223,12 +223,27 @@ async function handleConversationById(req, res, config, conversationId) {
   }
 
   if (req.method === "DELETE") {
+    const attachments = await context.db.listConversationAttachments(context.user.id, conversation.id, { signal: req.signal });
+    await context.r2.deleteObjects(attachments.map((attachment) => attachment.object_key), { signal: req.signal });
     await context.db.deleteConversation(context.user.id, conversation.id, { signal: req.signal });
-    sendJson(res, 200, { deleted: true });
+    sendJson(res, 200, { deleted: true, deletedImages: attachments.length });
     return;
   }
 
   throw new HttpError(405, "Method not allowed.");
+}
+
+async function handleMessageById(req, res, config, messageId) {
+  if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
+
+  const context = await requireChatContext(req, config);
+  const attachments = await context.db.listMessageAttachments(context.user.id, messageId, { signal: req.signal });
+  await context.r2.deleteObjects(attachments.map((attachment) => attachment.object_key), { signal: req.signal });
+
+  const message = await context.db.deleteMessage(context.user.id, messageId, { signal: req.signal });
+  if (!message) throw new HttpError(404, "Message not found.");
+
+  sendJson(res, 200, { deleted: true, deletedImages: attachments.length });
 }
 
 async function loadUploadedAttachments(context, attachmentIds, req, plan) {
@@ -419,6 +434,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "conversations" && parts[2] && parts[3] === "messages") {
       await handleConversationMessage(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "messages" && parts[2] && !parts[3]) {
+      await handleMessageById(req, res, config, parts[2]);
       return;
     }
 
