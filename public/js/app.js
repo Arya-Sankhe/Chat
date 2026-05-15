@@ -58,6 +58,7 @@ const state = {
   settings: loadSettings(),
   images: [],
   running: false,
+  autoScroll: true,
   abortController: null,
   pendingDeleteId: ""
 };
@@ -632,7 +633,9 @@ function renderMessages() {
     .map((view) => view.type === "compare" ? renderCompareMessage(view.messages) : renderStandardMessage(view.message))
     .join("");
 
-  els.messages.scrollTop = els.messages.scrollHeight;
+  if (state.autoScroll) {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
 }
 
 function queueRenderMessages() {
@@ -959,6 +962,7 @@ async function sendPrompt() {
   renderImages();
 
   state.abortController = new AbortController();
+  state.autoScroll = true;
   setRunning(true);
   renderMessages();
   let shouldReloadConversation = false;
@@ -1073,7 +1077,15 @@ async function bootstrap() {
 
 /* ─── Event binding ─── */
 
+function isNearBottom(el, threshold = 60) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+}
+
 function bindEvents() {
+  els.messages.addEventListener("scroll", () => {
+    if (!state.running) return;
+    state.autoScroll = isNearBottom(els.messages);
+  }, { passive: true });
   els.googleButton.addEventListener("click", () => {
     if (!state.config?.auth?.googleEnabled) return;
     window.location.href = googleSignInUrl(state.config);

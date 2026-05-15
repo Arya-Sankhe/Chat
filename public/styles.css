@@ -384,7 +384,7 @@ body.sidebar-expanded .conversation-row {
   flex: 1;
   overflow-y: auto;
   padding: 36px 24px;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .empty-state {
