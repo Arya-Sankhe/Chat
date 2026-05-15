@@ -286,6 +286,13 @@ function writeSse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function hasAssistantOutput(accumulated) {
+  return Boolean(
+    String(accumulated?.content || "").trim() ||
+    (Array.isArray(accumulated?.toolCalls) && accumulated.toolCalls.length)
+  );
+}
+
 async function handleCompareConversationMessage({
   req,
   res,
@@ -353,6 +360,9 @@ async function handleCompareConversationMessage({
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, { type: "delta", index, model: chatRequest.model, event });
       });
+      if (!hasAssistantOutput(accumulated)) {
+        throw new HttpError(502, "Smartyfy returned an empty response.");
+      }
 
       await context.db.updateMessage(context.user.id, assistantMessage.id, {
         content: accumulated.content,
@@ -416,6 +426,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
     plan: context.plan,
     imageCount,
     messageCount: modelCallCount,
+    models: chatRequests.map((request) => request.model),
     signal: req.signal
   });
 
@@ -472,33 +483,50 @@ async function handleConversationMessage(req, res, config, conversationId) {
     if (!res.writableEnded) controller.abort();
   });
 
-  const upstream = await streamChatCompletion({
-    apiKey: config.serverApiKey,
-    baseUrl: config.defaultBaseUrl,
-    body: chatRequest,
-    signal: controller.signal
-  });
+  try {
+    const upstream = await streamChatCompletion({
+      apiKey: config.serverApiKey,
+      baseUrl: config.defaultBaseUrl,
+      body: chatRequest,
+      signal: controller.signal
+    });
 
-  if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+    if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
 
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-accel-buffering": "no",
-    "x-smartyfy-user-message-id": userMessage.id,
-    "x-smartyfy-assistant-message-id": assistantMessage.id
-  });
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+      "x-smartyfy-user-message-id": userMessage.id,
+      "x-smartyfy-assistant-message-id": assistantMessage.id
+    });
 
-  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
-  await context.db.updateMessage(context.user.id, assistantMessage.id, {
-    content: accumulated.content,
-    reasoning: accumulated.reasoning,
-    tool_calls: accumulated.toolCalls,
-    finish_reason: accumulated.finishReason || null
-  }, { signal: req.signal });
-  await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
-  res.end();
+    const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
+    if (!hasAssistantOutput(accumulated)) {
+      throw new HttpError(502, "Smartyfy returned an empty response.");
+    }
+    await context.db.updateMessage(context.user.id, assistantMessage.id, {
+      content: accumulated.content,
+      reasoning: accumulated.reasoning,
+      tool_calls: accumulated.toolCalls,
+      finish_reason: accumulated.finishReason || null
+    }, { signal: req.signal });
+    await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
+    res.end();
+  } catch (error) {
+    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+    await context.db.updateMessage(context.user.id, assistantMessage.id, {
+      error: message,
+      finish_reason: "error"
+    }, { signal: req.signal }).catch(() => {});
+    if (res.headersSent) {
+      writeSse(res, { type: "error", error: message });
+      res.end();
+      return;
+    }
+    throw error;
+  }
 }
 
 async function handleAdminSummary(req, res, config) {

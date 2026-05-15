@@ -57,11 +57,12 @@ export async function requireActiveEntitlement({ db, userId, plans, access, sign
   };
 }
 
-export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, signal }) {
+export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, models = [], signal }) {
   const calls = Number(messageCount);
   if (!Number.isInteger(calls) || calls < 1 || calls > 4) {
     throw new HttpError(400, "Message count must be between 1 and 4.");
   }
+  const modelIds = Array.isArray(models) ? models.slice(0, calls) : [];
 
   const usage = await db.consumeUsage({
     userId,
@@ -76,15 +77,17 @@ export async function consumeUsageOrThrow({ db, userId, subscription, plan, imag
     throw new HttpError(429, usage?.reason || "Your plan limit has been reached.", usage);
   }
 
-  await db.recordUsageEvent({
-    user_id: userId,
-    subscription_id: subscription.id || null,
-    plan_id: plan.id,
-    event_type: "chat.completion",
-    model: calls > 1 ? `compare:${calls}` : null,
-    image_count: imageCount,
-    status: "started"
-  }, { signal });
+  for (let i = 0; i < calls; i++) {
+    await db.recordUsageEvent({
+      user_id: userId,
+      subscription_id: subscription.id || null,
+      plan_id: plan.id,
+      event_type: "chat.completion",
+      model: modelIds[i] || null,
+      image_count: i === 0 ? imageCount : 0,
+      status: "started"
+    }, { signal });
+  }
 
   return usage;
 }

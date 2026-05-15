@@ -542,6 +542,12 @@ function renderMessageNote(message) {
   return message.stopped ? `<div class="message-note">Stopped by user.</div>` : "";
 }
 
+function renderMissingFinal(message, role) {
+  const hasFinal = String(message.content || "").trim() || (Array.isArray(message.toolCalls) && message.toolCalls.length);
+  if (role !== "assistant" || state.running || message.error || message.stopped || hasFinal) return "";
+  return `<div class="message-error">No final response was saved.</div>`;
+}
+
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
@@ -553,7 +559,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong></div>
-        <div class="message-content">${renderReasoning(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}</div>
+        <div class="message-content">${renderReasoning(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
   `;
@@ -582,6 +588,7 @@ function renderCompareResponse(raw, index) {
         ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
+        ${renderMissingFinal(msg, "assistant")}
       </div>
     </section>
   `;
@@ -752,6 +759,17 @@ function applyComposerHeight() {
 /* ─── Stream event handling ─── */
 
 function applyStreamEvent(message, event) {
+  if (event?.type === "error") {
+    message.error = event.error || "Model request failed.";
+    message.finishReason = "error";
+    return;
+  }
+
+  if (event?.type === "done") {
+    message.finishReason ||= "stop";
+    return;
+  }
+
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
 
@@ -929,6 +947,7 @@ async function sendPrompt() {
 
   state.abortController = new AbortController();
   setRunning(true);
+  let shouldReloadConversation = false;
 
   try {
     const uploaded = [];
@@ -969,6 +988,7 @@ async function sendPrompt() {
     }
 
     await Promise.all([loadMe(), loadConversations({ ensure: false })]);
+    shouldReloadConversation = true;
   } catch (err) {
     if (err.name === "AbortError") {
       if (localAssistant.compareGroup) {
@@ -988,7 +1008,9 @@ async function sendPrompt() {
   } finally {
     state.abortController = null;
     setRunning(false);
-    await loadActiveConversation().catch(() => {});
+    if (shouldReloadConversation) {
+      await loadActiveConversation().catch(() => {});
+    }
     renderShell();
   }
 }
@@ -1012,8 +1034,13 @@ async function bootstrap() {
     state.plans = plansPayload.plans || [];
     state.session = parseSessionFromUrl() || loadSession();
     if (state.session) {
-      state.session = await refreshSession(state.config, state.session);
-      if (state.session) saveSession(state.session);
+      try {
+        state.session = await refreshSession(state.config, state.session);
+        if (state.session) saveSession(state.session);
+      } catch {
+        clearSession();
+        state.session = null;
+      }
     }
     if (state.session) {
       try {

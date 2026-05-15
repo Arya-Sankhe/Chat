@@ -25,7 +25,10 @@ export async function serveStatic(_req, res, url) {
   try {
     stat = await fs.promises.stat(filePath);
   } catch {
-    res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-cache"
+    });
     fs.createReadStream(path.join(publicDir, "index.html")).pipe(res);
     return;
   }
@@ -37,9 +40,12 @@ export async function serveStatic(_req, res, url) {
   }
 
   const type = contentTypes.get(path.extname(filePath)) || "application/octet-stream";
+  const cacheControl = type.includes("text/html") || type.includes("text/javascript") || type.includes("text/css")
+    ? "no-cache"
+    : "public, max-age=300";
   res.writeHead(200, {
     "content-type": type,
-    "cache-control": type.includes("text/html") ? "no-cache" : "public, max-age=300"
+    "cache-control": cacheControl
   });
   fs.createReadStream(filePath).pipe(res);
 }

@@ -13,6 +13,11 @@ function single(rows) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
+function isMissingMessageCountRpc(error) {
+  const text = `${error?.message || ""} ${JSON.stringify(error?.details || {})}`;
+  return /p_message_count|schema cache|smartyfy_consume_usage/i.test(text);
+}
+
 export class SupabaseRest {
   constructor(config) {
     this.url = config.supabase.url;
@@ -328,14 +333,40 @@ export class SupabaseRest {
   }
 
   async consumeUsage({ userId, planId, dailyMessageLimit, monthlyImageLimit, imageCount, messageCount = 1 }, { signal } = {}) {
-    return this.rpc("smartyfy_consume_usage", {
+    const body = {
       p_user_id: userId,
       p_plan_id: planId,
       p_daily_message_limit: dailyMessageLimit,
       p_monthly_image_limit: monthlyImageLimit,
-      p_image_count: imageCount,
-      p_message_count: messageCount
-    }, { signal });
+      p_image_count: imageCount
+    };
+
+    if (messageCount !== 1) body.p_message_count = messageCount;
+
+    try {
+      return await this.rpc("smartyfy_consume_usage", body, { signal });
+    } catch (error) {
+      if (!isMissingMessageCountRpc(error)) throw error;
+    }
+
+    let usage;
+    for (let i = 0; i < messageCount; i++) {
+      usage = await this.rpc("smartyfy_consume_usage", {
+        p_user_id: userId,
+        p_plan_id: planId,
+        p_daily_message_limit: dailyMessageLimit,
+        p_monthly_image_limit: monthlyImageLimit,
+        p_image_count: i === 0 ? imageCount : 0
+      }, { signal });
+
+      if (!usage?.allowed) return usage;
+    }
+
+    return {
+      ...usage,
+      consumed_message_count: messageCount,
+      legacy_usage_fallback: true
+    };
   }
 
   async recordUsageEvent(event, { signal } = {}) {

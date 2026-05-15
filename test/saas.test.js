@@ -53,12 +53,14 @@ test("consumeUsageOrThrow debits one unit per CrofAI model call", async () => {
     subscription: { id: "sub_1" },
     plan: { id: "pro", dailyMessageLimit: 600, monthlyImageLimit: 1000 },
     imageCount: 0,
-    messageCount: 4
+    messageCount: 4,
+    models: ["a", "b", "c", "d"]
   });
 
   assert.equal(usage.allowed, true);
   assert.equal(calls[0].payload.messageCount, 4);
-  assert.equal(calls[1].event.model, "compare:4");
+  assert.equal(calls.filter((call) => call.type === "event").length, 4);
+  assert.deepEqual(calls.filter((call) => call.type === "event").map((call) => call.event.model), ["a", "b", "c", "d"]);
 });
 
 test("SupabaseRest passes message count into usage RPC", async () => {
@@ -91,6 +93,40 @@ test("SupabaseRest passes message count into usage RPC", async () => {
 
     assert.equal(rpcBody.p_message_count, 3);
     assert.equal(rpcBody.p_image_count, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("SupabaseRest keeps single-message usage compatible with the legacy RPC signature", async () => {
+  const originalFetch = globalThis.fetch;
+  let rpcBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    rpcBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ allowed: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const db = new SupabaseRest({
+      supabase: {
+        url: "https://example.supabase.co",
+        serviceRoleKey: "service-role-key"
+      }
+    });
+
+    await db.consumeUsage({
+      userId: "user_1",
+      planId: "pro",
+      dailyMessageLimit: 600,
+      monthlyImageLimit: 1000,
+      imageCount: 0,
+      messageCount: 1
+    });
+
+    assert.equal(Object.hasOwn(rpcBody, "p_message_count"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
