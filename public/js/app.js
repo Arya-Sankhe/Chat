@@ -8,6 +8,7 @@ import {
   fetchModels,
   fetchPlans,
   listConversations,
+  streamCompareConversationMessage,
   streamConversationMessage,
   uploadImage
 } from "./api.js";
@@ -40,7 +41,9 @@ const defaultSettings = {
   max_tokens: "",
   seed: "",
   systemPrompt: "",
-  thinkingEffort: "medium"
+  thinkingEffort: "medium",
+  compareEnabled: false,
+  compareModels: []
 };
 
 const state = {
@@ -112,6 +115,13 @@ const els = {
   modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
   modelCatalog: document.querySelector("#modelCatalog"),
+  compareWrap: document.querySelector("#compareWrap"),
+  compareButton: document.querySelector("#compareButton"),
+  compareLabel: document.querySelector("#compareLabel"),
+  compareDropdown: document.querySelector("#compareDropdown"),
+  compareInput: document.querySelector("#compareInput"),
+  compareCatalog: document.querySelector("#compareCatalog"),
+  compareClearButton: document.querySelector("#compareClearButton"),
   confirmDialog: document.querySelector("#confirmDialog"),
   confirmTitle: document.querySelector("#confirmTitle"),
   confirmBody: document.querySelector("#confirmBody"),
@@ -126,7 +136,10 @@ const els = {
 
 function loadSettings() {
   try {
-    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    const loaded = { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
+    loaded.compareEnabled = Boolean(loaded.compareEnabled);
+    return loaded;
   } catch {
     return { ...defaultSettings };
   }
@@ -285,6 +298,37 @@ function selectedModel() {
   return state.models.find((m) => m.id === state.settings.model);
 }
 
+function modelById(id) {
+  return state.models.find((m) => m.id === id);
+}
+
+function modelDisplayName(id) {
+  const model = modelById(id);
+  return compactModelDisplayName(model?.name || model?.rawName || id) || id;
+}
+
+function selectedCompareModelIds() {
+  const ids = Array.isArray(state.settings.compareModels) ? state.settings.compareModels : [];
+  const unique = ids.filter((id, index) => id && ids.indexOf(id) === index);
+  const valid = state.models.length ? unique.filter((id) => modelById(id)) : unique;
+  return valid.slice(0, 4);
+}
+
+function activeCompareModelIds() {
+  const ids = selectedCompareModelIds();
+  return state.settings.compareEnabled && ids.length >= 2 ? ids : [];
+}
+
+function seedCompareModels() {
+  const current = state.settings.model || state.models[0]?.id || "";
+  const seeded = [
+    current,
+    ...state.models.map((model) => model.id)
+  ].filter((id, index, list) => id && list.indexOf(id) === index).slice(0, 4);
+  updateSetting("compareModels", seeded);
+  updateSetting("compareEnabled", seeded.length >= 2);
+}
+
 function toggleModelDropdown() {
   const isOpen = !els.modelDropdown.classList.contains("hidden");
   els.modelDropdown.classList.toggle("hidden", isOpen);
@@ -296,6 +340,27 @@ function toggleModelDropdown() {
     renderModelCatalog();
     els.modelInput.focus();
   }
+}
+
+function toggleCompareDropdown() {
+  const isOpen = !els.compareDropdown.classList.contains("hidden");
+  els.compareDropdown.classList.toggle("hidden", isOpen);
+  const nowOpen = !els.compareDropdown.classList.contains("hidden");
+  els.compareButton.setAttribute("aria-expanded", String(nowOpen));
+  els.compareWrap.classList.toggle("is-open", nowOpen);
+  if (!isOpen) {
+    if (!selectedCompareModelIds().length) seedCompareModels();
+    els.compareInput.value = "";
+    renderCompareCatalog();
+    renderCompareControls();
+    els.compareInput.focus();
+  }
+}
+
+function closeCompareDropdown() {
+  els.compareDropdown.classList.add("hidden");
+  els.compareButton.setAttribute("aria-expanded", "false");
+  els.compareWrap.classList.remove("is-open");
 }
 
 function closeModelDropdown() {
@@ -328,6 +393,57 @@ function renderModelCatalog() {
     .join("");
 }
 
+function renderCompareModelOption(model, selected, disabled) {
+  const logoUrl = modelBrandLogoUrl(model);
+  return `
+    <button class="model-option compare-option ${selected ? "active" : ""} ${disabled ? "disabled" : ""}" type="button" data-compare-model-id="${escapeHtml(model.id)}" aria-selected="${selected}" ${disabled ? "aria-disabled=\"true\"" : ""}>
+      <span class="model-option-main">
+        ${logoUrl
+          ? `<img class="model-option-logo" src="${escapeHtml(logoUrl)}" alt="" width="24" height="24" decoding="async">`
+          : `<span class="model-option-logo-placeholder"></span>`}
+        <span class="model-option-name">${escapeHtml(compactModelDisplayName(model.name || model.id))}</span>
+      </span>
+      <span class="model-option-check">${selected ? "✓" : ""}</span>
+    </button>
+  `;
+}
+
+function renderCompareCatalog() {
+  const query = els.compareInput.value.trim().toLowerCase();
+  const selectedIds = selectedCompareModelIds();
+  const visible = state.models
+    .filter((m) => {
+      const h = `${m.id} ${m.name || ""}`.toLowerCase();
+      return !query || h.includes(query);
+    })
+    .slice(0, 80);
+
+  if (!state.models.length) {
+    els.compareCatalog.innerHTML = `<div class="model-empty">Loading models…</div>`;
+    return;
+  }
+
+  if (!visible.length) {
+    els.compareCatalog.innerHTML = `<div class="model-empty">No matches.</div>`;
+    return;
+  }
+
+  els.compareCatalog.innerHTML = visible
+    .map((m) => renderCompareModelOption(m, selectedIds.includes(m.id), selectedIds.length >= 4 && !selectedIds.includes(m.id)))
+    .join("");
+}
+
+function renderCompareControls() {
+  const ids = selectedCompareModelIds();
+  const active = state.settings.compareEnabled && ids.length >= 2;
+  els.compareButton.classList.toggle("active", active);
+  els.compareLabel.textContent = active ? `Compare ${ids.length}` : "Compare";
+  els.promptInput.placeholder = active
+    ? `Compare ${ids.length} models`
+    : `Message ${modelDisplayName(state.settings.model) || "Smartyfy"}`;
+  renderCompareCatalog();
+}
+
 function renderModelOptions() {
   els.modelDetails.innerHTML = renderModelDetails(selectedModel());
 
@@ -355,6 +471,7 @@ function renderModelOptions() {
   els.modelLabel.textContent = displayName;
   els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
+  renderCompareControls();
 }
 
 /* ─── Thinking Effort ─── */
@@ -374,50 +491,125 @@ function normalizeMessage(msg) {
   return { ...msg, toolCalls: msg.toolCalls || msg.tool_calls || [] };
 }
 
+function messageViews(messages) {
+  const views = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = normalizeMessage(messages[i]);
+    if (msg.compareGroup) {
+      views.push({ type: "compare", messages: msg.compareResponses || [] });
+      continue;
+    }
+
+    const role = msg.role === "user" ? "user" : "assistant";
+    if (role !== "assistant") {
+      views.push({ type: "message", message: msg });
+      continue;
+    }
+
+    const group = [msg];
+    while (i + 1 < messages.length) {
+      const next = normalizeMessage(messages[i + 1]);
+      if (next.compareGroup || next.role === "user") break;
+      group.push(next);
+      i++;
+    }
+
+    views.push(group.length > 1 ? { type: "compare", messages: group } : { type: "message", message: msg });
+  }
+  return views;
+}
+
+function renderReasoning(message) {
+  if (!message.reasoning) return "";
+  return `<details class="reasoning"><summary>Thinking</summary><div>${renderContent(message.reasoning)}</div></details>`;
+}
+
+function renderToolCalls(message) {
+  let toolHtml = "";
+  const calls = message.toolCalls || [];
+  for (const call of calls) {
+    if (!call?.function?.name) continue;
+    toolHtml += `<details class="tool-call"><summary>Tool: ${escapeHtml(call.function.name)}</summary><pre>${escapeHtml(call.function.arguments || "")}</pre></details>`;
+  }
+  return toolHtml;
+}
+
+function renderMessageError(message) {
+  return message.error ? `<div class="message-error">${escapeHtml(message.error)}</div>` : "";
+}
+
+function renderMessageNote(message) {
+  return message.stopped ? `<div class="message-note">Stopped by user.</div>` : "";
+}
+
+function renderStandardMessage(raw) {
+  const msg = normalizeMessage(raw);
+  const role = msg.role === "user" ? "user" : "assistant";
+  const content = typeof msg.content === "string" ? msg.content : msg.content;
+  const body = renderContent(content || (state.running && role === "assistant" ? "Thinking…" : ""));
+
+  return `
+    <article class="message ${role}">
+      <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
+      <div class="message-body">
+        <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong></div>
+        <div class="message-content">${renderReasoning(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}</div>
+      </div>
+    </article>
+  `;
+}
+
+function renderCompareResponse(raw, index) {
+  const msg = normalizeMessage(raw);
+  const modelId = msg.model || selectedCompareModelIds()[index] || "";
+  const model = modelById(modelId);
+  const logoUrl = model ? modelBrandLogoUrl(model) : "";
+  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
+
+  return `
+    <section class="compare-response">
+      <header class="compare-response-head">
+        <span class="compare-model-mark">
+          ${logoUrl
+            ? `<img src="${escapeHtml(logoUrl)}" alt="" width="18" height="18" decoding="async">`
+            : `<span>${escapeHtml(String(index + 1))}</span>`}
+        </span>
+        <strong>${escapeHtml(modelDisplayName(modelId) || `Model ${index + 1}`)}</strong>
+      </header>
+      <div class="compare-response-body message-content">
+        ${renderReasoning(msg)}
+        ${renderContent(content)}
+        ${renderToolCalls(msg)}
+        ${renderMessageError(msg)}
+        ${renderMessageNote(msg)}
+      </div>
+    </section>
+  `;
+}
+
+function renderCompareMessage(messages) {
+  return `
+    <article class="message assistant compare-message">
+      <div class="message-avatar">S</div>
+      <div class="message-body">
+        <div class="message-meta"><strong>Smartyfy Compare</strong><span>${messages.length} models</span></div>
+        <div class="compare-grid">
+          ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 function renderMessages() {
   if (!state.messages.length) {
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${getGreeting()}</h1></div></div>`;
     return;
   }
 
-  els.messages.innerHTML = state.messages.map((raw) => {
-    const msg = normalizeMessage(raw);
-    const role = msg.role === "user" ? "user" : "assistant";
-    const content = typeof msg.content === "string" ? msg.content : msg.content;
-    const body = renderContent(content || (state.running && role === "assistant" ? "Thinking…" : ""));
-
-    let reasoning = "";
-    if (msg.reasoning) {
-      reasoning = `<details class="reasoning"><summary>Thinking</summary><div>${renderContent(msg.reasoning)}</div></details>`;
-    }
-
-    let toolHtml = "";
-    const calls = msg.toolCalls || [];
-    for (const call of calls) {
-      if (!call?.function?.name) continue;
-      toolHtml += `<details class="tool-call"><summary>Tool: ${escapeHtml(call.function.name)}</summary><pre>${escapeHtml(call.function.arguments || "")}</pre></details>`;
-    }
-
-    let errorHtml = "";
-    if (msg.error) {
-      errorHtml = `<div class="message-error">${escapeHtml(msg.error)}</div>`;
-    }
-
-    let noteHtml = "";
-    if (msg.stopped) {
-      noteHtml = `<div class="message-note">Stopped by user.</div>`;
-    }
-
-    return `
-      <article class="message ${role}">
-        <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
-        <div class="message-body">
-          <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong></div>
-          <div class="message-content">${reasoning}${body}${toolHtml}${errorHtml}${noteHtml}</div>
-        </div>
-      </article>
-    `;
-  }).join("");
+  els.messages.innerHTML = messageViews(state.messages)
+    .map((view) => view.type === "compare" ? renderCompareMessage(view.messages) : renderStandardMessage(view.message))
+    .join("");
 
   els.messages.scrollTop = els.messages.scrollHeight;
 }
@@ -543,6 +735,8 @@ function setRunning(running) {
   els.stopButton.classList.toggle("hidden", !running);
   els.promptInput.disabled = running;
   els.imageToggle.disabled = running;
+  els.modelButton.disabled = running;
+  els.compareButton.disabled = running;
 }
 
 function updateSendButton() {
@@ -577,6 +771,32 @@ function applyStreamEvent(message, event) {
   }
 
   if (choice?.finish_reason) message.finishReason = choice.finish_reason;
+}
+
+function applyCompareStreamEvent(compareMessage, event) {
+  const index = Number(event?.index);
+  if (!Number.isInteger(index) || !compareMessage.compareResponses?.[index]) return;
+  const target = compareMessage.compareResponses[index];
+
+  if (event.type === "start") {
+    target.id = event.assistantMessageId || target.id;
+    return;
+  }
+
+  if (event.type === "delta") {
+    applyStreamEvent(target, event.event);
+    return;
+  }
+
+  if (event.type === "error") {
+    target.error = event.error || "Model request failed.";
+    target.finishReason = "error";
+    return;
+  }
+
+  if (event.type === "done") {
+    target.finishReason ||= "stop";
+  }
 }
 
 /* ─── API data loading ─── */
@@ -655,8 +875,13 @@ async function removeConversation(id) {
 async function sendPrompt() {
   const text = els.promptInput.value.trim();
   if (!text && !state.images.length) return;
-  if (!state.settings.model) {
+  const compareModels = activeCompareModelIds();
+  if (!compareModels.length && !state.settings.model) {
     showToast("Pick a model first.");
+    return;
+  }
+  if (state.settings.compareEnabled && selectedCompareModelIds().length < 2) {
+    showToast("Pick at least 2 models to compare.");
     return;
   }
 
@@ -672,13 +897,27 @@ async function sendPrompt() {
         ]
       : text
   };
-  const localAssistant = {
-    id: `local_assistant_${Date.now()}`,
-    role: "assistant",
-    content: "",
-    reasoning: "",
-    toolCalls: []
-  };
+  const localAssistant = compareModels.length
+    ? {
+        id: `local_compare_${Date.now()}`,
+        role: "assistant",
+        compareGroup: true,
+        compareResponses: compareModels.map((model) => ({
+          id: `local_compare_${model}_${Date.now()}`,
+          role: "assistant",
+          model,
+          content: "",
+          reasoning: "",
+          toolCalls: []
+        }))
+      }
+    : {
+        id: `local_assistant_${Date.now()}`,
+        role: "assistant",
+        content: "",
+        reasoning: "",
+        toolCalls: []
+      };
 
   state.messages.push(localUser, localAssistant);
   const images = state.images;
@@ -698,7 +937,7 @@ async function sendPrompt() {
       URL.revokeObjectURL(img.previewUrl);
     }
 
-    await streamConversationMessage(state.session, state.activeConversationId, {
+    const payload = {
       text,
       attachments: uploaded.map((item) => item.id),
       model: state.settings.model,
@@ -706,20 +945,45 @@ async function sendPrompt() {
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
       }
-    }, {
-      signal: state.abortController.signal,
-      onEvent: (event) => {
-        applyStreamEvent(localAssistant, event);
-        queueRenderMessages();
-      }
-    });
+    };
+
+    if (compareModels.length) {
+      await streamCompareConversationMessage(state.session, state.activeConversationId, {
+        ...payload,
+        models: compareModels
+      }, {
+        signal: state.abortController.signal,
+        onEvent: (event) => {
+          applyCompareStreamEvent(localAssistant, event);
+          queueRenderMessages();
+        }
+      });
+    } else {
+      await streamConversationMessage(state.session, state.activeConversationId, payload, {
+        signal: state.abortController.signal,
+        onEvent: (event) => {
+          applyStreamEvent(localAssistant, event);
+          queueRenderMessages();
+        }
+      });
+    }
 
     await Promise.all([loadMe(), loadConversations({ ensure: false })]);
   } catch (err) {
     if (err.name === "AbortError") {
-      localAssistant.stopped = true;
+      if (localAssistant.compareGroup) {
+        for (const response of localAssistant.compareResponses) response.stopped = true;
+      } else {
+        localAssistant.stopped = true;
+      }
     } else {
-      localAssistant.error = err.message;
+      if (localAssistant.compareGroup) {
+        for (const response of localAssistant.compareResponses) {
+          if (!response.content) response.error = err.message;
+        }
+      } else {
+        localAssistant.error = err.message;
+      }
     }
   } finally {
     state.abortController = null;
@@ -809,6 +1073,7 @@ function bindEvents() {
     if (e.key !== "Escape") return;
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
+    if (!els.compareDropdown.classList.contains("hidden")) { closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
     if (els.settingsDrawer.classList.contains("open")) { closeSettings(); return; }
@@ -816,12 +1081,22 @@ function bindEvents() {
 
   els.modelButton.addEventListener("click", (e) => {
     e.stopPropagation();
+    closeCompareDropdown();
     toggleModelDropdown();
+  });
+
+  els.compareButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeModelDropdown();
+    toggleCompareDropdown();
   });
 
   document.addEventListener("click", (e) => {
     if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {
       closeModelDropdown();
+    }
+    if (!els.compareDropdown.contains(e.target) && !els.compareWrap.contains(e.target)) {
+      closeCompareDropdown();
     }
   });
 
@@ -834,6 +1109,32 @@ function bindEvents() {
     els.promptInput.focus();
   });
 
+  els.compareCatalog.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-compare-model-id]");
+    if (!item) return;
+    const id = item.dataset.compareModelId;
+    const selected = selectedCompareModelIds();
+    const exists = selected.includes(id);
+    if (!exists && selected.length >= 4) {
+      showToast("Compare up to 4 models.");
+      return;
+    }
+
+    const next = exists ? selected.filter((modelId) => modelId !== id) : [...selected, id];
+    updateSetting("compareModels", next);
+    updateSetting("compareEnabled", next.length >= 2);
+    renderCompareControls();
+    els.promptInput.focus();
+  });
+
+  els.compareClearButton.addEventListener("click", () => {
+    updateSetting("compareEnabled", false);
+    updateSetting("compareModels", []);
+    closeCompareDropdown();
+    renderCompareControls();
+    els.promptInput.focus();
+  });
+
   els.thinkingEffort.addEventListener("click", (e) => {
     const seg = e.target.closest("[data-effort]");
     if (!seg) return;
@@ -842,6 +1143,7 @@ function bindEvents() {
   });
 
   els.modelInput.addEventListener("input", renderModelCatalog);
+  els.compareInput.addEventListener("input", renderCompareCatalog);
   els.modelInput.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const id = e.target.value.trim();

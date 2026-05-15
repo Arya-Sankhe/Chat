@@ -209,3 +209,28 @@ export async function pipeProviderStreamAndAccumulate(upstream, res) {
 
   return assistant;
 }
+
+export async function streamProviderAndAccumulate(upstream, onEvent) {
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+  const assistant = {
+    content: "",
+    reasoning: "",
+    toolCalls: [],
+    finishReason: ""
+  };
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    buffer = parseSseEvents(buffer, (event) => {
+      applyStreamEvent(assistant, event);
+      onEvent(event);
+    });
+  }
+
+  return assistant;
+}

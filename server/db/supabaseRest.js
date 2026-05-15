@@ -327,13 +327,14 @@ export class SupabaseRest {
     return single(rows);
   }
 
-  async consumeUsage({ userId, planId, dailyMessageLimit, monthlyImageLimit, imageCount }, { signal } = {}) {
+  async consumeUsage({ userId, planId, dailyMessageLimit, monthlyImageLimit, imageCount, messageCount = 1 }, { signal } = {}) {
     return this.rpc("smartyfy_consume_usage", {
       p_user_id: userId,
       p_plan_id: planId,
       p_daily_message_limit: dailyMessageLimit,
       p_monthly_image_limit: monthlyImageLimit,
-      p_image_count: imageCount
+      p_image_count: imageCount,
+      p_message_count: messageCount
     }, { signal });
   }
 

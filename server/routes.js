@@ -14,6 +14,7 @@ import {
   imageCountFromContent,
   normalizeMessageSettings,
   pipeProviderStreamAndAccumulate,
+  streamProviderAndAccumulate,
   titleFromText
 } from "./saas/messages.js";
 import { publicPlan } from "./saas/plans.js";
@@ -264,6 +265,117 @@ async function loadUploadedAttachments(context, attachmentIds, req, plan) {
   return attachments;
 }
 
+function normalizeCompareModels(value) {
+  if (!Array.isArray(value)) return [];
+
+  const models = [];
+  for (const item of value) {
+    if (typeof item !== "string") throw new HttpError(400, "Compare models must be strings.");
+    const id = item.trim();
+    if (!id || models.includes(id)) continue;
+    models.push(id);
+    if (models.length > 4) throw new HttpError(400, "Compare up to 4 models.");
+  }
+
+  if (models.length === 1) throw new HttpError(400, "Pick at least 2 models to compare.");
+  return models;
+}
+
+function writeSse(res, payload) {
+  if (res.destroyed || res.writableEnded) return;
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+async function handleCompareConversationMessage({
+  req,
+  res,
+  config,
+  context,
+  conversation,
+  userContent,
+  chatRequests
+}) {
+  const assistantMessages = [];
+  for (const chatRequest of chatRequests) {
+    assistantMessages.push(await context.db.insertMessage({
+      user_id: context.user.id,
+      conversation_id: conversation.id,
+      role: "assistant",
+      model: chatRequest.model,
+      content: "",
+      reasoning: "",
+      tool_calls: []
+    }, { signal: req.signal }));
+  }
+
+  if (!conversation.title || conversation.title === "New chat") {
+    await context.db.updateConversation(context.user.id, conversation.id, {
+      title: titleFromText(contentText(userContent)),
+      model: chatRequests.map((request) => request.model).join(", ")
+    }, { signal: req.signal });
+  } else if (!conversation.model) {
+    await context.db.updateConversation(context.user.id, conversation.id, {
+      model: chatRequests.map((request) => request.model).join(", ")
+    }, { signal: req.signal });
+  }
+
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no"
+  });
+
+  await Promise.all(chatRequests.map(async (chatRequest, index) => {
+    const assistantMessage = assistantMessages[index];
+    writeSse(res, {
+      type: "start",
+      index,
+      model: chatRequest.model,
+      assistantMessageId: assistantMessage.id
+    });
+
+    try {
+      const upstream = await streamChatCompletion({
+        apiKey: config.serverApiKey,
+        baseUrl: config.defaultBaseUrl,
+        body: chatRequest,
+        signal: controller.signal
+      });
+
+      if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+
+      const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
+        writeSse(res, { type: "delta", index, model: chatRequest.model, event });
+      });
+
+      await context.db.updateMessage(context.user.id, assistantMessage.id, {
+        content: accumulated.content,
+        reasoning: accumulated.reasoning,
+        tool_calls: accumulated.toolCalls,
+        finish_reason: accumulated.finishReason || null
+      }, { signal: req.signal });
+
+      writeSse(res, { type: "done", index, model: chatRequest.model });
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+      await context.db.updateMessage(context.user.id, assistantMessage.id, {
+        error: message,
+        finish_reason: "error"
+      }, { signal: req.signal }).catch(() => {});
+      writeSse(res, { type: "error", index, model: chatRequest.model, error: message });
+    }
+  }));
+
+  await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
+  res.end();
+}
+
 async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   requireServerCrofKey(config);
@@ -276,12 +388,34 @@ async function handleConversationMessage(req, res, config, conversationId) {
   const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
   const userContent = buildStoredUserContent(body.text, attachments);
   const imageCount = imageCountFromContent(userContent);
+  const compareModels = normalizeCompareModels(body.models);
+  const settings = normalizeMessageSettings(body);
+  const existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+  const providerMessages = await buildProviderMessages({
+    messages: [...existingMessages, { role: "user", content: userContent }],
+    systemPrompt: settings.systemPrompt || "",
+    r2: context.r2
+  });
+  const chatRequests = compareModels.length
+    ? compareModels.map((model) => normalizeChatRequest({
+        model,
+        messages: providerMessages,
+        ...settings
+      }))
+    : [normalizeChatRequest({
+        model: body.model || conversation.model,
+        messages: providerMessages,
+        ...settings
+      })];
+
+  const modelCallCount = chatRequests.length;
   await consumeUsageOrThrow({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
     imageCount,
+    messageCount: modelCallCount,
     signal: req.signal
   });
 
@@ -299,19 +433,20 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }, { signal: req.signal });
   }
 
-  const allMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-  const settings = normalizeMessageSettings(body);
-  const providerMessages = await buildProviderMessages({
-    messages: allMessages,
-    systemPrompt: settings.systemPrompt || "",
-    r2: context.r2
-  });
+  if (compareModels.length) {
+    await handleCompareConversationMessage({
+      req,
+      res,
+      config,
+      context,
+      conversation,
+      userContent,
+      chatRequests
+    });
+    return;
+  }
 
-  const chatRequest = normalizeChatRequest({
-    model: body.model || conversation.model,
-    messages: providerMessages,
-    ...settings
-  });
+  const chatRequest = chatRequests[0];
 
   const assistantMessage = await context.db.insertMessage({
     user_id: context.user.id,

@@ -57,13 +57,19 @@ export async function requireActiveEntitlement({ db, userId, plans, access, sign
   };
 }
 
-export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, signal }) {
+export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, signal }) {
+  const calls = Number(messageCount);
+  if (!Number.isInteger(calls) || calls < 1 || calls > 4) {
+    throw new HttpError(400, "Message count must be between 1 and 4.");
+  }
+
   const usage = await db.consumeUsage({
     userId,
     planId: plan.id,
     dailyMessageLimit: plan.dailyMessageLimit,
     monthlyImageLimit: plan.monthlyImageLimit,
-    imageCount
+    imageCount,
+    messageCount: calls
   }, { signal });
 
   if (!usage?.allowed) {
@@ -75,6 +81,7 @@ export async function consumeUsageOrThrow({ db, userId, subscription, plan, imag
     subscription_id: subscription.id || null,
     plan_id: plan.id,
     event_type: "chat.completion",
+    model: calls > 1 ? `compare:${calls}` : null,
     image_count: imageCount,
     status: "started"
   }, { signal });

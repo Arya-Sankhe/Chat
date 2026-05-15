@@ -2,7 +2,7 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
-import { getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { consumeUsageOrThrow, getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { assertImageUpload, R2Client, safeFileName } from "../server/storage/r2.js";
 
@@ -32,6 +32,68 @@ test("testing access grants the configured plan without a payment gateway", asyn
   assert.equal(entitlement.active, true);
   assert.equal(entitlement.plan.id, "pro");
   assert.equal(entitlement.subscription.status, "testing");
+});
+
+test("consumeUsageOrThrow debits one unit per CrofAI model call", async () => {
+  const calls = [];
+  const db = {
+    async consumeUsage(payload) {
+      calls.push({ type: "consume", payload });
+      return { allowed: true, message_count: payload.messageCount };
+    },
+    async recordUsageEvent(event) {
+      calls.push({ type: "event", event });
+      return event;
+    }
+  };
+
+  const usage = await consumeUsageOrThrow({
+    db,
+    userId: "user_1",
+    subscription: { id: "sub_1" },
+    plan: { id: "pro", dailyMessageLimit: 600, monthlyImageLimit: 1000 },
+    imageCount: 0,
+    messageCount: 4
+  });
+
+  assert.equal(usage.allowed, true);
+  assert.equal(calls[0].payload.messageCount, 4);
+  assert.equal(calls[1].event.model, "compare:4");
+});
+
+test("SupabaseRest passes message count into usage RPC", async () => {
+  const originalFetch = globalThis.fetch;
+  let rpcBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    rpcBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ allowed: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const db = new SupabaseRest({
+      supabase: {
+        url: "https://example.supabase.co",
+        serviceRoleKey: "service-role-key"
+      }
+    });
+
+    await db.consumeUsage({
+      userId: "user_1",
+      planId: "pro",
+      dailyMessageLimit: 600,
+      monthlyImageLimit: 1000,
+      imageCount: 2,
+      messageCount: 3
+    });
+
+    assert.equal(rpcBody.p_message_count, 3);
+    assert.equal(rpcBody.p_image_count, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("R2 upload helpers validate images and sanitize names", () => {

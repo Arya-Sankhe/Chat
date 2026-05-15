@@ -107,6 +107,19 @@
                         <div class="model-catalog" id="modelCatalog"></div>
                       </div>
                     </div>
+                    <div class="composer-compare-wrap" id="compareWrap">
+                      <button class="compare-btn" id="compareButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Compare models" title="Compare models">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>
+                        <span id="compareLabel">Compare</span>
+                      </button>
+                      <div class="compare-dropdown hidden" id="compareDropdown" role="listbox" aria-label="Compare models" aria-multiselectable="true">
+                        <label for="compareInput" class="sr-only">Search compare models</label>
+                        <input id="compareInput" type="text" autocomplete="off" spellcheck="false" placeholder="Search models">
+                        <div class="compare-hint">Select 2-4 models</div>
+                        <div class="model-catalog" id="compareCatalog"></div>
+                        <button class="compare-clear" id="compareClearButton" type="button">Use single model</button>
+                      </div>
+                    </div>
                     <div class="thinking-effort" id="thinkingEffort" role="radiogroup" aria-label="Thinking effort">
                       <button class="effort-seg" data-effort="low" type="button" role="radio" aria-label="Low thinking" title="Low thinking">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>

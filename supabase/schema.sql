@@ -198,7 +198,8 @@ create or replace function public.smartyfy_consume_usage(
   p_plan_id text,
   p_daily_message_limit integer,
   p_monthly_image_limit integer,
-  p_image_count integer
+  p_image_count integer,
+  p_message_count integer default 1
 ) returns jsonb
 language plpgsql
 security definer
@@ -209,6 +210,7 @@ declare
   v_month date := date_trunc('month', now())::date;
   v_daily public.usage_daily%rowtype;
   v_monthly public.usage_monthly%rowtype;
+  v_message_count integer := greatest(coalesce(p_message_count, 1), 1);
 begin
   insert into public.usage_daily (user_id, day, plan_id)
   values (p_user_id, v_day, p_plan_id)
@@ -228,11 +230,12 @@ begin
   where user_id = p_user_id and month = v_month
   for update;
 
-  if v_daily.message_count + 1 > p_daily_message_limit then
+  if v_daily.message_count + v_message_count > p_daily_message_limit then
     return jsonb_build_object(
       'allowed', false,
       'reason', 'Daily message limit reached.',
       'message_count', v_daily.message_count,
+      'requested_message_count', v_message_count,
       'daily_message_limit', p_daily_message_limit
     );
   end if;
@@ -249,7 +252,7 @@ begin
   update public.usage_daily
   set
     plan_id = p_plan_id,
-    message_count = message_count + 1,
+    message_count = message_count + v_message_count,
     image_count = image_count + greatest(p_image_count, 0),
     updated_at = now()
   where user_id = p_user_id and day = v_day
@@ -266,6 +269,7 @@ begin
   return jsonb_build_object(
     'allowed', true,
     'message_count', v_daily.message_count,
+    'consumed_message_count', v_message_count,
     'image_count', v_daily.image_count,
     'daily_message_limit', p_daily_message_limit,
     'monthly_image_count', v_monthly.image_count,

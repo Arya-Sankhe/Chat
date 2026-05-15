@@ -141,6 +141,43 @@ export async function streamConversationMessage(session, conversationId, payload
   }
 }
 
+export async function streamCompareConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: "POST",
+    headers: apiHeaders(session, { "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) throw new Error(await readProblem(response));
+  if (!response.body) throw new Error("Streaming is not available in this browser.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+
+      if (!data) continue;
+      if (data === "[DONE]") return;
+      onEvent(JSON.parse(data));
+    }
+  }
+}
+
 export async function fetchAdminSummary(session) {
   const response = await fetch("/api/admin/summary", { headers: apiHeaders(session) });
   if (!response.ok) throw new Error(await readProblem(response));
