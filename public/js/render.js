@@ -152,6 +152,12 @@ function sanitizeRenderedHtml(html) {
     .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, "");
 }
 
+function renderSafeHtmlToken(token) {
+  const raw = typeof token === "string" ? token : token?.raw ?? token?.text ?? "";
+  if (/^<br\s*\/?>$/i.test(String(raw).trim())) return "<br>";
+  return escapeHtml(raw);
+}
+
 /* Rich text rendering (marked + KaTeX + hljs) */
 
 let markedReady = false;
@@ -164,7 +170,7 @@ function ensureMarkedConfig() {
   try {
     const renderer = {
       html(token) {
-        return escapeHtml(typeof token === "string" ? token : token?.raw ?? token?.text ?? "");
+        return renderSafeHtmlToken(token);
       },
       link(token) {
         if (typeof token === "string") return false;

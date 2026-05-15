@@ -129,3 +129,27 @@ test("renderContent does not extract math inside code spans or fences", () => {
   assert.doesNotMatch(renderContent("Use `$x_1$` literally."), /class="katex"/);
   assert.doesNotMatch(renderContent("```js\nconst price = '$x_1$';\n```"), /class="katex"/);
 });
+
+test("renderContent allows safe br tags without allowing arbitrary HTML", async () => {
+  let renderer;
+  globalThis.marked = {
+    parse() {
+      return [
+        renderer.html({ raw: "<br>" }),
+        renderer.html({ raw: "<img src=x onerror=alert(1)>" })
+      ].join("");
+    },
+    use(options) {
+      renderer = options.renderer;
+    }
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  const { renderContent: freshRenderContent } = await import(`../public/js/render.js?br-test=${Date.now()}`);
+  const html = freshRenderContent("line<br>line");
+  assert.match(html, /^<br>/);
+  assert.match(html, /&lt;img src=x/);
+  assert.doesNotMatch(html, /<img/i);
+});
