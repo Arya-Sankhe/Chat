@@ -104,7 +104,6 @@ function restoreMath(html, slots) {
 
 function highlightCodeBlocks(html) {
   const hljs = globalThis.hljs;
-  if (!hljs) return html;
 
   return html.replace(
     /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g,
@@ -116,15 +115,23 @@ function highlightCodeBlocks(html) {
         .replaceAll("&quot;", '"')
         .replaceAll("&#39;", "'")
         .replaceAll("&#039;", "'");
-      try {
-        const result = lang && hljs.getLanguage(lang)
-          ? hljs.highlight(decoded, { language: lang })
-          : hljs.highlightAuto(decoded);
-        const cls = lang ? ` language-${escapeHtml(lang)}` : "";
-        return `<pre><code class="hljs${cls}">${result.value}</code></pre>`;
-      } catch {
-        return match;
+
+      let highlighted = code;
+      let detectedLang = lang || "";
+      if (hljs) {
+        try {
+          const result = lang && hljs.getLanguage(lang)
+            ? hljs.highlight(decoded, { language: lang })
+            : hljs.highlightAuto(decoded);
+          highlighted = result.value;
+          if (!lang && result.language) detectedLang = result.language;
+        } catch { /* keep original */ }
       }
+
+      const cls = detectedLang ? ` language-${escapeHtml(detectedLang)}` : "";
+      const label = detectedLang ? escapeHtml(detectedLang) : "";
+      const encodedSource = escapeHtml(decoded);
+      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-block-lang">${label}</span><button class="code-copy-btn" type="button" data-copy-code="${encodedSource}" aria-label="Copy code" title="Copy code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button></div><pre><code class="hljs${cls}">${highlighted}</code></pre></div>`;
     }
   );
 }

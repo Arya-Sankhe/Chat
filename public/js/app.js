@@ -548,17 +548,29 @@ function renderMissingFinal(message, role) {
   return `<div class="message-error">No final response was saved.</div>`;
 }
 
+function rawTextContent(content) {
+  if (Array.isArray(content)) return content.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+  return String(content || "");
+}
+
+function messageCopyButton(msg) {
+  const text = rawTextContent(msg.content);
+  if (!text.trim()) return "";
+  return `<button class="msg-copy-btn" type="button" data-copy-msg aria-label="Copy message" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>`;
+}
+
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const body = renderContent(content || (state.running && role === "assistant" ? "Thinking…" : ""));
+  const rawText = rawTextContent(msg.content);
 
   return `
-    <article class="message ${role}">
+    <article class="message ${role}" data-raw-text="${escapeHtml(rawText)}">
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
-        <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong></div>
+        <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
         <div class="message-content">${renderReasoning(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
@@ -571,9 +583,10 @@ function renderCompareResponse(raw, index) {
   const model = modelById(modelId);
   const logoUrl = model ? modelBrandLogoUrl(model) : "";
   const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
+  const rawText = rawTextContent(msg.content);
 
   return `
-    <section class="compare-response">
+    <section class="compare-response" data-raw-text="${escapeHtml(rawText)}">
       <header class="compare-response-head">
         <span class="compare-model-mark">
           ${logoUrl
@@ -581,6 +594,7 @@ function renderCompareResponse(raw, index) {
             : `<span>${escapeHtml(String(index + 1))}</span>`}
         </span>
         <strong>${escapeHtml(modelDisplayName(modelId) || `Model ${index + 1}`)}</strong>
+        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
       <div class="compare-response-body message-content">
         ${renderReasoning(msg)}
@@ -943,10 +957,10 @@ async function sendPrompt() {
   els.promptInput.value = "";
   applyComposerHeight();
   renderImages();
-  renderMessages();
 
   state.abortController = new AbortController();
   setRunning(true);
+  renderMessages();
   let shouldReloadConversation = false;
 
   try {
@@ -1226,6 +1240,28 @@ function bindEvents() {
 
   els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
   els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
+
+  els.messages.addEventListener("click", (e) => {
+    const codeCopy = e.target.closest("[data-copy-code]");
+    if (codeCopy) {
+      const text = codeCopy.dataset.copyCode;
+      navigator.clipboard.writeText(text).then(() => {
+        const label = codeCopy.querySelector("span");
+        if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }
+      }).catch(() => showToast("Copy failed."));
+      return;
+    }
+    const msgCopy = e.target.closest("[data-copy-msg]");
+    if (msgCopy) {
+      const container = msgCopy.closest("[data-raw-text]");
+      const text = container?.dataset.rawText || "";
+      navigator.clipboard.writeText(text).then(() => {
+        const label = msgCopy.querySelector("span");
+        if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }
+      }).catch(() => showToast("Copy failed."));
+      return;
+    }
+  });
 
   els.sendButton.addEventListener("click", sendPrompt);
   els.stopButton.addEventListener("click", () => state.abortController?.abort());
