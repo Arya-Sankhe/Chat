@@ -169,6 +169,14 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove("visible"), 3200);
 }
 
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out.`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function servicesReady() {
   const s = state.config?.services || {};
   return Boolean(s.supabase && s.access && s.crof);
@@ -1053,7 +1061,7 @@ async function bootstrap() {
     state.session = parseSessionFromUrl() || loadSession();
     if (state.session) {
       try {
-        state.session = await refreshSession(state.config, state.session);
+        state.session = await withTimeout(refreshSession(state.config, state.session), 8000, "Session refresh");
         if (state.session) saveSession(state.session);
       } catch {
         clearSession();
@@ -1062,7 +1070,7 @@ async function bootstrap() {
     }
     if (state.session) {
       try {
-        await loadMe();
+        await withTimeout(loadMe(), 8000, "Account load");
       } catch {
         clearSession();
         state.session = null;
@@ -1071,6 +1079,11 @@ async function bootstrap() {
     renderShell();
     if (state.session && hasChatAccess()) await loadChatApp();
   } catch (err) {
+    state.session = null;
+    state.me = null;
+    state.conversations = [];
+    state.messages = [];
+    renderShell();
     showToast(err.message);
   }
 }
