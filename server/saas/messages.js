@@ -94,7 +94,7 @@ async function hydrateContent(content, r2, mode, { imageDescriptions = null } = 
       const attachmentId = image.attachment_id;
       if (imageDescriptions) {
         const fileName = image.file_name || "image";
-        const description = attachmentId ? imageDescriptions[attachmentId] : "";
+        const description = String(image.description || image.alt_text || (attachmentId ? imageDescriptions[attachmentId] : "") || "").trim();
         hydrated.push({
           type: "text",
           text: description

@@ -7,16 +7,62 @@ export function messagesHaveImages(messages) {
   return (messages || []).some((message) => message?.role === "user" && imageCountFromContent(message.content) > 0);
 }
 
-export function collectImageAttachmentIds(messages) {
+function imageDescription(part) {
+  return String(part?.image_url?.description || part?.image_url?.alt_text || "").trim();
+}
+
+export function collectImageAttachmentIds(messages, { missingOnly = false } = {}) {
   const ids = [];
   for (const message of messages || []) {
     if (message?.role !== "user" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
       const attachmentId = part?.image_url?.attachment_id;
+      if (missingOnly && imageDescription(part)) continue;
       if (attachmentId && !ids.includes(attachmentId)) ids.push(attachmentId);
     }
   }
   return ids;
+}
+
+export function collectImageDescriptions(messages) {
+  const descriptions = {};
+  for (const message of messages || []) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      const attachmentId = part?.image_url?.attachment_id;
+      const description = imageDescription(part);
+      if (attachmentId && description) descriptions[attachmentId] = description;
+    }
+  }
+  return descriptions;
+}
+
+export function collectUndescribedImageAttachmentIds(messages) {
+  return collectImageAttachmentIds(messages, { missingOnly: true });
+}
+
+export function applyImageDescriptionsToContent(content, descriptions = {}) {
+  if (!Array.isArray(content)) return content;
+
+  let changed = false;
+  const next = content.map((part) => {
+    if (part?.type !== "image_url") return part;
+
+    const attachmentId = part.image_url?.attachment_id;
+    const description = attachmentId ? String(descriptions[attachmentId] || "").trim() : "";
+    if (!description || imageDescription(part)) return part;
+
+    changed = true;
+    return {
+      ...part,
+      image_url: {
+        ...part.image_url,
+        description
+      }
+    };
+  });
+
+  return changed ? next : content;
 }
 
 export function substituteImagesWithDescriptions(content, descriptions) {
@@ -32,7 +78,7 @@ export function substituteImagesWithDescriptions(content, descriptions) {
     if (part?.type === "image_url") {
       const attachmentId = part.image_url?.attachment_id;
       const fileName = part.image_url?.file_name || "image";
-      const description = attachmentId ? descriptions[attachmentId] : "";
+      const description = imageDescription(part) || (attachmentId ? descriptions[attachmentId] : "");
       parts.push({
         type: "text",
         text: description
@@ -59,18 +105,22 @@ export async function describeConversationImages({
   config,
   modelIds = [],
   catalog = [],
+  attachmentIds = null,
+  describeModel = "",
   signal
 }) {
-  const attachmentIds = collectImageAttachmentIds(messages);
-  if (!attachmentIds.length) return { descriptions: {}, model: null };
+  const ids = Array.isArray(attachmentIds)
+    ? attachmentIds.filter((id, index, list) => id && list.indexOf(id) === index)
+    : collectImageAttachmentIds(messages);
+  if (!ids.length) return { descriptions: {}, model: null };
 
-  const describeModel = resolveVisionDescribeModel(config, modelIds, catalog);
-  if (!modelSupportsVision(describeModel)) {
+  const model = describeModel || resolveVisionDescribeModel(config, modelIds, catalog);
+  if (!modelSupportsVision(model)) {
     throw new HttpError(503, "No vision model is configured to describe chat images.");
   }
 
   const attachments = [];
-  for (const attachmentId of attachmentIds) {
+  for (const attachmentId of ids) {
     const attachment = await db.getAttachment(userId, attachmentId, { signal });
     if (!attachment || attachment.status !== "uploaded") {
       throw new HttpError(400, "One of the chat images is not available anymore.");
@@ -109,7 +159,7 @@ export async function describeConversationImages({
     apiKey: config.serverApiKey,
     baseUrl: config.defaultBaseUrl,
     body: {
-      model: describeModel,
+      model,
       messages: [{ role: "user", content: contentPayload }],
       max_tokens: imageCount === 1 ? 900 : imageCount * 800,
       temperature: 0.2
@@ -139,5 +189,5 @@ export async function describeConversationImages({
     }
   }
 
-  return { descriptions, model: describeModel };
+  return { descriptions, model };
 }

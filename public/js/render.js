@@ -293,9 +293,9 @@ function modelHaystack(model) {
 
 const DEFAULT_COMPARE_TARGETS = [
   (m) => /kimi|moonshot/.test(modelHaystack(m)) && /k2\.6|k2-6/.test(modelHaystack(m)),
-  (m) => /deepseek/.test(modelHaystack(m)) && /v4 pro/.test(modelHaystack(m)),
+  (m) => /deepseek/.test(modelHaystack(m)) && /v4[\s._-]*pro/.test(modelHaystack(m)),
   (m) => /glm|zhipu|z-ai|thudm/.test(modelHaystack(m)) && /5\.1|5-1/.test(modelHaystack(m)),
-  (m) => /mimo|xiaomi/.test(modelHaystack(m)) && /v2\.5 pro|v2-5 pro/.test(modelHaystack(m))
+  (m) => /mimo|xiaomi/.test(modelHaystack(m)) && /v2[\s._-]*5[\s._-]*pro/.test(modelHaystack(m))
 ];
 
 export function resolveDefaultCompareModels(models) {

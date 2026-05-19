@@ -142,13 +142,20 @@ const els = {
   compareContextCancel: document.querySelector("#compareContextCancel")
 };
 
-function messageHasImages(content) {
-  return Array.isArray(content) && content.some((part) => part?.type === "image_url");
+function imageDescription(part) {
+  return String(part?.image_url?.description || part?.image_url?.alt_text || "").trim();
 }
 
-function conversationHasImages() {
-  if (state.images.length) return true;
-  return state.messages.some((message) => message.role === "user" && messageHasImages(message.content));
+function messageHasUndescribedImages(content) {
+  return Array.isArray(content) && content.some((part) => part?.type === "image_url" && !imageDescription(part));
+}
+
+function chatHistoryHasUndescribedImages() {
+  return state.messages.some((message) => message.role === "user" && messageHasUndescribedImages(message.content));
+}
+
+function pendingPromptHasImages() {
+  return state.images.length > 0;
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
@@ -157,7 +164,7 @@ function compareIncludesTextOnlyModels(modelIds) {
 
 function shouldPromptCompareImageContext(modelIds) {
   return modelIds.length >= 2
-    && conversationHasImages()
+    && (chatHistoryHasUndescribedImages() || pendingPromptHasImages())
     && compareIncludesTextOnlyModels(modelIds);
 }
 
@@ -167,6 +174,14 @@ function openCompareContextBanner() {
 
 function closeCompareContextBanner() {
   els.compareContextBanner.classList.add("hidden");
+}
+
+function syncCompareContextBanner(modelIds = selectedCompareModelIds()) {
+  if (state.settings.compareEnabled && !state.compareDescribeImages && shouldPromptCompareImageContext(modelIds)) {
+    openCompareContextBanner();
+  } else {
+    closeCompareContextBanner();
+  }
 }
 
 function cancelCompareMode() {
@@ -201,21 +216,19 @@ async function activateCompareMode() {
   updateSetting("compareEnabled", true);
   state.compareDescribeImages = false;
   renderCompareControls();
-
-  if (shouldPromptCompareImageContext(defaults)) {
-    openCompareContextBanner();
-  }
+  syncCompareContextBanner(defaults);
 }
 
 async function startCompareFreshChat() {
   const compareModels = selectedCompareModelIds();
+  const shouldDescribePendingImages = pendingPromptHasImages() && compareIncludesTextOnlyModels(compareModels);
   const payload = await createConversation(state.session, {
     model: compareModels[0] || state.settings.model
   });
   state.conversations.unshift(payload.conversation);
   state.activeConversationId = payload.conversation.id;
   state.messages = [];
-  state.compareDescribeImages = false;
+  state.compareDescribeImages = shouldDescribePendingImages;
   renderConversations();
   renderShell();
 }
@@ -305,13 +318,7 @@ function renderShell() {
   renderModelOptions();
   renderThinkingEffort();
   renderMessages();
-
-  if (state.settings.compareEnabled && !state.compareDescribeImages && state.messages.length) {
-    const ids = selectedCompareModelIds();
-    if (ids.length >= 2 && shouldPromptCompareImageContext(ids)) {
-      openCompareContextBanner();
-    }
-  }
+  syncCompareContextBanner();
 }
 
 function renderServices() {
@@ -767,6 +774,7 @@ function addImages(files) {
     state.images.push({ file, previewUrl: URL.createObjectURL(file) });
   }
   renderImages();
+  syncCompareContextBanner();
 }
 
 function openLightbox(src) {
@@ -1016,6 +1024,9 @@ async function sendPrompt() {
     showToast("Pick at least 2 models to compare.");
     return;
   }
+  if (compareModels.length && !state.compareDescribeImages && shouldPromptCompareImageContext(compareModels)) {
+    openCompareContextBanner();
+  }
   if (!els.compareContextBanner.classList.contains("hidden")) {
     showToast("Choose how to handle chat images for compare.");
     return;
@@ -1028,7 +1039,7 @@ async function sendPrompt() {
     describeImages: Boolean(
       compareModels.length &&
       state.compareDescribeImages &&
-      conversationHasImages() &&
+      (chatHistoryHasUndescribedImages() || pendingPromptHasImages()) &&
       compareIncludesTextOnlyModels(compareModels)
     )
   });
@@ -1314,6 +1325,7 @@ function bindEvents() {
       state.compareDescribeImages = false;
     }
     renderCompareControls();
+    syncCompareContextBanner(next);
     els.promptInput.focus();
   });
 
@@ -1401,6 +1413,7 @@ function bindEvents() {
       const [removed] = state.images.splice(Number(removeBtn.dataset.removeIndex), 1);
       if (removed) URL.revokeObjectURL(removed.previewUrl);
       renderImages();
+      syncCompareContextBanner();
       return;
     }
     const thumb = e.target.closest("[data-preview-src]");

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyImageDescriptionsToContent,
+  collectImageDescriptions,
   collectImageAttachmentIds,
+  collectUndescribedImageAttachmentIds,
+  describeConversationImages,
   messagesHaveImages,
   substituteImagesWithDescriptions
 } from "../server/saas/images.js";
@@ -34,6 +38,22 @@ test("messagesHaveImages and collectImageAttachmentIds scan user history", () =>
   assert.deepEqual(collectImageAttachmentIds(messages), ["att_1"]);
 });
 
+test("image description helpers cache and find only missing descriptions", () => {
+  const content = [
+    { type: "text", text: "compare these" },
+    { type: "image_url", image_url: { attachment_id: "att_1", file_name: "a.png", description: "A chart." } },
+    { type: "image_url", image_url: { attachment_id: "att_2", file_name: "b.png" } }
+  ];
+  const messages = [{ role: "user", content }];
+
+  assert.deepEqual(collectImageDescriptions(messages), { att_1: "A chart." });
+  assert.deepEqual(collectUndescribedImageAttachmentIds(messages), ["att_2"]);
+
+  const next = applyImageDescriptionsToContent(content, { att_2: "A table." });
+  assert.equal(next[1].image_url.description, "A chart.");
+  assert.equal(next[2].image_url.description, "A table.");
+});
+
 test("substituteImagesWithDescriptions replaces image parts with text", () => {
   const content = [
     { type: "text", text: "solve this" },
@@ -43,4 +63,48 @@ test("substituteImagesWithDescriptions replaces image parts with text", () => {
   const replaced = substituteImagesWithDescriptions(content, { att_1: "A table with prices 8, 9, and 6." });
   assert.equal(replaced[0].text, "solve this");
   assert.match(replaced[1].text, /A table with prices/);
+});
+
+test("describeConversationImages can describe only missing image ids in one call", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "A receipt with a $12 total." } }]
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const result = await describeConversationImages({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "what is the total?" },
+          { type: "image_url", image_url: { attachment_id: "att_1", description: "Already described." } },
+          { type: "image_url", image_url: { attachment_id: "att_2" } }
+        ]
+      }],
+      db: {
+        async getAttachment(_userId, attachmentId) {
+          return { id: attachmentId, object_key: `${attachmentId}.png`, status: "uploaded" };
+        }
+      },
+      userId: "user_1",
+      r2: { readUrl: (key) => `https://files.example/${key}` },
+      config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+      attachmentIds: ["att_2"],
+      describeModel: "kimi-k2.6"
+    });
+
+    const sentImages = requestBody.messages[0].content.filter((part) => part.type === "image_url");
+    assert.equal(sentImages.length, 1);
+    assert.equal(sentImages[0].image_url.url, "https://files.example/att_2.png");
+    assert.deepEqual(result.descriptions, { att_2: "A receipt with a $12 total." });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

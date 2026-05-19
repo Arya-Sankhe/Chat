@@ -6,7 +6,13 @@ import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
 import { consumeUsageOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
-import { describeConversationImages, messagesHaveImages } from "./saas/images.js";
+import {
+  applyImageDescriptionsToContent,
+  collectImageDescriptions,
+  collectUndescribedImageAttachmentIds,
+  describeConversationImages,
+  messagesHaveImages
+} from "./saas/images.js";
 import {
   buildProviderMessages,
   buildStoredUserContent,
@@ -18,7 +24,7 @@ import {
   streamProviderAndAccumulate,
   titleFromText
 } from "./saas/messages.js";
-import { modelSupportsVision } from "./saas/models.js";
+import { modelSupportsVision, resolveVisionDescribeModel } from "./saas/models.js";
 import { publicPlan } from "./saas/plans.js";
 import { assertImageUpload, R2Client } from "./storage/r2.js";
 
@@ -295,6 +301,24 @@ function hasAssistantOutput(accumulated) {
   );
 }
 
+async function persistImageDescriptions({ db, userId, existingMessages, userContent, descriptions, signal }) {
+  const nextMessages = [];
+  for (const message of existingMessages) {
+    const nextContent = applyImageDescriptionsToContent(message.content, descriptions);
+    if (nextContent !== message.content) {
+      await db.updateMessage(userId, message.id, { content: nextContent }, { signal });
+      nextMessages.push({ ...message, content: nextContent });
+    } else {
+      nextMessages.push(message);
+    }
+  }
+
+  return {
+    existingMessages: nextMessages,
+    userContent: applyImageDescriptionsToContent(userContent, descriptions)
+  };
+}
+
 async function handleCompareConversationMessage({
   req,
   res,
@@ -398,23 +422,57 @@ async function handleConversationMessage(req, res, config, conversationId) {
   if (!conversation) throw new HttpError(404, "Conversation not found.");
 
   const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
-  const userContent = buildStoredUserContent(body.text, attachments);
+  let userContent = buildStoredUserContent(body.text, attachments);
   const imageCount = imageCountFromContent(userContent);
   const compareModels = normalizeCompareModels(body.models);
   const settings = normalizeMessageSettings(body);
-  const existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-  const historyMessages = [...existingMessages, { role: "user", content: userContent }];
+  let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+  let historyMessages = [...existingMessages, { role: "user", content: userContent }];
   const compareNeedsImageDescribe = compareModels.length > 0
     && messagesHaveImages(historyMessages)
     && compareModels.some((model) => !modelSupportsVision(model));
 
-  let imageDescriptions = null;
+  let imageDescriptions = compareNeedsImageDescribe ? collectImageDescriptions(historyMessages) : null;
   let describeModelUsed = null;
+  let missingDescriptionIds = [];
   if (compareNeedsImageDescribe) {
-    if (!body.describeImages) {
+    missingDescriptionIds = collectUndescribedImageAttachmentIds(historyMessages);
+    if (missingDescriptionIds.length && !body.describeImages) {
       throw new HttpError(409, "Compare includes text-only models, but this chat has images. Describe images or start a new chat.");
     }
 
+    if (missingDescriptionIds.length) {
+      describeModelUsed = resolveVisionDescribeModel(config, compareModels);
+      if (!modelSupportsVision(describeModelUsed)) {
+        throw new HttpError(503, "No vision model is configured to describe chat images.");
+      }
+    }
+  }
+
+  const responseModels = compareModels.length ? compareModels : [body.model || conversation.model];
+  for (const model of responseModels) {
+    normalizeChatRequest({
+      model,
+      messages: [{ role: "user", content: "preflight" }],
+      ...settings
+    });
+  }
+
+  const modelCallCount = responseModels.length + (describeModelUsed ? 1 : 0);
+  const usageModels = responseModels.slice();
+  if (describeModelUsed) usageModels.push(describeModelUsed);
+  await consumeUsageOrThrow({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    imageCount,
+    messageCount: modelCallCount,
+    models: usageModels,
+    signal: req.signal
+  });
+
+  if (missingDescriptionIds.length) {
     const describeResult = await describeConversationImages({
       messages: historyMessages,
       db: context.db,
@@ -422,10 +480,23 @@ async function handleConversationMessage(req, res, config, conversationId) {
       r2: context.r2,
       config,
       modelIds: compareModels,
+      attachmentIds: missingDescriptionIds,
+      describeModel: describeModelUsed,
       signal: req.signal
     });
-    imageDescriptions = describeResult.descriptions;
-    describeModelUsed = describeResult.model;
+    imageDescriptions = { ...imageDescriptions, ...describeResult.descriptions };
+
+    const persisted = await persistImageDescriptions({
+      db: context.db,
+      userId: context.user.id,
+      existingMessages,
+      userContent,
+      descriptions: imageDescriptions,
+      signal: req.signal
+    });
+    existingMessages = persisted.existingMessages;
+    userContent = persisted.userContent;
+    historyMessages = [...existingMessages, { role: "user", content: userContent }];
   }
 
   async function providerMessagesForModel(model) {
@@ -448,20 +519,6 @@ async function handleConversationMessage(req, res, config, conversationId) {
         messages: await providerMessagesForModel(body.model || conversation.model),
         ...settings
       })];
-
-  const modelCallCount = chatRequests.length + (describeModelUsed ? 1 : 0);
-  const usageModels = chatRequests.map((request) => request.model);
-  if (describeModelUsed) usageModels.push(describeModelUsed);
-  await consumeUsageOrThrow({
-    db: context.db,
-    userId: context.user.id,
-    subscription: context.subscription,
-    plan: context.plan,
-    imageCount,
-    messageCount: modelCallCount,
-    models: usageModels,
-    signal: req.signal
-  });
 
   const userMessage = await context.db.insertMessage({
     user_id: context.user.id,

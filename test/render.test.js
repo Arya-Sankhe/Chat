@@ -29,6 +29,24 @@ test("resolveDefaultCompareModels picks the standard compare lineup", () => {
   ]);
 });
 
+test("resolveDefaultCompareModels also works when model ids carry the version", () => {
+  const models = normalizeModelList({
+    data: [
+      { id: "moonshot/kimi-k2.6" },
+      { id: "deepseek/deepseek-v4-pro" },
+      { id: "zhipu/glm-5.1" },
+      { id: "xiaomi/mimo-v2.5-pro" }
+    ]
+  });
+
+  assert.deepEqual(resolveDefaultCompareModels(models), [
+    "moonshot/kimi-k2.6",
+    "deepseek/deepseek-v4-pro",
+    "zhipu/glm-5.1",
+    "xiaomi/mimo-v2.5-pro"
+  ]);
+});
+
 test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
   const models = normalizeModelList({
     object: "list",
