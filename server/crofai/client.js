@@ -59,3 +59,22 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal }) {
 
   return response;
 }
+
+export async function chatCompletion({ apiKey, baseUrl, body, signal }) {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(apiKey),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ ...body, stream: false }),
+    signal
+  });
+
+  if (!response.ok) {
+    throw await crofaiError(response);
+  }
+
+  const payload = await response.json();
+  return payload?.choices?.[0]?.message?.content || "";
+}

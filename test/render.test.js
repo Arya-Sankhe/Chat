@@ -6,8 +6,28 @@ import {
   inferModelBadges,
   modelBrandLogoUrl,
   normalizeModelList,
-  renderContent
+  renderContent,
+  resolveDefaultCompareModels
 } from "../public/js/render.js";
+
+test("resolveDefaultCompareModels picks the standard compare lineup", () => {
+  const models = normalizeModelList({
+    data: [
+      { id: "moonshot/kimi-k2.6", name: "Moonshot: Kimi K2.6" },
+      { id: "deepseek/deepseek-v4-pro", name: "DeepSeek: DeepSeek V4 Pro" },
+      { id: "zhipu/glm-5.1", name: "Zhipu: GLM 5.1" },
+      { id: "xiaomi/mimo-v2.5-pro", name: "Xiaomi: MiMo V2.5 Pro" },
+      { id: "deepseek/deepseek-v3.2", name: "DeepSeek: DeepSeek V3.2" }
+    ]
+  });
+
+  assert.deepEqual(resolveDefaultCompareModels(models), [
+    "moonshot/kimi-k2.6",
+    "deepseek/deepseek-v4-pro",
+    "zhipu/glm-5.1",
+    "xiaomi/mimo-v2.5-pro"
+  ]);
+});
 
 test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
   const models = normalizeModelList({
@@ -71,7 +91,7 @@ test("model metadata helpers expose useful /models fields", () => {
   };
 
   assert.deepEqual(formatModelMeta(model), ["262,144 ctx", "8,192 out", "fp8", "~105 tok/s"]);
-  assert.deepEqual(inferModelBadges(model), ["reasoning", "turbo"]);
+  assert.deepEqual(inferModelBadges(model), ["vision", "reasoning", "turbo"]);
 });
 
 test("renderContent strips unsafe HTML from marked output", () => {

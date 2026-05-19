@@ -287,6 +287,29 @@ function isSelectorExcludedModel(model) {
   return false;
 }
 
+function modelHaystack(model) {
+  return `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`.trim().toLowerCase();
+}
+
+const DEFAULT_COMPARE_TARGETS = [
+  (m) => /kimi|moonshot/.test(modelHaystack(m)) && /k2\.6|k2-6/.test(modelHaystack(m)),
+  (m) => /deepseek/.test(modelHaystack(m)) && /v4 pro/.test(modelHaystack(m)),
+  (m) => /glm|zhipu|z-ai|thudm/.test(modelHaystack(m)) && /5\.1|5-1/.test(modelHaystack(m)),
+  (m) => /mimo|xiaomi/.test(modelHaystack(m)) && /v2\.5 pro|v2-5 pro/.test(modelHaystack(m))
+];
+
+export function resolveDefaultCompareModels(models) {
+  if (!Array.isArray(models) || !models.length) return [];
+
+  const picked = [];
+  for (const matches of DEFAULT_COMPARE_TARGETS) {
+    const model = models.find((item) => matches(item) && !picked.includes(item.id));
+    if (model) picked.push(model.id);
+  }
+
+  return picked.slice(0, 4);
+}
+
 export function normalizeModelList(payload) {
   const list = Array.isArray(payload) ? payload : payload?.data;
   if (!Array.isArray(list)) return [];
@@ -324,11 +347,18 @@ export function formatModelMeta(model) {
   return meta;
 }
 
+const VISION_HINT = /\bvision\b|multimodal|gpt-4o|gpt-4\.1|gemini|claude-3|qwen-vl|qwen2-vl|qwen3-vl|llava|pixtral|kimi|moonshot/i;
+
+export function modelSupportsVision(model) {
+  const haystack = `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`.trim().toLowerCase();
+  return VISION_HINT.test(haystack);
+}
+
 export function inferModelBadges(model) {
   const text = `${model?.id || ""} ${model?.name || ""}`.toLowerCase();
   const badges = [];
 
-  if (text.includes("vision")) badges.push("vision");
+  if (modelSupportsVision(model) || text.includes("vision")) badges.push("vision");
   if (text.includes("thinking") || text.includes("reasoning") || text.includes("deepseek")) badges.push("reasoning");
   if (text.includes("turbo")) badges.push("turbo");
   if (text.includes("free") || Number(model?.pricing?.prompt) === 0 || Number(model?.pricing?.completion) === 0) badges.push("free");

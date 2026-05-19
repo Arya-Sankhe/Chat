@@ -26,10 +26,12 @@ import {
   compactModelDisplayName,
   escapeHtml,
   modelBrandLogoUrl,
+  modelSupportsVision,
   normalizeModelList,
   renderContent,
   renderModelDetails,
-  renderModelOption
+  renderModelOption,
+  resolveDefaultCompareModels
 } from "./render.js";
 
 const SETTINGS_KEY = "smartyfy.chat.controls.v1";
@@ -60,7 +62,8 @@ const state = {
   running: false,
   autoScroll: true,
   abortController: null,
-  pendingDeleteId: ""
+  pendingDeleteId: "",
+  compareDescribeImages: false
 };
 
 let renderQueued = false;
@@ -132,8 +135,90 @@ const els = {
   toast: document.querySelector("#toast"),
   lightbox: document.querySelector("#lightbox"),
   lightboxClose: document.querySelector("#lightboxClose"),
-  lightboxImg: document.querySelector("#lightboxImg")
+  lightboxImg: document.querySelector("#lightboxImg"),
+  compareContextBanner: document.querySelector("#compareContextBanner"),
+  compareContextYes: document.querySelector("#compareContextYes"),
+  compareContextNo: document.querySelector("#compareContextNo"),
+  compareContextCancel: document.querySelector("#compareContextCancel")
 };
+
+function messageHasImages(content) {
+  return Array.isArray(content) && content.some((part) => part?.type === "image_url");
+}
+
+function conversationHasImages() {
+  if (state.images.length) return true;
+  return state.messages.some((message) => message.role === "user" && messageHasImages(message.content));
+}
+
+function compareIncludesTextOnlyModels(modelIds) {
+  return modelIds.some((id) => !modelSupportsVision(modelById(id) || { id }));
+}
+
+function shouldPromptCompareImageContext(modelIds) {
+  return modelIds.length >= 2
+    && conversationHasImages()
+    && compareIncludesTextOnlyModels(modelIds);
+}
+
+function openCompareContextBanner() {
+  els.compareContextBanner.classList.remove("hidden");
+}
+
+function closeCompareContextBanner() {
+  els.compareContextBanner.classList.add("hidden");
+}
+
+function cancelCompareMode() {
+  state.compareDescribeImages = false;
+  updateSetting("compareEnabled", false);
+  updateSetting("compareModels", []);
+  closeCompareDropdown();
+  closeCompareContextBanner();
+  renderCompareControls();
+}
+
+function seedCompareModels() {
+  const seeded = resolveDefaultCompareModels(state.models);
+  if (seeded.length < 2) {
+    const current = state.settings.model || state.models[0]?.id || "";
+    return [
+      current,
+      ...state.models.map((model) => model.id)
+    ].filter((id, index, list) => id && list.indexOf(id) === index).slice(0, 4);
+  }
+  return seeded;
+}
+
+async function activateCompareMode() {
+  const defaults = seedCompareModels();
+  if (defaults.length < 2) {
+    showToast("Not enough models loaded for compare.");
+    return;
+  }
+
+  updateSetting("compareModels", defaults);
+  updateSetting("compareEnabled", true);
+  state.compareDescribeImages = false;
+  renderCompareControls();
+
+  if (shouldPromptCompareImageContext(defaults)) {
+    openCompareContextBanner();
+  }
+}
+
+async function startCompareFreshChat() {
+  const compareModels = selectedCompareModelIds();
+  const payload = await createConversation(state.session, {
+    model: compareModels[0] || state.settings.model
+  });
+  state.conversations.unshift(payload.conversation);
+  state.activeConversationId = payload.conversation.id;
+  state.messages = [];
+  state.compareDescribeImages = false;
+  renderConversations();
+  renderShell();
+}
 
 function loadSettings() {
   try {
@@ -220,6 +305,13 @@ function renderShell() {
   renderModelOptions();
   renderThinkingEffort();
   renderMessages();
+
+  if (state.settings.compareEnabled && !state.compareDescribeImages && state.messages.length) {
+    const ids = selectedCompareModelIds();
+    if (ids.length >= 2 && shouldPromptCompareImageContext(ids)) {
+      openCompareContextBanner();
+    }
+  }
 }
 
 function renderServices() {
@@ -328,12 +420,9 @@ function activeCompareModelIds() {
   return state.settings.compareEnabled && ids.length >= 2 ? ids : [];
 }
 
-function seedCompareModels() {
-  const current = state.settings.model || state.models[0]?.id || "";
-  const seeded = [
-    current,
-    ...state.models.map((model) => model.id)
-  ].filter((id, index, list) => id && list.indexOf(id) === index).slice(0, 4);
+function seedCompareModelsForDropdown() {
+  if (selectedCompareModelIds().length) return;
+  const seeded = seedCompareModels();
   updateSetting("compareModels", seeded);
   updateSetting("compareEnabled", seeded.length >= 2);
 }
@@ -358,7 +447,7 @@ function toggleCompareDropdown() {
   els.compareButton.setAttribute("aria-expanded", String(nowOpen));
   els.compareWrap.classList.toggle("is-open", nowOpen);
   if (!isOpen) {
-    if (!selectedCompareModelIds().length) seedCompareModels();
+    seedCompareModelsForDropdown();
     els.compareInput.value = "";
     renderCompareCatalog();
     renderCompareControls();
@@ -927,16 +1016,44 @@ async function sendPrompt() {
     showToast("Pick at least 2 models to compare.");
     return;
   }
+  if (!els.compareContextBanner.classList.contains("hidden")) {
+    showToast("Choose how to handle chat images for compare.");
+    return;
+  }
 
-  if (!state.activeConversationId) await addConversation();
+  await executeSend({
+    text,
+    images: state.images.map((img) => ({ file: img.file, previewUrl: img.previewUrl })),
+    compareModels,
+    describeImages: Boolean(
+      compareModels.length &&
+      state.compareDescribeImages &&
+      conversationHasImages() &&
+      compareIncludesTextOnlyModels(compareModels)
+    )
+  });
+}
+
+async function executeSend({ text, images, compareModels, describeImages = false, newChat = false }) {
+  closeCompareContextBanner();
+
+  if (newChat) {
+    const payload = await createConversation(state.session, { model: compareModels[0] || state.settings.model });
+    state.conversations.unshift(payload.conversation);
+    state.activeConversationId = payload.conversation.id;
+    state.messages = [];
+    renderConversations();
+  } else if (!state.activeConversationId) {
+    await addConversation();
+  }
 
   const localUser = {
     id: `local_${Date.now()}`,
     role: "user",
-    content: state.images.length
+    content: images.length
       ? [
           ...(text ? [{ type: "text", text }] : []),
-          ...state.images.map((img) => ({ type: "image_url", image_url: { url: img.previewUrl } }))
+          ...images.map((img) => ({ type: "image_url", image_url: { url: img.previewUrl } }))
         ]
       : text
   };
@@ -963,10 +1080,9 @@ async function sendPrompt() {
       };
 
   state.messages.push(localUser, localAssistant);
-  const images = state.images;
-  state.images = [];
   els.promptInput.value = "";
   applyComposerHeight();
+  state.images = [];
   renderImages();
 
   state.abortController = new AbortController();
@@ -989,7 +1105,8 @@ async function sendPrompt() {
       settings: {
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
-      }
+      },
+      ...(describeImages ? { describeImages: true } : {})
     };
 
     if (compareModels.length) {
@@ -1154,7 +1271,11 @@ function bindEvents() {
   els.compareButton.addEventListener("click", (e) => {
     e.stopPropagation();
     closeModelDropdown();
-    toggleCompareDropdown();
+    if (state.settings.compareEnabled) {
+      toggleCompareDropdown();
+      return;
+    }
+    activateCompareMode();
   });
 
   document.addEventListener("click", (e) => {
@@ -1189,15 +1310,36 @@ function bindEvents() {
     const next = exists ? selected.filter((modelId) => modelId !== id) : [...selected, id];
     updateSetting("compareModels", next);
     updateSetting("compareEnabled", next.length >= 2);
+    if (state.compareDescribeImages && !compareIncludesTextOnlyModels(next)) {
+      state.compareDescribeImages = false;
+    }
     renderCompareControls();
     els.promptInput.focus();
   });
 
   els.compareClearButton.addEventListener("click", () => {
-    updateSetting("compareEnabled", false);
-    updateSetting("compareModels", []);
-    closeCompareDropdown();
-    renderCompareControls();
+    cancelCompareMode();
+    els.promptInput.focus();
+  });
+
+  els.compareContextYes.addEventListener("click", () => {
+    state.compareDescribeImages = true;
+    closeCompareContextBanner();
+    els.promptInput.focus();
+  });
+
+  els.compareContextNo.addEventListener("click", async () => {
+    closeCompareContextBanner();
+    try {
+      await startCompareFreshChat();
+      els.promptInput.focus();
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+
+  els.compareContextCancel.addEventListener("click", () => {
+    cancelCompareMode();
     els.promptInput.focus();
   });
 
@@ -1231,6 +1373,8 @@ function bindEvents() {
     if (!open) return;
     state.activeConversationId = open.dataset.openChatId;
     document.body.classList.remove("sidebar-open");
+    state.compareDescribeImages = false;
+    closeCompareContextBanner();
     try {
       await loadActiveConversation();
       renderShell();

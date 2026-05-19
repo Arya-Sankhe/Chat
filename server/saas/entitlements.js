@@ -59,8 +59,8 @@ export async function requireActiveEntitlement({ db, userId, plans, access, sign
 
 export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, models = [], signal }) {
   const calls = Number(messageCount);
-  if (!Number.isInteger(calls) || calls < 1 || calls > 4) {
-    throw new HttpError(400, "Message count must be between 1 and 4.");
+  if (!Number.isInteger(calls) || calls < 1 || calls > 5) {
+    throw new HttpError(400, "Message count must be between 1 and 5.");
   }
   const modelIds = Array.isArray(models) ? models.slice(0, calls) : [];
 

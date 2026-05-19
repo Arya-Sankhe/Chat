@@ -6,6 +6,7 @@ import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
 import { consumeUsageOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
+import { describeConversationImages, messagesHaveImages } from "./saas/images.js";
 import {
   buildProviderMessages,
   buildStoredUserContent,
@@ -17,6 +18,7 @@ import {
   streamProviderAndAccumulate,
   titleFromText
 } from "./saas/messages.js";
+import { modelSupportsVision } from "./saas/models.js";
 import { publicPlan } from "./saas/plans.js";
 import { assertImageUpload, R2Client } from "./storage/r2.js";
 
@@ -401,24 +403,55 @@ async function handleConversationMessage(req, res, config, conversationId) {
   const compareModels = normalizeCompareModels(body.models);
   const settings = normalizeMessageSettings(body);
   const existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-  const providerMessages = await buildProviderMessages({
-    messages: [...existingMessages, { role: "user", content: userContent }],
-    systemPrompt: settings.systemPrompt || "",
-    r2: context.r2
-  });
+  const historyMessages = [...existingMessages, { role: "user", content: userContent }];
+  const compareNeedsImageDescribe = compareModels.length > 0
+    && messagesHaveImages(historyMessages)
+    && compareModels.some((model) => !modelSupportsVision(model));
+
+  let imageDescriptions = null;
+  let describeModelUsed = null;
+  if (compareNeedsImageDescribe) {
+    if (!body.describeImages) {
+      throw new HttpError(409, "Compare includes text-only models, but this chat has images. Describe images or start a new chat.");
+    }
+
+    const describeResult = await describeConversationImages({
+      messages: historyMessages,
+      db: context.db,
+      userId: context.user.id,
+      r2: context.r2,
+      config,
+      modelIds: compareModels,
+      signal: req.signal
+    });
+    imageDescriptions = describeResult.descriptions;
+    describeModelUsed = describeResult.model;
+  }
+
+  async function providerMessagesForModel(model) {
+    return buildProviderMessages({
+      messages: historyMessages,
+      systemPrompt: settings.systemPrompt || "",
+      r2: context.r2,
+      imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null
+    });
+  }
+
   const chatRequests = compareModels.length
-    ? compareModels.map((model) => normalizeChatRequest({
+    ? await Promise.all(compareModels.map(async (model) => normalizeChatRequest({
         model,
-        messages: providerMessages,
+        messages: await providerMessagesForModel(model),
         ...settings
-      }))
+      })))
     : [normalizeChatRequest({
         model: body.model || conversation.model,
-        messages: providerMessages,
+        messages: await providerMessagesForModel(body.model || conversation.model),
         ...settings
       })];
 
-  const modelCallCount = chatRequests.length;
+  const modelCallCount = chatRequests.length + (describeModelUsed ? 1 : 0);
+  const usageModels = chatRequests.map((request) => request.model);
+  if (describeModelUsed) usageModels.push(describeModelUsed);
   await consumeUsageOrThrow({
     db: context.db,
     userId: context.user.id,
@@ -426,7 +459,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
     plan: context.plan,
     imageCount,
     messageCount: modelCallCount,
-    models: chatRequests.map((request) => request.model),
+    models: usageModels,
     signal: req.signal
   });
 

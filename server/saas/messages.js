@@ -79,7 +79,7 @@ export function contentText(content) {
     .join(" ");
 }
 
-async function hydrateContent(content, r2, mode) {
+async function hydrateContent(content, r2, mode, { imageDescriptions = null } = {}) {
   if (!Array.isArray(content)) return content || "";
 
   const hydrated = [];
@@ -91,6 +91,19 @@ async function hydrateContent(content, r2, mode) {
 
     if (part?.type === "image_url") {
       const image = part.image_url || {};
+      const attachmentId = image.attachment_id;
+      if (imageDescriptions) {
+        const fileName = image.file_name || "image";
+        const description = attachmentId ? imageDescriptions[attachmentId] : "";
+        hydrated.push({
+          type: "text",
+          text: description
+            ? `[Image (${fileName}): ${description}]`
+            : `[Image (${fileName}): image content omitted for a text-only model]`
+        });
+        continue;
+      }
+
       const objectKey = image.object_key || String(image.url || "").replace(/^r2:\/\//, "");
       const signedUrl = objectKey ? r2.readUrl(objectKey) : image.url;
       hydrated.push({
@@ -116,7 +129,7 @@ export async function hydrateMessagesForClient(messages, r2) {
   return result;
 }
 
-export async function buildProviderMessages({ messages, systemPrompt, r2 }) {
+export async function buildProviderMessages({ messages, systemPrompt, r2, imageDescriptions = null }) {
   const providerMessages = [];
   if (systemPrompt) providerMessages.push({ role: "system", content: systemPrompt });
 
@@ -125,7 +138,7 @@ export async function buildProviderMessages({ messages, systemPrompt, r2 }) {
     if (message.role === "assistant" && !String(message.content || "").trim()) continue;
     providerMessages.push({
       role: message.role,
-      content: await hydrateContent(message.content, r2, "provider")
+      content: await hydrateContent(message.content, r2, "provider", { imageDescriptions })
     });
   }
 

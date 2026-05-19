@@ -45,6 +45,7 @@ export function loadConfig(env = process.env) {
     defaultBaseUrl,
     allowedBaseUrls: CROFAI_BASE_URLS,
     serverApiKey: clean(env.CROFAI_API_KEY),
+    visionDescribeModel: clean(env.VISION_DESCRIBE_MODEL),
     plans,
     access: {
       mode: accessMode,

@@ -82,6 +82,20 @@
 
           <section class="messages" id="messages" aria-live="polite"></section>
 
+          <div class="compare-context-banner hidden" id="compareContextBanner" role="dialog" aria-labelledby="compareContextTitle" aria-describedby="compareContextBody">
+            <div class="compare-context-card">
+              <div class="compare-context-copy">
+                <strong id="compareContextTitle">Some compare models can't see images</strong>
+                <p id="compareContextBody">This chat includes images. Text-only models need image descriptions to use the history, or you can compare in a fresh chat.</p>
+              </div>
+              <div class="compare-context-actions">
+                <button class="compare-context-primary" id="compareContextYes" type="button">Describe images for text models</button>
+                <button class="compare-context-secondary" id="compareContextNo" type="button">New chat, no history</button>
+                <button class="compare-context-cancel" id="compareContextCancel" type="button">Cancel compare</button>
+              </div>
+            </div>
+          </div>
+
           <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only">
 
           <section class="composer-area" aria-label="Message composer">
@@ -230,6 +244,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260516-docker-boot"></script>
+    <script type="module" src="/js/app.js?v=20260515-compare-defaults"></script>
   </body>
 </html>
