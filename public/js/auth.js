@@ -101,6 +101,7 @@ export function googleSignInUrl(config) {
   const url = new URL(`${cleanUrl(config.supabaseUrl)}/auth/v1/authorize`);
   url.searchParams.set("provider", "google");
   url.searchParams.set("redirect_to", window.location.origin);
+  if (config.supabaseAnonKey) url.searchParams.set("apikey", config.supabaseAnonKey);
   return url.toString();
 }
 
