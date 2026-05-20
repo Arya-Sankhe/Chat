@@ -130,20 +130,22 @@ export async function describeConversationImages({
 
   const contextParts = [];
   for (const message of messages || []) {
-    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
-    const text = contentText(message.content);
-    if (text) contextParts.push(text);
+    if (!message?.role || message.role === "tool") continue;
+    const text = typeof message.content === "string" ? message.content : contentText(message.content);
+    if (text) contextParts.push(`[${message.role}] ${text}`);
   }
   const conversationContext = contextParts.length
-    ? `\n\nConversation context from the user:\n${contextParts.join("\n")}`
+    ? `\n\nConversation history:\n${contextParts.join("\n")}`
     : "";
 
   const contentPayload = [];
   const imageCount = attachments.length;
 
+  const coreInstructions = "Describe this image in full detail for another AI model that cannot see it. You MUST transcribe ALL visible text exactly as written — every word, number, label, header, option, and value. If there is a table, reproduce it row by row with every cell value. If there is a formula or equation, write it out. Do not summarize or paraphrase — transcribe verbatim. Then briefly describe any diagrams, charts, or visual elements.";
+
   const systemText = imageCount === 1
-    ? `Describe this image in detail for another AI that cannot see it. Include visible text, numbers, tables, labels, diagrams, and anything needed to understand the user's question. Be factual and concise.${conversationContext}`
-    : `You will be shown ${imageCount} images from a conversation. Describe EACH image in detail for another AI that cannot see them. Include visible text, numbers, tables, labels, diagrams, and anything relevant.\n\nRespond with exactly ${imageCount} descriptions, one per image, in this format:\n[IMAGE_1]\n<description>\n[IMAGE_2]\n<description>\n...and so on for all ${imageCount} images.\n\nBe factual and concise for each.${conversationContext}`;
+    ? `${coreInstructions}${conversationContext}`
+    : `You will be shown ${imageCount} images from a conversation. For EACH image: ${coreInstructions}\n\nRespond with exactly ${imageCount} descriptions, one per image, in this format:\n[IMAGE_1]\n<description>\n[IMAGE_2]\n<description>\n...and so on for all ${imageCount} images.${conversationContext}`;
 
   contentPayload.push({ type: "text", text: systemText });
 
@@ -161,7 +163,7 @@ export async function describeConversationImages({
     body: {
       model,
       messages: [{ role: "user", content: contentPayload }],
-      max_tokens: imageCount === 1 ? 900 : imageCount * 800,
+      max_tokens: imageCount === 1 ? 1500 : imageCount * 1200,
       temperature: 0.2
     },
     signal
