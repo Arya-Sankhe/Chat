@@ -1,11 +1,11 @@
 import { requireUser } from "./auth/supabase.js";
-import { listModels, streamChatCompletion } from "./crofai/client.js";
+import { listModels } from "./crofai/client.js";
 import { normalizeBaseUrl } from "./crofai/constants.js";
 import { normalizeChatRequest } from "./crofai/normalize.js";
 import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
-import { consumeUsageOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
+import { getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
   buildChairmanPrompt,
   generateNonce,
@@ -34,6 +34,7 @@ import {
 } from "./saas/messages.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "./saas/models.js";
 import { publicPlan } from "./saas/plans.js";
+import { createCrofaiUsageMeter } from "./saas/usageMeter.js";
 import { assertImageUpload, R2Client } from "./storage/r2.js";
 
 const COUNCIL_MIN_MODELS = 2;
@@ -345,7 +346,8 @@ async function handleCouncilConversationMessage({
   panelModels,
   originalPrompt,
   settings,
-  chairmanOverride
+  chairmanOverride,
+  crofai
 }) {
   const sessionId = `cnc_${generateNonce()}_${generateNonce()}`;
   const panelistMessages = [];
@@ -409,7 +411,7 @@ async function handleCouncilConversationMessage({
     });
 
     try {
-      const upstream = await streamChatCompletion({
+      const upstream = await crofai.streamChatCompletion({
         apiKey: config.serverApiKey,
         baseUrl: config.defaultBaseUrl,
         body: entry.chatRequest,
@@ -454,6 +456,40 @@ async function handleCouncilConversationMessage({
     }));
 
   let stage2 = { ballots: [], borda: [] };
+  let peerReviewStatus = "pending";
+  let peerReviewReason = "";
+  async function persistPeerReviewMetadata() {
+    const justificationsByModel = {};
+    for (const ballot of stage2.ballots) {
+      if (!ballot.valid) continue;
+      for (const [modelId, reason] of Object.entries(ballot.justifications || {})) {
+        if (!justificationsByModel[modelId]) justificationsByModel[modelId] = {};
+        justificationsByModel[modelId][ballot.reviewerModelId] = reason;
+      }
+    }
+
+    await Promise.all(validPanelists.map(async (panelist) => {
+      const bordaRow = stage2.borda.find((row) => row.modelId === panelist.modelId);
+      const hasBallot = Boolean(bordaRow && bordaRow.ballotCount > 0);
+      const meta = {
+        council: {
+          sessionId,
+          role: "panelist",
+          stage: 1,
+          peerReviewStatus,
+          peerReviewReason,
+          bordaScore: hasBallot ? bordaRow.bordaScore : null,
+          ballotCount: bordaRow ? bordaRow.ballotCount : 0,
+          peerRank: hasBallot ? bordaRow.rank : null,
+          peerJustifications: justificationsByModel[panelist.modelId] || {}
+        }
+      };
+      await context.db.updateMessage(context.user.id, panelist.assistantMessageId, {
+        metadata: meta
+      }, { signal: req.signal }).catch(() => {});
+    }));
+  }
+
   if (validPanelists.length >= 2) {
     writeSse(res, {
       type: "council:peer:start",
@@ -466,6 +502,7 @@ async function handleCouncilConversationMessage({
         originalUserPrompt: originalPrompt,
         config,
         signal: controller.signal,
+        chatCompletionFn: crofai.chatCompletion,
         onBallot: (ballot) => {
           writeSse(res, {
             type: "council:peer:ballot",
@@ -478,54 +515,46 @@ async function handleCouncilConversationMessage({
         }
       });
 
-      writeSse(res, {
-        type: "council:peer:done",
-        borda: stage2.borda.map((row) => ({
-          modelId: row.modelId,
-          bordaScore: row.bordaScore,
-          ballotCount: row.ballotCount,
-          rank: row.rank
-        }))
-      });
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        writeSse(res, { type: "council:peer:error", error: "Stopped by user." });
+      if (stage2.ballots.some((ballot) => ballot.valid)) {
+        peerReviewStatus = "done";
       } else {
-        writeSse(res, { type: "council:peer:error", error: error?.message || "Peer review failed." });
+        peerReviewStatus = "skipped";
+        peerReviewReason = "Peer review could not produce reliable rankings.";
+        stage2 = { ...stage2, borda: [] };
       }
+
+      if (peerReviewStatus === "skipped") {
+        writeSse(res, { type: "council:peer:skipped", reason: peerReviewReason });
+      } else {
+        writeSse(res, {
+          type: "council:peer:done",
+          borda: stage2.borda.map((row) => ({
+            modelId: row.modelId,
+            bordaScore: row.bordaScore,
+            ballotCount: row.ballotCount,
+            rank: row.rank
+          }))
+        });
+      }
+    } catch (error) {
+      peerReviewStatus = "error";
+      if (error?.name === "AbortError") {
+        peerReviewReason = "Stopped by user.";
+      } else {
+        peerReviewReason = error?.message || "Peer review failed.";
+      }
+      writeSse(res, { type: "council:peer:error", error: peerReviewReason });
       stage2 = { ballots: [], borda: [] };
     }
 
     /* Persist peer review metadata onto each panelist message so the UI can
        reload council results without re-running peer review. */
-    const justificationsByModel = {};
-    for (const ballot of stage2.ballots) {
-      if (!ballot.valid) continue;
-      for (const [modelId, reason] of Object.entries(ballot.justifications || {})) {
-        if (!justificationsByModel[modelId]) justificationsByModel[modelId] = {};
-        justificationsByModel[modelId][ballot.reviewerModelId] = reason;
-      }
-    }
-
-    await Promise.all(validPanelists.map(async (panelist) => {
-      const bordaRow = stage2.borda.find((row) => row.modelId === panelist.modelId);
-      const meta = {
-        council: {
-          sessionId,
-          role: "panelist",
-          stage: 1,
-          bordaScore: bordaRow ? bordaRow.bordaScore : null,
-          ballotCount: bordaRow ? bordaRow.ballotCount : 0,
-          peerRank: bordaRow ? bordaRow.rank : null,
-          peerJustifications: justificationsByModel[panelist.modelId] || {}
-        }
-      };
-      await context.db.updateMessage(context.user.id, panelist.assistantMessageId, {
-        metadata: meta
-      }, { signal: req.signal }).catch(() => {});
-    }));
+    await persistPeerReviewMetadata();
   } else if (validPanelists.length === 1) {
-    writeSse(res, { type: "council:peer:skipped", reason: "Only one valid panelist response." });
+    peerReviewStatus = "skipped";
+    peerReviewReason = "Only one valid panelist response.";
+    writeSse(res, { type: "council:peer:skipped", reason: peerReviewReason });
+    await persistPeerReviewMetadata();
   } else {
     writeSse(res, { type: "council:peer:skipped", reason: "No valid panelist responses." });
   }
@@ -586,6 +615,7 @@ async function handleCouncilConversationMessage({
       signal: controller.signal,
       reasoningEffort: settings?.reasoning_effort,
       maxTokens: settings?.max_tokens,
+      streamChatCompletionFn: crofai.streamChatCompletion,
       onEvent: (event) => {
         writeSse(res, { type: "council:chairman:delta", event });
       }
@@ -623,7 +653,8 @@ async function handleCompareConversationMessage({
   context,
   conversation,
   userContent,
-  chatRequests
+  chatRequests,
+  crofai
 }) {
   const assistantMessages = [];
   for (const chatRequest of chatRequests) {
@@ -671,7 +702,7 @@ async function handleCompareConversationMessage({
     });
 
     try {
-      const upstream = await streamChatCompletion({
+      const upstream = await crofai.streamChatCompletion({
         apiKey: config.serverApiKey,
         baseUrl: config.defaultBaseUrl,
         body: chatRequest,
@@ -732,6 +763,14 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }
   }
   const settings = normalizeMessageSettings(body);
+  const crofai = createCrofaiUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    imageCount,
+    signal: req.signal
+  });
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
   let historyMessages = [...existingMessages, { role: "user", content: userContent }];
   const compareNeedsImageDescribe = compareModels.length > 0
@@ -764,39 +803,6 @@ async function handleConversationMessage(req, res, config, conversationId) {
     });
   }
 
-  /*
-   * Usage accounting:
-   *   Single chat     → 1 panelist call
-   *   Compare (N)     → N panelist calls
-   *   Council (N)     → N stage 1 + N stage 2 (each panelist reviews) + 1 chairman = 2N + 1
-   *   +1 if we describe images first
-   */
-  let modelCallCount;
-  if (councilEnabled) {
-    modelCallCount = responseModels.length * 2 + 1;
-  } else {
-    modelCallCount = responseModels.length;
-  }
-  if (describeModelUsed) modelCallCount += 1;
-
-  const usageModels = responseModels.slice();
-  if (councilEnabled) {
-    for (const model of responseModels) usageModels.push(model);
-    usageModels.push("council:chairman");
-  }
-  if (describeModelUsed) usageModels.push(describeModelUsed);
-
-  await consumeUsageOrThrow({
-    db: context.db,
-    userId: context.user.id,
-    subscription: context.subscription,
-    plan: context.plan,
-    imageCount,
-    messageCount: modelCallCount,
-    models: usageModels,
-    signal: req.signal
-  });
-
   if (missingDescriptionIds.length) {
     const describeResult = await describeConversationImages({
       messages: historyMessages,
@@ -807,6 +813,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
       modelIds: compareModels,
       attachmentIds: missingDescriptionIds,
       describeModel: describeModelUsed,
+      chatCompletionFn: crofai.chatCompletion,
       signal: req.signal
     });
     imageDescriptions = { ...imageDescriptions, ...describeResult.descriptions };
@@ -880,7 +887,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
         max_tokens: settings.max_tokens,
         preferredModel: body.model
       },
-      chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : ""
+      chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
+      crofai
     });
     return;
   }
@@ -893,7 +901,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
       context,
       conversation,
       userContent,
-      chatRequests
+      chatRequests,
+      crofai
     });
     return;
   }
@@ -925,7 +934,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
   });
 
   try {
-    const upstream = await streamChatCompletion({
+    const upstream = await crofai.streamChatCompletion({
       apiKey: config.serverApiKey,
       baseUrl: config.defaultBaseUrl,
       body: chatRequest,

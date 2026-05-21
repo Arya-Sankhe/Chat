@@ -4,6 +4,7 @@ import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { consumeUsageOrThrow, getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { loadPlans } from "../server/saas/plans.js";
+import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, R2Client, safeFileName } from "../server/storage/r2.js";
 
 test("loadPlans maps Crof-style tiers from env", () => {
@@ -61,6 +62,76 @@ test("consumeUsageOrThrow debits one unit per CrofAI model call", async () => {
   assert.equal(calls[0].payload.messageCount, 4);
   assert.equal(calls.filter((call) => call.type === "event").length, 4);
   assert.deepEqual(calls.filter((call) => call.type === "event").map((call) => call.event.model), ["a", "b", "c", "d"]);
+});
+
+test("createCrofaiUsageMeter debits exactly one usage unit before each CrofAI call", async () => {
+  const events = [];
+  const db = {
+    async consumeUsage(payload) {
+      events.push({ type: "consume", payload });
+      return { allowed: true, message_count: events.filter((event) => event.type === "consume").length };
+    },
+    async recordUsageEvent(event) {
+      events.push({ type: "event", event });
+      return event;
+    }
+  };
+  const crofCalls = [];
+  const meter = createCrofaiUsageMeter({
+    db,
+    userId: "user_1",
+    subscription: { id: "sub_1" },
+    plan: { id: "pro", dailyMessageLimit: 600, monthlyImageLimit: 1000 },
+    imageCount: 2,
+    chatCompletionFn: async (params) => {
+      crofCalls.push({ type: "chat", model: params.body.model });
+      return "ok";
+    },
+    streamChatCompletionFn: async (params) => {
+      crofCalls.push({ type: "stream", model: params.body.model });
+      return { body: { getReader() {} } };
+    }
+  });
+
+  await Promise.all([
+    meter.chatCompletion({ body: { model: "alpha" } }),
+    meter.chatCompletion({ body: { model: "beta" } }),
+    meter.streamChatCompletion({ body: { model: "gamma" } })
+  ]);
+
+  const consumes = events.filter((event) => event.type === "consume").map((event) => event.payload);
+  assert.equal(consumes.length, crofCalls.length);
+  assert.deepEqual(consumes.map((payload) => payload.messageCount), [1, 1, 1]);
+  assert.deepEqual(consumes.map((payload) => payload.imageCount), [2, 0, 0]);
+  assert.deepEqual(events.filter((event) => event.type === "event").map((event) => event.event.model), ["alpha", "beta", "gamma"]);
+  assert.deepEqual(crofCalls.map((call) => call.model), ["alpha", "beta", "gamma"]);
+});
+
+test("createCrofaiUsageMeter does not call CrofAI when usage is denied", async () => {
+  let crofCalls = 0;
+  const meter = createCrofaiUsageMeter({
+    db: {
+      async consumeUsage() {
+        return { allowed: false, reason: "Daily message limit reached." };
+      },
+      async recordUsageEvent() {
+        throw new Error("usage events should not be written when usage is denied");
+      }
+    },
+    userId: "user_1",
+    subscription: { id: "sub_1" },
+    plan: { id: "pro", dailyMessageLimit: 0, monthlyImageLimit: 1000 },
+    chatCompletionFn: async () => {
+      crofCalls += 1;
+      return "not reached";
+    }
+  });
+
+  await assert.rejects(
+    meter.chatCompletion({ body: { model: "alpha" } }),
+    /Daily message limit reached/
+  );
+  assert.equal(crofCalls, 0);
 });
 
 test("SupabaseRest passes message count into usage RPC", async () => {

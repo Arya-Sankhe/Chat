@@ -107,6 +107,7 @@ export async function describeConversationImages({
   catalog = [],
   attachmentIds = null,
   describeModel = "",
+  chatCompletionFn = chatCompletion,
   signal
 }) {
   const ids = Array.isArray(attachmentIds)
@@ -157,7 +158,7 @@ export async function describeConversationImages({
     contentPayload.push({ type: "image_url", image_url: { url: imageUrl } });
   }
 
-  const response = await chatCompletion({
+  const response = await chatCompletionFn({
     apiKey: config.serverApiKey,
     baseUrl: config.defaultBaseUrl,
     body: {

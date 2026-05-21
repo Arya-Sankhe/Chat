@@ -204,6 +204,7 @@ export async function runPeerReview({
   signal,
   onBallot,
   callsCounter,
+  chatCompletionFn = chatCompletion,
   maxTokens = 1200
 }) {
   if (!panelists.length) return { ballots: [], borda: [], assignments: [] };
@@ -222,7 +223,7 @@ export async function runPeerReview({
       for (let attempt = 0; attempt < PEER_REVIEW_MAX_ATTEMPTS; attempt++) {
         try {
           if (callsCounter) callsCounter.add(assignment.reviewerModelId);
-          raw = await chatCompletion({
+          raw = await chatCompletionFn({
             apiKey: config.serverApiKey,
             baseUrl: config.defaultBaseUrl,
             body: {
@@ -352,7 +353,8 @@ export async function runChairmanSynthesis({
   signal,
   onEvent,
   reasoningEffort,
-  maxTokens
+  maxTokens,
+  streamChatCompletionFn = streamChatCompletion
 }) {
   const body = {
     model: chairmanModel,
@@ -365,7 +367,7 @@ export async function runChairmanSynthesis({
   if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (maxTokens) body.max_tokens = maxTokens;
 
-  const upstream = await streamChatCompletion({
+  const upstream = await streamChatCompletionFn({
     apiKey: config.serverApiKey,
     baseUrl: config.defaultBaseUrl,
     body,

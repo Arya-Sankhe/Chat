@@ -631,6 +631,15 @@ function councilRole(msg) {
   return msg?.metadata?.council?.role || "";
 }
 
+function councilPeerReviewStatus(panelists, chairman) {
+  if (chairman) return "done";
+  if (panelists.some((p) => p.metadata?.council?.peerRank != null && Number(p.metadata?.council?.ballotCount || 0) > 0)) return "done";
+  const statuses = panelists.map((p) => p.metadata?.council?.peerReviewStatus).filter(Boolean);
+  if (statuses.includes("error")) return "error";
+  if (statuses.includes("skipped")) return "done";
+  return "pending";
+}
+
 function messageViews(messages) {
   const views = [];
   for (let i = 0; i < messages.length; i++) {
@@ -673,7 +682,7 @@ function messageViews(messages) {
             panelists,
             chairman,
             stage1Done: true,
-            stage2Status: chairman ? "done" : (panelists.some((p) => p.metadata?.council?.peerRank) ? "done" : "pending"),
+            stage2Status: councilPeerReviewStatus(panelists, chairman),
             stage3Status: chairman ? (chairman.error ? "error" : (chairman.content ? "done" : "pending")) : "pending"
           }
         });
@@ -812,7 +821,7 @@ function renderCouncilStages(council) {
   `).join("")}</div>`;
 }
 
-function renderCouncilPanelist(panelist, index, totalRanked) {
+function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false) {
   const msg = normalizeMessage(panelist);
   const modelId = msg.model || "";
   const model = modelById(modelId);
@@ -820,11 +829,12 @@ function renderCouncilPanelist(panelist, index, totalRanked) {
   const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
   const rawText = rawTextContent(msg.content);
   const rank = msg.metadata?.council?.peerRank;
+  const ballotCount = Number(msg.metadata?.council?.ballotCount || 0);
   const justifications = msg.metadata?.council?.peerJustifications || {};
-  const showRank = rank != null && totalRanked > 0;
+  const showRank = rank != null && totalRanked > 0 && ballotCount > 0;
   const rankBadge = showRank
     ? `<span class="council-rank-badge rank-${rank}">#${rank}${rank === 1 ? " · Top" : ""}</span>`
-    : (msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
+    : (peerReviewActive && msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
   const justKeys = Object.keys(justifications);
   const justBlock = justKeys.length ? `
     <div class="council-justifications">
@@ -836,7 +846,7 @@ function renderCouncilPanelist(panelist, index, totalRanked) {
     </div>` : "";
 
   return `
-    <section class="council-panelist ${rank === 1 ? "rank-1" : ""}" data-raw-text="${escapeHtml(rawText)}">
+    <section class="council-panelist ${showRank && rank === 1 ? "rank-1" : ""}" data-raw-text="${escapeHtml(rawText)}">
       <header class="council-panelist-head">
         <span class="compare-model-mark">
           ${logoUrl
@@ -899,7 +909,8 @@ function renderCouncilSynthesis(chairman) {
 function renderCouncilMessage(council) {
   const panelists = council.panelists || [];
   const chairman = council.chairman || null;
-  const hasAnyRank = panelists.some((p) => p.metadata?.council?.peerRank != null);
+  const hasAnyRank = panelists.some((p) => p.metadata?.council?.peerRank != null && Number(p.metadata?.council?.ballotCount || 0) > 0);
+  const peerReviewActive = council.stage2Status === "active";
   const peerStatusText = council.peerStatus || "";
 
   return `
@@ -916,7 +927,7 @@ function renderCouncilMessage(council) {
         ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
         <div class="council-section-label">Panel responses</div>
         <div class="council-panel-grid">
-          ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0)).join("")}
+          ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive)).join("")}
         </div>
         ${renderCouncilSynthesis(chairman)}
       </div>
@@ -1213,12 +1224,24 @@ function applyCouncilStreamEvent(council, event) {
   if (type === "council:peer:error") {
     council.stage2Status = "error";
     council.peerStatus = `Peer review failed: ${event.error || "Unknown error."}`;
+    for (const panelist of council.panelists || []) {
+      if (!panelist.metadata) panelist.metadata = { council: {} };
+      if (!panelist.metadata.council) panelist.metadata.council = {};
+      panelist.metadata.council.peerReviewStatus = "error";
+      panelist.metadata.council.peerReviewReason = event.error || "Peer review failed.";
+    }
     return;
   }
 
   if (type === "council:peer:skipped") {
     council.stage2Status = "done";
     council.peerStatus = event.reason || "Peer review skipped.";
+    for (const panelist of council.panelists || []) {
+      if (!panelist.metadata) panelist.metadata = { council: {} };
+      if (!panelist.metadata.council) panelist.metadata.council = {};
+      panelist.metadata.council.peerReviewStatus = "skipped";
+      panelist.metadata.council.peerReviewReason = event.reason || "Peer review skipped.";
+    }
     return;
   }
 
