@@ -130,6 +130,17 @@
                         <label for="compareInput" class="sr-only">Search compare models</label>
                         <input id="compareInput" type="text" autocomplete="off" spellcheck="false" placeholder="Search models">
                         <div class="compare-hint">Select 2-4 models</div>
+                        <div class="compare-mode-toggle" id="compareModeToggle" role="radiogroup" aria-label="Compare or council">
+                          <button class="compare-mode-seg active" data-compare-mode="compare" type="button" role="radio" aria-checked="true">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>
+                            <span>Compare</span>
+                          </button>
+                          <button class="compare-mode-seg" data-compare-mode="council" type="button" role="radio" aria-checked="false">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/><path d="M11 12h2v3h-2z"/></svg>
+                            <span>Council</span>
+                          </button>
+                        </div>
+                        <div class="compare-mode-desc" id="compareModeDesc">Side-by-side answers from each model.</div>
                         <div class="model-catalog" id="compareCatalog"></div>
                         <button class="compare-clear" id="compareClearButton" type="button">Use single model</button>
                       </div>
@@ -244,6 +255,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260520-compare-image-context"></script>
+    <script type="module" src="/js/app.js?v=20260520-council-v1"></script>
   </body>
 </html>

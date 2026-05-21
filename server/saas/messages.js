@@ -129,11 +129,37 @@ export async function hydrateMessagesForClient(messages, r2) {
   return result;
 }
 
+/**
+ * Drop council Stage 1 panelist messages when their session produced a
+ * SUCCESSFUL chairman synthesis — the chairman speaks for the panel in
+ * follow-up turns so the next model doesn't see N parallel takes plus the
+ * synthesis. If the chairman failed, fall back to keeping panelist context.
+ */
+export function filterCouncilHistory(messages) {
+  const successfulChairmanSessions = new Set();
+  for (const message of messages || []) {
+    const council = message?.metadata?.council;
+    if (council?.role !== "chairman" || !council?.sessionId) continue;
+    if (String(message.content || "").trim()) {
+      successfulChairmanSessions.add(council.sessionId);
+    }
+  }
+
+  if (!successfulChairmanSessions.size) return messages || [];
+
+  return (messages || []).filter((message) => {
+    const council = message?.metadata?.council;
+    if (council?.role !== "panelist") return true;
+    return !successfulChairmanSessions.has(council.sessionId);
+  });
+}
+
 export async function buildProviderMessages({ messages, systemPrompt, r2, imageDescriptions = null }) {
   const providerMessages = [];
   if (systemPrompt) providerMessages.push({ role: "system", content: systemPrompt });
 
-  for (const message of messages) {
+  const trimmed = filterCouncilHistory(messages);
+  for (const message of trimmed) {
     if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") continue;
     if (message.role === "assistant" && !String(message.content || "").trim()) continue;
     providerMessages.push({

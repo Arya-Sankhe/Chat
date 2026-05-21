@@ -45,7 +45,8 @@ const defaultSettings = {
   systemPrompt: "",
   thinkingEffort: "medium",
   compareEnabled: false,
-  compareModels: []
+  compareModels: [],
+  compareMode: "compare"
 };
 
 const state = {
@@ -139,7 +140,9 @@ const els = {
   compareContextBanner: document.querySelector("#compareContextBanner"),
   compareContextYes: document.querySelector("#compareContextYes"),
   compareContextNo: document.querySelector("#compareContextNo"),
-  compareContextCancel: document.querySelector("#compareContextCancel")
+  compareContextCancel: document.querySelector("#compareContextCancel"),
+  compareModeToggle: document.querySelector("#compareModeToggle"),
+  compareModeDesc: document.querySelector("#compareModeDesc")
 };
 
 function imageDescription(part) {
@@ -238,10 +241,15 @@ function loadSettings() {
     const loaded = { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
     loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
     loaded.compareEnabled = Boolean(loaded.compareEnabled);
+    loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
     return loaded;
   } catch {
     return { ...defaultSettings };
   }
+}
+
+function isCouncilMode() {
+  return state.settings.compareEnabled && state.settings.compareMode === "council";
 }
 
 function saveSettings() {
@@ -541,11 +549,30 @@ function renderCompareCatalog() {
 function renderCompareControls() {
   const ids = selectedCompareModelIds();
   const active = state.settings.compareEnabled && ids.length >= 2;
+  const council = active && isCouncilMode();
   els.compareButton.classList.toggle("active", active);
-  els.compareLabel.textContent = active ? `Compare ${ids.length}` : "Compare";
-  els.promptInput.placeholder = active
-    ? `Compare ${ids.length} models`
-    : `Message ${modelDisplayName(state.settings.model) || "Smartyfy"}`;
+  els.compareButton.classList.toggle("council-active", council);
+  if (active) {
+    els.compareLabel.textContent = council ? `Council ${ids.length}` : `Compare ${ids.length}`;
+    els.promptInput.placeholder = council
+      ? `Convene ${ids.length} models as a council`
+      : `Compare ${ids.length} models`;
+  } else {
+    els.compareLabel.textContent = "Compare";
+    els.promptInput.placeholder = `Message ${modelDisplayName(state.settings.model) || "Smartyfy"}`;
+  }
+  if (els.compareModeToggle) {
+    for (const btn of els.compareModeToggle.querySelectorAll("[data-compare-mode]")) {
+      const isActive = btn.dataset.compareMode === state.settings.compareMode;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-checked", String(isActive));
+    }
+  }
+  if (els.compareModeDesc) {
+    els.compareModeDesc.textContent = isCouncilMode()
+      ? "Models answer, critique each other anonymously, then a chairman synthesizes the final answer."
+      : "Side-by-side answers from each model.";
+  }
   renderCompareCatalog();
 }
 
@@ -596,10 +623,24 @@ function normalizeMessage(msg) {
   return { ...msg, toolCalls: msg.toolCalls || msg.tool_calls || [] };
 }
 
+function councilSessionId(msg) {
+  return msg?.metadata?.council?.sessionId || "";
+}
+
+function councilRole(msg) {
+  return msg?.metadata?.council?.role || "";
+}
+
 function messageViews(messages) {
   const views = [];
   for (let i = 0; i < messages.length; i++) {
     const msg = normalizeMessage(messages[i]);
+
+    if (msg.councilGroup) {
+      views.push({ type: "council", council: msg });
+      continue;
+    }
+
     if (msg.compareGroup) {
       views.push({ type: "compare", messages: msg.compareResponses || [] });
       continue;
@@ -611,10 +652,40 @@ function messageViews(messages) {
       continue;
     }
 
+    // Detect council session (panelist+chairman messages sharing metadata.council.sessionId)
+    const sessionId = councilSessionId(msg);
+    if (sessionId) {
+      const panelists = [];
+      let chairman = null;
+      let j = i;
+      while (j < messages.length) {
+        const next = normalizeMessage(messages[j]);
+        if (next.role !== "assistant" || councilSessionId(next) !== sessionId) break;
+        if (councilRole(next) === "chairman") chairman = next;
+        else panelists.push(next);
+        j++;
+      }
+      if (panelists.length) {
+        views.push({
+          type: "council",
+          council: {
+            sessionId,
+            panelists,
+            chairman,
+            stage1Done: true,
+            stage2Status: chairman ? "done" : (panelists.some((p) => p.metadata?.council?.peerRank) ? "done" : "pending"),
+            stage3Status: chairman ? (chairman.error ? "error" : (chairman.content ? "done" : "pending")) : "pending"
+          }
+        });
+        i = j - 1;
+        continue;
+      }
+    }
+
     const group = [msg];
     while (i + 1 < messages.length) {
       const next = normalizeMessage(messages[i + 1]);
-      if (next.compareGroup || next.role === "user") break;
+      if (next.compareGroup || next.councilGroup || next.role === "user" || councilSessionId(next)) break;
       group.push(next);
       i++;
     }
@@ -727,6 +798,132 @@ function renderCompareMessage(messages) {
   `;
 }
 
+function renderCouncilStages(council) {
+  const stages = [
+    { key: "stage1", label: "Panel", status: council.stage1Status || "active" },
+    { key: "stage2", label: "Peer review", status: council.stage2Status || "pending" },
+    { key: "stage3", label: "Chairman", status: council.stage3Status || "pending" }
+  ];
+  return `<div class="council-stages">${stages.map((stage, index) => `
+    <span class="council-stage ${stage.status}">
+      <span class="council-stage-dot"></span>
+      <span>${escapeHtml(stage.label)}</span>
+    </span>${index < stages.length - 1 ? '<span class="council-stage-sep"></span>' : ""}
+  `).join("")}</div>`;
+}
+
+function renderCouncilPanelist(panelist, index, totalRanked) {
+  const msg = normalizeMessage(panelist);
+  const modelId = msg.model || "";
+  const model = modelById(modelId);
+  const logoUrl = model ? modelBrandLogoUrl(model) : "";
+  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
+  const rawText = rawTextContent(msg.content);
+  const rank = msg.metadata?.council?.peerRank;
+  const justifications = msg.metadata?.council?.peerJustifications || {};
+  const showRank = rank != null && totalRanked > 0;
+  const rankBadge = showRank
+    ? `<span class="council-rank-badge rank-${rank}">#${rank}${rank === 1 ? " · Top" : ""}</span>`
+    : (msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
+  const justKeys = Object.keys(justifications);
+  const justBlock = justKeys.length ? `
+    <div class="council-justifications">
+      <div class="council-justifications-title">Peer notes</div>
+      ${justKeys.map((reviewerId) => {
+        const reviewer = modelDisplayName(reviewerId) || reviewerId;
+        return `<div class="council-justification"><strong>${escapeHtml(reviewer)}:</strong> ${escapeHtml(justifications[reviewerId] || "")}</div>`;
+      }).join("")}
+    </div>` : "";
+
+  return `
+    <section class="council-panelist ${rank === 1 ? "rank-1" : ""}" data-raw-text="${escapeHtml(rawText)}">
+      <header class="council-panelist-head">
+        <span class="compare-model-mark">
+          ${logoUrl
+            ? `<img src="${escapeHtml(logoUrl)}" alt="" width="18" height="18" decoding="async">`
+            : `<span>${escapeHtml(String(index + 1))}</span>`}
+        </span>
+        <strong>${escapeHtml(modelDisplayName(modelId) || `Model ${index + 1}`)}</strong>
+        ${rankBadge}
+        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
+      </header>
+      <div class="council-panelist-body message-content">
+        ${renderReasoning(msg)}
+        ${renderContent(content)}
+        ${renderToolCalls(msg)}
+        ${renderMessageError(msg)}
+        ${renderMessageNote(msg)}
+        ${renderMissingFinal(msg, "assistant")}
+      </div>
+      ${justBlock}
+    </section>
+  `;
+}
+
+function renderCouncilSynthesis(chairman) {
+  if (!chairman) {
+    return `<div class="council-synthesis">
+      <div class="council-synthesis-head">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
+        <span>Council Synthesis</span>
+      </div>
+      <div class="council-synthesis-pending">Waiting for the chairman to synthesize the final answer…</div>
+    </div>`;
+  }
+
+  const msg = normalizeMessage(chairman);
+  const modelId = msg.model || "";
+  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Synthesizing…" : "");
+  const rawText = rawTextContent(msg.content);
+  const modelName = modelDisplayName(modelId) || modelId;
+
+  return `
+    <div class="council-synthesis" data-raw-text="${escapeHtml(rawText)}">
+      <div class="council-synthesis-head">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
+        <span>Council Synthesis</span>
+        <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
+        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis" style="color: white; opacity: 0.85;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
+      </div>
+      <div class="council-synthesis-body message-content">
+        ${renderReasoning(msg)}
+        ${renderContent(content)}
+        ${renderToolCalls(msg)}
+        ${renderMessageError(msg)}
+        ${renderMessageNote(msg)}
+      </div>
+    </div>
+  `;
+}
+
+function renderCouncilMessage(council) {
+  const panelists = council.panelists || [];
+  const chairman = council.chairman || null;
+  const hasAnyRank = panelists.some((p) => p.metadata?.council?.peerRank != null);
+  const peerStatusText = council.peerStatus || "";
+
+  return `
+    <article class="message assistant council-message">
+      <div class="council-shell">
+        <header class="council-header">
+          <span class="council-header-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
+          </span>
+          <span class="council-header-title">Model Council</span>
+          <span class="council-header-sub">${panelists.length} panelists${chairman ? " · 1 chairman" : ""}</span>
+        </header>
+        ${renderCouncilStages(council)}
+        ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
+        <div class="council-section-label">Panel responses</div>
+        <div class="council-panel-grid">
+          ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0)).join("")}
+        </div>
+        ${renderCouncilSynthesis(chairman)}
+      </div>
+    </article>
+  `;
+}
+
 function renderMessages() {
   if (!state.messages.length) {
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${getGreeting()}</h1></div></div>`;
@@ -734,7 +931,11 @@ function renderMessages() {
   }
 
   els.messages.innerHTML = messageViews(state.messages)
-    .map((view) => view.type === "compare" ? renderCompareMessage(view.messages) : renderStandardMessage(view.message))
+    .map((view) => {
+      if (view.type === "council") return renderCouncilMessage(view.council);
+      if (view.type === "compare") return renderCompareMessage(view.messages);
+      return renderStandardMessage(view.message);
+    })
     .join("");
 
   if (state.autoScroll) {
@@ -939,6 +1140,141 @@ function applyCompareStreamEvent(compareMessage, event) {
   }
 }
 
+function applyCouncilStreamEvent(council, event) {
+  const type = event?.type;
+
+  if (type === "council:start") {
+    council.sessionId = event.sessionId || council.sessionId;
+    return;
+  }
+
+  /* Stage 1 events reuse compare-style envelope */
+  if (type === "start" || type === "delta" || type === "done" || type === "error") {
+    const index = Number(event.index);
+    const target = council.panelists?.[index];
+    if (!target) return;
+    if (type === "start") {
+      target.id = event.assistantMessageId || target.id;
+      if (!target.metadata) target.metadata = { council: { sessionId: council.sessionId, role: "panelist", stage: 1 } };
+    } else if (type === "delta") {
+      applyStreamEvent(target, event.event);
+    } else if (type === "error") {
+      target.error = event.error || "Model request failed.";
+      target.finishReason = "error";
+    } else if (type === "done") {
+      target.finishReason ||= "stop";
+    }
+    return;
+  }
+
+  if (type === "council:peer:start") {
+    council.stage1Status = "done";
+    council.stage2Status = "active";
+    council.peerStatus = "Peers are evaluating each response…";
+    return;
+  }
+
+  if (type === "council:peer:ballot") {
+    if (!council.ballots) council.ballots = [];
+    council.ballots.push({
+      reviewer: event.reviewerModel,
+      valid: event.valid,
+      ranking: event.ranking || [],
+      justifications: event.justifications || {},
+      error: event.error || null
+    });
+    /* Stream justifications onto panelist metadata so UI updates progressively */
+    for (const [modelId, reason] of Object.entries(event.justifications || {})) {
+      const target = council.panelists.find((p) => p.model === modelId);
+      if (!target) continue;
+      if (!target.metadata) target.metadata = { council: {} };
+      if (!target.metadata.council) target.metadata.council = {};
+      if (!target.metadata.council.peerJustifications) target.metadata.council.peerJustifications = {};
+      target.metadata.council.peerJustifications[event.reviewerModel] = reason;
+    }
+    return;
+  }
+
+  if (type === "council:peer:done") {
+    council.stage2Status = "done";
+    council.peerStatus = "";
+    for (const row of event.borda || []) {
+      const target = council.panelists.find((p) => p.model === row.modelId);
+      if (!target) continue;
+      if (!target.metadata) target.metadata = { council: {} };
+      if (!target.metadata.council) target.metadata.council = {};
+      target.metadata.council.peerRank = row.rank;
+      target.metadata.council.bordaScore = row.bordaScore;
+      target.metadata.council.ballotCount = row.ballotCount;
+    }
+    return;
+  }
+
+  if (type === "council:peer:error") {
+    council.stage2Status = "error";
+    council.peerStatus = `Peer review failed: ${event.error || "Unknown error."}`;
+    return;
+  }
+
+  if (type === "council:peer:skipped") {
+    council.stage2Status = "done";
+    council.peerStatus = event.reason || "Peer review skipped.";
+    return;
+  }
+
+  if (type === "council:chairman:start") {
+    council.stage3Status = "active";
+    if (!council.chairman) {
+      council.chairman = {
+        id: event.assistantMessageId || `local_chair_${Date.now()}`,
+        role: "assistant",
+        model: event.chairmanModel || "",
+        content: "",
+        reasoning: "",
+        toolCalls: [],
+        metadata: {
+          council: {
+            sessionId: council.sessionId,
+            role: "chairman",
+            stage: 3,
+            chairmanModel: event.chairmanModel || ""
+          }
+        }
+      };
+    } else {
+      council.chairman.model = event.chairmanModel || council.chairman.model;
+      council.chairman.id = event.assistantMessageId || council.chairman.id;
+    }
+    return;
+  }
+
+  if (type === "council:chairman:delta") {
+    if (!council.chairman) return;
+    applyStreamEvent(council.chairman, event.event);
+    return;
+  }
+
+  if (type === "council:chairman:done") {
+    council.stage3Status = "done";
+    if (council.chairman) council.chairman.finishReason ||= "stop";
+    return;
+  }
+
+  if (type === "council:chairman:error") {
+    council.stage3Status = "error";
+    if (council.chairman) {
+      council.chairman.error = event.error || "Chairman synthesis failed.";
+      council.chairman.finishReason = "error";
+    }
+    return;
+  }
+
+  if (type === "council:chairman:skipped") {
+    council.stage3Status = "skipped";
+    return;
+  }
+}
+
 /* ─── API data loading ─── */
 
 async function loadMe() {
@@ -1021,7 +1357,7 @@ async function sendPrompt() {
     return;
   }
   if (state.settings.compareEnabled && selectedCompareModelIds().length < 2) {
-    showToast("Pick at least 2 models to compare.");
+    showToast(isCouncilMode() ? "Pick at least 2 models for the council." : "Pick at least 2 models to compare.");
     return;
   }
   if (compareModels.length && !state.compareDescribeImages && shouldPromptCompareImageContext(compareModels)) {
@@ -1036,6 +1372,7 @@ async function sendPrompt() {
     text,
     images: state.images.map((img) => ({ file: img.file, previewUrl: img.previewUrl })),
     compareModels,
+    council: Boolean(compareModels.length && isCouncilMode()),
     describeImages: Boolean(
       compareModels.length &&
       state.compareDescribeImages &&
@@ -1045,7 +1382,7 @@ async function sendPrompt() {
   });
 }
 
-async function executeSend({ text, images, compareModels, describeImages = false, newChat = false }) {
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false }) {
   closeCompareContextBanner();
 
   if (newChat) {
@@ -1068,27 +1405,53 @@ async function executeSend({ text, images, compareModels, describeImages = false
         ]
       : text
   };
-  const localAssistant = compareModels.length
-    ? {
-        id: `local_compare_${Date.now()}`,
+
+  let localAssistant;
+  if (council) {
+    localAssistant = {
+      id: `local_council_${Date.now()}`,
+      role: "assistant",
+      councilGroup: true,
+      sessionId: "",
+      stage1Status: "active",
+      stage2Status: "pending",
+      stage3Status: "pending",
+      peerStatus: "",
+      panelists: compareModels.map((model) => ({
+        id: `local_panel_${model}_${Date.now()}`,
         role: "assistant",
-        compareGroup: true,
-        compareResponses: compareModels.map((model) => ({
-          id: `local_compare_${model}_${Date.now()}`,
-          role: "assistant",
-          model,
-          content: "",
-          reasoning: "",
-          toolCalls: []
-        }))
-      }
-    : {
-        id: `local_assistant_${Date.now()}`,
+        model,
+        content: "",
+        reasoning: "",
+        toolCalls: [],
+        metadata: { council: { role: "panelist", stage: 1 } }
+      })),
+      chairman: null,
+      ballots: []
+    };
+  } else if (compareModels.length) {
+    localAssistant = {
+      id: `local_compare_${Date.now()}`,
+      role: "assistant",
+      compareGroup: true,
+      compareResponses: compareModels.map((model) => ({
+        id: `local_compare_${model}_${Date.now()}`,
         role: "assistant",
+        model,
         content: "",
         reasoning: "",
         toolCalls: []
-      };
+      }))
+    };
+  } else {
+    localAssistant = {
+      id: `local_assistant_${Date.now()}`,
+      role: "assistant",
+      content: "",
+      reasoning: "",
+      toolCalls: []
+    };
+  }
 
   state.messages.push(localUser, localAssistant);
   els.promptInput.value = "";
@@ -1120,7 +1483,19 @@ async function executeSend({ text, images, compareModels, describeImages = false
       ...(describeImages ? { describeImages: true } : {})
     };
 
-    if (compareModels.length) {
+    if (council) {
+      await streamCompareConversationMessage(state.session, state.activeConversationId, {
+        ...payload,
+        models: compareModels,
+        council: true
+      }, {
+        signal: state.abortController.signal,
+        onEvent: (event) => {
+          applyCouncilStreamEvent(localAssistant, event);
+          queueRenderMessages();
+        }
+      });
+    } else if (compareModels.length) {
       await streamCompareConversationMessage(state.session, state.activeConversationId, {
         ...payload,
         models: compareModels
@@ -1145,13 +1520,23 @@ async function executeSend({ text, images, compareModels, describeImages = false
     shouldReloadConversation = true;
   } catch (err) {
     if (err.name === "AbortError") {
-      if (localAssistant.compareGroup) {
+      if (localAssistant.councilGroup) {
+        for (const panelist of localAssistant.panelists) panelist.stopped = true;
+        if (localAssistant.chairman) localAssistant.chairman.stopped = true;
+      } else if (localAssistant.compareGroup) {
         for (const response of localAssistant.compareResponses) response.stopped = true;
       } else {
         localAssistant.stopped = true;
       }
     } else {
-      if (localAssistant.compareGroup) {
+      if (localAssistant.councilGroup) {
+        for (const panelist of localAssistant.panelists) {
+          if (!panelist.content) panelist.error = err.message;
+        }
+        if (localAssistant.chairman && !localAssistant.chairman.content) {
+          localAssistant.chairman.error = err.message;
+        }
+      } else if (localAssistant.compareGroup) {
         for (const response of localAssistant.compareResponses) {
           if (!response.content) response.error = err.message;
         }
@@ -1333,6 +1718,17 @@ function bindEvents() {
     cancelCompareMode();
     els.promptInput.focus();
   });
+
+  if (els.compareModeToggle) {
+    els.compareModeToggle.addEventListener("click", (e) => {
+      const seg = e.target.closest("[data-compare-mode]");
+      if (!seg) return;
+      const mode = seg.dataset.compareMode === "council" ? "council" : "compare";
+      if (state.settings.compareMode === mode) return;
+      updateSetting("compareMode", mode);
+      renderCompareControls();
+    });
+  }
 
   els.compareContextYes.addEventListener("click", () => {
     state.compareDescribeImages = true;

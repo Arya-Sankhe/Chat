@@ -7,6 +7,14 @@ import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
 import { consumeUsageOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
+  buildChairmanPrompt,
+  generateNonce,
+  runChairmanSynthesis,
+  runPeerReview,
+  selectChairman,
+  withCouncilSystemPrompt
+} from "./saas/council.js";
+import {
   applyImageDescriptionsToContent,
   collectImageDescriptions,
   collectUndescribedImageAttachmentIds,
@@ -27,6 +35,9 @@ import {
 import { modelSupportsVision, resolveVisionDescribeModel } from "./saas/models.js";
 import { publicPlan } from "./saas/plans.js";
 import { assertImageUpload, R2Client } from "./storage/r2.js";
+
+const COUNCIL_MIN_MODELS = 2;
+const COUNCIL_MAX_MODELS = 4;
 
 const modelCache = new Map();
 const modelCacheTtlMs = 5 * 60 * 1000;
@@ -289,6 +300,10 @@ function normalizeCompareModels(value) {
   return models;
 }
 
+function normalizeCouncilFlag(value) {
+  return Boolean(value === true || value === "true" || value === 1 || value === "1");
+}
+
 function writeSse(res, payload) {
   if (res.destroyed || res.writableEnded) return;
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -317,6 +332,288 @@ async function persistImageDescriptions({ db, userId, existingMessages, userCont
     existingMessages: nextMessages,
     userContent: applyImageDescriptionsToContent(userContent, descriptions)
   };
+}
+
+async function handleCouncilConversationMessage({
+  req,
+  res,
+  config,
+  context,
+  conversation,
+  userContent,
+  chatRequests,
+  panelModels,
+  originalPrompt,
+  settings,
+  chairmanOverride
+}) {
+  const sessionId = `cnc_${generateNonce()}_${generateNonce()}`;
+  const panelistMessages = [];
+  for (const chatRequest of chatRequests) {
+    panelistMessages.push(await context.db.insertMessage({
+      user_id: context.user.id,
+      conversation_id: conversation.id,
+      role: "assistant",
+      model: chatRequest.model,
+      content: "",
+      reasoning: "",
+      tool_calls: [],
+      metadata: { council: { sessionId, role: "panelist", stage: 1 } }
+    }, { signal: req.signal }));
+  }
+
+  if (!conversation.title || conversation.title === "New chat") {
+    await context.db.updateConversation(context.user.id, conversation.id, {
+      title: titleFromText(contentText(userContent)),
+      model: panelModels.join(", ")
+    }, { signal: req.signal });
+  } else if (!conversation.model) {
+    await context.db.updateConversation(context.user.id, conversation.id, {
+      model: panelModels.join(", ")
+    }, { signal: req.signal });
+  }
+
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no"
+  });
+
+  writeSse(res, {
+    type: "council:start",
+    sessionId,
+    panel: panelModels,
+    assistantMessageIds: panelistMessages.map((message) => message.id)
+  });
+
+  /* ── Stage 1 — independent responses ── */
+  const panelistResults = panelistMessages.map((message, index) => ({
+    message,
+    chatRequest: chatRequests[index],
+    accumulated: null,
+    error: null
+  }));
+
+  await Promise.all(panelistResults.map(async (entry, index) => {
+    writeSse(res, {
+      type: "start",
+      index,
+      model: entry.chatRequest.model,
+      assistantMessageId: entry.message.id
+    });
+
+    try {
+      const upstream = await streamChatCompletion({
+        apiKey: config.serverApiKey,
+        baseUrl: config.defaultBaseUrl,
+        body: entry.chatRequest,
+        signal: controller.signal
+      });
+
+      if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+
+      const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
+        writeSse(res, { type: "delta", index, model: entry.chatRequest.model, event });
+      });
+
+      if (!hasAssistantOutput(accumulated)) throw new HttpError(502, "Smartyfy returned an empty response.");
+      entry.accumulated = accumulated;
+
+      await context.db.updateMessage(context.user.id, entry.message.id, {
+        content: accumulated.content,
+        reasoning: accumulated.reasoning,
+        tool_calls: accumulated.toolCalls,
+        finish_reason: accumulated.finishReason || null
+      }, { signal: req.signal });
+
+      writeSse(res, { type: "done", index, model: entry.chatRequest.model });
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+      entry.error = message;
+      await context.db.updateMessage(context.user.id, entry.message.id, {
+        error: message,
+        finish_reason: "error"
+      }, { signal: req.signal }).catch(() => {});
+      writeSse(res, { type: "error", index, model: entry.chatRequest.model, error: message });
+    }
+  }));
+
+  /* ── Stage 2 — anonymized peer review ── */
+  const validPanelists = panelistResults
+    .filter((entry) => !entry.error && entry.accumulated?.content?.trim())
+    .map((entry) => ({
+      modelId: entry.chatRequest.model,
+      responseText: entry.accumulated.content,
+      assistantMessageId: entry.message.id
+    }));
+
+  let stage2 = { ballots: [], borda: [] };
+  if (validPanelists.length >= 2) {
+    writeSse(res, {
+      type: "council:peer:start",
+      reviewers: validPanelists.map((p) => p.modelId)
+    });
+
+    try {
+      stage2 = await runPeerReview({
+        panelists: validPanelists,
+        originalUserPrompt: originalPrompt,
+        config,
+        signal: controller.signal,
+        onBallot: (ballot) => {
+          writeSse(res, {
+            type: "council:peer:ballot",
+            reviewerModel: ballot.reviewerModelId,
+            valid: ballot.valid,
+            ranking: ballot.ranking,
+            justifications: ballot.justifications,
+            error: ballot.error || null
+          });
+        }
+      });
+
+      writeSse(res, {
+        type: "council:peer:done",
+        borda: stage2.borda.map((row) => ({
+          modelId: row.modelId,
+          bordaScore: row.bordaScore,
+          ballotCount: row.ballotCount,
+          rank: row.rank
+        }))
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        writeSse(res, { type: "council:peer:error", error: "Stopped by user." });
+      } else {
+        writeSse(res, { type: "council:peer:error", error: error?.message || "Peer review failed." });
+      }
+      stage2 = { ballots: [], borda: [] };
+    }
+
+    /* Persist peer review metadata onto each panelist message so the UI can
+       reload council results without re-running peer review. */
+    const justificationsByModel = {};
+    for (const ballot of stage2.ballots) {
+      if (!ballot.valid) continue;
+      for (const [modelId, reason] of Object.entries(ballot.justifications || {})) {
+        if (!justificationsByModel[modelId]) justificationsByModel[modelId] = {};
+        justificationsByModel[modelId][ballot.reviewerModelId] = reason;
+      }
+    }
+
+    await Promise.all(validPanelists.map(async (panelist) => {
+      const bordaRow = stage2.borda.find((row) => row.modelId === panelist.modelId);
+      const meta = {
+        council: {
+          sessionId,
+          role: "panelist",
+          stage: 1,
+          bordaScore: bordaRow ? bordaRow.bordaScore : null,
+          ballotCount: bordaRow ? bordaRow.ballotCount : 0,
+          peerRank: bordaRow ? bordaRow.rank : null,
+          peerJustifications: justificationsByModel[panelist.modelId] || {}
+        }
+      };
+      await context.db.updateMessage(context.user.id, panelist.assistantMessageId, {
+        metadata: meta
+      }, { signal: req.signal }).catch(() => {});
+    }));
+  } else if (validPanelists.length === 1) {
+    writeSse(res, { type: "council:peer:skipped", reason: "Only one valid panelist response." });
+  } else {
+    writeSse(res, { type: "council:peer:skipped", reason: "No valid panelist responses." });
+  }
+
+  /* ── Stage 3 — chairman synthesis ── */
+  if (!validPanelists.length) {
+    writeSse(res, { type: "council:chairman:skipped", reason: "No responses to synthesize." });
+    await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
+    res.end();
+    return;
+  }
+
+  const chairmanModel = selectChairman({
+    override: chairmanOverride,
+    borda: stage2.borda,
+    defaultModel: settings?.preferredModel || panelModels[0],
+    panelists: validPanelists
+  });
+
+  const chairmanMessage = await context.db.insertMessage({
+    user_id: context.user.id,
+    conversation_id: conversation.id,
+    role: "assistant",
+    model: chairmanModel,
+    content: "",
+    reasoning: "",
+    tool_calls: [],
+    metadata: {
+      council: {
+        sessionId,
+        role: "chairman",
+        stage: 3,
+        chairmanModel,
+        panel: panelModels
+      }
+    }
+  }, { signal: req.signal });
+
+  writeSse(res, {
+    type: "council:chairman:start",
+    chairmanModel,
+    assistantMessageId: chairmanMessage.id,
+    sessionId
+  });
+
+  try {
+    const chairmanPrompt = buildChairmanPrompt({
+      originalUserPrompt: originalPrompt,
+      panelists: validPanelists,
+      borda: stage2.borda
+    });
+
+    const accumulated = await runChairmanSynthesis({
+      chairmanModel,
+      prompt: chairmanPrompt,
+      systemPrompt: settings?.systemPrompt || "",
+      config,
+      signal: controller.signal,
+      reasoningEffort: settings?.reasoning_effort,
+      maxTokens: settings?.max_tokens,
+      onEvent: (event) => {
+        writeSse(res, { type: "council:chairman:delta", event });
+      }
+    });
+
+    if (!hasAssistantOutput(accumulated)) {
+      throw new HttpError(502, "Chairman returned an empty response.");
+    }
+
+    await context.db.updateMessage(context.user.id, chairmanMessage.id, {
+      content: accumulated.content,
+      reasoning: accumulated.reasoning,
+      tool_calls: accumulated.toolCalls,
+      finish_reason: accumulated.finishReason || null
+    }, { signal: req.signal });
+
+    writeSse(res, { type: "council:chairman:done", chairmanModel });
+  } catch (error) {
+    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Chairman synthesis failed.";
+    await context.db.updateMessage(context.user.id, chairmanMessage.id, {
+      error: message,
+      finish_reason: "error"
+    }, { signal: req.signal }).catch(() => {});
+    writeSse(res, { type: "council:chairman:error", error: message });
+  }
+
+  await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
+  res.end();
 }
 
 async function handleCompareConversationMessage({
@@ -425,6 +722,15 @@ async function handleConversationMessage(req, res, config, conversationId) {
   let userContent = buildStoredUserContent(body.text, attachments);
   const imageCount = imageCountFromContent(userContent);
   const compareModels = normalizeCompareModels(body.models);
+  const councilEnabled = normalizeCouncilFlag(body.council);
+  if (councilEnabled) {
+    if (compareModels.length < COUNCIL_MIN_MODELS) {
+      throw new HttpError(400, `Pick at least ${COUNCIL_MIN_MODELS} models for the council.`);
+    }
+    if (compareModels.length > COUNCIL_MAX_MODELS) {
+      throw new HttpError(400, `Council supports up to ${COUNCIL_MAX_MODELS} models.`);
+    }
+  }
   const settings = normalizeMessageSettings(body);
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
   let historyMessages = [...existingMessages, { role: "user", content: userContent }];
@@ -458,9 +764,28 @@ async function handleConversationMessage(req, res, config, conversationId) {
     });
   }
 
-  const modelCallCount = responseModels.length + (describeModelUsed ? 1 : 0);
+  /*
+   * Usage accounting:
+   *   Single chat     → 1 panelist call
+   *   Compare (N)     → N panelist calls
+   *   Council (N)     → N stage 1 + N stage 2 (each panelist reviews) + 1 chairman = 2N + 1
+   *   +1 if we describe images first
+   */
+  let modelCallCount;
+  if (councilEnabled) {
+    modelCallCount = responseModels.length * 2 + 1;
+  } else {
+    modelCallCount = responseModels.length;
+  }
+  if (describeModelUsed) modelCallCount += 1;
+
   const usageModels = responseModels.slice();
+  if (councilEnabled) {
+    for (const model of responseModels) usageModels.push(model);
+    usageModels.push("council:chairman");
+  }
   if (describeModelUsed) usageModels.push(describeModelUsed);
+
   await consumeUsageOrThrow({
     db: context.db,
     userId: context.user.id,
@@ -499,10 +824,14 @@ async function handleConversationMessage(req, res, config, conversationId) {
     historyMessages = [...existingMessages, { role: "user", content: userContent }];
   }
 
+  const stage1SystemPrompt = councilEnabled
+    ? withCouncilSystemPrompt(settings.systemPrompt || "")
+    : (settings.systemPrompt || "");
+
   async function providerMessagesForModel(model) {
     return buildProviderMessages({
       messages: historyMessages,
-      systemPrompt: settings.systemPrompt || "",
+      systemPrompt: stage1SystemPrompt,
       r2: context.r2,
       imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null
     });
@@ -532,6 +861,28 @@ async function handleConversationMessage(req, res, config, conversationId) {
       conversation_id: conversation.id,
       message_id: userMessage.id
     }, { signal: req.signal });
+  }
+
+  if (councilEnabled) {
+    await handleCouncilConversationMessage({
+      req,
+      res,
+      config,
+      context,
+      conversation,
+      userContent,
+      chatRequests,
+      panelModels: compareModels,
+      originalPrompt: contentText(userContent),
+      settings: {
+        systemPrompt: settings.systemPrompt || "",
+        reasoning_effort: settings.reasoning_effort,
+        max_tokens: settings.max_tokens,
+        preferredModel: body.model
+      },
+      chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : ""
+    });
+    return;
   }
 
   if (compareModels.length) {

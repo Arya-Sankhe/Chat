@@ -67,8 +67,11 @@ create table if not exists public.messages (
   tool_calls jsonb not null default '[]'::jsonb,
   finish_reason text,
   error text,
+  metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.messages add column if not exists metadata jsonb not null default '{}'::jsonb;
 
 create table if not exists public.attachments (
   id uuid primary key default gen_random_uuid(),

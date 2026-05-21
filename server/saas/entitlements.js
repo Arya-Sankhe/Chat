@@ -57,10 +57,15 @@ export async function requireActiveEntitlement({ db, userId, plans, access, sign
   };
 }
 
+// Council mode can run 2N+2 calls per user prompt (N panelists, N peer reviews,
+// 1 chairman, +1 optional image describe). N is capped at 4, so 10 is the upper
+// bound. A small headroom keeps us safe against future changes.
+const MAX_MESSAGE_COUNT_PER_PROMPT = 12;
+
 export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, models = [], signal }) {
   const calls = Number(messageCount);
-  if (!Number.isInteger(calls) || calls < 1 || calls > 5) {
-    throw new HttpError(400, "Message count must be between 1 and 5.");
+  if (!Number.isInteger(calls) || calls < 1 || calls > MAX_MESSAGE_COUNT_PER_PROMPT) {
+    throw new HttpError(400, `Message count must be between 1 and ${MAX_MESSAGE_COUNT_PER_PROMPT}.`);
   }
   const modelIds = Array.isArray(models) ? models.slice(0, calls) : [];
 
