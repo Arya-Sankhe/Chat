@@ -789,6 +789,86 @@ function uniqueCitationPreview(citations, limit = 3) {
   return preview;
 }
 
+function sourceShortLabel(entry) {
+  const title = String(entry.title || "").trim();
+  if (title.length > 14) return `${title.slice(0, 11)}…`;
+  if (title) return title;
+  const host = citationHost(entry.url);
+  if (!host) return "Source";
+  const base = host.split(".")[0];
+  if (!base || base === "www") return host.length > 14 ? `${host.slice(0, 11)}…` : host;
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function renderInlineSourcePill(sources) {
+  if (!sources.length) return "";
+  const primary = sources[0];
+  const icon = citationFaviconUrl(primary.url);
+  const extra = sources.length - 1;
+  const rows = sources.map((entry) => {
+    const host = citationHost(entry.url);
+    const rowIcon = citationFaviconUrl(entry.url);
+    const title = entry.title || host || entry.url;
+    return `
+      <a class="inline-source-row" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">
+        ${rowIcon ? `<img src="${escapeHtml(rowIcon)}" alt="" width="14" height="14" decoding="async">` : ""}
+        <span class="inline-source-row-title">${escapeHtml(title)}</span>
+        ${host ? `<span class="inline-source-row-host">${escapeHtml(host)}</span>` : ""}
+      </a>
+    `;
+  }).join("");
+
+  return `<details class="inline-source-pill"><summary class="inline-source-pill-trigger">${icon ? `<img class="inline-source-favicon" src="${escapeHtml(icon)}" alt="" width="14" height="14" decoding="async">` : ""}<span class="inline-source-pill-label">${escapeHtml(sourceShortLabel(primary))}</span>${extra > 0 ? `<span class="inline-source-pill-more">+${extra}</span>` : ""}</summary><div class="inline-source-panel">${rows}</div></details>`;
+}
+
+function injectInlineCitationPills(text, citations) {
+  if (!text || !citations?.length) return text;
+
+  const byIndex = new Map();
+  for (const entry of citations) {
+    const idx = Number(entry.index);
+    if (Number.isFinite(idx)) byIndex.set(idx, entry);
+  }
+
+  const blocks = String(text).split(/\n\n+/);
+  const processed = blocks.map((block) => {
+    const indices = [];
+    const seen = new Set();
+    for (const match of block.matchAll(/\[(\d+)\]/g)) {
+      const n = Number(match[1]);
+      if (!seen.has(n) && byIndex.has(n)) {
+        seen.add(n);
+        indices.push(n);
+      }
+    }
+    if (!indices.length) return block;
+
+    const sources = indices.map((i) => byIndex.get(i)).filter(Boolean);
+    const cleaned = block.replace(/\s*\[(\d+)\]/g, "").trimEnd();
+    return `${cleaned} ${renderInlineSourcePill(sources)}`;
+  });
+
+  return processed.join("\n\n");
+}
+
+function renderAssistantContent(content, message, { thinking = false } = {}) {
+  const citations = citationListFromMessage(message);
+  const fallback = thinking && !content ? "Thinking…" : "";
+
+  if (Array.isArray(content)) {
+    if (!citations.length) return renderContent(content.length ? content : fallback);
+    const enriched = content.map((part) => {
+      if (part?.type !== "text") return part;
+      return { ...part, text: injectInlineCitationPills(part.text || "", citations) };
+    });
+    return renderContent(enriched.length ? enriched : fallback);
+  }
+
+  const text = typeof content === "string" ? content : "";
+  if (!citations.length) return renderContent(text || fallback);
+  return renderContent(injectInlineCitationPills(text, citations) || fallback);
+}
+
 function renderCitations(message) {
   const citations = citationListFromMessage(message);
   if (!citations.length) return "";
@@ -852,7 +932,10 @@ function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
   const content = typeof msg.content === "string" ? msg.content : msg.content;
-  const body = renderContent(content || (state.running && role === "assistant" ? "Thinking…" : ""));
+  const thinking = state.running && role === "assistant";
+  const body = role === "assistant"
+    ? renderAssistantContent(content, msg, { thinking })
+    : renderContent(content || "");
   const rawText = rawTextContent(msg.content);
 
   return `
@@ -860,7 +943,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${renderReasoning(msg)}${renderCitations(msg)}${body}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
+        <div class="message-content">${renderReasoning(msg)}${body}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
   `;
@@ -887,8 +970,8 @@ function renderCompareResponse(raw, index) {
       </header>
       <div class="compare-response-body message-content">
         ${renderReasoning(msg)}
+        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
         ${renderCitations(msg)}
-        ${renderContent(content)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
@@ -963,8 +1046,8 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
       </header>
       <div class="council-panelist-body message-content">
         ${renderReasoning(msg)}
+        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
         ${renderCitations(msg)}
-        ${renderContent(content)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
@@ -1001,8 +1084,8 @@ function renderCouncilSynthesis(chairman) {
       </div>
       <div class="council-synthesis-body message-content">
         ${renderReasoning(msg)}
+        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
         ${renderCitations(msg)}
-        ${renderContent(content)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
       </div>

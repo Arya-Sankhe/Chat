@@ -990,8 +990,127 @@ body.sidebar-expanded .conversation-row {
 /* ── Sources pill (web search citations) ── */
 
 .sources-pill {
-  margin: 0 0 12px;
+  margin: 14px 0 0;
   max-width: 100%;
+}
+
+/* ── Inline citation pills (end of paragraph) ── */
+
+.inline-source-pill {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  margin-left: 5px;
+  max-width: 100%;
+}
+
+.inline-source-pill-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  list-style: none;
+  cursor: pointer;
+  padding: 3px 9px 3px 5px;
+  border-radius: 999px;
+  background: var(--inline-cite-bg, #ececec);
+  border: 1px solid var(--border, #ddd);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+  line-height: 1.2;
+  transition: background var(--transition), border-color var(--transition);
+  user-select: none;
+}
+
+.inline-source-pill-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.inline-source-pill-trigger::marker {
+  content: "";
+}
+
+.inline-source-pill-trigger:hover {
+  background: var(--surface-hover, #e2e2e2);
+  border-color: var(--border-strong, #ccc);
+}
+
+.inline-source-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: #fff;
+}
+
+.inline-source-pill-label {
+  color: var(--text, #222);
+  font-weight: 600;
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-source-pill-more {
+  color: var(--text-secondary, #666);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.inline-source-panel {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 220px;
+  max-width: min(320px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e0e0e0);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.inline-source-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--transition);
+}
+
+.inline-source-row:hover {
+  background: var(--surface-muted, #f5f5f5);
+}
+
+.inline-source-row img {
+  flex: 0 0 14px;
+  border-radius: 3px;
+}
+
+.inline-source-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text, #1a1a1a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inline-source-row-host {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
 }
 
 .sources-pill-trigger {
