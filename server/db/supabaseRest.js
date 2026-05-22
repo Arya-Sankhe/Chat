@@ -402,6 +402,39 @@ export class SupabaseRest {
     return { profiles, subscriptions, usage };
   }
 
+  async consumeSearch({ userId, planId, dailySearchLimit, searchCount = 1 }, { signal } = {}) {
+    return this.rpc("smartyfy_consume_search", {
+      p_user_id: userId,
+      p_plan_id: planId,
+      p_daily_search_limit: dailySearchLimit,
+      p_search_count: searchCount
+    }, { signal });
+  }
+
+  async getSearchCache(queryHash, { signal } = {}) {
+    if (!this.configured) return null;
+    try {
+      const rows = await this.request("search_cache", {
+        query: { query_hash: `eq.${queryHash}`, select: "*", limit: "1" },
+        signal
+      });
+      return single(rows);
+    } catch {
+      return null;
+    }
+  }
+
+  async upsertSearchCache(row, { signal } = {}) {
+    if (!this.configured) return null;
+    return this.request("search_cache", {
+      method: "POST",
+      query: { on_conflict: "query_hash" },
+      body: row,
+      prefer: "resolution=merge-duplicates,return=minimal",
+      signal
+    });
+  }
+
   async getModelCache(id, { signal } = {}) {
     const rows = await this.request("model_cache", {
       query: { id: `eq.${id}`, select: "*", limit: "1" },

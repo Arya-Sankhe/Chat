@@ -12,7 +12,9 @@ Smartyfy Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible 
 - Streaming chat responses with usage metering and plan limits.
 - Docker and Docker Compose hosting.
 
-No BYOK, local chat migration, multi-provider routing, prompt marketplace, file RAG, web search, or LibreChat extras are included.
+- Optional web search backed by Jina Search Foundation (`s.jina.ai`) with Brave LLM Context as fallback. The model decides when to call it via OpenAI-style tool calls; a per-chat Auto/Off toggle lives next to the image button.
+
+No BYOK, local chat migration, multi-provider routing, prompt marketplace, file RAG, or LibreChat extras are included.
 
 ## Dependency Security
 
@@ -53,6 +55,14 @@ Required:
 - `TEST_PLAN_ID`
 
 Optional plan limit overrides are available in `.env.example`.
+
+Optional for web search:
+
+- `JINA_API_KEY` (primary; works without one at 100 RPM)
+- `BRAVE_SEARCH_API_KEY` (fallback)
+- `WEBSEARCH_*` knobs (default mode, per-plan daily quotas, cache TTL, max tool calls per turn). See `.env.example`.
+
+If neither key is set the toggle is hidden from the UI and the tool is never offered to the model.
 
 ## Run Locally
 

@@ -46,7 +46,8 @@ const defaultSettings = {
   thinkingEffort: "medium",
   compareEnabled: false,
   compareModels: [],
-  compareMode: "compare"
+  compareMode: "compare",
+  webSearchMode: "auto"
 };
 
 const state = {
@@ -142,7 +143,8 @@ const els = {
   compareContextNo: document.querySelector("#compareContextNo"),
   compareContextCancel: document.querySelector("#compareContextCancel"),
   compareModeToggle: document.querySelector("#compareModeToggle"),
-  compareModeDesc: document.querySelector("#compareModeDesc")
+  compareModeDesc: document.querySelector("#compareModeDesc"),
+  webSearchToggle: document.querySelector("#webSearchToggle")
 };
 
 function imageDescription(part) {
@@ -242,10 +244,40 @@ function loadSettings() {
     loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
     loaded.compareEnabled = Boolean(loaded.compareEnabled);
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
+    loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
     return loaded;
   } catch {
     return { ...defaultSettings };
   }
+}
+
+function webSearchAvailable() {
+  return Boolean(state.config?.services?.websearch);
+}
+
+function renderWebSearchToggle() {
+  if (!els.webSearchToggle) return;
+  if (!webSearchAvailable()) {
+    els.webSearchToggle.classList.add("hidden");
+    return;
+  }
+  els.webSearchToggle.classList.remove("hidden");
+  const on = state.settings.webSearchMode !== "off";
+  els.webSearchToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  els.webSearchToggle.setAttribute(
+    "title",
+    on
+      ? "Web search: Auto — the model searches the web when it needs to. Click to disable."
+      : "Web search: Off — click to let the model search when needed."
+  );
+  els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
+}
+
+function toggleWebSearchMode() {
+  const next = state.settings.webSearchMode === "off" ? "auto" : "off";
+  updateSetting("webSearchMode", next);
+  renderWebSearchToggle();
+  showToast(next === "off" ? "Web search disabled for this chat." : "Web search set to Auto.");
 }
 
 function isCouncilMode() {
@@ -325,6 +357,7 @@ function renderShell() {
   renderConversations();
   renderModelOptions();
   renderThinkingEffort();
+  renderWebSearchToggle();
   renderMessages();
   syncCompareContextBanner();
 }
@@ -723,6 +756,62 @@ function renderMessageError(message) {
   return message.error ? `<div class="message-error">${escapeHtml(message.error)}</div>` : "";
 }
 
+function renderToolStatuses(message) {
+  const events = Array.isArray(message?.toolEvents) ? message.toolEvents : [];
+  if (!events.length) return "";
+  return `<div class="tool-statuses">${events
+    .map((event) => {
+      if (event.status === "running") {
+        const label = event.name === "read_url" ? "Reading" : "Searching";
+        const target = event.query ? `: ${escapeHtml(event.query)}` : "";
+        return `<span class="tool-status"><span class="spinner" aria-hidden="true"></span>${label}${target}</span>`;
+      }
+      if (event.status === "done") {
+        const label = event.name === "read_url" ? "Read" : "Searched";
+        const target = event.query ? ` "${escapeHtml(event.query)}"` : "";
+        const count = typeof event.resultCount === "number" ? ` · ${event.resultCount} sources` : "";
+        const cached = event.cached ? " · cached" : "";
+        return `<span class="tool-status">${label}${target}${count}${cached}</span>`;
+      }
+      if (event.status === "error") {
+        return `<span class="tool-status error">Web tool error: ${escapeHtml(event.error || "failed")}</span>`;
+      }
+      if (event.status === "limit") {
+        return `<span class="tool-status error">Web-search budget reached (${event.limit})</span>`;
+      }
+      return "";
+    })
+    .join("")}</div>`;
+}
+
+function citationListFromMessage(message) {
+  if (Array.isArray(message?.citations) && message.citations.length) return message.citations;
+  const meta = message?.metadata?.websearch;
+  if (meta && Array.isArray(meta.citations) && meta.citations.length) return meta.citations;
+  return [];
+}
+
+function renderCitations(message) {
+  const citations = citationListFromMessage(message);
+  if (!citations.length) return "";
+
+  const items = citations.map((entry) => {
+    let host = "";
+    try { host = new URL(entry.url).hostname.replace(/^www\./, ""); } catch {}
+    return `
+      <li class="citation-item">
+        <span class="citation-index">${Number(entry.index) || ""}</span>
+        <span>
+          <a class="citation-link" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(entry.title || entry.url)}</a>
+          ${host ? `<span class="citation-host"> — ${escapeHtml(host)}</span>` : ""}
+        </span>
+      </li>
+    `;
+  }).join("");
+
+  return `<div class="citations"><div class="citations-title">Sources (${citations.length})</div><ol class="citations-list">${items}</ol></div>`;
+}
+
 function renderMessageNote(message) {
   return message.stopped ? `<div class="message-note">Stopped by user.</div>` : "";
 }
@@ -756,7 +845,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${renderReasoning(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
+        <div class="message-content">${renderReasoning(msg)}${renderToolStatuses(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}${renderCitations(msg)}</div>
       </div>
     </article>
   `;
@@ -783,11 +872,13 @@ function renderCompareResponse(raw, index) {
       </header>
       <div class="compare-response-body message-content">
         ${renderReasoning(msg)}
+        ${renderToolStatuses(msg)}
         ${renderContent(content)}
         ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
+        ${renderCitations(msg)}
       </div>
     </section>
   `;
@@ -864,6 +955,7 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
+        ${renderCitations(msg)}
       </div>
       ${justBlock}
     </section>
@@ -901,6 +993,7 @@ function renderCouncilSynthesis(chairman) {
         ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
+        ${renderCitations(msg)}
       </div>
     </div>
   `;
@@ -1092,6 +1185,53 @@ function applyComposerHeight() {
 
 /* ─── Stream event handling ─── */
 
+function ensureToolState(message) {
+  if (!message.toolEvents) message.toolEvents = [];
+  if (!message.citations) message.citations = [];
+}
+
+function applyToolEvent(message, event) {
+  ensureToolState(message);
+  if (event.type === "tool:start") {
+    let parsedArgs = {};
+    try { parsedArgs = JSON.parse(event.arguments || "{}"); } catch {}
+    message.toolEvents.push({
+      id: event.toolCallId,
+      name: event.name,
+      query: parsedArgs.query || parsedArgs.url || "",
+      status: "running"
+    });
+    return;
+  }
+  if (event.type === "tool:result") {
+    const entry = message.toolEvents.find((row) => row.id === event.toolCallId);
+    if (entry) {
+      entry.status = "done";
+      entry.cached = Boolean(event.cached);
+      entry.provider = event.provider || "";
+      entry.resultCount = (event.citations || []).length;
+    }
+    const offset = message.citations.length;
+    for (const citation of event.citations || []) {
+      message.citations.push({ ...citation, index: offset + citation.index });
+    }
+    return;
+  }
+  if (event.type === "tool:error") {
+    const entry = message.toolEvents.find((row) => row.id === event.toolCallId);
+    if (entry) {
+      entry.status = "error";
+      entry.error = event.error?.message || "Tool failed.";
+    } else {
+      message.toolEvents.push({ id: event.toolCallId, name: event.name, status: "error", error: event.error?.message || "Tool failed." });
+    }
+    return;
+  }
+  if (event.type === "tool:limit") {
+    message.toolEvents.push({ id: `limit_${Date.now()}`, name: "limit", status: "limit", limit: event.limit });
+  }
+}
+
 function applyStreamEvent(message, event) {
   if (event?.type === "error") {
     message.error = event.error || "Model request failed.";
@@ -1101,6 +1241,11 @@ function applyStreamEvent(message, event) {
 
   if (event?.type === "done") {
     message.finishReason ||= "stop";
+    return;
+  }
+
+  if (typeof event?.type === "string" && event.type.startsWith("tool:")) {
+    applyToolEvent(message, event);
     return;
   }
 
@@ -1503,6 +1648,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
       },
+      webSearch: state.settings.webSearchMode === "off" ? "off" : "auto",
       ...(describeImages ? { describeImages: true } : {})
     };
 
@@ -1824,6 +1970,10 @@ function bindEvents() {
     addImages(e.target.files || []);
     e.target.value = "";
   });
+
+  if (els.webSearchToggle) {
+    els.webSearchToggle.addEventListener("click", toggleWebSearchMode);
+  }
 
   els.imagePreviews.addEventListener("click", (e) => {
     const removeBtn = e.target.closest("[data-remove-index]");

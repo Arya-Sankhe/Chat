@@ -57,6 +57,31 @@ export async function requireActiveEntitlement({ db, userId, plans, access, sign
   };
 }
 
+export async function consumeSearchOrThrow({ db, userId, plan, dailyLimit, searchCount = 1, signal }) {
+  const count = Number(searchCount);
+  if (!Number.isInteger(count) || count < 1) {
+    throw new HttpError(400, "Search count must be at least 1.");
+  }
+
+  const limit = Math.max(0, Number.isFinite(dailyLimit) ? Number(dailyLimit) : 0);
+  if (!limit) {
+    throw new HttpError(403, "Web search is not enabled for your plan.");
+  }
+
+  const usage = await db.consumeSearch({
+    userId,
+    planId: plan.id,
+    dailySearchLimit: limit,
+    searchCount: count
+  }, { signal });
+
+  if (!usage?.allowed) {
+    throw new HttpError(429, usage?.reason || "Daily web-search limit reached.", usage);
+  }
+
+  return usage;
+}
+
 export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, models = [], signal }) {
   const calls = Number(messageCount);
   if (!Number.isInteger(calls) || calls < 1) {

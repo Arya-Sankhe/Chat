@@ -36,6 +36,10 @@ import { modelSupportsVision, resolveVisionDescribeModel } from "./saas/models.j
 import { publicPlan } from "./saas/plans.js";
 import { createCrofaiUsageMeter } from "./saas/usageMeter.js";
 import { assertImageUpload, R2Client } from "./storage/r2.js";
+import { WebSearchOrchestrator } from "./websearch/index.js";
+import { buildWebSearchTools, runChatWithToolLoop } from "./websearch/tool.js";
+import { buildSearchSystemHint, detectSearchNeed } from "./websearch/detect.js";
+import { consumeSearchOrThrow } from "./saas/entitlements.js";
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
@@ -305,6 +309,175 @@ function normalizeCouncilFlag(value) {
   return Boolean(value === true || value === "true" || value === 1 || value === "1");
 }
 
+function normalizeWebSearchMode(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  const mode = value.trim().toLowerCase();
+  if (mode === "off") return "off";
+  if (mode === "auto" || mode === "on") return "auto";
+  return fallback;
+}
+
+/**
+ * Builds a per-request WebSearchOrchestrator whose `search` is wrapped in
+ * a daily-limit consume call. The Supabase REST client doubles as the
+ * persistent cache backend.
+ */
+function buildMeteredWebsearch({ config, context, signal }) {
+  if (!configuredServices(config).websearch) return null;
+  if (config.websearch.defaultMode === "off") return null;
+
+  const dailyLimit = config.websearch.dailyLimits?.[context.plan.id] || 0;
+  if (!dailyLimit) return null;
+
+  const persistentCache = {
+    async get(key) {
+      return context.db.getSearchCache(key, { signal });
+    },
+    async set(row) {
+      await context.db.upsertSearchCache(row, { signal });
+    }
+  };
+
+  const orchestrator = new WebSearchOrchestrator({
+    config: config.websearch,
+    persistentCache
+  });
+  if (!orchestrator.hasAnyProvider) return null;
+
+  orchestrator.beforeNetwork = async () => {
+    await consumeSearchOrThrow({
+      db: context.db,
+      userId: context.user.id,
+      plan: context.plan,
+      dailyLimit,
+      searchCount: 1,
+      signal
+    });
+  };
+
+  return orchestrator;
+}
+
+/**
+ * Resolves the chat request's effective web-search mode for this turn.
+ * Returns "off" when the feature is server-disabled or the user opted out.
+ */
+function resolveWebSearchMode({ body, config, websearch }) {
+  if (!websearch) return "off";
+  const fallback = config.websearch.defaultMode === "off" ? "off" : "auto";
+  return normalizeWebSearchMode(body?.webSearch, fallback);
+}
+
+function withSearchTools(chatRequest, { config, mode, hint }) {
+  if (mode === "off") return { request: chatRequest, augmented: false };
+  const tools = buildWebSearchTools({ maxResults: config.websearch.maxResults });
+  const messages = [...chatRequest.messages];
+  if (hint) {
+    const firstSystemIdx = messages.findIndex((message) => message.role === "system");
+    if (firstSystemIdx >= 0) {
+      messages[firstSystemIdx] = {
+        ...messages[firstSystemIdx],
+        content: `${messages[firstSystemIdx].content}\n\n${hint}`
+      };
+    } else {
+      messages.unshift({ role: "system", content: hint });
+    }
+  }
+  return {
+    request: { ...chatRequest, tools, tool_choice: "auto", messages },
+    augmented: true
+  };
+}
+
+/**
+ * Council & Compare can't easily tool-call in parallel, so when the
+ * heuristic detector strongly suggests a search we run it ONCE on the
+ * user's prompt before the parallel models run and share the results
+ * with every model via a system-prompt addendum.
+ *
+ * Returns the system addendum (or empty string), plus the citation
+ * array to persist on each assistant message.
+ */
+async function runSharedPreSearch({ websearch, userText, mode, signal }) {
+  if (!websearch || mode === "off") {
+    return { addendum: "", citations: [], detection: { score: 0, reasons: [], hasUrls: false, urls: [] } };
+  }
+
+  const detection = detectSearchNeed(userText);
+  if (detection.score < 1) {
+    return { addendum: "", citations: [], detection };
+  }
+
+  /* URL-only path: read the linked page(s) instead of searching. */
+  if (detection.hasUrls && !detection.reasons.includes("explicit-search-command")) {
+    const reads = [];
+    const citations = [];
+    for (const url of detection.urls.slice(0, 3)) {
+      const result = await websearch.readUrl({ url, signal });
+      if (result.ok) {
+        reads.push(result);
+        citations.push({
+          index: citations.length + 1,
+          title: result.title,
+          url: result.url,
+          snippet: "",
+          publishedAt: result.publishedAt
+        });
+      }
+    }
+    if (!reads.length) {
+      return { addendum: "", citations: [], detection };
+    }
+    const formatted = reads
+      .map((entry, i) => `[${i + 1}] ${entry.title}\nURL: ${entry.url}\n${entry.content}`)
+      .join("\n\n---\n\n");
+    return {
+      addendum: `The user's message references URLs. Their contents have been pre-fetched. Cite them inline as [1], [2], … and answer based on them:\n\n${formatted}`,
+      citations,
+      detection
+    };
+  }
+
+  const searchQuery = (userText || "").trim().split(/\n/)[0].slice(0, 200);
+  const result = await websearch.search({ query: searchQuery, signal });
+  if (!result.ok || !Array.isArray(result.results) || !result.results.length) {
+    return { addendum: "", citations: [], detection };
+  }
+
+  const formatted = result.results
+    .map((entry) => `[${entry.index}] ${entry.title}\nURL: ${entry.url}\n${entry.content || entry.snippet || ""}`)
+    .join("\n\n---\n\n");
+
+  const citations = result.results.map((entry) => ({
+    index: entry.index,
+    title: entry.title,
+    url: entry.url,
+    snippet: entry.snippet || "",
+    publishedAt: entry.publishedAt || null
+  }));
+
+  return {
+    addendum: `A fresh web search was run on the user's question. Use the results below to ground your answer and cite sources inline as [1], [2], … :\n\n${formatted}`,
+    citations,
+    detection
+  };
+}
+
+function injectSystemAddendum(messages, addendum) {
+  if (!addendum) return messages;
+  const next = [...messages];
+  const firstSystemIdx = next.findIndex((message) => message.role === "system");
+  if (firstSystemIdx >= 0) {
+    next[firstSystemIdx] = {
+      ...next[firstSystemIdx],
+      content: `${next[firstSystemIdx].content}\n\n${addendum}`
+    };
+  } else {
+    next.unshift({ role: "system", content: addendum });
+  }
+  return next;
+}
+
 function writeSse(res, payload) {
   if (res.destroyed || res.writableEnded) return;
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -347,11 +520,31 @@ async function handleCouncilConversationMessage({
   originalPrompt,
   settings,
   chairmanOverride,
-  crofai
+  crofai,
+  webSearch
 }) {
+  const sharedSearch = webSearch?.addendum
+    ? webSearch
+    : { addendum: "", citations: [], detection: null };
+
+  if (sharedSearch.addendum) {
+    for (const request of chatRequests) {
+      request.messages = injectSystemAddendum(request.messages, sharedSearch.addendum);
+    }
+  }
+
   const sessionId = `cnc_${generateNonce()}_${generateNonce()}`;
   const panelistMessages = [];
   for (const chatRequest of chatRequests) {
+    const baseMeta = { council: { sessionId, role: "panelist", stage: 1 } };
+    if (sharedSearch.citations.length) {
+      baseMeta.websearch = {
+        mode: "auto",
+        shared: true,
+        citations: sharedSearch.citations,
+        detection: sharedSearch.detection || null
+      };
+    }
     panelistMessages.push(await context.db.insertMessage({
       user_id: context.user.id,
       conversation_id: conversation.id,
@@ -360,7 +553,7 @@ async function handleCouncilConversationMessage({
       content: "",
       reasoning: "",
       tool_calls: [],
-      metadata: { council: { sessionId, role: "panelist", stage: 1 } }
+      metadata: baseMeta
     }, { signal: req.signal }));
   }
 
@@ -589,7 +782,10 @@ async function handleCouncilConversationMessage({
         stage: 3,
         chairmanModel,
         panel: panelModels
-      }
+      },
+      ...(sharedSearch.citations.length
+        ? { websearch: { mode: "auto", shared: true, citations: sharedSearch.citations } }
+        : {})
     }
   }, { signal: req.signal });
 
@@ -607,10 +803,14 @@ async function handleCouncilConversationMessage({
       borda: stage2.borda
     });
 
+    const chairmanSystemPrompt = sharedSearch.addendum
+      ? `${settings?.systemPrompt || ""}\n\n${sharedSearch.addendum}`.trim()
+      : (settings?.systemPrompt || "");
+
     const accumulated = await runChairmanSynthesis({
       chairmanModel,
       prompt: chairmanPrompt,
-      systemPrompt: settings?.systemPrompt || "",
+      systemPrompt: chairmanSystemPrompt,
       config,
       signal: controller.signal,
       reasoningEffort: settings?.reasoning_effort,
@@ -654,10 +854,24 @@ async function handleCompareConversationMessage({
   conversation,
   userContent,
   chatRequests,
-  crofai
+  crofai,
+  webSearch
 }) {
+  const sharedSearch = webSearch?.addendum
+    ? webSearch
+    : { addendum: "", citations: [], detection: null };
+
+  if (sharedSearch.addendum) {
+    for (const request of chatRequests) {
+      request.messages = injectSystemAddendum(request.messages, sharedSearch.addendum);
+    }
+  }
+
   const assistantMessages = [];
   for (const chatRequest of chatRequests) {
+    const baseMeta = sharedSearch.citations.length
+      ? { websearch: { mode: "auto", shared: true, citations: sharedSearch.citations, detection: sharedSearch.detection || null } }
+      : {};
     assistantMessages.push(await context.db.insertMessage({
       user_id: context.user.id,
       conversation_id: conversation.id,
@@ -665,7 +879,8 @@ async function handleCompareConversationMessage({
       model: chatRequest.model,
       content: "",
       reasoning: "",
-      tool_calls: []
+      tool_calls: [],
+      metadata: baseMeta
     }, { signal: req.signal }));
   }
 
@@ -870,30 +1085,45 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }, { signal: req.signal });
   }
 
-  if (councilEnabled) {
-    await handleCouncilConversationMessage({
-      req,
-      res,
-      config,
-      context,
-      conversation,
-      userContent,
-      chatRequests,
-      panelModels: compareModels,
-      originalPrompt: contentText(userContent),
-      settings: {
-        systemPrompt: settings.systemPrompt || "",
-        reasoning_effort: settings.reasoning_effort,
-        max_tokens: settings.max_tokens,
-        preferredModel: body.model
-      },
-      chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
-      crofai
-    });
-    return;
-  }
+  const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
+  const webSearchMode = resolveWebSearchMode({ body, config, websearch });
+  const promptText = contentText(userContent);
 
-  if (compareModels.length) {
+  if (councilEnabled || compareModels.length) {
+    /* Parallel panel/compare modes can't easily run independent tool
+       calls in parallel — run a single shared pre-search up front and
+       inject the results into every panelist's system prompt. */
+    const sharedSearch = await runSharedPreSearch({
+      websearch,
+      userText: promptText,
+      mode: webSearchMode,
+      signal: req.signal
+    });
+
+    if (councilEnabled) {
+      await handleCouncilConversationMessage({
+        req,
+        res,
+        config,
+        context,
+        conversation,
+        userContent,
+        chatRequests,
+        panelModels: compareModels,
+        originalPrompt: promptText,
+        settings: {
+          systemPrompt: settings.systemPrompt || "",
+          reasoning_effort: settings.reasoning_effort,
+          max_tokens: settings.max_tokens,
+          preferredModel: body.model
+        },
+        chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
+        crofai,
+        webSearch: sharedSearch
+      });
+      return;
+    }
+
     await handleCompareConversationMessage({
       req,
       res,
@@ -902,12 +1132,23 @@ async function handleConversationMessage(req, res, config, conversationId) {
       conversation,
       userContent,
       chatRequests,
-      crofai
+      crofai,
+      webSearch: sharedSearch
     });
     return;
   }
 
   const chatRequest = chatRequests[0];
+
+  const detection = webSearchMode !== "off"
+    ? detectSearchNeed(promptText)
+    : { score: 0, reasons: [], hasUrls: false, urls: [] };
+  const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
+  const { request: equippedRequest, augmented } = withSearchTools(chatRequest, {
+    config,
+    mode: webSearchMode,
+    hint
+  });
 
   const assistantMessage = await context.db.insertMessage({
     user_id: context.user.id,
@@ -916,7 +1157,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
     model: chatRequest.model,
     content: "",
     reasoning: "",
-    tool_calls: []
+    tool_calls: [],
+    metadata: augmented ? { websearch: { mode: webSearchMode, detection } } : {}
   }, { signal: req.signal });
 
   if (!conversation.title || conversation.title === "New chat") {
@@ -934,15 +1176,6 @@ async function handleConversationMessage(req, res, config, conversationId) {
   });
 
   try {
-    const upstream = await crofai.streamChatCompletion({
-      apiKey: config.serverApiKey,
-      baseUrl: config.defaultBaseUrl,
-      body: chatRequest,
-      signal: controller.signal
-    });
-
-    if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
-
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
@@ -952,15 +1185,49 @@ async function handleConversationMessage(req, res, config, conversationId) {
       "x-smartyfy-assistant-message-id": assistantMessage.id
     });
 
-    const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
+    const allCitations = [];
+    const { accumulated, citations, toolCallCount } = augmented
+      ? await runChatWithToolLoop({
+          chatRequest: equippedRequest,
+          crofai,
+          config,
+          signal: controller.signal,
+          websearch,
+          onUpstreamEvent: (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); },
+          onToolEvent: (event) => { writeSse(res, event); }
+        })
+      : await streamSingleChat({
+          chatRequest: equippedRequest,
+          crofai,
+          config,
+          signal: controller.signal,
+          res
+        });
+
+    if (Array.isArray(citations) && citations.length) allCitations.push(...citations);
+
     if (!hasAssistantOutput(accumulated)) {
       throw new HttpError(502, "Smartyfy returned an empty response.");
     }
+
+    const metadataPatch = augmented
+      ? {
+          websearch: {
+            mode: webSearchMode,
+            detection,
+            citations: allCitations,
+            toolCallCount,
+            provider: allCitations[0] ? "jina" : null
+          }
+        }
+      : null;
+
     await context.db.updateMessage(context.user.id, assistantMessage.id, {
       content: accumulated.content,
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
-      finish_reason: accumulated.finishReason || null
+      finish_reason: accumulated.finishReason || null,
+      ...(metadataPatch ? { metadata: metadataPatch } : {})
     }, { signal: req.signal });
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
     res.end();
@@ -977,6 +1244,23 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }
     throw error;
   }
+}
+
+/**
+ * Single-shot chat without tools — preserves the legacy fast path where
+ * the upstream stream is piped 1:1 to the SSE response. Returns the
+ * same shape as runChatWithToolLoop.
+ */
+async function streamSingleChat({ chatRequest, crofai, config, signal, res }) {
+  const upstream = await crofai.streamChatCompletion({
+    apiKey: config.serverApiKey,
+    baseUrl: config.defaultBaseUrl,
+    body: chatRequest,
+    signal
+  });
+  if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
+  return { accumulated, citations: [], toolCallCount: 0 };
 }
 
 async function handleAdminSummary(req, res, config) {
