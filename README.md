@@ -58,11 +58,11 @@ Optional plan limit overrides are available in `.env.example`.
 
 Optional for web search:
 
-- `JINA_API_KEY` (primary; works without one at 100 RPM)
-- `BRAVE_SEARCH_API_KEY` (fallback)
+- `JINA_API_KEY` (required for `s.jina.ai` search; new keys include a 10M-token free trial).
+- `BRAVE_SEARCH_API_KEY` (fallback; $5/month free credit).
 - `WEBSEARCH_*` knobs (default mode, per-plan daily quotas, cache TTL, max tool calls per turn). See `.env.example`.
 
-If neither key is set the toggle is hidden from the UI and the tool is never offered to the model.
+You need at least one of the two keys above. The reader endpoint `r.jina.ai` used by the `read_url` tool still works anonymously when no Jina key is set. If neither key is set the toggle is hidden from the UI and the tool is never offered to the model.
 
 ## Run Locally
 

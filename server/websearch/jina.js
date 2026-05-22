@@ -4,13 +4,11 @@
  *   s.jina.ai → one call returns search results PLUS extracted page
  *               content for the top N URLs, all in LLM-friendly Markdown.
  *               This is the primary "web_search" backend.
+ *               REQUIRES JINA_API_KEY — anonymous calls are rejected.
  *
  *   r.jina.ai → URL-only reader. Used by the `read_url` tool when the
  *               model wants to deep-read a specific page.
- *
- * Both endpoints share the same JINA_API_KEY. The key is optional:
- * without it, you get the lower 100 RPM anonymous tier. With it,
- * you also get the 10M-token free trial and higher rate limits.
+ *               Works anonymously (~20 RPM) or keyed (~200 RPM).
  */
 
 import { HttpError } from "../http/responses.js";
@@ -111,6 +109,13 @@ export async function jinaSearch({
 }) {
   if (typeof query !== "string" || !query.trim()) {
     throw new WebSearchError("Search query is required.", { status: 400, provider: "jina" });
+  }
+
+  if (!apiKey) {
+    throw new WebSearchError("Jina search requires JINA_API_KEY.", {
+      status: 503,
+      provider: "jina"
+    });
   }
 
   const body = {

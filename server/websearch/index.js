@@ -71,7 +71,10 @@ export class WebSearchOrchestrator {
   }
 
   resolveChain() {
-    const primary = this.config.primaryProvider === "brave" ? "brave" : "jina";
+    const requested = this.config.primaryProvider === "brave" ? "brave" : "jina";
+    const primary = this.providerAvailable(requested)
+      ? requested
+      : (requested === "jina" ? "brave" : "jina");
     const fallback = primary === "jina" ? "brave" : "jina";
     return [primary, fallback];
   }
@@ -264,7 +267,10 @@ export class WebSearchOrchestrator {
   }
 
   providerAvailable(name) {
-    if (name === "jina") return true; // works anonymously too
+    /* s.jina.ai (search) requires an API key. r.jina.ai (reader) is the
+       only Jina endpoint with a real anonymous tier, so readUrl can still
+       call Jina without a key — but plain search cannot. */
+    if (name === "jina") return Boolean(this.config.jina.apiKey);
     if (name === "brave") return Boolean(this.config.brave.apiKey);
     return false;
   }
