@@ -742,46 +742,16 @@ function renderReasoning(message) {
   return `<details class="reasoning"><summary>Thinking</summary><div>${renderContent(message.reasoning)}</div></details>`;
 }
 
-function renderToolCalls(message) {
-  let toolHtml = "";
-  const calls = message.toolCalls || [];
-  for (const call of calls) {
-    if (!call?.function?.name) continue;
-    toolHtml += `<details class="tool-call"><summary>Tool: ${escapeHtml(call.function.name)}</summary><pre>${escapeHtml(call.function.arguments || "")}</pre></details>`;
-  }
-  return toolHtml;
+function renderToolCalls() {
+  return "";
 }
 
 function renderMessageError(message) {
   return message.error ? `<div class="message-error">${escapeHtml(message.error)}</div>` : "";
 }
 
-function renderToolStatuses(message) {
-  const events = Array.isArray(message?.toolEvents) ? message.toolEvents : [];
-  if (!events.length) return "";
-  return `<div class="tool-statuses">${events
-    .map((event) => {
-      if (event.status === "running") {
-        const label = event.name === "read_url" ? "Reading" : "Searching";
-        const target = event.query ? `: ${escapeHtml(event.query)}` : "";
-        return `<span class="tool-status"><span class="spinner" aria-hidden="true"></span>${label}${target}</span>`;
-      }
-      if (event.status === "done") {
-        const label = event.name === "read_url" ? "Read" : "Searched";
-        const target = event.query ? ` "${escapeHtml(event.query)}"` : "";
-        const count = typeof event.resultCount === "number" ? ` · ${event.resultCount} sources` : "";
-        const cached = event.cached ? " · cached" : "";
-        return `<span class="tool-status">${label}${target}${count}${cached}</span>`;
-      }
-      if (event.status === "error") {
-        return `<span class="tool-status error">Web tool error: ${escapeHtml(event.error || "failed")}</span>`;
-      }
-      if (event.status === "limit") {
-        return `<span class="tool-status error">Web-search budget reached (${event.limit})</span>`;
-      }
-      return "";
-    })
-    .join("")}</div>`;
+function renderToolStatuses() {
+  return "";
 }
 
 function citationListFromMessage(message) {
@@ -791,25 +761,70 @@ function citationListFromMessage(message) {
   return [];
 }
 
+function citationHost(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return "";
+  }
+}
+
+function citationFaviconUrl(url) {
+  const host = citationHost(url);
+  if (!host) return "";
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`;
+}
+
+function uniqueCitationPreview(citations, limit = 3) {
+  const seen = new Set();
+  const preview = [];
+  for (const entry of citations) {
+    const host = citationHost(entry.url);
+    const key = host || entry.url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    preview.push(entry);
+    if (preview.length >= limit) break;
+  }
+  return preview;
+}
+
 function renderCitations(message) {
   const citations = citationListFromMessage(message);
   if (!citations.length) return "";
 
-  const items = citations.map((entry) => {
-    let host = "";
-    try { host = new URL(entry.url).hostname.replace(/^www\./, ""); } catch {}
+  const preview = uniqueCitationPreview(citations, 3);
+  const faviconStack = preview.map((entry, i) => {
+    const icon = citationFaviconUrl(entry.url);
+    if (!icon) return "";
+    return `<img class="sources-favicon" src="${escapeHtml(icon)}" alt="" width="18" height="18" decoding="async" style="--stack:${i}">`;
+  }).join("");
+
+  const rows = citations.map((entry) => {
+    const host = citationHost(entry.url);
+    const icon = citationFaviconUrl(entry.url);
+    const title = entry.title || host || entry.url;
     return `
-      <li class="citation-item">
-        <span class="citation-index">${Number(entry.index) || ""}</span>
-        <span>
-          <a class="citation-link" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(entry.title || entry.url)}</a>
-          ${host ? `<span class="citation-host"> — ${escapeHtml(host)}</span>` : ""}
+      <a class="sources-row" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">
+        ${icon ? `<img class="sources-row-icon" src="${escapeHtml(icon)}" alt="" width="16" height="16" decoding="async">` : `<span class="sources-row-fallback" aria-hidden="true"></span>`}
+        <span class="sources-row-text">
+          <span class="sources-row-title">${escapeHtml(title)}</span>
+          ${host ? `<span class="sources-row-host">${escapeHtml(host)}</span>` : ""}
         </span>
-      </li>
+      </a>
     `;
   }).join("");
 
-  return `<div class="citations"><div class="citations-title">Sources (${citations.length})</div><ol class="citations-list">${items}</ol></div>`;
+  return `
+    <details class="sources-pill">
+      <summary class="sources-pill-trigger">
+        ${faviconStack ? `<span class="sources-favicons">${faviconStack}</span>` : ""}
+        <span class="sources-pill-label">Sources</span>
+        <span class="sources-pill-count" aria-hidden="true">${citations.length}</span>
+      </summary>
+      <div class="sources-panel">${rows}</div>
+    </details>
+  `;
 }
 
 function renderMessageNote(message) {
@@ -845,7 +860,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${renderReasoning(msg)}${renderToolStatuses(msg)}${body}${renderToolCalls(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}${renderCitations(msg)}</div>
+        <div class="message-content">${renderReasoning(msg)}${renderCitations(msg)}${body}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
   `;
@@ -872,13 +887,11 @@ function renderCompareResponse(raw, index) {
       </header>
       <div class="compare-response-body message-content">
         ${renderReasoning(msg)}
-        ${renderToolStatuses(msg)}
+        ${renderCitations(msg)}
         ${renderContent(content)}
-        ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
-        ${renderCitations(msg)}
       </div>
     </section>
   `;
@@ -950,12 +963,11 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
       </header>
       <div class="council-panelist-body message-content">
         ${renderReasoning(msg)}
+        ${renderCitations(msg)}
         ${renderContent(content)}
-        ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
         ${renderMissingFinal(msg, "assistant")}
-        ${renderCitations(msg)}
       </div>
       ${justBlock}
     </section>
@@ -989,11 +1001,10 @@ function renderCouncilSynthesis(chairman) {
       </div>
       <div class="council-synthesis-body message-content">
         ${renderReasoning(msg)}
+        ${renderCitations(msg)}
         ${renderContent(content)}
-        ${renderToolCalls(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
-        ${renderCitations(msg)}
       </div>
     </div>
   `;
