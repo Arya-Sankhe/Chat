@@ -23,6 +23,42 @@ function jsonResponse(payload, { status = 200 } = {}) {
   });
 }
 
+function streamResponse(events) {
+  return {
+    body: new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+        controller.close();
+      }
+    })
+  };
+}
+
+function toolCallDelta({ id = "call_1", name = "web_search", args = { query: "latest ai news" }, index = 0 } = {}) {
+  return {
+    choices: [{
+      delta: {
+        tool_calls: [{
+          index,
+          id,
+          type: "function",
+          function: { name, arguments: JSON.stringify(args) }
+        }]
+      },
+      finish_reason: "tool_calls"
+    }]
+  };
+}
+
+function contentDelta(content) {
+  return {
+    choices: [{ delta: { content }, finish_reason: "stop" }]
+  };
+}
+
 const baseConfig = {
   defaultMode: "auto",
   primaryProvider: "jina",
@@ -159,7 +195,11 @@ describe("WebSearchOrchestrator", () => {
       }
       stage = "brave";
       return jsonResponse({
-        results: [{ url: "https://b.example/1", title: "Brave A", description: "brave snippet" }]
+        grounding: {
+          generic: [{ url: "https://b.example/1", title: "Brave A", snippets: ["brave snippet"] }],
+          map: []
+        },
+        sources: { "https://b.example/1": { title: "Brave A", hostname: "b.example", age: ["Friday", "2026-05-22"] } }
       });
     });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
@@ -168,6 +208,59 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.provider, "brave");
     assert.equal(stage, "brave");
     assert.equal(result.results[0].title, "Brave A");
+    assert.equal(result.results[0].publishedAt, "2026-05-22");
+  });
+
+  test("Brave current LLM Context schema returns normalized context", async () => {
+    installFetch(async () => jsonResponse({
+      grounding: {
+        generic: [
+          { url: "https://docs.example/a", title: "Grounding A", snippets: ["first relevant chunk", "second chunk"] }
+        ],
+        map: []
+      },
+      sources: {
+        "https://docs.example/a": {
+          title: "Source A",
+          hostname: "docs.example",
+          age: ["Monday, May 18, 2026", "2026-05-18", "4 days ago"]
+        }
+      }
+    }));
+    const config = { ...baseConfig, primaryProvider: "brave" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "brave schema" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "brave");
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].url, "https://docs.example/a");
+    assert.match(result.results[0].content, /first relevant chunk/);
+    assert.equal(result.results[0].publishedAt, "2026-05-18");
+  });
+
+  test("skips Jina search when no JINA_API_KEY is configured", async () => {
+    const called = [];
+    installFetch(async (url) => {
+      called.push(String(url));
+      return jsonResponse({
+        grounding: {
+          generic: [{ url: "https://b.example/1", title: "Brave Only", snippets: ["fallback context"] }],
+          map: []
+        },
+        sources: {}
+      });
+    });
+    const config = {
+      ...baseConfig,
+      primaryProvider: "jina",
+      jina: { ...baseConfig.jina, apiKey: "" },
+      brave: { apiKey: "brave-key" }
+    };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "brave only" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "brave");
+    assert.equal(called.some((url) => url.includes("s.jina.ai")), false);
   });
 
   test("beforeNetwork hook blocks the call when it throws", async () => {
@@ -254,22 +347,13 @@ describe("tool", () => {
     assert.equal(result.citations.length, 1);
     const parsed = JSON.parse(result.toolResultJson);
     assert.equal(parsed.results[0].url, "https://u");
+    assert.equal(parsed.formatted_for_reference, undefined);
   });
 
   test("runChatWithToolLoop completes when model finishes without tool call", async () => {
     const crofai = {
       async streamChatCompletion() {
-        return {
-          body: new ReadableStream({
-            start(controller) {
-              const encoder = new TextEncoder();
-              controller.enqueue(encoder.encode("data: " + JSON.stringify({
-                choices: [{ delta: { content: "Hi" }, finish_reason: "stop" }]
-              }) + "\n\n"));
-              controller.close();
-            }
-          })
-        };
+        return streamResponse([contentDelta("Hi")]);
       }
     };
     const result = await runChatWithToolLoop({
@@ -282,5 +366,101 @@ describe("tool", () => {
     });
     assert.equal(result.accumulated.content, "Hi");
     assert.equal(result.toolCallCount, 0);
+  });
+
+  test("runChatWithToolLoop forces a final answer after the tool-call cap", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) return streamResponse([toolCallDelta()]);
+        return streamResponse([contentDelta("Final answer")]);
+      }
+    };
+    const websearch = {
+      search: async () => ({
+        ok: true,
+        provider: "jina",
+        cached: false,
+        query: "latest ai news",
+        results: [
+          { index: 1, title: "T", url: "https://u", snippet: "s", content: "c", publishedAt: null }
+        ]
+      })
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch,
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(result.accumulated.content, "Final answer");
+    assert.equal(result.toolCallCount, 1);
+    assert.deepEqual(result.providers, ["jina"]);
+    assert.equal(bodies[1].tool_choice, "none");
+  });
+
+  test("runChatWithToolLoop executes only the remaining tool-call budget from a batch", async () => {
+    let searchCalls = 0;
+    const toolEvents = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        if (body.tool_choice === "none") return streamResponse([contentDelta("Done")]);
+        return streamResponse([{
+          choices: [{
+            delta: {
+              tool_calls: [
+                { index: 0, id: "call_a", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "a" }) } },
+                { index: 1, id: "call_b", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "b" }) } }
+              ]
+            },
+            finish_reason: "tool_calls"
+          }]
+        }]);
+      }
+    };
+    const websearch = {
+      search: async () => {
+        searchCalls += 1;
+        return {
+          ok: true,
+          provider: "jina",
+          cached: false,
+          query: "a",
+          results: [
+            { index: 1, title: "T", url: "https://u", snippet: "s", content: "c", publishedAt: null }
+          ]
+        };
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch,
+      onUpstreamEvent: () => {},
+      onToolEvent: (event) => toolEvents.push(event)
+    });
+
+    assert.equal(result.accumulated.content, "Done");
+    assert.equal(searchCalls, 1);
+    assert.equal(result.toolCallCount, 1);
+    assert.equal(toolEvents.some((event) => event.type === "tool:limit"), true);
   });
 });

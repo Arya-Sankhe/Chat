@@ -43,6 +43,53 @@ function clampContent(text, maxChars) {
   return `${text.slice(0, maxChars)}\n…[truncated for context budget]`;
 }
 
+function stringifySnippet(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry.text === "string") return entry.text;
+  if (!entry || typeof entry !== "object") return "";
+  try {
+    return JSON.stringify(entry);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeSnippets(item) {
+  const snippets = Array.isArray(item?.snippets)
+    ? item.snippets
+    : Array.isArray(item?.extra_snippets)
+      ? item.extra_snippets
+      : [];
+  return snippets.map(stringifySnippet).filter(Boolean);
+}
+
+function normalizeAge(value) {
+  if (Array.isArray(value)) {
+    return value.find((entry) => typeof entry === "string" && /^\d{4}-\d{2}-\d{2}/.test(entry))
+      || value.find((entry) => typeof entry === "string" && entry.trim())
+      || null;
+  }
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function collectGroundingItems(payload) {
+  const grounding = payload?.grounding || {};
+  const items = [];
+  if (Array.isArray(grounding.generic)) items.push(...grounding.generic);
+  if (grounding.poi && typeof grounding.poi === "object") {
+    if (Array.isArray(grounding.poi)) items.push(...grounding.poi);
+    else items.push(grounding.poi);
+  }
+  if (Array.isArray(grounding.map)) items.push(...grounding.map);
+  return items;
+}
+
+function collectLegacyItems(payload) {
+  if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.web?.results)) return payload.web.results;
+  return [];
+}
+
 /**
  * @returns {Promise<{
  *   provider: "brave",
@@ -134,13 +181,11 @@ export async function braveSearch({
     });
   }
 
-  /* Brave responses come either as {results:[{url,title,snippets:[…]}]}
-     or with a top-level `web.results`. Normalize both shapes. */
-  const items = Array.isArray(payload?.results)
-    ? payload.results
-    : Array.isArray(payload?.web?.results)
-      ? payload.web.results
-      : [];
+  /* Current LLM Context responses use {grounding:{generic:[...]}, sources:{...}}.
+     Keep the legacy fallbacks so older mocks and API variants still normalize. */
+  const groundingItems = collectGroundingItems(payload);
+  const items = groundingItems.length ? groundingItems : collectLegacyItems(payload);
+  const sources = payload?.sources && typeof payload.sources === "object" ? payload.sources : {};
 
   const normalized = [];
   let runningTotal = 0;
@@ -150,15 +195,12 @@ export async function braveSearch({
     const url = typeof item.url === "string" ? item.url : "";
     if (!url) continue;
 
-    const snippetsArr = Array.isArray(item.snippets)
-      ? item.snippets
-      : Array.isArray(item.extra_snippets)
-        ? item.extra_snippets
-        : [];
+    const source = sources[url] || {};
+    const snippetsArr = normalizeSnippets(item);
 
     const combined = [
       item.description || "",
-      ...snippetsArr.map((entry) => (typeof entry === "string" ? entry : entry?.text || ""))
+      ...snippetsArr
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -171,11 +213,11 @@ export async function braveSearch({
 
     normalized.push({
       index: normalized.length + 1,
-      title: String(item.title || url).slice(0, 300),
+      title: String(item.title || source.title || url).slice(0, 300),
       url,
-      snippet: String(item.description || (snippetsArr[0]?.text || snippetsArr[0]) || "").slice(0, 500),
+      snippet: String(item.description || snippetsArr[0] || "").slice(0, 500),
       content,
-      publishedAt: item.age || item.page_age || null
+      publishedAt: normalizeAge(item.age || item.page_age || source.age)
     });
   }
 

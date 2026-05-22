@@ -71,10 +71,10 @@ See `.env.example` for the full list of `WEBSEARCH_*` knobs (provider, engine, c
 
 ## Web Search
 
-- Primary: Jina Search Foundation (`s.jina.ai`) — one call returns search results + extracted page content for the top N URLs.
+- Primary: Jina Search Foundation (`s.jina.ai`) — one call returns search results + extracted page content for the top N URLs; search requires `JINA_API_KEY`.
 - Fallback: Brave LLM Context API (`/res/v1/llm/context`).
 - Triggering: OpenAI-style tool calls. The model decides when to call `web_search` or `read_url`. A small server-side heuristic nudges the system prompt for time-sensitive prompts; a per-chat Auto/Off toggle lets the user disable web search entirely.
-- Council & Compare: shared pre-search runs once on the user's prompt when the heuristic fires and the results are injected into every panelist's system prompt as `[1]`-style citations.
+- Council & Compare: shared pre-search runs once on the user's prompt when the heuristic fires and the results are injected as untrusted user-context with `[1]`-style citations.
 - Cost controls: per-plan daily `search_count` quota (atomically enforced by the `smartyfy_consume_search` RPC), in-memory LRU + Supabase `search_cache` table, circuit breaker that flips to Brave after repeated Jina 5xx, configurable max tool calls per turn.
 - Run `supabase/migrations/2026_05_22_add_websearch.sql` (already merged into `schema.sql`) to add the `search_count` column, the `search_cache` table, and the RPC.
 

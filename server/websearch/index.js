@@ -209,10 +209,6 @@ export class WebSearchOrchestrator {
    * expose a generic URL reader. If Jina is unavailable, return an error.
    */
   async readUrl({ url, signal }) {
-    if (!this.config.jina.apiKey && this.config.primaryProvider !== "jina") {
-      /* Jina works without a key too, so we still attempt anonymously. */
-    }
-
     const cacheKey = hashKey({ kind: "read", url });
     const cached = await this.cache.get(cacheKey);
     if (cached) return { ok: true, cached: true, ...cached };
