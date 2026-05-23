@@ -1089,6 +1089,8 @@ const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
 const PENDING_ARTIFACT_POLL_MAX_ATTEMPTS = 60;
 const VIEWER_WIDTH_KEY = "smartyfy.documentViewer.width.v1";
 let documentViewerPoll = null;
+let pdfJsPromise = null;
+let pdfRenderToken = 0;
 
 function findPendingArtifacts() {
   const out = [];
@@ -1235,23 +1237,131 @@ function renderDocumentViewer() {
   }
 
   if (!viewer.open) {
+    delete els.documentViewerBody.dataset.pdfUrl;
     els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
     return;
   }
   if (viewer.error) {
+    delete els.documentViewerBody.dataset.pdfUrl;
     els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">${escapeHtml(viewer.error)}</div>`;
     return;
   }
   if (viewer.loading) {
+    delete els.documentViewerBody.dataset.pdfUrl;
     const label = viewer.jobId ? "Preparing preview…" : "Loading preview…";
     els.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
     return;
   }
   if (viewer.url) {
-    els.documentViewerBody.innerHTML = `<iframe class="document-frame" src="${escapeHtml(viewer.url)}" title="${escapeHtml(viewer.fileName || "Document preview")}" loading="lazy"></iframe>`;
+    renderCleanPdfViewer(viewer.url);
     return;
   }
   els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Preview is not available for this document.</div>`;
+}
+
+async function loadPdfJs() {
+  if (!pdfJsPromise) {
+    pdfJsPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.mjs").then((pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.worker.mjs";
+      return pdfjs;
+    });
+  }
+  return pdfJsPromise;
+}
+
+function pdfPlaceholderHeight(width) {
+  return Math.max(420, Math.round(width * 1.294));
+}
+
+function renderCleanPdfViewer(url) {
+  if (els.documentViewerBody.dataset.pdfUrl === url) return;
+  const token = ++pdfRenderToken;
+  els.documentViewerBody.dataset.pdfUrl = url;
+  els.documentViewerBody.innerHTML = `
+    <div class="pdf-pages" data-pdf-pages>
+      <div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>Loading pages…</div>
+    </div>
+  `;
+  loadPdfJs()
+    .then((pdfjs) => renderPdfPages(pdfjs, url, token))
+    .catch(() => {
+      if (token !== pdfRenderToken) return;
+      els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Could not load the clean preview.</div>`;
+    });
+}
+
+async function renderPdfPages(pdfjs, url, token) {
+  const container = els.documentViewerBody.querySelector("[data-pdf-pages]");
+  if (!container || token !== pdfRenderToken) return;
+
+  let pdf;
+  try {
+    pdf = await pdfjs.getDocument({ url }).promise;
+  } catch {
+    if (token !== pdfRenderToken) return;
+    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Could not open this PDF preview.</div>`;
+    return;
+  }
+  if (token !== pdfRenderToken) return;
+
+  const bodyWidth = Math.max(320, els.documentViewerBody.clientWidth - 28);
+  container.innerHTML = "";
+  const placeholders = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const pageEl = document.createElement("div");
+    pageEl.className = "pdf-page";
+    pageEl.dataset.page = String(pageNumber);
+    pageEl.style.minHeight = `${pdfPlaceholderHeight(bodyWidth)}px`;
+    pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
+    container.appendChild(pageEl);
+    placeholders.push(pageEl);
+  }
+
+  const renderPage = async (pageEl) => {
+    if (pageEl.dataset.rendered || token !== pdfRenderToken) return;
+    pageEl.dataset.rendered = "1";
+    const pageNumber = Number(pageEl.dataset.page);
+    const page = await pdf.getPage(pageNumber);
+    if (token !== pdfRenderToken) return;
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(1.8, Math.max(0.6, bodyWidth / base.width));
+    const viewport = page.getViewport({ scale });
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = `${Math.floor(viewport.width)}px`;
+    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    canvas.setAttribute("aria-label", `Page ${pageNumber}`);
+    const context = canvas.getContext("2d", { alpha: false });
+    await page.render({
+      canvasContext: context,
+      viewport,
+      transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null
+    }).promise;
+    if (token !== pdfRenderToken) return;
+    pageEl.style.minHeight = "";
+    pageEl.replaceChildren(canvas);
+  };
+
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        renderPage(entry.target).catch(() => {
+          entry.target.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
+        });
+      }
+    }, { root: els.documentViewerBody, rootMargin: "900px 0px" });
+    placeholders.forEach((pageEl) => observer.observe(pageEl));
+  } else {
+    for (const pageEl of placeholders.slice(0, 3)) {
+      renderPage(pageEl).catch(() => {
+        pageEl.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
+      });
+    }
+  }
 }
 
 async function pollDocumentPreviewJob(jobId) {
@@ -1349,6 +1459,8 @@ async function openDocumentViewer({ attachmentId, fileName = "", format = "" }) 
 
 function closeDocumentViewer() {
   stopDocumentViewerPoll();
+  pdfRenderToken += 1;
+  if (els.documentViewerBody) delete els.documentViewerBody.dataset.pdfUrl;
   setDocumentViewerState({
     open: false,
     attachmentId: "",
