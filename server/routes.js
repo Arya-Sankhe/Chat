@@ -326,13 +326,28 @@ async function handleCompleteUpload(req, res, config) {
   });
 }
 
-async function handleAttachmentDownload(req, res, config, attachmentId) {
+async function handleAttachmentDownload(req, res, config, attachmentId, url) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
+
+  const signedUrl = context.r2.readUrl(attachment.object_key, { fileName: attachment.file_name });
+
+  const wantsJson = url?.searchParams?.get("json") === "1"
+    || String(req.headers["accept"] || "").toLowerCase().includes("application/json");
+
+  if (wantsJson) {
+    sendJson(res, 200, {
+      url: signedUrl,
+      fileName: attachment.file_name,
+      contentType: attachment.content_type
+    });
+    return;
+  }
+
   res.writeHead(302, {
-    location: context.r2.readUrl(attachment.object_key, { fileName: attachment.file_name }),
+    location: signedUrl,
     "cache-control": "no-store"
   });
   res.end();
@@ -1636,7 +1651,7 @@ export async function handleApiRequest(req, res, url, config) {
     }
 
     if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "download") {
-      await handleAttachmentDownload(req, res, config, parts[2]);
+      await handleAttachmentDownload(req, res, config, parts[2], url);
       return;
     }
 

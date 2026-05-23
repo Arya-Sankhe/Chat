@@ -129,24 +129,29 @@ export async function fetchDocumentStatus(session, attachmentId) {
   return response.json();
 }
 
-/** Authenticated download: API redirects to a signed R2 URL. */
+/**
+ * Authenticated download: ask the API for a short-lived signed URL and
+ * navigate to it. The presigned URL carries its own auth in the query
+ * string, so the browser doesn't need the Bearer token.
+ */
 export async function downloadAttachment(session, attachmentId, fileName = "download") {
-  const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}/download`, {
-    headers: apiHeaders(session),
-    redirect: "follow"
+  const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}/download?json=1`, {
+    headers: apiHeaders(session, { accept: "application/json" })
   });
   if (!response.ok) throw new Error(await readProblem(response));
 
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
+  const payload = await response.json();
+  const url = payload?.url;
+  if (!url) throw new Error("Download URL was not returned.");
+
   const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = fileName;
+  anchor.href = url;
+  anchor.download = payload.fileName || fileName;
   anchor.rel = "noopener";
+  anchor.target = "_blank";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(objectUrl);
 }
 
 export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
