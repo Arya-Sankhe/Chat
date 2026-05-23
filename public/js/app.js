@@ -1,6 +1,7 @@
 import {
   createConversation,
   deleteConversation,
+  downloadAttachment,
   fetchAdminSummary,
   fetchConfig,
   fetchConversation,
@@ -788,6 +789,44 @@ function citationHost(url) {
   }
 }
 
+function attachmentDownloadPath(href) {
+  const path = String(href || "").trim();
+  const match = path.match(/^\/api\/attachments\/([^/?#]+)\/download\/?$/i);
+  return match ? match[1] : "";
+}
+
+function documentCitationTitle(entry) {
+  const source = String(entry?.source || "").trim();
+  if (source) return source;
+  const title = String(entry?.title || "").trim();
+  if (!title) return "Document";
+  const dash = title.indexOf(" - ");
+  return dash === -1 ? title : title.slice(0, dash).trim() || title;
+}
+
+function dedupeCitationsForDisplay(citations) {
+  const out = [];
+  const seenDocs = new Set();
+  const seenWeb = new Set();
+
+  for (const entry of citations) {
+    if (entry?.type === "document") {
+      const key = entry.attachment_id || entry.document_file_id || entry.url;
+      if (!key || seenDocs.has(key)) continue;
+      seenDocs.add(key);
+      out.push({ ...entry, title: documentCitationTitle(entry) });
+      continue;
+    }
+
+    const key = entry.url || citationHost(entry.url);
+    if (!key || seenWeb.has(key)) continue;
+    seenWeb.add(key);
+    out.push(entry);
+  }
+
+  return out;
+}
+
 function citationFaviconUrl(url) {
   if (String(url || "").startsWith("/")) return "";
   const host = citationHost(url);
@@ -891,7 +930,7 @@ function renderAssistantContent(content, message, { thinking = false } = {}) {
 }
 
 function renderCitations(message) {
-  const citations = citationListFromMessage(message);
+  const citations = dedupeCitationsForDisplay(citationListFromMessage(message));
   if (!citations.length) return "";
 
   const preview = uniqueCitationPreview(citations, 3);
@@ -2154,7 +2193,26 @@ function bindEvents() {
   els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
   els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
 
-  els.messages.addEventListener("click", (e) => {
+  els.messages.addEventListener("click", async (e) => {
+    const downloadLink = e.target.closest("a[href]");
+    if (downloadLink) {
+      const attachmentId = attachmentDownloadPath(downloadLink.getAttribute("href") || "");
+      if (attachmentId) {
+        e.preventDefault();
+        if (!state.session?.access_token) {
+          showToast("Sign in to download files.");
+          return;
+        }
+        const fileName = downloadLink.textContent?.trim() || downloadLink.getAttribute("download") || "download";
+        try {
+          await downloadAttachment(state.session, attachmentId, fileName);
+        } catch (err) {
+          showToast(err.message || "Download failed.");
+        }
+        return;
+      }
+    }
+
     const codeCopy = e.target.closest("[data-copy-code]");
     if (codeCopy) {
       const text = codeCopy.dataset.copyCode;

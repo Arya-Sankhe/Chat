@@ -129,6 +129,26 @@ export async function fetchDocumentStatus(session, attachmentId) {
   return response.json();
 }
 
+/** Authenticated download: API redirects to a signed R2 URL. */
+export async function downloadAttachment(session, attachmentId, fileName = "download") {
+  const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}/download`, {
+    headers: apiHeaders(session),
+    redirect: "follow"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
   const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: "POST",
