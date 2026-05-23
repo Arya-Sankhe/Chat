@@ -7,14 +7,15 @@ Smartyfy Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible 
 - Testing access mode: signed-in users can chat without a payment gateway while the product is in MVP testing.
 - Supabase Auth with email magic links. Google OAuth is supported behind `SUPABASE_GOOGLE_ENABLED=true` after the provider is configured in Supabase.
 - Supabase Postgres persistence for profiles, plans, gateway-neutral subscriptions, conversations, messages, usage, and attachments.
-- Cloudflare R2 signed uploads for user images.
+- Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only Crof model API key and cached `/models` access.
 - Streaming chat responses with usage metering and plan limits.
+- Document tools for PDF, DOCX, XLSX, CSV, and TSV: read/search attached files, extract tables, create new DOCX/XLSX/PDF files, edit DOCX/XLSX copies, and export DOCX/XLSX to PDF through a Docker worker.
 - Docker and Docker Compose hosting.
 
 - Optional web search backed by Jina Search Foundation (`s.jina.ai`) with Brave LLM Context as fallback. The model decides when to call it via OpenAI-style tool calls; a per-chat Auto/Off toggle lives next to the image button.
 
-No BYOK, local chat migration, multi-provider routing, prompt marketplace, file RAG, or LibreChat extras are included.
+No BYOK, local chat migration, multi-provider routing, prompt marketplace, OCR, or LibreChat extras are included.
 
 ## Dependency Security
 
@@ -56,6 +57,16 @@ Required:
 
 Optional plan limit overrides are available in `.env.example`.
 
+Optional for document tools:
+
+- `DOCUMENTS_ENABLED=true`
+- `DOCUMENT_MAX_FILE_BYTES` defaults to 30MB per uploaded document.
+- `DOCUMENT_MAX_PDF_PAGES` defaults to 100 pages.
+- `DOCUMENT_UPLOAD_EXPIRES_SECONDS` defaults to 900 seconds for slower 30MB uploads.
+- `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE`, `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE`, `PLAN_*_DAILY_DOCUMENT_TOOL_CALLS`, and `PLAN_*_DAILY_GENERATED_DOCUMENTS` control per-plan quotas.
+
+The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
+
 Optional for web search:
 
 - `JINA_API_KEY` (required for `s.jina.ai` search; new keys include a 10M-token free trial).
@@ -79,11 +90,13 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Compose starts two services: `smartyfy-chat` for the Node app and `document-worker` for extraction/conversion jobs. The worker has no exposed public port, runs with `init: true`, and is capped at `1500m` memory / `1.5` CPUs by default.
+
 The health endpoint is `/api/health`.
 
 ## R2 CORS
 
-Your R2 bucket needs CORS that allows your app origin to upload images directly. Use your production origin instead of localhost when deployed.
+Your R2 bucket needs CORS that allows your app origin to upload images and documents directly. Use your production origin instead of localhost when deployed.
 
 ```json
 [

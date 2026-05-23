@@ -50,6 +50,10 @@ function readJinaBackend(value) {
   return backend === "bing" ? "bing" : "google";
 }
 
+function readDocumentMode(value) {
+  return readBoolean(value, true);
+}
+
 const PLAN_SEARCH_DEFAULTS = {
   hobby: 50,
   pro: 200,
@@ -105,6 +109,28 @@ export function loadConfig(env = process.env) {
       readExpiresSeconds: readInt(env.R2_READ_EXPIRES_SECONDS, 900),
       maxImageBytes: readInt(env.R2_MAX_IMAGE_BYTES, 6 * 1024 * 1024)
     },
+    documents: {
+      enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
+      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 30 * 1024 * 1024),
+      maxFilesPerMessage: readInt(env.DOCUMENT_MAX_FILES_PER_MESSAGE, 5),
+      maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 60 * 1024 * 1024),
+      maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 100),
+      maxDocxWords: readInt(env.DOCUMENT_MAX_DOCX_WORDS, 80_000),
+      maxXlsxSheets: readInt(env.DOCUMENT_MAX_XLSX_SHEETS, 25),
+      maxXlsxCells: readInt(env.DOCUMENT_MAX_XLSX_CELLS, 250_000),
+      maxCsvRows: readInt(env.DOCUMENT_MAX_CSV_ROWS, 100_000),
+      maxCsvColumns: readInt(env.DOCUMENT_MAX_CSV_COLUMNS, 100),
+      maxExtractedChars: readInt(env.DOCUMENT_MAX_EXTRACTED_CHARS, 500_000),
+      contextCharsPerTurn: readInt(env.DOCUMENT_CONTEXT_CHARS_PER_TURN, 20_000),
+      maxToolResultChars: readInt(env.DOCUMENT_MAX_TOOL_RESULT_CHARS, 24_000),
+      workerConcurrency: readInt(env.DOCUMENT_WORKER_CONCURRENCY, 1),
+      jobTimeoutMs: readInt(env.DOCUMENT_JOB_TIMEOUT_MS, 120_000),
+      uploadExpiresSeconds: readInt(env.DOCUMENT_UPLOAD_EXPIRES_SECONDS, 900),
+      previewMaxPages: readInt(env.DOCUMENT_PREVIEW_MAX_PAGES, 2),
+      previewTtlDays: readInt(env.DOCUMENT_PREVIEW_TTL_DAYS, 30),
+      maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 3),
+      jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000)
+    },
     websearch: {
       defaultMode: readSearchMode(env.WEBSEARCH_DEFAULT_MODE),
       primaryProvider: readSearchProvider(env.WEBSEARCH_PRIMARY_PROVIDER),
@@ -138,6 +164,7 @@ export function configuredServices(config) {
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
-    websearch: Boolean(config.websearch.jina.apiKey || config.websearch.brave.apiKey)
+    websearch: Boolean(config.websearch.jina.apiKey || config.websearch.brave.apiKey),
+    documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket)
   };
 }

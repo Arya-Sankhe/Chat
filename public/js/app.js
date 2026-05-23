@@ -4,13 +4,14 @@ import {
   fetchAdminSummary,
   fetchConfig,
   fetchConversation,
+  fetchDocumentStatus,
   fetchMe,
   fetchModels,
   fetchPlans,
   listConversations,
   streamCompareConversationMessage,
   streamConversationMessage,
-  uploadImage
+  uploadFile
 } from "./api.js";
 import {
   clearSession,
@@ -151,6 +152,19 @@ function imageDescription(part) {
   return String(part?.image_url?.description || part?.image_url?.alt_text || "").trim();
 }
 
+function fileCategory(file) {
+  return String(file?.type || "").startsWith("image/") ? "image" : "document";
+}
+
+function isSupportedDocumentFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return [".pdf", ".docx", ".xlsx", ".csv", ".tsv"].some((ext) => name.endsWith(ext));
+}
+
+function isSupportedPendingFile(file) {
+  return fileCategory(file) === "image" || isSupportedDocumentFile(file);
+}
+
 function messageHasUndescribedImages(content) {
   return Array.isArray(content) && content.some((part) => part?.type === "image_url" && !imageDescription(part));
 }
@@ -160,7 +174,7 @@ function chatHistoryHasUndescribedImages() {
 }
 
 function pendingPromptHasImages() {
-  return state.images.length > 0;
+  return state.images.some((item) => item.category === "image");
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
@@ -368,7 +382,8 @@ function renderServices() {
     supabase: "Supabase Auth & Postgres",
     access: "Access mode",
     r2: "Cloudflare R2 storage",
-    crof: "Managed model API key"
+    crof: "Managed model API key",
+    documents: "Document tools"
   }).map(([key, label]) => `
     <div class="service-row">
       <span>${escapeHtml(label)}</span>
@@ -390,6 +405,7 @@ function renderPlans() {
       <ul>
         <li>${Number(plan.dailyMessageLimit).toLocaleString()} messages/day</li>
         <li>${Number(plan.monthlyImageLimit).toLocaleString()} images/month</li>
+        <li>${Number(plan.maxDocumentsPerMessage || 0).toLocaleString()} documents/message</li>
       </ul>
     </article>
   `).join("");
@@ -756,9 +772,12 @@ function renderToolStatuses() {
 
 function citationListFromMessage(message) {
   if (Array.isArray(message?.citations) && message.citations.length) return message.citations;
+  const combined = [];
   const meta = message?.metadata?.websearch;
-  if (meta && Array.isArray(meta.citations) && meta.citations.length) return meta.citations;
-  return [];
+  if (meta && Array.isArray(meta.citations) && meta.citations.length) combined.push(...meta.citations);
+  const docs = message?.metadata?.documents;
+  if (docs && Array.isArray(docs.citations) && docs.citations.length) combined.push(...docs.citations);
+  return combined;
 }
 
 function citationHost(url) {
@@ -770,6 +789,7 @@ function citationHost(url) {
 }
 
 function citationFaviconUrl(url) {
+  if (String(url || "").startsWith("/")) return "";
   const host = citationHost(url);
   if (!host) return "";
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`;
@@ -809,8 +829,9 @@ function renderInlineSourcePill(sources) {
     const host = citationHost(entry.url);
     const rowIcon = citationFaviconUrl(entry.url);
     const title = entry.title || host || entry.url;
+    const href = entry.url || "#";
     return `
-      <a class="inline-source-row" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">
+      <a class="inline-source-row" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">
         ${rowIcon ? `<img src="${escapeHtml(rowIcon)}" alt="" width="14" height="14" decoding="async">` : ""}
         <span class="inline-source-row-title">${escapeHtml(title)}</span>
         ${host ? `<span class="inline-source-row-host">${escapeHtml(host)}</span>` : ""}
@@ -884,8 +905,9 @@ function renderCitations(message) {
     const host = citationHost(entry.url);
     const icon = citationFaviconUrl(entry.url);
     const title = entry.title || host || entry.url;
+    const href = entry.url || "#";
     return `
-      <a class="sources-row" href="${escapeHtml(entry.url)}" target="_blank" rel="noopener noreferrer">
+      <a class="sources-row" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">
         ${icon ? `<img class="sources-row-icon" src="${escapeHtml(icon)}" alt="" width="16" height="16" decoding="async">` : `<span class="sources-row-fallback" aria-hidden="true"></span>`}
         <span class="sources-row-text">
           <span class="sources-row-title">${escapeHtml(title)}</span>
@@ -1154,8 +1176,10 @@ function queueRenderMessages() {
 
 function renderImages() {
   els.imagePreviews.innerHTML = state.images.map((img, i) => `
-    <div class="preview-thumb" data-preview-src="${escapeHtml(img.previewUrl)}">
-      <img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">
+    <div class="preview-thumb ${img.category === "document" ? "preview-file" : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
+      ${img.category === "image"
+        ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
+        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>`}
       <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
     </div>
   `).join("");
@@ -1163,14 +1187,35 @@ function renderImages() {
 }
 
 function addImages(files) {
-  const max = state.me?.plan?.maxImagesPerMessage || 4;
-  const accepted = [...files].filter((f) => f.type.startsWith("image/"));
-  const remaining = Math.max(0, max - state.images.length);
-  const chosen = accepted.slice(0, remaining);
-  if (accepted.length > chosen.length) showToast(`Attach up to ${max} images.`);
+  const plan = state.me?.plan || {};
+  const accepted = [...files].filter(isSupportedPendingFile);
+  const currentImages = state.images.filter((item) => item.category === "image").length;
+  const currentDocs = state.images.filter((item) => item.category === "document").length;
+  const maxImages = plan.maxImagesPerMessage || 4;
+  const maxDocs = plan.maxDocumentsPerMessage || 5;
+  const chosen = [];
+  let imageSlots = Math.max(0, maxImages - currentImages);
+  let docSlots = Math.max(0, maxDocs - currentDocs);
+  for (const file of accepted) {
+    const category = fileCategory(file);
+    if (category === "image" && imageSlots > 0) {
+      chosen.push(file);
+      imageSlots -= 1;
+    } else if (category === "document" && docSlots > 0) {
+      chosen.push(file);
+      docSlots -= 1;
+    }
+  }
+  if (accepted.length > chosen.length) showToast(`Attach up to ${maxImages} images and ${maxDocs} documents.`);
+  if ([...files].length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, CSV, or TSV files.");
 
   for (const file of chosen) {
-    state.images.push({ file, previewUrl: URL.createObjectURL(file) });
+    const category = fileCategory(file);
+    state.images.push({
+      file,
+      category,
+      previewUrl: category === "image" ? URL.createObjectURL(file) : ""
+    });
   }
   renderImages();
   syncCompareContextBanner();
@@ -1632,7 +1677,7 @@ async function sendPrompt() {
 
   await executeSend({
     text,
-    images: state.images.map((img) => ({ file: img.file, previewUrl: img.previewUrl })),
+    images: state.images.map((img) => ({ file: img.file, category: img.category, previewUrl: img.previewUrl })),
     compareModels,
     council: Boolean(compareModels.length && isCouncilMode()),
     describeImages: Boolean(
@@ -1642,6 +1687,22 @@ async function sendPrompt() {
       compareIncludesTextOnlyModels(compareModels)
     )
   });
+}
+
+async function waitForDocumentReady(attachmentId, fileName) {
+  const deadline = Date.now() + 120000;
+  let lastStatus = "";
+  while (Date.now() < deadline) {
+    const payload = await fetchDocumentStatus(state.session, attachmentId);
+    const doc = payload.document || {};
+    lastStatus = doc.status || "";
+    if (doc.status === "ready") return doc;
+    if (doc.status === "failed") {
+      throw new Error(doc.error?.message || `${fileName || "Document"} could not be processed.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  throw new Error(`${fileName || "Document"} is still processing. Try again in a moment.`);
 }
 
 async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false }) {
@@ -1663,7 +1724,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
     content: images.length
       ? [
           ...(text ? [{ type: "text", text }] : []),
-          ...images.map((img) => ({ type: "image_url", image_url: { url: img.previewUrl } }))
+          ...images.map((img) => img.category === "image"
+            ? { type: "image_url", image_url: { url: img.previewUrl } }
+            : { type: "file", file: { file_name: img.file.name, content_type: img.file.type } })
         ]
       : text
   };
@@ -1730,8 +1793,13 @@ async function executeSend({ text, images, compareModels, council = false, descr
   try {
     const uploaded = [];
     for (const img of images) {
-      uploaded.push(await uploadImage(state.session, img.file));
-      URL.revokeObjectURL(img.previewUrl);
+      const uploadedFile = await uploadFile(state.session, img.file);
+      if (uploadedFile.category === "document") {
+        showToast(`Processing ${img.file.name}...`);
+        await waitForDocumentReady(uploadedFile.id, img.file.name);
+      }
+      uploaded.push(uploadedFile);
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     }
 
     const payload = {
@@ -2074,7 +2142,7 @@ function bindEvents() {
     if (removeBtn) {
       e.stopPropagation();
       const [removed] = state.images.splice(Number(removeBtn.dataset.removeIndex), 1);
-      if (removed) URL.revokeObjectURL(removed.previewUrl);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       renderImages();
       syncCompareContextBanner();
       return;

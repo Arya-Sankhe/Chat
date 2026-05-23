@@ -350,6 +350,35 @@ describe("tool", () => {
     assert.equal(parsed.formatted_for_reference, undefined);
   });
 
+  test("executeToolCall dispatches document tools through the shared tool loop executor", async () => {
+    let called = false;
+    const result = await executeToolCall({
+      toolCall: {
+        function: {
+          name: "search_document",
+          arguments: JSON.stringify({ query: "invoice totals" })
+        }
+      },
+      documents: {
+        async search(args) {
+          called = true;
+          assert.equal(args.query, "invoice totals");
+          return {
+            ok: true,
+            provider: "documents",
+            results: [{ index: 1, title: "Invoice.pdf", content: "Total: $100" }],
+            citations: [{ index: 1, type: "document", title: "Invoice.pdf" }]
+          };
+        }
+      }
+    });
+
+    assert.equal(called, true);
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "documents");
+    assert.equal(JSON.parse(result.toolResultJson).results[0].title, "Invoice.pdf");
+  });
+
   test("runChatWithToolLoop completes when model finishes without tool call", async () => {
     const crofai = {
       async streamChatCompletion() {

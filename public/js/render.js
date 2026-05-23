@@ -235,6 +235,24 @@ export function renderContent(content) {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" alt="User supplied image">` : "";
         }
+        if (part.type === "file") {
+          const file = part.file || {};
+          const href = sanitizeUrl(file.url || "");
+          const name = file.file_name || "Document";
+          const meta = file.content_type || "";
+          const label = `
+            <span class="message-file-icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
+            </span>
+            <span class="message-file-text">
+              <span class="message-file-name">${escapeHtml(name)}</span>
+              ${meta ? `<span class="message-file-meta">${escapeHtml(meta)}</span>` : ""}
+            </span>
+          `;
+          return href
+            ? `<a class="message-file" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+            : `<div class="message-file">${label}</div>`;
+        }
         return "";
       })
       .join("");

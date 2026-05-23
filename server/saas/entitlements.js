@@ -82,6 +82,49 @@ export async function consumeSearchOrThrow({ db, userId, plan, dailyLimit, searc
   return usage;
 }
 
+export async function consumeDocumentsOrThrow({
+  db,
+  userId,
+  plan,
+  toolCount = 1,
+  generatedCount = 0,
+  signal
+}) {
+  const tools = Number(toolCount);
+  const generated = Number(generatedCount);
+  if (!Number.isInteger(tools) || tools < 0) {
+    throw new HttpError(400, "Document tool count must be zero or greater.");
+  }
+  if (!Number.isInteger(generated) || generated < 0) {
+    throw new HttpError(400, "Generated document count must be zero or greater.");
+  }
+  if (tools === 0 && generated === 0) return { allowed: true };
+
+  const dailyDocumentToolLimit = Math.max(0, Number(plan.dailyDocumentToolLimit || 0));
+  const dailyGeneratedDocumentLimit = Math.max(0, Number(plan.dailyGeneratedDocumentLimit || 0));
+  if (!dailyDocumentToolLimit && tools > 0) {
+    throw new HttpError(403, "Document tools are not enabled for your plan.");
+  }
+  if (!dailyGeneratedDocumentLimit && generated > 0) {
+    throw new HttpError(403, "Document generation is not enabled for your plan.");
+  }
+
+  const usage = await db.consumeDocuments({
+    userId,
+    planId: plan.id,
+    dailyDocumentToolLimit,
+    dailyGeneratedDocumentLimit,
+    toolCount: tools,
+    generatedCount: generated
+  }, { signal });
+
+  if (!usage?.allowed) {
+    throw new HttpError(429, usage?.reason || "Daily document tool limit reached.", usage);
+  }
+
+  return usage;
+}
+
 export async function consumeUsageOrThrow({ db, userId, subscription, plan, imageCount, messageCount = 1, models = [], signal }) {
   const calls = Number(messageCount);
   if (!Number.isInteger(calls) || calls < 1) {

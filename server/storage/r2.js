@@ -2,6 +2,21 @@ import crypto from "node:crypto";
 import { HttpError } from "../http/responses.js";
 
 const supportedImageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const supportedDocumentTypes = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/csv",
+  "text/tab-separated-values"
+]);
+const documentExtensions = new Map([
+  [".pdf", "application/pdf"],
+  [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".csv", "text/csv"],
+  [".tsv", "text/tab-separated-values"]
+]);
 const region = "auto";
 const service = "s3";
 
@@ -47,6 +62,27 @@ export function isSupportedImageType(contentType) {
   return supportedImageTypes.has(clean(contentType).toLowerCase());
 }
 
+export function documentKindFromFileName(fileName) {
+  const lower = clean(fileName).toLowerCase();
+  for (const ext of documentExtensions.keys()) {
+    if (lower.endsWith(ext)) return ext.slice(1);
+  }
+  return "";
+}
+
+export function isSupportedDocumentType(contentType, fileName = "") {
+  const normalized = clean(contentType).toLowerCase().split(";")[0];
+  if (supportedDocumentTypes.has(normalized)) return true;
+  const extType = documentExtensions.get(`.${documentKindFromFileName(fileName)}`);
+  return Boolean(extType && (!normalized || normalized === "application/octet-stream"));
+}
+
+export function uploadCategoryFromType(contentType, fileName = "") {
+  if (isSupportedImageType(contentType)) return "image";
+  if (isSupportedDocumentType(contentType, fileName)) return "document";
+  return "";
+}
+
 export function safeFileName(fileName) {
   const base = clean(fileName).split(/[\\/]/).pop() || "upload";
   return base.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "upload";
@@ -65,6 +101,34 @@ export function assertImageUpload({ contentType, sizeBytes }, maxImageBytes) {
   if (size > maxImageBytes) {
     throw new HttpError(413, `Upload must be ${Math.floor(maxImageBytes / 1024 / 1024)}MB or smaller.`);
   }
+}
+
+export function assertDocumentUpload({ contentType, fileName, sizeBytes }, maxDocumentBytes) {
+  if (!isSupportedDocumentType(contentType, fileName)) {
+    throw new HttpError(400, "Upload must be a PDF, DOCX, XLSX, CSV, or TSV file.");
+  }
+
+  const size = Number(sizeBytes);
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new HttpError(400, "Upload size is required.");
+  }
+
+  if (size > maxDocumentBytes) {
+    throw new HttpError(413, `Upload must be ${Math.floor(maxDocumentBytes / 1024 / 1024)}MB or smaller.`);
+  }
+}
+
+export function assertUpload({ category, contentType, fileName, sizeBytes }, limits = {}) {
+  const normalized = clean(category || uploadCategoryFromType(contentType, fileName)).toLowerCase();
+  if (normalized === "image") {
+    assertImageUpload({ contentType, sizeBytes }, limits.maxImageBytes);
+    return "image";
+  }
+  if (normalized === "document") {
+    assertDocumentUpload({ contentType, fileName, sizeBytes }, limits.maxDocumentBytes);
+    return "document";
+  }
+  throw new HttpError(400, "Upload must be an image or supported document file.");
 }
 
 export class R2Client {
@@ -86,7 +150,7 @@ export class R2Client {
     return `users/${userId}/${crypto.randomUUID()}/${safeFileName(fileName)}`;
   }
 
-  presign(method, key, expiresSeconds) {
+  presign(method, key, expiresSeconds, extraParams = {}) {
     this.requireConfigured();
 
     const now = new Date();
@@ -101,6 +165,11 @@ export class R2Client {
       "X-Amz-Expires": String(expiresSeconds),
       "X-Amz-SignedHeaders": signedHeaders
     });
+    for (const [paramKey, paramValue] of Object.entries(extraParams || {})) {
+      if (paramValue !== undefined && paramValue !== null && paramValue !== "") {
+        params.set(paramKey, String(paramValue));
+      }
+    }
 
     const canonicalUri = `/${encodePath(`${this.config.bucket}/${key}`)}`;
     const canonicalHeaders = `host:${endpoint.host}\n`;
@@ -124,12 +193,14 @@ export class R2Client {
     return `${this.config.endpoint}${canonicalUri}?${canonicalQuery(params)}`;
   }
 
-  uploadUrl(key) {
-    return this.presign("PUT", key, this.config.uploadExpiresSeconds);
+  uploadUrl(key, expiresSeconds = this.config.uploadExpiresSeconds) {
+    return this.presign("PUT", key, expiresSeconds);
   }
 
-  readUrl(key) {
-    return this.presign("GET", key, this.config.readExpiresSeconds);
+  readUrl(key, { fileName } = {}) {
+    return this.presign("GET", key, this.config.readExpiresSeconds, {
+      ...(fileName ? { "response-content-disposition": `attachment; filename="${safeFileName(fileName)}"` } : {})
+    });
   }
 
   deleteUrl(key) {
@@ -143,20 +214,20 @@ export class R2Client {
   async headObject(key, { signal } = {}) {
     const response = await fetch(this.headUrl(key), { method: "HEAD", signal });
     if (!response.ok) {
-      throw new HttpError(400, "Uploaded image could not be verified.");
+      throw new HttpError(400, "Uploaded file could not be verified.");
     }
 
     return {
       contentType: response.headers.get("content-type") || "",
       sizeBytes: Number.parseInt(response.headers.get("content-length") || "0", 10),
-      etag: response.headers.get("etag") || ""
+      etag: clean(response.headers.get("etag")).replace(/^"|"$/g, "")
     };
   }
 
   async deleteObject(key, { signal } = {}) {
     const response = await fetch(this.deleteUrl(key), { method: "DELETE", signal });
     if (!response.ok && response.status !== 404) {
-      throw new HttpError(502, "Uploaded image could not be deleted from storage.");
+      throw new HttpError(502, "Uploaded file could not be deleted from storage.");
     }
 
     return true;

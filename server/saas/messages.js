@@ -53,15 +53,30 @@ export function buildStoredUserContent(text, attachments = []) {
 
   return [
     ...(cleanText ? [{ type: "text", text: cleanText }] : []),
-    ...attachments.map((attachment) => ({
-      type: "image_url",
-      image_url: {
-        attachment_id: attachment.id,
-        object_key: attachment.object_key,
-        file_name: attachment.file_name,
-        url: `r2://${attachment.object_key}`
+    ...attachments.map((attachment) => {
+      if ((attachment.category || "image") === "document") {
+        return {
+          type: "file",
+          file: {
+            attachment_id: attachment.id,
+            object_key: attachment.object_key,
+            file_name: attachment.file_name,
+            content_type: attachment.content_type,
+            size_bytes: attachment.size_bytes,
+            url: `r2://${attachment.object_key}`
+          }
+        };
       }
-    }))
+      return {
+        type: "image_url",
+        image_url: {
+          attachment_id: attachment.id,
+          object_key: attachment.object_key,
+          file_name: attachment.file_name,
+          url: `r2://${attachment.object_key}`
+        }
+      };
+    })
   ];
 }
 
@@ -112,6 +127,23 @@ async function hydrateContent(content, r2, mode, { imageDescriptions = null } = 
           ? { ...image, url: signedUrl }
           : { url: signedUrl }
       });
+    }
+
+    if (part?.type === "file") {
+      const file = part.file || {};
+      const objectKey = file.object_key || String(file.url || "").replace(/^r2:\/\//, "");
+      const signedUrl = objectKey ? r2.readUrl(objectKey) : file.url;
+      if (mode === "client") {
+        hydrated.push({
+          type: "file",
+          file: { ...file, url: signedUrl }
+        });
+      } else {
+        hydrated.push({
+          type: "text",
+          text: `[Document (${file.file_name || "file"}): available through document tools; raw file content omitted from prompt]`
+        });
+      }
     }
   }
 

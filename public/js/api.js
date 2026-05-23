@@ -69,14 +69,19 @@ export async function deleteConversation(session, id) {
   return response.json();
 }
 
-export async function presignUpload(session, file) {
+function uploadCategory(file) {
+  return String(file.type || "").startsWith("image/") ? "image" : "document";
+}
+
+export async function presignUpload(session, file, category = uploadCategory(file)) {
   const response = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: apiHeaders(session, { "content-type": "application/json" }),
     body: JSON.stringify({
       fileName: file.name,
       contentType: file.type,
-      sizeBytes: file.size
+      sizeBytes: file.size,
+      category
     })
   });
   if (!response.ok) throw new Error(await readProblem(response));
@@ -94,7 +99,7 @@ export async function completeUpload(session, uploadId) {
 }
 
 export async function uploadImage(session, file) {
-  const upload = await presignUpload(session, file);
+  const upload = await presignUpload(session, file, "image");
   const put = await fetch(upload.uploadUrl, {
     method: upload.method || "PUT",
     headers: { "content-type": file.type },
@@ -102,6 +107,26 @@ export async function uploadImage(session, file) {
   });
   if (!put.ok) throw new Error("Image upload failed.");
   return completeUpload(session, upload.uploadId);
+}
+
+export async function uploadFile(session, file) {
+  const category = uploadCategory(file);
+  const upload = await presignUpload(session, file, category);
+  const put = await fetch(upload.uploadUrl, {
+    method: upload.method || "PUT",
+    headers: { "content-type": file.type || "application/octet-stream" },
+    body: file
+  });
+  if (!put.ok) throw new Error(category === "image" ? "Image upload failed." : "Document upload failed.");
+  return completeUpload(session, upload.uploadId);
+}
+
+export async function fetchDocumentStatus(session, attachmentId) {
+  const response = await fetch(`/api/documents/${encodeURIComponent(attachmentId)}/status`, {
+    headers: apiHeaders(session)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
 }
 
 export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {

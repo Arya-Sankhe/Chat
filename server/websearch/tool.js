@@ -6,6 +6,7 @@
  */
 
 import { citationsFromResults } from "./index.js";
+import { executeDocumentToolCall, isDocumentToolName } from "../documents/tool.js";
 
 /* ── Tool schema ── */
 
@@ -80,7 +81,7 @@ function safeParseArgs(rawArgs) {
  * @returns {Promise<{ ok: boolean, name: string, toolResultJson: string,
  *                     citations: Array, query?: string, error?: object }>}
  */
-async function executeToolCall({ toolCall, websearch, signal }) {
+async function executeToolCall({ toolCall, websearch, documents, maxToolResultChars, signal }) {
   const name = toolCall?.function?.name || "";
   const args = safeParseArgs(toolCall?.function?.arguments);
 
@@ -92,6 +93,19 @@ async function executeToolCall({ toolCall, websearch, signal }) {
       citations: [],
       error: { message: "Invalid tool arguments JSON" }
     };
+  }
+
+  if (isDocumentToolName(name)) {
+    if (!documents) {
+      return {
+        ok: false,
+        name,
+        toolResultJson: JSON.stringify({ error: "Document tools are not available for this chat." }),
+        citations: [],
+        error: { message: "Document tools unavailable" }
+      };
+    }
+    return executeDocumentToolCall({ toolCall, documents, maxToolResultChars });
   }
 
   if (name === "web_search") {
@@ -229,6 +243,7 @@ function normalizedToolCallsForMessage(toolCalls, iteration) {
  * @param {object} params.config                  - root server config
  * @param {AbortSignal} params.signal             - abort propagation
  * @param {object} params.websearch               - WebSearchOrchestrator
+ * @param {object} [params.documents]             - DocumentService
  * @param {(event:object)=>void} params.onUpstreamEvent
  *           Called for every upstream OpenAI delta (transformed or raw).
  * @param {(event:object)=>void} [params.onToolEvent]
@@ -244,13 +259,17 @@ export async function runChatWithToolLoop({
   config,
   signal,
   websearch,
+  documents = null,
   onUpstreamEvent,
   onToolEvent = () => {},
   onIterationStart = () => {}
 }) {
   const { streamProviderAndAccumulate } = await import("../saas/messages.js");
 
-  const configuredMax = Number(config.websearch.maxToolCallsPerTurn);
+  const configuredMax = Math.max(
+    Number(config.websearch?.maxToolCallsPerTurn || 0),
+    Number(config.documents?.maxToolCallsPerTurn || 0)
+  );
   const maxToolCalls = Number.isFinite(configuredMax) ? Math.max(0, Math.floor(configuredMax)) : 0;
   const maxIterations = Math.max(2, maxToolCalls + 2);
   const messages = [...chatRequest.messages];
@@ -304,7 +323,7 @@ export async function runChatWithToolLoop({
         messages.push({
           role: "tool",
           tool_call_id: call.id,
-          content: JSON.stringify({ error: "Web search budget exhausted for this turn. Answer with the evidence already gathered." })
+          content: JSON.stringify({ error: "Tool-call budget exhausted for this turn. Answer with the evidence already gathered." })
         });
         continue;
       }
@@ -318,12 +337,19 @@ export async function runChatWithToolLoop({
         arguments: call.function?.arguments || ""
       });
 
-      const result = await executeToolCall({ toolCall: call, websearch, signal });
+      const result = await executeToolCall({
+        toolCall: call,
+        websearch,
+        documents,
+        maxToolResultChars: config.documents?.maxToolResultChars,
+        signal
+      });
 
       if (result.ok && Array.isArray(result.citations) && result.citations.length) {
         const offset = citations.length;
         for (const citation of result.citations) {
-          citations.push({ ...citation, index: offset + citation.index, provider: result.provider || null });
+          const index = offset + citation.index;
+          citations.push({ ...citation, index, marker: `[${index}]`, provider: result.provider || null });
         }
       }
       if (result.ok && result.provider) providers.add(result.provider);

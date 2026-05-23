@@ -2,22 +2,31 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
-import { consumeUsageOrThrow, getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { consumeDocumentsOrThrow, consumeUsageOrThrow, getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { buildStoredUserContent, imageCountFromContent } from "../server/saas/messages.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
-import { assertImageUpload, R2Client, safeFileName } from "../server/storage/r2.js";
+import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
 
 test("loadPlans maps Crof-style tiers from env", () => {
   const plans = loadPlans({
     PLAN_HOBBY_PRICE_LABEL: "Testing",
     PLAN_HOBBY_DAILY_MESSAGES: "25",
-    PLAN_HOBBY_MONTHLY_IMAGES: "50"
+    PLAN_HOBBY_MONTHLY_IMAGES: "50",
+    PLAN_HOBBY_MAX_DOCUMENTS_PER_MESSAGE: "5",
+    PLAN_HOBBY_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280",
+    PLAN_HOBBY_DAILY_DOCUMENT_TOOL_CALLS: "33",
+    PLAN_HOBBY_DAILY_GENERATED_DOCUMENTS: "7"
   });
 
   assert.equal(plans[0].id, "hobby");
   assert.equal(plans[0].priceLabel, "Testing");
   assert.equal(plans[0].dailyMessageLimit, 25);
   assert.equal(plans[0].monthlyImageLimit, 50);
+  assert.equal(plans[0].maxDocumentsPerMessage, 5);
+  assert.equal(plans[0].maxDocumentBytesPerMessage, 31457280);
+  assert.equal(plans[0].dailyDocumentToolLimit, 33);
+  assert.equal(plans[0].dailyGeneratedDocumentLimit, 7);
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
 });
 
@@ -203,11 +212,115 @@ test("SupabaseRest keeps single-message usage compatible with the legacy RPC sig
   }
 });
 
+test("SupabaseRest passes document usage into the document metering RPC", async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl;
+  let rpcBody;
+  globalThis.fetch = async (url, options = {}) => {
+    calledUrl = String(url);
+    rpcBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ allowed: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const db = new SupabaseRest({
+      supabase: {
+        url: "https://example.supabase.co",
+        serviceRoleKey: "service-role-key"
+      }
+    });
+
+    await db.consumeDocuments({
+      userId: "user_1",
+      planId: "pro",
+      dailyDocumentToolLimit: 100,
+      dailyGeneratedDocumentLimit: 20,
+      toolCount: 2,
+      generatedCount: 1
+    });
+
+    assert.match(calledUrl, /\/rpc\/smartyfy_consume_documents$/);
+    assert.equal(rpcBody.p_user_id, "user_1");
+    assert.equal(rpcBody.p_plan_id, "pro");
+    assert.equal(rpcBody.p_daily_document_tool_limit, 100);
+    assert.equal(rpcBody.p_daily_generated_document_limit, 20);
+    assert.equal(rpcBody.p_tool_count, 2);
+    assert.equal(rpcBody.p_generated_count, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("consumeDocumentsOrThrow rejects document usage past plan limits", async () => {
+  const db = {
+    async consumeDocuments() {
+      return { allowed: false, reason: "Daily document tool limit reached for your plan." };
+    }
+  };
+
+  await assert.rejects(
+    consumeDocumentsOrThrow({
+      db,
+      userId: "user_1",
+      plan: { id: "hobby", dailyDocumentToolLimit: 1, dailyGeneratedDocumentLimit: 0 },
+      toolCount: 2
+    }),
+    /Daily document tool limit reached/
+  );
+});
+
 test("R2 upload helpers validate images and sanitize names", () => {
   assert.equal(safeFileName("../My Image!.png"), "My-Image-.png");
   assert.doesNotThrow(() => assertImageUpload({ contentType: "image/png", sizeBytes: 1024 }, 2048));
   assert.throws(() => assertImageUpload({ contentType: "text/plain", sizeBytes: 1024 }, 2048), /png, jpeg, webp, or gif/);
   assert.throws(() => assertImageUpload({ contentType: "image/png", sizeBytes: 4096 }, 2048), /smaller/);
+});
+
+test("R2 upload helpers validate document files by MIME type and extension", () => {
+  assert.equal(documentKindFromFileName("Report.final.PDF"), "pdf");
+  assert.equal(assertUpload({
+    category: "document",
+    contentType: "application/pdf",
+    fileName: "report.pdf",
+    sizeBytes: 1024
+  }, { maxDocumentBytes: 2048 }), "document");
+  assert.equal(assertUpload({
+    category: "document",
+    contentType: "application/octet-stream",
+    fileName: "sheet.xlsx",
+    sizeBytes: 1024
+  }, { maxDocumentBytes: 2048 }), "document");
+  assert.throws(() => assertUpload({
+    category: "document",
+    contentType: "application/javascript",
+    fileName: "x.js",
+    sizeBytes: 1024
+  }, { maxDocumentBytes: 2048 }), /PDF, DOCX, XLSX, CSV, or TSV/);
+  assert.throws(() => assertUpload({
+    category: "document",
+    contentType: "application/pdf",
+    fileName: "too-big.pdf",
+    sizeBytes: 4096
+  }, { maxDocumentBytes: 2048 }), /smaller/);
+});
+
+test("stored user content keeps document uploads out of the vision image count", () => {
+  const content = buildStoredUserContent("Read this", [{
+    id: "attachment_1",
+    category: "document",
+    object_key: "users/user_1/report.pdf",
+    file_name: "report.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1234
+  }]);
+
+  assert.equal(imageCountFromContent(content), 0);
+  assert.equal(content[1].type, "file");
+  assert.equal(content[1].file.attachment_id, "attachment_1");
+  assert.equal(content[1].file.url, "r2://users/user_1/report.pdf");
 });
 
 test("dependency policy pins npm supply-chain guardrails", () => {
@@ -297,4 +410,21 @@ test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("R2 readUrl can force a clean attachment download filename", () => {
+  const r2 = new R2Client({
+    r2: {
+      endpoint: "https://account.r2.cloudflarestorage.com",
+      accessKeyId: "access-key",
+      secretAccessKey: "secret-key",
+      bucket: "smartyfy-chat",
+      uploadExpiresSeconds: 300,
+      readExpiresSeconds: 900
+    }
+  });
+
+  const url = new URL(r2.readUrl("users/user_1/report.pdf", { fileName: "../Quarterly Report.pdf" }));
+  assert.equal(url.searchParams.get("response-content-disposition"), "attachment; filename=\"Quarterly-Report.pdf\"");
+  assert.ok(url.searchParams.get("X-Amz-Signature"));
 });

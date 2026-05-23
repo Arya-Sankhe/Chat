@@ -209,7 +209,7 @@ export class SupabaseRest {
       query: {
         user_id: `eq.${userId}`,
         conversation_id: `eq.${conversationId}`,
-        select: "id,object_key"
+        select: "id,object_key,category,file_name,content_type,size_bytes,etag"
       },
       signal
     });
@@ -248,7 +248,7 @@ export class SupabaseRest {
       query: {
         user_id: `eq.${userId}`,
         message_id: `eq.${messageId}`,
-        select: "id,object_key"
+        select: "id,object_key,category,file_name,content_type,size_bytes,etag"
       },
       signal
     });
@@ -332,6 +332,131 @@ export class SupabaseRest {
     return single(rows);
   }
 
+  async createDocumentFile(documentFile, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      method: "POST",
+      body: documentFile,
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
+  async getDocumentFile(userId, documentFileId, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      query: {
+        id: `eq.${documentFileId}`,
+        user_id: `eq.${userId}`,
+        select: "*",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
+  async getDocumentFileByAttachment(userId, attachmentId, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      query: {
+        attachment_id: `eq.${attachmentId}`,
+        user_id: `eq.${userId}`,
+        select: "*",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
+  async listReadyDocumentFiles(userId, conversationId, { signal } = {}) {
+    return this.request("document_files", {
+      query: {
+        user_id: `eq.${userId}`,
+        conversation_id: `eq.${conversationId}`,
+        processing_status: "eq.ready",
+        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
+        order: "created_at.asc"
+      },
+      signal
+    });
+  }
+
+  async listDocumentFilesByAttachments(userId, attachmentIds = [], { signal } = {}) {
+    const ids = [...new Set(attachmentIds.filter(Boolean))];
+    if (!ids.length) return [];
+    return this.request("document_files", {
+      query: {
+        user_id: `eq.${userId}`,
+        attachment_id: `in.(${ids.join(",")})`,
+        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)"
+      },
+      signal
+    });
+  }
+
+  async updateDocumentFile(userId, documentFileId, patch, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      method: "PATCH",
+      query: { id: `eq.${documentFileId}`, user_id: `eq.${userId}` },
+      body: { ...patch, updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
+  async updateDocumentFileByAttachment(userId, attachmentId, patch, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      method: "PATCH",
+      query: { attachment_id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
+      body: { ...patch, updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
+  async createDocumentJob(job, { signal } = {}) {
+    const rows = await this.request("document_jobs", {
+      method: "POST",
+      body: job,
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
+  async getDocumentJob(userId, jobId, { signal } = {}) {
+    const rows = await this.request("document_jobs", {
+      query: { id: `eq.${jobId}`, user_id: `eq.${userId}`, select: "*", limit: "1" },
+      signal
+    });
+    return single(rows);
+  }
+
+  async listDocumentChunks(userId, documentFileId, { limit = 20, sourceType = "", signal } = {}) {
+    return this.request("document_chunks", {
+      query: {
+        user_id: `eq.${userId}`,
+        document_file_id: `eq.${documentFileId}`,
+        ...(sourceType ? { source_type: `eq.${sourceType}` } : {}),
+        select: "id,document_file_id,chunk_index,source_type,source_label,text,metadata",
+        order: "chunk_index.asc",
+        limit: String(limit)
+      },
+      signal
+    });
+  }
+
+  async searchDocumentChunks({ userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
+    return this.rpc("smartyfy_search_document_chunks", {
+      p_user_id: userId,
+      p_document_ids: documentFileIds,
+      p_query: query,
+      p_limit: limit
+    }, { signal });
+  }
+
   async consumeUsage({ userId, planId, dailyMessageLimit, monthlyImageLimit, imageCount, messageCount = 1 }, { signal } = {}) {
     const body = {
       p_user_id: userId,
@@ -408,6 +533,24 @@ export class SupabaseRest {
       p_plan_id: planId,
       p_daily_search_limit: dailySearchLimit,
       p_search_count: searchCount
+    }, { signal });
+  }
+
+  async consumeDocuments({
+    userId,
+    planId,
+    dailyDocumentToolLimit,
+    dailyGeneratedDocumentLimit,
+    toolCount = 1,
+    generatedCount = 0
+  }, { signal } = {}) {
+    return this.rpc("smartyfy_consume_documents", {
+      p_user_id: userId,
+      p_plan_id: planId,
+      p_daily_document_tool_limit: dailyDocumentToolLimit,
+      p_daily_generated_document_limit: dailyGeneratedDocumentLimit,
+      p_tool_count: toolCount,
+      p_generated_count: generatedCount
     }, { signal });
   }
 

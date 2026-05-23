@@ -10,3 +10,22 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
     restart: unless-stopped
+
+  document-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DOCUMENT_WORKER_CONCURRENCY: 1
+    mem_limit: 1500m
+    cpus: "1.5"
+    healthcheck:
+      test: ["CMD", "python", "-m", "worker.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
