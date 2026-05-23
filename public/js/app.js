@@ -71,6 +71,7 @@ const state = {
 };
 
 let renderQueued = false;
+let reasoningOpenIds = new Set();
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -754,9 +755,31 @@ function messageViews(messages) {
   return views;
 }
 
-function renderReasoning(message) {
-  if (!message.reasoning) return "";
-  return `<details class="reasoning"><summary>Thinking</summary><div>${renderContent(message.reasoning)}</div></details>`;
+function captureReasoningOpenState() {
+  reasoningOpenIds = new Set();
+  for (const el of els.messages.querySelectorAll("details.reasoning[open][data-message-id]")) {
+    reasoningOpenIds.add(el.dataset.messageId);
+  }
+}
+
+function isAssistantMessageStreaming(message) {
+  if (!state.running || message?.error || message?.finishReason) return false;
+  return Boolean(message?.id);
+}
+
+function renderReasoning(message, { streaming = false } = {}) {
+  const text = String(message?.reasoning || "");
+  const hasReasoning = text.trim().length > 0;
+  if (!hasReasoning && !streaming) return "";
+
+  const messageId = message?.id ? String(message.id) : "";
+  const shouldOpen = messageId && reasoningOpenIds.has(messageId);
+  const openAttr = shouldOpen ? " open" : "";
+  const idAttr = messageId ? ` data-message-id="${escapeHtml(messageId)}"` : "";
+  const streamingClass = streaming ? " is-streaming" : "";
+  const body = hasReasoning ? renderContent(text) : "";
+
+  return `<details class="reasoning${streamingClass}"${openAttr}${idAttr}><summary>Thinking</summary><div>${body}</div></details>`;
 }
 
 function renderToolCalls() {
@@ -911,22 +934,26 @@ function injectInlineCitationPills(text, citations) {
   return processed.join("\n\n");
 }
 
-function renderAssistantContent(content, message, { thinking = false } = {}) {
+function renderAssistantContent(content, message) {
   const citations = citationListFromMessage(message);
-  const fallback = thinking && !content ? "Thinking…" : "";
+  const hasContent = Array.isArray(content)
+    ? content.some((part) => part?.type === "text" ? String(part.text || "").trim() : part?.type === "image_url")
+    : Boolean(String(content || "").trim());
 
   if (Array.isArray(content)) {
-    if (!citations.length) return renderContent(content.length ? content : fallback);
+    if (!hasContent) return "";
+    if (!citations.length) return renderContent(content);
     const enriched = content.map((part) => {
       if (part?.type !== "text") return part;
       return { ...part, text: injectInlineCitationPills(part.text || "", citations) };
     });
-    return renderContent(enriched.length ? enriched : fallback);
+    return renderContent(enriched);
   }
 
   const text = typeof content === "string" ? content : "";
-  if (!citations.length) return renderContent(text || fallback);
-  return renderContent(injectInlineCitationPills(text, citations) || fallback);
+  if (!text.trim()) return "";
+  if (!citations.length) return renderContent(text);
+  return renderContent(injectInlineCitationPills(text, citations));
 }
 
 function renderCitations(message) {
@@ -993,9 +1020,9 @@ function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
   const content = typeof msg.content === "string" ? msg.content : msg.content;
-  const thinking = state.running && role === "assistant";
+  const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   const body = role === "assistant"
-    ? renderAssistantContent(content, msg, { thinking })
+    ? renderAssistantContent(content, msg)
     : renderContent(content || "");
   const rawText = rawTextContent(msg.content);
 
@@ -1004,7 +1031,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${renderReasoning(msg)}${body}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
+        <div class="message-content">${role === "assistant" ? renderReasoning(msg, { streaming }) : ""}${body}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
   `;
@@ -1015,7 +1042,8 @@ function renderCompareResponse(raw, index) {
   const modelId = msg.model || selectedCompareModelIds()[index] || "";
   const model = modelById(modelId);
   const logoUrl = model ? modelBrandLogoUrl(model) : "";
-  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
+  const content = msg.content || "";
+  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
 
   return `
@@ -1030,8 +1058,8 @@ function renderCompareResponse(raw, index) {
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
       <div class="compare-response-body message-content">
-        ${renderReasoning(msg)}
-        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
+        ${renderReasoning(msg, { streaming })}
+        ${renderAssistantContent(content, msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1074,7 +1102,8 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
   const modelId = msg.model || "";
   const model = modelById(modelId);
   const logoUrl = model ? modelBrandLogoUrl(model) : "";
-  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Thinking…" : "");
+  const content = msg.content || "";
+  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
   const rank = msg.metadata?.council?.peerRank;
   const ballotCount = Number(msg.metadata?.council?.ballotCount || 0);
@@ -1106,8 +1135,8 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
       <div class="council-panelist-body message-content">
-        ${renderReasoning(msg)}
-        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
+        ${renderReasoning(msg, { streaming })}
+        ${renderAssistantContent(content, msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1131,7 +1160,8 @@ function renderCouncilSynthesis(chairman) {
 
   const msg = normalizeMessage(chairman);
   const modelId = msg.model || "";
-  const content = msg.content || (state.running && !msg.error && !msg.finishReason ? "Synthesizing…" : "");
+  const content = msg.content || "";
+  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
   const modelName = modelDisplayName(modelId) || modelId;
 
@@ -1144,8 +1174,8 @@ function renderCouncilSynthesis(chairman) {
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis" style="color: white; opacity: 0.85;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </div>
       <div class="council-synthesis-body message-content">
-        ${renderReasoning(msg)}
-        ${renderAssistantContent(content, msg, { thinking: state.running && !msg.error && !msg.finishReason })}
+        ${renderReasoning(msg, { streaming })}
+        ${renderAssistantContent(content, msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1188,6 +1218,8 @@ function renderMessages() {
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${getGreeting()}</h1></div></div>`;
     return;
   }
+
+  captureReasoningOpenState();
 
   els.messages.innerHTML = messageViews(state.messages)
     .map((view) => {

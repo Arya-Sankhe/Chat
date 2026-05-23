@@ -813,6 +813,32 @@ body.sidebar-expanded .conversation-row {
   color: var(--text-secondary);
   line-height: 1.6;
   font-size: 14px;
+  min-height: 0;
+}
+
+.reasoning.is-streaming[open] div:empty {
+  min-height: 1.25em;
+}
+
+.reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+.reasoning summary::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 8px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text-tertiary);
+  transition: transform 0.15s ease;
+  vertical-align: middle;
+}
+
+.reasoning[open] summary::before {
+  transform: rotate(90deg);
 }
 
 .tool-call pre {
