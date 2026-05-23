@@ -92,18 +92,19 @@ export function buildDocumentTools() {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new DOCX, XLSX, or simple PDF artifact for the user.",
+        description: "Create a new DOCX, XLSX, or simple PDF artifact for the user. When creating a text document, include the complete text that should appear in the artifact in `content`; do not only say \"use the above summary\". Use format docx for Word documents and format pdf only for PDFs.",
         parameters: {
           type: "object",
           properties: {
             format: { type: "string", enum: ["docx", "xlsx", "pdf"] },
             title: { type: "string" },
-            instructions: { type: "string" },
+            instructions: { type: "string", description: "Formatting or construction instructions for the worker." },
+            content: { type: "string", description: "Complete text that must be written into the generated document. Required for PDF/DOCX prose documents." },
             sections: { type: "array", items: { type: "object" } },
             tables: { type: "array", items: { type: "object" } },
             data: { type: "object" }
           },
-          required: ["format", "instructions"]
+          required: ["format"]
         }
       }
     },
@@ -195,6 +196,7 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
         format: args.format,
         title: args.title,
         instructions: args.instructions,
+        content: args.content,
         sections: args.sections,
         tables: args.tables,
         data: args.data

@@ -124,6 +124,67 @@ test("DocumentService rejects document_file_id edits outside the active conversa
   );
 });
 
+test("DocumentService fills vague create-document requests from the previous assistant answer", async () => {
+  let capturedJob;
+  const service = documentServiceWithDb({
+    async consumeDocuments() {
+      return { allowed: true };
+    },
+    async listMessages() {
+      return [
+        { role: "user", content: "make it concise" },
+        { role: "assistant", content: "## Concise Summary\nRegression fits a model by minimizing squared error." },
+        { role: "user", content: "make a pdf of the concise summary" },
+        { role: "assistant", content: "Here's the concise summary PDF:\n\n[Download Regression-II---Concise-Summary.pdf](/api/attachments/generated/download)" }
+      ];
+    },
+    async createDocumentJob(job) {
+      capturedJob = job;
+      return { id: "job_1", status: "queued", job_type: job.job_type };
+    },
+    async getDocumentJob() {
+      return { id: "job_1", status: "succeeded", output: { ok: true } };
+    }
+  });
+
+  await service.createDocument({
+    format: "pdf",
+    title: "Regression II - Concise Summary",
+    instructions: "Create a concise PDF summary of the concise summary."
+  });
+
+  assert.equal(capturedJob.job_type, "document.create.pdf");
+  assert.match(capturedJob.input.content, /Regression fits a model/);
+  assert.equal(capturedJob.input.content_source, "previous_assistant");
+  assert.doesNotMatch(capturedJob.input.content, /Create a concise PDF/);
+});
+
+test("DocumentService honors Word intent when the model passes the wrong create format", async () => {
+  let capturedJob;
+  const service = documentServiceWithDb({
+    async consumeDocuments() {
+      return { allowed: true };
+    },
+    async createDocumentJob(job) {
+      capturedJob = job;
+      return { id: "job_1", status: "queued", job_type: job.job_type };
+    },
+    async getDocumentJob() {
+      return { id: "job_1", status: "succeeded", output: { ok: true } };
+    }
+  });
+
+  await service.createDocument({
+    format: "pdf",
+    title: "Regression II - Concise Summary",
+    instructions: "Create a Word document with the concise summary of the PDF.",
+    content: "Here is a concise summary of the PDF: regression is supervised learning for continuous outcomes."
+  });
+
+  assert.equal(capturedJob.job_type, "document.create.docx");
+  assert.equal(capturedJob.input.format, "docx");
+});
+
 test("executeDocumentToolCall dispatches search args and caps structured output", async () => {
   let captured;
   const result = await executeDocumentToolCall({
@@ -161,6 +222,34 @@ test("executeDocumentToolCall dispatches search args and caps structured output"
   assert.equal(result.citations.length, 1);
   const payload = JSON.parse(result.toolResultJson);
   assert.equal(payload.results[0].content, "Revenue\tCost\n100\t25");
+});
+
+test("executeDocumentToolCall passes create_document content through", async () => {
+  let captured;
+  const result = await executeDocumentToolCall({
+    toolCall: {
+      function: {
+        name: "create_document",
+        arguments: JSON.stringify({
+          format: "pdf",
+          title: "Summary",
+          instructions: "Use clean headings.",
+          content: "Actual summary body."
+        })
+      }
+    },
+    documents: {
+      async createDocument(args) {
+        captured = args;
+        return { ok: true, output: { file_name: "Summary.pdf" } };
+      }
+    },
+    maxToolResultChars: 5000
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(captured.content, "Actual summary body.");
+  assert.equal(captured.instructions, "Use clean headings.");
 });
 
 test("executeDocumentToolCall returns model-readable JSON on malformed arguments", async () => {

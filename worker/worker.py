@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -8,17 +9,20 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 import boto3
 import pdfplumber
 import requests
 from charset_normalizer import from_path
 from docx import Document
+from docx.shared import Inches
 from openpyxl import Workbook, load_workbook
 from pypdf import PdfReader
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 def env(name, default=""):
@@ -38,6 +42,27 @@ def safe_name(value, fallback="document"):
 def truncate(text, limit):
     text = str(text or "")
     return text if len(text) <= limit else text[: max(0, limit - 20)] + "\n...[truncated]"
+
+
+def clean_markdown(text):
+    text = str(text or "")
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"__([^_]+)__", r"\1", text)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    text = re.sub(r"_([^_]+)_", r"\1", text)
+    return text.strip()
+
+
+def artifact_content(input_data):
+    return str(
+        input_data.get("content")
+        or input_data.get("source_text")
+        or input_data.get("data", {}).get("content")
+        or input_data.get("data", {}).get("text")
+        or input_data.get("data", {}).get("body")
+        or ""
+    ).strip()
 
 
 class Supabase:
@@ -460,21 +485,70 @@ class Processor:
 
     def create_docx(self, tmp, title, input_data):
         doc = Document()
+        section = doc.sections[0]
+        section.top_margin = Inches(0.7)
+        section.bottom_margin = Inches(0.7)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
         doc.add_heading(title, level=1)
-        instructions = input_data.get("instructions") or ""
-        for block in instructions.split("\n\n"):
-            if block.strip():
-                doc.add_paragraph(block.strip())
+        body = artifact_content(input_data)
+        if body:
+            self.append_docx_markdown(doc, body)
+        else:
+            instructions = input_data.get("instructions") or ""
+            for block in instructions.split("\n\n"):
+                if block.strip():
+                    doc.add_paragraph(clean_markdown(block))
         for section in input_data.get("sections") or []:
             heading = section.get("heading") or section.get("title")
             if heading:
                 doc.add_heading(str(heading), level=2)
             content = section.get("content") or section.get("text") or ""
             if content:
-                doc.add_paragraph(str(content))
+                self.append_docx_markdown(doc, str(content))
+        for table in input_data.get("tables") or []:
+            self.append_docx_table(doc, table)
         path = tmp / f"{safe_name(title)}.docx"
         doc.save(path)
         return path
+
+    def append_docx_markdown(self, doc, text):
+        for raw_line in str(text or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            heading = re.match(r"^(#{1,3})\s+(.+)$", line)
+            if heading:
+                doc.add_heading(clean_markdown(heading.group(2)), level=min(len(heading.group(1)), 3))
+                continue
+            bullet = re.match(r"^[-*]\s+(.+)$", line)
+            if bullet:
+                doc.add_paragraph(clean_markdown(bullet.group(1)), style="List Bullet")
+                continue
+            numbered = re.match(r"^\d+[.)]\s+(.+)$", line)
+            if numbered:
+                doc.add_paragraph(clean_markdown(numbered.group(1)), style="List Number")
+                continue
+            doc.add_paragraph(clean_markdown(line))
+
+    def append_docx_table(self, doc, table_data):
+        title = table_data.get("title") or table_data.get("caption")
+        if title:
+            doc.add_heading(str(title), level=2)
+        rows = table_data.get("rows") or table_data.get("data") or []
+        headers = table_data.get("headers") or []
+        if headers:
+            rows = [headers] + rows
+        if not rows:
+            return
+        width = max(len(row) if isinstance(row, list) else 1 for row in rows)
+        table = doc.add_table(rows=0, cols=max(1, width))
+        table.style = "Table Grid"
+        for row in rows[:200]:
+            cells = table.add_row().cells
+            values = row if isinstance(row, list) else [row]
+            for i, value in enumerate(values[:width]):
+                cells[i].text = str(value)
 
     def create_xlsx(self, tmp, title, input_data):
         wb = Workbook()
@@ -491,15 +565,77 @@ class Processor:
 
     def create_pdf(self, tmp, title, input_data):
         path = tmp / f"{safe_name(title)}.pdf"
-        doc = SimpleDocTemplate(str(path), pagesize=letter)
+        doc = SimpleDocTemplate(
+            str(path),
+            pagesize=letter,
+            leftMargin=54,
+            rightMargin=54,
+            topMargin=54,
+            bottomMargin=54,
+        )
         styles = getSampleStyleSheet()
         story = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
-        for block in (input_data.get("instructions") or "").split("\n\n"):
-            if block.strip():
-                story.append(Paragraph(block.strip().replace("\n", "<br/>"), styles["Normal"]))
-                story.append(Spacer(1, 8))
+        body = artifact_content(input_data)
+        if body:
+            self.append_pdf_markdown(story, body, styles)
+        else:
+            for block in (input_data.get("instructions") or "").split("\n\n"):
+                if block.strip():
+                    story.append(Paragraph(xml_escape(clean_markdown(block)).replace("\n", "<br/>"), styles["Normal"]))
+                    story.append(Spacer(1, 8))
+        for section in input_data.get("sections") or []:
+            heading = section.get("heading") or section.get("title")
+            content = section.get("content") or section.get("text") or ""
+            if heading:
+                story.append(Paragraph(xml_escape(str(heading)), styles["Heading2"]))
+                story.append(Spacer(1, 6))
+            if content:
+                self.append_pdf_markdown(story, str(content), styles)
+        for table in input_data.get("tables") or []:
+            self.append_pdf_table(story, table, styles)
         doc.build(story)
         return path
+
+    def append_pdf_markdown(self, story, text, styles):
+        for raw_line in str(text or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                story.append(Spacer(1, 6))
+                continue
+            heading = re.match(r"^(#{1,3})\s+(.+)$", line)
+            if heading:
+                style = styles["Heading1"] if len(heading.group(1)) == 1 else styles["Heading2"]
+                story.append(Paragraph(xml_escape(clean_markdown(heading.group(2))), style))
+                story.append(Spacer(1, 6))
+                continue
+            bullet = re.match(r"^[-*]\s+(.+)$", line)
+            if bullet:
+                story.append(Paragraph(f"- {xml_escape(clean_markdown(bullet.group(1)))}", styles["Normal"]))
+                story.append(Spacer(1, 4))
+                continue
+            story.append(Paragraph(xml_escape(clean_markdown(line)), styles["Normal"]))
+            story.append(Spacer(1, 6))
+
+    def append_pdf_table(self, story, table_data, styles):
+        title = table_data.get("title") or table_data.get("caption")
+        if title:
+            story.append(Paragraph(xml_escape(str(title)), styles["Heading2"]))
+            story.append(Spacer(1, 6))
+        rows = table_data.get("rows") or table_data.get("data") or []
+        headers = table_data.get("headers") or []
+        if headers:
+            rows = [headers] + rows
+        if not rows:
+            return
+        clean_rows = [[xml_escape(str(cell)) for cell in (row if isinstance(row, list) else [row])] for row in rows[:50]]
+        table = Table(clean_rows, hAlign="LEFT")
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(table)
+        story.append(Spacer(1, 10))
 
     def edit_job(self, job, tmp):
         source_doc = self.db.get_document_file(job["document_file_id"])

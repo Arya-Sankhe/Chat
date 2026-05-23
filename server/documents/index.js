@@ -19,6 +19,51 @@ function truncate(value, maxChars) {
   return `${text.slice(0, Math.max(0, maxChars - 24))}\n...[truncated]`;
 }
 
+function contentToText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part?.type === "text")
+    .map((part) => part.text || "")
+    .join("\n\n");
+}
+
+function createIntentMentionsPriorContent(text) {
+  const value = String(text || "");
+  return /\b(above|previous|earlier|last|same|that|this|provided)\b/i.test(value)
+    || /\b(the|this|that)\s+(concise\s+)?summary\b/i.test(value);
+}
+
+function createIntentLooksLikeOnlyInstructions(text) {
+  const cleanText = clean(text);
+  if (!cleanText) return true;
+  const words = cleanText.split(/\s+/).filter(Boolean).length;
+  return words <= 80
+    && /\b(create|make|generate|draft|write|build|put|turn|convert)\b/i.test(cleanText)
+    && /\b(pdf|docx|word|document|file|summary)\b/i.test(cleanText);
+}
+
+function inferCreateFormat(format, ...hints) {
+  const normalized = clean(format).toLowerCase();
+  const text = hints.map((hint) => String(hint || "")).join(" ").toLowerCase();
+  const asksWord = /\b(word\s+(doc|document|file)|docx\s+(file|document)|as\s+a\s+docx|\.docx\b)/.test(text);
+  const asksPdf = /\b(pdf\s+(file|document)|as\s+a\s+pdf|create\s+a\s+pdf|make\s+a\s+pdf|generate\s+a\s+pdf|\.pdf\b)/.test(text);
+  const asksSheet = /\b(xlsx\s+(file|document)|excel\s+(file|sheet|workbook)|spreadsheet|workbook|\.xlsx\b)/.test(text);
+  if (asksWord) return "docx";
+  if (asksSheet) return "xlsx";
+  if (asksPdf) return "pdf";
+  return normalized;
+}
+
+function assistantTextLooksLikeArtifactHandoff(text) {
+  const value = clean(text);
+  if (!value) return false;
+  const words = value.split(/\s+/).filter(Boolean).length;
+  return words <= 140
+    && /\b(download|created|generated|attached|document|pdf|docx|xlsx)\b/i.test(value)
+    && /(\]\(|\/api\/attachments\/|download\s+)/i.test(value);
+}
+
 function documentTitle(documentFile) {
   return documentFile?.attachments?.file_name || documentFile?.file_name || "Document";
 }
@@ -292,11 +337,57 @@ export class DocumentService {
     };
   }
 
-  async createDocument({ format, title, instructions, sections, tables, data } = {}) {
-    const normalizedFormat = clean(format).toLowerCase();
+  async latestAssistantText() {
+    if (!this.conversationId || typeof this.db.listMessages !== "function") return "";
+    const messages = await this.db.listMessages(this.userId, this.conversationId, { signal: this.signal });
+    let fallback = "";
+    for (let i = (messages || []).length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== "assistant") continue;
+      const text = contentToText(message.content).trim();
+      if (!text) continue;
+      if (!fallback) fallback = text;
+      if (assistantTextLooksLikeArtifactHandoff(text)) continue;
+      return text.slice(0, 30_000);
+    }
+    return fallback.slice(0, 30_000);
+  }
+
+  async resolveCreateContent({ content, instructions, sections, data } = {}) {
+    const explicit = clean(
+      content
+      || data?.content
+      || data?.text
+      || data?.body
+      || ""
+    ).slice(0, 30_000);
+    const explicitNeedsPrior = explicit
+      && createIntentMentionsPriorContent(explicit)
+      && createIntentLooksLikeOnlyInstructions(explicit);
+    if (explicit && !explicitNeedsPrior) return { content: explicit, source: "tool_argument" };
+
+    const hasSectionContent = Array.isArray(sections)
+      && sections.some((section) => clean(section?.content || section?.text || section?.body));
+    if (hasSectionContent) return { content: "", source: "sections" };
+
+    if (
+      explicitNeedsPrior
+      || createIntentMentionsPriorContent(instructions)
+      || createIntentLooksLikeOnlyInstructions(instructions)
+    ) {
+      const previous = await this.latestAssistantText();
+      if (previous) return { content: previous, source: "previous_assistant" };
+    }
+
+    return explicit ? { content: explicit, source: "tool_argument" } : { content: "", source: "" };
+  }
+
+  async createDocument({ format, title, instructions, content, sections, tables, data } = {}) {
+    const normalizedFormat = inferCreateFormat(format, title, instructions);
     if (!["docx", "xlsx", "pdf"].includes(normalizedFormat)) {
       throw new HttpError(400, "create_document format must be docx, xlsx, or pdf.");
     }
+    const resolvedContent = await this.resolveCreateContent({ content, instructions, sections, data });
     return this.enqueueAndWait({
       jobType: `document.create.${normalizedFormat}`,
       generatedCount: 1,
@@ -304,6 +395,8 @@ export class DocumentService {
         format: normalizedFormat,
         title: clean(title).slice(0, 200),
         instructions: clean(instructions).slice(0, 30_000),
+        content: resolvedContent.content,
+        content_source: resolvedContent.source,
         sections: Array.isArray(sections) ? sections.slice(0, 50) : [],
         tables: Array.isArray(tables) ? tables.slice(0, 20) : [],
         data: data && typeof data === "object" ? data : {}
