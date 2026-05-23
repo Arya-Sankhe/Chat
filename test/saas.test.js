@@ -427,4 +427,8 @@ test("R2 readUrl can force a clean attachment download filename", () => {
   const url = new URL(r2.readUrl("users/user_1/report.pdf", { fileName: "../Quarterly Report.pdf" }));
   assert.equal(url.searchParams.get("response-content-disposition"), "attachment; filename=\"Quarterly-Report.pdf\"");
   assert.ok(url.searchParams.get("X-Amz-Signature"));
+  assert.ok(
+    url.search.indexOf("X-Amz-SignedHeaders=host") < url.search.indexOf("response-content-disposition="),
+    "response header overrides must sort after X-Amz-* params for R2 signature validation"
+  );
 });

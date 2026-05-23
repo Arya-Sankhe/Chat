@@ -53,8 +53,15 @@ function signingKey(secret, dateStamp) {
 
 function canonicalQuery(params) {
   return [...params.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${encodeRfc3986(key)}=${encodeRfc3986(value)}`)
+    .map(([key, value]) => [encodeRfc3986(key), encodeRfc3986(value)])
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      if (leftKey < rightKey) return -1;
+      if (leftKey > rightKey) return 1;
+      if (leftValue < rightValue) return -1;
+      if (leftValue > rightValue) return 1;
+      return 0;
+    })
+    .map(([key, value]) => `${key}=${value}`)
     .join("&");
 }
 
