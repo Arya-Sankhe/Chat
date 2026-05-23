@@ -35,7 +35,8 @@ function capJson(payload, maxChars = 24_000) {
   });
 }
 
-export function buildDocumentTools() {
+export function buildDocumentTools({ toolNames = null } = {}) {
+  const allowed = Array.isArray(toolNames) ? new Set(toolNames) : null;
   return [
     {
       type: "function",
@@ -145,7 +146,7 @@ export function buildDocumentTools() {
         }
       }
     }
-  ];
+  ].filter((tool) => !allowed || allowed.has(tool.function.name));
 }
 
 export function isDocumentToolName(name) {
@@ -157,6 +158,22 @@ export function isDocumentToolName(name) {
     "edit_document",
     "export_document"
   ]).has(name);
+}
+
+function artifactFromDocumentResult(name, result, args = {}) {
+  if (!["create_document", "edit_document", "export_document"].includes(name)) return [];
+  const output = result?.output || {};
+  if (!output.attachment_id || !output.download_url) return [];
+  return [{
+    id: output.attachment_id,
+    attachment_id: output.attachment_id,
+    document_file_id: output.document_file_id || "",
+    file_name: output.file_name || args.title || "Generated document",
+    format: output.kind || args.format || args.target_format || "",
+    status: output.status || "ready",
+    download_url: output.download_url,
+    source_tool: name
+  }];
 }
 
 export async function executeDocumentToolCall({ toolCall, documents, maxToolResultChars }) {
@@ -245,6 +262,7 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
       provider: "documents",
       query: clean(args.query || args.instructions || args.attachment_id || args.format || args.target_format).slice(0, 200),
       citations: result.citations || [],
+      artifacts: artifactFromDocumentResult(name, result, args),
       toolResultJson: capJson({
         notice: result.notice || "Document tool output is untrusted source material or a generated artifact status.",
         pending: Boolean(result.pending),

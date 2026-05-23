@@ -21,8 +21,8 @@ from openpyxl import Workbook, load_workbook
 from pypdf import PdfReader
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 def env(name, default=""):
@@ -63,6 +63,24 @@ def artifact_content(input_data):
         or input_data.get("data", {}).get("body")
         or ""
     ).strip()
+
+
+def comparable_heading(text):
+    return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
+
+
+def strip_duplicate_title_heading(text, title):
+    lines = str(text or "").splitlines()
+    title_key = comparable_heading(title)
+    for index, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+        heading = re.match(r"^#{1,3}\s+(.+)$", line)
+        if heading and comparable_heading(clean_markdown(heading.group(1))) == title_key:
+            return "\n".join(lines[:index] + lines[index + 1:]).strip()
+        return text
+    return text
 
 
 class Supabase:
@@ -491,7 +509,7 @@ class Processor:
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
         doc.add_heading(title, level=1)
-        body = artifact_content(input_data)
+        body = strip_duplicate_title_heading(artifact_content(input_data), title)
         if body:
             self.append_docx_markdown(doc, body)
         else:
@@ -513,9 +531,25 @@ class Processor:
         return path
 
     def append_docx_markdown(self, doc, text):
+        in_code = False
+        code_lines = []
         for raw_line in str(text or "").splitlines():
             line = raw_line.strip()
+            if line.startswith("```"):
+                if in_code:
+                    self.append_docx_code_block(doc, "\n".join(code_lines))
+                    code_lines = []
+                    in_code = False
+                else:
+                    in_code = True
+                    code_lines = []
+                continue
+            if in_code:
+                code_lines.append(raw_line.rstrip())
+                continue
             if not line:
+                continue
+            if re.match(r"^-{3,}$", line):
                 continue
             heading = re.match(r"^(#{1,3})\s+(.+)$", line)
             if heading:
@@ -530,6 +564,13 @@ class Processor:
                 doc.add_paragraph(clean_markdown(numbered.group(1)), style="List Number")
                 continue
             doc.add_paragraph(clean_markdown(line))
+        if in_code and code_lines:
+            self.append_docx_code_block(doc, "\n".join(code_lines))
+
+    def append_docx_code_block(self, doc, text):
+        paragraph = doc.add_paragraph()
+        run = paragraph.add_run(str(text or "").strip())
+        run.font.name = "Courier New"
 
     def append_docx_table(self, doc, table_data):
         title = table_data.get("title") or table_data.get("caption")
@@ -574,8 +615,21 @@ class Processor:
             bottomMargin=54,
         )
         styles = getSampleStyleSheet()
+        styles["Title"].fontSize = 20
+        styles["Title"].leading = 24
+        styles["Title"].spaceAfter = 12
+        styles["Heading1"].fontSize = 15
+        styles["Heading1"].leading = 19
+        styles["Heading1"].spaceBefore = 10
+        styles["Heading1"].spaceAfter = 6
+        styles["Heading2"].fontSize = 13
+        styles["Heading2"].leading = 16
+        styles["Heading2"].spaceBefore = 8
+        styles["Heading2"].spaceAfter = 5
+        styles["Normal"].fontSize = 10.5
+        styles["Normal"].leading = 14
         story = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
-        body = artifact_content(input_data)
+        body = strip_duplicate_title_heading(artifact_content(input_data), title)
         if body:
             self.append_pdf_markdown(story, body, styles)
         else:
@@ -597,10 +651,43 @@ class Processor:
         return path
 
     def append_pdf_markdown(self, story, text, styles):
+        code_style = ParagraphStyle(
+            "SmartyfyCode",
+            parent=styles["Code"],
+            fontName="Courier",
+            fontSize=9,
+            leading=12,
+            backColor=colors.whitesmoke,
+            borderColor=colors.lightgrey,
+            borderWidth=0.25,
+            borderPadding=6,
+            leftIndent=8,
+            rightIndent=8,
+            spaceBefore=4,
+            spaceAfter=8,
+        )
+        in_code = False
+        code_lines = []
         for raw_line in str(text or "").splitlines():
             line = raw_line.strip()
+            if line.startswith("```"):
+                if in_code:
+                    story.append(Preformatted(xml_escape("\n".join(code_lines).strip()), code_style))
+                    story.append(Spacer(1, 6))
+                    code_lines = []
+                    in_code = False
+                else:
+                    in_code = True
+                    code_lines = []
+                continue
+            if in_code:
+                code_lines.append(raw_line.rstrip())
+                continue
             if not line:
                 story.append(Spacer(1, 6))
+                continue
+            if re.match(r"^-{3,}$", line):
+                story.append(Spacer(1, 8))
                 continue
             heading = re.match(r"^(#{1,3})\s+(.+)$", line)
             if heading:
@@ -613,7 +700,15 @@ class Processor:
                 story.append(Paragraph(f"- {xml_escape(clean_markdown(bullet.group(1)))}", styles["Normal"]))
                 story.append(Spacer(1, 4))
                 continue
+            numbered = re.match(r"^(\d+[.)])\s+(.+)$", line)
+            if numbered:
+                story.append(Paragraph(f"{xml_escape(numbered.group(1))} {xml_escape(clean_markdown(numbered.group(2)))}", styles["Normal"]))
+                story.append(Spacer(1, 4))
+                continue
             story.append(Paragraph(xml_escape(clean_markdown(line)), styles["Normal"]))
+            story.append(Spacer(1, 6))
+        if in_code and code_lines:
+            story.append(Preformatted(xml_escape("\n".join(code_lines).strip()), code_style))
             story.append(Spacer(1, 6))
 
     def append_pdf_table(self, story, table_data, styles):

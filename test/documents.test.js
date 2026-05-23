@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DocumentService, buildUntrustedDocumentContext } from "../server/documents/index.js";
+import { buildDocumentSystemHint, selectDocumentSkills } from "../server/documents/skills.js";
 import { buildDocumentTools, executeDocumentToolCall } from "../server/documents/tool.js";
 
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -41,6 +42,54 @@ test("buildDocumentTools exposes read/search/table/create/edit/export tools", ()
     "edit_document",
     "export_document"
   ]);
+});
+
+test("buildDocumentTools can expose only relevant document tools", () => {
+  assert.deepEqual(
+    buildDocumentTools({ toolNames: ["create_document"] }).map((tool) => tool.function.name),
+    ["create_document"]
+  );
+  assert.deepEqual(buildDocumentTools({ toolNames: [] }), []);
+});
+
+test("selectDocumentSkills routes only the relevant document skills", () => {
+  const readyDocuments = [{
+    id: documentFileId,
+    attachment_id: attachmentId,
+    kind: "pdf",
+    version_no: 1,
+    attachments: { file_name: "Lecture.pdf" }
+  }];
+
+  const read = selectDocumentSkills({ text: "can you summarize this pdf for me", readyDocuments });
+  assert.deepEqual(read.skills, ["document-read"]);
+  assert.deepEqual(read.toolNames, ["search_document", "read_document", "extract_tables"]);
+
+  const createPdf = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments });
+  assert.deepEqual(createPdf.skills, ["pdf-create"]);
+  assert.deepEqual(createPdf.toolNames, ["create_document"]);
+
+  const word = selectDocumentSkills({ text: "create a Word document with the concise summary of the PDF", readyDocuments });
+  assert.deepEqual(word.skills, ["word-create"]);
+  assert.deepEqual(word.toolNames, ["create_document"]);
+
+  const idle = selectDocumentSkills({ text: "thanks, that makes sense", readyDocuments });
+  assert.equal(idle.enabled, false);
+  assert.deepEqual(idle.toolNames, []);
+
+  const ppt = selectDocumentSkills({ text: "create a ppt with this summary", readyDocuments });
+  assert.equal(ppt.enabled, true);
+  assert.deepEqual(ppt.unsupported, ["presentation-create"]);
+  assert.deepEqual(ppt.toolNames, []);
+});
+
+test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
+  const selection = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments: [] });
+  const hint = buildDocumentSystemHint({ readyDocuments: [], selection });
+  assert.match(hint, /PDF creation skill/);
+  assert.match(hint, /Available document tools this turn: create_document/);
+  assert.doesNotMatch(hint, /Excel\/XLSX creation skill/);
+  assert.doesNotMatch(hint, /Word\/DOCX creation skill/);
 });
 
 test("DocumentService searches ready document chunks and returns document citations", async () => {
@@ -250,6 +299,50 @@ test("executeDocumentToolCall passes create_document content through", async () 
   assert.equal(result.ok, true);
   assert.equal(captured.content, "Actual summary body.");
   assert.equal(captured.instructions, "Use clean headings.");
+});
+
+test("executeDocumentToolCall returns generated document artifacts", async () => {
+  const result = await executeDocumentToolCall({
+    toolCall: {
+      function: {
+        name: "create_document",
+        arguments: JSON.stringify({
+          format: "pdf",
+          title: "Summary",
+          content: "Actual summary body."
+        })
+      }
+    },
+    documents: {
+      async createDocument() {
+        return {
+          ok: true,
+          output: {
+            attachment_id: attachmentId,
+            document_file_id: documentFileId,
+            file_name: "Summary.pdf",
+            kind: "pdf",
+            status: "ready",
+            download_url: `/api/attachments/${attachmentId}/download`
+          }
+        };
+      }
+    },
+    maxToolResultChars: 5000
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.artifacts.length, 1);
+  assert.deepEqual(result.artifacts[0], {
+    id: attachmentId,
+    attachment_id: attachmentId,
+    document_file_id: documentFileId,
+    file_name: "Summary.pdf",
+    format: "pdf",
+    status: "ready",
+    download_url: `/api/attachments/${attachmentId}/download`,
+    source_tool: "create_document"
+  });
 });
 
 test("executeDocumentToolCall returns model-readable JSON on malformed arguments", async () => {

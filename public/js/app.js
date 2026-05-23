@@ -804,6 +804,34 @@ function citationListFromMessage(message) {
   return combined;
 }
 
+function artifactListFromMessage(message) {
+  const combined = [];
+  if (Array.isArray(message?.artifacts)) combined.push(...message.artifacts);
+  const docs = message?.metadata?.documents;
+  if (docs && Array.isArray(docs.artifacts)) combined.push(...docs.artifacts);
+  const seen = new Set();
+  const out = [];
+  for (const artifact of combined) {
+    const key = artifact?.attachment_id || artifact?.document_file_id || artifact?.download_url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(artifact);
+  }
+  return out;
+}
+
+function mergeArtifacts(message, artifacts = []) {
+  if (!Array.isArray(artifacts) || !artifacts.length) return;
+  if (!message.artifacts) message.artifacts = [];
+  const seen = new Set(message.artifacts.map((entry) => entry.attachment_id || entry.document_file_id || entry.download_url).filter(Boolean));
+  for (const artifact of artifacts) {
+    const key = artifact?.attachment_id || artifact?.document_file_id || artifact?.download_url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    message.artifacts.push(artifact);
+  }
+}
+
 function citationHost(url) {
   try {
     return new URL(url).hostname.replace(/^www\./i, "");
@@ -995,12 +1023,48 @@ function renderCitations(message) {
   `;
 }
 
+function artifactLabel(artifact) {
+  const fileName = String(artifact?.file_name || "Generated document").trim();
+  return fileName || "Generated document";
+}
+
+function artifactFormat(artifact) {
+  const explicit = String(artifact?.format || "").trim().toUpperCase();
+  if (explicit) return explicit;
+  const fileName = artifactLabel(artifact);
+  const ext = fileName.includes(".") ? fileName.split(".").pop() : "";
+  return ext ? ext.toUpperCase() : "FILE";
+}
+
+function renderArtifacts(message) {
+  const artifacts = artifactListFromMessage(message);
+  if (!artifacts.length) return "";
+  const rows = artifacts.map((artifact) => {
+    const href = artifact.download_url || (artifact.attachment_id ? `/api/attachments/${encodeURIComponent(artifact.attachment_id)}/download` : "#");
+    const fileName = artifactLabel(artifact);
+    const status = String(artifact.status || "ready").trim();
+    return `
+      <div class="artifact-card">
+        <div class="artifact-badge" aria-hidden="true">${escapeHtml(artifactFormat(artifact))}</div>
+        <div class="artifact-info">
+          <div class="artifact-title">${escapeHtml(fileName)}</div>
+          ${status ? `<div class="artifact-status">${escapeHtml(status)}</div>` : ""}
+        </div>
+        <a class="artifact-download" href="${escapeHtml(href)}" download="${escapeHtml(fileName)}" data-file-name="${escapeHtml(fileName)}">Download</a>
+      </div>
+    `;
+  }).join("");
+  return `<div class="artifact-list">${rows}</div>`;
+}
+
 function renderMessageNote(message) {
   return message.stopped ? `<div class="message-note">Stopped by user.</div>` : "";
 }
 
 function renderMissingFinal(message, role) {
-  const hasFinal = String(message.content || "").trim() || (Array.isArray(message.toolCalls) && message.toolCalls.length);
+  const hasFinal = String(message.content || "").trim()
+    || (Array.isArray(message.toolCalls) && message.toolCalls.length)
+    || artifactListFromMessage(message).length;
   if (role !== "assistant" || state.running || message.error || message.stopped || hasFinal) return "";
   return `<div class="message-error">No final response was saved.</div>`;
 }
@@ -1031,7 +1095,7 @@ function renderStandardMessage(raw) {
       <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${role === "assistant" ? renderReasoning(msg, { streaming }) : ""}${body}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
+        <div class="message-content">${role === "assistant" ? renderReasoning(msg, { streaming }) : ""}${body}${role === "assistant" ? renderArtifacts(msg) : ""}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
   `;
@@ -1060,6 +1124,7 @@ function renderCompareResponse(raw, index) {
       <div class="compare-response-body message-content">
         ${renderReasoning(msg, { streaming })}
         ${renderAssistantContent(content, msg)}
+        ${renderArtifacts(msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1137,6 +1202,7 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
       <div class="council-panelist-body message-content">
         ${renderReasoning(msg, { streaming })}
         ${renderAssistantContent(content, msg)}
+        ${renderArtifacts(msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1176,6 +1242,7 @@ function renderCouncilSynthesis(chairman) {
       <div class="council-synthesis-body message-content">
         ${renderReasoning(msg, { streaming })}
         ${renderAssistantContent(content, msg)}
+        ${renderArtifacts(msg)}
         ${renderCitations(msg)}
         ${renderMessageError(msg)}
         ${renderMessageNote(msg)}
@@ -1425,6 +1492,7 @@ function applyToolEvent(message, event) {
     for (const citation of event.citations || []) {
       message.citations.push({ ...citation, index: offset + citation.index });
     }
+    mergeArtifacts(message, event.artifacts || []);
     return;
   }
   if (event.type === "tool:error") {
@@ -2235,7 +2303,7 @@ function bindEvents() {
           showToast("Sign in to download files.");
           return;
         }
-        const fileName = downloadLink.textContent?.trim() || downloadLink.getAttribute("download") || "download";
+        const fileName = downloadLink.dataset.fileName || downloadLink.getAttribute("download") || downloadLink.textContent?.trim() || "download";
         try {
           await downloadAttachment(state.session, attachmentId, fileName);
         } catch (err) {

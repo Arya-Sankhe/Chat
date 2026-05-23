@@ -251,7 +251,7 @@ function normalizedToolCallsForMessage(toolCalls, iteration) {
  * @param {(messages:object[])=>void} [params.onIterationStart]
  *           Called at the top of each model invocation. Receives the
  *           current message stack so callers can inspect/observe.
- * @returns {Promise<{ accumulated:object, citations:Array, toolCallCount:number }>}
+ * @returns {Promise<{ accumulated:object, citations:Array, artifacts:Array, toolCallCount:number }>}
  */
 export async function runChatWithToolLoop({
   chatRequest,
@@ -274,6 +274,7 @@ export async function runChatWithToolLoop({
   const maxIterations = Math.max(2, maxToolCalls + 2);
   const messages = [...chatRequest.messages];
   const citations = [];
+  const artifacts = [];
   const providers = new Set();
   let toolCallCount = 0;
   let lastAccumulated = null;
@@ -303,7 +304,7 @@ export async function runChatWithToolLoop({
     const finishedForTools = accumulated.finishReason === "tool_calls";
 
     if (!hasToolCalls || !finishedForTools) {
-      return { accumulated, citations, providers: Array.from(providers), toolCallCount };
+      return { accumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
     }
 
     const toolCalls = normalizedToolCallsForMessage(accumulated.toolCalls, iteration);
@@ -353,6 +354,13 @@ export async function runChatWithToolLoop({
         }
       }
       if (result.ok && result.provider) providers.add(result.provider);
+      if (result.ok && Array.isArray(result.artifacts) && result.artifacts.length) {
+        for (const artifact of result.artifacts) {
+          const key = artifact.attachment_id || artifact.document_file_id || artifact.download_url;
+          if (!key || artifacts.some((entry) => (entry.attachment_id || entry.document_file_id || entry.download_url) === key)) continue;
+          artifacts.push(artifact);
+        }
+      }
 
       onToolEvent({
         type: result.ok ? "tool:result" : "tool:error",
@@ -362,6 +370,7 @@ export async function runChatWithToolLoop({
         provider: result.provider || null,
         cached: result.cached || false,
         citations: result.ok ? result.citations : [],
+        artifacts: result.ok ? result.artifacts || [] : [],
         error: result.ok ? null : result.error
       });
 
@@ -377,7 +386,7 @@ export async function runChatWithToolLoop({
     }
   }
 
-  return { accumulated: lastAccumulated, citations, providers: Array.from(providers), toolCallCount };
+  return { accumulated: lastAccumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
 }
 
 export { executeToolCall };
