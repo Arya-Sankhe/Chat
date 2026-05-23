@@ -806,6 +806,7 @@ body.sidebar-expanded .conversation-row {
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
+  list-style: none;
 }
 
 .reasoning div {
@@ -822,6 +823,10 @@ body.sidebar-expanded .conversation-row {
 
 .reasoning summary::-webkit-details-marker {
   display: none;
+}
+
+.reasoning summary::marker {
+  content: "";
 }
 
 .reasoning summary::before {
