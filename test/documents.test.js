@@ -65,22 +65,59 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(read.skills, ["document-read"]);
   assert.deepEqual(read.toolNames, ["search_document", "read_document", "extract_tables"]);
 
+  /* When the prompt mentions documents and includes summary-like
+     read-actions, expose both read and create skills so the model can
+     ground the new artifact in the upload. */
   const createPdf = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments });
-  assert.deepEqual(createPdf.skills, ["pdf-create"]);
-  assert.deepEqual(createPdf.toolNames, ["create_document"]);
+  assert.deepEqual(createPdf.skills.sort(), ["document-read", "pdf-create"].sort());
+  assert.deepEqual(
+    createPdf.toolNames.sort(),
+    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+  );
 
   const word = selectDocumentSkills({ text: "create a Word document with the concise summary of the PDF", readyDocuments });
-  assert.deepEqual(word.skills, ["word-create"]);
-  assert.deepEqual(word.toolNames, ["create_document"]);
+  assert.deepEqual(word.skills.sort(), ["document-read", "word-create"].sort());
+  assert.deepEqual(
+    word.toolNames.sort(),
+    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+  );
+
+  /* No ready documents → just the create skill, no read tools. */
+  const createPdfNoUpload = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments: [] });
+  assert.deepEqual(createPdfNoUpload.skills, ["pdf-create"]);
+  assert.deepEqual(createPdfNoUpload.toolNames, ["create_document"]);
 
   const idle = selectDocumentSkills({ text: "thanks, that makes sense", readyDocuments });
   assert.equal(idle.enabled, false);
   assert.deepEqual(idle.toolNames, []);
 
+  /* PPT is unsupported, but read tools should still attach so the model
+     can at least answer about the upload before declining the format. */
   const ppt = selectDocumentSkills({ text: "create a ppt with this summary", readyDocuments });
   assert.equal(ppt.enabled, true);
   assert.deepEqual(ppt.unsupported, ["presentation-create"]);
-  assert.deepEqual(ppt.toolNames, []);
+  assert.ok(ppt.toolNames.includes("read_document"));
+  assert.ok(!ppt.toolNames.includes("create_document"));
+
+  /* Combined read+create on an existing upload should expose both the
+     read and create skills so the model can inspect the upload before
+     producing the new artifact. */
+  const summarizeAndCreate = selectDocumentSkills({
+    text: "summarize this pdf and put it as a word doc",
+    readyDocuments
+  });
+  assert.deepEqual(summarizeAndCreate.skills.sort(), ["document-read", "word-create"].sort());
+  assert.deepEqual(
+    summarizeAndCreate.toolNames.sort(),
+    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+  );
+
+  const createAboutCats = selectDocumentSkills({
+    text: "create a word doc about cats",
+    readyDocuments
+  });
+  assert.deepEqual(createAboutCats.skills, ["word-create"]);
+  assert.deepEqual(createAboutCats.toolNames, ["create_document"]);
 });
 
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
@@ -341,6 +378,43 @@ test("executeDocumentToolCall returns generated document artifacts", async () =>
     format: "pdf",
     status: "ready",
     download_url: `/api/attachments/${attachmentId}/download`,
+    source_tool: "create_document"
+  });
+});
+
+test("executeDocumentToolCall emits a pending artifact when the job hasn't finished", async () => {
+  const result = await executeDocumentToolCall({
+    toolCall: {
+      function: {
+        name: "create_document",
+        arguments: JSON.stringify({
+          format: "pdf",
+          title: "Long Report",
+          content: "Body."
+        })
+      }
+    },
+    documents: {
+      async createDocument() {
+        return {
+          ok: true,
+          pending: true,
+          job: { id: "job_pending_123", status: "processing", job_type: "document.create.pdf" },
+          output: { job_id: "job_pending_123", status: "processing" }
+        };
+      }
+    },
+    maxToolResultChars: 5000
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.artifacts.length, 1);
+  assert.deepEqual(result.artifacts[0], {
+    pending: true,
+    job_id: "job_pending_123",
+    file_name: "Long Report",
+    format: "pdf",
+    status: "processing",
     source_tool: "create_document"
   });
 });

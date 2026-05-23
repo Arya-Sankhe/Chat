@@ -1133,6 +1133,47 @@ body.sidebar-expanded .conversation-row {
   background: #f1f1f1;
 }
 
+.artifact-card.pending {
+  opacity: 0.85;
+}
+
+.artifact-card.pending .artifact-badge {
+  background: var(--text-secondary, #666);
+}
+
+.artifact-card.pending.failed {
+  border-color: #d8a3a3;
+  background: #fff5f5;
+}
+
+.artifact-card.pending.failed .artifact-badge {
+  background: #b54848;
+}
+
+.artifact-download.is-disabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+  color: var(--text-secondary, #666);
+  background: transparent;
+  border-style: dashed;
+}
+
+.artifact-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: artifact-spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes artifact-spin {
+  to { transform: rotate(360deg); }
+}
+
 .sources-pill {
   margin: 14px 0 0;
   max-width: 100%;

@@ -160,9 +160,35 @@ export function isDocumentToolName(name) {
   ]).has(name);
 }
 
+function pendingFileNameFor(name, args = {}) {
+  const title = clean(args.title);
+  if (title) return title;
+  if (name === "edit_document") return "Edited document";
+  if (name === "export_document") return "Exported document";
+  return "Generated document";
+}
+
 function artifactFromDocumentResult(name, result, args = {}) {
   if (!["create_document", "edit_document", "export_document"].includes(name)) return [];
   const output = result?.output || {};
+
+  /* Emit a pending artifact card so the user gets visual feedback even
+     when the worker hasn't finished yet. The frontend polls the
+     job-status endpoint and replaces this entry once the job
+     succeeds. */
+  if (result?.pending) {
+    const jobId = result?.job?.id || output.job_id || "";
+    if (!jobId) return [];
+    return [{
+      pending: true,
+      job_id: jobId,
+      file_name: pendingFileNameFor(name, args),
+      format: clean(args.format || args.target_format || "").toLowerCase(),
+      status: clean(output.status) || "processing",
+      source_tool: name
+    }];
+  }
+
   if (!output.attachment_id || !output.download_url) return [];
   return [{
     id: output.attachment_id,

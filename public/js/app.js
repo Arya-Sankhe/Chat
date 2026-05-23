@@ -5,6 +5,7 @@ import {
   fetchAdminSummary,
   fetchConfig,
   fetchConversation,
+  fetchDocumentJobStatus,
   fetchDocumentStatus,
   fetchMe,
   fetchModels,
@@ -804,6 +805,16 @@ function citationListFromMessage(message) {
   return combined;
 }
 
+function artifactKey(artifact) {
+  return (
+    artifact?.attachment_id
+    || artifact?.document_file_id
+    || artifact?.download_url
+    || (artifact?.pending && artifact?.job_id ? `job:${artifact.job_id}` : "")
+    || ""
+  );
+}
+
 function artifactListFromMessage(message) {
   const combined = [];
   if (Array.isArray(message?.artifacts)) combined.push(...message.artifacts);
@@ -812,7 +823,7 @@ function artifactListFromMessage(message) {
   const seen = new Set();
   const out = [];
   for (const artifact of combined) {
-    const key = artifact?.attachment_id || artifact?.document_file_id || artifact?.download_url;
+    const key = artifactKey(artifact);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(artifact);
@@ -823,13 +834,29 @@ function artifactListFromMessage(message) {
 function mergeArtifacts(message, artifacts = []) {
   if (!Array.isArray(artifacts) || !artifacts.length) return;
   if (!message.artifacts) message.artifacts = [];
-  const seen = new Set(message.artifacts.map((entry) => entry.attachment_id || entry.document_file_id || entry.download_url).filter(Boolean));
+  const seen = new Set(message.artifacts.map(artifactKey).filter(Boolean));
   for (const artifact of artifacts) {
-    const key = artifact?.attachment_id || artifact?.document_file_id || artifact?.download_url;
+    const key = artifactKey(artifact);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     message.artifacts.push(artifact);
   }
+}
+
+function replacePendingArtifact(message, jobId, resolved) {
+  if (!message || !jobId || !resolved) return false;
+  const lists = [];
+  if (Array.isArray(message.artifacts)) lists.push(message.artifacts);
+  const metaArtifacts = message.metadata?.documents?.artifacts;
+  if (Array.isArray(metaArtifacts)) lists.push(metaArtifacts);
+  let mutated = false;
+  for (const list of lists) {
+    const idx = list.findIndex((entry) => entry?.pending && entry?.job_id === jobId);
+    if (idx === -1) continue;
+    list[idx] = { ...resolved };
+    mutated = true;
+  }
+  return mutated;
 }
 
 function citationHost(url) {
@@ -1036,16 +1063,141 @@ function artifactFormat(artifact) {
   return ext ? ext.toUpperCase() : "FILE";
 }
 
+const pendingArtifactPolls = new Map();
+const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
+const PENDING_ARTIFACT_POLL_MAX_ATTEMPTS = 60;
+
+function findPendingArtifacts() {
+  const out = [];
+  for (const message of state.messages || []) {
+    const artifacts = artifactListFromMessage(message);
+    for (const artifact of artifacts) {
+      if (artifact?.pending && artifact?.job_id) {
+        const failed = ["failed", "expired"].includes(String(artifact.status || "").toLowerCase());
+        if (failed) continue;
+        out.push({ messageId: message.id, jobId: artifact.job_id });
+      }
+    }
+  }
+  return out;
+}
+
+function applyJobStatusToPendingArtifact(jobId, payload) {
+  if (!payload || !payload.job) return false;
+  const job = payload.job;
+  const messages = state.messages || [];
+  let mutated = false;
+
+  if (job.status === "succeeded" && payload.artifact) {
+    for (const message of messages) {
+      if (replacePendingArtifact(message, jobId, payload.artifact)) mutated = true;
+    }
+  } else if (job.status === "failed" || job.status === "expired") {
+    for (const message of messages) {
+      const lists = [];
+      if (Array.isArray(message.artifacts)) lists.push(message.artifacts);
+      const metaArtifacts = message.metadata?.documents?.artifacts;
+      if (Array.isArray(metaArtifacts)) lists.push(metaArtifacts);
+      for (const list of lists) {
+        for (const entry of list) {
+          if (entry?.pending && entry?.job_id === jobId) {
+            entry.status = job.status;
+            mutated = true;
+          }
+        }
+      }
+    }
+  }
+  return mutated;
+}
+
+async function pollPendingArtifact(jobId) {
+  if (!jobId || !state.session?.access_token) return;
+  let attempts = 0;
+  const tick = async () => {
+    if (!pendingArtifactPolls.has(jobId)) return;
+    attempts += 1;
+    let payload;
+    try {
+      payload = await fetchDocumentJobStatus(state.session, jobId);
+    } catch {
+      payload = null;
+    }
+    if (!pendingArtifactPolls.has(jobId)) return;
+
+    if (payload?.job) {
+      const mutated = applyJobStatusToPendingArtifact(jobId, payload);
+      if (mutated) queueRenderMessages();
+      const finished = ["succeeded", "failed", "expired"].includes(payload.job.status);
+      if (finished) {
+        pendingArtifactPolls.delete(jobId);
+        return;
+      }
+    }
+    if (attempts >= PENDING_ARTIFACT_POLL_MAX_ATTEMPTS) {
+      pendingArtifactPolls.delete(jobId);
+      return;
+    }
+    const handle = setTimeout(tick, PENDING_ARTIFACT_POLL_INTERVAL_MS);
+    pendingArtifactPolls.set(jobId, handle);
+  };
+  const initial = setTimeout(tick, PENDING_ARTIFACT_POLL_INTERVAL_MS);
+  pendingArtifactPolls.set(jobId, initial);
+}
+
+function syncPendingArtifactPolls() {
+  const live = new Set();
+  for (const { jobId } of findPendingArtifacts()) live.add(jobId);
+  for (const jobId of Array.from(pendingArtifactPolls.keys())) {
+    if (!live.has(jobId)) {
+      const handle = pendingArtifactPolls.get(jobId);
+      if (handle) clearTimeout(handle);
+      pendingArtifactPolls.delete(jobId);
+    }
+  }
+  for (const jobId of live) {
+    if (!pendingArtifactPolls.has(jobId)) pollPendingArtifact(jobId);
+  }
+}
+
+function pendingArtifactStatusLabel(artifact) {
+  const raw = String(artifact?.status || "").trim().toLowerCase();
+  if (raw === "failed" || raw === "expired") return "Failed";
+  if (raw === "running" || raw === "processing") return "Generating…";
+  return "Generating…";
+}
+
 function renderArtifacts(message) {
   const artifacts = artifactListFromMessage(message);
   if (!artifacts.length) return "";
   const rows = artifacts.map((artifact) => {
-    const href = artifact.download_url || (artifact.attachment_id ? `/api/attachments/${encodeURIComponent(artifact.attachment_id)}/download` : "#");
     const fileName = artifactLabel(artifact);
+    const badge = escapeHtml(artifactFormat(artifact));
+
+    if (artifact.pending) {
+      const failed = ["failed", "expired"].includes(String(artifact.status || "").toLowerCase());
+      const statusLabel = pendingArtifactStatusLabel(artifact);
+      const cardClass = `artifact-card pending${failed ? " failed" : ""}`;
+      const action = failed
+        ? `<span class="artifact-download is-disabled" aria-disabled="true">Failed</span>`
+        : `<span class="artifact-download is-disabled" aria-disabled="true"><span class="artifact-spinner" aria-hidden="true"></span>Generating…</span>`;
+      return `
+        <div class="${cardClass}" data-job-id="${escapeHtml(artifact.job_id || "")}">
+          <div class="artifact-badge" aria-hidden="true">${badge}</div>
+          <div class="artifact-info">
+            <div class="artifact-title">${escapeHtml(fileName)}</div>
+            <div class="artifact-status">${escapeHtml(statusLabel)}</div>
+          </div>
+          ${action}
+        </div>
+      `;
+    }
+
+    const href = artifact.download_url || (artifact.attachment_id ? `/api/attachments/${encodeURIComponent(artifact.attachment_id)}/download` : "#");
     const status = String(artifact.status || "ready").trim();
     return `
       <div class="artifact-card">
-        <div class="artifact-badge" aria-hidden="true">${escapeHtml(artifactFormat(artifact))}</div>
+        <div class="artifact-badge" aria-hidden="true">${badge}</div>
         <div class="artifact-info">
           <div class="artifact-title">${escapeHtml(fileName)}</div>
           ${status ? `<div class="artifact-status">${escapeHtml(status)}</div>` : ""}
@@ -1299,6 +1451,8 @@ function renderMessages() {
   if (state.autoScroll) {
     els.messages.scrollTop = els.messages.scrollHeight;
   }
+
+  syncPendingArtifactPolls();
 }
 
 function queueRenderMessages() {

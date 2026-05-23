@@ -376,6 +376,42 @@ async function handleDocumentStatus(req, res, config, attachmentId) {
   });
 }
 
+function sourceToolFromJobType(jobType) {
+  const value = String(jobType || "");
+  if (value.startsWith("document.create")) return "create_document";
+  if (value.startsWith("document.edit")) return "edit_document";
+  if (value.startsWith("document.export")) return "export_document";
+  return "";
+}
+
+async function handleDocumentJobStatus(req, res, config, jobId) {
+  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const job = await context.db.getDocumentJob(context.user.id, jobId, { signal: req.signal });
+  if (!job) throw new HttpError(404, "Job not found.");
+  const output = job.output || {};
+  const ready = job.status === "succeeded" && output.attachment_id && output.download_url;
+  const artifact = ready ? {
+    id: output.attachment_id,
+    attachment_id: output.attachment_id,
+    document_file_id: output.document_file_id || "",
+    file_name: output.file_name || "Generated document",
+    format: output.kind || "",
+    status: "ready",
+    download_url: output.download_url,
+    source_tool: sourceToolFromJobType(job.job_type)
+  } : null;
+  sendJson(res, 200, {
+    job: {
+      id: job.id,
+      status: job.status,
+      job_type: job.job_type,
+      error: job.error || null
+    },
+    artifact
+  });
+}
+
 async function handleConversations(req, res, config) {
   const context = await requireChatContext(req, config);
   if (req.method === "GET") {
@@ -1633,6 +1669,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/uploads/complete" && req.method === "POST") {
       await handleCompleteUpload(req, res, config);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "documents" && parts[2] === "jobs" && parts[3] && parts[4] === "status") {
+      await handleDocumentJobStatus(req, res, config, parts[3]);
       return;
     }
 

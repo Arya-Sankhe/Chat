@@ -53,10 +53,18 @@ export function selectDocumentSkills({ text = "", readyDocuments = [] } = {}) {
 
   const createFromExistingDocument = createAction
     && /\b(from|based\s+on|using)\b[\s\S]{0,60}\b(this|that|it|attached|uploaded|document|file|pdf|docx|spreadsheet|attachment|upload)\b/i.test(prompt);
+  /* When the user has uploads, attach read tools whenever they reference
+     existing documents – even if they also asked us to create something.
+     Restricting reads to !createAction blocks combined prompts like
+     "summarize this PDF and put it as a Word doc" from inspecting the
+     upload. We still keep read tools off for unrelated create prompts
+     (e.g. "create a Word doc about cats") by gating on mentionsExisting
+     in the create branch. */
   const shouldRead = readyCount > 0 && (
     !prompt
     || createFromExistingDocument
-    || (!createAction && readAction && (mentionsDocument || mentionsExisting))
+    || (readAction && (mentionsDocument || mentionsExisting))
+    || (createAction && mentionsExisting)
   );
   if (shouldRead) {
     skills.add("document-read");
