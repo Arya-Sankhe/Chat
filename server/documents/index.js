@@ -146,7 +146,8 @@ export class DocumentService {
 
   async readyDocuments() {
     if (!this.enabled || !this.conversationId) return [];
-    return this.db.listReadyDocumentFiles(this.userId, this.conversationId, { signal: this.signal });
+    const docs = await this.db.listReadyDocumentFiles(this.userId, this.conversationId, { signal: this.signal });
+    return docs.filter((doc) => doc?.metadata?.preview !== true);
   }
 
   async hasReadyDocuments() {

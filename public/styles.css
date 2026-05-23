@@ -18,6 +18,7 @@
   --radius-full: 9999px;
   --sidebar-w: 52px;
   --sidebar-w-expanded: 300px;
+  --document-viewer-w: min(720px, 46vw);
   --content-max: 1040px;
   --composer-max: 1040px;
   --transition: 180ms ease;
@@ -226,6 +227,10 @@ button { cursor: pointer; border: none; background: none; }
   overflow: hidden;
 }
 
+body.document-viewer-open .app-shell {
+  grid-template-columns: var(--sidebar-w) minmax(360px, 1fr) minmax(360px, var(--document-viewer-w));
+}
+
 /* ─── Sidebar ─── */
 .sidebar {
   display: flex;
@@ -356,6 +361,142 @@ body.sidebar-expanded .conversation-row {
   max-width: 100vw;
   height: 100vh;
   overflow: hidden;
+}
+
+.document-viewer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  background: #f4f4f4;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.document-viewer-resizer {
+  position: absolute;
+  inset: 0 auto 0 -7px;
+  width: 14px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.document-viewer-resizer::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 4px;
+  height: 42px;
+  border-radius: 999px;
+  background: #c9c9c9;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+.document-viewer-resizer:hover::after,
+body.document-viewer-resizing .document-viewer-resizer::after {
+  background: #8c8c8c;
+}
+
+body.document-viewer-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.document-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 56px;
+  padding: 0 16px 0 22px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.document-viewer-title-wrap {
+  min-width: 0;
+}
+
+.document-viewer-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-viewer-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.document-viewer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.document-viewer-action,
+.document-viewer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.document-viewer-close {
+  width: 32px;
+  padding: 0;
+}
+
+.document-viewer-action:hover,
+.document-viewer-close:hover {
+  background: var(--bg-secondary);
+}
+
+.document-viewer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.document-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+  border: 0;
+  border-radius: 2px;
+  background: white;
+}
+
+.document-viewer-empty {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
 }
 
 /* ─── Top Bar ─── */
@@ -1111,6 +1252,14 @@ body.sidebar-expanded .conversation-row {
   font-size: 12px;
   line-height: 1.3;
   text-transform: capitalize;
+}
+
+.artifact-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .artifact-download {
@@ -2583,6 +2732,36 @@ body.sidebar-expanded .conversation-row {
 
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  body.document-viewer-open .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .document-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    width: 100vw;
+    height: 100dvh;
+    border-left: 0;
+  }
+
+  .document-viewer-resizer {
+    display: none;
+  }
+
+  .document-viewer-header {
+    height: 52px;
+    padding: 0 12px;
+  }
+
+  .document-viewer-body {
+    padding: 10px;
+  }
+
+  .document-frame {
+    min-height: calc(100dvh - 72px);
   }
 
   .sidebar {

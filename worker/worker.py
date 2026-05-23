@@ -1065,6 +1065,8 @@ class Processor:
 
     def store_generated(self, job, tmp, path, kind, content_type, source, parent_doc):
         user_id = job["user_id"]
+        input_data = job.get("input") or {}
+        preview = bool(input_data.get("preview"))
         key = self.object_key(user_id, path.name)
         etag = self.r2.upload(key, path, content_type)
         attachment = self.db.create_attachment({
@@ -1091,7 +1093,7 @@ class Processor:
             "version_no": int(parent_doc.get("version_no", 0)) + 1 if parent_doc else 1,
             "source_etag": etag,
             "processing_status": "processing",
-            "metadata": {"generated_by_job": job["id"]},
+            "metadata": {"generated_by_job": job["id"], **({"preview": True} if preview else {})},
         })
         chunks, meta = self.extract(path, kind, user_id, document_file["id"])
         self.db.insert_chunks(chunks)
@@ -1101,7 +1103,7 @@ class Processor:
             "word_count": meta.get("word_count"),
             "sheet_count": meta.get("sheet_count"),
             "used_cell_count": meta.get("used_cell_count"),
-            "metadata": {**meta, "generated_by_job": job["id"]},
+            "metadata": {**meta, "generated_by_job": job["id"], **({"preview": True} if preview else {})},
         })
         return {
             "attachment_id": attachment["id"],
@@ -1109,6 +1111,7 @@ class Processor:
             "file_name": attachment["file_name"],
             "kind": kind,
             "status": "ready",
+            **({"preview": True} if preview else {}),
             "download_url": f"/api/attachments/{attachment['id']}/download",
         }
 

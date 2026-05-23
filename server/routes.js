@@ -354,6 +354,92 @@ async function handleAttachmentDownload(req, res, config, attachmentId, url) {
   res.end();
 }
 
+function pdfPreviewFileName(fileName) {
+  const safe = String(fileName || "document").split(/[\\/]/).pop() || "document";
+  return safe.replace(/\.[a-z0-9]+$/i, "") + ".pdf";
+}
+
+function attachmentDocumentKind(attachment) {
+  const extKind = documentKindFromFileName(attachment?.file_name);
+  if (extKind) return extKind;
+  const contentType = String(attachment?.content_type || "").toLowerCase().split(";")[0];
+  if (contentType === "application/pdf") return "pdf";
+  if (contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
+  if (contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
+  return "";
+}
+
+function inlineViewPayload(context, attachment, { sourceKind = "", status = "ready" } = {}) {
+  return {
+    status,
+    url: context.r2.readUrl(attachment.object_key, {
+      fileName: attachment.file_name,
+      disposition: "inline",
+      contentType: "application/pdf"
+    }),
+    fileName: attachment.file_name,
+    contentType: "application/pdf",
+    kind: "pdf",
+    sourceKind: sourceKind || attachmentDocumentKind(attachment) || "pdf",
+    attachmentId: attachment.id
+  };
+}
+
+async function handleAttachmentView(req, res, config, attachmentId) {
+  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
+  if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
+
+  const kind = attachmentDocumentKind(attachment);
+
+  if (kind === "pdf") {
+    sendJson(res, 200, inlineViewPayload(context, attachment, { sourceKind: "pdf" }));
+    return;
+  }
+
+  if (!["docx", "xlsx"].includes(kind)) {
+    throw new HttpError(400, "Only PDF, DOCX, and XLSX previews are supported.");
+  }
+  if (!configuredServices(config).documents) {
+    throw new HttpError(503, "Document previews are not configured.");
+  }
+
+  const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
+  if (!doc) throw new HttpError(404, "Document metadata not found.");
+
+  const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, doc.id, { signal: req.signal });
+  if (cached?.attachments?.status === "uploaded" && cached.attachments.object_key) {
+    sendJson(res, 200, inlineViewPayload(context, cached.attachments, { sourceKind: kind }));
+    return;
+  }
+
+  const active = await context.db.getActivePdfPreviewJob(context.user.id, doc.id, { signal: req.signal });
+  const job = active || await context.db.createDocumentJob({
+    user_id: context.user.id,
+    document_file_id: doc.id,
+    conversation_id: doc.conversation_id,
+    message_id: doc.message_id || null,
+    job_type: `document.export.${kind}_to_pdf`,
+    priority: -5,
+    input: {
+      target_format: "pdf",
+      preview: true,
+      attachment_id: attachment.id,
+      document_file_id: doc.id,
+      output_file_name: pdfPreviewFileName(attachment.file_name)
+    }
+  }, { signal: req.signal });
+
+  sendJson(res, active ? 200 : 202, {
+    status: "processing",
+    jobId: job.id,
+    fileName: pdfPreviewFileName(attachment.file_name),
+    kind: "pdf",
+    sourceKind: kind
+  });
+}
+
 async function handleDocumentStatus(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -1684,6 +1770,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "download") {
       await handleAttachmentDownload(req, res, config, parts[2], url);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "view") {
+      await handleAttachmentView(req, res, config, parts[2]);
       return;
     }
 

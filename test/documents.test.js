@@ -173,6 +173,20 @@ test("DocumentService searches ready document chunks and returns document citati
   assert.equal(result.citations[0].page, 4);
 });
 
+test("DocumentService hides internal preview exports from automatic ready documents", async () => {
+  const service = documentServiceWithDb({
+    async listReadyDocumentFiles() {
+      return [
+        { id: "doc_1", processing_status: "ready", metadata: {}, conversation_id: conversationId },
+        { id: "doc_preview", processing_status: "ready", metadata: { preview: true }, conversation_id: conversationId }
+      ];
+    }
+  });
+
+  const docs = await service.readyDocuments();
+  assert.deepEqual(docs.map((doc) => doc.id), ["doc_1"]);
+});
+
 test("DocumentService validates attachment ownership-shaped ids before document lookup", async () => {
   const service = documentServiceWithDb({
     async consumeDocuments() {

@@ -2,6 +2,7 @@ import {
   createConversation,
   deleteConversation,
   downloadAttachment,
+  fetchAttachmentView,
   fetchAdminSummary,
   fetchConfig,
   fetchConversation,
@@ -68,7 +69,19 @@ const state = {
   autoScroll: true,
   abortController: null,
   pendingDeleteId: "",
-  compareDescribeImages: false
+  compareDescribeImages: false,
+  viewer: {
+    open: false,
+    attachmentId: "",
+    downloadAttachmentId: "",
+    jobId: "",
+    fileName: "",
+    kind: "",
+    sourceKind: "",
+    url: "",
+    loading: false,
+    error: ""
+  }
 };
 
 let renderQueued = false;
@@ -148,7 +161,14 @@ const els = {
   compareContextCancel: document.querySelector("#compareContextCancel"),
   compareModeToggle: document.querySelector("#compareModeToggle"),
   compareModeDesc: document.querySelector("#compareModeDesc"),
-  webSearchToggle: document.querySelector("#webSearchToggle")
+  webSearchToggle: document.querySelector("#webSearchToggle"),
+  documentViewer: document.querySelector("#documentViewer"),
+  documentViewerResizer: document.querySelector("#documentViewerResizer"),
+  documentViewerTitle: document.querySelector("#documentViewerTitle"),
+  documentViewerMeta: document.querySelector("#documentViewerMeta"),
+  documentViewerDownload: document.querySelector("#documentViewerDownload"),
+  documentViewerClose: document.querySelector("#documentViewerClose"),
+  documentViewerBody: document.querySelector("#documentViewerBody")
 };
 
 function imageDescription(part) {
@@ -376,6 +396,7 @@ function renderShell() {
   renderThinkingEffort();
   renderWebSearchToggle();
   renderMessages();
+  renderDocumentViewer();
   syncCompareContextBanner();
 }
 
@@ -1066,6 +1087,8 @@ function artifactFormat(artifact) {
 const pendingArtifactPolls = new Map();
 const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
 const PENDING_ARTIFACT_POLL_MAX_ATTEMPTS = 60;
+const VIEWER_WIDTH_KEY = "smartyfy.documentViewer.width.v1";
+let documentViewerPoll = null;
 
 function findPendingArtifacts() {
   const out = [];
@@ -1160,6 +1183,226 @@ function syncPendingArtifactPolls() {
   }
 }
 
+function artifactAttachmentId(artifact) {
+  return String(artifact?.attachment_id || artifact?.id || "").trim();
+}
+
+function artifactCanView(artifact) {
+  const format = artifactFormat(artifact).toLowerCase();
+  return Boolean(artifactAttachmentId(artifact) && ["pdf", "docx", "xlsx"].includes(format));
+}
+
+function attachmentDownloadHref(attachmentId) {
+  return `/api/attachments/${encodeURIComponent(attachmentId)}/download`;
+}
+
+function stopDocumentViewerPoll() {
+  if (documentViewerPoll) clearTimeout(documentViewerPoll);
+  documentViewerPoll = null;
+}
+
+function setDocumentViewerState(patch = {}) {
+  state.viewer = { ...state.viewer, ...patch };
+  renderDocumentViewer();
+}
+
+function viewerMetaLabel() {
+  const format = String(state.viewer.sourceKind || state.viewer.kind || "").toUpperCase();
+  if (state.viewer.loading && state.viewer.jobId) return `${format || "DOCUMENT"} preview is being prepared`;
+  if (state.viewer.loading) return "Loading preview";
+  if (state.viewer.error) return "Preview unavailable";
+  return format ? `${format} preview` : "Preview";
+}
+
+function renderDocumentViewer() {
+  if (!els.documentViewer) return;
+  const viewer = state.viewer;
+  document.body.classList.toggle("document-viewer-open", Boolean(viewer.open));
+  els.documentViewer.classList.toggle("hidden", !viewer.open);
+  els.documentViewerTitle.textContent = viewer.fileName || "Document";
+  els.documentViewerMeta.textContent = viewerMetaLabel();
+
+  const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
+  const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
+  els.documentViewerDownload.classList.toggle("hidden", !downloadHref);
+  if (downloadHref) {
+    els.documentViewerDownload.href = downloadHref;
+    els.documentViewerDownload.dataset.fileName = viewer.fileName || "download";
+    els.documentViewerDownload.setAttribute("download", viewer.fileName || "download");
+  } else {
+    els.documentViewerDownload.removeAttribute("href");
+    els.documentViewerDownload.removeAttribute("download");
+  }
+
+  if (!viewer.open) {
+    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
+    return;
+  }
+  if (viewer.error) {
+    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">${escapeHtml(viewer.error)}</div>`;
+    return;
+  }
+  if (viewer.loading) {
+    const label = viewer.jobId ? "Preparing preview…" : "Loading preview…";
+    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
+    return;
+  }
+  if (viewer.url) {
+    els.documentViewerBody.innerHTML = `<iframe class="document-frame" src="${escapeHtml(viewer.url)}" title="${escapeHtml(viewer.fileName || "Document preview")}" loading="lazy"></iframe>`;
+    return;
+  }
+  els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Preview is not available for this document.</div>`;
+}
+
+async function pollDocumentPreviewJob(jobId) {
+  stopDocumentViewerPoll();
+  let attempts = 0;
+  const tick = async () => {
+    if (!state.viewer.open || state.viewer.jobId !== jobId) return;
+    attempts += 1;
+    try {
+      const payload = await fetchDocumentJobStatus(state.session, jobId);
+      if (!state.viewer.open || state.viewer.jobId !== jobId) return;
+      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) {
+        await loadDocumentViewerUrl(payload.artifact.attachment_id, {
+          downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
+          fileName: state.viewer.fileName || payload.artifact.file_name,
+          sourceKind: state.viewer.sourceKind
+        });
+        return;
+      }
+      if (["failed", "expired"].includes(payload?.job?.status)) {
+        setDocumentViewerState({ loading: false, error: "The preview could not be generated." });
+        return;
+      }
+    } catch (err) {
+      if (attempts >= 2) setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
+      return;
+    }
+    if (attempts >= 60) {
+      setDocumentViewerState({ loading: false, error: "Preview generation timed out." });
+      return;
+    }
+    documentViewerPoll = setTimeout(tick, 1500);
+  };
+  documentViewerPoll = setTimeout(tick, 1200);
+}
+
+async function loadDocumentViewerUrl(attachmentId, { downloadAttachmentId = "", fileName = "", sourceKind = "" } = {}) {
+  if (!state.session?.access_token) {
+    setDocumentViewerState({ loading: false, error: "Sign in to view files." });
+    return;
+  }
+  const payload = await fetchAttachmentView(state.session, attachmentId);
+  if (payload.status === "processing" && payload.jobId) {
+    setDocumentViewerState({
+      open: true,
+      attachmentId,
+      downloadAttachmentId: downloadAttachmentId || state.viewer.downloadAttachmentId || attachmentId,
+      jobId: payload.jobId,
+      fileName: fileName || payload.fileName || "Document",
+      kind: payload.kind || "pdf",
+      sourceKind: payload.sourceKind || sourceKind,
+      url: "",
+      loading: true,
+      error: ""
+    });
+    pollDocumentPreviewJob(payload.jobId);
+    return;
+  }
+  if (!payload.url) throw new Error("Preview URL was not returned.");
+  stopDocumentViewerPoll();
+  setDocumentViewerState({
+    open: true,
+    attachmentId,
+    downloadAttachmentId: downloadAttachmentId || state.viewer.downloadAttachmentId || attachmentId,
+    jobId: "",
+    fileName: payload.fileName || fileName || "Document",
+    kind: payload.kind || "pdf",
+    sourceKind: sourceKind || payload.sourceKind || payload.kind || "pdf",
+    url: payload.url,
+    loading: false,
+    error: ""
+  });
+}
+
+async function openDocumentViewer({ attachmentId, fileName = "", format = "" }) {
+  stopDocumentViewerPoll();
+  setDocumentViewerState({
+    open: true,
+    attachmentId,
+    downloadAttachmentId: attachmentId,
+    jobId: "",
+    fileName: fileName || "Document",
+    kind: "pdf",
+    sourceKind: format.toLowerCase(),
+    url: "",
+    loading: true,
+    error: ""
+  });
+  try {
+    await loadDocumentViewerUrl(attachmentId, { fileName, sourceKind: format.toLowerCase() });
+  } catch (err) {
+    setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
+  }
+}
+
+function closeDocumentViewer() {
+  stopDocumentViewerPoll();
+  setDocumentViewerState({
+    open: false,
+    attachmentId: "",
+    downloadAttachmentId: "",
+    jobId: "",
+    fileName: "",
+    kind: "",
+    sourceKind: "",
+    url: "",
+    loading: false,
+    error: ""
+  });
+}
+
+function setDocumentViewerWidth(width) {
+  const min = 360;
+  const max = Math.max(min, Math.min(window.innerWidth - 460, Math.floor(window.innerWidth * 0.72)));
+  const next = Math.max(min, Math.min(max, Math.round(width)));
+  document.documentElement.style.setProperty("--document-viewer-w", `${next}px`);
+  try {
+    localStorage.setItem(VIEWER_WIDTH_KEY, String(next));
+  } catch {
+    /* Ignore storage failures. */
+  }
+}
+
+function initDocumentViewerWidth() {
+  let saved = 0;
+  try {
+    saved = Number(localStorage.getItem(VIEWER_WIDTH_KEY) || 0);
+  } catch {
+    saved = 0;
+  }
+  setDocumentViewerWidth(saved || Math.round(window.innerWidth * 0.45));
+}
+
+function beginDocumentViewerResize(event) {
+  if (!state.viewer.open || window.matchMedia("(max-width: 900px)").matches) return;
+  event.preventDefault();
+  document.body.classList.add("document-viewer-resizing");
+  const move = (moveEvent) => {
+    setDocumentViewerWidth(window.innerWidth - moveEvent.clientX);
+  };
+  const stop = () => {
+    document.body.classList.remove("document-viewer-resizing");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+    window.removeEventListener("pointercancel", stop);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", stop, { once: true });
+  window.addEventListener("pointercancel", stop, { once: true });
+}
+
 function pendingArtifactStatusLabel(artifact) {
   const raw = String(artifact?.status || "").trim().toLowerCase();
   if (raw === "failed" || raw === "expired") return "Failed";
@@ -1193,8 +1436,11 @@ function renderArtifacts(message) {
       `;
     }
 
-    const href = artifact.download_url || (artifact.attachment_id ? `/api/attachments/${encodeURIComponent(artifact.attachment_id)}/download` : "#");
+    const attachmentId = artifactAttachmentId(artifact);
+    const href = artifact.download_url || (attachmentId ? attachmentDownloadHref(attachmentId) : "#");
     const status = String(artifact.status || "ready").trim();
+    const canView = artifactCanView(artifact);
+    const format = artifactFormat(artifact).toLowerCase();
     return `
       <div class="artifact-card">
         <div class="artifact-badge" aria-hidden="true">${badge}</div>
@@ -1202,7 +1448,10 @@ function renderArtifacts(message) {
           <div class="artifact-title">${escapeHtml(fileName)}</div>
           ${status ? `<div class="artifact-status">${escapeHtml(status)}</div>` : ""}
         </div>
-        <a class="artifact-download" href="${escapeHtml(href)}" download="${escapeHtml(fileName)}" data-file-name="${escapeHtml(fileName)}">Download</a>
+        <div class="artifact-actions">
+          ${canView ? `<button class="artifact-download" type="button" data-view-attachment-id="${escapeHtml(attachmentId)}" data-file-name="${escapeHtml(fileName)}" data-format="${escapeHtml(format)}">View</button>` : ""}
+          <a class="artifact-download" href="${escapeHtml(href)}" download="${escapeHtml(fileName)}" data-file-name="${escapeHtml(fileName)}">Download</a>
+        </div>
       </div>
     `;
   }).join("");
@@ -1928,6 +2177,7 @@ async function addConversation() {
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
     state.images = [];
+    closeDocumentViewer();
     renderImages();
     renderShell();
   } catch (err) {
@@ -2232,6 +2482,8 @@ function isNearBottom(el, threshold = 60) {
 }
 
 function bindEvents() {
+  initDocumentViewerWidth();
+
   els.messages.addEventListener("scroll", () => {
     if (!state.running) return;
     state.autoScroll = isNearBottom(els.messages);
@@ -2276,6 +2528,7 @@ function bindEvents() {
     if (e.key !== "Escape") return;
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
+    if (state.viewer.open) { closeDocumentViewer(); return; }
     if (!els.compareDropdown.classList.contains("hidden")) { closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
@@ -2406,6 +2659,7 @@ function bindEvents() {
     state.activeConversationId = open.dataset.openChatId;
     document.body.classList.remove("sidebar-open");
     state.compareDescribeImages = false;
+    closeDocumentViewer();
     closeCompareContextBanner();
     try {
       await loadActiveConversation();
@@ -2446,8 +2700,36 @@ function bindEvents() {
 
   els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
   els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
+  els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
+  els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
+  els.documentViewerDownload?.addEventListener("click", async (e) => {
+    const attachmentId = state.viewer.downloadAttachmentId || state.viewer.attachmentId;
+    if (!attachmentId) return;
+    e.preventDefault();
+    try {
+      await downloadAttachment(state.session, attachmentId, state.viewer.fileName || "download");
+    } catch (err) {
+      showToast(err.message || "Download failed.");
+    }
+  });
 
   els.messages.addEventListener("click", async (e) => {
+    const viewButton = e.target.closest("[data-view-attachment-id]");
+    if (viewButton) {
+      e.preventDefault();
+      const attachmentId = viewButton.dataset.viewAttachmentId;
+      if (!state.session?.access_token) {
+        showToast("Sign in to view files.");
+        return;
+      }
+      openDocumentViewer({
+        attachmentId,
+        fileName: viewButton.dataset.fileName || "Document",
+        format: viewButton.dataset.format || ""
+      });
+      return;
+    }
+
     const downloadLink = e.target.closest("a[href]");
     if (downloadLink) {
       const attachmentId = attachmentDownloadPath(downloadLink.getAttribute("href") || "");

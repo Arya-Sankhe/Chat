@@ -137,6 +137,14 @@ export async function fetchDocumentJobStatus(session, jobId) {
   return response.json();
 }
 
+export async function fetchAttachmentView(session, attachmentId) {
+  const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}/view`, {
+    headers: apiHeaders(session, { accept: "application/json" })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 /**
  * Authenticated download: ask the API for a short-lived signed URL and
  * navigate to it. The presigned URL carries its own auth in the query

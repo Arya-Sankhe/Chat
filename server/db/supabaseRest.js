@@ -368,6 +368,38 @@ export class SupabaseRest {
     return single(rows);
   }
 
+  async getReadyPdfPreviewForDocument(userId, documentFileId, { signal } = {}) {
+    const rows = await this.request("document_files", {
+      query: {
+        parent_document_id: `eq.${documentFileId}`,
+        user_id: `eq.${userId}`,
+        kind: "eq.pdf",
+        processing_status: "eq.ready",
+        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag,status)",
+        order: "created_at.desc",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
+  async getActivePdfPreviewJob(userId, documentFileId, { signal } = {}) {
+    const rows = await this.request("document_jobs", {
+      query: {
+        user_id: `eq.${userId}`,
+        document_file_id: `eq.${documentFileId}`,
+        status: "in.(queued,running)",
+        job_type: "in.(document.export.docx_to_pdf,document.export.xlsx_to_pdf)",
+        select: "*",
+        order: "created_at.desc",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
   async listReadyDocumentFiles(userId, conversationId, { signal } = {}) {
     return this.request("document_files", {
       query: {

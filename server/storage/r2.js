@@ -204,9 +204,11 @@ export class R2Client {
     return this.presign("PUT", key, expiresSeconds);
   }
 
-  readUrl(key, { fileName } = {}) {
+  readUrl(key, { fileName, disposition = "attachment", contentType } = {}) {
+    const safeDisposition = disposition === "inline" ? "inline" : "attachment";
     return this.presign("GET", key, this.config.readExpiresSeconds, {
-      ...(fileName ? { "response-content-disposition": `attachment; filename="${safeFileName(fileName)}"` } : {})
+      ...(fileName ? { "response-content-disposition": `${safeDisposition}; filename="${safeFileName(fileName)}"` } : {}),
+      ...(contentType ? { "response-content-type": contentType } : {})
     });
   }
 

@@ -432,3 +432,25 @@ test("R2 readUrl can force a clean attachment download filename", () => {
     "response header overrides must sort after X-Amz-* params for R2 signature validation"
   );
 });
+
+test("R2 readUrl can create inline preview URLs", () => {
+  const r2 = new R2Client({
+    r2: {
+      endpoint: "https://account.r2.cloudflarestorage.com",
+      accessKeyId: "access-key",
+      secretAccessKey: "secret-key",
+      bucket: "smartyfy-chat",
+      uploadExpiresSeconds: 300,
+      readExpiresSeconds: 900
+    }
+  });
+
+  const url = new URL(r2.readUrl("users/user_1/report.pdf", {
+    fileName: "Report.pdf",
+    disposition: "inline",
+    contentType: "application/pdf"
+  }));
+  assert.equal(url.searchParams.get("response-content-disposition"), "inline; filename=\"Report.pdf\"");
+  assert.equal(url.searchParams.get("response-content-type"), "application/pdf");
+  assert.ok(url.searchParams.get("X-Amz-Signature"));
+});
