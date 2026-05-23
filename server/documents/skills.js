@@ -125,14 +125,17 @@ const SKILL_TEXT = {
     "- Use create_document with format \"pdf\" when the user asks for a PDF.",
     "- Put the complete final PDF body in content; never pass only \"use the above summary\".",
     "- Remove chat-only phrases, tool chatter, and follow-up questions from the PDF body.",
-    "- Prefer clean headings, short paragraphs, bullets, tables, and equation/code blocks only when useful.",
+    "- Prefer clean headings, short paragraphs, bullets, markdown pipe tables, and fenced equation/code blocks only when useful.",
+    "- For complex tables, pass structured tables with headers and rows; do not leave table data only as prose.",
+    "- Inside markdown tables, avoid unescaped vertical bars in formulas or use structured tables instead.",
     "- Do not claim the PDF is ready until create_document returns ready output."
   ].join("\n"),
   "word-create": [
     "Word/DOCX creation skill:",
     "- Use create_document with format \"docx\" when the user asks for Word, DOCX, or an editable document.",
     "- Put the complete final document body in content unless you provide structured sections/tables.",
-    "- Prefer editable structure: headings, bullets, numbered lists, and tables.",
+    "- Prefer editable structure: headings, bullets, numbered lists, markdown pipe tables, and structured tables.",
+    "- Inside markdown tables, avoid unescaped vertical bars in formulas or use structured tables instead.",
     "- If the user says \"document\" without a format, prefer DOCX unless they asked for PDF or spreadsheet.",
     "- Do not claim the DOCX is ready until create_document returns ready output."
   ].join("\n"),

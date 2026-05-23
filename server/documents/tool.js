@@ -93,7 +93,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new DOCX, XLSX, or simple PDF artifact for the user. When creating a text document, include the complete text that should appear in the artifact in `content`; do not only say \"use the above summary\". Use format docx for Word documents and format pdf only for PDFs.",
+        description: "Create a new DOCX, XLSX, or PDF artifact for the user. When creating a text document, include the complete text that should appear in the artifact in `content`; do not only say \"use the above summary\". PDF/DOCX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. Use format docx for Word documents and format pdf only for PDFs.",
         parameters: {
           type: "object",
           properties: {

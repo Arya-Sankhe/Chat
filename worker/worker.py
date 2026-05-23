@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape as xml_escape
 import boto3
 import pdfplumber
 import requests
+import reportlab
 from charset_normalizer import from_path
 from docx import Document
 from docx.shared import Inches
@@ -22,6 +23,8 @@ from pypdf import PdfReader
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
@@ -44,6 +47,51 @@ def truncate(text, limit):
     return text if len(text) <= limit else text[: max(0, limit - 20)] + "\n...[truncated]"
 
 
+SUPERSCRIPT_MAP = {
+    "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4",
+    "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9",
+    "⁺": "+", "⁻": "-", "⁼": "=", "⁽": "(", "⁾": ")",
+}
+SUBSCRIPT_MAP = {
+    "₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4",
+    "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9",
+    "₊": "+", "₋": "-", "₌": "=", "₍": "(", "₎": ")",
+    "ᵢ": "i", "ⱼ": "j", "ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x",
+}
+SYMBOL_TRANSLATION = str.maketrans({
+    "ᵀ": "^T",
+    "ᵗ": "^t",
+    "−": "-",
+    "–": "-",
+    "—": "-",
+    "×": "*",
+    "÷": "/",
+    "≤": "<=",
+    "≥": ">=",
+    "≠": "!=",
+    "≈": "~=",
+    "∈": "in",
+    "∉": "not in",
+    "∞": "infinity",
+})
+
+
+def normalize_math_symbols(text):
+    value = str(text or "").translate(SYMBOL_TRANSLATION)
+
+    def power(match):
+        plain = "".join(SUPERSCRIPT_MAP.get(char, char) for char in match.group(0))
+        return f"^{plain}" if len(plain) == 1 and plain.isalnum() else f"^({plain})"
+
+    def subscript(match):
+        plain = "".join(SUBSCRIPT_MAP.get(char, char) for char in match.group(0))
+        return f"_{plain}" if len(plain) == 1 and plain.isalnum() else f"_({plain})"
+
+    value = re.sub(f"[{re.escape(''.join(SUPERSCRIPT_MAP))}]+", power, value)
+    value = re.sub(f"[{re.escape(''.join(SUBSCRIPT_MAP))}]+", subscript, value)
+    return value
+
+
 def clean_markdown(text):
     text = str(text or "")
     text = re.sub(r"`([^`]+)`", r"\1", text)
@@ -51,7 +99,7 @@ def clean_markdown(text):
     text = re.sub(r"__([^_]+)__", r"\1", text)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
     text = re.sub(r"_([^_]+)_", r"\1", text)
-    return text.strip()
+    return normalize_math_symbols(text).strip()
 
 
 def artifact_content(input_data):
@@ -81,6 +129,121 @@ def strip_duplicate_title_heading(text, title):
             return "\n".join(lines[:index] + lines[index + 1:]).strip()
         return text
     return text
+
+
+def split_markdown_table_row(line):
+    row = str(line or "").strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+    cells = []
+    current = []
+    escaped = False
+    for char in row:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    cells.append("".join(current).strip())
+    return cells
+
+
+def is_markdown_table_separator(line):
+    cells = split_markdown_table_row(line)
+    return len(cells) >= 2 and all(re.match(r"^:?-{3,}:?$", cell.strip()) for cell in cells)
+
+
+def normalize_table_row_width(row, width):
+    values = [str(value or "").strip() for value in row]
+    if width <= 0:
+        return values
+    if len(values) == width:
+        return values
+    if len(values) < width:
+        return values + [""] * (width - len(values))
+    if width == 1:
+        return ["|".join(values)]
+    if width == 2:
+        return [values[0], "|".join(values[1:])]
+    return values[: width - 2] + ["|".join(values[width - 2:-1])] + [values[-1]]
+
+
+def collect_markdown_table(lines, start):
+    if start + 1 >= len(lines):
+        return None, start
+    if "|" not in lines[start] or not is_markdown_table_separator(lines[start + 1]):
+        return None, start
+
+    headers = split_markdown_table_row(lines[start])
+    width = len(headers)
+    rows = []
+    index = start + 2
+    while index < len(lines):
+        line = lines[index].strip()
+        if not line or "|" not in line:
+            break
+        rows.append(normalize_table_row_width(split_markdown_table_row(line), width))
+        index += 1
+
+    return {"headers": headers, "rows": rows}, index
+
+
+def find_existing_file(candidates):
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists():
+            return str(path)
+    return None
+
+
+def register_pdf_fonts():
+    reportlab_fonts = Path(reportlab.__file__).resolve().parent / "fonts"
+    regular = find_existing_file([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSans.ttf",
+        reportlab_fonts / "Vera.ttf",
+    ])
+    bold = find_existing_file([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSans-Bold.ttf",
+        reportlab_fonts / "VeraBd.ttf",
+    ])
+    mono = find_existing_file([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSansMono.ttf",
+        reportlab_fonts / "Vera.ttf",
+    ])
+
+    fonts = {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
+    try:
+        if regular:
+            pdfmetrics.registerFont(TTFont("SmartyfySans", regular))
+            fonts["regular"] = "SmartyfySans"
+        if bold:
+            pdfmetrics.registerFont(TTFont("SmartyfySans-Bold", bold))
+            fonts["bold"] = "SmartyfySans-Bold"
+        elif regular:
+            fonts["bold"] = "SmartyfySans"
+        if mono:
+            pdfmetrics.registerFont(TTFont("SmartyfyMono", mono))
+            fonts["mono"] = "SmartyfyMono"
+    except Exception:
+        return {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
+    return fonts
 
 
 class Supabase:
@@ -533,7 +696,10 @@ class Processor:
     def append_docx_markdown(self, doc, text):
         in_code = False
         code_lines = []
-        for raw_line in str(text or "").splitlines():
+        lines = str(text or "").splitlines()
+        index = 0
+        while index < len(lines):
+            raw_line = lines[index]
             line = raw_line.strip()
             if line.startswith("```"):
                 if in_code:
@@ -543,33 +709,46 @@ class Processor:
                 else:
                     in_code = True
                     code_lines = []
+                index += 1
                 continue
             if in_code:
                 code_lines.append(raw_line.rstrip())
+                index += 1
                 continue
             if not line:
+                index += 1
+                continue
+            table_data, next_index = collect_markdown_table(lines, index)
+            if table_data:
+                self.append_docx_table(doc, table_data)
+                index = next_index
                 continue
             if re.match(r"^-{3,}$", line):
+                index += 1
                 continue
             heading = re.match(r"^(#{1,3})\s+(.+)$", line)
             if heading:
                 doc.add_heading(clean_markdown(heading.group(2)), level=min(len(heading.group(1)), 3))
+                index += 1
                 continue
             bullet = re.match(r"^[-*]\s+(.+)$", line)
             if bullet:
                 doc.add_paragraph(clean_markdown(bullet.group(1)), style="List Bullet")
+                index += 1
                 continue
             numbered = re.match(r"^\d+[.)]\s+(.+)$", line)
             if numbered:
                 doc.add_paragraph(clean_markdown(numbered.group(1)), style="List Number")
+                index += 1
                 continue
             doc.add_paragraph(clean_markdown(line))
+            index += 1
         if in_code and code_lines:
             self.append_docx_code_block(doc, "\n".join(code_lines))
 
     def append_docx_code_block(self, doc, text):
         paragraph = doc.add_paragraph()
-        run = paragraph.add_run(str(text or "").strip())
+        run = paragraph.add_run(normalize_math_symbols(text).strip())
         run.font.name = "Courier New"
 
     def append_docx_table(self, doc, table_data):
@@ -587,9 +766,9 @@ class Processor:
         table.style = "Table Grid"
         for row in rows[:200]:
             cells = table.add_row().cells
-            values = row if isinstance(row, list) else [row]
+            values = normalize_table_row_width(row if isinstance(row, list) else [row], width)
             for i, value in enumerate(values[:width]):
-                cells[i].text = str(value)
+                cells[i].text = clean_markdown(str(value))
 
     def create_xlsx(self, tmp, title, input_data):
         wb = Workbook()
@@ -606,6 +785,7 @@ class Processor:
 
     def create_pdf(self, tmp, title, input_data):
         path = tmp / f"{safe_name(title)}.pdf"
+        fonts = register_pdf_fonts()
         doc = SimpleDocTemplate(
             str(path),
             pagesize=letter,
@@ -615,23 +795,27 @@ class Processor:
             bottomMargin=54,
         )
         styles = getSampleStyleSheet()
+        styles["Title"].fontName = fonts["bold"]
         styles["Title"].fontSize = 20
         styles["Title"].leading = 24
         styles["Title"].spaceAfter = 12
+        styles["Heading1"].fontName = fonts["bold"]
         styles["Heading1"].fontSize = 15
         styles["Heading1"].leading = 19
         styles["Heading1"].spaceBefore = 10
         styles["Heading1"].spaceAfter = 6
+        styles["Heading2"].fontName = fonts["bold"]
         styles["Heading2"].fontSize = 13
         styles["Heading2"].leading = 16
         styles["Heading2"].spaceBefore = 8
         styles["Heading2"].spaceAfter = 5
+        styles["Normal"].fontName = fonts["regular"]
         styles["Normal"].fontSize = 10.5
         styles["Normal"].leading = 14
         story = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
         body = strip_duplicate_title_heading(artifact_content(input_data), title)
         if body:
-            self.append_pdf_markdown(story, body, styles)
+            self.append_pdf_markdown(story, body, styles, fonts)
         else:
             for block in (input_data.get("instructions") or "").split("\n\n"):
                 if block.strip():
@@ -644,17 +828,17 @@ class Processor:
                 story.append(Paragraph(xml_escape(str(heading)), styles["Heading2"]))
                 story.append(Spacer(1, 6))
             if content:
-                self.append_pdf_markdown(story, str(content), styles)
+                self.append_pdf_markdown(story, str(content), styles, fonts)
         for table in input_data.get("tables") or []:
-            self.append_pdf_table(story, table, styles)
+            self.append_pdf_table(story, table, styles, fonts)
         doc.build(story)
         return path
 
-    def append_pdf_markdown(self, story, text, styles):
+    def append_pdf_markdown(self, story, text, styles, fonts):
         code_style = ParagraphStyle(
             "SmartyfyCode",
             parent=styles["Code"],
-            fontName="Courier",
+            fontName=fonts["mono"],
             fontSize=9,
             leading=12,
             backColor=colors.whitesmoke,
@@ -668,50 +852,66 @@ class Processor:
         )
         in_code = False
         code_lines = []
-        for raw_line in str(text or "").splitlines():
+        lines = str(text or "").splitlines()
+        index = 0
+        while index < len(lines):
+            raw_line = lines[index]
             line = raw_line.strip()
             if line.startswith("```"):
                 if in_code:
-                    story.append(Preformatted(xml_escape("\n".join(code_lines).strip()), code_style))
+                    story.append(Preformatted(xml_escape(normalize_math_symbols("\n".join(code_lines)).strip()), code_style))
                     story.append(Spacer(1, 6))
                     code_lines = []
                     in_code = False
                 else:
                     in_code = True
                     code_lines = []
+                index += 1
                 continue
             if in_code:
                 code_lines.append(raw_line.rstrip())
+                index += 1
                 continue
             if not line:
                 story.append(Spacer(1, 6))
+                index += 1
+                continue
+            table_data, next_index = collect_markdown_table(lines, index)
+            if table_data:
+                self.append_pdf_table(story, table_data, styles, fonts)
+                index = next_index
                 continue
             if re.match(r"^-{3,}$", line):
                 story.append(Spacer(1, 8))
+                index += 1
                 continue
             heading = re.match(r"^(#{1,3})\s+(.+)$", line)
             if heading:
                 style = styles["Heading1"] if len(heading.group(1)) == 1 else styles["Heading2"]
                 story.append(Paragraph(xml_escape(clean_markdown(heading.group(2))), style))
                 story.append(Spacer(1, 6))
+                index += 1
                 continue
             bullet = re.match(r"^[-*]\s+(.+)$", line)
             if bullet:
                 story.append(Paragraph(f"- {xml_escape(clean_markdown(bullet.group(1)))}", styles["Normal"]))
                 story.append(Spacer(1, 4))
+                index += 1
                 continue
             numbered = re.match(r"^(\d+[.)])\s+(.+)$", line)
             if numbered:
                 story.append(Paragraph(f"{xml_escape(numbered.group(1))} {xml_escape(clean_markdown(numbered.group(2)))}", styles["Normal"]))
                 story.append(Spacer(1, 4))
+                index += 1
                 continue
             story.append(Paragraph(xml_escape(clean_markdown(line)), styles["Normal"]))
             story.append(Spacer(1, 6))
+            index += 1
         if in_code and code_lines:
-            story.append(Preformatted(xml_escape("\n".join(code_lines).strip()), code_style))
+            story.append(Preformatted(xml_escape(normalize_math_symbols("\n".join(code_lines)).strip()), code_style))
             story.append(Spacer(1, 6))
 
-    def append_pdf_table(self, story, table_data, styles):
+    def append_pdf_table(self, story, table_data, styles, fonts):
         title = table_data.get("title") or table_data.get("caption")
         if title:
             story.append(Paragraph(xml_escape(str(title)), styles["Heading2"]))
@@ -722,15 +922,54 @@ class Processor:
             rows = [headers] + rows
         if not rows:
             return
-        clean_rows = [[xml_escape(str(cell)) for cell in (row if isinstance(row, list) else [row])] for row in rows[:50]]
-        table = Table(clean_rows, hAlign="LEFT")
+        width = max(len(row) if isinstance(row, list) else 1 for row in rows)
+        table_style = ParagraphStyle(
+            "SmartyfyTableCell",
+            parent=styles["Normal"],
+            fontName=fonts["regular"],
+            fontSize=8.5,
+            leading=11,
+            wordWrap="CJK",
+        )
+        clean_rows = [
+            [
+                Paragraph(xml_escape(clean_markdown(str(cell))).replace("\n", "<br/>"), table_style)
+                for cell in normalize_table_row_width(row if isinstance(row, list) else [row], width)
+            ]
+            for row in rows[:50]
+        ]
+        col_widths = self.pdf_table_col_widths(rows[:50], width)
+        table = Table(clean_rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
         table.setStyle(TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
             ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), fonts["bold"]),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
         story.append(table)
         story.append(Spacer(1, 10))
+
+    def pdf_table_col_widths(self, rows, width):
+        if width <= 0:
+            return None
+        max_width = letter[0] - 108
+        samples = []
+        for col in range(width):
+            lengths = []
+            for row in rows:
+                values = normalize_table_row_width(row if isinstance(row, list) else [row], width)
+                lengths.append(min(len(str(values[col] or "")), 80))
+            samples.append(max([8] + lengths))
+        total = sum(samples) or width
+        raw = [max_width * (sample / total) for sample in samples]
+        min_width = min(72, max_width / width)
+        widths = [max(min_width, value) for value in raw]
+        scale = max_width / sum(widths)
+        return [value * scale for value in widths]
 
     def edit_job(self, job, tmp):
         source_doc = self.db.get_document_file(job["document_file_id"])
