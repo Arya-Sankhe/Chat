@@ -73,7 +73,7 @@ function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }
 
-export async function presignUpload(session, file, category = uploadCategory(file)) {
+export async function presignUpload(session, file, category = uploadCategory(file), { signal } = {}) {
   const response = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: apiHeaders(session, { "content-type": "application/json" }),
@@ -82,47 +82,60 @@ export async function presignUpload(session, file, category = uploadCategory(fil
       contentType: file.type,
       sizeBytes: file.size,
       category
-    })
+    }),
+    signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
 
-export async function completeUpload(session, uploadId) {
+export async function completeUpload(session, uploadId, { signal } = {}) {
   const response = await fetch("/api/uploads/complete", {
     method: "POST",
     headers: apiHeaders(session, { "content-type": "application/json" }),
-    body: JSON.stringify({ uploadId })
+    body: JSON.stringify({ uploadId }),
+    signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
 
-export async function uploadImage(session, file) {
-  const upload = await presignUpload(session, file, "image");
+export async function uploadImage(session, file, { signal } = {}) {
+  const upload = await presignUpload(session, file, "image", { signal });
   const put = await fetch(upload.uploadUrl, {
     method: upload.method || "PUT",
     headers: { "content-type": file.type },
-    body: file
+    body: file,
+    signal
   });
   if (!put.ok) throw new Error("Image upload failed.");
-  return completeUpload(session, upload.uploadId);
+  return completeUpload(session, upload.uploadId, { signal });
 }
 
-export async function uploadFile(session, file) {
+export async function uploadFile(session, file, { signal } = {}) {
   const category = uploadCategory(file);
-  const upload = await presignUpload(session, file, category);
+  const upload = await presignUpload(session, file, category, { signal });
   const put = await fetch(upload.uploadUrl, {
     method: upload.method || "PUT",
     headers: { "content-type": file.type || "application/octet-stream" },
-    body: file
+    body: file,
+    signal
   });
   if (!put.ok) throw new Error(category === "image" ? "Image upload failed." : "Document upload failed.");
-  return completeUpload(session, upload.uploadId);
+  return completeUpload(session, upload.uploadId, { signal });
 }
 
 export async function fetchDocumentStatus(session, attachmentId) {
   const response = await fetch(`/api/documents/${encodeURIComponent(attachmentId)}/status`, {
+    headers: apiHeaders(session)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteAttachment(session, attachmentId) {
+  const response = await fetch(`/api/attachments/${encodeURIComponent(attachmentId)}`, {
+    method: "DELETE",
     headers: apiHeaders(session)
   });
   if (!response.ok) throw new Error(await readProblem(response));

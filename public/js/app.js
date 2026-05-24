@@ -1,5 +1,6 @@
 import {
   createConversation,
+  deleteAttachment,
   deleteConversation,
   downloadAttachment,
   fetchAttachmentView,
@@ -12,6 +13,8 @@ import {
   fetchModels,
   fetchPlans,
   listConversations,
+  completeUpload,
+  presignUpload,
   streamCompareConversationMessage,
   streamConversationMessage,
   uploadFile
@@ -1861,16 +1864,96 @@ function queueRenderMessages() {
 
 /* ─── Images ─── */
 
+function pendingDocumentUploads() {
+  return state.images.filter((item) => item.category === "document" && item.status !== "ready");
+}
+
+function pendingDocumentLabel(item) {
+  if (item.status === "failed") return item.error || "Failed";
+  if (item.status === "uploading") return "Uploading";
+  if (item.status === "processing") return `${Math.max(1, Math.min(99, Math.round(item.progress || 10)))}%`;
+  return "Queued";
+}
+
 function renderImages() {
   els.imagePreviews.innerHTML = state.images.map((img, i) => `
-    <div class="preview-thumb ${img.category === "document" ? "preview-file" : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
+    <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
         ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
-        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>`}
+        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
       <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
     </div>
   `).join("");
   updateSendButton();
+}
+
+function updatePendingDocument(localId, patch) {
+  const item = state.images.find((entry) => entry.localId === localId);
+  if (!item) return null;
+  Object.assign(item, patch);
+  renderImages();
+  return item;
+}
+
+async function pollUploadedDocument(localId, attachmentId) {
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    const payload = await fetchDocumentStatus(state.session, attachmentId);
+    const doc = payload.document || {};
+    if (!state.images.some((entry) => entry.localId === localId)) return;
+    updatePendingDocument(localId, {
+      status: doc.status === "ready" ? "ready" : "processing",
+      progress: doc.status === "ready" ? 100 : Math.max(8, Number(doc.progress || 15)),
+      documentId: doc.id || "",
+      error: doc.error?.message || ""
+    });
+    if (doc.status === "ready") return;
+    if (doc.status === "failed") {
+      throw new Error(doc.error?.message || "Document could not be processed.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  throw new Error("Document is still processing. Try again in a moment.");
+}
+
+async function startDocumentUpload(item) {
+  const controller = new AbortController();
+  item.abortController = controller;
+  updatePendingDocument(item.localId, { status: "uploading", progress: 3, error: "" });
+  try {
+    const presigned = await presignUpload(state.session, item.file, "document", { signal: controller.signal });
+    item.uploadId = presigned.uploadId;
+    const put = await fetch(presigned.uploadUrl, {
+      method: presigned.method || "PUT",
+      headers: { "content-type": item.file.type || "application/octet-stream" },
+      body: item.file,
+      signal: controller.signal
+    });
+    if (!put.ok) throw new Error("Document upload failed.");
+    const uploaded = await completeUpload(state.session, presigned.uploadId, { signal: controller.signal });
+    if (!state.images.some((entry) => entry.localId === item.localId)) {
+      await deleteAttachment(state.session, uploaded.id).catch(() => {});
+      return;
+    }
+    updatePendingDocument(item.localId, {
+      attachmentId: uploaded.id,
+      uploaded,
+      status: uploaded.category === "document" ? "processing" : "ready",
+      progress: uploaded.category === "document" ? 8 : 100,
+      abortController: null
+    });
+    if (uploaded.category === "document") {
+      await pollUploadedDocument(item.localId, uploaded.id);
+    }
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    updatePendingDocument(item.localId, {
+      status: "failed",
+      progress: 0,
+      error: err.message || "Upload failed.",
+      abortController: null
+    });
+  }
 }
 
 function addImages(files) {
@@ -1898,11 +1981,21 @@ function addImages(files) {
 
   for (const file of chosen) {
     const category = fileCategory(file);
-    state.images.push({
+    const item = {
+      localId: `pending_${Date.now()}_${Math.random().toString(16).slice(2)}`,
       file,
       category,
-      previewUrl: category === "image" ? URL.createObjectURL(file) : ""
-    });
+      previewUrl: category === "image" ? URL.createObjectURL(file) : "",
+      status: category === "document" ? "queued" : "ready",
+      progress: category === "document" ? 1 : 100,
+      attachmentId: "",
+      documentId: "",
+      error: ""
+    };
+    state.images.push(item);
+    if (category === "document") {
+      startDocumentUpload(item);
+    }
   }
   renderImages();
   syncCompareContextBanner();
@@ -1993,6 +2086,7 @@ function setRunning(running) {
   state.running = running;
   els.sendButton.classList.toggle("hidden", running);
   els.stopButton.classList.toggle("hidden", !running);
+  els.sendButton.disabled = running || pendingDocumentUploads().length > 0;
   els.promptInput.disabled = running;
   els.imageToggle.disabled = running;
   els.modelButton.disabled = running;
@@ -2001,7 +2095,9 @@ function setRunning(running) {
 
 function updateSendButton() {
   const hasContent = els.promptInput.value.trim() || state.images.length;
-  els.sendButton.classList.toggle("active", Boolean(hasContent));
+  const blocked = pendingDocumentUploads().length > 0;
+  els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
+  els.sendButton.disabled = state.running || blocked;
 }
 
 function applyComposerHeight() {
@@ -2363,6 +2459,12 @@ async function sendPrompt() {
     showToast("Pick a model first.");
     return;
   }
+  const pendingDocs = pendingDocumentUploads();
+  if (pendingDocs.length) {
+    const failed = pendingDocs.find((item) => item.status === "failed");
+    showToast(failed ? `Remove or retry ${failed.file.name}.` : "Wait for document processing to finish.");
+    return;
+  }
   if (state.settings.compareEnabled && selectedCompareModelIds().length < 2) {
     showToast(isCouncilMode() ? "Pick at least 2 models for the council." : "Pick at least 2 models to compare.");
     return;
@@ -2377,7 +2479,13 @@ async function sendPrompt() {
 
   await executeSend({
     text,
-    images: state.images.map((img) => ({ file: img.file, category: img.category, previewUrl: img.previewUrl })),
+    images: state.images.map((img) => ({
+      file: img.file,
+      category: img.category,
+      previewUrl: img.previewUrl,
+      attachmentId: img.attachmentId,
+      uploaded: img.uploaded
+    })),
     compareModels,
     council: Boolean(compareModels.length && isCouncilMode()),
     describeImages: Boolean(
@@ -2493,6 +2601,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
   try {
     const uploaded = [];
     for (const img of images) {
+      if (img.category === "document" && img.attachmentId) {
+        uploaded.push(img.uploaded || {
+          id: img.attachmentId,
+          fileName: img.file.name,
+          contentType: img.file.type,
+          sizeBytes: img.file.size,
+          category: "document"
+        });
+        continue;
+      }
+
       const uploadedFile = await uploadFile(state.session, img.file);
       if (uploadedFile.category === "document") {
         showToast(`Processing ${img.file.name}...`);
@@ -2847,6 +2966,13 @@ function bindEvents() {
       e.stopPropagation();
       const [removed] = state.images.splice(Number(removeBtn.dataset.removeIndex), 1);
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      if (removed?.abortController) removed.abortController.abort();
+      const deleteId = removed?.attachmentId || removed?.uploadId || "";
+      if (deleteId) {
+        deleteAttachment(state.session, deleteId).catch((err) => {
+          showToast(err.message || "Attachment could not be deleted.");
+        });
+      }
       renderImages();
       syncCompareContextBanner();
       return;

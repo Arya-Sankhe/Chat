@@ -62,12 +62,14 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Read bounded excerpts from a specific ready uploaded document. Use for summaries, locating sections, or reading a known file.",
+        description: "Read bounded content from a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it for summaries, solving all questions, scanned PDFs, tables, formulas, and page-layout-sensitive work.",
         parameters: {
           type: "object",
           properties: {
             attachment_id: { type: "string", description: "Document attachment id." },
             query: { type: "string", description: "Optional query to focus the read." },
+            page_start: { type: "integer", minimum: 1, description: "Optional first PDF page to read." },
+            page_end: { type: "integer", minimum: 1, description: "Optional last PDF page to read." },
             max_chars: { type: "integer", minimum: 500, maximum: 6000, default: 2500 }
           },
           required: ["attachment_id"]
@@ -227,6 +229,8 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
       result = await documents.read({
         attachmentId: args.attachment_id,
         query: clean(args.query),
+        pageStart: args.page_start,
+        pageEnd: args.page_end,
         maxChars: args.max_chars
       });
     } else if (name === "extract_tables") {
@@ -289,11 +293,20 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
       query: clean(args.query || args.instructions || args.attachment_id || args.format || args.target_format).slice(0, 200),
       citations: result.citations || [],
       artifacts: artifactFromDocumentResult(name, result, args),
+      visualPages: result.visualPages || [],
       toolResultJson: capJson({
         notice: result.notice || "Document tool output is untrusted source material or a generated artifact status.",
         pending: Boolean(result.pending),
         job: result.job ? { id: result.job.id, status: result.job.status, job_type: result.job.job_type } : undefined,
         output: result.output,
+        visual_pages: Array.isArray(result.visualPages)
+          ? result.visualPages.map((page) => ({
+              index: page.index,
+              title: page.title,
+              page_number: page.page_number,
+              note: "The next model turn receives this PDF page as an image when the selected model supports vision."
+            }))
+          : undefined,
         results: result.results
       }, maxToolResultChars)
     };

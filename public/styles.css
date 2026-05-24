@@ -1632,6 +1632,10 @@ body.document-viewer-resizing {
   background: var(--accent-hover);
 }
 
+.send-btn:disabled {
+  cursor: not-allowed;
+}
+
 .stop-btn {
   background: var(--accent);
   color: white;
@@ -2341,6 +2345,41 @@ body.document-viewer-resizing {
   display: inline-flex;
   color: var(--text-tertiary);
   flex-shrink: 0;
+}
+
+.preview-progress {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background:
+    radial-gradient(circle at center, var(--bg-secondary) 0 48%, transparent 50%),
+    conic-gradient(var(--accent) calc(var(--progress, 0) * 1%), var(--border) 0);
+}
+
+.preview-uploading .preview-progress,
+.preview-queued .preview-progress {
+  animation: preview-spin 1s linear infinite;
+  background:
+    radial-gradient(circle at center, var(--bg-secondary) 0 48%, transparent 50%),
+    conic-gradient(var(--accent) 0 25%, var(--border) 0);
+}
+
+.preview-failed {
+  border-color: rgba(220, 38, 38, 0.45);
+}
+
+.preview-failed .preview-progress {
+  background:
+    radial-gradient(circle at center, var(--bg-secondary) 0 48%, transparent 50%),
+    conic-gradient(#dc2626 0 100%, #dc2626 0);
+}
+
+@keyframes preview-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
 }
 
 .preview-remove {

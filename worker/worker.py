@@ -1,3 +1,4 @@
+import base64
 import csv
 import json
 import os
@@ -322,11 +323,25 @@ class Supabase:
             prefer="return=minimal",
         )
 
+    def delete_pages(self, document_file_id):
+        self.request(
+            "document_pages",
+            method="DELETE",
+            params={"document_file_id": f"eq.{document_file_id}"},
+            prefer="return=minimal",
+        )
+
     def insert_chunks(self, chunks):
         if not chunks:
             return
         for i in range(0, len(chunks), 250):
             self.request("document_chunks", method="POST", body=chunks[i:i + 250], prefer="return=minimal")
+
+    def insert_pages(self, pages):
+        if not pages:
+            return
+        for i in range(0, len(pages), 100):
+            self.request("document_pages", method="POST", body=pages[i:i + 100], prefer="return=minimal")
 
     def update_job(self, job_id, patch, worker_id=None):
         params = {"id": f"eq.{job_id}"}
@@ -340,6 +355,70 @@ class Supabase:
             prefer="return=representation",
         )
         return rows[0] if rows else None
+
+
+class JinaEmbeddings:
+    def __init__(self):
+        self.api_key = env("JINA_API_KEY")
+        self.model = env("DOCUMENT_VISUAL_EMBED_MODEL", "jina-embeddings-v5-omni-nano")
+        self.dimensions = 768
+        self.endpoint = env("JINA_EMBEDDINGS_URL", "https://api.jina.ai/v1/embeddings")
+
+    @property
+    def enabled(self):
+        return bool(self.api_key)
+
+    def _embedding_literal(self, values):
+        if not values:
+            return None
+        floats = [float(value) for value in values]
+        if len(floats) != 768:
+            raise RuntimeError(f"unexpected_embedding_dimensions: got {len(floats)}, expected 768")
+        return "[" + ",".join(f"{value:.8g}" for value in floats) + "]"
+
+    def embed_images(self, image_paths, batch_size=4):
+        if not self.enabled or not image_paths:
+            return [None for _ in image_paths]
+
+        embeddings = [None for _ in image_paths]
+        indexed_paths = [
+            (index, Path(path))
+            for index, path in enumerate(image_paths)
+            if Path(path).stat().st_size <= 5 * 1024 * 1024
+        ]
+        for start in range(0, len(indexed_paths), batch_size):
+            batch = indexed_paths[start:start + batch_size]
+            inputs = []
+            for _, path in batch:
+                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                inputs.append({"bytes": encoded})
+
+            body = {
+                "model": self.model,
+                "normalized": True,
+                "embedding_type": "float",
+                "dimensions": self.dimensions,
+                "input": inputs,
+            }
+            response = requests.post(
+                self.endpoint,
+                headers={
+                    "authorization": f"Bearer {self.api_key}",
+                    "content-type": "application/json",
+                },
+                data=json.dumps(body),
+                timeout=120,
+            )
+            if not response.ok:
+                raise RuntimeError(f"Jina embeddings failed: {response.status_code} {response.text[:500]}")
+
+            data = response.json().get("data") or []
+            by_index = {int(item.get("index", index)): item.get("embedding") for index, item in enumerate(data)}
+            for index in range(len(batch)):
+                original_index = batch[index][0]
+                embeddings[original_index] = self._embedding_literal(by_index.get(index))
+
+        return embeddings
 
 
 class R2:
@@ -375,10 +454,12 @@ class Processor:
     def __init__(self):
         self.db = Supabase()
         self.r2 = R2()
+        self.embeddings = JinaEmbeddings()
         self.worker_id = f"document-worker-{uuid.uuid4()}"
         self.lease_seconds = int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000
         self.poll_seconds = float(env("DOCUMENT_WORKER_POLL_SECONDS", "1.5"))
         self.max_extracted_chars = int(env("DOCUMENT_MAX_EXTRACTED_CHARS", "500000"))
+        self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "144"))
         self.default_limits = {
             "max_pdf_pages": int(env("DOCUMENT_MAX_PDF_PAGES", "100")),
             "max_docx_words": int(env("DOCUMENT_MAX_DOCX_WORDS", "80000")),
@@ -452,6 +533,9 @@ class Processor:
         source = tmp / safe_name(attachment["file_name"])
         self.r2.download(attachment["object_key"], source)
         limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
+        if doc["kind"] == "pdf":
+            return self.extract_pdf_visual_job(job, tmp, doc, attachment, source, limits)
+
         chunks, meta = self.extract(source, doc["kind"], doc["user_id"], doc["id"], limits)
         extraction = {
             "metadata": meta,
@@ -462,6 +546,7 @@ class Processor:
         extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
         self.r2.upload(extraction_key, extraction_path, "application/json")
         self.db.delete_chunks(doc["id"])
+        self.db.delete_pages(doc["id"])
         self.db.insert_chunks(chunks)
         self.db.update_document_file(doc["id"], {
             "processing_status": "ready",
@@ -469,6 +554,147 @@ class Processor:
             "word_count": meta.get("word_count"),
             "sheet_count": meta.get("sheet_count"),
             "used_cell_count": meta.get("used_cell_count"),
+            "extraction_key": extraction_key,
+            "source_etag": attachment.get("etag"),
+            "metadata": meta,
+            "error": None,
+        })
+        return {"document_file_id": doc["id"], "status": "ready", **meta}
+
+    def extract_pdf_visual_job(self, job, tmp, doc, attachment, source, limits):
+        self.db.update_document_file(doc["id"], {
+            "processing_status": "processing",
+            "metadata": {
+                "mode": "visual_pages",
+                "progress": 2,
+                "stage": "validating",
+                "file_name": attachment["file_name"],
+                "content_type": attachment["content_type"],
+                "size_bytes": attachment["size_bytes"],
+            },
+        })
+
+        reader = PdfReader(str(source))
+        if reader.is_encrypted:
+            raise RuntimeError("password_protected")
+        page_count = len(reader.pages)
+        max_pages = self.limit(limits, "max_pdf_pages", 100)
+        if page_count > max_pages:
+            raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
+
+        text_by_page = self.extract_pdf_page_text(source, page_count)
+        render_dir = tmp / "pages"
+        render_dir.mkdir(parents=True, exist_ok=True)
+        image_paths = self.render_pdf_pages(source, render_dir, self.limit(limits, "visual_page_dpi", self.visual_page_dpi))
+        if len(image_paths) < page_count:
+            raise RuntimeError(f"pdf_render_failed: expected {page_count} pages, rendered {len(image_paths)}")
+
+        self.db.update_document_file(doc["id"], {
+            "metadata": {
+                "mode": "visual_pages",
+                "progress": 35,
+                "stage": "embedding",
+                "page_count": page_count,
+                "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+            },
+        })
+
+        warnings = []
+        try:
+            embeddings = self.embeddings.embed_images(image_paths[:page_count]) if self.embeddings.enabled else [None] * page_count
+        except Exception as exc:
+            warnings.append({"code": "embedding_failed", "message": str(exc)})
+            embeddings = [None] * page_count
+
+        pages = []
+        total_words = 0
+        for index, image_path in enumerate(image_paths[:page_count], start=1):
+            if not self.db.get_document_file(doc["id"]):
+                raise RuntimeError("document_deleted")
+            page = reader.pages[index - 1]
+            text = text_by_page.get(index, "")
+            total_words += len(text.split())
+            key = f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{index:04d}.jpg"
+            self.r2.upload(key, image_path, "image/jpeg")
+            width_px, height_px = self.estimated_page_pixels(page)
+            pages.append({
+                "user_id": doc["user_id"],
+                "document_file_id": doc["id"],
+                "page_number": index,
+                "source_label": f"Page {index}",
+                "image_key": key,
+                "image_content_type": "image/jpeg",
+                "width_px": width_px,
+                "height_px": height_px,
+                "text": truncate(text, 12000),
+                "char_count": len(text),
+                "token_estimate": max(1, len(text) // 4) if text else 0,
+                "embedding": embeddings[index - 1],
+                "embedding_model": self.embeddings.model if embeddings[index - 1] else None,
+                "embedding_dimensions": 768 if embeddings[index - 1] else None,
+                "metadata": {
+                    "page": index,
+                    "source_etag": attachment.get("etag"),
+                },
+            })
+            if index == page_count or index % 5 == 0:
+                progress = 35 + int((index / max(1, page_count)) * 55)
+                self.db.update_document_file(doc["id"], {
+                    "metadata": {
+                        "mode": "visual_pages",
+                        "progress": min(progress, 95),
+                        "stage": "uploading_pages",
+                        "page_count": page_count,
+                        "pages_uploaded": index,
+                        "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+                        "warnings": warnings,
+                    },
+                })
+
+        manifest = {
+            "metadata": {
+                "mode": "visual_pages",
+                "page_count": page_count,
+                "word_count": total_words,
+                "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+                "embedding_dimensions": 768 if any(page.get("embedding") for page in pages) else None,
+                "warnings": warnings,
+            },
+            "pages": [
+                {
+                    "page_number": page["page_number"],
+                    "source_label": page["source_label"],
+                    "image_key": page["image_key"],
+                    "width_px": page["width_px"],
+                    "height_px": page["height_px"],
+                    "char_count": page["char_count"],
+                }
+                for page in pages
+            ],
+        }
+        extraction_path = tmp / "pdf-pages.json"
+        extraction_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.visual-pages.json")
+        self.r2.upload(extraction_key, extraction_path, "application/json")
+
+        self.db.delete_chunks(doc["id"])
+        self.db.delete_pages(doc["id"])
+        self.db.insert_pages(pages)
+
+        meta = {
+            "mode": "visual_pages",
+            "progress": 100,
+            "stage": "ready",
+            "page_count": page_count,
+            "word_count": total_words,
+            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+            "embedding_dimensions": 768 if any(page.get("embedding") for page in pages) else None,
+            "warnings": warnings,
+        }
+        self.db.update_document_file(doc["id"], {
+            "processing_status": "ready",
+            "page_count": page_count,
+            "word_count": total_words,
             "extraction_key": extraction_key,
             "source_etag": attachment.get("etag"),
             "metadata": meta,
@@ -529,6 +755,50 @@ class Processor:
             "token_estimate": max(1, len(text) // 4),
             "metadata": metadata or {},
         }
+
+    def extract_pdf_page_text(self, path, page_count):
+        text_by_page = {}
+        try:
+            with pdfplumber.open(str(path)) as pdf:
+                for i, page in enumerate(pdf.pages[:page_count], start=1):
+                    text_by_page[i] = page.extract_text() or ""
+        except Exception as exc:
+            print(f"pdf text layer extraction failed: {exc}", flush=True)
+        return text_by_page
+
+    def render_pdf_pages(self, path, output_dir, dpi=None):
+        prefix = output_dir / "page"
+        render_dpi = max(72, min(int(dpi or self.visual_page_dpi), 180))
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-jpeg",
+                "-jpegopt",
+                "quality=85",
+                "-r",
+                str(render_dpi),
+                str(path),
+                str(prefix),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        def page_number(file_path):
+            match = re.search(r"-(\d+)\.jpe?g$", file_path.name, re.I)
+            return int(match.group(1)) if match else 0
+
+        return sorted(output_dir.glob("page-*.jpg"), key=page_number)
+
+    def estimated_page_pixels(self, page):
+        try:
+            width_pt = float(page.mediabox.width)
+            height_pt = float(page.mediabox.height)
+            scale = max(72, min(self.visual_page_dpi, 180)) / 72
+            return max(1, round(width_pt * scale)), max(1, round(height_pt * scale))
+        except Exception:
+            return None, None
 
     def extract_pdf(self, path, user_id, document_file_id, limits):
         reader = PdfReader(str(path))

@@ -480,6 +480,39 @@ export class SupabaseRest {
     });
   }
 
+  async listDocumentPages(userId, documentFileId, { limit = 40, pageStart = null, pageEnd = null, signal } = {}) {
+    return this.request("document_pages", {
+      query: {
+        user_id: `eq.${userId}`,
+        document_file_id: `eq.${documentFileId}`,
+        ...(pageStart ? { page_number: `gte.${pageStart}` } : {}),
+        ...(pageEnd ? { and: `(page_number.lte.${pageEnd})` } : {}),
+        select: "id,document_file_id,page_number,source_label,image_key,image_content_type,width_px,height_px,text,metadata",
+        order: "page_number.asc",
+        limit: String(limit)
+      },
+      signal
+    });
+  }
+
+  async searchDocumentPages({ userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
+    return this.rpc("smartyfy_search_document_pages", {
+      p_user_id: userId,
+      p_document_ids: documentFileIds,
+      p_query_embedding: queryEmbedding,
+      p_limit: limit
+    }, { signal });
+  }
+
+  async deleteAttachment(userId, attachmentId, { signal } = {}) {
+    return this.request("attachments", {
+      method: "DELETE",
+      query: { id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
+      prefer: "return=minimal",
+      signal
+    });
+  }
+
   async searchDocumentChunks({ userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
     return this.rpc("smartyfy_search_document_chunks", {
       p_user_id: userId,

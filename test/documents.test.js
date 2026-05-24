@@ -142,7 +142,7 @@ test("DocumentService searches ready document chunks and returns document citati
         attachment_id: attachmentId,
         conversation_id: conversationId,
         processing_status: "ready",
-        kind: "pdf",
+        kind: "docx",
         version_no: 1,
         attachments: { file_name: "Contract.pdf" }
       }];
@@ -171,6 +171,60 @@ test("DocumentService searches ready document chunks and returns document citati
   assert.equal(result.citations[0].type, "document");
   assert.equal(result.citations[0].url, `/api/attachments/${attachmentId}/download`);
   assert.equal(result.citations[0].page, 4);
+});
+
+test("DocumentService searches visual PDF pages and returns page image context", async () => {
+  const db = {
+    async consumeDocuments() {
+      return { allowed: true };
+    },
+    async listReadyDocumentFiles() {
+      return [{
+        id: documentFileId,
+        attachment_id: attachmentId,
+        conversation_id: conversationId,
+        processing_status: "ready",
+        kind: "pdf",
+        version_no: 1,
+        page_count: 5,
+        attachments: { file_name: "Homework.pdf" }
+      }];
+    },
+    async listDocumentPages(_userId, docId) {
+      assert.equal(docId, documentFileId);
+      return [{
+        id: "page_1",
+        document_file_id: documentFileId,
+        page_number: 1,
+        source_label: "Page 1",
+        image_key: "users/user/documents/doc/pages/page-0001.jpg",
+        image_content_type: "image/jpeg",
+        text: "",
+        metadata: { page: 1 }
+      }];
+    }
+  };
+
+  const service = new DocumentService({
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    db,
+    r2: {
+      readUrl(key) {
+        return `https://signed.example/${key}`;
+      }
+    },
+    userId,
+    conversationId,
+    plan: { id: "pro", dailyDocumentToolLimit: 10, dailyGeneratedDocumentLimit: 2 },
+    signal: new AbortController().signal
+  });
+
+  const result = await service.search({ query: "solve q1", maxResults: 2 });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.results[0].source_type, "page_image");
+  assert.equal(result.visualPages[0].url, "https://signed.example/users/user/documents/doc/pages/page-0001.jpg");
+  assert.equal(result.citations[0].page, 1);
 });
 
 test("DocumentService hides internal preview exports from automatic ready documents", async () => {

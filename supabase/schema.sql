@@ -150,6 +150,30 @@ alter table public.document_chunks
   add column if not exists tsv tsvector
     generated always as (to_tsvector('simple', coalesce(text, ''))) stored;
 
+create schema if not exists extensions;
+create extension if not exists vector with schema extensions;
+
+create table if not exists public.document_pages (
+  id uuid primary key default gen_random_uuid(),
+  document_file_id uuid not null references public.document_files(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  page_number integer not null,
+  source_label text not null,
+  image_key text not null,
+  image_content_type text not null default 'image/jpeg',
+  width_px integer,
+  height_px integer,
+  text text not null default '',
+  char_count integer not null default 0,
+  token_estimate integer not null default 0,
+  embedding extensions.vector(768),
+  embedding_model text,
+  embedding_dimensions integer,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (document_file_id, page_number)
+);
+
 create table if not exists public.document_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -274,6 +298,9 @@ create index if not exists attachments_user_category_idx on public.attachments (
 create index if not exists document_chunks_tsv_idx on public.document_chunks using gin (tsv);
 create index if not exists document_chunks_doc_idx on public.document_chunks (document_file_id, chunk_index);
 create index if not exists document_chunks_user_doc_idx on public.document_chunks (user_id, document_file_id);
+create index if not exists document_pages_doc_idx on public.document_pages (document_file_id, page_number);
+create index if not exists document_pages_user_doc_idx on public.document_pages (user_id, document_file_id);
+create index if not exists document_pages_embedding_hnsw_idx on public.document_pages using hnsw (embedding extensions.vector_cosine_ops) where embedding is not null;
 create index if not exists document_files_attachment_idx on public.document_files (attachment_id);
 create index if not exists document_files_user_status_idx on public.document_files (user_id, processing_status);
 create index if not exists document_files_conversation_status_idx on public.document_files (conversation_id, processing_status);
@@ -283,8 +310,8 @@ create index if not exists document_jobs_user_status_idx on public.document_jobs
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
-grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_jobs, public.usage_daily, public.usage_monthly to authenticated;
-grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_jobs, public.usage_daily, public.usage_monthly, public.usage_events, public.model_cache, public.search_cache to service_role;
+grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_daily, public.usage_monthly to authenticated;
+grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_daily, public.usage_monthly, public.usage_events, public.model_cache, public.search_cache to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.plans enable row level security;
@@ -294,6 +321,7 @@ alter table public.messages enable row level security;
 alter table public.attachments enable row level security;
 alter table public.document_files enable row level security;
 alter table public.document_chunks enable row level security;
+alter table public.document_pages enable row level security;
 alter table public.document_jobs enable row level security;
 alter table public.usage_daily enable row level security;
 alter table public.usage_monthly enable row level security;
@@ -308,6 +336,7 @@ drop policy if exists "messages read own" on public.messages;
 drop policy if exists "attachments read own" on public.attachments;
 drop policy if exists "document files read own" on public.document_files;
 drop policy if exists "document chunks read own" on public.document_chunks;
+drop policy if exists "document pages read own" on public.document_pages;
 drop policy if exists "document jobs read own" on public.document_jobs;
 drop policy if exists "usage daily read own" on public.usage_daily;
 drop policy if exists "usage monthly read own" on public.usage_monthly;
@@ -320,6 +349,7 @@ create policy "messages read own" on public.messages for select using (auth.uid(
 create policy "attachments read own" on public.attachments for select using (auth.uid() = user_id);
 create policy "document files read own" on public.document_files for select using (auth.uid() = user_id);
 create policy "document chunks read own" on public.document_chunks for select using (auth.uid() = user_id);
+create policy "document pages read own" on public.document_pages for select using (auth.uid() = user_id);
 create policy "document jobs read own" on public.document_jobs for select using (auth.uid() = user_id);
 create policy "usage daily read own" on public.usage_daily for select using (auth.uid() = user_id);
 create policy "usage monthly read own" on public.usage_monthly for select using (auth.uid() = user_id);
@@ -624,3 +654,77 @@ end;
 $$;
 
 grant execute on function public.smartyfy_search_document_chunks(uuid, uuid[], text, integer) to service_role;
+
+create or replace function public.smartyfy_search_document_pages(
+  p_user_id uuid,
+  p_document_ids uuid[],
+  p_query_embedding text,
+  p_limit integer default 8
+) returns table (
+  id uuid,
+  document_file_id uuid,
+  page_number integer,
+  source_label text,
+  image_key text,
+  image_content_type text,
+  width_px integer,
+  height_px integer,
+  text text,
+  metadata jsonb,
+  distance real
+)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_limit integer := greatest(least(coalesce(p_limit, 8), 40), 1);
+  v_embedding extensions.vector(768);
+begin
+  if trim(coalesce(p_query_embedding, '')) = '' then
+    return query
+    select
+      p.id,
+      p.document_file_id,
+      p.page_number,
+      p.source_label,
+      p.image_key,
+      p.image_content_type,
+      p.width_px,
+      p.height_px,
+      p.text,
+      p.metadata,
+      0::real as distance
+    from public.document_pages p
+    where p.user_id = p_user_id
+      and (p_document_ids is null or cardinality(p_document_ids) = 0 or p.document_file_id = any(p_document_ids))
+    order by p.document_file_id, p.page_number
+    limit v_limit;
+    return;
+  end if;
+
+  v_embedding := p_query_embedding::extensions.vector;
+
+  return query
+  select
+    p.id,
+    p.document_file_id,
+    p.page_number,
+    p.source_label,
+    p.image_key,
+    p.image_content_type,
+    p.width_px,
+    p.height_px,
+    p.text,
+    p.metadata,
+    (p.embedding <=> v_embedding)::real as distance
+  from public.document_pages p
+  where p.user_id = p_user_id
+    and p.embedding is not null
+    and (p_document_ids is null or cardinality(p_document_ids) = 0 or p.document_file_id = any(p_document_ids))
+  order by p.embedding <=> v_embedding, p.document_file_id, p.page_number
+  limit v_limit;
+end;
+$$;
+
+grant execute on function public.smartyfy_search_document_pages(uuid, uuid[], text, integer) to service_role;

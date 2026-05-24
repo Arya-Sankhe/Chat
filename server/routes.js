@@ -236,7 +236,8 @@ async function queueDocumentExtraction({ context, attachment, config, signal }) 
         max_xlsx_cells: config.documents.maxXlsxCells,
         max_csv_rows: config.documents.maxCsvRows,
         max_csv_columns: config.documents.maxCsvColumns,
-        max_extracted_chars: config.documents.maxExtractedChars
+        max_extracted_chars: config.documents.maxExtractedChars,
+        visual_page_dpi: config.documents.visualPageDpi
       }
     }
   }, { signal });
@@ -441,6 +442,21 @@ async function handleAttachmentView(req, res, config, attachmentId) {
   });
 }
 
+async function handleAttachmentDelete(req, res, config, attachmentId) {
+  if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
+  if (!attachment) throw new HttpError(404, "Attachment not found.");
+  if (attachment.conversation_id || attachment.message_id) {
+    throw new HttpError(409, "Attached chat files can only be removed by deleting the message or chat.");
+  }
+
+  const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
+  await context.r2.deleteObjects(keys, { signal: req.signal });
+  await context.db.deleteAttachment(context.user.id, attachment.id, { signal: req.signal });
+  sendJson(res, 200, { deleted: true });
+}
+
 async function handleDocumentStatus(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -456,6 +472,9 @@ async function handleDocumentStatus(req, res, config, attachmentId) {
       wordCount: doc.word_count,
       sheetCount: doc.sheet_count,
       usedCellCount: doc.used_cell_count,
+      progress: Number(doc.metadata?.progress || (doc.processing_status === "ready" ? 100 : 0)) || 0,
+      stage: doc.metadata?.stage || "",
+      mode: doc.metadata?.mode || "",
       error: doc.error || null,
       versionNo: doc.version_no,
       sourceEtag: doc.source_etag
@@ -499,6 +518,28 @@ async function handleDocumentJobStatus(req, res, config, jobId) {
   });
 }
 
+async function attachmentStorageKeys(context, attachment, config, signal) {
+  const keys = [attachment.object_key];
+  const doc = attachment.category === "document"
+    ? await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal }).catch(() => null)
+    : null;
+  if (!doc) return keys;
+  if (doc.extraction_key) keys.push(doc.extraction_key);
+  if (doc.preview_key) keys.push(doc.preview_key);
+  const pages = await context.db.listDocumentPages(context.user.id, doc.id, {
+    limit: config.documents.maxPdfPages,
+    signal
+  }).catch(() => []);
+  keys.push(...pages.map((page) => page.image_key));
+  if (doc.kind === "pdf") {
+    const maxPages = Number(doc.page_count || doc.metadata?.page_count || config.documents.maxPdfPages || 100);
+    for (let page = 1; page <= Math.min(Math.max(maxPages, 0), config.documents.maxPdfPages); page += 1) {
+      keys.push(`users/${context.user.id}/documents/${doc.id}/pages/page-${String(page).padStart(4, "0")}.jpg`);
+    }
+  }
+  return keys;
+}
+
 async function handleConversations(req, res, config) {
   const context = await requireChatContext(req, config);
   if (req.method === "GET") {
@@ -536,7 +577,11 @@ async function handleConversationById(req, res, config, conversationId) {
 
   if (req.method === "DELETE") {
     const attachments = await context.db.listConversationAttachments(context.user.id, conversation.id, { signal: req.signal });
-    await context.r2.deleteObjects(attachments.map((attachment) => attachment.object_key), { signal: req.signal });
+    const keys = [];
+    for (const attachment of attachments) {
+      keys.push(...await attachmentStorageKeys(context, attachment, config, req.signal));
+    }
+    await context.r2.deleteObjects(keys, { signal: req.signal });
     await context.db.deleteConversation(context.user.id, conversation.id, { signal: req.signal });
     sendJson(res, 200, { deleted: true, deletedImages: attachments.length });
     return;
@@ -550,7 +595,11 @@ async function handleMessageById(req, res, config, messageId) {
 
   const context = await requireChatContext(req, config);
   const attachments = await context.db.listMessageAttachments(context.user.id, messageId, { signal: req.signal });
-  await context.r2.deleteObjects(attachments.map((attachment) => attachment.object_key), { signal: req.signal });
+  const keys = [];
+  for (const attachment of attachments) {
+    keys.push(...await attachmentStorageKeys(context, attachment, config, req.signal));
+  }
+  await context.r2.deleteObjects(keys, { signal: req.signal });
 
   const message = await context.db.deleteMessage(context.user.id, messageId, { signal: req.signal });
   if (!message) throw new HttpError(404, "Message not found.");
@@ -567,6 +616,12 @@ async function loadUploadedAttachments(context, attachmentIds, req, plan) {
     const attachment = await context.db.getAttachment(context.user.id, id, { signal: req.signal });
     if (!attachment || attachment.status !== "uploaded") {
       throw new HttpError(400, "One of the selected uploads is not ready.");
+    }
+    if (attachment.category === "document") {
+      const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
+      if (!doc || doc.processing_status !== "ready") {
+        throw new HttpError(409, `${attachment.file_name || "Document"} is still processing.`);
+      }
     }
     attachments.push(attachment);
   }
@@ -1627,6 +1682,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
           signal: controller.signal,
           websearch,
           documents,
+          visualDocuments: modelSupportsVision(chatRequest.model),
           onUpstreamEvent: (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); },
           onToolEvent: (event) => { writeSse(res, event); }
         })
@@ -1788,6 +1844,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "view") {
       await handleAttachmentView(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && !parts[3] && req.method === "DELETE") {
+      await handleAttachmentDelete(req, res, config, parts[2]);
       return;
     }
 
