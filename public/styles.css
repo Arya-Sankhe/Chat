@@ -22,6 +22,12 @@
   --content-max: 1040px;
   --composer-max: 1040px;
   --transition: 180ms ease;
+  --code-bg: #f6f8fa;
+  --code-header-bg: #eef1f4;
+  --code-border: #e5e7eb;
+  --code-text: #24292f;
+  --code-inline-bg: #fce8ef;
+  --code-inline-text: #9b2335;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -662,9 +668,11 @@ body.document-viewer-resizing {
 
 .code-block-wrap {
   margin: 12px 0;
-  border-radius: var(--radius);
+  border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #2d2d2d;
+  border: 1px solid var(--code-border);
+  background: var(--code-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .code-block-header {
@@ -672,15 +680,16 @@ body.document-viewer-resizing {
   align-items: center;
   justify-content: space-between;
   padding: 6px 12px;
-  background: #2d2d2d;
+  background: var(--code-header-bg);
+  border-bottom: 1px solid var(--code-border);
   min-height: 34px;
 }
 
 .code-block-lang {
   font-size: 12px;
-  font-weight: 600;
-  color: #999;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   text-transform: lowercase;
 }
 
@@ -692,28 +701,29 @@ body.document-viewer-resizing {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  color: #aaa;
+  color: var(--text-secondary);
   background: transparent;
   transition: background var(--transition), color var(--transition);
 }
 
 .code-copy-btn:hover {
-  background: #3d3d3d;
-  color: #ddd;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
 }
 
 .message-content pre {
   overflow-x: auto;
   padding: 14px 16px;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--code-bg);
+  color: var(--code-text);
   font-size: 14px;
   margin: 0;
   border-radius: 0;
 }
 
 .message-content pre:not(.code-block-wrap pre) {
-  border-radius: var(--radius);
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
   margin: 12px 0;
 }
 
@@ -723,7 +733,8 @@ body.document-viewer-resizing {
 }
 
 .message-content :not(pre) > code {
-  background: var(--bg-secondary);
+  background: var(--code-inline-bg);
+  color: var(--code-inline-text);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 14px;
