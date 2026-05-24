@@ -298,9 +298,7 @@ export function modelBrandLogoUrl(model) {
 
 function isSelectorExcludedModel(model) {
   const t = `${model.id} ${model.rawName}`.toLowerCase();
-  if (t.includes("gemma")) return true;
-  if (t.includes("greg")) return true;
-  return false;
+  return t.includes("gemma");
 }
 
 function modelHaystack(model) {
@@ -363,7 +361,7 @@ export function formatModelMeta(model) {
   return meta;
 }
 
-const VISION_HINT = /\bvision\b|multimodal|gpt-4o|gpt-4\.1|gemini|claude-3|qwen-vl|qwen2-vl|qwen3-vl|llava|pixtral|kimi|moonshot/i;
+const VISION_HINT = /\bvision\b|multimodal|gpt-4o|gpt-4\.1|gemini|claude-3|qwen-vl|qwen2-vl|qwen3-vl|llava|pixtral|kimi|moonshot|\bgreg\b/i;
 
 export function modelSupportsVision(model) {
   const haystack = `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`.trim().toLowerCase();
@@ -375,7 +373,9 @@ export function inferModelBadges(model) {
   const badges = [];
 
   if (modelSupportsVision(model) || text.includes("vision")) badges.push("vision");
-  if (text.includes("thinking") || text.includes("reasoning") || text.includes("deepseek")) badges.push("reasoning");
+  if (text.includes("thinking") || text.includes("reasoning") || text.includes("deepseek") || /\bgreg\b/.test(text)) {
+    badges.push("reasoning");
+  }
   if (text.includes("turbo")) badges.push("turbo");
   if (text.includes("free") || Number(model?.pricing?.prompt) === 0 || Number(model?.pricing?.completion) === 0) badges.push("free");
 

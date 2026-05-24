@@ -77,16 +77,21 @@ test("compactModelDisplayName keeps text after first colon only", () => {
   assert.equal(compactModelDisplayName("deepseek-v3.2"), "deepseek-v3.2");
 });
 
-test("normalizeModelList drops gemma and greg models from the selector list", () => {
+test("normalizeModelList drops gemma models from the selector list", () => {
   const models = normalizeModelList({
     data: [
       { id: "deepseek-v3.2", name: "DeepSeek: DeepSeek V3.2" },
       { id: "google/gemma-2-9b", name: "Google: Gemma 2 9B" },
-      { id: "some-greg-test", name: "Vendor: Greg Pro" }
+      { id: "greg", name: "Crof: Greg" }
     ]
   });
-  assert.equal(models.length, 1);
-  assert.equal(models[0].id, "deepseek-v3.2");
+  assert.equal(models.length, 2);
+  assert.deepEqual(models.map((model) => model.id), ["deepseek-v3.2", "greg"]);
+  assert.equal(models[1].name, "Greg");
+});
+
+test("inferModelBadges marks greg as reasoning and vision-capable", () => {
+  assert.deepEqual(inferModelBadges({ id: "greg", name: "Greg" }), ["vision", "reasoning"]);
 });
 
 test("modelBrandLogoUrl maps known vendors to bundled SVG paths", () => {
