@@ -29,6 +29,7 @@ import {
   imageCountFromContent,
   normalizeMessageSettings,
   pipeProviderStreamAndAccumulate,
+  reasoningDurationMetadata,
   streamProviderAndAccumulate,
   titleFromText
 } from "./saas/messages.js";
@@ -995,11 +996,13 @@ async function handleCouncilConversationMessage({
       if (!hasAssistantOutput(accumulated)) throw new HttpError(502, "Smartyfy returned an empty response.");
       entry.accumulated = accumulated;
 
+      const durationMeta = reasoningDurationMetadata(entry.message.metadata, accumulated);
       await context.db.updateMessage(context.user.id, entry.message.id, {
         content: accumulated.content,
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
-        finish_reason: accumulated.finishReason || null
+        finish_reason: accumulated.finishReason || null,
+        ...(durationMeta ? { metadata: durationMeta } : {})
       }, { signal: req.signal });
 
       writeSse(res, { type: "done", index, model: entry.chatRequest.model });
@@ -1041,7 +1044,12 @@ async function handleCouncilConversationMessage({
       const hasBallot = Boolean(bordaRow && bordaRow.ballotCount > 0);
       const webMeta = sharedWebsearchMetadata(sharedSearch);
       const documentMeta = sharedDocumentMetadata(documentSearch);
+      const panelEntry = panelistResults.find((entry) => entry.message.id === panelist.assistantMessageId);
+      const durationMeta = panelEntry?.accumulated
+        ? reasoningDurationMetadata(panelEntry.message.metadata, panelEntry.accumulated)
+        : null;
       const meta = {
+        ...(durationMeta || {}),
         ...(webMeta ? { websearch: webMeta } : {}),
         ...(documentMeta ? { documents: documentMeta } : {}),
         council: {
@@ -1207,11 +1215,13 @@ async function handleCouncilConversationMessage({
       throw new HttpError(502, "Chairman returned an empty response.");
     }
 
+    const chairmanDurationMeta = reasoningDurationMetadata(chairmanMessage.metadata, accumulated);
     await context.db.updateMessage(context.user.id, chairmanMessage.id, {
       content: accumulated.content,
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
-      finish_reason: accumulated.finishReason || null
+      finish_reason: accumulated.finishReason || null,
+      ...(chairmanDurationMeta ? { metadata: chairmanDurationMeta } : {})
     }, { signal: req.signal });
 
     writeSse(res, { type: "council:chairman:done", chairmanModel });
@@ -1324,11 +1334,13 @@ async function handleCompareConversationMessage({
         throw new HttpError(502, "Smartyfy returned an empty response.");
       }
 
+      const compareDurationMeta = reasoningDurationMetadata(null, accumulated);
       await context.db.updateMessage(context.user.id, assistantMessage.id, {
         content: accumulated.content,
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
-        finish_reason: accumulated.finishReason || null
+        finish_reason: accumulated.finishReason || null,
+        ...(compareDurationMeta ? { metadata: compareDurationMeta } : {})
       }, { signal: req.signal });
 
       writeSse(res, { type: "done", index, model: chatRequest.model });
@@ -1659,12 +1671,13 @@ async function handleConversationMessage(req, res, config, conversationId) {
         }
       : null;
 
+    const finalMetadata = reasoningDurationMetadata(metadataPatch, accumulated);
     await context.db.updateMessage(context.user.id, assistantMessage.id, {
       content: accumulated.content,
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
-      ...(metadataPatch ? { metadata: metadataPatch } : {})
+      ...(finalMetadata ? { metadata: finalMetadata } : {})
     }, { signal: req.signal });
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
     res.end();

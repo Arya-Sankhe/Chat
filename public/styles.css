@@ -974,6 +974,11 @@ body.document-viewer-resizing {
   list-style: none;
 }
 
+.reasoning.is-done summary {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
 .reasoning div {
   padding: 0 14px 14px;
   color: var(--text-secondary);

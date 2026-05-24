@@ -203,15 +203,42 @@ export async function buildProviderMessages({ messages, systemPrompt, r2, imageD
   return providerMessages;
 }
 
+function markReasoningStarted(message) {
+  if (!message.reasoningStartedAt) message.reasoningStartedAt = Date.now();
+}
+
+function markReasoningEnded(message) {
+  if (message.reasoningStartedAt && !message.reasoningEndedAt) {
+    message.reasoningEndedAt = Date.now();
+  }
+}
+
+export function resolveReasoningDurationMs(message) {
+  const stored = message?.metadata?.reasoningDurationMs ?? message?.reasoningDurationMs;
+  if (stored != null && Number.isFinite(Number(stored))) return Math.max(0, Number(stored));
+  if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
+    return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
+  }
+  return null;
+}
+
+export function reasoningDurationMetadata(existingMetadata, accumulated) {
+  const ms = resolveReasoningDurationMs(accumulated);
+  if (ms == null) return existingMetadata;
+  return { ...(existingMetadata || {}), reasoningDurationMs: ms };
+}
+
 export function applyStreamEvent(message, event) {
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
 
-  if (typeof delta.reasoning_content === "string") {
+  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+    markReasoningStarted(message);
     message.reasoning += delta.reasoning_content;
   }
 
-  if (typeof delta.content === "string") {
+  if (typeof delta.content === "string" && delta.content) {
+    markReasoningEnded(message);
     message.content += delta.content;
   }
 
@@ -232,7 +259,10 @@ export function applyStreamEvent(message, event) {
     }
   }
 
-  if (choice?.finish_reason) message.finishReason = choice.finish_reason;
+  if (choice?.finish_reason) {
+    message.finishReason = choice.finish_reason;
+    markReasoningEnded(message);
+  }
 }
 
 function parseSseEvents(buffer, onEvent) {

@@ -789,6 +789,37 @@ function isAssistantMessageStreaming(message) {
   return Boolean(message?.id);
 }
 
+function resolveReasoningDurationMs(message) {
+  const stored = message?.metadata?.reasoningDurationMs ?? message?.reasoningDurationMs;
+  if (stored != null && Number.isFinite(Number(stored))) return Math.max(0, Number(stored));
+  if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
+    return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
+  }
+  return null;
+}
+
+function markReasoningStarted(message) {
+  if (!message.reasoningStartedAt) message.reasoningStartedAt = Date.now();
+}
+
+function markReasoningEnded(message) {
+  if (message.reasoningStartedAt && !message.reasoningEndedAt) {
+    message.reasoningEndedAt = Date.now();
+  }
+}
+
+function reasoningSummaryLabel(message, { streaming = false } = {}) {
+  const stillThinking = streaming && !message?.finishReason && !message?.reasoningEndedAt;
+  if (stillThinking) return "Thinking";
+
+  const ms = resolveReasoningDurationMs(message);
+  if (ms != null) {
+    const seconds = Math.max(1, Math.round(ms / 1000));
+    return `Thought for ${seconds}s`;
+  }
+  return "Thought";
+}
+
 function renderReasoning(message, { streaming = false } = {}) {
   const text = String(message?.reasoning || "");
   const hasReasoning = text.trim().length > 0;
@@ -798,10 +829,13 @@ function renderReasoning(message, { streaming = false } = {}) {
   const shouldOpen = messageId && reasoningOpenIds.has(messageId);
   const openAttr = shouldOpen ? " open" : "";
   const idAttr = messageId ? ` data-message-id="${escapeHtml(messageId)}"` : "";
-  const streamingClass = streaming ? " is-streaming" : "";
+  const stillThinking = streaming && !message?.finishReason && !message?.reasoningEndedAt;
+  const streamingClass = stillThinking ? " is-streaming" : "";
+  const doneClass = !stillThinking && (hasReasoning || message?.reasoningEndedAt) ? " is-done" : "";
   const body = hasReasoning ? renderContent(text) : "";
+  const summary = reasoningSummaryLabel(message, { streaming });
 
-  return `<details class="reasoning${streamingClass}"${openAttr}${idAttr}><summary>Thinking</summary><div>${body}</div></details>`;
+  return `<details class="reasoning${streamingClass}${doneClass}"${openAttr}${idAttr}><summary>${escapeHtml(summary)}</summary><div>${body}</div></details>`;
 }
 
 function renderToolCalls() {
@@ -2029,11 +2063,13 @@ function applyStreamEvent(message, event) {
   if (event?.type === "error") {
     message.error = event.error || "Model request failed.";
     message.finishReason = "error";
+    markReasoningEnded(message);
     return;
   }
 
   if (event?.type === "done") {
     message.finishReason ||= "stop";
+    markReasoningEnded(message);
     return;
   }
 
@@ -2045,8 +2081,14 @@ function applyStreamEvent(message, event) {
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
 
-  if (typeof delta.reasoning_content === "string") message.reasoning += delta.reasoning_content;
-  if (typeof delta.content === "string") message.content += delta.content;
+  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+    markReasoningStarted(message);
+    message.reasoning += delta.reasoning_content;
+  }
+  if (typeof delta.content === "string" && delta.content) {
+    markReasoningEnded(message);
+    message.content += delta.content;
+  }
 
   if (Array.isArray(delta.tool_calls)) {
     for (const callDelta of delta.tool_calls) {
@@ -2060,7 +2102,10 @@ function applyStreamEvent(message, event) {
     }
   }
 
-  if (choice?.finish_reason) message.finishReason = choice.finish_reason;
+  if (choice?.finish_reason) {
+    message.finishReason = choice.finish_reason;
+    markReasoningEnded(message);
+  }
 }
 
 function applyCompareStreamEvent(compareMessage, event) {
