@@ -88,8 +88,9 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(createPdfNoUpload.toolNames, ["create_document"]);
 
   const idle = selectDocumentSkills({ text: "thanks, that makes sense", readyDocuments });
-  assert.equal(idle.enabled, false);
-  assert.deepEqual(idle.toolNames, []);
+  assert.equal(idle.enabled, true);
+  assert.deepEqual(idle.skills, ["document-read", "pdf-read"]);
+  assert.deepEqual(idle.toolNames, ["search_document", "read_document", "extract_tables"]);
 
   /* PPT is unsupported, but read tools should still attach so the model
      can at least answer about the upload before declining the format. */
@@ -116,8 +117,11 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     text: "create a word doc about cats",
     readyDocuments
   });
-  assert.deepEqual(createAboutCats.skills, ["word-create"]);
-  assert.deepEqual(createAboutCats.toolNames, ["create_document"]);
+  assert.deepEqual(createAboutCats.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
+  assert.deepEqual(
+    createAboutCats.toolNames.sort(),
+    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+  );
 
   const solveHomework = selectDocumentSkills({
     text: "solve the homework",
@@ -139,6 +143,26 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     messageHasDocuments: true
   });
   assert.deepEqual(attachedNoKeywords.skills, ["document-read", "pdf-read"]);
+});
+
+test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the chat", () => {
+  const readyDocuments = [{
+    id: documentFileId,
+    attachment_id: attachmentId,
+    kind: "pdf",
+    page_count: 3,
+    version_no: 1,
+    attachments: { file_name: "cmp466 hw3.pdf" }
+  }];
+
+  const selection = selectDocumentSkills({ text: "hello", readyDocuments });
+  assert.deepEqual(selection.skills, ["document-read", "pdf-read"]);
+  assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
+
+  const hint = buildDocumentSystemHint({ readyDocuments, selection });
+  assert.match(hint, /PDF visual reading skill/);
+  assert.match(hint, /Inspect the images directly/);
+  assert.match(hint, /cmp466 hw3\.pdf \(pdf, 3 pages/);
 });
 
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {

@@ -60,25 +60,27 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
 
   const createFromExistingDocument = createAction
     && /\b(from|based\s+on|using)\b[\s\S]{0,60}\b(this|that|it|attached|uploaded|document|file|pdf|docx|spreadsheet|attachment|upload)\b/i.test(prompt);
-  /* When the user has uploads, attach read tools whenever they reference
-     existing documents – even if they also asked us to create something.
-     Restricting reads to !createAction blocks combined prompts like
-     "summarize this PDF and put it as a Word doc" from inspecting the
-     upload. We still keep read tools off for unrelated create prompts
-     (e.g. "create a Word doc about cats") by gating on mentionsExisting
-     in the create branch. */
-  const shouldRead = readyCount > 0 && (
-    !prompt
-    || messageHasDocuments
-    || createFromExistingDocument
-    || followUpOnDocs
-    || (readAction && (mentionsDocument || mentionsExisting || taskOnUploadedDocs))
-    || (createAction && mentionsExisting)
-  );
-  if (shouldRead) {
+
+  /* Any ready PDF in this chat always gets visual read tools and the
+     pdf-read skill so the model knows to call read_document and inspect
+     page images instead of guessing from the placeholder text. */
+  if (hasReadyPdf) {
     skills.add("document-read");
-    if (hasReadyPdf) skills.add("pdf-read");
+    skills.add("pdf-read");
     addAll(tools, READ_TOOLS);
+  } else {
+    const shouldRead = readyCount > 0 && (
+      !prompt
+      || messageHasDocuments
+      || createFromExistingDocument
+      || followUpOnDocs
+      || (readAction && (mentionsDocument || mentionsExisting || taskOnUploadedDocs))
+      || (createAction && mentionsExisting)
+    );
+    if (shouldRead) {
+      skills.add("document-read");
+      addAll(tools, READ_TOOLS);
+    }
   }
 
   if (createAction) {
@@ -192,7 +194,7 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
     ...selectedSkills.map((skill) => SKILL_TEXT[skill])
   ];
 
-  const needsReadyList = selectedSkills.some((skill) => ["document-read", "document-edit", "document-export"].includes(skill));
+  const needsReadyList = selectedSkills.some((skill) => ["document-read", "pdf-read", "document-edit", "document-export"].includes(skill));
   if (needsReadyList && readyDocuments?.length) {
     sections.push(`Ready uploaded/generated documents:\n${readyDocumentList(readyDocuments)}`);
   }
