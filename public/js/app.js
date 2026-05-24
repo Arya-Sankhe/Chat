@@ -1018,21 +1018,12 @@ function renderInlineSourcePill(sources) {
 }
 
 function injectInlineCitationPills(text, citations) {
-  if (!text || !citations?.length) return { text: String(text || ""), slots: [] };
+  if (!text || !citations?.length) return text;
 
   const byIndex = new Map();
   for (const entry of citations) {
     const idx = Number(entry.index);
     if (Number.isFinite(idx)) byIndex.set(idx, entry);
-  }
-
-  const slots = [];
-  let slotId = 0;
-  function holdPill(html) {
-    const token = `SMARTYFYSOURCEHOLD${slotId}END`;
-    slots.push({ token, html });
-    slotId += 1;
-    return token;
   }
 
   const blocks = String(text).split(/\n\n+/);
@@ -1050,18 +1041,10 @@ function injectInlineCitationPills(text, citations) {
 
     const sources = indices.map((i) => byIndex.get(i)).filter(Boolean);
     const cleaned = block.replace(/\s*\[(\d+)\]/g, "").trimEnd();
-    return `${cleaned} ${holdPill(renderInlineSourcePill(sources))}`;
+    return `${cleaned} ${renderInlineSourcePill(sources)}`;
   });
 
-  return { text: processed.join("\n\n"), slots };
-}
-
-function restoreInlineCitationPills(html, slots) {
-  let out = String(html || "");
-  for (const { token, html: pillHtml } of slots || []) {
-    out = out.replaceAll(token, pillHtml);
-  }
-  return out;
+  return processed.join("\n\n");
 }
 
 function renderAssistantContent(content, message) {
@@ -1073,21 +1056,17 @@ function renderAssistantContent(content, message) {
   if (Array.isArray(content)) {
     if (!hasContent) return "";
     if (!citations.length) return renderContent(content);
-    const slots = [];
     const enriched = content.map((part) => {
       if (part?.type !== "text") return part;
-      const injected = injectInlineCitationPills(part.text || "", citations);
-      slots.push(...injected.slots);
-      return { ...part, text: injected.text };
+      return { ...part, text: injectInlineCitationPills(part.text || "", citations) };
     });
-    return restoreInlineCitationPills(renderContent(enriched), slots);
+    return renderContent(enriched);
   }
 
   const text = typeof content === "string" ? content : "";
   if (!text.trim()) return "";
   if (!citations.length) return renderContent(text);
-  const injected = injectInlineCitationPills(text, citations);
-  return restoreInlineCitationPills(renderContent(injected.text), injected.slots);
+  return renderContent(injectInlineCitationPills(text, citations));
 }
 
 function renderCitations(message) {
