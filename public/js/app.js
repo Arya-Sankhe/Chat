@@ -846,7 +846,26 @@ function renderToolCalls() {
 }
 
 function renderMessageError(message) {
-  return message.error ? `<div class="message-error">${escapeHtml(message.error)}</div>` : "";
+  if (!message.error) return "";
+  const retry = message.error === "Stopped by user." ? "" : renderMessageRetry(message);
+  return `<div class="message-error"><span>${escapeHtml(message.error)}</span>${retry}</div>`;
+}
+
+function canRetryAssistant(message) {
+  if (state.running) return false;
+  if (message?.councilGroup || message?.compareGroup) return false;
+  const id = message?.id ? String(message.id) : "";
+  if (!id || id.startsWith("local_")) return false;
+  if (message.error) return message.error !== "Stopped by user.";
+  const hasFinal = String(message.content || "").trim()
+    || (Array.isArray(message.toolCalls) && message.toolCalls.length)
+    || artifactListFromMessage(message).length;
+  return !message.stopped && !hasFinal;
+}
+
+function renderMessageRetry(message) {
+  if (!canRetryAssistant(message)) return "";
+  return `<button class="message-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}">Retry</button>`;
 }
 
 function renderToolStatuses() {
@@ -1616,7 +1635,7 @@ function renderMissingFinal(message, role) {
     || (Array.isArray(message.toolCalls) && message.toolCalls.length)
     || artifactListFromMessage(message).length;
   if (role !== "assistant" || state.running || message.error || message.stopped || hasFinal) return "";
-  return `<div class="message-error">No final response was saved.</div>`;
+  return `<div class="message-error"><span>No final response was saved.</span>${renderMessageRetry(message)}</div>`;
 }
 
 function rawTextContent(content) {
@@ -2513,6 +2532,62 @@ async function waitForDocumentReady(attachmentId, fileName) {
   throw new Error(`${fileName || "Document"} is still processing. Try again in a moment.`);
 }
 
+async function retryFailedAssistant(assistantMessageId) {
+  if (state.running || !state.activeConversationId || !assistantMessageId) return;
+
+  const index = state.messages.findIndex((message) => message.id === assistantMessageId);
+  if (index <= 0) return;
+
+  const failed = state.messages[index];
+  const userMsg = state.messages[index - 1];
+  if (failed?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(failed)) return;
+
+  const localAssistant = {
+    id: `local_assistant_${Date.now()}`,
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
+  state.messages[index] = localAssistant;
+
+  state.abortController = new AbortController();
+  state.autoScroll = true;
+  setRunning(true);
+  renderMessages();
+
+  try {
+    await streamConversationMessage(state.session, state.activeConversationId, {
+      retryAssistantMessageId: assistantMessageId,
+      model: state.settings.model,
+      settings: {
+        ...state.settings,
+        reasoning_effort: state.settings.thinkingEffort || "medium"
+      },
+      webSearch: state.settings.webSearchMode === "off" ? "off" : "auto"
+    }, {
+      signal: state.abortController.signal,
+      onEvent: (event) => {
+        applyStreamEvent(localAssistant, event);
+        queueRenderMessages();
+      }
+    });
+
+    await Promise.all([loadMe(), loadConversations({ ensure: false })]);
+    await loadActiveConversation();
+  } catch (err) {
+    if (err.name === "AbortError") {
+      localAssistant.stopped = true;
+    } else {
+      localAssistant.error = err.message;
+    }
+  } finally {
+    state.abortController = null;
+    setRunning(false);
+    renderShell();
+  }
+}
+
 async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false }) {
   closeCompareContextBanner();
 
@@ -3041,6 +3116,15 @@ function bindEvents() {
       }).catch(() => showToast("Copy failed."));
       return;
     }
+
+    const retryBtn = e.target.closest("[data-retry-assistant-id]");
+    if (retryBtn) {
+      e.preventDefault();
+      const assistantId = retryBtn.dataset.retryAssistantId || "";
+      if (assistantId) retryFailedAssistant(assistantId).catch((err) => showToast(err.message || "Retry failed."));
+      return;
+    }
+
     const msgCopy = e.target.closest("[data-copy-msg]");
     if (msgCopy) {
       const container = msgCopy.closest("[data-raw-text]");

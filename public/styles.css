@@ -1046,9 +1046,35 @@ body.document-viewer-resizing {
 }
 
 .message-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   color: var(--danger);
   background: #fef2f2;
   border: 1px solid #fecaca;
+}
+
+.message-retry-btn {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #fca5a5;
+  background: #fff;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.message-retry-btn:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.message-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .message-note {

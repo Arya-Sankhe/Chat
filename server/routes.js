@@ -642,6 +642,44 @@ async function loadUploadedAttachments(context, attachmentIds, req, plan) {
   return attachments;
 }
 
+function assistantMessageHasOutput(message) {
+  return Boolean(
+    String(message?.content || "").trim()
+    || (Array.isArray(message?.tool_calls) && message.tool_calls.length)
+  );
+}
+
+async function resolveMessageRetry({ db, userId, conversationId, retryAssistantMessageId, signal }) {
+  const id = String(retryAssistantMessageId || "").trim();
+  if (!id) return null;
+
+  const existingMessages = await db.listMessages(userId, conversationId, { signal });
+  const failedIdx = existingMessages.findIndex((message) => message.id === id);
+  if (failedIdx < 0) throw new HttpError(404, "Assistant message was not found.");
+
+  const failedAssistant = existingMessages[failedIdx];
+  if (failedAssistant.role !== "assistant") throw new HttpError(400, "Retry target must be an assistant message.");
+  if (assistantMessageHasOutput(failedAssistant) && !failedAssistant.error) {
+    throw new HttpError(400, "Only failed or empty assistant messages can be retried.");
+  }
+
+  const userMessage = existingMessages[failedIdx - 1];
+  if (!userMessage || userMessage.role !== "user") {
+    throw new HttpError(400, "Could not find the user message to retry.");
+  }
+
+  await db.deleteMessage(userId, id, { signal });
+  const trimmedMessages = existingMessages.filter((message) => message.id !== id);
+  const attachmentRows = await db.listMessageAttachments(userId, userMessage.id, { signal });
+
+  return {
+    existingMessages: trimmedMessages,
+    userMessage,
+    userContent: userMessage.content,
+    attachmentIds: attachmentRows.map((attachment) => attachment.id)
+  };
+}
+
 function normalizeCompareModels(value) {
   if (!Array.isArray(value)) return [];
 
@@ -1422,11 +1460,40 @@ async function handleConversationMessage(req, res, config, conversationId) {
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");
 
-  const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
-  let userContent = buildStoredUserContent(body.text, attachments);
-  const imageCount = imageCountFromContent(userContent);
   const compareModels = normalizeCompareModels(body.models);
   const councilEnabled = normalizeCouncilFlag(body.council);
+  const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
+    ? body.retryAssistantMessageId.trim()
+    : "";
+  if (retryAssistantMessageId && (compareModels.length || councilEnabled)) {
+    throw new HttpError(400, "Retry is not supported for compare or council chats yet.");
+  }
+
+  let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+  let userMessage = null;
+  let userContent;
+  let attachments = [];
+  let isRetry = false;
+
+  if (retryAssistantMessageId) {
+    isRetry = true;
+    const retryContext = await resolveMessageRetry({
+      db: context.db,
+      userId: context.user.id,
+      conversationId: conversation.id,
+      retryAssistantMessageId,
+      signal: req.signal
+    });
+    existingMessages = retryContext.existingMessages;
+    userMessage = retryContext.userMessage;
+    userContent = retryContext.userContent;
+    attachments = await loadUploadedAttachments(context, retryContext.attachmentIds, req, context.plan);
+  } else {
+    attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
+    userContent = buildStoredUserContent(body.text, attachments);
+  }
+
+  const imageCount = imageCountFromContent(userContent);
   if (councilEnabled) {
     if (compareModels.length < COUNCIL_MIN_MODELS) {
       throw new HttpError(400, `Pick at least ${COUNCIL_MIN_MODELS} models for the council.`);
@@ -1444,8 +1511,9 @@ async function handleConversationMessage(req, res, config, conversationId) {
     imageCount,
     signal: req.signal
   });
-  let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-  let historyMessages = [...existingMessages, { role: "user", content: userContent }];
+  let historyMessages = isRetry
+    ? [...existingMessages]
+    : [...existingMessages, { role: "user", content: userContent }];
   const compareNeedsImageDescribe = compareModels.length > 0
     && messagesHaveImages(historyMessages)
     && compareModels.some((model) => !modelSupportsVision(model));
@@ -1529,23 +1597,25 @@ async function handleConversationMessage(req, res, config, conversationId) {
         ...settings
       })];
 
-  const userMessage = await context.db.insertMessage({
-    user_id: context.user.id,
-    conversation_id: conversation.id,
-    role: "user",
-    content: userContent
-  }, { signal: req.signal });
-
-  for (const attachment of attachments) {
-    await context.db.updateAttachment(context.user.id, attachment.id, {
+  if (!isRetry) {
+    userMessage = await context.db.insertMessage({
+      user_id: context.user.id,
       conversation_id: conversation.id,
-      message_id: userMessage.id
+      role: "user",
+      content: userContent
     }, { signal: req.signal });
-    if (attachment.category === "document") {
-      await context.db.updateDocumentFileByAttachment(context.user.id, attachment.id, {
+
+    for (const attachment of attachments) {
+      await context.db.updateAttachment(context.user.id, attachment.id, {
         conversation_id: conversation.id,
         message_id: userMessage.id
-      }, { signal: req.signal }).catch(() => {});
+      }, { signal: req.signal });
+      if (attachment.category === "document") {
+        await context.db.updateDocumentFileByAttachment(context.user.id, attachment.id, {
+          conversation_id: conversation.id,
+          message_id: userMessage.id
+        }, { signal: req.signal }).catch(() => {});
+      }
     }
   }
 
