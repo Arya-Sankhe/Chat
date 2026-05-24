@@ -51,8 +51,17 @@ function restoreCodeSpans(text, slots) {
 function isLikelySingleDollarMath(tex) {
   const t = String(tex ?? "").trim();
   if (!t || t.length > 240) return false;
+  // Prices and bare numbers: $5, $10.50
   if (/^\d+(?:[.,]\d+)?(?:\s|$)/.test(t)) return false;
-  return /\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t);
+  // LaTeX commands, subscripts, operators, common math symbols
+  if (/\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t)) return true;
+  // Function calls: f(1), f(1.2), g(x, y), sin(x)
+  if (/^[a-zA-Z]+(?:\([^)]*\))+/.test(t)) return true;
+  // Parenthesized numeric values: (1), (1.2), (0.8)
+  if (/^\([^)]+\)$/.test(t) && /[\d.]/.test(t)) return true;
+  // Short variable names: x, n, ab
+  if (/^[a-zA-Z]{1,3}$/.test(t)) return true;
+  return false;
 }
 
 function extractMath(text) {

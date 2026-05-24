@@ -152,6 +152,9 @@ test("renderContent renders likely single-dollar math but leaves prices alone", 
 
   assert.match(renderContent("Formula $x_1 + y$."), /<span class="katex" data-display="false">x_1 \+ y<\/span>/);
   assert.match(renderContent("Costs are $5 and $10 today."), /Costs are \$5 and \$10 today\./);
+  assert.match(renderContent("1. $f(1)$:"), /<span class="katex" data-display="false">f\(1\)<\/span>/);
+  assert.match(renderContent("2. $f(1.2)$:"), /<span class="katex" data-display="false">f\(1\.2\)<\/span>/);
+  assert.match(renderContent("3. $f(0.8)$:"), /<span class="katex" data-display="false">f\(0\.8\)<\/span>/);
 });
 
 test("renderContent does not extract math inside code spans or fences", () => {
