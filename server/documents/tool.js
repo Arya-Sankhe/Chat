@@ -42,7 +42,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "search_document",
-        description: "Search the user's ready uploaded documents in this chat. Use when the answer depends on content inside attached PDFs, Word documents, spreadsheets, CSVs, or TSVs.",
+        description: "Search the user's ready uploaded documents in this chat. For PDFs this is only a page locator: do not rely on PDF search snippets alone for final answers, summaries, homework, tables, formulas, charts, or scanned/layout-sensitive content. Follow relevant PDF hits with read_document so the next model turn receives the actual page images.",
         parameters: {
           type: "object",
           properties: {
@@ -62,7 +62,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Read bounded content from a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it for summaries, solving all questions, scanned PDFs, tables, formulas, and page-layout-sensitive work.",
+        description: "Directly inspect a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it before answering summaries, solve-all/homework, scans, screenshots, tables, formulas, charts, or page-layout-sensitive requests. For PDFs up to the configured page limit, read page_start 1 through the document page count when the task needs the whole file.",
         parameters: {
           type: "object",
           properties: {
@@ -304,7 +304,8 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
               index: page.index,
               title: page.title,
               page_number: page.page_number,
-              note: "The next model turn receives this PDF page as an image when the selected model supports vision."
+              image_url: page.url,
+              note: "The next model turn receives this PDF page as an image_url part when the selected model supports vision. Inspect that image directly; do not rely only on extracted text."
             }))
           : undefined,
         results: result.results

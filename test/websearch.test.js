@@ -492,4 +492,71 @@ describe("tool", () => {
     assert.equal(result.toolCallCount, 1);
     assert.equal(toolEvents.some((event) => event.type === "tool:limit"), true);
   });
+
+  test("runChatWithToolLoop injects PDF page images after visual document tool calls", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return streamResponse([toolCallDelta({
+            name: "read_document",
+            args: { attachment_id: "00000000-0000-4000-8000-000000000003", page_start: 1, page_end: 1 }
+          })]);
+        }
+        return streamResponse([contentDelta("I inspected the page image.")]);
+      }
+    };
+    const documents = {
+      async read() {
+        return {
+          ok: true,
+          provider: "documents",
+          results: [{ index: 1, title: "Homework.pdf - Page 1", content: "helper text" }],
+          citations: [{ index: 1, type: "document", title: "Homework.pdf - Page 1" }],
+          visualPages: [{
+            index: 1,
+            title: "Homework.pdf - Page 1",
+            page_number: 1,
+            url: "https://signed.example/page-0001.jpg",
+            text: "helper text"
+          }]
+        };
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "gpt-5-vision",
+        messages: [{ role: "user", content: "solve this pdf" }],
+        tools: [],
+        tool_choice: "auto"
+      },
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
+      },
+      signal: new AbortController().signal,
+      websearch: {},
+      documents,
+      visualDocuments: true,
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(result.accumulated.content, "I inspected the page image.");
+    const secondMessages = bodies[1].messages;
+    const visualMessage = secondMessages.find((message) => (
+      message.role === "user"
+      && Array.isArray(message.content)
+      && message.content.some((part) => part?.type === "image_url")
+    ));
+    assert.ok(visualMessage);
+    assert.equal(
+      visualMessage.content.find((part) => part?.type === "image_url").image_url.url,
+      "https://signed.example/page-0001.jpg"
+    );
+  });
 });

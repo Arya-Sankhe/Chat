@@ -435,6 +435,24 @@ export class DocumentService {
 
   async read({ attachmentId, query = "", maxChars, pageStart = null, pageEnd = null } = {}) {
     if (query) {
+      const doc = await this.requireDocumentByAttachment(attachmentId);
+      if (doc.kind === "pdf") {
+        await this.consume({ toolCount: 1 });
+        const pageResult = await this.pageResultsForDocs([doc], {
+          query,
+          maxResults: this.pageLimit(null),
+          pageStart,
+          pageEnd
+        });
+        return {
+          ok: true,
+          provider: "documents",
+          results: pageResult.results,
+          citations: pageResult.citations,
+          visualPages: pageResult.visualPages,
+          notice: buildUntrustedNotice()
+        };
+      }
       return this.search({ attachmentIds: attachmentId ? [attachmentId] : [], query, maxResults: 5 });
     }
     await this.consume({ toolCount: 1 });

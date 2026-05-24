@@ -15,6 +15,10 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision({ id: "moonshot/kimi-k2.6", name: "Kimi K2.6" }), true);
   assert.equal(modelSupportsVision({ id: "deepseek-v3.2", name: "DeepSeek V3.2" }), false);
   assert.equal(modelSupportsVision({ id: "gpt-4o-mini", name: "GPT-4o Mini" }), true);
+  assert.equal(modelSupportsVision({ id: "openai/gpt-5-mini", name: "GPT-5 Mini" }), true);
+  assert.equal(modelSupportsVision({ id: "x-ai/grok-4.1-fast", name: "Grok 4.1 Fast" }), true);
+  assert.equal(modelSupportsVision({ id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" }), true);
+  assert.equal(modelSupportsVision({ id: "qwen/qwen2.5-vl-72b", name: "Qwen2.5 VL 72B" }), true);
 });
 
 test("resolveVisionDescribeModel prefers configured and kimi models", () => {

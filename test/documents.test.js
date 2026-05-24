@@ -62,21 +62,21 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   }];
 
   const read = selectDocumentSkills({ text: "can you summarize this pdf for me", readyDocuments });
-  assert.deepEqual(read.skills, ["document-read"]);
+  assert.deepEqual(read.skills, ["document-read", "pdf-read"]);
   assert.deepEqual(read.toolNames, ["search_document", "read_document", "extract_tables"]);
 
   /* When the prompt mentions documents and includes summary-like
      read-actions, expose both read and create skills so the model can
      ground the new artifact in the upload. */
   const createPdf = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments });
-  assert.deepEqual(createPdf.skills.sort(), ["document-read", "pdf-create"].sort());
+  assert.deepEqual(createPdf.skills.sort(), ["document-read", "pdf-create", "pdf-read"].sort());
   assert.deepEqual(
     createPdf.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
   );
 
   const word = selectDocumentSkills({ text: "create a Word document with the concise summary of the PDF", readyDocuments });
-  assert.deepEqual(word.skills.sort(), ["document-read", "word-create"].sort());
+  assert.deepEqual(word.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     word.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
@@ -106,7 +106,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     text: "summarize this pdf and put it as a word doc",
     readyDocuments
   });
-  assert.deepEqual(summarizeAndCreate.skills.sort(), ["document-read", "word-create"].sort());
+  assert.deepEqual(summarizeAndCreate.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     summarizeAndCreate.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
@@ -127,6 +127,23 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   assert.match(hint, /Available document tools this turn: create_document/);
   assert.doesNotMatch(hint, /Excel\/XLSX creation skill/);
   assert.doesNotMatch(hint, /Word\/DOCX creation skill/);
+});
+
+test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready PDFs", () => {
+  const readyDocuments = [{
+    id: documentFileId,
+    attachment_id: attachmentId,
+    kind: "pdf",
+    page_count: 5,
+    version_no: 1,
+    attachments: { file_name: "Homework.pdf" }
+  }];
+  const selection = selectDocumentSkills({ text: "solve all questions in this pdf", readyDocuments });
+  const hint = buildDocumentSystemHint({ readyDocuments, selection });
+
+  assert.match(hint, /PDF visual reading skill/);
+  assert.match(hint, /start with read_document/);
+  assert.match(hint, /Homework\.pdf \(pdf, 5 pages/);
 });
 
 test("DocumentService searches ready document chunks and returns document citations", async () => {
