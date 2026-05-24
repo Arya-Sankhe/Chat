@@ -28,13 +28,15 @@ function readyDocumentList(readyDocuments) {
     .join("\n");
 }
 
-export function selectDocumentSkills({ text = "", readyDocuments = [] } = {}) {
+export function selectDocumentSkills({ text = "", readyDocuments = [], messageHasDocuments = false } = {}) {
   const prompt = clean(text);
   const readyCount = Array.isArray(readyDocuments) ? readyDocuments.length : 0;
 
   const mentionsDocument = /\b(document|documents|file|files|attachment|attachments|upload|uploaded|attached|pdf|docx|word|xlsx|excel|spreadsheet|workbook|worksheet|csv|tsv|table|tables|slides?|pptx?|presentation)\b/i.test(prompt);
   const mentionsExisting = /\b(this|that|it|them|above|previous|attached|uploaded|source|original)\b/i.test(prompt);
   const readAction = /\b(summarize|summarise|summary|explain|analyze|analyse|review|read|search|find|extract|pull|compare|answer|solve|homework|questions?|what|where|which|how)\b/i.test(prompt);
+  const taskOnUploadedDocs = /\b(solve|homework|assignment|worksheet|problem\s?set|exercise|quiz|exam)\b/i.test(prompt);
+  const followUpOnDocs = /\b(try again|retry|use (the )?(document )?tools?|read (it|them|the (document|file|pdf)))\b/i.test(prompt);
   const createAction = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\b/i.test(prompt);
   const editAction = /\b(edit|revise|redline|update|rewrite|change|modify|polish|fix)\b/i.test(prompt);
   const exportAction = /\b(export|convert|download\s+as|save\s+as)\b/i.test(prompt);
@@ -67,8 +69,10 @@ export function selectDocumentSkills({ text = "", readyDocuments = [] } = {}) {
      in the create branch. */
   const shouldRead = readyCount > 0 && (
     !prompt
+    || messageHasDocuments
     || createFromExistingDocument
-    || (readAction && (mentionsDocument || mentionsExisting))
+    || followUpOnDocs
+    || (readAction && (mentionsDocument || mentionsExisting || taskOnUploadedDocs))
     || (createAction && mentionsExisting)
   );
   if (shouldRead) {

@@ -1626,7 +1626,11 @@ async function handleConversationMessage(req, res, config, conversationId) {
     : { score: 0, reasons: [], hasUrls: false, urls: [] };
   const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
   const readyDocuments = documents ? await documents.readyDocuments() : [];
-  const documentSkills = documents ? selectDocumentSkills({ text: promptText, readyDocuments }) : null;
+  const documentSkills = documents ? selectDocumentSkills({
+    text: promptText,
+    readyDocuments,
+    messageHasDocuments: attachments.some((attachment) => attachment.category === "document")
+  }) : null;
   const { request: equippedRequest, augmented, enabled: toolEnabled } = withAvailableTools(chatRequest, {
     config,
     webMode: webSearchMode,

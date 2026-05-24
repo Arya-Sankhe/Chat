@@ -118,6 +118,27 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   });
   assert.deepEqual(createAboutCats.skills, ["word-create"]);
   assert.deepEqual(createAboutCats.toolNames, ["create_document"]);
+
+  const solveHomework = selectDocumentSkills({
+    text: "solve the homework",
+    readyDocuments
+  });
+  assert.deepEqual(solveHomework.skills, ["document-read", "pdf-read"]);
+  assert.deepEqual(solveHomework.toolNames, ["search_document", "read_document", "extract_tables"]);
+
+  const tryAgain = selectDocumentSkills({
+    text: "u do have the ability try again",
+    readyDocuments
+  });
+  assert.deepEqual(tryAgain.skills, ["document-read", "pdf-read"]);
+  assert.ok(tryAgain.toolNames.includes("read_document"));
+
+  const attachedNoKeywords = selectDocumentSkills({
+    text: "please help",
+    readyDocuments,
+    messageHasDocuments: true
+  });
+  assert.deepEqual(attachedNoKeywords.skills, ["document-read", "pdf-read"]);
 });
 
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
