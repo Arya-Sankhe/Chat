@@ -559,4 +559,87 @@ describe("tool", () => {
       "https://signed.example/page-0001.jpg"
     );
   });
+
+  test("runChatWithToolLoop can inline PDF page images for vision models", async () => {
+    const bodies = [];
+    installFetch(async () => new Response(new Uint8Array([1, 2, 3, 4]), {
+      headers: {
+        "content-type": "image/jpeg",
+        "content-length": "4"
+      }
+    }));
+
+    try {
+      const crofai = {
+        async streamChatCompletion({ body }) {
+          bodies.push(body);
+          if (bodies.length === 1) {
+            return streamResponse([toolCallDelta({
+              name: "read_document",
+              args: { attachment_id: "00000000-0000-4000-8000-000000000003", page_start: 1, page_end: 1 }
+            })]);
+          }
+          return streamResponse([contentDelta("I read the inline page image.")]);
+        }
+      };
+      const documents = {
+        async read() {
+          return {
+            ok: true,
+            provider: "documents",
+            results: [{ index: 1, title: "Homework.pdf - Page 1", content: "helper text" }],
+            citations: [{ index: 1, type: "document", title: "Homework.pdf - Page 1" }],
+            visualPages: [{
+              index: 1,
+              title: "Homework.pdf - Page 1",
+              page_number: 1,
+              url: "https://signed.example/page-0001.jpg",
+              text: "helper text"
+            }]
+          };
+        }
+      };
+
+      const result = await runChatWithToolLoop({
+        chatRequest: {
+          model: "gpt-5-vision",
+          messages: [{ role: "user", content: "solve this pdf" }],
+          tools: [],
+          tool_choice: "auto"
+        },
+        crofai,
+        config: {
+          serverApiKey: "k",
+          defaultBaseUrl: "https://crof.ai/v1",
+          websearch: { maxToolCallsPerTurn: 0 },
+          documents: {
+            maxToolCallsPerTurn: 1,
+            maxToolResultChars: 5000,
+            visualInlineImages: true,
+            visualMaxImageInputsPerTurn: 12,
+            visualInlineMaxBytes: 1024,
+            visualInlineMaxTotalBytes: 1024
+          }
+        },
+        signal: new AbortController().signal,
+        websearch: {},
+        documents,
+        visualDocuments: true,
+        onUpstreamEvent: () => {}
+      });
+
+      assert.equal(result.accumulated.content, "I read the inline page image.");
+      const secondMessages = bodies[1].messages;
+      const visualMessage = secondMessages.find((message) => (
+        message.role === "user"
+        && Array.isArray(message.content)
+        && message.content.some((part) => part?.type === "image_url")
+      ));
+      assert.ok(visualMessage);
+      const imageUrl = visualMessage.content.find((part) => part?.type === "image_url").image_url.url;
+      assert.match(imageUrl, /^data:image\/jpeg;base64,/);
+    } finally {
+      restoreFetch();
+    }
+  });
 });

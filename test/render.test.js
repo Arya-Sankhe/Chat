@@ -92,6 +92,11 @@ test("normalizeModelList drops gemma models from the selector list", () => {
 
 test("inferModelBadges marks greg as reasoning and vision-capable", () => {
   assert.deepEqual(inferModelBadges({ id: "greg", name: "Greg" }), ["vision", "reasoning"]);
+  assert.deepEqual(inferModelBadges({
+    id: "vendor/plain-model",
+    name: "Plain Model",
+    architecture: { input_modalities: ["text", "image"] }
+  }), ["vision"]);
 });
 
 test("modelBrandLogoUrl maps known vendors to bundled SVG paths", () => {

@@ -170,6 +170,28 @@ async function handleModels(req, res, config) {
   sendJson(res, 200, payload);
 }
 
+function modelFromPayload(payload, modelId) {
+  const list = Array.isArray(payload) ? payload : payload?.data;
+  if (!Array.isArray(list)) return null;
+  return list.find((model) => model?.id === modelId) || null;
+}
+
+async function resolveCachedModelMetadata({ context, config, modelId, signal }) {
+  const id = String(modelId || "").trim();
+  if (!id) return null;
+  try {
+    const baseUrl = config.defaultBaseUrl;
+    const cached = modelCache.get(baseUrl);
+    const fromMemory = modelFromPayload(cached?.payload, id);
+    if (fromMemory) return fromMemory;
+
+    const fromDb = await context.db.getModelCache(baseUrl, { signal });
+    return modelFromPayload(fromDb?.payload, id);
+  } catch {
+    return null;
+  }
+}
+
 function urlSafeSearch(req, key) {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
@@ -1690,6 +1712,13 @@ async function handleConversationMessage(req, res, config, conversationId) {
   }
 
   const chatRequest = chatRequests[0];
+  const selectedModelMetadata = await resolveCachedModelMetadata({
+    context,
+    config,
+    modelId: chatRequest.model,
+    signal: req.signal
+  });
+  const selectedModelSupportsVision = modelSupportsVision(selectedModelMetadata || chatRequest.model);
 
   const detection = webSearchMode !== "off"
     ? detectSearchNeed(promptText)
@@ -1756,7 +1785,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
           signal: controller.signal,
           websearch,
           documents,
-          visualDocuments: modelSupportsVision(chatRequest.model),
+          visualDocuments: selectedModelSupportsVision,
           onUpstreamEvent: (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); },
           onToolEvent: (event) => { writeSse(res, event); }
         })

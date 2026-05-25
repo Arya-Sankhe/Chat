@@ -240,10 +240,7 @@ export class DocumentService {
 
   signedPageUrl(page) {
     if (!page?.image_key || !this.r2?.readUrl) return "";
-    return this.r2.readUrl(page.image_key, {
-      disposition: "inline",
-      contentType: page.image_content_type || "image/jpeg"
-    });
+    return this.r2.readUrl(page.image_key);
   }
 
   async pageResultsForDocs(docs, { query = "", maxResults = 5, pageStart = null, pageEnd = null } = {}) {

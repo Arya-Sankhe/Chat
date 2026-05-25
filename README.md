@@ -63,6 +63,7 @@ Optional for document tools:
 - `DOCUMENT_MAX_FILE_BYTES` defaults to 30MB per uploaded document.
 - `DOCUMENT_MAX_PDF_PAGES` defaults to 100 pages.
 - `DOCUMENT_UPLOAD_EXPIRES_SECONDS` defaults to 900 seconds for slower 30MB uploads.
+- `DOCUMENT_VISUAL_INLINE_IMAGES=true` sends bounded PDF page image bytes to vision models directly; `DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN`, `DOCUMENT_VISUAL_INLINE_MAX_BYTES`, and `DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES` cap request size.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE`, `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE`, `PLAN_*_DAILY_DOCUMENT_TOOL_CALLS`, and `PLAN_*_DAILY_GENERATED_DOCUMENTS` control per-plan quotas.
 
 The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.

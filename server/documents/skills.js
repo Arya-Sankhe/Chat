@@ -137,7 +137,7 @@ const SKILL_TEXT = {
     "PDF visual reading skill:",
     "- Uploaded PDFs are visual-page documents. The rendered page images are the primary source; extracted text is only a helper and can be incomplete, cut off, or wrong.",
     "- For summarize, explain, solve-all, homework, read properly, tables, formulas, charts, scans, screenshots, or layout-sensitive requests, start with read_document, not search_document.",
-    "- If the PDF has 40 pages or fewer, call read_document with page_start 1 and page_end equal to the PDF page count when available. For larger PDFs, read page ranges in order.",
+    "- Read PDFs in visual batches of up to 12 pages. If the PDF has 12 pages or fewer, call read_document with page_start 1 and page_end equal to the PDF page count when available. For larger PDFs, read page ranges in order.",
     "- Use search_document only to locate likely pages for a narrow question. Before giving a final answer from a PDF search hit, call read_document for the matching page range and inspect the visual page image.",
     "- When a tool result says visual_pages were returned, the next model turn receives those pages as actual images. Inspect the images directly before answering.",
     "- Do not say PDF content is missing, truncated, or unreadable until you have inspected the relevant page images with read_document.",
