@@ -642,4 +642,181 @@ describe("tool", () => {
       restoreFetch();
     }
   });
+
+  test("runChatWithToolLoop fetches PDF page images concurrently and enforces the per-turn byte budget in page order", async () => {
+    /* Pages sized so two fit the per-turn budget (above the 64KiB
+       config-validation floor) and the third must fall back to the
+       signed URL. Using realistic byte sizes keeps the test from
+       being silently rewritten by the floor clamps. */
+    const pageSize = 32 * 1024;
+    const pageBytes = new Map([
+      ["https://signed.example/page-0001.jpg", new Uint8Array(pageSize)],
+      ["https://signed.example/page-0002.jpg", new Uint8Array(pageSize)],
+      ["https://signed.example/page-0003.jpg", new Uint8Array(pageSize)]
+    ]);
+
+    let inFlight = 0;
+    let maxConcurrent = 0;
+    const fetchOrder = [];
+
+    installFetch(async (url) => {
+      fetchOrder.push(String(url));
+      inFlight += 1;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      const bytes = pageBytes.get(String(url)) || new Uint8Array(0);
+      return new Response(bytes, {
+        headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength) }
+      });
+    });
+
+    try {
+      const crofai = {
+        async streamChatCompletion({ body }) {
+          if (!crofai.calls) crofai.calls = 0;
+          crofai.calls += 1;
+          if (crofai.calls === 1) {
+            return streamResponse([toolCallDelta({
+              name: "read_document",
+              args: { attachment_id: "00000000-0000-4000-8000-000000000004", page_start: 1, page_end: 3 }
+            })]);
+          }
+          crofai.lastBody = body;
+          return streamResponse([contentDelta("done.")]);
+        }
+      };
+      const documents = {
+        async read() {
+          return {
+            ok: true,
+            provider: "documents",
+            results: [],
+            citations: [],
+            visualPages: [
+              { index: 1, page_id: "p1", page_number: 1, url: "https://signed.example/page-0001.jpg" },
+              { index: 2, page_id: "p2", page_number: 2, url: "https://signed.example/page-0002.jpg" },
+              { index: 3, page_id: "p3", page_number: 3, url: "https://signed.example/page-0003.jpg" }
+            ]
+          };
+        }
+      };
+
+      await runChatWithToolLoop({
+        chatRequest: { model: "gpt-5-vision", messages: [{ role: "user", content: "read it" }], tools: [], tool_choice: "auto" },
+        crofai,
+        config: {
+          serverApiKey: "k",
+          defaultBaseUrl: "https://crof.ai/v1",
+          websearch: { maxToolCallsPerTurn: 0 },
+          documents: {
+            maxToolCallsPerTurn: 1,
+            maxToolResultChars: 5000,
+            visualInlineImages: true,
+            visualMaxImageInputsPerTurn: 5,
+            visualInlineMaxBytes: 64 * 1024,
+            /* Only enough budget for two of the three 32KiB pages. */
+            visualInlineMaxTotalBytes: 70 * 1024
+          }
+        },
+        signal: new AbortController().signal,
+        websearch: {},
+        documents,
+        visualDocuments: true,
+        onUpstreamEvent: () => {}
+      });
+
+      /* All three pages should be fetched concurrently regardless of
+         the budget — the budget only decides which inline data URLs
+         end up attached to the next model turn. */
+      assert.equal(fetchOrder.length, 3);
+      assert.ok(maxConcurrent >= 2, `expected concurrent fetches, got max=${maxConcurrent}`);
+
+      const visualMessage = crofai.lastBody.messages.find((message) => (
+        message.role === "user"
+        && Array.isArray(message.content)
+        && message.content.some((part) => part?.type === "image_url")
+      ));
+      const urls = visualMessage.content.filter((part) => part?.type === "image_url").map((part) => part.image_url.url);
+      assert.equal(urls.length, 3);
+      /* Earlier pages get priority for the data-URL slot; the last one
+         falls back to the signed URL because the byte budget is full. */
+      assert.match(urls[0], /^data:image\/jpeg;base64,/);
+      assert.match(urls[1], /^data:image\/jpeg;base64,/);
+      assert.equal(urls[2], "https://signed.example/page-0003.jpg");
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("runChatWithToolLoop dedupes inline image fetches across iterations within a single turn", async () => {
+    const fetchCounts = new Map();
+    installFetch(async (url) => {
+      fetchCounts.set(String(url), (fetchCounts.get(String(url)) || 0) + 1);
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
+        headers: { "content-type": "image/jpeg", "content-length": "4" }
+      });
+    });
+
+    try {
+      let toolCalls = 0;
+      const crofai = {
+        async streamChatCompletion() {
+          toolCalls += 1;
+          if (toolCalls <= 2) {
+            return streamResponse([toolCallDelta({
+              id: `call_${toolCalls}`,
+              name: "read_document",
+              args: { attachment_id: "00000000-0000-4000-8000-000000000005", page_start: 1, page_end: 1 }
+            })]);
+          }
+          return streamResponse([contentDelta("answered.")]);
+        }
+      };
+      /* Same page returned twice across two consecutive tool calls. */
+      const documents = {
+        async read() {
+          return {
+            ok: true,
+            provider: "documents",
+            results: [],
+            citations: [],
+            visualPages: [{
+              index: 1,
+              page_id: "stable-page",
+              page_number: 1,
+              url: "https://signed.example/page-0001.jpg"
+            }]
+          };
+        }
+      };
+
+      await runChatWithToolLoop({
+        chatRequest: { model: "gpt-5-vision", messages: [{ role: "user", content: "look" }], tools: [], tool_choice: "auto" },
+        crofai,
+        config: {
+          serverApiKey: "k",
+          defaultBaseUrl: "https://crof.ai/v1",
+          websearch: { maxToolCallsPerTurn: 0 },
+          documents: {
+            maxToolCallsPerTurn: 2,
+            maxToolResultChars: 5000,
+            visualInlineImages: true,
+            visualMaxImageInputsPerTurn: 5,
+            visualInlineMaxBytes: 64 * 1024,
+            visualInlineMaxTotalBytes: 128 * 1024
+          }
+        },
+        signal: new AbortController().signal,
+        websearch: {},
+        documents,
+        visualDocuments: true,
+        onUpstreamEvent: () => {}
+      });
+
+      assert.equal(fetchCounts.get("https://signed.example/page-0001.jpg"), 1);
+    } finally {
+      restoreFetch();
+    }
+  });
 });

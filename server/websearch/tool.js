@@ -82,7 +82,7 @@ function positiveInt(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER }
 }
 
 function visualImageInputLimit(config) {
-  return positiveInt(config?.documents?.visualMaxImageInputsPerTurn, 12, { min: 1, max: 40 });
+  return positiveInt(config?.documents?.visualMaxImageInputsPerTurn, 24, { min: 1, max: 60 });
 }
 
 function visualInlineMaxBytes(config) {
@@ -93,9 +93,9 @@ function visualInlineMaxBytes(config) {
 }
 
 function visualInlineMaxTotalBytes(config) {
-  return positiveInt(config?.documents?.visualInlineMaxTotalBytes, 10 * 1024 * 1024, {
+  return positiveInt(config?.documents?.visualInlineMaxTotalBytes, 12 * 1024 * 1024, {
     min: 64 * 1024,
-    max: 30 * 1024 * 1024
+    max: 40 * 1024 * 1024
   });
 }
 
@@ -122,7 +122,27 @@ async function fetchImageDataUrl(url, { maxBytes, signal }) {
   };
 }
 
-async function prepareVisualPagesForModel(pages = [], { config, signal } = {}) {
+/* Stable key for inline-fetch deduplication across iterations in a
+   single tool-loop run. Falls back to the signed URL when the document
+   provider didn't expose a stable page_id. */
+function inlineCacheKeyFor(page) {
+  if (!page) return "";
+  if (page.image_key) return `key:${page.image_key}`;
+  if (page.page_id) return `pid:${page.page_id}`;
+  if (page.url) return `url:${page.url}`;
+  return "";
+}
+
+/**
+ * Fetch the page images concurrently, then apply the per-image and
+ * per-turn byte budgets in page order so earlier pages get priority
+ * deterministically (matches the user-visible page ordering).
+ *
+ * Re-uses an optional `inlineCache` Map (keyed by image_key/page_id/url)
+ * to avoid re-downloading the same page across iterations within a
+ * single tool-loop run.
+ */
+async function prepareVisualPagesForModel(pages = [], { config, signal, inlineCache } = {}) {
   const limit = visualImageInputLimit(config);
   const selected = pages.slice(0, limit);
 
@@ -130,26 +150,31 @@ async function prepareVisualPagesForModel(pages = [], { config, signal } = {}) {
 
   const maxBytes = visualInlineMaxBytes(config);
   const maxTotalBytes = visualInlineMaxTotalBytes(config);
-  let totalBytes = 0;
+  const cache = inlineCache instanceof Map ? inlineCache : null;
 
-  const prepared = [];
-  for (const page of selected) {
-    let next = page;
-    if (totalBytes < maxTotalBytes) {
-      try {
-        const inline = await fetchImageDataUrl(page?.url, { maxBytes, signal });
-        if (inline && totalBytes + inline.bytes <= maxTotalBytes) {
-          totalBytes += inline.bytes;
-          next = { ...page, inline_url: inline.dataUrl };
-        }
-      } catch {
-        next = page;
-      }
+  const fetches = selected.map(async (page) => {
+    const cacheKey = inlineCacheKeyFor(page);
+    if (cache && cacheKey && cache.has(cacheKey)) return cache.get(cacheKey);
+    try {
+      const inline = await fetchImageDataUrl(page?.url, { maxBytes, signal });
+      if (cache && cacheKey) cache.set(cacheKey, inline);
+      return inline;
+    } catch {
+      if (cache && cacheKey) cache.set(cacheKey, null);
+      return null;
     }
-    prepared.push(next);
-  }
+  });
 
-  return prepared;
+  const inlines = await Promise.all(fetches);
+
+  let totalBytes = 0;
+  return selected.map((page, index) => {
+    const inline = inlines[index];
+    if (!inline) return page;
+    if (totalBytes + inline.bytes > maxTotalBytes) return page;
+    totalBytes += inline.bytes;
+    return { ...page, inline_url: inline.dataUrl };
+  });
 }
 
 function visualDocumentMessage(pages = [], { maxPages = 40 } = {}) {
@@ -386,6 +411,7 @@ export async function runChatWithToolLoop({
   let lastAccumulated = null;
   let forceFinalWithoutTools = false;
   let limitEventSent = false;
+  const inlineImageCache = new Map();
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     onIterationStart(messages);
@@ -495,7 +521,7 @@ export async function runChatWithToolLoop({
     }
 
     const preparedVisualPages = visualDocuments
-      ? await prepareVisualPagesForModel(visualPages, { config, signal })
+      ? await prepareVisualPagesForModel(visualPages, { config, signal, inlineCache: inlineImageCache })
       : [];
     const visualMessage = visualDocuments
       ? visualDocumentMessage(preparedVisualPages, { maxPages: visualImageInputLimit(config) })

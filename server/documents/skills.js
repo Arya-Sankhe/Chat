@@ -137,10 +137,11 @@ const SKILL_TEXT = {
     "PDF visual reading skill:",
     "- Uploaded PDFs are visual-page documents. The rendered page images are the primary source; extracted text is only a helper and can be incomplete, cut off, or wrong.",
     "- For summarize, explain, solve-all, homework, read properly, tables, formulas, charts, scans, screenshots, or layout-sensitive requests, start with read_document, not search_document.",
-    "- Read PDFs in visual batches of up to 12 pages. If the PDF has 12 pages or fewer, call read_document with page_start 1 and page_end equal to the PDF page count when available. For larger PDFs, read page ranges in order.",
+    "- Read PDFs in focused visual batches of up to 12 pages per read_document call. If the PDF has 12 pages or fewer, call read_document once with page_start 1 and page_end equal to the PDF page count.",
+    "- For PDFs longer than 12 pages, walk the file with consecutive read_document calls: page_start 1 / page_end 12, then 13 / 24, then 25 / 36, and so on, until you have inspected every page range relevant to the user's request. Do not stop after the first batch when the request needs the whole document (e.g. summarize, solve all, list every question).",
     "- Use search_document only to locate likely pages for a narrow question. Before giving a final answer from a PDF search hit, call read_document for the matching page range and inspect the visual page image.",
-    "- When a tool result says visual_pages were returned, the next model turn receives those pages as actual images. Inspect the images directly before answering.",
-    "- Do not say PDF content is missing, truncated, or unreadable until you have inspected the relevant page images with read_document.",
+    "- When a tool result says visual_pages were returned, the next model turn receives those pages as actual images. Inspect the attached images directly before answering. The same page is not re-attached if it was already shown earlier in this turn.",
+    "- Never say PDF content is missing, truncated, or unreadable, and never say you can only see the image URL, until you have actually inspected the attached page images. If you think pages are missing, request the specific page range with another read_document call.",
     "- For homework/questions, first transcribe the exact visible question wording, figures, tables, and values from the page images, then solve."
   ].join("\n"),
   "pdf-create": [

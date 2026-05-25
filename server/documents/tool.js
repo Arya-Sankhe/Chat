@@ -62,7 +62,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Directly inspect a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it before answering summaries, solve-all/homework, scans, screenshots, tables, formulas, charts, or page-layout-sensitive requests. Read PDFs in focused visual batches, usually no more than 12 pages at a time.",
+        description: "Directly inspect a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it before answering summaries, solve-all/homework, scans, screenshots, tables, formulas, charts, or page-layout-sensitive requests. Read PDFs in focused visual batches of at most 12 pages per call; for longer PDFs, call this tool multiple times in the same turn with consecutive page_start/page_end ranges (1-12, then 13-24, etc.) until every page range the user's request needs has been inspected.",
         parameters: {
           type: "object",
           properties: {

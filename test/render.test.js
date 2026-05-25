@@ -97,6 +97,11 @@ test("inferModelBadges marks greg as reasoning and vision-capable", () => {
     name: "Plain Model",
     architecture: { input_modalities: ["text", "image"] }
   }), ["vision"]);
+  assert.deepEqual(inferModelBadges({
+    id: "vendor/text-to-image-only",
+    name: "Painter",
+    architecture: { input_modalities: ["text"], output_modalities: ["image"] }
+  }), []);
 });
 
 test("modelBrandLogoUrl maps known vendors to bundled SVG paths", () => {

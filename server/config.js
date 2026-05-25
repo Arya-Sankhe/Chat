@@ -125,10 +125,10 @@ export function loadConfig(env = process.env) {
       maxToolResultChars: readInt(env.DOCUMENT_MAX_TOOL_RESULT_CHARS, 24_000),
       visualPageDpi: readInt(env.DOCUMENT_VISUAL_PAGE_DPI, 144),
       visualMaxPagesPerTool: readInt(env.DOCUMENT_VISUAL_MAX_PAGES_PER_TOOL, 40),
-      visualMaxImageInputsPerTurn: readInt(env.DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN, 12),
+      visualMaxImageInputsPerTurn: readInt(env.DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN, 24),
       visualInlineImages: readBoolean(env.DOCUMENT_VISUAL_INLINE_IMAGES, true),
       visualInlineMaxBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_BYTES, 2 * 1024 * 1024),
-      visualInlineMaxTotalBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES, 10 * 1024 * 1024),
+      visualInlineMaxTotalBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES, 12 * 1024 * 1024),
       visualEmbedModel: clean(env.DOCUMENT_VISUAL_EMBED_MODEL) || "jina-embeddings-v5-omni-nano",
       jinaApiKey: clean(env.JINA_API_KEY),
       workerConcurrency: readInt(env.DOCUMENT_WORKER_CONCURRENCY, 1),
@@ -136,7 +136,7 @@ export function loadConfig(env = process.env) {
       uploadExpiresSeconds: readInt(env.DOCUMENT_UPLOAD_EXPIRES_SECONDS, 900),
       previewMaxPages: readInt(env.DOCUMENT_PREVIEW_MAX_PAGES, 2),
       previewTtlDays: readInt(env.DOCUMENT_PREVIEW_TTL_DAYS, 30),
-      maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 3),
+      maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 5),
       jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000)
     },
     websearch: {

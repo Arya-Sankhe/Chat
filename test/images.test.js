@@ -26,6 +26,19 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   }), true);
 });
 
+test("modelSupportsVision does not flag image-generation-only models on output modalities", () => {
+  assert.equal(modelSupportsVision({
+    id: "vendor/text-to-image-only",
+    name: "Painter",
+    architecture: { input_modalities: ["text"], output_modalities: ["image"] }
+  }), false);
+  assert.equal(modelSupportsVision({
+    id: "vendor/plain-text-model",
+    name: "Plain Text",
+    architecture: { input_modalities: ["text"] }
+  }), false);
+});
+
 test("resolveVisionDescribeModel prefers configured and kimi models", () => {
   assert.equal(resolveVisionDescribeModel({ visionDescribeModel: "custom-vision" }, [], []), "custom-vision");
   assert.equal(resolveVisionDescribeModel({}, ["deepseek-v3.2", "moonshot/kimi-k2.6"], []), "moonshot/kimi-k2.6");

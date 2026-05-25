@@ -161,7 +161,8 @@ test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the c
 
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
   assert.match(hint, /PDF visual reading skill/);
-  assert.match(hint, /Inspect the images directly/);
+  assert.match(hint, /Inspect the attached images directly/);
+  assert.match(hint, /consecutive read_document calls/);
   assert.match(hint, /cmp466 hw3\.pdf \(pdf, 3 pages/);
 });
 

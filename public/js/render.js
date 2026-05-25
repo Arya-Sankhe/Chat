@@ -370,22 +370,32 @@ export function formatModelMeta(model) {
   return meta;
 }
 
-const VISION_HINT = /\bvision\b|\bvisual\b|\bvlm\b|multimodal|omni|\bimage\b|gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|gemma-?3|claude-(3|4)|sonnet|opus|haiku|qwen[\w.-]*vl|qwen2-vl|qwen3-vl|llama-?4|llama-3\.2[\w.-]*vision|internvl|molmo|minicpm|llava|pixtral|kimi|moonshot|grok|x-ai|glm-4[\w.-]*v|\bgreg\b/i;
+const VISION_HINT = /\bvision\b|\bvisual\b|\bvlm\b|multimodal|omni|gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|gemma-?3|claude-(3|4)|sonnet|opus|haiku|qwen[\w.-]*vl|qwen2-vl|qwen3-vl|llama-?4|llama-3\.2[\w.-]*vision|internvl|molmo|minicpm|llava|pixtral|kimi|moonshot|grok|x-ai|glm-4[\w.-]*v|\bgreg\b/i;
 
-function modalityText(value) {
-  if (Array.isArray(value)) return value.join(" ");
-  if (value && typeof value === "object") return Object.values(value).map(modalityText).join(" ");
-  return String(value || "");
+function inputModalityTokens(model) {
+  if (!model || typeof model !== "object") return [];
+  const sources = [
+    model.input_modalities,
+    model.modalities,
+    model.architecture?.input_modalities,
+    model.architecture?.modality,
+    model.raw?.architecture?.input_modalities,
+    model.raw?.architecture?.modality
+  ];
+  const tokens = [];
+  for (const source of sources) {
+    if (Array.isArray(source)) {
+      for (const item of source) tokens.push(String(item || ""));
+    } else if (typeof source === "string") {
+      tokens.push(source);
+    }
+  }
+  return tokens.map((token) => token.toLowerCase());
 }
 
 export function modelSupportsVision(model) {
-  const modalities = modalityText({
-    input_modalities: model?.input_modalities,
-    modalities: model?.modalities,
-    architecture: model?.architecture,
-    raw: model?.raw?.architecture
-  });
-  const haystack = `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""} ${modalities}`.trim().toLowerCase();
+  if (inputModalityTokens(model).some((token) => /image|vision|visual|photo|picture/.test(token))) return true;
+  const haystack = `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`.trim().toLowerCase();
   return VISION_HINT.test(haystack);
 }
 
