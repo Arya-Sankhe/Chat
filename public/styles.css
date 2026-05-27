@@ -1249,6 +1249,23 @@ body.document-viewer-resizing {
   color: var(--text);
 }
 
+.agent-mode-toggle[aria-pressed="true"] {
+  background: #111;
+  color: #fff;
+}
+
+.agent-mode-toggle[aria-pressed="true"]:hover {
+  background: #272727;
+}
+
+.agent-mode-toggle[aria-pressed="false"] {
+  opacity: 0.62;
+}
+
+.agent-mode-toggle[aria-pressed="false"]:hover {
+  opacity: 1;
+}
+
 .web-search-toggle[aria-pressed="true"] {
   background: rgba(46, 134, 222, 0.12);
   color: #2e86de;

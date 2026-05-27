@@ -51,10 +51,12 @@ function restoreCodeSpans(text, slots) {
 function isLikelySingleDollarMath(tex) {
   const t = String(tex ?? "").trim();
   if (!t || t.length > 240) return false;
-  // Prices and bare numbers: $5, $10.50
-  if (/^\d+(?:[.,]\d+)?(?:\s|$)/.test(t)) return false;
+  const hasExplicitMathSyntax = /\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t);
+  // Prices and bare numbers: $5, $10.50. Keep numeric LaTeX like
+  // $1386 \text{ N}$ renderable by checking for explicit math syntax first.
+  if (!hasExplicitMathSyntax && /^\d+(?:[.,]\d+)?(?:\s|$)/.test(t)) return false;
   // LaTeX commands, subscripts, operators, common math symbols
-  if (/\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t)) return true;
+  if (hasExplicitMathSyntax) return true;
   // Function calls: f(1), f(1.2), g(x, y), sin(x)
   if (/^[a-zA-Z]+(?:\([^)]*\))+/.test(t)) return true;
   // Parenthesized numeric values: (1), (1.2), (0.8)

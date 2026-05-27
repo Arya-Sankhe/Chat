@@ -54,6 +54,7 @@ const defaultSettings = {
   compareEnabled: false,
   compareModels: [],
   compareMode: "compare",
+  agentMode: false,
   webSearchMode: "auto"
 };
 
@@ -164,6 +165,7 @@ const els = {
   compareContextCancel: document.querySelector("#compareContextCancel"),
   compareModeToggle: document.querySelector("#compareModeToggle"),
   compareModeDesc: document.querySelector("#compareModeDesc"),
+  agentModeToggle: document.querySelector("#agentModeToggle"),
   webSearchToggle: document.querySelector("#webSearchToggle"),
   documentViewer: document.querySelector("#documentViewer"),
   documentViewerResizer: document.querySelector("#documentViewerResizer"),
@@ -284,6 +286,7 @@ function loadSettings() {
     loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
     loaded.compareEnabled = Boolean(loaded.compareEnabled);
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
+    loaded.agentMode = Boolean(loaded.agentMode);
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
     return loaded;
   } catch {
@@ -295,9 +298,32 @@ function webSearchAvailable() {
   return Boolean(state.config?.services?.websearch);
 }
 
+function agentToolsAvailable() {
+  const services = state.config?.services || {};
+  return Boolean(services.websearch || services.documents);
+}
+
+function renderAgentModeToggle() {
+  if (!els.agentModeToggle) return;
+  if (!agentToolsAvailable()) {
+    els.agentModeToggle.classList.add("hidden");
+    return;
+  }
+  els.agentModeToggle.classList.remove("hidden");
+  const on = Boolean(state.settings.agentMode);
+  els.agentModeToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  els.agentModeToggle.setAttribute("aria-label", on ? "Agent mode on" : "Agent mode off");
+  els.agentModeToggle.setAttribute(
+    "title",
+    on
+      ? "Agent mode: On — web search and document tools are available. Click to use normal chat."
+      : "Agent mode: Off — PDFs are sent as hidden page context without tool calls. Click to enable tools."
+  );
+}
+
 function renderWebSearchToggle() {
   if (!els.webSearchToggle) return;
-  if (!webSearchAvailable()) {
+  if (!webSearchAvailable() || !state.settings.agentMode) {
     els.webSearchToggle.classList.add("hidden");
     return;
   }
@@ -311,6 +337,14 @@ function renderWebSearchToggle() {
       : "Web search: Off — click to let the model search when needed."
   );
   els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
+}
+
+function toggleAgentMode() {
+  const next = !state.settings.agentMode;
+  updateSetting("agentMode", next);
+  renderAgentModeToggle();
+  renderWebSearchToggle();
+  showToast(next ? "Agent mode enabled. Tools can be used." : "Agent mode disabled. PDFs use direct context.");
 }
 
 function toggleWebSearchMode() {
@@ -397,6 +431,7 @@ function renderShell() {
   renderConversations();
   renderModelOptions();
   renderThinkingEffort();
+  renderAgentModeToggle();
   renderWebSearchToggle();
   renderMessages();
   renderDocumentViewer();
@@ -2564,7 +2599,8 @@ async function retryFailedAssistant(assistantMessageId) {
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
       },
-      webSearch: state.settings.webSearchMode === "off" ? "off" : "auto"
+      agentMode: Boolean(state.settings.agentMode),
+      webSearch: state.settings.agentMode && state.settings.webSearchMode !== "off" ? "auto" : "off"
     }, {
       signal: state.abortController.signal,
       onEvent: (event) => {
@@ -2704,7 +2740,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
       },
-      webSearch: state.settings.webSearchMode === "off" ? "off" : "auto",
+      agentMode: Boolean(state.settings.agentMode),
+      webSearch: state.settings.agentMode && state.settings.webSearchMode !== "off" ? "auto" : "off",
       ...(describeImages ? { describeImages: true } : {})
     };
 
@@ -3033,6 +3070,9 @@ function bindEvents() {
 
   if (els.webSearchToggle) {
     els.webSearchToggle.addEventListener("click", toggleWebSearchMode);
+  }
+  if (els.agentModeToggle) {
+    els.agentModeToggle.addEventListener("click", toggleAgentMode);
   }
 
   els.imagePreviews.addEventListener("click", (e) => {

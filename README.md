@@ -64,6 +64,7 @@ Optional for document tools:
 - `DOCUMENT_MAX_PDF_PAGES` defaults to 100 pages.
 - `DOCUMENT_UPLOAD_EXPIRES_SECONDS` defaults to 900 seconds for slower 30MB uploads.
 - `DOCUMENT_VISUAL_INLINE_IMAGES=true` sends bounded PDF page image bytes to vision models directly as base64 data URLs (fetched concurrently with a per-image and per-turn byte budget, deduplicated across iterations). `DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN` (default 24), `DOCUMENT_VISUAL_INLINE_MAX_BYTES` (per-image), and `DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES` (per-turn) cap request size.
+- Agent mode gates web/document tool calls in chat. With Agent off, uploaded ready PDFs are attached as hidden visual page context for vision-capable models instead of using `read_document`.
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` (default 5) controls how many such batches fit in one turn. Raise it for very long PDFs.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE`, `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE`, `PLAN_*_DAILY_DOCUMENT_TOOL_CALLS`, and `PLAN_*_DAILY_GENERATED_DOCUMENTS` control per-plan quotas.
 
