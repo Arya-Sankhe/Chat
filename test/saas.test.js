@@ -412,6 +412,44 @@ test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async 
   }
 });
 
+test("R2 putObject uploads through the server without browser CORS", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return new Response(null, {
+      status: 200,
+      headers: { etag: "\"server-upload-etag\"" }
+    });
+  };
+
+  try {
+    const r2 = new R2Client({
+      r2: {
+        endpoint: "https://account.r2.cloudflarestorage.com",
+        accessKeyId: "access-key",
+        secretAccessKey: "secret-key",
+        bucket: "klui-chat",
+        uploadExpiresSeconds: 300,
+        readExpiresSeconds: 900
+      }
+    });
+
+    const uploaded = await r2.putObject("users/user_1/image.png", Buffer.from("image"), {
+      contentType: "image/png"
+    });
+
+    assert.deepEqual(uploaded, { etag: "server-upload-etag" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options.method, "PUT");
+    assert.equal(calls[0].options.headers["content-type"], "image/png");
+    assert.match(calls[0].url, /^https:\/\/account\.r2\.cloudflarestorage\.com\/klui-chat\/users\/user_1\/image\.png\?/);
+    assert.match(calls[0].url, /X-Amz-Signature=/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("R2 readUrl can force a clean attachment download filename", () => {
   const r2 = new R2Client({
     r2: {
@@ -431,6 +469,23 @@ test("R2 readUrl can force a clean attachment download filename", () => {
     url.search.indexOf("X-Amz-SignedHeaders=host") < url.search.indexOf("response-content-disposition="),
     "response header overrides must sort after X-Amz-* params for R2 signature validation"
   );
+});
+
+test("R2 signed URLs do not duplicate the bucket when endpoint includes it", () => {
+  const r2 = new R2Client({
+    r2: {
+      endpoint: "https://account.r2.cloudflarestorage.com/klui-chat",
+      accessKeyId: "access-key",
+      secretAccessKey: "secret-key",
+      bucket: "klui-chat",
+      uploadExpiresSeconds: 300,
+      readExpiresSeconds: 900
+    }
+  });
+
+  const url = new URL(r2.uploadUrl("users/user_1/image.png"));
+  assert.equal(url.pathname, "/klui-chat/users/user_1/image.png");
+  assert.ok(url.searchParams.get("X-Amz-Signature"));
 });
 
 test("R2 readUrl can create inline preview URLs", () => {

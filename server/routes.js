@@ -4,7 +4,7 @@ import { normalizeBaseUrl } from "./crofai/constants.js";
 import { normalizeChatRequest } from "./crofai/normalize.js";
 import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
-import { HttpError, parseJsonBody, sendJson, sendProblem } from "./http/responses.js";
+import { HttpError, parseJsonBody, readRawBody, sendJson, sendProblem } from "./http/responses.js";
 import { consumeSearchOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
   buildChairmanPrompt,
@@ -312,6 +312,47 @@ async function handlePresignUpload(req, res, config) {
     category,
     maxImageBytes: config.r2.maxImageBytes,
     maxDocumentBytes: config.documents.maxFileBytes
+  });
+}
+
+async function handleUploadContent(req, res, config, uploadId) {
+  const context = await requireChatContext(req, config);
+  const attachment = await context.db.getAttachment(context.user.id, uploadId, { signal: req.signal });
+  if (!attachment) throw new HttpError(404, "Upload not found.");
+  if (attachment.status !== "pending") throw new HttpError(400, "Upload was already completed.");
+
+  const category = attachment.category || "image";
+  if (category === "document" && !configuredServices(config).documents) {
+    throw new HttpError(503, "Document uploads are not configured.");
+  }
+
+  const maxBytes = category === "document" ? config.documents.maxFileBytes : config.r2.maxImageBytes;
+  const raw = await readRawBody(req, maxBytes);
+  const expectedSize = Number(attachment.size_bytes);
+  if (Number.isInteger(expectedSize) && expectedSize > 0 && raw.length !== expectedSize) {
+    throw new HttpError(400, "Uploaded file size did not match the presigned upload.");
+  }
+
+  assertUpload({
+    category,
+    contentType: attachment.content_type,
+    fileName: attachment.file_name,
+    sizeBytes: raw.length
+  }, {
+    maxImageBytes: config.r2.maxImageBytes,
+    maxDocumentBytes: config.documents.maxFileBytes
+  });
+
+  const result = await context.r2.putObject(attachment.object_key, raw, {
+    contentType: attachment.content_type || req.headers["content-type"] || "application/octet-stream",
+    expiresSeconds: category === "document" ? config.documents.uploadExpiresSeconds : config.r2.uploadExpiresSeconds,
+    signal: req.signal
+  });
+
+  sendJson(res, 200, {
+    ok: true,
+    uploadId: attachment.id,
+    etag: result.etag || null
   });
 }
 
@@ -2022,6 +2063,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/uploads/presign" && req.method === "POST") {
       await handlePresignUpload(req, res, config);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "uploads" && parts[2] && parts[3] === "content" && req.method === "PUT") {
+      await handleUploadContent(req, res, config, parts[2]);
       return;
     }
 

@@ -15,6 +15,7 @@ import {
   listConversations,
   completeUpload,
   presignUpload,
+  putUploadContent,
   streamCompareConversationMessage,
   streamConversationMessage,
   uploadFile
@@ -1977,13 +1978,7 @@ async function startDocumentUpload(item) {
   try {
     const presigned = await presignUpload(state.session, item.file, "document", { signal: controller.signal });
     item.uploadId = presigned.uploadId;
-    const put = await fetch(presigned.uploadUrl, {
-      method: presigned.method || "PUT",
-      headers: { "content-type": item.file.type || "application/octet-stream" },
-      body: item.file,
-      signal: controller.signal
-    });
-    if (!put.ok) throw new Error("Document upload failed.");
+    await putUploadContent(state.session, presigned, item.file, "document", { signal: controller.signal });
     const uploaded = await completeUpload(state.session, presigned.uploadId, { signal: controller.signal });
     if (!state.images.some((entry) => entry.localId === item.localId)) {
       await deleteAttachment(state.session, uploaded.id).catch(() => {});

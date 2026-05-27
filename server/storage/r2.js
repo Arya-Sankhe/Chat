@@ -32,6 +32,20 @@ function encodePath(path) {
   return path.split("/").map(encodeRfc3986).join("/");
 }
 
+function cleanPath(value) {
+  return String(value || "").replace(/^\/+|\/+$/g, "");
+}
+
+function canonicalObjectUri(endpoint, bucket, key) {
+  const endpointPath = cleanPath(endpoint.pathname);
+  const cleanBucket = cleanPath(bucket);
+  const cleanKey = cleanPath(key);
+  if (endpointPath === cleanBucket) {
+    return `/${encodePath(`${cleanBucket}/${cleanKey}`)}`;
+  }
+  return `/${encodePath([endpointPath, cleanBucket, cleanKey].filter(Boolean).join("/"))}`;
+}
+
 function yyyymmdd(date) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
 }
@@ -178,7 +192,7 @@ export class R2Client {
       }
     }
 
-    const canonicalUri = `/${encodePath(`${this.config.bucket}/${key}`)}`;
+    const canonicalUri = canonicalObjectUri(endpoint, this.config.bucket, key);
     const canonicalHeaders = `host:${endpoint.host}\n`;
     const canonicalRequest = [
       method.toUpperCase(),
@@ -197,11 +211,35 @@ export class R2Client {
     const signature = hmac(signingKey(this.config.secretAccessKey, dateStamp), stringToSign, "hex");
 
     params.set("X-Amz-Signature", signature);
-    return `${this.config.endpoint}${canonicalUri}?${canonicalQuery(params)}`;
+    return `${endpoint.origin}${canonicalUri}?${canonicalQuery(params)}`;
   }
 
   uploadUrl(key, expiresSeconds = this.config.uploadExpiresSeconds) {
     return this.presign("PUT", key, expiresSeconds);
+  }
+
+  async putObject(key, body, { contentType, expiresSeconds = this.config.uploadExpiresSeconds, signal } = {}) {
+    const response = await fetch(this.uploadUrl(key, expiresSeconds), {
+      method: "PUT",
+      headers: {
+        ...(contentType ? { "content-type": contentType } : {})
+      },
+      body,
+      signal
+    });
+    if (!response.ok) {
+      let details = "";
+      try {
+        details = await response.text();
+      } catch {
+        details = "";
+      }
+      throw new HttpError(502, `Upload to storage failed with ${response.status}.`, details.slice(0, 2000));
+    }
+
+    return {
+      etag: clean(response.headers.get("etag")).replace(/^"|"$/g, "")
+    };
   }
 
   readUrl(key, { fileName, disposition = "attachment", contentType } = {}) {

@@ -100,28 +100,45 @@ export async function completeUpload(session, uploadId, { signal } = {}) {
   return response.json();
 }
 
-export async function uploadImage(session, file, { signal } = {}) {
-  const upload = await presignUpload(session, file, "image", { signal });
-  const put = await fetch(upload.uploadUrl, {
-    method: upload.method || "PUT",
-    headers: { "content-type": file.type },
+async function relayUploadContent(session, uploadId, file, category, { signal } = {}) {
+  const response = await fetch(`/api/uploads/${encodeURIComponent(uploadId)}/content`, {
+    method: "PUT",
+    headers: apiHeaders(session, { "content-type": file.type || "application/octet-stream" }),
     body: file,
     signal
   });
-  if (!put.ok) throw new Error("Image upload failed.");
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function putUploadContent(session, upload, file, category = upload.category || uploadCategory(file), { signal } = {}) {
+  try {
+    const put = await fetch(upload.uploadUrl, {
+      method: upload.method || "PUT",
+      headers: { "content-type": file.type || "application/octet-stream" },
+      body: file,
+      signal
+    });
+    if (put.ok) return { mode: "direct" };
+  } catch {
+    // Browser-side R2 CORS failures surface as network errors. Fall back to
+    // the same-origin upload relay so the user can keep working.
+  }
+
+  await relayUploadContent(session, upload.uploadId, file, category, { signal });
+  return { mode: "relay" };
+}
+
+export async function uploadImage(session, file, { signal } = {}) {
+  const upload = await presignUpload(session, file, "image", { signal });
+  await putUploadContent(session, upload, file, "image", { signal });
   return completeUpload(session, upload.uploadId, { signal });
 }
 
 export async function uploadFile(session, file, { signal } = {}) {
   const category = uploadCategory(file);
   const upload = await presignUpload(session, file, category, { signal });
-  const put = await fetch(upload.uploadUrl, {
-    method: upload.method || "PUT",
-    headers: { "content-type": file.type || "application/octet-stream" },
-    body: file,
-    signal
-  });
-  if (!put.ok) throw new Error(category === "image" ? "Image upload failed." : "Document upload failed.");
+  await putUploadContent(session, upload, file, category, { signal });
   return completeUpload(session, upload.uploadId, { signal });
 }
 
