@@ -107,7 +107,7 @@ async function requireChatContext(req, config) {
 
 function requireServerCrofKey(config) {
   if (!config.serverApiKey) {
-    throw new HttpError(503, "Smartyfy model API key is not configured on the server.");
+    throw new HttpError(503, "Klui model API key is not configured on the server.");
   }
 }
 
@@ -1163,13 +1163,13 @@ async function handleCouncilConversationMessage({
         signal: controller.signal
       });
 
-      if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+      if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, { type: "delta", index, model: entry.chatRequest.model, event });
       });
 
-      if (!hasAssistantOutput(accumulated)) throw new HttpError(502, "Smartyfy returned an empty response.");
+      if (!hasAssistantOutput(accumulated)) throw new HttpError(502, "Klui returned an empty response.");
       entry.accumulated = accumulated;
 
       const durationMeta = reasoningDurationMetadata(entry.message.metadata, accumulated);
@@ -1501,13 +1501,13 @@ async function handleCompareConversationMessage({
         signal: controller.signal
       });
 
-      if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+      if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, { type: "delta", index, model: chatRequest.model, event });
       });
       if (!hasAssistantOutput(accumulated)) {
-        throw new HttpError(502, "Smartyfy returned an empty response.");
+        throw new HttpError(502, "Klui returned an empty response.");
       }
 
       const compareDurationMeta = reasoningDurationMetadata(null, accumulated);
@@ -1859,8 +1859,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
       "x-accel-buffering": "no",
-      "x-smartyfy-user-message-id": userMessage.id,
-      "x-smartyfy-assistant-message-id": assistantMessage.id
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-assistant-message-id": assistantMessage.id
     });
 
     const allCitations = [];
@@ -1890,7 +1890,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }
 
     if (!hasAssistantOutput(accumulated, artifacts)) {
-      throw new HttpError(502, "Smartyfy returned an empty response.");
+      throw new HttpError(502, "Klui returned an empty response.");
     }
 
     const webCitations = allCitations.filter((citation) => citation.type !== "document");
@@ -1967,7 +1967,7 @@ async function streamSingleChat({ chatRequest, crofai, config, signal, res }) {
     body: chatRequest,
     signal
   });
-  if (!upstream.body) throw new HttpError(502, "Smartyfy returned an empty response stream.");
+  if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
   const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
@@ -1987,7 +1987,7 @@ export async function handleApiRequest(req, res, url, config) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       sendJson(res, 200, {
         ok: true,
-        app: "smartyfy-chat",
+        app: "klui-chat",
         services: configuredServices(config)
       });
       return;
@@ -1995,7 +1995,7 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (req.method === "GET" && url.pathname === "/api/config") {
       sendJson(res, 200, {
-        app: "smartyfy-chat",
+        app: "klui-chat",
         supabaseUrl: config.supabase.url,
         supabaseAnonKey: config.supabase.anonKey,
         auth: config.auth,
@@ -2081,7 +2081,7 @@ export async function handleApiRequest(req, res, url, config) {
     }
 
     if (url.pathname === "/api/chat") {
-      throw new HttpError(410, "Use /api/conversations/:id/messages for managed Smartyfy chat.");
+      throw new HttpError(410, "Use /api/conversations/:id/messages for managed Klui chat.");
     }
 
     throw new HttpError(404, "API route not found.");

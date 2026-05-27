@@ -1,6 +1,6 @@
-# Smartyfy Chat
+# Klui Chat
 
-Smartyfy Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible model API. Users sign in with Supabase Auth, store chat history in Supabase Postgres, upload images to private Cloudflare R2, and chat through a server-only model API key.
+Klui Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible model API. Users sign in with Supabase Auth, store chat history in Supabase Postgres, upload images to private Cloudflare R2, and chat through a server-only model API key.
 
 ## What Is Included
 
@@ -93,22 +93,24 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Compose starts two services: `smartyfy-chat` for the Node app and `document-worker` for extraction/conversion jobs. The worker has no exposed public port, runs with `init: true`, and is capped at `1500m` memory / `1.5` CPUs by default.
+Compose starts two services: `klui-chat` for the Node app and `document-worker` for extraction/conversion jobs. The worker has no exposed public port, runs with `init: true`, and is capped at `1500m` memory / `1.5` CPUs by default.
 
 The health endpoint is `/api/health`.
 
 ## R2 CORS
 
-Your R2 bucket needs CORS that allows your app origin to upload images and documents directly. Use your production origin instead of localhost when deployed.
+Your R2 bucket needs CORS that allows your app origin to upload images and documents directly. Add the rule to the active `R2_BUCKET` bucket, and keep both local origins if you open the app through either `localhost` or `127.0.0.1`.
 
 ```json
 [
   {
-    "AllowedOrigins": ["http://localhost:3000"],
+    "AllowedOrigins": ["http://localhost:3000", "http://127.0.0.1:3000"],
     "AllowedMethods": ["PUT", "HEAD", "GET"],
-    "AllowedHeaders": ["content-type"],
-    "ExposeHeaders": ["etag"],
-    "MaxAgeSeconds": 300
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
   }
 ]
 ```
+
+Use your production origin instead of, or in addition to, these local origins when deployed.

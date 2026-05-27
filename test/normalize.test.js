@@ -9,7 +9,7 @@ test("normalizeBaseUrl accepts provider endpoints", () => {
 });
 
 test("normalizeBaseUrl rejects non-provider endpoints", () => {
-  assert.throws(() => normalizeBaseUrl("https://example.com/v1"), /Only Smartyfy API/);
+  assert.throws(() => normalizeBaseUrl("https://example.com/v1"), /Only Klui API/);
 });
 
 test("normalizeChatRequest keeps only supported chat fields", () => {

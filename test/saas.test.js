@@ -242,7 +242,7 @@ test("SupabaseRest passes document usage into the document metering RPC", async 
       generatedCount: 1
     });
 
-    assert.match(calledUrl, /\/rpc\/smartyfy_consume_documents$/);
+    assert.match(calledUrl, /\/rpc\/klui_consume_documents$/);
     assert.equal(rpcBody.p_user_id, "user_1");
     assert.equal(rpcBody.p_plan_id, "pro");
     assert.equal(rpcBody.p_daily_document_tool_limit, 100);
@@ -394,7 +394,7 @@ test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async 
         endpoint: "https://account.r2.cloudflarestorage.com",
         accessKeyId: "access-key",
         secretAccessKey: "secret-key",
-        bucket: "smartyfy-chat",
+        bucket: "klui-chat",
         uploadExpiresSeconds: 300,
         readExpiresSeconds: 900
       }
@@ -405,7 +405,7 @@ test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async 
     assert.equal(deleted, 1);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.method, "DELETE");
-    assert.match(calls[0].url, /^https:\/\/account\.r2\.cloudflarestorage\.com\/smartyfy-chat\/users\/user_1\/image\.png\?/);
+    assert.match(calls[0].url, /^https:\/\/account\.r2\.cloudflarestorage\.com\/klui-chat\/users\/user_1\/image\.png\?/);
     assert.match(calls[0].url, /X-Amz-Signature=/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -418,7 +418,7 @@ test("R2 readUrl can force a clean attachment download filename", () => {
       endpoint: "https://account.r2.cloudflarestorage.com",
       accessKeyId: "access-key",
       secretAccessKey: "secret-key",
-      bucket: "smartyfy-chat",
+      bucket: "klui-chat",
       uploadExpiresSeconds: 300,
       readExpiresSeconds: 900
     }
@@ -439,7 +439,7 @@ test("R2 readUrl can create inline preview URLs", () => {
       endpoint: "https://account.r2.cloudflarestorage.com",
       accessKeyId: "access-key",
       secretAccessKey: "secret-key",
-      bucket: "smartyfy-chat",
+      bucket: "klui-chat",
       uploadExpiresSeconds: 300,
       readExpiresSeconds: 900
     }

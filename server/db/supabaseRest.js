@@ -15,7 +15,7 @@ function single(rows) {
 
 function isMissingMessageCountRpc(error) {
   const text = `${error?.message || ""} ${JSON.stringify(error?.details || {})}`;
-  return /p_message_count|schema cache|smartyfy_consume_usage/i.test(text);
+  return /p_message_count|schema cache|klui_consume_usage/i.test(text);
 }
 
 export class SupabaseRest {
@@ -496,7 +496,7 @@ export class SupabaseRest {
   }
 
   async searchDocumentPages({ userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
-    return this.rpc("smartyfy_search_document_pages", {
+    return this.rpc("klui_search_document_pages", {
       p_user_id: userId,
       p_document_ids: documentFileIds,
       p_query_embedding: queryEmbedding,
@@ -514,7 +514,7 @@ export class SupabaseRest {
   }
 
   async searchDocumentChunks({ userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
-    return this.rpc("smartyfy_search_document_chunks", {
+    return this.rpc("klui_search_document_chunks", {
       p_user_id: userId,
       p_document_ids: documentFileIds,
       p_query: query,
@@ -534,14 +534,14 @@ export class SupabaseRest {
     if (messageCount !== 1) body.p_message_count = messageCount;
 
     try {
-      return await this.rpc("smartyfy_consume_usage", body, { signal });
+      return await this.rpc("klui_consume_usage", body, { signal });
     } catch (error) {
       if (!isMissingMessageCountRpc(error)) throw error;
     }
 
     let usage;
     for (let i = 0; i < messageCount; i++) {
-      usage = await this.rpc("smartyfy_consume_usage", {
+      usage = await this.rpc("klui_consume_usage", {
         p_user_id: userId,
         p_plan_id: planId,
         p_daily_message_limit: dailyMessageLimit,
@@ -593,7 +593,7 @@ export class SupabaseRest {
   }
 
   async consumeSearch({ userId, planId, dailySearchLimit, searchCount = 1 }, { signal } = {}) {
-    return this.rpc("smartyfy_consume_search", {
+    return this.rpc("klui_consume_search", {
       p_user_id: userId,
       p_plan_id: planId,
       p_daily_search_limit: dailySearchLimit,
@@ -609,7 +609,7 @@ export class SupabaseRest {
     toolCount = 1,
     generatedCount = 0
   }, { signal } = {}) {
-    return this.rpc("smartyfy_consume_documents", {
+    return this.rpc("klui_consume_documents", {
       p_user_id: userId,
       p_plan_id: planId,
       p_daily_document_tool_limit: dailyDocumentToolLimit,

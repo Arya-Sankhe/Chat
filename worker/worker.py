@@ -232,16 +232,16 @@ def register_pdf_fonts():
     fonts = {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
     try:
         if regular:
-            pdfmetrics.registerFont(TTFont("SmartyfySans", regular))
-            fonts["regular"] = "SmartyfySans"
+            pdfmetrics.registerFont(TTFont("KluiSans", regular))
+            fonts["regular"] = "KluiSans"
         if bold:
-            pdfmetrics.registerFont(TTFont("SmartyfySans-Bold", bold))
-            fonts["bold"] = "SmartyfySans-Bold"
+            pdfmetrics.registerFont(TTFont("KluiSans-Bold", bold))
+            fonts["bold"] = "KluiSans-Bold"
         elif regular:
-            fonts["bold"] = "SmartyfySans"
+            fonts["bold"] = "KluiSans"
         if mono:
-            pdfmetrics.registerFont(TTFont("SmartyfyMono", mono))
-            fonts["mono"] = "SmartyfyMono"
+            pdfmetrics.registerFont(TTFont("KluiMono", mono))
+            fonts["mono"] = "KluiMono"
     except Exception:
         return {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
     return fonts
@@ -283,7 +283,7 @@ class Supabase:
         return self.request(f"rpc/{name}", method="POST", body=body)
 
     def claim_job(self, worker_id, lease_seconds):
-        rows = self.rpc("smartyfy_claim_document_job", {
+        rows = self.rpc("klui_claim_document_job", {
             "p_worker_id": worker_id,
             "p_lease_seconds": lease_seconds,
         })
@@ -1106,7 +1106,7 @@ class Processor:
 
     def append_pdf_markdown(self, story, text, styles, fonts):
         code_style = ParagraphStyle(
-            "SmartyfyCode",
+            "KluiCode",
             parent=styles["Code"],
             fontName=fonts["mono"],
             fontSize=9,
@@ -1194,7 +1194,7 @@ class Processor:
             return
         width = max(len(row) if isinstance(row, list) else 1 for row in rows)
         table_style = ParagraphStyle(
-            "SmartyfyTableCell",
+            "KluiTableCell",
             parent=styles["Normal"],
             fontName=fonts["regular"],
             fontSize=8.5,

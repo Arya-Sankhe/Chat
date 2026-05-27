@@ -41,7 +41,7 @@ import {
   resolveDefaultCompareModels
 } from "./render.js";
 
-const SETTINGS_KEY = "smartyfy.chat.controls.v1";
+const SETTINGS_KEY = "klui.chat.controls.v1";
 
 const defaultSettings = {
   model: "",
@@ -670,7 +670,7 @@ function renderCompareControls() {
       : `Compare ${ids.length} models`;
   } else {
     els.compareLabel.textContent = "Compare";
-    els.promptInput.placeholder = `Message ${modelDisplayName(state.settings.model) || "Smartyfy"}`;
+    els.promptInput.placeholder = `Message ${modelDisplayName(state.settings.model) || "Klui"}`;
   }
   if (els.compareModeToggle) {
     for (const btn of els.compareModeToggle.querySelectorAll("[data-compare-mode]")) {
@@ -1178,7 +1178,7 @@ function artifactFormat(artifact) {
 const pendingArtifactPolls = new Map();
 const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
 const PENDING_ARTIFACT_POLL_MAX_ATTEMPTS = 60;
-const VIEWER_WIDTH_KEY = "smartyfy.documentViewer.width.v1";
+const VIEWER_WIDTH_KEY = "klui.documentViewer.width.v1";
 let documentViewerPoll = null;
 let pdfJsPromise = null;
 let pdfRenderToken = 0;
@@ -1696,9 +1696,9 @@ function renderStandardMessage(raw) {
 
   return `
     <article class="message ${role}" data-raw-text="${escapeHtml(rawText)}">
-      <div class="message-avatar">${role === "user" ? "You" : "S"}</div>
+      <div class="message-avatar">${role === "user" ? "You" : "K"}</div>
       <div class="message-body">
-        <div class="message-meta"><strong>${role === "user" ? "You" : "Smartyfy"}</strong>${messageCopyButton(msg)}</div>
+        <div class="message-meta"><strong>${role === "user" ? "You" : "Klui"}</strong>${messageCopyButton(msg)}</div>
         <div class="message-content">${role === "assistant" ? renderReasoning(msg, { streaming }) : ""}${body}${role === "assistant" ? renderArtifacts(msg) : ""}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
       </div>
     </article>
@@ -1741,9 +1741,9 @@ function renderCompareResponse(raw, index) {
 function renderCompareMessage(messages) {
   return `
     <article class="message assistant compare-message">
-      <div class="message-avatar">S</div>
+      <div class="message-avatar">K</div>
       <div class="message-body">
-        <div class="message-meta"><strong>Smartyfy Compare</strong><span>${messages.length} models</span></div>
+        <div class="message-meta"><strong>Klui Compare</strong><span>${messages.length} models</span></div>
         <div class="compare-grid">
           ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
         </div>

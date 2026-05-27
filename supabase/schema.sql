@@ -354,7 +354,7 @@ create policy "document jobs read own" on public.document_jobs for select using 
 create policy "usage daily read own" on public.usage_daily for select using (auth.uid() = user_id);
 create policy "usage monthly read own" on public.usage_monthly for select using (auth.uid() = user_id);
 
-create or replace function public.smartyfy_consume_usage(
+create or replace function public.klui_consume_usage(
   p_user_id uuid,
   p_plan_id text,
   p_daily_message_limit integer,
@@ -439,7 +439,7 @@ begin
 end;
 $$;
 
-create or replace function public.smartyfy_consume_search(
+create or replace function public.klui_consume_search(
   p_user_id uuid,
   p_plan_id text,
   p_daily_search_limit integer,
@@ -490,9 +490,9 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_consume_search(uuid, text, integer, integer) to service_role;
+grant execute on function public.klui_consume_search(uuid, text, integer, integer) to service_role;
 
-create or replace function public.smartyfy_consume_documents(
+create or replace function public.klui_consume_documents(
   p_user_id uuid,
   p_plan_id text,
   p_daily_document_tool_limit integer,
@@ -560,9 +560,9 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_consume_documents(uuid, text, integer, integer, integer, integer) to service_role;
+grant execute on function public.klui_consume_documents(uuid, text, integer, integer, integer, integer) to service_role;
 
-create or replace function public.smartyfy_claim_document_job(
+create or replace function public.klui_claim_document_job(
   p_worker_id text,
   p_lease_seconds integer default 120
 ) returns setof public.document_jobs
@@ -595,9 +595,9 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_claim_document_job(text, integer) to service_role;
+grant execute on function public.klui_claim_document_job(text, integer) to service_role;
 
-create or replace function public.smartyfy_search_document_chunks(
+create or replace function public.klui_search_document_chunks(
   p_user_id uuid,
   p_document_ids uuid[],
   p_query text,
@@ -653,9 +653,9 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_search_document_chunks(uuid, uuid[], text, integer) to service_role;
+grant execute on function public.klui_search_document_chunks(uuid, uuid[], text, integer) to service_role;
 
-create or replace function public.smartyfy_search_document_pages(
+create or replace function public.klui_search_document_pages(
   p_user_id uuid,
   p_document_ids uuid[],
   p_query_embedding text,
@@ -727,4 +727,4 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_search_document_pages(uuid, uuid[], text, integer) to service_role;
+grant execute on function public.klui_search_document_pages(uuid, uuid[], text, integer) to service_role;

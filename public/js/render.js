@@ -28,13 +28,13 @@ function protectCodeSpans(text) {
   const slots = [];
   let id = 0;
   let s = String(text ?? "").replace(/```[\s\S]*?```/g, (raw) => {
-    const token = `SMARTYFYCODEHOLD${id}END`;
+    const token = `KLUICODEHOLD${id}END`;
     slots.push({ token, raw });
     id++;
     return token;
   });
   s = s.replace(/`[^`\n]+`/g, (raw) => {
-    const token = `SMARTYFYCODEHOLD${id}END`;
+    const token = `KLUICODEHOLD${id}END`;
     slots.push({ token, raw });
     id++;
     return token;
@@ -71,7 +71,7 @@ function extractMath(text) {
   let id = 0;
 
   function hold(latex, display) {
-    const token = `SMARTYFYMATHHOLD${id}END`;
+    const token = `KLUIMATHHOLD${id}END`;
     slots.push({ token, latex, display });
     id++;
     return token;

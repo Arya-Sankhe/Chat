@@ -62,7 +62,7 @@ const PLAN_DEFAULTS = [
   {
     id: "max",
     name: "Max",
-    description: "Highest managed Smartyfy limits.",
+    description: "Highest managed Klui limits.",
     priceLabel: "Testing access",
     dailyMessageLimit: 15000,
     monthlyImageLimit: 20000,

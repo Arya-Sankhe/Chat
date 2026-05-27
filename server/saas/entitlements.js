@@ -44,7 +44,7 @@ export async function getCurrentEntitlement({ db, userId, plans, access, signal 
 export async function requireActiveEntitlement({ db, userId, plans, access, signal }) {
   const entitlement = await getCurrentEntitlement({ db, userId, plans, access, signal });
   if (!entitlement.active || !entitlement.subscription) {
-    throw new HttpError(402, "Choose a Smartyfy plan to start chatting.");
+    throw new HttpError(402, "Choose a Klui plan to start chatting.");
   }
 
   if (!entitlement.plan) {

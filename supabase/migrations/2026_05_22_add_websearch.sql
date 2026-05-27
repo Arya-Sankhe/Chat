@@ -1,7 +1,7 @@
 -- Web search additions:
 --   1. Daily per-user search counter on usage_daily
 --   2. search_cache table for cross-restart / cross-instance dedup
---   3. smartyfy_consume_search RPC for atomic limit-enforcement
+--   3. klui_consume_search RPC for atomic limit-enforcement
 
 alter table public.usage_daily
   add column if not exists search_count integer not null default 0;
@@ -24,7 +24,7 @@ grant select, insert, update, delete on public.search_cache to service_role;
 
 drop policy if exists "search cache service role" on public.search_cache;
 
-create or replace function public.smartyfy_consume_search(
+create or replace function public.klui_consume_search(
   p_user_id uuid,
   p_plan_id text,
   p_daily_search_limit integer,
@@ -75,4 +75,4 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_consume_search(uuid, text, integer, integer) to service_role;
+grant execute on function public.klui_consume_search(uuid, text, integer, integer) to service_role;

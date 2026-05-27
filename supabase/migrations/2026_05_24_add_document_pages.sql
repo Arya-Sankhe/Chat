@@ -34,7 +34,7 @@ alter table public.document_pages enable row level security;
 drop policy if exists "document pages read own" on public.document_pages;
 create policy "document pages read own" on public.document_pages for select using (auth.uid() = user_id);
 
-create or replace function public.smartyfy_search_document_pages(
+create or replace function public.klui_search_document_pages(
   p_user_id uuid,
   p_document_ids uuid[],
   p_query_embedding text,
@@ -106,4 +106,4 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_search_document_pages(uuid, uuid[], text, integer) to service_role;
+grant execute on function public.klui_search_document_pages(uuid, uuid[], text, integer) to service_role;

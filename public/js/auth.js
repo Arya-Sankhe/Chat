@@ -1,4 +1,4 @@
-const AUTH_STORAGE_KEY = "smartyfy.auth.v1";
+const AUTH_STORAGE_KEY = "klui.auth.v1";
 
 function cleanUrl(value) {
   return String(value || "").replace(/\/+$/, "");

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add low-cost, scalable document tools so Smartyfy models can read, analyze, create, edit, and export Word, PDF, and Excel files through the same controlled tool-calling pattern already used for web search.
+Add low-cost, scalable document tools so Klui models can read, analyze, create, edit, and export Word, PDF, and Excel files through the same controlled tool-calling pattern already used for web search.
 
 The model should not directly mutate binary files. The model should request structured document operations, and deterministic backend workers should apply those operations, validate outputs, store generated artifacts in R2, and return bounded context back to the model.
 
@@ -465,7 +465,7 @@ Worker Python dependencies should be pinned in `requirements.txt` with hashes, s
 Use Docker Compose with two services:
 
 ```text
-smartyfy-chat
+klui-chat
   - Node API
   - public web app
   - no heavy document processing
@@ -496,7 +496,7 @@ Example shape:
 
 ```yaml
 services:
-  smartyfy-chat:
+  klui-chat:
     build: .
     ports:
       - "3000:3000"
@@ -736,7 +736,7 @@ Use Postgres as the queue for MVP. Node inserts rows into `document_jobs`; the w
 The claim must use `for update skip locked` to avoid double-processing and worker contention:
 
 ```sql
-create or replace function public.smartyfy_claim_document_job(
+create or replace function public.klui_claim_document_job(
   p_worker_id text,
   p_lease_seconds integer default 120
 ) returns setof public.document_jobs
@@ -769,7 +769,7 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_claim_document_job(text, integer)
+grant execute on function public.klui_claim_document_job(text, integer)
   to service_role;
 ```
 
@@ -792,7 +792,7 @@ alter table public.usage_daily
 Suggested RPC:
 
 ```sql
-create or replace function public.smartyfy_consume_documents(
+create or replace function public.klui_consume_documents(
   p_user_id uuid,
   p_plan_id text,
   p_daily_document_tool_limit integer,
@@ -860,7 +860,7 @@ begin
 end;
 $$;
 
-grant execute on function public.smartyfy_consume_documents(uuid, text, integer, integer, integer, integer)
+grant execute on function public.klui_consume_documents(uuid, text, integer, integer, integer, integer)
   to service_role;
 ```
 
@@ -1356,7 +1356,7 @@ Assertions:
 
 ### Docker tests
 
-- Build `smartyfy-chat`.
+- Build `klui-chat`.
 - Build `document-worker`.
 - Verify worker healthcheck.
 - Upload one PDF, one DOCX, one XLSX.
