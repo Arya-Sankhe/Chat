@@ -115,7 +115,10 @@ export async function putUploadContent(session, upload, file, category = upload.
   try {
     const put = await fetch(upload.uploadUrl, {
       method: upload.method || "PUT",
-      headers: { "content-type": file.type || "application/octet-stream" },
+      headers: {
+        ...(upload.headers || {}),
+        "content-type": file.type || "application/octet-stream"
+      },
       body: file,
       signal
     });

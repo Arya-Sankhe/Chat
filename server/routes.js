@@ -49,6 +49,7 @@ import {
   visualImageInputLimit
 } from "./websearch/tool.js";
 import { buildSearchSystemHint, detectSearchNeed } from "./websearch/detect.js";
+import { normalizeProviderId, providerAvailability, resolveProvider } from "./providers.js";
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
@@ -309,6 +310,7 @@ async function handlePresignUpload(req, res, config) {
       category === "document" ? config.documents.uploadExpiresSeconds : config.r2.uploadExpiresSeconds
     ),
     method: "PUT",
+    headers: context.r2.uploadHeaders(body.contentType || "application/octet-stream"),
     category,
     maxImageBytes: config.r2.maxImageBytes,
     maxDocumentBytes: config.documents.maxFileBytes
@@ -1112,6 +1114,7 @@ async function handleCouncilConversationMessage({
   settings,
   chairmanOverride,
   crofai,
+  provider,
   webSearch,
   documentSearch
 }) {
@@ -1198,19 +1201,19 @@ async function handleCouncilConversationMessage({
 
     try {
       const upstream = await crofai.streamChatCompletion({
-        apiKey: config.serverApiKey,
-        baseUrl: config.defaultBaseUrl,
+        apiKey: provider?.apiKey || config.serverApiKey,
+        baseUrl: provider?.baseUrl || config.defaultBaseUrl,
         body: entry.chatRequest,
         signal: controller.signal
       });
 
-      if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
+      if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, { type: "delta", index, model: entry.chatRequest.model, event });
       });
 
-      if (!hasAssistantOutput(accumulated)) throw new HttpError(502, "Klui returned an empty response.");
+      if (!hasAssistantOutput(accumulated)) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
       entry.accumulated = accumulated;
 
       const durationMeta = reasoningDurationMetadata(entry.message.metadata, accumulated);
@@ -1298,6 +1301,7 @@ async function handleCouncilConversationMessage({
         panelists: validPanelists,
         originalUserPrompt: originalPrompt,
         config,
+        provider,
         signal: controller.signal,
         chatCompletionFn: crofai.chatCompletion,
         onBallot: (ballot) => {
@@ -1419,6 +1423,7 @@ async function handleCouncilConversationMessage({
       prompt: chairmanPromptWithContext,
       systemPrompt: chairmanSystemPrompt,
       config,
+      provider,
       signal: controller.signal,
       reasoningEffort: settings?.reasoning_effort,
       maxTokens: settings?.max_tokens,
@@ -1464,6 +1469,7 @@ async function handleCompareConversationMessage({
   userContent,
   chatRequests,
   crofai,
+  provider,
   webSearch,
   documentSearch
 }) {
@@ -1536,19 +1542,19 @@ async function handleCompareConversationMessage({
 
     try {
       const upstream = await crofai.streamChatCompletion({
-        apiKey: config.serverApiKey,
-        baseUrl: config.defaultBaseUrl,
+        apiKey: provider?.apiKey || config.serverApiKey,
+        baseUrl: provider?.baseUrl || config.defaultBaseUrl,
         body: chatRequest,
         signal: controller.signal
       });
 
-      if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
+      if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, { type: "delta", index, model: chatRequest.model, event });
       });
       if (!hasAssistantOutput(accumulated)) {
-        throw new HttpError(502, "Klui returned an empty response.");
+        throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
       }
 
       const compareDurationMeta = reasoningDurationMetadata(null, accumulated);
@@ -1577,7 +1583,6 @@ async function handleCompareConversationMessage({
 
 async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-  requireServerCrofKey(config);
 
   const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req, 2 * 1024 * 1024);
@@ -1587,6 +1592,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
   const compareModels = normalizeCompareModels(body.models);
   const councilEnabled = normalizeCouncilFlag(body.council);
   const agentMode = normalizeAgentMode(body.agentMode);
+  const provider = resolveProvider(body.provider, config);
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
@@ -1795,6 +1801,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
         },
         chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
         crofai,
+        provider,
         webSearch: sharedSearch,
         documentSearch: sharedDocuments
       });
@@ -1810,6 +1817,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
       userContent,
       chatRequests,
       crofai,
+      provider,
       webSearch: sharedSearch,
       documentSearch: sharedDocuments
     });
@@ -1910,6 +1918,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
           chatRequest: equippedRequest,
           crofai,
           config,
+          provider,
           signal: controller.signal,
           websearch,
           documents,
@@ -1921,6 +1930,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
           chatRequest: equippedRequest,
           crofai,
           config,
+          provider,
           signal: controller.signal,
           res
         });
@@ -2001,14 +2011,14 @@ async function handleConversationMessage(req, res, config, conversationId) {
  * the upstream stream is piped 1:1 to the SSE response. Returns the
  * same shape as runChatWithToolLoop.
  */
-async function streamSingleChat({ chatRequest, crofai, config, signal, res }) {
+async function streamSingleChat({ chatRequest, crofai, config, provider, signal, res }) {
   const upstream = await crofai.streamChatCompletion({
-    apiKey: config.serverApiKey,
-    baseUrl: config.defaultBaseUrl,
+    apiKey: provider?.apiKey || config.serverApiKey,
+    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body: chatRequest,
     signal
   });
-  if (!upstream.body) throw new HttpError(502, "Klui returned an empty response stream.");
+  if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
   const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
@@ -2041,7 +2051,8 @@ export async function handleApiRequest(req, res, url, config) {
         supabaseAnonKey: config.supabase.anonKey,
         auth: config.auth,
         defaultBaseUrl: config.defaultBaseUrl,
-        services: configuredServices(config)
+        services: configuredServices(config),
+        providers: providerAvailability(config)
       });
       return;
     }

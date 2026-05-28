@@ -397,6 +397,52 @@ describe("tool", () => {
     assert.equal(result.toolCallCount, 0);
   });
 
+  test("runChatWithToolLoop routes through the supplied provider override", async () => {
+    const seenAuth = [];
+    const crofai = {
+      async streamChatCompletion({ apiKey, baseUrl }) {
+        seenAuth.push({ apiKey, baseUrl });
+        return streamResponse([contentDelta("ok")]);
+      }
+    };
+
+    await runChatWithToolLoop({
+      chatRequest: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "ping" }] },
+      crofai,
+      config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      provider: { apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(seenAuth.length, 1);
+    assert.equal(seenAuth[0].apiKey, "or-key");
+    assert.equal(seenAuth[0].baseUrl, "https://openrouter.ai/api/v1");
+  });
+
+  test("runChatWithToolLoop falls back to klui credentials when provider is missing", async () => {
+    const seenAuth = [];
+    const crofai = {
+      async streamChatCompletion({ apiKey, baseUrl }) {
+        seenAuth.push({ apiKey, baseUrl });
+        return streamResponse([contentDelta("ok")]);
+      }
+    };
+
+    await runChatWithToolLoop({
+      chatRequest: { model: "x", messages: [{ role: "user", content: "ping" }] },
+      crofai,
+      config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(seenAuth[0].apiKey, "klui-key");
+    assert.equal(seenAuth[0].baseUrl, "https://crof.ai/v1");
+  });
+
   test("runChatWithToolLoop forces a final answer after the tool-call cap", async () => {
     const bodies = [];
     const crofai = {

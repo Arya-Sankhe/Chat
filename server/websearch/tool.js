@@ -387,6 +387,7 @@ export async function runChatWithToolLoop({
   chatRequest,
   crofai,
   config,
+  provider,
   signal,
   websearch,
   documents = null,
@@ -420,8 +421,8 @@ export async function runChatWithToolLoop({
       : { ...chatRequest, messages };
 
     const upstream = await crofai.streamChatCompletion({
-      apiKey: config.serverApiKey,
-      baseUrl: config.defaultBaseUrl,
+      apiKey: provider?.apiKey || config.serverApiKey,
+      baseUrl: provider?.baseUrl || config.defaultBaseUrl,
       body,
       signal
     });

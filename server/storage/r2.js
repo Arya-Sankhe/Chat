@@ -79,6 +79,24 @@ function canonicalQuery(params) {
     .join("&");
 }
 
+function r2ErrorDetails(details) {
+  const text = clean(details);
+  return {
+    code: text.match(/<Code>([^<]+)<\/Code>/)?.[1] || null,
+    message: text.match(/<Message>([^<]+)<\/Message>/)?.[1] || null
+  };
+}
+
+function uploadErrorMessage(status, details) {
+  if (status === 403 && details.code === "AccessDenied") {
+    return "Cloudflare R2 denied the upload. Check that the configured R2 access key has Object Read & Write access to R2_BUCKET.";
+  }
+  if (status === 403 && details.code === "SignatureDoesNotMatch") {
+    return "Cloudflare R2 rejected the upload signature. Check the R2 endpoint, bucket, and access key settings.";
+  }
+  return `Upload to storage failed with ${status}.`;
+}
+
 export function isSupportedImageType(contentType) {
   return supportedImageTypes.has(clean(contentType).toLowerCase());
 }
@@ -171,6 +189,13 @@ export class R2Client {
     return `users/${userId}/${crypto.randomUUID()}/${safeFileName(fileName)}`;
   }
 
+  uploadHeaders(contentType) {
+    return {
+      ...(contentType ? { "content-type": contentType } : {}),
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD"
+    };
+  }
+
   presign(method, key, expiresSeconds, extraParams = {}) {
     this.requireConfigured();
 
@@ -178,7 +203,12 @@ export class R2Client {
     const dateStamp = yyyymmdd(now);
     const endpoint = new URL(this.config.endpoint);
     const credential = `${this.config.accessKeyId}/${dateStamp}/${region}/${service}/aws4_request`;
-    const signedHeaders = "host";
+    const upperMethod = method.toUpperCase();
+    const signedHeaderValues = {
+      host: endpoint.host,
+      ...(upperMethod === "PUT" ? { "x-amz-content-sha256": "UNSIGNED-PAYLOAD" } : {})
+    };
+    const signedHeaders = Object.keys(signedHeaderValues).sort().join(";");
     const params = new URLSearchParams({
       "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
       "X-Amz-Credential": credential,
@@ -193,9 +223,12 @@ export class R2Client {
     }
 
     const canonicalUri = canonicalObjectUri(endpoint, this.config.bucket, key);
-    const canonicalHeaders = `host:${endpoint.host}\n`;
+    const canonicalHeaders = Object.entries(signedHeaderValues)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([header, value]) => `${header}:${value}\n`)
+      .join("");
     const canonicalRequest = [
-      method.toUpperCase(),
+      upperMethod,
       canonicalUri,
       canonicalQuery(params),
       canonicalHeaders,
@@ -221,20 +254,23 @@ export class R2Client {
   async putObject(key, body, { contentType, expiresSeconds = this.config.uploadExpiresSeconds, signal } = {}) {
     const response = await fetch(this.uploadUrl(key, expiresSeconds), {
       method: "PUT",
-      headers: {
-        ...(contentType ? { "content-type": contentType } : {})
-      },
+      headers: this.uploadHeaders(contentType),
       body,
       signal
     });
     if (!response.ok) {
-      let details = "";
+      let detailsText = "";
       try {
-        details = await response.text();
+        detailsText = await response.text();
       } catch {
-        details = "";
+        detailsText = "";
       }
-      throw new HttpError(502, `Upload to storage failed with ${response.status}.`, details.slice(0, 2000));
+      const details = r2ErrorDetails(detailsText);
+      throw new HttpError(502, uploadErrorMessage(response.status, details), {
+        status: response.status,
+        code: details.code,
+        message: details.message
+      });
     }
 
     return {

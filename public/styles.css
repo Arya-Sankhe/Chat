@@ -1283,6 +1283,41 @@ body.document-viewer-resizing {
   opacity: 1;
 }
 
+.provider-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  width: auto;
+  min-width: 32px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.provider-toggle-label {
+  white-space: nowrap;
+}
+
+.provider-toggle[aria-pressed="true"] {
+  background: rgba(108, 76, 219, 0.14);
+  color: #6c4cdb;
+  border-color: rgba(108, 76, 219, 0.35);
+}
+
+.provider-toggle[aria-pressed="true"]:hover {
+  background: rgba(108, 76, 219, 0.22);
+}
+
+.provider-toggle[aria-pressed="false"] {
+  opacity: 0.6;
+}
+
+.provider-toggle[aria-pressed="false"]:hover {
+  opacity: 1;
+}
+
 /* ── Sources pill (web search citations) ── */
 
 .artifact-list {
@@ -1782,6 +1817,16 @@ body.document-viewer-resizing {
 .composer-model-btn:hover {
   background: #f0f0f0;
   border-color: var(--border);
+}
+
+.composer-model-btn.openrouter-active {
+  background: rgba(108, 76, 219, 0.08);
+  border-color: rgba(108, 76, 219, 0.35);
+  color: #4b34a2;
+}
+
+.composer-model-btn.openrouter-active:hover {
+  background: rgba(108, 76, 219, 0.16);
 }
 
 .composer-model-icon {

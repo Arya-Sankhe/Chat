@@ -44,6 +44,8 @@ import {
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 
+const OPENROUTER_DEFAULT_MODEL = "xiaomi/mimo-v2.5";
+
 const defaultSettings = {
   model: "",
   temperature: 0.7,
@@ -56,7 +58,9 @@ const defaultSettings = {
   compareModels: [],
   compareMode: "compare",
   agentMode: false,
-  webSearchMode: "auto"
+  webSearchMode: "auto",
+  provider: "klui",
+  kluiModel: ""
 };
 
 const state = {
@@ -168,6 +172,7 @@ const els = {
   compareModeDesc: document.querySelector("#compareModeDesc"),
   agentModeToggle: document.querySelector("#agentModeToggle"),
   webSearchToggle: document.querySelector("#webSearchToggle"),
+  providerToggle: document.querySelector("#providerToggle"),
   documentViewer: document.querySelector("#documentViewer"),
   documentViewerResizer: document.querySelector("#documentViewerResizer"),
   documentViewerTitle: document.querySelector("#documentViewerTitle"),
@@ -289,6 +294,14 @@ function loadSettings() {
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
     loaded.agentMode = Boolean(loaded.agentMode);
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
+    loaded.provider = loaded.provider === "openrouter" ? "openrouter" : "klui";
+    loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
+    if (loaded.provider === "openrouter") {
+      if (loaded.kluiModel && loaded.model !== OPENROUTER_DEFAULT_MODEL && loaded.model !== loaded.kluiModel) {
+        loaded.kluiModel = loaded.model;
+      }
+      loaded.model = OPENROUTER_DEFAULT_MODEL;
+    }
     return loaded;
   } catch {
     return { ...defaultSettings };
@@ -346,6 +359,65 @@ function toggleAgentMode() {
   renderAgentModeToggle();
   renderWebSearchToggle();
   showToast(next ? "Agent mode enabled. Tools can be used." : "Agent mode disabled. PDFs use direct context.");
+}
+
+function openRouterAvailable() {
+  return Boolean(state.config?.providers?.openrouter || state.config?.services?.openrouter);
+}
+
+function activeProvider() {
+  if (state.settings.provider === "openrouter" && openRouterAvailable()) return "openrouter";
+  return "klui";
+}
+
+function renderProviderToggle() {
+  if (!els.providerToggle) return;
+  if (!openRouterAvailable()) {
+    els.providerToggle.classList.add("hidden");
+    return;
+  }
+  els.providerToggle.classList.remove("hidden");
+  const on = activeProvider() === "openrouter";
+  els.providerToggle.setAttribute("aria-pressed", on ? "true" : "false");
+  els.providerToggle.setAttribute(
+    "aria-label",
+    on ? "Provider: OpenRouter (on)" : "Provider: Klui — click to use OpenRouter"
+  );
+  els.providerToggle.setAttribute(
+    "title",
+    on
+      ? `Provider: OpenRouter · ${OPENROUTER_DEFAULT_MODEL}. Click to switch back to Klui.`
+      : "Provider: Klui — click to route this chat through OpenRouter."
+  );
+}
+
+function toggleProvider() {
+  if (!openRouterAvailable()) return;
+  const next = activeProvider() === "openrouter" ? "klui" : "openrouter";
+  if (next === "openrouter") {
+    /* Stash the current Klui model so we can restore it on toggle-off. */
+    if (state.settings.model && state.settings.model !== OPENROUTER_DEFAULT_MODEL) {
+      updateSetting("kluiModel", state.settings.model);
+    }
+    updateSetting("provider", "openrouter");
+    updateSetting("model", OPENROUTER_DEFAULT_MODEL);
+    if (state.settings.compareEnabled) {
+      updateSetting("compareEnabled", false);
+      updateSetting("compareModels", []);
+      closeCompareDropdown();
+    }
+    showToast(`Routing this chat through OpenRouter (${OPENROUTER_DEFAULT_MODEL}).`);
+  } else {
+    updateSetting("provider", "klui");
+    const restored = state.settings.kluiModel
+      || state.models.find((m) => m.id !== OPENROUTER_DEFAULT_MODEL)?.id
+      || "";
+    if (restored) updateSetting("model", restored);
+    showToast("Routing this chat through Klui.");
+  }
+  renderProviderToggle();
+  renderModelOptions();
+  renderCompareControls();
 }
 
 function toggleWebSearchMode() {
@@ -434,6 +506,7 @@ function renderShell() {
   renderThinkingEffort();
   renderAgentModeToggle();
   renderWebSearchToggle();
+  renderProviderToggle();
   renderMessages();
   renderDocumentViewer();
   syncCompareContextBanner();
@@ -689,14 +762,20 @@ function renderCompareControls() {
 }
 
 function renderModelOptions() {
-  els.modelDetails.innerHTML = renderModelDetails(selectedModel());
+  const openrouter = activeProvider() === "openrouter";
+  els.modelDetails.innerHTML = openrouter
+    ? `<div class="model-empty">Provider: OpenRouter · ${escapeHtml(OPENROUTER_DEFAULT_MODEL)} (testing).</div>`
+    : renderModelDetails(selectedModel());
 
   const selected = selectedModel();
-  const displayName = compactModelDisplayName(selected?.name || state.settings.model) || "Model";
-  const logoUrl = selected ? modelBrandLogoUrl(selected) : "";
+  const displayName = openrouter
+    ? `OpenRouter · ${OPENROUTER_DEFAULT_MODEL}`
+    : (compactModelDisplayName(selected?.name || state.settings.model) || "Model");
+  const logoUrl = openrouter ? "" : (selected ? modelBrandLogoUrl(selected) : "");
 
   els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
   els.modelButton.classList.toggle("has-brand-logo", Boolean(logoUrl));
+  els.modelButton.classList.toggle("openrouter-active", openrouter);
 
   if (logoUrl) {
     els.modelLogoImg.src = logoUrl;
@@ -2587,9 +2666,11 @@ async function retryFailedAssistant(assistantMessageId) {
   renderMessages();
 
   try {
+    const retryProvider = activeProvider();
     await streamConversationMessage(state.session, state.activeConversationId, {
       retryAssistantMessageId: assistantMessageId,
-      model: state.settings.model,
+      model: retryProvider === "openrouter" ? OPENROUTER_DEFAULT_MODEL : state.settings.model,
+      provider: retryProvider,
       settings: {
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
@@ -2727,10 +2808,13 @@ async function executeSend({ text, images, compareModels, council = false, descr
       if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     }
 
+    const provider = activeProvider();
+    const effectiveModel = provider === "openrouter" ? OPENROUTER_DEFAULT_MODEL : state.settings.model;
     const payload = {
       text,
       attachments: uploaded.map((item) => item.id),
-      model: state.settings.model,
+      model: effectiveModel,
+      provider,
       settings: {
         ...state.settings,
         reasoning_effort: state.settings.thinkingEffort || "medium"
@@ -2946,6 +3030,12 @@ function bindEvents() {
   els.modelCatalog.addEventListener("click", (e) => {
     const item = e.target.closest("[data-model-id]");
     if (!item) return;
+    if (activeProvider() === "openrouter") {
+      /* Picking a Klui model from the dropdown is an implicit
+         "switch back to Klui" — keep the chosen id and route through Klui. */
+      updateSetting("provider", "klui");
+      renderProviderToggle();
+    }
     updateSetting("model", item.dataset.modelId);
     closeModelDropdown();
     renderModelOptions();
@@ -3025,6 +3115,10 @@ function bindEvents() {
     const id = e.target.value.trim();
     if (!id) return;
     e.preventDefault();
+    if (activeProvider() === "openrouter") {
+      updateSetting("provider", "klui");
+      renderProviderToggle();
+    }
     updateSetting("model", id);
     closeModelDropdown();
     renderModelOptions();
@@ -3065,6 +3159,9 @@ function bindEvents() {
 
   if (els.webSearchToggle) {
     els.webSearchToggle.addEventListener("click", toggleWebSearchMode);
+  }
+  if (els.providerToggle) {
+    els.providerToggle.addEventListener("click", toggleProvider);
   }
   if (els.agentModeToggle) {
     els.agentModeToggle.addEventListener("click", toggleAgentMode);

@@ -57,6 +57,10 @@ Required:
 
 Optional plan limit overrides are available in `.env.example`.
 
+Optional alternate model provider:
+
+- `OPENROUTER_API_KEY` (and optional `OPENROUTER_BASE_URL`) enables an "OpenRouter" toggle in the composer that routes the current chat through OpenRouter for side-by-side testing. The default OpenRouter model is `xiaomi/mimo-v2.5` ([model page](https://openrouter.ai/xiaomi/mimo-v2.5)). Tool calling, streaming, vision inputs, and document tools all work the same as the Klui provider — only the upstream host changes. Compare/Council modes stay on the Klui provider; toggling OpenRouter clears any active compare selection.
+
 Optional for document tools:
 
 - `DOCUMENTS_ENABLED=true`

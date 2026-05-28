@@ -443,8 +443,47 @@ test("R2 putObject uploads through the server without browser CORS", async () =>
     assert.equal(calls.length, 1);
     assert.equal(calls[0].options.method, "PUT");
     assert.equal(calls[0].options.headers["content-type"], "image/png");
+    assert.equal(calls[0].options.headers["x-amz-content-sha256"], "UNSIGNED-PAYLOAD");
     assert.match(calls[0].url, /^https:\/\/account\.r2\.cloudflarestorage\.com\/klui-chat\/users\/user_1\/image\.png\?/);
+    assert.match(calls[0].url, /X-Amz-SignedHeaders=host%3Bx-amz-content-sha256/);
     assert.match(calls[0].url, /X-Amz-Signature=/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("R2 putObject reports bucket permission failures clearly", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+    { status: 403 }
+  );
+
+  try {
+    const r2 = new R2Client({
+      r2: {
+        endpoint: "https://account.r2.cloudflarestorage.com",
+        accessKeyId: "access-key",
+        secretAccessKey: "secret-key",
+        bucket: "klui-chat",
+        uploadExpiresSeconds: 300,
+        readExpiresSeconds: 900
+      }
+    });
+
+    await assert.rejects(
+      r2.putObject("users/user_1/image.png", Buffer.from("image"), { contentType: "image/png" }),
+      (error) => {
+        assert.equal(error.status, 502);
+        assert.match(error.message, /Object Read & Write access/);
+        assert.deepEqual(error.details, {
+          status: 403,
+          code: "AccessDenied",
+          message: "Access Denied"
+        });
+        return true;
+      }
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -485,6 +524,7 @@ test("R2 signed URLs do not duplicate the bucket when endpoint includes it", () 
 
   const url = new URL(r2.uploadUrl("users/user_1/image.png"));
   assert.equal(url.pathname, "/klui-chat/users/user_1/image.png");
+  assert.equal(url.searchParams.get("X-Amz-SignedHeaders"), "host;x-amz-content-sha256");
   assert.ok(url.searchParams.get("X-Amz-Signature"));
 });
 

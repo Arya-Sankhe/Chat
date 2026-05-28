@@ -85,6 +85,12 @@ export function loadConfig(env = process.env) {
     defaultBaseUrl,
     allowedBaseUrls: CROFAI_BASE_URLS,
     serverApiKey: clean(env.CROFAI_API_KEY),
+    providers: {
+      openrouter: {
+        apiKey: clean(env.OPENROUTER_API_KEY),
+        baseUrl: cleanUrl(env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1"
+      }
+    },
     visionDescribeModel: clean(env.VISION_DESCRIBE_MODEL),
     plans,
     access: {
@@ -169,6 +175,7 @@ export function loadConfig(env = process.env) {
 export function configuredServices(config) {
   return {
     crof: Boolean(config.serverApiKey),
+    openrouter: Boolean(config.providers?.openrouter?.apiKey),
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),

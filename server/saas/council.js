@@ -201,12 +201,15 @@ export async function runPeerReview({
   panelists,
   originalUserPrompt,
   config,
+  provider,
   signal,
   onBallot,
   callsCounter,
   chatCompletionFn = chatCompletion,
   maxTokens = 1200
 }) {
+  const apiKey = provider?.apiKey || config?.serverApiKey;
+  const baseUrl = provider?.baseUrl || config?.defaultBaseUrl;
   if (!panelists.length) return { ballots: [], borda: [], assignments: [] };
 
   const assignments = buildReviewerAssignments(panelists);
@@ -224,8 +227,8 @@ export async function runPeerReview({
         try {
           if (callsCounter) callsCounter.add(assignment.reviewerModelId);
           raw = await chatCompletionFn({
-            apiKey: config.serverApiKey,
-            baseUrl: config.defaultBaseUrl,
+            apiKey,
+            baseUrl,
             body: {
               model: assignment.reviewerModelId,
               messages: [{ role: "user", content: prompt }],
@@ -350,6 +353,7 @@ export async function runChairmanSynthesis({
   prompt,
   systemPrompt,
   config,
+  provider,
   signal,
   onEvent,
   reasoningEffort,
@@ -368,8 +372,8 @@ export async function runChairmanSynthesis({
   if (maxTokens) body.max_tokens = maxTokens;
 
   const upstream = await streamChatCompletionFn({
-    apiKey: config.serverApiKey,
-    baseUrl: config.defaultBaseUrl,
+    apiKey: provider?.apiKey || config.serverApiKey,
+    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body,
     signal
   });
