@@ -41,6 +41,7 @@ import {
   renderModelOption,
   resolveDefaultCompareModels
 } from "./render.js";
+import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 
@@ -2305,9 +2306,10 @@ function applyStreamEvent(message, event) {
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
 
-  if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+  const reasoningDelta = extractReasoningDelta(delta);
+  if (reasoningDelta) {
     markReasoningStarted(message);
-    message.reasoning += delta.reasoning_content;
+    message.reasoning += reasoningDelta;
   }
   if (typeof delta.content === "string" && delta.content) {
     markReasoningEnded(message);

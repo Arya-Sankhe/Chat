@@ -424,6 +424,7 @@ export async function runChatWithToolLoop({
       apiKey: provider?.apiKey || config.serverApiKey,
       baseUrl: provider?.baseUrl || config.defaultBaseUrl,
       body,
+      providerId: provider?.id,
       signal
     });
     if (!upstream.body) throw new Error("Empty stream from upstream model.");

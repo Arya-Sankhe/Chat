@@ -375,6 +375,7 @@ export async function runChairmanSynthesis({
     apiKey: provider?.apiKey || config.serverApiKey,
     baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body,
+    providerId: provider?.id,
     signal
   });
 

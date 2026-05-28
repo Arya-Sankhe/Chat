@@ -410,7 +410,7 @@ describe("tool", () => {
       chatRequest: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "ping" }] },
       crofai,
       config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
-      provider: { apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
+      provider: { id: "openrouter", apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
       onUpstreamEvent: () => {}

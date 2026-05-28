@@ -1,4 +1,5 @@
 import { HttpError } from "../http/responses.js";
+import { adaptChatRequestForProvider } from "../providers.js";
 
 function authHeaders(apiKey) {
   const headers = {
@@ -42,14 +43,15 @@ export async function listModels({ apiKey, baseUrl, signal }) {
   return response.json();
 }
 
-export async function streamChatCompletion({ apiKey, baseUrl, body, signal }) {
+export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId }) {
+  const requestBody = adaptChatRequestForProvider(body, providerId);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       ...authHeaders(apiKey),
       "content-type": "application/json"
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify({ ...requestBody, stream: true }),
     signal
   });
 
@@ -60,14 +62,15 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal }) {
   return response;
 }
 
-export async function chatCompletion({ apiKey, baseUrl, body, signal }) {
+export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId }) {
+  const requestBody = adaptChatRequestForProvider(body, providerId);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       ...authHeaders(apiKey),
       "content-type": "application/json"
     },
-    body: JSON.stringify({ ...body, stream: false }),
+    body: JSON.stringify({ ...requestBody, stream: false }),
     signal
   });
 

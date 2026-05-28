@@ -79,3 +79,24 @@ export function providerAvailability(config) {
     openrouter: Boolean(config?.providers?.openrouter?.apiKey)
   };
 }
+
+const OPENROUTER_REASONING_EFFORTS = new Set(["low", "medium", "high"]);
+
+/**
+ * Map our shared chat request shape to provider-specific fields.
+ * OpenRouter expects `reasoning: { effort }` instead of `reasoning_effort`.
+ */
+export function adaptChatRequestForProvider(body, providerId) {
+  if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
+
+  const { reasoning_effort: reasoningEffort, ...rest } = body;
+  if (!OPENROUTER_REASONING_EFFORTS.has(reasoningEffort)) return rest;
+
+  return {
+    ...rest,
+    reasoning: {
+      effort: reasoningEffort,
+      exclude: false
+    }
+  };
+}

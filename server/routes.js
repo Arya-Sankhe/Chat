@@ -1204,6 +1204,7 @@ async function handleCouncilConversationMessage({
         apiKey: provider?.apiKey || config.serverApiKey,
         baseUrl: provider?.baseUrl || config.defaultBaseUrl,
         body: entry.chatRequest,
+        providerId: provider?.id,
         signal: controller.signal
       });
 
@@ -1545,6 +1546,7 @@ async function handleCompareConversationMessage({
         apiKey: provider?.apiKey || config.serverApiKey,
         baseUrl: provider?.baseUrl || config.defaultBaseUrl,
         body: chatRequest,
+        providerId: provider?.id,
         signal: controller.signal
       });
 
@@ -2016,6 +2018,7 @@ async function streamSingleChat({ chatRequest, crofai, config, provider, signal,
     apiKey: provider?.apiKey || config.serverApiKey,
     baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body: chatRequest,
+    providerId: provider?.id,
     signal
   });
   if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
