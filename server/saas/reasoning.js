@@ -6,17 +6,16 @@
  * (see https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
  */
 export function extractReasoningDelta(delta = {}) {
-  let text = "";
-
   if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
-    text += delta.reasoning_content;
+    return delta.reasoning_content;
   }
 
   if (typeof delta.reasoning === "string" && delta.reasoning) {
-    text += delta.reasoning;
+    return delta.reasoning;
   }
 
   if (Array.isArray(delta.reasoning_details)) {
+    let text = "";
     for (const detail of delta.reasoning_details) {
       if (!detail || typeof detail !== "object") continue;
       if (detail.type === "reasoning.text" && typeof detail.text === "string" && detail.text) {
@@ -27,7 +26,8 @@ export function extractReasoningDelta(delta = {}) {
         text += detail.summary;
       }
     }
+    return text;
   }
 
-  return text;
+  return "";
 }

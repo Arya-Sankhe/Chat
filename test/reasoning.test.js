@@ -127,6 +127,15 @@ test("applyStreamEvent accumulates OpenRouter reasoning_details into message.rea
   assert.equal(message.reasoning, "Let me think...");
 });
 
+test("extractReasoningDelta prefers one reasoning field per delta", () => {
+  const delta = {
+    reasoning: "same text",
+    reasoning_details: [{ type: "reasoning.text", text: "same text" }]
+  };
+
+  assert.equal(extractReasoningDelta(delta), "same text");
+});
+
 test("applyStreamEvent still accumulates reasoning_content for Klui streams", () => {
   const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
 
