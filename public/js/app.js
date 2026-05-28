@@ -1152,8 +1152,20 @@ function renderInlineSourcePill(sources) {
   return `<details class="inline-source-pill"><summary class="inline-source-pill-trigger">${icon ? `<img class="inline-source-favicon" src="${escapeHtml(icon)}" alt="" width="14" height="14" decoding="async">` : ""}<span class="inline-source-pill-label">${escapeHtml(sourceShortLabel(primary))}</span>${extra > 0 ? `<span class="inline-source-pill-more">+${extra}</span>` : ""}</summary><div class="inline-source-panel">${rows}</div></details>`;
 }
 
-function injectInlineCitationPills(text, citations) {
-  if (!text || !citations?.length) return text;
+function stripLeakedCitationHtml(text) {
+  let s = String(text ?? "");
+  s = s.replace(/<details\b[^>]*\binline-source-pill\b[\s\S]*?<\/details>/gi, "");
+  s = s.replace(/<details\b[^>]*\binline-source-pill\b[\s\S]*?(?=\n\n|```|$)/gi, "");
+  s = s.replace(/<\/?(?:details|summary|div|span|a|img)\b[^>]*\binline-source-[\w-]+\b[^>]*>/gi, "");
+  s = s.replace(/```[\w-]*\n[\s\S]*?(?:inline-source-|<\/details>)[\s\S]*?```/gi, "");
+  s = s.replace(/```php-template\n[\s\S]*?```/gi, "");
+  s = s.replace(/<\/details>/gi, "");
+  return s.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function prepareCitationPlaceholders(text, citations) {
+  const slots = [];
+  if (!text || !citations?.length) return { text: String(text ?? ""), slots };
 
   const byIndex = new Map();
   for (const entry of citations) {
@@ -1175,11 +1187,27 @@ function injectInlineCitationPills(text, citations) {
     if (!indices.length) return block;
 
     const sources = indices.map((i) => byIndex.get(i)).filter(Boolean);
+    const token = `KLUICITATIONPILL${slots.length}END`;
+    slots.push({ token, html: renderInlineSourcePill(sources) });
     const cleaned = block.replace(/\s*\[(\d+)\]/g, "").trimEnd();
-    return `${cleaned} ${renderInlineSourcePill(sources)}`;
+    return `${cleaned} ${token}`;
   });
 
-  return processed.join("\n\n");
+  return { text: processed.join("\n\n"), slots };
+}
+
+function restoreCitationPlaceholders(html, slots) {
+  let out = String(html ?? "");
+  for (const { token, html: pillHtml } of slots) out = out.replaceAll(token, pillHtml);
+  return out;
+}
+
+function renderAssistantText(text, citations) {
+  const cleaned = stripLeakedCitationHtml(text);
+  if (!cleaned.trim()) return "";
+  if (!citations.length) return renderContent(cleaned);
+  const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
+  return restoreCitationPlaceholders(renderContent(prepared), slots);
 }
 
 function renderAssistantContent(content, message) {
@@ -1190,18 +1218,21 @@ function renderAssistantContent(content, message) {
 
   if (Array.isArray(content)) {
     if (!hasContent) return "";
-    if (!citations.length) return renderContent(content);
-    const enriched = content.map((part) => {
-      if (part?.type !== "text") return part;
-      return { ...part, text: injectInlineCitationPills(part.text || "", citations) };
-    });
-    return renderContent(enriched);
+    return content
+      .map((part) => {
+        if (part?.type === "text") return renderAssistantText(part.text || "", citations);
+        if (part?.type === "image_url") {
+          const url = part.image_url?.url;
+          return url ? renderContent([part]) : "";
+        }
+        if (part?.type === "file") return renderContent([part]);
+        return "";
+      })
+      .join("");
   }
 
   const text = typeof content === "string" ? content : "";
-  if (!text.trim()) return "";
-  if (!citations.length) return renderContent(text);
-  return renderContent(injectInlineCitationPills(text, citations));
+  return renderAssistantText(text, citations);
 }
 
 function renderCitations(message) {
