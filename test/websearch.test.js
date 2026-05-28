@@ -400,14 +400,18 @@ describe("tool", () => {
   test("runChatWithToolLoop routes through the supplied provider override", async () => {
     const seenAuth = [];
     const crofai = {
-      async streamChatCompletion({ apiKey, baseUrl }) {
-        seenAuth.push({ apiKey, baseUrl });
+      async streamChatCompletion({ apiKey, baseUrl, providerId, body }) {
+        seenAuth.push({ apiKey, baseUrl, providerId, body });
         return streamResponse([contentDelta("ok")]);
       }
     };
 
     await runChatWithToolLoop({
-      chatRequest: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "ping" }] },
+      chatRequest: {
+        model: "xiaomi/mimo-v2.5",
+        messages: [{ role: "user", content: "ping" }],
+        reasoning_effort: "high"
+      },
       crofai,
       config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
       provider: { id: "openrouter", apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
@@ -419,6 +423,8 @@ describe("tool", () => {
     assert.equal(seenAuth.length, 1);
     assert.equal(seenAuth[0].apiKey, "or-key");
     assert.equal(seenAuth[0].baseUrl, "https://openrouter.ai/api/v1");
+    assert.equal(seenAuth[0].providerId, "openrouter");
+    assert.equal(seenAuth[0].body.reasoning_effort, "high");
   });
 
   test("runChatWithToolLoop falls back to klui credentials when provider is missing", async () => {

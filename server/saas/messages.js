@@ -33,7 +33,7 @@ export function normalizeMessageSettings(input = {}) {
     max_tokens: settings.max_tokens,
     seed: settings.seed,
     stop: settings.stop,
-    reasoning_effort: settings.reasoning_effort
+    reasoning_effort: settings.reasoning_effort || settings.thinkingEffort
   })) {
     if (value !== undefined && value !== null && value !== "") normalized[key] = value;
   }

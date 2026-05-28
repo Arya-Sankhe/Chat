@@ -53,6 +53,66 @@ test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
   assert.equal(adaptChatRequestForProvider(body, "klui"), body);
 });
 
+test("adaptChatRequestForProvider defaults OpenRouter effort to medium", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "hi" }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
+});
+
+test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to medium", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "turbo"
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
+});
+
+test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias", async () => {
+  const { normalizeMessageSettings } = await import("../server/saas/messages.js");
+  assert.deepEqual(
+    normalizeMessageSettings({ settings: { thinkingEffort: "high" } }),
+    { reasoning_effort: "high" }
+  );
+});
+
+test("streamChatCompletion sends OpenRouter reasoning effort in request body", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    requestBody = JSON.parse(options.body);
+    return new Response("", {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: {
+        model: "xiaomi/mimo-v2.5",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "low"
+      },
+      signal: AbortSignal.timeout(1000)
+    });
+
+    assert.deepEqual(requestBody.reasoning, { effort: "low", exclude: false });
+    assert.equal(requestBody.reasoning_effort, undefined);
+    assert.equal(requestBody.stream, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("applyStreamEvent accumulates OpenRouter reasoning_details into message.reasoning", () => {
   const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
 
