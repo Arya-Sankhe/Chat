@@ -46,13 +46,14 @@ test("normalizeChatRequest supports vision content", () => {
         role: "user",
         content: [
           { type: "text", text: "What is this?" },
-          { type: "image_url", image_url: { url: "https://files.nahcrof.com/file/crofai-black.png" } }
+          { type: "image_url", image_url: { url: "https://files.nahcrof.com/file/crofai-black.png", detail: "HIGH" } }
         ]
       }
     ]
   });
 
   assert.equal(payload.messages[0].content[1].image_url.url, "https://files.nahcrof.com/file/crofai-black.png");
+  assert.equal(payload.messages[0].content[1].image_url.detail, "high");
 });
 
 test("normalizeChatRequest supports uploaded image data URLs", () => {

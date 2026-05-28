@@ -183,17 +183,33 @@ function modelFromPayload(payload, modelId) {
   return list.find((model) => model?.id === modelId) || null;
 }
 
-async function resolveCachedModelMetadata({ context, config, modelId, signal }) {
+async function resolveCachedModelMetadata({ context, config, modelId, provider, signal }) {
   const id = String(modelId || "").trim();
   if (!id) return null;
+
+  const baseUrl = provider?.baseUrl || config.defaultBaseUrl;
+  const apiKey = provider?.apiKey || config.serverApiKey;
+  if (!baseUrl) return null;
+
   try {
-    const baseUrl = config.defaultBaseUrl;
     const cached = modelCache.get(baseUrl);
     const fromMemory = modelFromPayload(cached?.payload, id);
     if (fromMemory) return fromMemory;
 
     const fromDb = await context.db.getModelCache(baseUrl, { signal });
-    return modelFromPayload(fromDb?.payload, id);
+    const fromDbPayload = fromDb?.payload;
+    const dbModel = modelFromPayload(fromDbPayload, id);
+    if (dbModel) {
+      modelCache.set(baseUrl, { payload: fromDbPayload, fetchedAt: Date.now() });
+      return dbModel;
+    }
+
+    if (!apiKey) return null;
+
+    const payload = await listModels({ apiKey, baseUrl, signal });
+    modelCache.set(baseUrl, { payload, fetchedAt: Date.now() });
+    await context.db.upsertModelCache(baseUrl, payload, { signal }).catch(() => {});
+    return modelFromPayload(payload, id);
   } catch {
     return null;
   }
@@ -1831,6 +1847,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
     context,
     config,
     modelId: chatRequest.model,
+    provider,
     signal: req.signal
   });
   const selectedModelSupportsVision = modelSupportsVision(selectedModelMetadata || chatRequest.model);

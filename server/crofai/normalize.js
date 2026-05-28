@@ -76,13 +76,18 @@ function normalizeContent(content) {
     if (part.type === "image_url") {
       const imageUrl = typeof part.image_url === "string" ? { url: part.image_url } : part.image_url;
       assertPlainObject(imageUrl, `message content part ${index + 1} image_url`);
+      const detail = typeof imageUrl.detail === "string"
+        ? imageUrl.detail.trim().toLowerCase()
+        : "";
 
-      return {
+      const normalized = {
         type: "image_url",
         image_url: {
           url: cleanImageReference(imageUrl.url, `message content part ${index + 1} image URL`)
         }
       };
+      if (["low", "high", "auto"].includes(detail)) normalized.image_url.detail = detail;
+      return normalized;
     }
 
     throw new HttpError(400, `Unsupported message content part type: ${part.type}`);

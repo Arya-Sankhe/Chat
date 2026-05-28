@@ -126,7 +126,7 @@ async function hydrateContent(content, r2, mode, { imageDescriptions = null } = 
         type: "image_url",
         image_url: mode === "client"
           ? { ...image, url: signedUrl }
-          : { url: signedUrl }
+          : { url: signedUrl, detail: image.detail || "high" }
       });
     }
 
