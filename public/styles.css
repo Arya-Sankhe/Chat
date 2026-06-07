@@ -955,8 +955,8 @@ body.document-viewer-resizing {
 
 .message-image {
   display: block;
-  max-width: min(360px, 100%);
-  max-height: 300px;
+  max-width: min(180px, 100%);
+  max-height: 150px;
   object-fit: contain;
   border-radius: var(--radius);
   border: 1px solid var(--border-light);
