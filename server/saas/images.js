@@ -1,6 +1,6 @@
 import { chatCompletion } from "../crofai/client.js";
 import { HttpError } from "../http/responses.js";
-import { contentText, imageCountFromContent } from "./messages.js";
+import { contentText, imageCountFromContent, streamProviderAndAccumulate } from "./messages.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "./models.js";
 
 export function messagesHaveImages(messages) {
@@ -109,6 +109,7 @@ export async function describeConversationImages({
   describeModel = "",
   provider = null,
   chatCompletionFn = chatCompletion,
+  streamChatCompletionFn = null,
   signal
 }) {
   const ids = Array.isArray(attachmentIds)
@@ -159,24 +160,37 @@ export async function describeConversationImages({
     contentPayload.push({ type: "image_url", image_url: { url: imageUrl } });
   }
 
-  const response = await chatCompletionFn({
+  const request = {
     apiKey: provider?.apiKey || config.serverApiKey,
     baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body: {
       model,
       messages: [{ role: "user", content: contentPayload }],
-      max_tokens: imageCount === 1 ? 1500 : imageCount * 1200,
-      temperature: 0.2
+      max_tokens: imageCount === 1 ? 4000 : Math.min(16000, imageCount * 2500),
+      temperature: 0.1
     },
     providerId: provider?.id,
     signal
-  });
+  };
+
+  let response = "";
+  if (streamChatCompletionFn) {
+    const upstream = await streamChatCompletionFn(request);
+    if (!upstream?.body) throw new HttpError(502, "Vision description model returned an empty response stream.");
+    const accumulated = await streamProviderAndAccumulate(upstream, () => {});
+    response = accumulated.content || "";
+  } else {
+    response = await chatCompletionFn(request);
+  }
 
   const raw = String(response || "").trim();
+  if (!raw) {
+    throw new HttpError(502, "Vision description model returned an empty response.");
+  }
   const descriptions = {};
 
   if (imageCount === 1) {
-    descriptions[attachments[0].id] = raw || "Image could not be described.";
+    descriptions[attachments[0].id] = raw;
   } else {
     const sections = raw.split(/\[IMAGE_(\d+)\]/i).filter(Boolean);
     let currentIndex = null;
@@ -185,12 +199,15 @@ export async function describeConversationImages({
       if (!isNaN(num) && num >= 1 && num <= imageCount) {
         currentIndex = num - 1;
       } else if (currentIndex !== null && attachments[currentIndex]) {
-        descriptions[attachments[currentIndex].id] = section.trim() || "Image could not be described.";
+        const description = section.trim();
+        if (description) descriptions[attachments[currentIndex].id] = description;
         currentIndex = null;
       }
     }
     for (const { id } of attachments) {
-      if (!descriptions[id]) descriptions[id] = "Image could not be described.";
+      if (!descriptions[id]) {
+        throw new HttpError(502, "Vision description model did not describe every image.");
+      }
     }
   }
 

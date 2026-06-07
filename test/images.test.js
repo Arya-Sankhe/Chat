@@ -139,3 +139,55 @@ test("describeConversationImages can describe only missing image ids in one call
     globalThis.fetch = originalFetch;
   }
 });
+
+test("describeConversationImages uses streaming descriptions when provided", async () => {
+  const result = await describeConversationImages({
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: "solve this" },
+        { type: "image_url", image_url: { attachment_id: "att_1" } }
+      ]
+    }],
+    db: {
+      async getAttachment(_userId, attachmentId) {
+        return { id: attachmentId, object_key: `${attachmentId}.png`, status: "uploaded" };
+      }
+    },
+    userId: "user_1",
+    r2: { readUrl: (key) => `https://files.example/${key}` },
+    config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+    attachmentIds: ["att_1"],
+    describeModel: "xiaomi/mimo-v2.5",
+    streamChatCompletionFn: async () => new Response([
+      "data: {\"choices\":[{\"delta\":{\"content\":\"A decision tree image with tables.\"}}]}\n\n",
+      "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n",
+      "data: [DONE]\n\n"
+    ].join(""), { status: 200 })
+  });
+
+  assert.deepEqual(result.descriptions, { att_1: "A decision tree image with tables." });
+});
+
+test("describeConversationImages rejects empty visual descriptions", async () => {
+  await assert.rejects(
+    describeConversationImages({
+      messages: [{
+        role: "user",
+        content: [{ type: "image_url", image_url: { attachment_id: "att_1" } }]
+      }],
+      db: {
+        async getAttachment(_userId, attachmentId) {
+          return { id: attachmentId, object_key: `${attachmentId}.png`, status: "uploaded" };
+        }
+      },
+      userId: "user_1",
+      r2: { readUrl: (key) => `https://files.example/${key}` },
+      config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+      attachmentIds: ["att_1"],
+      describeModel: "xiaomi/mimo-v2.5",
+      chatCompletionFn: async () => ""
+    }),
+    /empty response/
+  );
+});

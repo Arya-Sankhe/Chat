@@ -1145,7 +1145,7 @@ async function describeVisualPdfContextForTextModel({
     ...message.content
   ];
 
-  return String(await crofai.chatCompletion({
+  const upstream = await crofai.streamChatCompletion({
     apiKey: provider?.apiKey || config.serverApiKey,
     baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body: {
@@ -1156,7 +1156,12 @@ async function describeVisualPdfContextForTextModel({
     },
     providerId: provider?.id,
     signal
-  }) || "").trim();
+  });
+  if (!upstream?.body) throw new HttpError(502, "Vision PDF transcription model returned an empty response stream.");
+  const accumulated = await streamProviderAndAccumulate(upstream, () => {});
+  const transcript = String(accumulated.content || "").trim();
+  if (!transcript) throw new HttpError(502, "Vision PDF transcription model returned an empty response.");
+  return transcript;
 }
 
 function injectDocumentVisualContextForCompare(request, { directPdfContext, textContext = "" } = {}) {
@@ -1783,6 +1788,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
       describeModel: describeModelUsed,
       provider,
       chatCompletionFn: crofai.chatCompletion,
+      streamChatCompletionFn: crofai.streamChatCompletion,
       signal: req.signal
     });
     imageDescriptions = { ...imageDescriptions, ...describeResult.descriptions };
