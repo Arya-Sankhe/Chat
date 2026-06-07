@@ -45,22 +45,26 @@ import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 
-const OPENROUTER_DEFAULT_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
+const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_PRO_MODEL = "qwen/qwen3.7-plus";
+const DEFAULT_REASONING_EFFORT = "high";
 
 const defaultSettings = {
-  model: "",
+  model: OPENROUTER_TEXT_MODEL,
+  modelMode: "thinking",
   temperature: 0.7,
-  top_p: 1,
+  top_p: 0.95,
   max_tokens: "",
   seed: "",
   systemPrompt: "",
-  thinkingEffort: "medium",
+  thinkingEffort: DEFAULT_REASONING_EFFORT,
   compareEnabled: false,
   compareModels: [],
   compareMode: "compare",
   agentMode: false,
   webSearchMode: "auto",
-  provider: "klui",
+  provider: "openrouter",
   kluiModel: ""
 };
 
@@ -212,6 +216,35 @@ function pendingPromptHasImages() {
   return state.images.some((item) => item.category === "image");
 }
 
+function contentHasVisualOrDocument(content) {
+  return Array.isArray(content) && content.some((part) => part?.type === "image_url" || part?.type === "file");
+}
+
+function chatHistoryNeedsVision() {
+  return state.messages.some((message) => message.role === "user" && contentHasVisualOrDocument(message.content));
+}
+
+function pendingPromptNeedsVision(images = state.images) {
+  return images.some((item) => item.category === "image" || item.category === "document");
+}
+
+function selectedModelMode() {
+  return state.settings.modelMode === "pro" ? "pro" : "thinking";
+}
+
+function modelModeLabel(mode = selectedModelMode()) {
+  return mode === "pro" ? "Pro" : "Thinking";
+}
+
+function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
+  if (selectedModelMode() === "pro") return OPENROUTER_PRO_MODEL;
+  const needsVision = pendingPromptNeedsVision(images)
+    || chatHistoryNeedsVision()
+    || contentHasVisualOrDocument(userContent);
+  const needsTools = Boolean(state.settings.agentMode && agentToolsAvailable());
+  return needsVision || needsTools ? OPENROUTER_VISION_MODEL : OPENROUTER_TEXT_MODEL;
+}
+
 function compareIncludesTextOnlyModels(modelIds) {
   return modelIds.some((id) => !modelSupportsVision(modelById(id) || { id }));
 }
@@ -291,18 +324,17 @@ function loadSettings() {
   try {
     const loaded = { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
     loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
-    loaded.compareEnabled = Boolean(loaded.compareEnabled);
+    loaded.compareEnabled = false;
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
     loaded.agentMode = Boolean(loaded.agentMode);
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
-    loaded.provider = loaded.provider === "openrouter" ? "openrouter" : "klui";
+    loaded.provider = "openrouter";
+    loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
+    loaded.thinkingEffort = DEFAULT_REASONING_EFFORT;
+    loaded.temperature = 0.7;
+    loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
-    if (loaded.provider === "openrouter") {
-      if (loaded.kluiModel && loaded.model !== OPENROUTER_DEFAULT_MODEL && loaded.model !== loaded.kluiModel) {
-        loaded.kluiModel = loaded.model;
-      }
-      loaded.model = OPENROUTER_DEFAULT_MODEL;
-    }
+    loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
     return loaded;
   } catch {
     return { ...defaultSettings };
@@ -367,8 +399,7 @@ function openRouterAvailable() {
 }
 
 function activeProvider() {
-  if (state.settings.provider === "openrouter" && openRouterAvailable()) return "openrouter";
-  return "klui";
+  return "openrouter";
 }
 
 function renderProviderToggle() {
@@ -387,7 +418,7 @@ function renderProviderToggle() {
   els.providerToggle.setAttribute(
     "title",
     on
-      ? `Provider: OpenRouter · ${OPENROUTER_DEFAULT_MODEL}. Click to switch back to Klui.`
+      ? "Provider: OpenRouter."
       : "Provider: Klui — click to route this chat through OpenRouter."
   );
 }
@@ -397,21 +428,21 @@ function toggleProvider() {
   const next = activeProvider() === "openrouter" ? "klui" : "openrouter";
   if (next === "openrouter") {
     /* Stash the current Klui model so we can restore it on toggle-off. */
-    if (state.settings.model && state.settings.model !== OPENROUTER_DEFAULT_MODEL) {
+    if (state.settings.model && state.settings.model !== OPENROUTER_VISION_MODEL) {
       updateSetting("kluiModel", state.settings.model);
     }
     updateSetting("provider", "openrouter");
-    updateSetting("model", OPENROUTER_DEFAULT_MODEL);
+    updateSetting("model", resolveRoutedModel());
     if (state.settings.compareEnabled) {
       updateSetting("compareEnabled", false);
       updateSetting("compareModels", []);
       closeCompareDropdown();
     }
-    showToast(`Routing this chat through OpenRouter (${OPENROUTER_DEFAULT_MODEL}).`);
+    showToast("Routing this chat through OpenRouter.");
   } else {
     updateSetting("provider", "klui");
     const restored = state.settings.kluiModel
-      || state.models.find((m) => m.id !== OPENROUTER_DEFAULT_MODEL)?.id
+      || state.models.find((m) => m.id !== OPENROUTER_VISION_MODEL)?.id
       || "";
     if (restored) updateSetting("model", restored);
     showToast("Routing this chat through Klui.");
@@ -465,7 +496,8 @@ function withTimeout(promise, ms, label) {
 
 function servicesReady() {
   const s = state.config?.services || {};
-  return Boolean(s.supabase && s.access && s.crof);
+  const providers = state.config?.providers || {};
+  return Boolean(s.supabase && s.access && (providers.openrouter || s.openrouter));
 }
 
 function hasChatAccess() {
@@ -504,10 +536,8 @@ function renderShell() {
   renderUsage();
   renderConversations();
   renderModelOptions();
-  renderThinkingEffort();
   renderAgentModeToggle();
   renderWebSearchToggle();
-  renderProviderToggle();
   renderMessages();
   renderDocumentViewer();
   syncCompareContextBanner();
@@ -635,9 +665,7 @@ function toggleModelDropdown() {
   els.modelButton.setAttribute("aria-expanded", String(nowOpen));
   els.composerModelWrap.classList.toggle("is-open", nowOpen);
   if (!isOpen) {
-    els.modelInput.value = "";
     renderModelCatalog();
-    els.modelInput.focus();
   }
 }
 
@@ -669,27 +697,29 @@ function closeModelDropdown() {
 }
 
 function renderModelCatalog() {
-  const query = els.modelInput.value.trim().toLowerCase();
-  const visible = state.models
-    .filter((m) => {
-      const h = `${m.id} ${m.name || ""}`.toLowerCase();
-      return !query || h.includes(query);
-    })
-    .slice(0, 80);
-
-  if (!state.models.length) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">Loading models…</div>`;
-    return;
-  }
-
-  if (!visible.length) {
-    els.modelCatalog.innerHTML = `<div class="model-empty">No matches.</div>`;
-    return;
-  }
-
-  els.modelCatalog.innerHTML = visible
-    .map((m) => renderModelOption(m, m.id === state.settings.model))
-    .join("");
+  const mode = selectedModelMode();
+  els.modelCatalog.innerHTML = `
+    <button class="model-option mode-option ${mode === "thinking" ? "active" : ""}" type="button" data-model-mode="thinking" aria-selected="${mode === "thinking"}">
+      <span class="model-option-main">
+        <span class="model-option-logo-placeholder mode-option-icon">✦</span>
+        <span class="model-option-copy">
+          <span class="model-option-name">Thinking</span>
+          <span class="model-option-desc">Auto routes text to DeepSeek and files or tools to MiMo.</span>
+        </span>
+      </span>
+      <span class="model-option-check">${mode === "thinking" ? "✓" : ""}</span>
+    </button>
+    <button class="model-option mode-option ${mode === "pro" ? "active" : ""}" type="button" data-model-mode="pro" aria-selected="${mode === "pro"}">
+      <span class="model-option-main">
+        <span class="model-option-logo-placeholder mode-option-icon">P</span>
+        <span class="model-option-copy">
+          <span class="model-option-name">Pro <span class="model-price-note">5x</span></span>
+          <span class="model-option-desc">Uses Qwen3.7 Plus for harder work.</span>
+        </span>
+      </span>
+      <span class="model-option-check">${mode === "pro" ? "✓" : ""}</span>
+    </button>
+  `;
 }
 
 function renderCompareModelOption(model, selected, disabled) {
@@ -733,6 +763,11 @@ function renderCompareCatalog() {
 }
 
 function renderCompareControls() {
+  if (els.compareWrap) els.compareWrap.classList.add("hidden");
+  state.settings.compareEnabled = false;
+  closeCompareContextBanner();
+  return;
+
   const ids = selectedCompareModelIds();
   const active = state.settings.compareEnabled && ids.length >= 2;
   const council = active && isCouncilMode();
@@ -763,50 +798,26 @@ function renderCompareControls() {
 }
 
 function renderModelOptions() {
-  const openrouter = activeProvider() === "openrouter";
-  els.modelDetails.innerHTML = openrouter
-    ? `<div class="model-empty">Provider: OpenRouter · ${escapeHtml(OPENROUTER_DEFAULT_MODEL)} (testing).</div>`
-    : renderModelDetails(selectedModel());
-
-  const selected = selectedModel();
-  const displayName = openrouter
-    ? `OpenRouter · ${OPENROUTER_DEFAULT_MODEL}`
-    : (compactModelDisplayName(selected?.name || state.settings.model) || "Model");
-  const logoUrl = openrouter ? "" : (selected ? modelBrandLogoUrl(selected) : "");
+  const mode = selectedModelMode();
+  const displayName = modelModeLabel(mode);
+  const routedModel = resolveRoutedModel();
+  if (els.modelDetails) {
+    els.modelDetails.innerHTML = `<div class="model-empty">${escapeHtml(displayName)} · OpenRouter · ${escapeHtml(routedModel)}</div>`;
+  }
 
   els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
-  els.modelButton.classList.toggle("has-brand-logo", Boolean(logoUrl));
-  els.modelButton.classList.toggle("openrouter-active", openrouter);
-
-  if (logoUrl) {
-    els.modelLogoImg.src = logoUrl;
-    els.modelLogoImg.classList.remove("hidden");
-    els.modelLogoImg.removeAttribute("aria-hidden");
-    els.modelLabel.classList.add("hidden");
-    els.modelFallbackIcon?.classList.add("hidden");
-  } else {
-    els.modelLogoImg.removeAttribute("src");
-    els.modelLogoImg.classList.add("hidden");
-    els.modelLogoImg.setAttribute("aria-hidden", "true");
-    els.modelLabel.classList.remove("hidden");
-    els.modelFallbackIcon?.classList.remove("hidden");
-  }
+  els.modelButton.classList.remove("has-brand-logo");
+  els.modelButton.classList.toggle("pro-active", mode === "pro");
+  els.modelLogoImg.removeAttribute("src");
+  els.modelLogoImg.classList.add("hidden");
+  els.modelLogoImg.setAttribute("aria-hidden", "true");
+  els.modelLabel.classList.remove("hidden");
+  els.modelFallbackIcon?.classList.remove("hidden");
 
   els.modelLabel.textContent = displayName;
   els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
   renderCompareControls();
-}
-
-/* ─── Thinking Effort ─── */
-
-function renderThinkingEffort() {
-  const current = state.settings.thinkingEffort || "medium";
-  for (const btn of els.thinkingEffort.querySelectorAll(".effort-seg")) {
-    const active = btn.dataset.effort === current;
-    btn.classList.toggle("active", active);
-    btn.setAttribute("aria-checked", String(active));
-  }
 }
 
 /* ─── Messages ─── */
@@ -2553,13 +2564,13 @@ async function loadMe() {
 }
 
 async function loadModels() {
+  if (!state.config?.services?.crof) {
+    state.models = [];
+    return;
+  }
   try {
     const payload = await fetchModels(state.session);
     state.models = normalizeModelList(payload);
-    if (!state.settings.model && state.models[0]) {
-      state.settings.model = state.models[0].id;
-      saveSettings();
-    }
   } catch (err) {
     showToast(err.message);
   }
@@ -2569,7 +2580,7 @@ async function loadConversations({ ensure = true } = {}) {
   const payload = await listConversations(state.session);
   state.conversations = payload.conversations || [];
   if (!state.conversations.length && ensure) {
-    const created = await createConversation(state.session, { model: state.settings.model });
+    const created = await createConversation(state.session, { model: resolveRoutedModel() });
     state.conversations = [created.conversation];
   }
   state.activeConversationId ||= state.conversations[0]?.id || "";
@@ -2594,7 +2605,7 @@ async function loadChatApp() {
 
 async function addConversation() {
   try {
-    const payload = await createConversation(state.session, { model: state.settings.model });
+    const payload = await createConversation(state.session, { model: resolveRoutedModel({ images: [] }) });
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
@@ -2624,10 +2635,6 @@ async function sendPrompt() {
   const text = els.promptInput.value.trim();
   if (!text && !state.images.length) return;
   const compareModels = activeCompareModelIds();
-  if (!compareModels.length && !state.settings.model) {
-    showToast("Pick a model first.");
-    return;
-  }
   const pendingDocs = pendingDocumentUploads();
   if (pendingDocs.length) {
     const failed = pendingDocs.find((item) => item.status === "failed");
@@ -2708,13 +2715,16 @@ async function retryFailedAssistant(assistantMessageId) {
 
   try {
     const retryProvider = activeProvider();
+    const retryModel = retryProvider === "openrouter"
+      ? resolveRoutedModel({ images: [], userContent: userMsg.content })
+      : state.settings.model;
     await streamConversationMessage(state.session, state.activeConversationId, {
       retryAssistantMessageId: assistantMessageId,
-      model: retryProvider === "openrouter" ? OPENROUTER_DEFAULT_MODEL : state.settings.model,
+      model: retryModel,
       provider: retryProvider,
       settings: {
         ...state.settings,
-        reasoning_effort: state.settings.thinkingEffort || "medium"
+        reasoning_effort: DEFAULT_REASONING_EFFORT
       },
       agentMode: Boolean(state.settings.agentMode),
       webSearch: state.settings.agentMode && state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -2745,7 +2755,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   closeCompareContextBanner();
 
   if (newChat) {
-    const payload = await createConversation(state.session, { model: compareModels[0] || state.settings.model });
+    const payload = await createConversation(state.session, { model: compareModels[0] || resolveRoutedModel({ images }) });
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
@@ -2850,7 +2860,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
     }
 
     const provider = activeProvider();
-    const effectiveModel = provider === "openrouter" ? OPENROUTER_DEFAULT_MODEL : state.settings.model;
+    const effectiveModel = provider === "openrouter" ? resolveRoutedModel({ images }) : state.settings.model;
+    updateSetting("model", effectiveModel);
     const payload = {
       text,
       attachments: uploaded.map((item) => item.id),
@@ -2858,7 +2869,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       provider,
       settings: {
         ...state.settings,
-        reasoning_effort: state.settings.thinkingEffort || "medium"
+        reasoning_effort: DEFAULT_REASONING_EFFORT
       },
       agentMode: Boolean(state.settings.agentMode),
       webSearch: state.settings.agentMode && state.settings.webSearchMode !== "off" ? "auto" : "off",
@@ -3069,6 +3080,19 @@ function bindEvents() {
   });
 
   els.modelCatalog.addEventListener("click", (e) => {
+    const modeItem = e.target.closest("[data-model-mode]");
+    if (modeItem) {
+      const mode = modeItem.dataset.modelMode === "pro" ? "pro" : "thinking";
+      updateSetting("modelMode", mode);
+      updateSetting("provider", "openrouter");
+      updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
+      updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
+      closeModelDropdown();
+      renderModelOptions();
+      els.promptInput.focus();
+      return;
+    }
+
     const item = e.target.closest("[data-model-id]");
     if (!item) return;
     if (activeProvider() === "openrouter") {
@@ -3142,28 +3166,7 @@ function bindEvents() {
     els.promptInput.focus();
   });
 
-  els.thinkingEffort.addEventListener("click", (e) => {
-    const seg = e.target.closest("[data-effort]");
-    if (!seg) return;
-    updateSetting("thinkingEffort", seg.dataset.effort);
-    renderThinkingEffort();
-  });
-
-  els.modelInput.addEventListener("input", renderModelCatalog);
   els.compareInput.addEventListener("input", renderCompareCatalog);
-  els.modelInput.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const id = e.target.value.trim();
-    if (!id) return;
-    e.preventDefault();
-    if (activeProvider() === "openrouter") {
-      updateSetting("provider", "klui");
-      renderProviderToggle();
-    }
-    updateSetting("model", id);
-    closeModelDropdown();
-    renderModelOptions();
-  });
 
   els.conversationList.addEventListener("click", async (e) => {
     const del = e.target.closest("[data-delete-chat-id]");

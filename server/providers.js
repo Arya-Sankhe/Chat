@@ -9,14 +9,14 @@ import { HttpError } from "./http/responses.js";
  * everything else (tool calling, streaming, normalization) is shared.
  */
 
-export const DEFAULT_PROVIDER_ID = "klui";
+export const DEFAULT_PROVIDER_ID = "openrouter";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-/* Default model for OpenRouter when the user hasn't picked one
-   themselves. Matches the model URL the user asked us to wire up:
-   https://openrouter.ai/xiaomi/mimo-v2.5 */
-export const OPENROUTER_DEFAULT_MODEL = "xiaomi/mimo-v2.5";
+export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
+export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+export const OPENROUTER_PRO_MODEL = "qwen/qwen3.7-plus";
+export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_TEXT_MODEL;
 
 const PROVIDER_LABELS = {
   klui: "Klui",
@@ -83,8 +83,8 @@ export function providerAvailability(config) {
 const OPENROUTER_REASONING_EFFORTS = new Set(["low", "medium", "high"]);
 
 export function resolveOpenRouterReasoningEffort(value) {
-  const effort = String(value || "medium").trim().toLowerCase();
-  return OPENROUTER_REASONING_EFFORTS.has(effort) ? effort : "medium";
+  const effort = String(value || "high").trim().toLowerCase();
+  return OPENROUTER_REASONING_EFFORTS.has(effort) ? effort : "high";
 }
 
 /**

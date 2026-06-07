@@ -85,23 +85,23 @@ test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
   assert.equal(adaptChatRequestForProvider(body, "klui"), body);
 });
 
-test("adaptChatRequestForProvider defaults OpenRouter effort to medium", () => {
+test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
     model: "xiaomi/mimo-v2.5",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
-  assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
+  assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
 });
 
-test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to medium", () => {
+test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
     model: "xiaomi/mimo-v2.5",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "turbo"
   }, "openrouter");
 
-  assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
+  assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
 });
 
 test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias", async () => {

@@ -31,13 +31,26 @@ test("defaultModelForProvider returns OpenRouter default when applicable", () =>
   assert.equal(defaultModelForProvider("klui"), "");
 });
 
-test("resolveProvider returns Klui credentials by default", () => {
+test("resolveProvider returns OpenRouter credentials by default", () => {
+  const config = {
+    serverApiKey: "klui-key",
+    defaultBaseUrl: "https://crof.ai/v1",
+    providers: { openrouter: { apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1" } }
+  };
+  const provider = resolveProvider(undefined, config);
+  assert.equal(provider.id, "openrouter");
+  assert.equal(provider.apiKey, "or-key");
+  assert.equal(provider.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(provider.label, "OpenRouter");
+});
+
+test("resolveProvider still returns Klui credentials when explicitly requested", () => {
   const config = {
     serverApiKey: "klui-key",
     defaultBaseUrl: "https://crof.ai/v1",
     providers: { openrouter: { apiKey: "" } }
   };
-  const provider = resolveProvider(undefined, config);
+  const provider = resolveProvider("klui", config);
   assert.equal(provider.id, "klui");
   assert.equal(provider.apiKey, "klui-key");
   assert.equal(provider.baseUrl, "https://crof.ai/v1");
