@@ -678,6 +678,10 @@ function modelDisplayName(id) {
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }
 
+function compareModelAlias(index) {
+  return `Model ${String.fromCharCode(65 + index)}`;
+}
+
 function selectedCompareModelIds() {
   const ids = state.settings.compareEnabled ? DEFAULT_COMPARE_MODELS : (Array.isArray(state.settings.compareModels) ? state.settings.compareModels : []);
   const unique = ids.filter((id, index) => id && ids.indexOf(id) === index);
@@ -1862,9 +1866,6 @@ function renderStandardMessage(raw) {
 
 function renderCompareResponse(raw, index) {
   const msg = normalizeMessage(raw);
-  const modelId = msg.model || selectedCompareModelIds()[index] || "";
-  const model = modelById(modelId);
-  const logoUrl = model ? modelBrandLogoUrl(model) : "";
   const content = msg.content || "";
   const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
@@ -1872,12 +1873,7 @@ function renderCompareResponse(raw, index) {
   return `
     <section class="compare-response" data-raw-text="${escapeHtml(rawText)}">
       <header class="compare-response-head">
-        <span class="compare-model-mark">
-          ${logoUrl
-            ? `<img src="${escapeHtml(logoUrl)}" alt="" width="18" height="18" decoding="async">`
-            : `<span>${escapeHtml(String(index + 1))}</span>`}
-        </span>
-        <strong>${escapeHtml(modelDisplayName(modelId) || `Model ${index + 1}`)}</strong>
+        <strong>${escapeHtml(compareModelAlias(index))}</strong>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
       <div class="compare-response-body message-content">
