@@ -1075,6 +1075,14 @@ function documentCitationTitle(entry) {
   return dash === -1 ? title : title.slice(0, dash).trim() || title;
 }
 
+/* Display title for a citation. Documents are shown by their actual file
+   name (e.g. "cmp466 hw3.pdf"), never the generic "Document" or a
+   per-page "<file> - Page N" label. */
+function citationDisplayTitle(entry) {
+  if (entry?.type === "document") return documentCitationTitle(entry);
+  return String(entry?.title || "").trim();
+}
+
 function dedupeCitationsForDisplay(citations) {
   const out = [];
   const seenDocs = new Set();
@@ -1120,7 +1128,7 @@ function uniqueCitationPreview(citations, limit = 3) {
 }
 
 function sourceShortLabel(entry) {
-  const title = String(entry.title || "").trim();
+  const title = citationDisplayTitle(entry);
   if (title.length > 14) return `${title.slice(0, 11)}…`;
   if (title) return title;
   const host = citationHost(entry.url);
@@ -1138,7 +1146,7 @@ function renderInlineSourcePill(sources) {
   const rows = sources.map((entry) => {
     const host = citationHost(entry.url);
     const rowIcon = citationFaviconUrl(entry.url);
-    const title = entry.title || host || entry.url;
+    const title = citationDisplayTitle(entry) || host || entry.url;
     const href = entry.url || "#";
     return `
       <a class="inline-source-row" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">

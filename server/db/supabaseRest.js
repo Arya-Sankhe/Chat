@@ -347,7 +347,7 @@ export class SupabaseRest {
       query: {
         id: `eq.${documentFileId}`,
         user_id: `eq.${userId}`,
-        select: "*",
+        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
         limit: "1"
       },
       signal
@@ -360,7 +360,7 @@ export class SupabaseRest {
       query: {
         attachment_id: `eq.${attachmentId}`,
         user_id: `eq.${userId}`,
-        select: "*",
+        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
         limit: "1"
       },
       signal
