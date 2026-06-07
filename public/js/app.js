@@ -2921,6 +2921,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
   setRunning(true);
   renderMessages();
   let shouldReloadConversation = false;
+  const sentPreviewUrls = images
+    .filter((img) => img.category === "image" && img.previewUrl)
+    .map((img) => img.previewUrl);
 
   try {
     const uploaded = [];
@@ -2942,7 +2945,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
         await waitForDocumentReady(uploadedFile.id, img.file.name);
       }
       uploaded.push(uploadedFile);
-      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     }
 
     const provider = activeProvider();
@@ -3027,7 +3029,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
     state.abortController = null;
     setRunning(false);
     if (shouldReloadConversation) {
-      await loadActiveConversation().catch(() => {});
+      const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
+      if (reloaded) {
+        for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
+      }
     }
     renderShell();
   }

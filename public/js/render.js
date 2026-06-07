@@ -240,7 +240,9 @@ function renderRichText(raw) {
 /* Image URL validation */
 
 function safeImageUrl(url) {
-  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(String(url || ""))) return url;
+  const value = String(url || "");
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(value)) return url;
+  if (value.startsWith("blob:")) return value;
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
