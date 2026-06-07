@@ -240,6 +240,17 @@ function modelModeLabel(mode = selectedModelMode()) {
   return mode === "pro" ? "Pro" : "Thinking";
 }
 
+function composerPlaceholder() {
+  if (state.settings.compareEnabled) {
+    return isCouncilMode() ? "Message Klui Council" : "Message Klui Compare";
+  }
+  return "Message Klui agent";
+}
+
+function updateComposerPlaceholder() {
+  if (els.promptInput) els.promptInput.placeholder = composerPlaceholder();
+}
+
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
   if (selectedModelMode() === "pro") return OPENROUTER_PRO_MODEL;
   const needsVision = pendingPromptNeedsVision(images)
@@ -812,6 +823,7 @@ function renderCompareControls() {
   els.compareButton.setAttribute("aria-expanded", "false");
   els.compareButton.setAttribute("title", active ? "Compare mode on" : "Compare DeepSeek and MiMo");
   els.compareLabel.textContent = active ? "Compare on" : "Compare";
+  updateComposerPlaceholder();
 }
 
 function renderModelOptions() {
@@ -828,7 +840,6 @@ function renderModelOptions() {
   els.modelPriceBadge?.classList.toggle("hidden", mode !== "pro");
 
   els.modelLabel.textContent = displayName;
-  els.promptInput.placeholder = `Message ${displayName}`;
   renderModelCatalog();
   renderCompareControls();
 }
