@@ -15,6 +15,8 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+export const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
+export const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 export const OPENROUTER_PRO_MODEL = "qwen/qwen3.7-plus";
 export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_TEXT_MODEL;
 

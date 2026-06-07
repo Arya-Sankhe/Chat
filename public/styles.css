@@ -2239,6 +2239,45 @@ body.document-viewer-resizing {
   margin-left: auto;
 }
 
+.council-progress {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg);
+}
+
+.council-progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.council-progress-copy small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.council-progress-track {
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.council-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 260ms ease;
+}
+
 .council-stages {
   display: flex;
   align-items: center;
@@ -2297,7 +2336,7 @@ body.document-viewer-resizing {
 }
 
 .council-section-label {
-  padding: 14px 16px 4px;
+  padding: 14px 16px 6px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -2422,8 +2461,8 @@ body.document-viewer-resizing {
 }
 
 .council-synthesis {
-  margin: 0 16px 16px;
-  border: 1px solid var(--accent);
+  margin: 16px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   overflow: hidden;
@@ -2434,8 +2473,9 @@ body.document-viewer-resizing {
   align-items: center;
   gap: 10px;
   padding: 11px 14px;
-  background: var(--accent);
-  color: white;
+  background: var(--bg-secondary);
+  color: var(--text);
+  border-bottom: 1px solid var(--border-light);
   font-size: 13px;
   font-weight: 650;
 }
@@ -2448,7 +2488,7 @@ body.document-viewer-resizing {
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  opacity: 0.78;
+  color: var(--text-tertiary);
 }
 
 .council-synthesis-body {
@@ -2467,7 +2507,7 @@ body.document-viewer-resizing {
 }
 
 .council-peer-status {
-  padding: 10px 16px 0;
+  padding: 8px 16px 0;
   color: var(--text-tertiary);
   font-size: 12px;
   font-style: italic;
@@ -2475,6 +2515,60 @@ body.document-viewer-resizing {
 
 .council-peer-status:empty {
   display: none;
+}
+
+.council-details {
+  border-top: 1px solid var(--border-light);
+  background: var(--bg);
+}
+
+.council-details > summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.council-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.council-details > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.8px solid currentColor;
+  border-bottom: 1.8px solid currentColor;
+  transform: rotate(45deg);
+  margin-left: auto;
+  transition: transform var(--transition);
+  opacity: 0.55;
+}
+
+.council-details[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+.council-details > summary small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.council-details-body {
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.council-details-body .council-stages {
+  background: var(--bg);
 }
 
 @media (max-width: 768px) {
@@ -2487,6 +2581,16 @@ body.document-viewer-resizing {
   .council-synthesis-body {
     padding: 14px 14px 16px;
     font-size: 15px;
+  }
+  .council-progress-copy,
+  .council-details > summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .council-details > summary::after {
+    position: absolute;
+    right: 18px;
   }
 }
 

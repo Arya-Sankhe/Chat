@@ -44,8 +44,16 @@ const SETTINGS_KEY = "klui.chat.controls.v1";
 
 const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
+const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "qwen/qwen3.7-plus";
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const DEFAULT_COUNCIL_MODELS = [
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_VISION_PRO_MODEL
+];
 const DEFAULT_REASONING_EFFORT = "high";
 const CONTEXT_LIMIT_TOKENS = 256000;
 
@@ -99,6 +107,7 @@ const state = {
 
 let renderQueued = false;
 let reasoningOpenIds = new Set();
+let councilDetailsOpenIds = new Set();
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -159,6 +168,9 @@ const els = {
   compareWrap: document.querySelector("#compareWrap"),
   compareButton: document.querySelector("#compareButton"),
   compareLabel: document.querySelector("#compareLabel"),
+  councilWrap: document.querySelector("#councilWrap"),
+  councilButton: document.querySelector("#councilButton"),
+  councilLabel: document.querySelector("#councilLabel"),
   compareDropdown: document.querySelector("#compareDropdown"),
   compareInput: document.querySelector("#compareInput"),
   compareCatalog: document.querySelector("#compareCatalog"),
@@ -291,11 +303,20 @@ function cancelCompareMode() {
 }
 
 function seedCompareModels() {
-  return DEFAULT_COMPARE_MODELS;
+  return state.settings.compareMode === "council" ? DEFAULT_COUNCIL_MODELS : DEFAULT_COMPARE_MODELS;
 }
 
 async function activateCompareMode() {
+  updateSetting("compareMode", "compare");
   updateSetting("compareModels", DEFAULT_COMPARE_MODELS);
+  updateSetting("compareEnabled", true);
+  state.compareDescribeImages = false;
+  renderCompareControls();
+}
+
+async function activateCouncilMode() {
+  updateSetting("compareMode", "council");
+  updateSetting("compareModels", DEFAULT_COUNCIL_MODELS);
   updateSetting("compareEnabled", true);
   state.compareDescribeImages = false;
   renderCompareControls();
@@ -672,7 +693,9 @@ function modelById(id) {
 
 function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_MODEL) return "DeepSeek";
+  if (id === OPENROUTER_TEXT_PRO_MODEL) return "DeepSeek Pro";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
+  if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "Pro";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
@@ -683,9 +706,10 @@ function compareModelAlias(index) {
 }
 
 function selectedCompareModelIds() {
-  const ids = state.settings.compareEnabled ? DEFAULT_COMPARE_MODELS : (Array.isArray(state.settings.compareModels) ? state.settings.compareModels : []);
+  const fixedIds = state.settings.compareMode === "council" ? DEFAULT_COUNCIL_MODELS : DEFAULT_COMPARE_MODELS;
+  const ids = state.settings.compareEnabled ? fixedIds : (Array.isArray(state.settings.compareModels) ? state.settings.compareModels : []);
   const unique = ids.filter((id, index) => id && ids.indexOf(id) === index);
-  return unique.slice(0, 2);
+  return unique.slice(0, state.settings.compareMode === "council" ? 4 : 2);
 }
 
 function activeCompareModelIds() {
@@ -818,15 +842,24 @@ function renderCompareCatalog() {
 function renderCompareControls() {
   if (!els.compareWrap) return;
   els.compareWrap.classList.remove("hidden");
+  els.councilWrap?.classList.remove("hidden");
   closeCompareContextBanner();
   closeCompareDropdown();
-  const active = Boolean(state.settings.compareEnabled);
-  els.compareButton.classList.toggle("active", active);
+  const compareActive = Boolean(state.settings.compareEnabled && state.settings.compareMode !== "council");
+  const councilActive = Boolean(state.settings.compareEnabled && state.settings.compareMode === "council");
+  els.compareButton.classList.toggle("active", compareActive);
   els.compareButton.classList.remove("council-active");
-  els.compareButton.setAttribute("aria-pressed", String(active));
+  els.compareButton.setAttribute("aria-pressed", String(compareActive));
   els.compareButton.setAttribute("aria-expanded", "false");
-  els.compareButton.setAttribute("title", active ? "Compare mode on" : "Compare DeepSeek and MiMo");
-  els.compareLabel.textContent = active ? "Compare on" : "Compare";
+  els.compareButton.setAttribute("title", compareActive ? "Compare mode on" : "Compare two answers");
+  els.compareLabel.textContent = compareActive ? "Compare on" : "Compare";
+  if (els.councilButton) {
+    els.councilButton.classList.toggle("active", councilActive);
+    els.councilButton.classList.toggle("council-active", councilActive);
+    els.councilButton.setAttribute("aria-pressed", String(councilActive));
+    els.councilButton.setAttribute("title", councilActive ? "Council mode on" : "Council mode");
+  }
+  if (els.councilLabel) els.councilLabel.textContent = councilActive ? "Council on" : "Council";
   updateComposerPlaceholder();
 }
 
@@ -939,6 +972,10 @@ function captureReasoningOpenState() {
   reasoningOpenIds = new Set();
   for (const el of els.messages.querySelectorAll("details.reasoning[open][data-message-id]")) {
     reasoningOpenIds.add(el.dataset.messageId);
+  }
+  councilDetailsOpenIds = new Set();
+  for (const el of els.messages.querySelectorAll("details.council-details[open][data-council-id]")) {
+    councilDetailsOpenIds.add(el.dataset.councilId);
   }
 }
 
@@ -1917,6 +1954,56 @@ function renderCouncilStages(council) {
   `).join("")}</div>`;
 }
 
+function councilProgressState(council) {
+  const panelists = council.panelists || [];
+  const total = Math.max(1, panelists.length || DEFAULT_COUNCIL_MODELS.length);
+  const completePanelists = panelists.filter((p) => p.finishReason || p.error).length;
+  const stage1 = council.stage1Status || "active";
+  const stage2 = council.stage2Status || "pending";
+  const stage3 = council.stage3Status || "pending";
+  let label = "Individual models are answering";
+  let percent = Math.max(8, Math.round((completePanelists / total) * 48));
+
+  if (stage3 === "done") {
+    label = "Council complete";
+    percent = 100;
+  } else if (stage3 === "active") {
+    label = "Final answer is being written";
+    percent = 88;
+  } else if (stage2 === "active" || stage2 === "done" || stage2 === "skipped") {
+    label = "Answers are being gathered and ranked";
+    percent = stage2 === "active" ? 68 : 78;
+  } else if (stage1 === "done") {
+    label = "Answers are being gathered and ranked";
+    percent = 58;
+  }
+
+  if (stage1 === "error" || stage2 === "error" || stage3 === "error") {
+    label = "Council hit an error";
+    percent = Math.max(percent, 50);
+  }
+
+  const sub = stage1 === "active"
+    ? `${Math.min(completePanelists, total)}/${total} model${total === 1 ? "" : "s"} answered`
+    : (stage3 === "done" ? "Final answer ready" : "Reviewing panel answers");
+  return { label, sub, percent: Math.max(0, Math.min(100, percent)) };
+}
+
+function renderCouncilProgress(council) {
+  const progress = councilProgressState(council);
+  return `
+    <div class="council-progress" role="status" aria-live="polite">
+      <div class="council-progress-copy">
+        <span>${escapeHtml(progress.label)}</span>
+        <small>${escapeHtml(progress.sub)}</small>
+      </div>
+      <div class="council-progress-track" aria-hidden="true">
+        <span style="width: ${progress.percent}%"></span>
+      </div>
+    </div>
+  `;
+}
+
 function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false) {
   const msg = normalizeMessage(panelist);
   const modelId = msg.model || "";
@@ -1992,7 +2079,7 @@ function renderCouncilSynthesis(chairman) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
         <span>Council Synthesis</span>
         <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
-        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis" style="color: white; opacity: 0.85;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
+        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </div>
       <div class="council-synthesis-body message-content">
         ${renderReasoning(msg, { streaming })}
@@ -2012,6 +2099,8 @@ function renderCouncilMessage(council) {
   const hasAnyRank = panelists.some((p) => p.metadata?.council?.peerRank != null && Number(p.metadata?.council?.ballotCount || 0) > 0);
   const peerReviewActive = council.stage2Status === "active";
   const peerStatusText = council.peerStatus || "";
+  const councilId = String(council.sessionId || council.id || "current-council");
+  const detailsOpen = councilDetailsOpenIds.has(councilId) ? " open" : "";
 
   return `
     <article class="message assistant council-message">
@@ -2023,13 +2112,22 @@ function renderCouncilMessage(council) {
           <span class="council-header-title">Model Council</span>
           <span class="council-header-sub">${panelists.length} panelists${chairman ? " · 1 chairman" : ""}</span>
         </header>
-        ${renderCouncilStages(council)}
-        ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
-        <div class="council-section-label">Panel responses</div>
-        <div class="council-panel-grid">
-          ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive)).join("")}
-        </div>
+        ${renderCouncilProgress(council)}
         ${renderCouncilSynthesis(chairman)}
+        <details class="council-details"${detailsOpen} data-council-id="${escapeHtml(councilId)}">
+          <summary>
+            <span>How the council worked</span>
+            <small>${hasAnyRank ? "Rankings and individual answers" : "Individual answers and review progress"}</small>
+          </summary>
+          <div class="council-details-body">
+            ${renderCouncilStages(council)}
+            ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
+            <div class="council-section-label">Individual answers</div>
+            <div class="council-panel-grid">
+              ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive)).join("")}
+            </div>
+          </div>
+        </details>
       </div>
     </article>
   `;
@@ -2663,8 +2761,8 @@ async function sendPrompt() {
     showToast(failed ? `Remove or retry ${failed.file.name}.` : "Wait for document processing to finish.");
     return;
   }
-  if (state.settings.compareEnabled && selectedCompareModelIds().length < 2) {
-    showToast(isCouncilMode() ? "Pick at least 2 models for the council." : "Pick at least 2 models to compare.");
+  if (state.settings.compareEnabled && selectedCompareModelIds().length < (isCouncilMode() ? 4 : 2)) {
+    showToast(isCouncilMode() ? "Council needs its four fixed models." : "Compare needs its two fixed models.");
     return;
   }
   closeCompareContextBanner();
@@ -3083,12 +3181,26 @@ function bindEvents() {
     closeActionMenu();
     closeModelDropdown();
     closeCompareDropdown();
-    if (state.settings.compareEnabled) {
+    if (state.settings.compareEnabled && state.settings.compareMode !== "council") {
       cancelCompareMode();
       return;
     }
     activateCompareMode();
   });
+
+  if (els.councilButton) {
+    els.councilButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeActionMenu();
+      closeModelDropdown();
+      closeCompareDropdown();
+      if (state.settings.compareEnabled && state.settings.compareMode === "council") {
+        cancelCompareMode();
+        return;
+      }
+      activateCouncilMode();
+    });
+  }
 
   document.addEventListener("click", (e) => {
     if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {

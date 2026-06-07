@@ -49,11 +49,25 @@ import {
   visualImageInputLimit
 } from "./websearch/tool.js";
 import { buildSearchSystemHint, detectSearchNeed } from "./websearch/detect.js";
-import { OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, normalizeProviderId, providerAvailability, resolveProvider } from "./providers.js";
+import {
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_VISION_PRO_MODEL,
+  normalizeProviderId,
+  providerAvailability,
+  resolveProvider
+} from "./providers.js";
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const DEFAULT_COUNCIL_MODELS = [
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_VISION_PRO_MODEL
+];
 
 const modelCache = new Map();
 const modelCacheTtlMs = 5 * 60 * 1000;
@@ -788,6 +802,12 @@ function normalizeCompareModelsForRequest(value) {
   const models = normalizeCompareModels(value);
   if (!models.length) return [];
   return DEFAULT_COMPARE_MODELS;
+}
+
+function normalizeCouncilModelsForRequest(value) {
+  const models = normalizeCompareModels(value);
+  if (!models.length) return [];
+  return DEFAULT_COUNCIL_MODELS;
 }
 
 function normalizeCouncilFlag(value) {
@@ -1669,10 +1689,10 @@ async function handleConversationMessage(req, res, config, conversationId) {
 
   const councilEnabled = normalizeCouncilFlag(body.council);
   const compareModels = councilEnabled
-    ? normalizeCompareModels(body.models)
+    ? normalizeCouncilModelsForRequest(body.models)
     : normalizeCompareModelsForRequest(body.models);
   const agentMode = normalizeAgentMode(body.agentMode);
-  const provider = resolveProvider(body.provider, config);
+  const provider = resolveProvider(compareModels.length ? "openrouter" : body.provider, config);
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
