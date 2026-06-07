@@ -81,6 +81,21 @@ test("parseRanking extracts ordered modelIds from a well-formed ballot", () => {
   assert.equal(parsed.justifications.beta, "partially correct but glosses over the calculation.");
 });
 
+test("parseRanking does not persist placeholder reason text", () => {
+  const raw = `RANKING:
+1. response-deadbeef — <reason>
+2. response-feedface — actually useful note.`;
+  const parsed = parseRanking(raw, {
+    deadbeef: "alpha",
+    feedface: "beta"
+  });
+
+  assert.ok(parsed);
+  assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
+  assert.equal(parsed.justifications.alpha, undefined);
+  assert.equal(parsed.justifications.beta, "actually useful note.");
+});
+
 test("parseRanking returns null when the output has no RANKING: header", () => {
   const raw = "I think response A is best. Response B is OK.";
   assert.equal(parseRanking(raw, { aaaa: "alpha" }), null);

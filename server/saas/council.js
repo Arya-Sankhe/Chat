@@ -132,7 +132,7 @@ export function parseRanking(rawOutput, nonceToModelMap = {}) {
 
     const after = line.slice((nonceMatch.index ?? 0) + nonceMatch[0].length);
     const reason = after.replace(/^[\s\*_:—–\-]+/, "").trim();
-    if (reason) justifications[modelId] = reason;
+    if (reason && !/^<?\s*reason\s*>?$/i.test(reason)) justifications[modelId] = reason;
   }
 
   return ranking.length ? { ranking, justifications } : null;

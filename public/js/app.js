@@ -705,6 +705,16 @@ function compareModelAlias(index) {
   return `Model ${String.fromCharCode(65 + index)}`;
 }
 
+function councilModelAlias(modelId, fallbackIndex = -1) {
+  const index = DEFAULT_COUNCIL_MODELS.indexOf(modelId);
+  if (index >= 0) return compareModelAlias(index);
+  return compareModelAlias(fallbackIndex >= 0 ? fallbackIndex : 0);
+}
+
+function isPlaceholderPeerReason(value) {
+  return /^<?\s*reason\s*>?$/i.test(String(value || "").trim());
+}
+
 function selectedCompareModelIds() {
   const fixedIds = state.settings.compareMode === "council" ? DEFAULT_COUNCIL_MODELS : DEFAULT_COMPARE_MODELS;
   const ids = state.settings.compareEnabled ? fixedIds : (Array.isArray(state.settings.compareModels) ? state.settings.compareModels : []);
@@ -2007,8 +2017,7 @@ function renderCouncilProgress(council) {
 function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false) {
   const msg = normalizeMessage(panelist);
   const modelId = msg.model || "";
-  const model = modelById(modelId);
-  const logoUrl = model ? modelBrandLogoUrl(model) : "";
+  const modelAlias = councilModelAlias(modelId, index);
   const content = msg.content || "";
   const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
@@ -2019,12 +2028,12 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
   const rankBadge = showRank
     ? `<span class="council-rank-badge rank-${rank}">#${rank}${rank === 1 ? " · Top" : ""}</span>`
     : (peerReviewActive && msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
-  const justKeys = Object.keys(justifications);
+  const justKeys = Object.keys(justifications).filter((reviewerId) => !isPlaceholderPeerReason(justifications[reviewerId]));
   const justBlock = justKeys.length ? `
     <div class="council-justifications">
       <div class="council-justifications-title">Peer notes</div>
       ${justKeys.map((reviewerId) => {
-        const reviewer = modelDisplayName(reviewerId) || reviewerId;
+        const reviewer = councilModelAlias(reviewerId);
         return `<div class="council-justification"><strong>${escapeHtml(reviewer)}:</strong> ${escapeHtml(justifications[reviewerId] || "")}</div>`;
       }).join("")}
     </div>` : "";
@@ -2033,11 +2042,9 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
     <section class="council-panelist ${showRank && rank === 1 ? "rank-1" : ""}" data-raw-text="${escapeHtml(rawText)}">
       <header class="council-panelist-head">
         <span class="compare-model-mark">
-          ${logoUrl
-            ? `<img src="${escapeHtml(logoUrl)}" alt="" width="18" height="18" decoding="async">`
-            : `<span>${escapeHtml(String(index + 1))}</span>`}
+          <span>${escapeHtml(modelAlias.replace("Model ", ""))}</span>
         </span>
-        <strong>${escapeHtml(modelDisplayName(modelId) || `Model ${index + 1}`)}</strong>
+        <strong>${escapeHtml(modelAlias)}</strong>
         ${rankBadge}
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
@@ -2071,7 +2078,7 @@ function renderCouncilSynthesis(chairman) {
   const content = msg.content || "";
   const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
-  const modelName = modelDisplayName(modelId) || modelId;
+  const modelName = councilModelAlias(modelId);
 
   return `
     <div class="council-synthesis" data-raw-text="${escapeHtml(rawText)}">
@@ -2575,6 +2582,7 @@ function applyCouncilStreamEvent(council, event) {
     });
     /* Stream justifications onto panelist metadata so UI updates progressively */
     for (const [modelId, reason] of Object.entries(event.justifications || {})) {
+      if (isPlaceholderPeerReason(reason)) continue;
       const target = council.panelists.find((p) => p.model === modelId);
       if (!target) continue;
       if (!target.metadata) target.metadata = { council: {} };
