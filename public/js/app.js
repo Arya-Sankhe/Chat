@@ -124,6 +124,9 @@ const els = {
   promptInput: document.querySelector("#promptInput"),
   imagePreviews: document.querySelector("#imagePreviews"),
   imageFileInput: document.querySelector("#imageFileInput"),
+  composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
+  actionMenuButton: document.querySelector("#actionMenuButton"),
+  composerActionMenu: document.querySelector("#composerActionMenu"),
   imageToggle: document.querySelector("#imageToggle"),
   sendButton: document.querySelector("#sendButton"),
   stopButton: document.querySelector("#stopButton"),
@@ -146,9 +149,8 @@ const els = {
   thinkingEffort: document.querySelector("#thinkingEffort"),
   composerModelWrap: document.querySelector("#composerModelWrap"),
   modelButton: document.querySelector("#modelButton"),
-  modelLogoImg: document.querySelector("#modelLogoImg"),
-  modelFallbackIcon: document.querySelector("#modelFallbackIcon"),
   modelLabel: document.querySelector("#modelLabel"),
+  modelPriceBadge: document.querySelector("#modelPriceBadge"),
   modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
   modelCatalog: document.querySelector("#modelCatalog"),
@@ -241,8 +243,7 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
   const needsVision = pendingPromptNeedsVision(images)
     || chatHistoryNeedsVision()
     || contentHasVisualOrDocument(userContent);
-  const needsTools = Boolean(state.settings.agentMode && agentToolsAvailable());
-  return needsVision || needsTools ? OPENROUTER_VISION_MODEL : OPENROUTER_TEXT_MODEL;
+  return needsVision ? OPENROUTER_VISION_MODEL : OPENROUTER_TEXT_MODEL;
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
@@ -696,25 +697,36 @@ function closeModelDropdown() {
   els.composerModelWrap.classList.remove("is-open");
 }
 
+function toggleActionMenu() {
+  const open = els.composerActionMenu.classList.toggle("hidden") === false;
+  els.actionMenuButton.setAttribute("aria-expanded", String(open));
+  els.composerActionMenuWrap.classList.toggle("is-open", open);
+}
+
+function closeActionMenu() {
+  if (!els.composerActionMenu) return;
+  els.composerActionMenu.classList.add("hidden");
+  els.actionMenuButton?.setAttribute("aria-expanded", "false");
+  els.composerActionMenuWrap?.classList.remove("is-open");
+}
+
 function renderModelCatalog() {
   const mode = selectedModelMode();
   els.modelCatalog.innerHTML = `
     <button class="model-option mode-option ${mode === "thinking" ? "active" : ""}" type="button" data-model-mode="thinking" aria-selected="${mode === "thinking"}">
       <span class="model-option-main">
-        <span class="model-option-logo-placeholder mode-option-icon">✦</span>
         <span class="model-option-copy">
           <span class="model-option-name">Thinking</span>
-          <span class="model-option-desc">Auto routes text to DeepSeek and files or tools to MiMo.</span>
+          <span class="model-option-desc">Best models for most tasks.</span>
         </span>
       </span>
       <span class="model-option-check">${mode === "thinking" ? "✓" : ""}</span>
     </button>
     <button class="model-option mode-option ${mode === "pro" ? "active" : ""}" type="button" data-model-mode="pro" aria-selected="${mode === "pro"}">
       <span class="model-option-main">
-        <span class="model-option-logo-placeholder mode-option-icon">P</span>
         <span class="model-option-copy">
           <span class="model-option-name">Pro <span class="model-price-note">5x</span></span>
-          <span class="model-option-desc">Uses Qwen3.7 Plus for harder work.</span>
+          <span class="model-option-desc">Use for the most complex tasks.</span>
         </span>
       </span>
       <span class="model-option-check">${mode === "pro" ? "✓" : ""}</span>
@@ -800,19 +812,15 @@ function renderCompareControls() {
 function renderModelOptions() {
   const mode = selectedModelMode();
   const displayName = modelModeLabel(mode);
-  const routedModel = resolveRoutedModel();
   if (els.modelDetails) {
-    els.modelDetails.innerHTML = `<div class="model-empty">${escapeHtml(displayName)} · OpenRouter · ${escapeHtml(routedModel)}</div>`;
+    els.modelDetails.innerHTML = `<div class="model-empty">${mode === "pro" ? "For the most complex tasks." : "Best models for most tasks."}</div>`;
   }
 
   els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
   els.modelButton.classList.remove("has-brand-logo");
   els.modelButton.classList.toggle("pro-active", mode === "pro");
-  els.modelLogoImg.removeAttribute("src");
-  els.modelLogoImg.classList.add("hidden");
-  els.modelLogoImg.setAttribute("aria-hidden", "true");
   els.modelLabel.classList.remove("hidden");
-  els.modelFallbackIcon?.classList.remove("hidden");
+  els.modelPriceBadge?.classList.toggle("hidden", mode !== "pro");
 
   els.modelLabel.textContent = displayName;
   els.promptInput.placeholder = `Message ${displayName}`;
@@ -3033,7 +3041,10 @@ function bindEvents() {
   els.accountButton.addEventListener("click", openAccount);
   els.closeAccountButton.addEventListener("click", closeAccount);
   els.settingsButton.addEventListener("click", openSettings);
-  els.settingsButtonAlt.addEventListener("click", openSettings);
+  els.settingsButtonAlt.addEventListener("click", () => {
+    closeActionMenu();
+    openSettings();
+  });
   els.closeSettingsButton.addEventListener("click", closeSettings);
 
   els.overlay.addEventListener("click", () => {
@@ -3048,6 +3059,7 @@ function bindEvents() {
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
+    if (!els.composerActionMenu.classList.contains("hidden")) { closeActionMenu(); return; }
     if (!els.compareDropdown.classList.contains("hidden")) { closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
@@ -3056,12 +3068,14 @@ function bindEvents() {
 
   els.modelButton.addEventListener("click", (e) => {
     e.stopPropagation();
+    closeActionMenu();
     closeCompareDropdown();
     toggleModelDropdown();
   });
 
   els.compareButton.addEventListener("click", (e) => {
     e.stopPropagation();
+    closeActionMenu();
     closeModelDropdown();
     if (state.settings.compareEnabled) {
       toggleCompareDropdown();
@@ -3073,6 +3087,9 @@ function bindEvents() {
   document.addEventListener("click", (e) => {
     if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {
       closeModelDropdown();
+    }
+    if (!els.composerActionMenu.contains(e.target) && !els.composerActionMenuWrap.contains(e.target)) {
+      closeActionMenu();
     }
     if (!els.compareDropdown.contains(e.target) && !els.compareWrap.contains(e.target)) {
       closeCompareDropdown();
@@ -3195,14 +3212,27 @@ function bindEvents() {
     if (state.pendingDeleteId) removeConversation(state.pendingDeleteId);
   });
 
-  els.imageToggle.addEventListener("click", () => els.imageFileInput.click());
+  els.actionMenuButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeModelDropdown();
+    closeCompareDropdown();
+    toggleActionMenu();
+  });
+
+  els.imageToggle.addEventListener("click", () => {
+    closeActionMenu();
+    els.imageFileInput.click();
+  });
   els.imageFileInput.addEventListener("change", (e) => {
     addImages(e.target.files || []);
     e.target.value = "";
   });
 
   if (els.webSearchToggle) {
-    els.webSearchToggle.addEventListener("click", toggleWebSearchMode);
+    els.webSearchToggle.addEventListener("click", () => {
+      toggleWebSearchMode();
+      closeActionMenu();
+    });
   }
   if (els.providerToggle) {
     els.providerToggle.addEventListener("click", toggleProvider);
