@@ -107,6 +107,7 @@ export async function describeConversationImages({
   catalog = [],
   attachmentIds = null,
   describeModel = "",
+  provider = null,
   chatCompletionFn = chatCompletion,
   signal
 }) {
@@ -159,14 +160,15 @@ export async function describeConversationImages({
   }
 
   const response = await chatCompletionFn({
-    apiKey: config.serverApiKey,
-    baseUrl: config.defaultBaseUrl,
+    apiKey: provider?.apiKey || config.serverApiKey,
+    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
     body: {
       model,
       messages: [{ role: "user", content: contentPayload }],
       max_tokens: imageCount === 1 ? 1500 : imageCount * 1200,
       temperature: 0.2
     },
+    providerId: provider?.id,
     signal
   });
 

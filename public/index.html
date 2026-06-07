@@ -77,6 +77,10 @@
 
         <main class="chat-panel">
           <header class="topbar">
+            <div class="context-meter" id="contextMeter" title="Estimated context usage">
+              <span class="context-meter-label" id="contextMeterLabel">0 / 256k</span>
+              <span class="context-meter-track"><span class="context-meter-fill" id="contextMeterFill"></span></span>
+            </div>
             <div class="usage-pill" id="usagePill"></div>
           </header>
 
@@ -85,8 +89,8 @@
           <div class="compare-context-banner hidden" id="compareContextBanner" role="dialog" aria-labelledby="compareContextTitle" aria-describedby="compareContextBody">
             <div class="compare-context-card">
               <div class="compare-context-copy">
-                <strong id="compareContextTitle">Some compare models can't see images</strong>
-                <p id="compareContextBody">Text-only models need short image descriptions for visual context, or you can compare in a fresh chat without prior history.</p>
+                <strong id="compareContextTitle">Compare uses visual context automatically</strong>
+                <p id="compareContextBody">Visual details are transcribed for the text-only lane before both models answer independently.</p>
               </div>
               <div class="compare-context-actions">
                 <button class="compare-context-primary" id="compareContextYes" type="button">Describe images for text models</button>
@@ -145,7 +149,7 @@
                       <div class="compare-dropdown hidden" id="compareDropdown" role="listbox" aria-label="Compare models" aria-multiselectable="true">
                         <label for="compareInput" class="sr-only">Search compare models</label>
                         <input id="compareInput" type="text" autocomplete="off" spellcheck="false" placeholder="Search models">
-                        <div class="compare-hint">Select 2-4 models</div>
+                        <div class="compare-hint">Fixed two-model compare</div>
                         <div class="compare-mode-toggle" id="compareModeToggle" role="radiogroup" aria-label="Compare or council">
                           <button class="compare-mode-seg active" data-compare-mode="compare" type="button" role="radio" aria-checked="true">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>

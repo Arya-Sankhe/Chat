@@ -534,9 +534,45 @@ body.document-viewer-resizing {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   height: 56px;
   padding: 0 24px;
   flex-shrink: 0;
+}
+
+.context-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 132px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.context-meter-track {
+  position: relative;
+  width: 42px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.context-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: #111;
+  transition: width var(--transition);
+}
+
+.context-meter.warn .context-meter-fill {
+  background: #d97706;
 }
 
 .usage-pill {
