@@ -132,8 +132,12 @@ test("describeConversationImages can describe only missing image ids in one call
     });
 
     const sentImages = requestBody.messages[0].content.filter((part) => part.type === "image_url");
+    const instruction = requestBody.messages[0].content.find((part) => part.type === "text")?.text || "";
     assert.equal(sentImages.length, 1);
     assert.equal(sentImages[0].image_url.url, "https://files.example/att_2.png");
+    assert.match(instruction, /ONLY to extract the information needed/i);
+    assert.match(instruction, /do not solve/i);
+    assert.match(instruction, /Do not compute/i);
     assert.deepEqual(result.descriptions, { att_2: "A receipt with a $12 total." });
   } finally {
     globalThis.fetch = originalFetch;

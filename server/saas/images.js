@@ -144,7 +144,15 @@ export async function describeConversationImages({
   const contentPayload = [];
   const imageCount = attachments.length;
 
-  const coreInstructions = "Describe this image in full detail for another AI model that cannot see it. You MUST transcribe ALL visible text exactly as written — every word, number, label, header, option, and value. If there is a table, reproduce it row by row with every cell value. If there is a formula or equation, write it out. Do not summarize or paraphrase — transcribe verbatim. Then briefly describe any diagrams, charts, or visual elements.";
+  const coreInstructions = [
+    "Create a visual evidence packet for a separate text-only model.",
+    "Your job is ONLY to extract the information needed to solve the user's request; do not solve, verify, calculate, infer final answers, or explain solution steps.",
+    "Transcribe ALL visible text exactly as written: every word, number, label, header, option, caption, and value.",
+    "If there is a table, reproduce it row by row with every cell value. If there is a formula or equation, write it out exactly.",
+    "Describe diagrams, charts, axes, arrows, branches, shapes, and spatial relationships factually.",
+    "Do not add sections named Step, Solution, Answer, Verification, or Reasoning. Do not say which approach is correct. Do not compute errors, totals, rates, probabilities, rankings, or conclusions.",
+    "Use neutral labels like Visible text, Tables, Diagram details, and Other visual details."
+  ].join(" ");
 
   const systemText = imageCount === 1
     ? `${coreInstructions}${conversationContext}`

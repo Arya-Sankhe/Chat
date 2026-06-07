@@ -1140,7 +1140,14 @@ async function describeVisualPdfContextForTextModel({
   const content = [
     {
       type: "text",
-      text: "You are preparing visual PDF page context for a separate text-only model. Transcribe all visible text, tables, numbers, labels, formulas, equations, charts, and diagrams in detail. Do NOT solve the user's task, do NOT answer the homework, and do NOT add reasoning beyond describing what is visible. Preserve page numbers and source markers."
+      text: [
+        "Create visual PDF page evidence for a separate text-only model.",
+        "Your job is ONLY to extract the information needed to solve the user's request; do not solve, verify, calculate, infer final answers, or explain solution steps.",
+        "Transcribe all visible text, tables, numbers, labels, formulas, equations, captions, charts, and diagrams in detail.",
+        "Preserve page numbers and source markers. Reproduce tables row by row and formulas exactly.",
+        "Describe charts, diagrams, arrows, branches, shapes, and spatial relationships factually.",
+        "Do not add sections named Step, Solution, Answer, Verification, or Reasoning. Do not compute errors, totals, rates, probabilities, rankings, or conclusions."
+      ].join(" ")
     },
     ...message.content
   ];
