@@ -4,7 +4,7 @@ import test, { describe, before, after } from "node:test";
 import { SearchCache, hashKey } from "../server/websearch/cache.js";
 import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
 import { WebSearchOrchestrator, formatResultsForModel } from "../server/websearch/index.js";
-import { buildWebSearchTools, executeToolCall, runChatWithToolLoop } from "../server/websearch/tool.js";
+import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 
 const realFetch = globalThis.fetch;
 
@@ -488,6 +488,97 @@ describe("tool", () => {
     assert.equal(result.toolCallCount, 1);
     assert.deepEqual(result.providers, ["jina"]);
     assert.equal(bodies[1].tool_choice, "none");
+  });
+
+  test("isToolsUnsupportedError recognizes provider tool/tool_choice rejections", () => {
+    assert.equal(isToolsUnsupportedError(new Error("No endpoints found that support the provided 'tool_choice' value.")), true);
+    assert.equal(isToolsUnsupportedError(new Error("This model does not support tools.")), true);
+    assert.equal(isToolsUnsupportedError(new Error("tools are not supported by this endpoint")), true);
+    assert.equal(isToolsUnsupportedError(new Error("function calling is not supported")), true);
+    assert.equal(isToolsUnsupportedError(new Error("Rate limit exceeded.")), false);
+    assert.equal(isToolsUnsupportedError(null), false);
+  });
+
+  test("runChatWithToolLoop degrades to a tool-less answer when the provider rejects tools", async () => {
+    const bodies = [];
+    const toolEvents = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if ("tool_choice" in body || "tools" in body) {
+          throw new Error("No endpoints found that support the provided 'tool_choice' value.");
+        }
+        return streamResponse([contentDelta("Plain answer")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "xiaomi/mimo-v2.5",
+        messages: [{ role: "user", content: "compare prices" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      onUpstreamEvent: () => {},
+      onToolEvent: (event) => toolEvents.push(event)
+    });
+
+    assert.equal(result.accumulated.content, "Plain answer");
+    assert.equal(result.toolCallCount, 0);
+    // 0: tool_choice rejected, 1: tools-only rejected, 2: stripped → success
+    assert.equal(bodies.length, 3);
+    assert.equal("tool_choice" in bodies[1], false);
+    assert.equal("tools" in bodies[1], true);
+    assert.equal("tool_choice" in bodies[2], false);
+    assert.equal("tools" in bodies[2], false);
+    assert.deepEqual(toolEvents.map((event) => event.type), ["tool:degraded", "tool:degraded"]);
+  });
+
+  test("runChatWithToolLoop drops only tool_choice when the provider still supports tools", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if ("tool_choice" in body) {
+          throw new Error("No endpoints found that support the provided 'tool_choice' value.");
+        }
+        if (bodies.length === 2) return streamResponse([toolCallDelta()]);
+        return streamResponse([contentDelta("Answer with search")]);
+      }
+    };
+    const websearch = {
+      search: async () => ({
+        ok: true,
+        provider: "jina",
+        cached: false,
+        query: "prices",
+        results: [{ index: 1, title: "T", url: "https://u", snippet: "s", content: "c", publishedAt: null }]
+      })
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "some/tools-ok-model",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch,
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(result.accumulated.content, "Answer with search");
+    assert.equal(result.toolCallCount, 1);
+    assert.deepEqual(result.providers, ["jina"]);
+    // Final turn must not reintroduce tool_choice (provider rejects it).
+    assert.equal("tool_choice" in bodies[bodies.length - 1], false);
   });
 
   test("runChatWithToolLoop executes only the remaining tool-call budget from a batch", async () => {

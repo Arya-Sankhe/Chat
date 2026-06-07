@@ -10,6 +10,58 @@ import { executeDocumentToolCall, isDocumentToolName } from "../documents/tool.j
 
 const visualImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
+/**
+ * Some models/providers (e.g. several OpenRouter-routed models) don't
+ * support function calling, or reject the `tool_choice` parameter. They
+ * surface this by failing the WHOLE request — for OpenRouter with
+ * "No endpoints found that support the provided 'tool_choice' value."
+ *
+ * We detect that class of error so the tool loop can gracefully degrade
+ * (drop `tool_choice`, then `tools`) and still answer the user instead of
+ * surfacing a hard failure.
+ */
+export function isToolsUnsupportedError(error) {
+  if (!error) return false;
+  const parts = [error.message];
+  const details = error.details ?? error.payload ?? error.body;
+  if (details) parts.push(typeof details === "string" ? details : safeJson(details));
+  const text = parts.filter(Boolean).join(" ").toLowerCase();
+  if (!text) return false;
+
+  if (text.includes("tool_choice")
+    && (text.includes("no endpoints found") || text.includes("not support") || text.includes("unsupported") || text.includes("invalid"))) {
+    return true;
+  }
+  if (text.includes("no endpoints found") && text.includes("tool")) return true;
+  if (/\btools?\b[^.]*\b(not supported|unsupported|isn'?t supported|are not supported|is not supported)\b/.test(text)) return true;
+  if (/\b(does not support|doesn'?t support|do not support|don'?t support|cannot use|can'?t use)\b[^.]*\btools?\b/.test(text)) return true;
+  if (/\bfunction calling\b[^.]*\b(not supported|unsupported|not available)\b/.test(text)) return true;
+  return false;
+}
+
+function safeJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Progressively strip tool-related fields from a chat request body so a
+ * provider that can't honor them still produces an answer.
+ *   level 0 → request unchanged
+ *   level 1 → drop `tool_choice` (provider rejects the value, may still tool-call)
+ *   level 2 → drop `tools` too (provider can't tool-call at all)
+ */
+function applyToolFallback(body, level) {
+  if (!body || level <= 0) return body;
+  const next = { ...body };
+  delete next.tool_choice;
+  if (level >= 2) delete next.tools;
+  return next;
+}
+
 /* ── Tool schema ── */
 
 export function buildWebSearchTools({ maxResults = 5 } = {}) {
@@ -412,21 +464,51 @@ export async function runChatWithToolLoop({
   let lastAccumulated = null;
   let forceFinalWithoutTools = false;
   let limitEventSent = false;
+  let toolFallbackLevel = 0;
   const inlineImageCache = new Map();
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     onIterationStart(messages);
-    const body = forceFinalWithoutTools
-      ? { ...chatRequest, messages, tool_choice: "none" }
-      : { ...chatRequest, messages };
 
-    const upstream = await crofai.streamChatCompletion({
-      apiKey: provider?.apiKey || config.serverApiKey,
-      baseUrl: provider?.baseUrl || config.defaultBaseUrl,
-      body,
-      providerId: provider?.id,
-      signal
-    });
+    let upstream;
+    for (;;) {
+      let body;
+      if (forceFinalWithoutTools) {
+        /* Stop further tool calls. Normally `tool_choice: "none"` does
+           this, but if the provider already rejected `tool_choice` we
+           drop the tools entirely (level 2) so the same rejection can't
+           recur on the final turn. */
+        body = toolFallbackLevel >= 1
+          ? applyToolFallback({ ...chatRequest, messages }, 2)
+          : { ...chatRequest, messages, tool_choice: "none" };
+      } else {
+        body = applyToolFallback({ ...chatRequest, messages }, toolFallbackLevel);
+      }
+      try {
+        upstream = await crofai.streamChatCompletion({
+          apiKey: provider?.apiKey || config.serverApiKey,
+          baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+          body,
+          providerId: provider?.id,
+          signal
+        });
+        break;
+      } catch (error) {
+        /* The provider rejected the request because this model can't
+           honor tools/tool_choice. Degrade one step and retry instead of
+           failing the whole turn. (Skipped once we've already tool-called
+           successfully, i.e. forceFinalWithoutTools.) */
+        if (!forceFinalWithoutTools && toolFallbackLevel < 2 && isToolsUnsupportedError(error)) {
+          toolFallbackLevel += 1;
+          onToolEvent({
+            type: "tool:degraded",
+            reason: toolFallbackLevel >= 2 ? "tools-unsupported" : "tool-choice-unsupported"
+          });
+          continue;
+        }
+        throw error;
+      }
+    }
     if (!upstream.body) throw new Error("Empty stream from upstream model.");
 
     const accumulated = await streamProviderAndAccumulate(upstream, (event) => {

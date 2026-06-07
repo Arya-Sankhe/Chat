@@ -44,6 +44,38 @@ test("adaptChatRequestForProvider maps reasoning_effort to OpenRouter reasoning"
   assert.equal(adapted.temperature, 0.7);
 });
 
+test("adaptChatRequestForProvider pins OpenRouter routing to tool-capable endpoints when tools are present", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "search" }],
+    tools: [{ type: "function", function: { name: "web_search" } }],
+    tool_choice: "auto"
+  }, "openrouter");
+
+  assert.deepEqual(adapted.provider, { require_parameters: true });
+  assert.equal(adapted.tool_choice, "auto");
+});
+
+test("adaptChatRequestForProvider does not force require_parameters without tools", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "hi" }]
+  }, "openrouter");
+
+  assert.equal(adapted.provider, undefined);
+});
+
+test("adaptChatRequestForProvider preserves caller provider routing alongside require_parameters", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "search" }],
+    tools: [{ type: "function", function: { name: "web_search" } }],
+    provider: { order: ["Xiaomi"] }
+  }, "openrouter");
+
+  assert.deepEqual(adapted.provider, { order: ["Xiaomi"], require_parameters: true });
+});
+
 test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
   const body = {
     model: "greg",

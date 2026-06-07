@@ -90,6 +90,13 @@ export function resolveOpenRouterReasoningEffort(value) {
 /**
  * Map our shared chat request shape to provider-specific fields.
  * OpenRouter expects `reasoning: { effort }` instead of `reasoning_effort`.
+ *
+ * When the request carries tools, we also pin OpenRouter's provider
+ * routing to endpoints that actually support every parameter we send
+ * (`require_parameters: true`). Without this, OpenRouter may route to an
+ * endpoint that silently ignores `tools` (so the model never tool-calls)
+ * or rejects the request outright with
+ * "No endpoints found that support the provided 'tool_choice' value."
  */
 export function adaptChatRequestForProvider(body, providerId) {
   if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
@@ -97,11 +104,20 @@ export function adaptChatRequestForProvider(body, providerId) {
   const { reasoning_effort: reasoningEffort, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
 
-  return {
+  const adapted = {
     ...rest,
     reasoning: {
       effort,
       exclude: false
     }
   };
+
+  if (Array.isArray(rest.tools) && rest.tools.length) {
+    adapted.provider = {
+      ...(rest.provider && typeof rest.provider === "object" ? rest.provider : {}),
+      require_parameters: true
+    };
+  }
+
+  return adapted;
 }
