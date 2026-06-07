@@ -51,18 +51,32 @@ function restoreCodeSpans(text, slots) {
 function isLikelySingleDollarMath(tex) {
   const t = String(tex ?? "").trim();
   if (!t || t.length > 240) return false;
-  const hasExplicitMathSyntax = /\\[a-zA-Z]+|[_^{}=<>+\-*/]|[∑∫√∞≈≠≤≥±×÷]/.test(t);
-  // Prices and bare numbers: $5, $10.50. Keep numeric LaTeX like
-  // $1386 \text{ N}$ renderable by checking for explicit math syntax first.
-  if (!hasExplicitMathSyntax && /^\d+(?:[.,]\d+)?(?:\s|$)/.test(t)) return false;
-  // LaTeX commands, subscripts, operators, common math symbols
-  if (hasExplicitMathSyntax) return true;
-  // Function calls: f(1), f(1.2), g(x, y), sin(x)
-  if (/^[a-zA-Z]+(?:\([^)]*\))+/.test(t)) return true;
-  // Parenthesized numeric values: (1), (1.2), (0.8)
+
+  // A captured pipe means we swallowed a markdown table separator
+  // (e.g. "$/M | Output $") — never math.
+  if (t.includes("|")) return false;
+
+  // Unambiguous LaTeX: backslash commands, sub/superscripts, braces, or
+  // math unicode symbols. These are real math regardless of any digits,
+  // so "$1386 \text{ N}$" and "$x_1 + y$" still render.
+  if (/\\[a-zA-Z]+|[_^{}]|[∑∫√∞≈≠≤≥±×÷]/.test(t)) return true;
+
+  // Function calls and parenthesized numeric values: f(1), g(x, y),
+  // sin(x), (1.2), (0.8).
+  if (/^[a-zA-Z]+(?:\([^)]*\))+$/.test(t)) return true;
   if (/^\([^)]+\)$/.test(t) && /[\d.]/.test(t)) return true;
-  // Short variable names: x, n, ab
+
+  // Currency / numeric prose: any remaining span that contains a digit but
+  // no strong math signal is treated as plain text. This is what keeps
+  // prices like $0.140, $1,600, $5, and "$0.140 = **$0.084**" from being
+  // hijacked into math and eating the surrounding bold/table markup.
+  if (/\d/.test(t)) return false;
+
+  // Digit-free spans: short variables (x, n, ab) and simple algebraic
+  // expressions (a = b, x + y) with no currency risk.
   if (/^[a-zA-Z]{1,3}$/.test(t)) return true;
+  if (/^[a-zA-Z](?:\s*[=<>+\-*/^]\s*[a-zA-Z]+)+$/.test(t)) return true;
+
   return false;
 }
 

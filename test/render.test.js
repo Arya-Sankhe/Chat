@@ -168,6 +168,42 @@ test("renderContent renders likely single-dollar math but leaves prices alone", 
   assert.match(renderContent("3. $f(0.8)$:"), /<span class="katex" data-display="false">f\(0\.8\)<\/span>/);
 });
 
+test("renderContent leaves currency-heavy markdown intact (no math hijacking)", () => {
+  globalThis.marked = {
+    parse(src) {
+      return `<p>${src}</p>`;
+    },
+    use() {}
+  };
+  globalThis.katex = {
+    renderToString(tex) {
+      return `<span class="katex">${tex}</span>`;
+    }
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.hljs;
+
+  // Table separators next to prices must survive (no math span eats `|`).
+  const table = renderContent("| Xiaomi MiMo v2.5 | $0.140 | $0.280 |");
+  assert.doesNotMatch(table, /class="katex"/);
+  assert.match(table, /\$0\.140/);
+  assert.match(table, /\$0\.280/);
+
+  // `$/M` headers must not turn into math.
+  const header = renderContent("| Model | Input $/M | Output $/M |");
+  assert.doesNotMatch(header, /class="katex"/);
+  assert.match(header, /Input \$\/M/);
+
+  // Bold around prices must not be swallowed.
+  const bold = renderContent("0.60 × $0.140 = **$0.084**");
+  assert.doesNotMatch(bold, /class="katex"/);
+  assert.match(bold, /\*\*\$0\.084\*\*/);
+
+  // Larger amounts with thousands separators stay literal.
+  const big = renderContent("Qwen charges $1.600/M vs MiMo's $0.28/M.");
+  assert.doesNotMatch(big, /class="katex"/);
+});
+
 test("renderContent does not extract math inside code spans or fences", () => {
   globalThis.marked = {
     parse(src) {

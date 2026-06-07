@@ -40,7 +40,7 @@ import {
   renderModelDetails,
   renderModelOption,
   resolveDefaultCompareModels
-} from "./render.js";
+} from "./render.js?v=20260607-render-currency-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
