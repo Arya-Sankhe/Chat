@@ -145,6 +145,90 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
   }
 });
 
+test("streamChatCompletion retries transient upstream failures then succeeds", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("network down");
+    if (calls === 2) return new Response("busy", { status: 503 });
+    return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const response = await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(response.status, 200);
+    assert.equal(calls, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChatCompletion does not retry deterministic client errors", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: { message: "No endpoints found that support the provided 'tool_choice' value." } }), {
+      status: 404,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await assert.rejects(
+      streamChatCompletion({
+        apiKey: "test",
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerId: "openrouter",
+        body: {
+          model: "xiaomi/mimo-v2.5",
+          messages: [{ role: "user", content: "hi" }],
+          tools: [{ type: "function", function: { name: "web_search" } }],
+          tool_choice: "auto"
+        },
+        signal: AbortSignal.timeout(5000)
+      }),
+      /tool_choice/
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChatCompletion stops retrying after the attempt cap", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response("overloaded", { status: 503 });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await assert.rejects(streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+      signal: AbortSignal.timeout(5000),
+      maxAttempts: 2
+    }));
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("applyStreamEvent accumulates OpenRouter reasoning_details into message.reasoning", () => {
   const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
 
