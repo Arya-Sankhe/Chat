@@ -717,7 +717,7 @@ function renderModelCatalog() {
       <span class="model-option-main">
         <span class="model-option-copy">
           <span class="model-option-name">Thinking</span>
-          <span class="model-option-desc">Best models for most tasks.</span>
+          <span class="model-option-desc">Best model for most tasks.</span>
         </span>
       </span>
       <span class="model-option-check">${mode === "thinking" ? "✓" : ""}</span>
@@ -813,7 +813,7 @@ function renderModelOptions() {
   const mode = selectedModelMode();
   const displayName = modelModeLabel(mode);
   if (els.modelDetails) {
-    els.modelDetails.innerHTML = `<div class="model-empty">${mode === "pro" ? "For the most complex tasks." : "Best models for most tasks."}</div>`;
+    els.modelDetails.innerHTML = `<div class="model-empty">${mode === "pro" ? "For the most complex tasks." : "Best model for most tasks."}</div>`;
   }
 
   els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
