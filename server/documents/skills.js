@@ -86,6 +86,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   }
 
   if (createAction) {
+    skills.add("artifact-planner");
     if (asksPdf && (!asksWord || pdfOutput && !wordOutput) && (!asksExcel || pdfOutput && !excelOutput)) {
       skills.add("pdf-create");
       tools.add("create_document");
@@ -100,6 +101,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     }
     if (asksPpt) {
       skills.add("presentation-create");
+      tools.add("create_document");
     }
   }
 
@@ -116,13 +118,12 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
 
   const toolNames = ALL_DOCUMENT_TOOLS.filter((name) => tools.has(name));
   const skillNames = Array.from(skills);
-  const unsupported = asksPpt && !toolNames.includes("create_document") ? ["presentation-create"] : [];
   return {
-    enabled: toolNames.length > 0 || unsupported.length > 0,
+    enabled: toolNames.length > 0,
     skills: skillNames,
     toolNames,
     ready: readyCount,
-    unsupported
+    unsupported: []
   };
 }
 
@@ -140,10 +141,6 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
   const needsReadyList = selectedSkills.some((skill) => ["document-read", "pdf-read", "document-edit", "document-export"].includes(skill));
   if (needsReadyList && readyDocuments?.length) {
     sections.push(`Ready uploaded/generated documents:\n${readyDocumentList(readyDocuments)}`);
-  }
-
-  if (selection.unsupported?.includes("presentation-create")) {
-    sections.push("Presentation/PPT creation is not available yet. If the user asks for slides, explain that PPT generation is not currently supported and offer an outline or PDF/DOCX instead.");
   }
 
   sections.push("When a document tool returns output.download_url, mention the generated file briefly. The app will render a download card from tool metadata.");

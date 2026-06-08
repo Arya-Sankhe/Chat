@@ -65,14 +65,14 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
      read-actions, expose both read and create skills so the model can
      ground the new artifact in the upload. */
   const createPdf = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments });
-  assert.deepEqual(createPdf.skills.sort(), ["document-read", "pdf-create", "pdf-read"].sort());
+  assert.deepEqual(createPdf.skills.sort(), ["artifact-planner", "document-read", "pdf-create", "pdf-read"].sort());
   assert.deepEqual(
     createPdf.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
   );
 
   const word = selectDocumentSkills({ text: "create a Word document with the concise summary of the PDF", readyDocuments });
-  assert.deepEqual(word.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
+  assert.deepEqual(word.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     word.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
@@ -80,7 +80,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
 
   /* No ready documents → just the create skill, no read tools. */
   const createPdfNoUpload = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments: [] });
-  assert.deepEqual(createPdfNoUpload.skills, ["pdf-create"]);
+  assert.deepEqual(createPdfNoUpload.skills, ["artifact-planner", "pdf-create"]);
   assert.deepEqual(createPdfNoUpload.toolNames, ["create_document"]);
 
   const idle = selectDocumentSkills({ text: "thanks, that makes sense", readyDocuments });
@@ -88,13 +88,13 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(idle.skills, ["document-read", "pdf-read"]);
   assert.deepEqual(idle.toolNames, ["search_document", "read_document", "extract_tables"]);
 
-  /* PPT is unsupported, but read tools should still attach so the model
-     can at least answer about the upload before declining the format. */
+  /* PPTX creation now follows the same generated artifact path. */
   const ppt = selectDocumentSkills({ text: "create a ppt with this summary", readyDocuments });
   assert.equal(ppt.enabled, true);
-  assert.deepEqual(ppt.unsupported, ["presentation-create"]);
+  assert.deepEqual(ppt.unsupported, []);
   assert.ok(ppt.toolNames.includes("read_document"));
-  assert.ok(!ppt.toolNames.includes("create_document"));
+  assert.ok(ppt.toolNames.includes("create_document"));
+  assert.ok(ppt.skills.includes("presentation-create"));
 
   /* Combined read+create on an existing upload should expose both the
      read and create skills so the model can inspect the upload before
@@ -103,7 +103,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     text: "summarize this pdf and put it as a word doc",
     readyDocuments
   });
-  assert.deepEqual(summarizeAndCreate.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
+  assert.deepEqual(summarizeAndCreate.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     summarizeAndCreate.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
@@ -113,7 +113,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     text: "create a word doc about cats",
     readyDocuments
   });
-  assert.deepEqual(createAboutCats.skills.sort(), ["document-read", "pdf-read", "word-create"].sort());
+  assert.deepEqual(createAboutCats.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     createAboutCats.toolNames.sort(),
     ["create_document", "extract_tables", "read_document", "search_document"].sort()
@@ -165,10 +165,14 @@ test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the c
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
   const selection = selectDocumentSkills({ text: "create a pdf with the summary", readyDocuments: [] });
   const hint = buildDocumentSystemHint({ readyDocuments: [], selection });
-  assert.match(hint, /PDF creation skill/);
+  assert.match(hint, /Professional PDF creation skill/);
+  assert.match(hint, /Artifact planner/);
+  assert.match(hint, /publication-ready document/);
+  assert.match(hint, /complete final PDF body/);
   assert.match(hint, /Available document tools this turn: create_document/);
-  assert.doesNotMatch(hint, /Excel\/XLSX creation skill/);
-  assert.doesNotMatch(hint, /Word\/DOCX creation skill/);
+  assert.doesNotMatch(hint, /Professional XLSX workbook creation skill/);
+  assert.doesNotMatch(hint, /Professional Word document creation skill/);
+  assert.doesNotMatch(hint, /Professional PPTX presentation skill/);
   assert.doesNotMatch(hint, /polished document, not a chat transcript/);
 });
 
@@ -181,12 +185,32 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   assert.match(wordHint, /polished, human-quality document/);
   assert.match(wordHint, /Title, Subtitle, Heading 1, Heading 2, Normal/);
   assert.match(wordHint, /placeholder text, broken structure, inconsistent formatting/);
-  assert.doesNotMatch(wordHint, /PDF creation skill/);
-  assert.doesNotMatch(wordHint, /Excel\/XLSX creation skill/);
+  assert.doesNotMatch(wordHint, /Professional PDF creation skill/);
+  assert.doesNotMatch(wordHint, /Professional XLSX workbook creation skill/);
 
   const excelSelection = selectDocumentSkills({ text: "create an excel tracker", readyDocuments: [] });
   const excelHint = buildDocumentSystemHint({ readyDocuments: [], selection: excelSelection });
+  assert.match(excelHint, /Professional XLSX workbook creation skill/);
+  assert.match(excelHint, /Infer the workbook purpose first/);
+  assert.match(excelHint, /formulas for derived values/);
+  assert.doesNotMatch(excelHint, /Professional Word document creation skill/);
+  assert.doesNotMatch(excelHint, /Professional PDF creation skill/);
   assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
+});
+
+test("buildDocumentSystemHint injects presentation guidance and exposes PPTX creation", () => {
+  const selection = selectDocumentSkills({ text: "create a ppt deck for an executive review", readyDocuments: [] });
+  const hint = buildDocumentSystemHint({ readyDocuments: [], selection });
+
+  assert.equal(selection.enabled, true);
+  assert.deepEqual(selection.unsupported, []);
+  assert.deepEqual(selection.toolNames, ["create_document"]);
+  assert.match(hint, /Artifact planner/);
+  assert.match(hint, /Professional PPTX presentation skill/);
+  assert.match(hint, /Use create_document with format "pptx"/);
+  assert.match(hint, /Available document tools this turn: create_document/);
+  assert.doesNotMatch(hint, /Professional Word document creation skill/);
+  assert.doesNotMatch(hint, /Professional PDF creation skill/);
 });
 
 test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready PDFs", () => {
@@ -395,6 +419,58 @@ test("DocumentService honors Word intent when the model passes the wrong create 
 
   assert.equal(capturedJob.job_type, "document.create.docx");
   assert.equal(capturedJob.input.format, "docx");
+});
+
+test("DocumentService supports PPTX creation intent", async () => {
+  let capturedJob;
+  const service = documentServiceWithDb({
+    async createDocumentJob(job) {
+      capturedJob = job;
+      return { id: "job_pptx", status: "queued", job_type: job.job_type };
+    },
+    async getDocumentJob() {
+      return { id: "job_pptx", status: "succeeded", output: { ok: true } };
+    }
+  });
+
+  await service.createDocument({
+    format: "pptx",
+    title: "Executive Review",
+    instructions: "Create a slide deck for an executive review.",
+    data: {
+      slides: [
+        { title: "Executive Review", subtitle: "Quarterly update" },
+        { title: "Recommendation", bullets: ["Focus on retention", "Reduce onboarding friction"] }
+      ]
+    }
+  });
+
+  assert.equal(capturedJob.job_type, "document.create.pptx");
+  assert.equal(capturedJob.input.format, "pptx");
+  assert.equal(capturedJob.input.data.slides.length, 2);
+});
+
+test("DocumentService infers PPTX when model passes the wrong create format", async () => {
+  let capturedJob;
+  const service = documentServiceWithDb({
+    async createDocumentJob(job) {
+      capturedJob = job;
+      return { id: "job_pptx", status: "queued", job_type: job.job_type };
+    },
+    async getDocumentJob() {
+      return { id: "job_pptx", status: "succeeded", output: { ok: true } };
+    }
+  });
+
+  await service.createDocument({
+    format: "pdf",
+    title: "Roadmap deck",
+    instructions: "Create a PowerPoint deck with a strategy narrative.",
+    content: "# Roadmap\n- Launch beta\n- Measure retention"
+  });
+
+  assert.equal(capturedJob.job_type, "document.create.pptx");
+  assert.equal(capturedJob.input.format, "pptx");
 });
 
 test("executeDocumentToolCall dispatches search args and caps structured output", async () => {

@@ -6,6 +6,7 @@ const supportedDocumentTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "text/csv",
   "application/csv",
   "text/tab-separated-values"
@@ -14,6 +15,7 @@ const documentExtensions = new Map([
   [".pdf", "application/pdf"],
   [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
   [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
   [".csv", "text/csv"],
   [".tsv", "text/tab-separated-values"]
 ]);

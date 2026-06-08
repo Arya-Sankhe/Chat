@@ -134,7 +134,7 @@ create table if not exists public.document_files (
   user_id uuid not null references public.profiles(id) on delete cascade,
   conversation_id uuid references public.conversations(id) on delete set null,
   message_id uuid references public.messages(id) on delete set null,
-  kind text not null check (kind in ('pdf', 'docx', 'xlsx', 'csv', 'tsv')),
+  kind text not null check (kind in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv')),
   source text not null default 'upload' check (source in ('upload', 'generated', 'edited', 'exported')),
   parent_document_id uuid references public.document_files(id) on delete set null,
   version_no integer not null default 1,

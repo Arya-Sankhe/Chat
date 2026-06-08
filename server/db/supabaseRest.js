@@ -442,7 +442,7 @@ export class SupabaseRest {
         user_id: `eq.${userId}`,
         document_file_id: `eq.${documentFileId}`,
         status: "in.(queued,running)",
-        job_type: "in.(document.export.docx_to_pdf,document.export.xlsx_to_pdf)",
+        job_type: "in.(document.export.docx_to_pdf,document.export.xlsx_to_pdf,document.export.pptx_to_pdf)",
         select: "*",
         order: "created_at.desc",
         limit: "1"

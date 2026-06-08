@@ -95,14 +95,14 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new DOCX, XLSX, or PDF artifact for the user. When creating a text document, include the complete text that should appear in the artifact in `content`; do not only say \"use the above summary\". PDF/DOCX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. Use format docx for Word documents and format pdf only for PDFs.",
+        description: "Create a new DOCX, XLSX, PPTX, or PDF artifact for the user. When creating a text document or deck, include the complete content that should appear in the artifact; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. Use format docx for Word documents, pptx for slide decks, and pdf only for PDFs.",
         parameters: {
           type: "object",
           properties: {
-            format: { type: "string", enum: ["docx", "xlsx", "pdf"] },
+            format: { type: "string", enum: ["docx", "xlsx", "pptx", "pdf"] },
             title: { type: "string" },
             instructions: { type: "string", description: "Formatting or construction instructions for the worker." },
-            content: { type: "string", description: "Complete text that must be written into the generated document. Required for PDF/DOCX prose documents." },
+            content: { type: "string", description: "Complete text that must be written into the generated document or presentation. Required for PDF/DOCX/PPTX prose documents." },
             sections: { type: "array", items: { type: "object" } },
             tables: { type: "array", items: { type: "object" } },
             data: { type: "object" }
@@ -134,7 +134,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "export_document",
-        description: "Export a ready uploaded/generated document to another supported format, usually DOCX to PDF.",
+        description: "Export a ready uploaded/generated document to another supported format, usually DOCX/XLSX/PPTX to PDF.",
         parameters: {
           type: "object",
           properties: {

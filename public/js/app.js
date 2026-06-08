@@ -238,7 +238,7 @@ function syncConversationUrl({ replace = false } = {}) {
 
 function isSupportedDocumentFile(file) {
   const name = String(file?.name || "").toLowerCase();
-  return [".pdf", ".docx", ".xlsx", ".csv", ".tsv"].some((ext) => name.endsWith(ext));
+  return [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".tsv"].some((ext) => name.endsWith(ext));
 }
 
 function isSupportedPendingFile(file) {
@@ -1742,7 +1742,7 @@ function artifactAttachmentId(artifact) {
 
 function artifactCanView(artifact) {
   const format = artifactFormat(artifact).toLowerCase();
-  return Boolean(artifactAttachmentId(artifact) && ["pdf", "docx", "xlsx"].includes(format));
+  return Boolean(artifactAttachmentId(artifact) && ["pdf", "docx", "xlsx", "pptx"].includes(format));
 }
 
 function attachmentDownloadHref(attachmentId) {
@@ -2539,7 +2539,7 @@ function addImages(files) {
     }
   }
   if (accepted.length > chosen.length) showToast(`Attach up to ${maxImages} images and ${maxDocs} documents.`);
-  if ([...files].length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, CSV, or TSV files.");
+  if ([...files].length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
 
   for (const file of chosen) {
     const category = fileCategory(file);

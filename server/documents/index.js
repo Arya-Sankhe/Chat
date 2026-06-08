@@ -39,7 +39,7 @@ function createIntentLooksLikeOnlyInstructions(text) {
   const words = cleanText.split(/\s+/).filter(Boolean).length;
   return words <= 80
     && /\b(create|make|generate|draft|write|build|put|turn|convert)\b/i.test(cleanText)
-    && /\b(pdf|docx|word|document|file|summary)\b/i.test(cleanText);
+    && /\b(pdf|docx|word|document|file|summary|pptx|powerpoint|slides?|deck|presentation)\b/i.test(cleanText);
 }
 
 function inferCreateFormat(format, ...hints) {
@@ -48,8 +48,10 @@ function inferCreateFormat(format, ...hints) {
   const asksWord = /\b(word\s+(doc|document|file)|docx\s+(file|document)|as\s+a\s+docx|\.docx\b)/.test(text);
   const asksPdf = /\b(pdf\s+(file|document)|as\s+a\s+pdf|create\s+a\s+pdf|make\s+a\s+pdf|generate\s+a\s+pdf|\.pdf\b)/.test(text);
   const asksSheet = /\b(xlsx\s+(file|document)|excel\s+(file|sheet|workbook)|spreadsheet|workbook|\.xlsx\b)/.test(text);
+  const asksSlides = /\b(pptx\s+(file|deck|presentation)|powerpoint|slides?|deck|presentation|\.pptx\b)/.test(text);
   if (asksWord) return "docx";
   if (asksSheet) return "xlsx";
+  if (asksSlides) return "pptx";
   if (asksPdf) return "pdf";
   return normalized;
 }
@@ -59,7 +61,7 @@ function assistantTextLooksLikeArtifactHandoff(text) {
   if (!value) return false;
   const words = value.split(/\s+/).filter(Boolean).length;
   return words <= 140
-    && /\b(download|created|generated|attached|document|pdf|docx|xlsx)\b/i.test(value)
+    && /\b(download|created|generated|attached|document|pdf|docx|xlsx|pptx|slides?|deck|presentation)\b/i.test(value)
     && /(\]\(|\/api\/attachments\/|download\s+)/i.test(value);
 }
 
@@ -608,8 +610,8 @@ export class DocumentService {
 
   async createDocument({ format, title, instructions, content, sections, tables, data } = {}) {
     const normalizedFormat = inferCreateFormat(format, title, instructions);
-    if (!["docx", "xlsx", "pdf"].includes(normalizedFormat)) {
-      throw new HttpError(400, "create_document format must be docx, xlsx, or pdf.");
+    if (!["docx", "xlsx", "pptx", "pdf"].includes(normalizedFormat)) {
+      throw new HttpError(400, "create_document format must be docx, xlsx, pptx, or pdf.");
     }
     const resolvedContent = await this.resolveCreateContent({ content, instructions, sections, data });
     return this.enqueueAndWait({

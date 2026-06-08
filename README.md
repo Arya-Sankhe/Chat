@@ -10,7 +10,7 @@ Klui Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible mode
 - Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only Crof model API key and cached `/models` access.
 - Streaming chat responses with usage metering and plan limits.
-- Document tools for PDF, DOCX, XLSX, CSV, and TSV: read/search attached files, extract tables, create new DOCX/XLSX/PDF files, edit DOCX/XLSX copies, and export DOCX/XLSX to PDF through a Docker worker.
+- Document tools for PDF, DOCX, XLSX, PPTX, CSV, and TSV: read/search attached files, extract tables, create new DOCX/XLSX/PPTX/PDF files, edit DOCX/XLSX copies, and export DOCX/XLSX/PPTX to PDF through a Docker worker.
 - Docker and Docker Compose hosting.
 
 - Optional web search backed by Jina Search Foundation (`s.jina.ai`) with Brave LLM Context as fallback. The model decides when to call it via OpenAI-style tool calls; a per-chat Auto/Off toggle lives next to the image button.
@@ -80,7 +80,7 @@ Optional for document tools:
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` (default 5) controls how many such batches fit in one turn. Raise it for very long PDFs.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE` and `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE` control hard document upload safety limits. Document tool usage is billed through the unified API-credit bar, not separate counters.
 
-The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
+The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
 
 Optional for web search:
 

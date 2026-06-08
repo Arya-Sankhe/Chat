@@ -18,9 +18,14 @@ import requests
 import reportlab
 from charset_normalizer import from_path
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches as DocxInches
 from openpyxl import Workbook, load_workbook
 from pypdf import PdfReader
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches as PptxInches
+from pptx.util import Pt
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -737,6 +742,9 @@ class Processor:
         if kind == "xlsx":
             chunks, meta = self.extract_xlsx(path, user_id, document_file_id, limits)
             return self.cap_chunks(chunks, limits), meta
+        if kind == "pptx":
+            chunks, meta = self.extract_pptx(path, user_id, document_file_id, limits)
+            return self.cap_chunks(chunks, limits), meta
         if kind in ("csv", "tsv"):
             chunks, meta = self.extract_csv(path, kind, user_id, document_file_id, limits)
             return self.cap_chunks(chunks, limits), meta
@@ -892,6 +900,29 @@ class Processor:
                 chunks.append(self.chunk(user_id, document_file_id, len(chunks), "sheet", sheet.title, "\n".join(rows), {"sheet": sheet.title}))
         return chunks, {"sheet_count": len(wb.worksheets), "used_cell_count": used_cells}
 
+    def extract_pptx(self, path, user_id, document_file_id, limits):
+        prs = Presentation(str(path))
+        chunks = []
+        words = 0
+        for slide_index, slide in enumerate(prs.slides, start=1):
+            texts = []
+            for shape in slide.shapes:
+                if getattr(shape, "has_text_frame", False) and shape.text_frame:
+                    text = "\n".join(p.text.strip() for p in shape.text_frame.paragraphs if p.text.strip())
+                    if text:
+                        texts.append(text)
+                if getattr(shape, "has_table", False):
+                    rows = []
+                    for row in shape.table.rows:
+                        rows.append("\t".join(cell.text.strip() for cell in row.cells))
+                    if rows:
+                        chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Slide {slide_index} table", "\n".join(rows), {"slide": slide_index}))
+            slide_text = "\n".join(texts).strip()
+            if slide_text:
+                words += len(slide_text.split())
+                chunks.append(self.chunk(user_id, document_file_id, len(chunks), "slide", f"Slide {slide_index}", slide_text, {"slide": slide_index}))
+        return chunks[:500], {"page_count": len(prs.slides), "word_count": words, "slide_count": len(prs.slides)}
+
     def extract_csv(self, path, kind, user_id, document_file_id, limits):
         detected = from_path(str(path)).best()
         encoding = detected.encoding if detected else "utf-8"
@@ -930,6 +961,9 @@ class Processor:
         elif fmt == "pdf":
             path = self.create_pdf(tmp, title, input_data)
             content_type = "application/pdf"
+        elif fmt == "pptx":
+            path = self.create_pptx(tmp, title, input_data)
+            content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         else:
             raise RuntimeError(f"Unsupported create format: {fmt}")
         return self.store_generated(job, tmp, path, fmt, content_type, "generated", None)
@@ -937,10 +971,10 @@ class Processor:
     def create_docx(self, tmp, title, input_data):
         doc = Document()
         section = doc.sections[0]
-        section.top_margin = Inches(0.7)
-        section.bottom_margin = Inches(0.7)
-        section.left_margin = Inches(0.8)
-        section.right_margin = Inches(0.8)
+        section.top_margin = DocxInches(0.7)
+        section.bottom_margin = DocxInches(0.7)
+        section.left_margin = DocxInches(0.8)
+        section.right_margin = DocxInches(0.8)
         doc.add_heading(title, level=1)
         body = strip_duplicate_title_heading(artifact_content(input_data), title)
         if body:
@@ -1052,6 +1086,185 @@ class Processor:
         path = tmp / f"{safe_name(title)}.xlsx"
         wb.save(path)
         return path
+
+    def create_pptx(self, tmp, title, input_data):
+        prs = Presentation()
+        prs.slide_width = PptxInches(13.333)
+        prs.slide_height = PptxInches(7.5)
+        slides = self.presentation_slides(title, input_data)
+        for index, slide_data in enumerate(slides[:40]):
+            self.append_pptx_slide(prs, slide_data, is_first=(index == 0))
+        path = tmp / f"{safe_name(title)}.pptx"
+        prs.save(path)
+        return path
+
+    def presentation_slides(self, title, input_data):
+        data = input_data.get("data") if isinstance(input_data.get("data"), dict) else {}
+        slides = data.get("slides") if isinstance(data.get("slides"), list) else []
+        if slides:
+            return [self.normalize_slide_data(slide, title if index == 0 else "") for index, slide in enumerate(slides)]
+
+        out = []
+        content = strip_duplicate_title_heading(artifact_content(input_data), title)
+        if content:
+            out = self.slides_from_markdown(title, content)
+        if not out:
+            sections = input_data.get("sections") if isinstance(input_data.get("sections"), list) else []
+            if sections:
+                out.append({"title": title, "subtitle": input_data.get("instructions") or "", "bullets": []})
+                for section in sections:
+                    out.append({
+                        "title": section.get("heading") or section.get("title") or "Section",
+                        "subtitle": section.get("message") or "",
+                        "bullets": self.text_to_bullets(section.get("content") or section.get("text") or "")
+                    })
+        if not out:
+            out = [
+                {"title": title, "subtitle": input_data.get("instructions") or "", "bullets": []},
+                {"title": "Overview", "bullets": self.text_to_bullets(input_data.get("instructions") or "Generated presentation")}
+            ]
+        return out
+
+    def normalize_slide_data(self, slide, fallback_title=""):
+        if not isinstance(slide, dict):
+            return {"title": clean_markdown(str(slide)), "bullets": []}
+        bullets = slide.get("bullets") or slide.get("points") or slide.get("items") or []
+        if isinstance(bullets, str):
+            bullets = self.text_to_bullets(bullets)
+        elif not isinstance(bullets, list):
+            bullets = []
+        return {
+            "title": clean_markdown(slide.get("title") or slide.get("heading") or fallback_title or "Slide"),
+            "subtitle": clean_markdown(slide.get("subtitle") or slide.get("message") or slide.get("takeaway") or ""),
+            "bullets": [clean_markdown(item) for item in bullets if clean_markdown(item)][:8],
+            "notes": str(slide.get("notes") or slide.get("speaker_notes") or "").strip(),
+            "table": slide.get("table") if isinstance(slide.get("table"), dict) else None,
+        }
+
+    def slides_from_markdown(self, title, content):
+        slides = [{"title": title, "subtitle": "", "bullets": []}]
+        current = None
+        for raw_line in str(content or "").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            heading = re.match(r"^#{1,3}\s+(.+)$", line)
+            if heading:
+                current = {"title": clean_markdown(heading.group(1)), "bullets": []}
+                slides.append(current)
+                continue
+            bullet = re.match(r"^[-*]\s+(.+)$", line) or re.match(r"^\d+[.)]\s+(.+)$", line)
+            if bullet:
+                if not current:
+                    current = {"title": "Key Points", "bullets": []}
+                    slides.append(current)
+                current.setdefault("bullets", []).append(clean_markdown(bullet.group(1)))
+                continue
+            if not current:
+                slides[0]["subtitle"] = (slides[0].get("subtitle") or line)[:180]
+            elif len(current.get("bullets", [])) < 6:
+                current.setdefault("bullets", []).append(clean_markdown(line))
+        return [self.normalize_slide_data(slide) for slide in slides if slide.get("title") or slide.get("subtitle") or slide.get("bullets")]
+
+    def text_to_bullets(self, text):
+        bullets = []
+        for line in str(text or "").splitlines():
+            cleaned = clean_markdown(re.sub(r"^[-*\d.)\s]+", "", line).strip())
+            if cleaned:
+                bullets.append(cleaned)
+        if not bullets and str(text or "").strip():
+            parts = re.split(r"(?<=[.!?])\s+", clean_markdown(text))
+            bullets = [part for part in parts if part][:6]
+        return bullets[:8]
+
+    def append_pptx_slide(self, prs, slide_data, is_first=False):
+        slide_data = self.normalize_slide_data(slide_data)
+        if is_first:
+            slide = prs.slides.add_slide(prs.slide_layouts[0])
+            slide.shapes.title.text = slide_data["title"] or "Presentation"
+            subtitle = slide.placeholders[1]
+            subtitle.text = slide_data.get("subtitle") or ""
+            self.style_pptx_title(slide.shapes.title, size=34)
+            self.style_pptx_text(subtitle, size=17, color=RGBColor(90, 90, 90))
+        else:
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            self.add_pptx_title(slide, slide_data["title"])
+            if slide_data.get("subtitle"):
+                self.add_pptx_textbox(slide, slide_data["subtitle"], 0.7, 1.15, 11.8, 0.55, size=15, color=RGBColor(80, 80, 80))
+            if slide_data.get("table"):
+                self.add_pptx_table(slide, slide_data["table"], 0.7, 1.9, 11.8, 4.5)
+            else:
+                self.add_pptx_bullets(slide, slide_data.get("bullets") or [], 1.0, 1.85, 11.0, 4.8)
+        notes = slide_data.get("notes")
+        if notes:
+            try:
+                slide.notes_slide.notes_text_frame.text = notes[:2000]
+            except Exception:
+                pass
+
+    def add_pptx_title(self, slide, title):
+        box = slide.shapes.add_textbox(PptxInches(0.6), PptxInches(0.35), PptxInches(12.0), PptxInches(0.65))
+        frame = box.text_frame
+        frame.clear()
+        paragraph = frame.paragraphs[0]
+        paragraph.text = clean_markdown(title or "Slide")
+        paragraph.font.size = Pt(26)
+        paragraph.font.bold = True
+        paragraph.font.color.rgb = RGBColor(24, 24, 24)
+        paragraph.alignment = PP_ALIGN.LEFT
+
+    def add_pptx_textbox(self, slide, text, x, y, w, h, size=16, color=None):
+        box = slide.shapes.add_textbox(PptxInches(x), PptxInches(y), PptxInches(w), PptxInches(h))
+        box.text_frame.word_wrap = True
+        box.text_frame.text = clean_markdown(text)
+        self.style_pptx_text(box, size=size, color=color or RGBColor(40, 40, 40))
+        return box
+
+    def add_pptx_bullets(self, slide, bullets, x, y, w, h):
+        box = slide.shapes.add_textbox(PptxInches(x), PptxInches(y), PptxInches(w), PptxInches(h))
+        frame = box.text_frame
+        frame.word_wrap = True
+        frame.clear()
+        items = bullets or ["Add the key point for this slide."]
+        for index, item in enumerate(items[:8]):
+            paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+            paragraph.text = clean_markdown(item)
+            paragraph.level = 0
+            paragraph.font.size = Pt(18 if len(items) <= 5 else 15)
+            paragraph.font.color.rgb = RGBColor(35, 35, 35)
+            paragraph.space_after = Pt(8)
+
+    def add_pptx_table(self, slide, table_data, x, y, w, h):
+        rows = table_data.get("rows") or table_data.get("data") or []
+        headers = table_data.get("headers") or []
+        if headers:
+            rows = [headers] + rows
+        rows = [row if isinstance(row, list) else [row] for row in rows[:12]]
+        if not rows:
+            return
+        cols = max(1, max(len(row) for row in rows))
+        shape = slide.shapes.add_table(len(rows), cols, PptxInches(x), PptxInches(y), PptxInches(w), PptxInches(h))
+        table = shape.table
+        for row_index, row in enumerate(rows):
+            values = normalize_table_row_width(row, cols)
+            for col_index, value in enumerate(values[:cols]):
+                cell = table.cell(row_index, col_index)
+                cell.text = clean_markdown(str(value))
+                for paragraph in cell.text_frame.paragraphs:
+                    paragraph.font.size = Pt(10 if cols > 4 else 12)
+                    paragraph.font.bold = row_index == 0
+                    paragraph.font.color.rgb = RGBColor(24, 24, 24)
+
+    def style_pptx_title(self, shape, size=30):
+        for paragraph in shape.text_frame.paragraphs:
+            paragraph.font.size = Pt(size)
+            paragraph.font.bold = True
+            paragraph.font.color.rgb = RGBColor(24, 24, 24)
+
+    def style_pptx_text(self, shape, size=16, color=None):
+        for paragraph in shape.text_frame.paragraphs:
+            paragraph.font.size = Pt(size)
+            paragraph.font.color.rgb = color or RGBColor(45, 45, 45)
 
     def create_pdf(self, tmp, title, input_data):
         path = tmp / f"{safe_name(title)}.pdf"
@@ -1306,7 +1519,7 @@ class Processor:
         if source_doc["kind"] == target:
             output = tmp / source.name
             shutil.copyfile(source, output)
-        elif target == "pdf" and source_doc["kind"] in ("docx", "xlsx"):
+        elif target == "pdf" and source_doc["kind"] in ("docx", "xlsx", "pptx"):
             output = self.libreoffice_convert(source, tmp, "pdf")
         else:
             raise RuntimeError("Unsupported export conversion.")

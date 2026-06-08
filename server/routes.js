@@ -413,6 +413,7 @@ function documentKindFromUpload({ fileName, contentType }) {
   if (type === "application/pdf") return "pdf";
   if (type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
   if (type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
+  if (type === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "pptx";
   if (type === "text/csv" || type === "application/csv") return "csv";
   if (type === "text/tab-separated-values") return "tsv";
   return "";
@@ -637,6 +638,7 @@ function attachmentDocumentKind(attachment) {
   if (contentType === "application/pdf") return "pdf";
   if (contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
   if (contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
+  if (contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation") return "pptx";
   return "";
 }
 
@@ -669,8 +671,8 @@ async function handleAttachmentView(req, res, config, attachmentId) {
     return;
   }
 
-  if (!["docx", "xlsx"].includes(kind)) {
-    throw new HttpError(400, "Only PDF, DOCX, and XLSX previews are supported.");
+  if (!["docx", "xlsx", "pptx"].includes(kind)) {
+    throw new HttpError(400, "Only PDF, DOCX, XLSX, and PPTX previews are supported.");
   }
   if (!configuredServices(config).documents) {
     throw new HttpError(503, "Document previews are not configured.");

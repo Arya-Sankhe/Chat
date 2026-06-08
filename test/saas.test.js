@@ -206,6 +206,7 @@ test("R2 upload helpers validate images and sanitize names", () => {
 
 test("R2 upload helpers validate document files by MIME type and extension", () => {
   assert.equal(documentKindFromFileName("Report.final.PDF"), "pdf");
+  assert.equal(documentKindFromFileName("Pitch.Deck.PPTX"), "pptx");
   assert.equal(assertUpload({
     category: "document",
     contentType: "application/pdf",
@@ -216,6 +217,12 @@ test("R2 upload helpers validate document files by MIME type and extension", () 
     category: "document",
     contentType: "application/octet-stream",
     fileName: "sheet.xlsx",
+    sizeBytes: 1024
+  }, { maxDocumentBytes: 2048 }), "document");
+  assert.equal(assertUpload({
+    category: "document",
+    contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    fileName: "deck.pptx",
     sizeBytes: 1024
   }, { maxDocumentBytes: 2048 }), "document");
   assert.throws(() => assertUpload({
