@@ -47,9 +47,9 @@ export function parseSessionFromUrl() {
   return session;
 }
 
-export async function refreshSession(config, session) {
+export async function refreshSession(config, session, { force = false } = {}) {
   if (!session?.refresh_token) return session;
-  if ((session.expires_at || 0) - Math.floor(Date.now() / 1000) > 120) return session;
+  if (!force && (session.expires_at || 0) - Math.floor(Date.now() / 1000) > 120) return session;
 
   const response = await fetch(`${cleanUrl(config.supabaseUrl)}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",

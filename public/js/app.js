@@ -1,4 +1,5 @@
 import {
+  configureApiAuth,
   createConversation,
   deleteAttachment,
   deleteConversation,
@@ -108,6 +109,7 @@ const state = {
 let renderQueued = false;
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
+let suppressUrlSync = false;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -208,6 +210,23 @@ function imageDescription(part) {
 
 function fileCategory(file) {
   return String(file?.type || "").startsWith("image/") ? "image" : "document";
+}
+
+function conversationIdFromLocation() {
+  const match = window.location.pathname.match(/^\/c\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function conversationUrl(id) {
+  return id ? `/c/${encodeURIComponent(id)}` : "/";
+}
+
+function syncConversationUrl({ replace = false } = {}) {
+  if (suppressUrlSync) return;
+  const target = conversationUrl(state.activeConversationId);
+  if (window.location.pathname === target) return;
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({ conversationId: state.activeConversationId || "" }, "", target);
 }
 
 function isSupportedDocumentFile(file) {
@@ -331,6 +350,7 @@ async function startCompareFreshChat() {
   state.activeConversationId = payload.conversation.id;
   state.messages = [];
   state.compareDescribeImages = shouldDescribePendingImages;
+  syncConversationUrl();
   renderConversations();
   renderShell();
 }
@@ -2788,12 +2808,25 @@ async function loadModels() {
 async function loadConversations({ ensure = true } = {}) {
   const payload = await listConversations(state.session);
   state.conversations = payload.conversations || [];
+  const routeConversationId = conversationIdFromLocation();
+  if (routeConversationId) {
+    state.activeConversationId = state.conversations.some((conversation) => conversation.id === routeConversationId)
+      ? routeConversationId
+      : "";
+  }
   if (!state.conversations.length && ensure) {
     const created = await createConversation(state.session, { model: resolveRoutedModel() });
     state.conversations = [created.conversation];
   }
-  state.activeConversationId ||= state.conversations[0]?.id || "";
+  if (state.activeConversationId && !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
+    state.activeConversationId = "";
+  }
+  if (!routeConversationId) {
+    state.activeConversationId ||= state.conversations[0]?.id || "";
+  }
   if (state.activeConversationId) await loadActiveConversation();
+  else state.messages = [];
+  if (routeConversationId && !state.activeConversationId) syncConversationUrl({ replace: true });
 }
 
 async function loadActiveConversation() {
@@ -2821,6 +2854,7 @@ async function addConversation() {
     state.images = [];
     closeDocumentViewer();
     renderImages();
+    syncConversationUrl();
     renderShell();
   } catch (err) {
     showToast(err.message);
@@ -2832,6 +2866,7 @@ async function removeConversation(id) {
     await deleteConversation(state.session, id);
     state.activeConversationId = "";
     await loadConversations();
+    syncConversationUrl({ replace: true });
     closeConfirmDialog();
     renderShell();
     showToast("Chat deleted.");
@@ -2959,6 +2994,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
+    syncConversationUrl();
     renderConversations();
   } else if (!state.activeConversationId) {
     await addConversation();
@@ -3167,6 +3203,19 @@ async function signOutAndReset() {
 async function bootstrap() {
   try {
     state.config = await fetchConfig();
+    configureApiAuth({
+      getSession: () => state.session,
+      refresh: (session, options) => refreshSession(state.config, session, options),
+      onSession: (session) => {
+        state.session = session;
+        saveSession(session);
+      },
+      onExpired: () => {
+        clearSession();
+        state.session = null;
+        state.me = null;
+      }
+    });
     const plansPayload = await fetchPlans();
     state.plans = plansPayload.plans || [];
     state.session = parseSessionFromUrl() || loadSession();
@@ -3413,9 +3462,45 @@ function bindEvents() {
     closeCompareContextBanner();
     try {
       await loadActiveConversation();
+      syncConversationUrl();
       renderShell();
     } catch (err) {
       showToast(err.message);
+    }
+  });
+
+  window.addEventListener("popstate", async () => {
+    if (!state.session?.access_token) return;
+    const routeConversationId = conversationIdFromLocation();
+    suppressUrlSync = true;
+    try {
+      if (!routeConversationId) {
+        state.activeConversationId = "";
+        state.messages = [];
+        closeDocumentViewer();
+        closeCompareContextBanner();
+        renderShell();
+        return;
+      }
+      if (!state.conversations.some((conversation) => conversation.id === routeConversationId)) {
+        await loadConversations({ ensure: false });
+      }
+      if (!state.conversations.some((conversation) => conversation.id === routeConversationId)) {
+        state.activeConversationId = "";
+        state.messages = [];
+        window.history.replaceState({ conversationId: "" }, "", "/");
+        renderShell();
+        return;
+      }
+      state.activeConversationId = routeConversationId;
+      closeDocumentViewer();
+      closeCompareContextBanner();
+      await loadActiveConversation();
+      renderShell();
+    } catch (err) {
+      showToast(err.message);
+    } finally {
+      suppressUrlSync = false;
     }
   });
 
