@@ -9,16 +9,19 @@ import { loadPlans } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
 
-test("loadPlans maps Crof-style tiers from env", () => {
+test("loadPlans maps Klui payment tiers from env", () => {
   const plans = loadPlans({
-    PLAN_HOBBY_PRICE_LABEL: "Testing",
-    PLAN_HOBBY_MONTHLY_API_CREDITS: "3.5",
-    PLAN_HOBBY_MAX_DOCUMENTS_PER_MESSAGE: "5",
-    PLAN_HOBBY_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280"
+    PLAN_LITE_PRICE_LABEL: "10 AED / month",
+    PLAN_LITE_MONTHLY_API_CREDITS: "3.5",
+    PLAN_LITE_MAX_DOCUMENTS_PER_MESSAGE: "5",
+    PLAN_LITE_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280",
+    PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite"
   });
 
-  assert.equal(plans[0].id, "hobby");
-  assert.equal(plans[0].priceLabel, "Testing");
+  assert.equal(plans[0].id, "lite");
+  assert.equal(plans[0].priceLabel, "10 AED / month");
+  assert.equal(plans[0].amountAed, 10);
+  assert.equal(plans[0].ziinaPaymentUrl, "https://ziina.com/pay/lite");
   assert.equal(plans[0].monthlyApiCreditLimit, 3.5);
   assert.equal(plans[0].maxDocumentsPerMessage, 5);
   assert.equal(plans[0].maxDocumentBytesPerMessage, 31457280);
@@ -29,17 +32,17 @@ test("loadPlans maps Crof-style tiers from env", () => {
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
 });
 
-test("testing access grants the configured plan without a payment gateway", async () => {
+test("testing access grants the configured plan", async () => {
   const plans = loadPlans();
   const entitlement = await getCurrentEntitlement({
     db: {},
     userId: "user_1",
     plans,
-    access: { mode: "testing", testingPlanId: "pro" }
+    access: { mode: "testing", testingPlanId: "essential" }
   });
 
   assert.equal(entitlement.active, true);
-  assert.equal(entitlement.plan.id, "pro");
+  assert.equal(entitlement.plan.id, "essential");
   assert.equal(entitlement.subscription.status, "testing");
 });
 

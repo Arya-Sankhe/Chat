@@ -1,9 +1,10 @@
 const PLAN_DEFAULTS = [
   {
-    id: "hobby",
-    name: "Hobby",
-    description: "Light personal chat usage.",
-    priceLabel: "Testing access",
+    id: "lite",
+    name: "Lite",
+    description: "Simple access for light everyday use.",
+    priceLabel: "10 AED / month",
+    amountAed: 10,
     monthlyApiCreditLimit: 2,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
@@ -12,10 +13,11 @@ const PLAN_DEFAULTS = [
     sortOrder: 10
   },
   {
-    id: "pro",
-    name: "Pro",
+    id: "essential",
+    name: "Essential",
     description: "Everyday model access for regular users.",
-    priceLabel: "Testing access",
+    priceLabel: "30 AED / month",
+    amountAed: 30,
     monthlyApiCreditLimit: 10,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
@@ -24,40 +26,17 @@ const PLAN_DEFAULTS = [
     sortOrder: 20
   },
   {
-    id: "intermediate",
-    name: "Intermediate",
-    description: "Higher daily capacity for heavier workflows.",
-    priceLabel: "Testing access",
+    id: "pro",
+    name: "Pro",
+    description: "Higher capacity for heavier workflows.",
+    priceLabel: "50 AED / month",
+    amountAed: 50,
     monthlyApiCreditLimit: 25,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
     maxDocumentBytesPerMessage: 60 * 1024 * 1024,
     maxDocumentPages: 100,
     sortOrder: 30
-  },
-  {
-    id: "scale",
-    name: "Scale",
-    description: "Large-volume chat and image usage.",
-    priceLabel: "Testing access",
-    monthlyApiCreditLimit: 75,
-    maxImagesPerMessage: 6,
-    maxDocumentsPerMessage: 5,
-    maxDocumentBytesPerMessage: 100 * 1024 * 1024,
-    maxDocumentPages: 100,
-    sortOrder: 40
-  },
-  {
-    id: "max",
-    name: "Max",
-    description: "Highest managed Klui limits.",
-    priceLabel: "Testing access",
-    monthlyApiCreditLimit: 200,
-    maxImagesPerMessage: 8,
-    maxDocumentsPerMessage: 5,
-    maxDocumentBytesPerMessage: 100 * 1024 * 1024,
-    maxDocumentPages: 100,
-    sortOrder: 50
   }
 ];
 
@@ -78,6 +57,11 @@ export function loadPlans(env = process.env) {
   return PLAN_DEFAULTS.map((plan) => ({
     ...plan,
     priceLabel: clean(env[envName(plan.id, "PRICE_LABEL")]) || plan.priceLabel,
+    amountAed: Number(clean(env[envName(plan.id, "AMOUNT_AED")])) > 0
+      ? Number(clean(env[envName(plan.id, "AMOUNT_AED")]))
+      : plan.amountAed,
+    ziinaPaymentUrl: clean(env[envName(plan.id, "ZIINA_PAYMENT_URL")]),
+    ziinaQrImageUrl: clean(env[envName(plan.id, "ZIINA_QR_IMAGE_URL")]),
     monthlyApiCreditLimit: Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")])) > 0
       ? Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")]))
       : plan.monthlyApiCreditLimit,
@@ -94,6 +78,10 @@ export function publicPlan(plan) {
     name: plan.name,
     description: plan.description,
     priceLabel: plan.priceLabel,
+    amountAed: plan.amountAed,
+    currency: "AED",
+    ziinaPaymentUrl: plan.ziinaPaymentUrl,
+    ziinaQrImageUrl: plan.ziinaQrImageUrl,
     monthlyApiCreditLimit: plan.monthlyApiCreditLimit,
     maxImagesPerMessage: plan.maxImagesPerMessage,
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,

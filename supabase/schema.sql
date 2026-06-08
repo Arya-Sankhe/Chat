@@ -12,7 +12,7 @@ create table if not exists public.plans (
   id text primary key,
   name text not null,
   max_images_per_message integer not null,
-  price_label text not null default 'Testing access',
+  price_label text not null default 'Manual payment',
   active boolean not null default true,
   sort_order integer not null default 100,
   created_at timestamptz not null default now(),
@@ -21,12 +21,18 @@ create table if not exists public.plans (
 
 insert into public.plans (id, name, max_images_per_message, sort_order)
 values
-  ('hobby', 'Hobby', 4, 10),
-  ('pro', 'Pro', 4, 20),
-  ('intermediate', 'Intermediate', 4, 30),
-  ('scale', 'Scale', 6, 40),
-  ('max', 'Max', 8, 50)
-on conflict (id) do nothing;
+  ('lite', 'Lite', 4, 10),
+  ('essential', 'Essential', 4, 20),
+  ('pro', 'Pro', 4, 30)
+on conflict (id) do update
+set name = excluded.name,
+    sort_order = excluded.sort_order,
+    active = true,
+    updated_at = now();
+
+update public.plans
+set active = false, updated_at = now()
+where id not in ('lite', 'essential', 'pro');
 
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -40,6 +46,24 @@ create table if not exists public.subscriptions (
   cancel_at_period_end boolean not null default false,
   current_period_end timestamptz,
   raw jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.payment_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  plan_id text not null references public.plans(id),
+  amount_aed numeric(10,2) not null,
+  currency text not null default 'AED',
+  provider text not null default 'ziina',
+  payment_url text,
+  qr_image_url text,
+  reference_code text not null unique,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'cancelled')),
+  admin_note text,
+  approved_by uuid references public.profiles(id) on delete set null,
+  approved_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -249,7 +273,7 @@ alter table public.search_cache enable row level security;
 
 alter table public.profiles drop column if exists stripe_customer_id;
 alter table public.plans drop column if exists stripe_price_id;
-alter table public.plans alter column price_label set default 'Testing access';
+alter table public.plans alter column price_label set default 'Manual payment';
 alter table public.subscriptions drop column if exists stripe_customer_id;
 alter table public.subscriptions drop column if exists stripe_subscription_id;
 alter table public.subscriptions drop column if exists stripe_price_id;
@@ -274,7 +298,7 @@ end;
 $$;
 
 update public.plans
-set price_label = 'Testing access', updated_at = now()
+set price_label = 'Manual payment', updated_at = now()
 where price_label = 'Configured in Stripe';
 
 create index if not exists subscriptions_user_updated_idx on public.subscriptions (user_id, updated_at desc);
@@ -294,16 +318,19 @@ create index if not exists document_files_conversation_status_idx on public.docu
 create index if not exists document_jobs_claim_idx on public.document_jobs (priority desc, created_at asc) where status = 'queued';
 create index if not exists document_jobs_lease_idx on public.document_jobs (lease_until) where status = 'running';
 create index if not exists document_jobs_user_status_idx on public.document_jobs (user_id, status);
+create index if not exists payment_requests_user_created_idx on public.payment_requests (user_id, created_at desc);
+create index if not exists payment_requests_status_created_idx on public.payment_requests (status, created_at desc);
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
-grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
+grant select on public.profiles, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
 grant select on public.usage_api_weekly to authenticated;
-grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
+grant all on public.profiles, public.plans, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.plans enable row level security;
 alter table public.subscriptions enable row level security;
+alter table public.payment_requests enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 alter table public.attachments enable row level security;
@@ -318,6 +345,7 @@ alter table public.model_cache enable row level security;
 drop policy if exists "profiles read own" on public.profiles;
 drop policy if exists "plans read active" on public.plans;
 drop policy if exists "subscriptions read own" on public.subscriptions;
+drop policy if exists "payment requests read own" on public.payment_requests;
 drop policy if exists "conversations read own" on public.conversations;
 drop policy if exists "messages read own" on public.messages;
 drop policy if exists "attachments read own" on public.attachments;
@@ -330,6 +358,7 @@ drop policy if exists "usage api weekly read own" on public.usage_api_weekly;
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);
 create policy "plans read active" on public.plans for select using (active = true);
 create policy "subscriptions read own" on public.subscriptions for select using (auth.uid() = user_id);
+create policy "payment requests read own" on public.payment_requests for select using (auth.uid() = user_id);
 create policy "conversations read own" on public.conversations for select using (auth.uid() = user_id);
 create policy "messages read own" on public.messages for select using (auth.uid() = user_id);
 create policy "attachments read own" on public.attachments for select using (auth.uid() = user_id);

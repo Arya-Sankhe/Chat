@@ -1,6 +1,8 @@
 import {
   configureApiAuth,
+  approveAdminPayment,
   createConversation,
+  createZiinaPaymentRequest,
   deleteAttachment,
   deleteConversation,
   downloadAttachment,
@@ -13,7 +15,9 @@ import {
   fetchMe,
   fetchModels,
   fetchPlans,
+  fetchZiinaPaymentRequests,
   listConversations,
+  rejectAdminPayment,
   completeUpload,
   presignUpload,
   putUploadContent,
@@ -81,6 +85,7 @@ const state = {
   session: null,
   me: null,
   plans: [],
+  paymentRequests: [],
   conversations: [],
   activeConversationId: "",
   messages: [],
@@ -610,6 +615,11 @@ function renderAuthOptions() {
 }
 
 function renderPlans() {
+  const requestsByPlan = new Map(
+    (state.paymentRequests || [])
+      .filter((request) => request.status === "pending")
+      .map((request) => [request.planId, request])
+  );
   els.paywallPlans.innerHTML = (state.plans || []).map((plan) => `
     <article class="plan-card">
       <h3>${escapeHtml(plan.name)}</h3>
@@ -619,8 +629,23 @@ function renderPlans() {
         <li>Weekly API usage bar</li>
         <li>${Number(plan.maxDocumentsPerMessage || 0).toLocaleString()} documents/message</li>
       </ul>
+      ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
+      ${plan.ziinaQrImageUrl ? `<img class="plan-qr" src="${escapeHtml(plan.ziinaQrImageUrl)}" alt="${escapeHtml(plan.name)} Ziina QR code">` : ""}
+      <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
+        ${requestsByPlan.has(plan.id) ? "Open Ziina payment" : "Pay with Ziina"}
+      </button>
+      ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? `<p class="plan-payment-note">Access activates after we verify your Ziina payment.</p>` : `<p class="plan-payment-note">Ziina link is not configured yet.</p>`}
     </article>
   `).join("");
+}
+
+function renderPendingPayment(request) {
+  return `
+    <div class="payment-pending">
+      <span>Pending verification</span>
+      <strong>${escapeHtml(request.referenceCode || "")}</strong>
+    </div>
+  `;
 }
 
 function renderUsage() {
@@ -823,6 +848,7 @@ function activeSubscriptionStatus(status) {
 function renderAdminDashboard(summary) {
   const totals = summary?.totals || {};
   const plans = Array.isArray(summary?.plans) ? summary.plans : [];
+  const pendingPayments = Array.isArray(summary?.pendingPayments) ? summary.pendingPayments : [];
   const users = Array.isArray(summary?.users) ? summary.users : [];
   const generated = summary?.generatedAt ? new Date(summary.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   els.adminOutput.innerHTML = `
@@ -855,6 +881,20 @@ function renderAdminDashboard(summary) {
         <div class="admin-row-metric">${formatAdminCredits(plan.creditsUsed)} cr</div>
       </div>
     `).join("") : `<div class="admin-row-sub">No plan data yet.</div>`}
+    <div class="admin-subtitle">Pending Ziina Payments</div>
+    ${pendingPayments.length ? pendingPayments.map((payment) => `
+      <div class="admin-payment-row">
+        <div>
+          <div class="admin-row-title" title="${escapeHtml(payment.email || "")}">${escapeHtml(payment.email || "Unknown")}</div>
+          <div class="admin-row-sub">${escapeHtml(payment.planName || payment.planId || "Plan")} · ${escapeHtml(payment.referenceCode || "")}</div>
+        </div>
+        <div class="admin-payment-actions">
+          <div class="admin-row-metric">${Number(payment.amountAed || 0).toLocaleString()} AED</div>
+          <button class="admin-small-btn" type="button" data-approve-payment="${escapeHtml(payment.id)}">Approve</button>
+          <button class="admin-small-btn danger" type="button" data-reject-payment="${escapeHtml(payment.id)}">Reject</button>
+        </div>
+      </div>
+    `).join("") : `<div class="admin-row-sub">No pending Ziina payments.</div>`}
     <div class="admin-subtitle">Top Users</div>
     ${users.length ? users.map((user) => `
       <div class="admin-user-row">
@@ -2949,6 +2989,7 @@ async function handleAuthenticatedSession(session) {
   closeAuthDialog();
   try {
     await withTimeout(loadMe(), 8000, "Account load");
+    await loadPaymentRequests();
     renderShell();
     if (hasChatAccess()) await loadChatApp();
   } catch (err) {
@@ -2966,6 +3007,19 @@ async function loadModels() {
     state.models = normalizeModelList(payload);
   } catch (err) {
     showToast(err.message);
+  }
+}
+
+async function loadPaymentRequests() {
+  if (!state.session?.access_token) {
+    state.paymentRequests = [];
+    return;
+  }
+  try {
+    const payload = await fetchZiinaPaymentRequests(state.session);
+    state.paymentRequests = payload.paymentRequests || [];
+  } catch {
+    state.paymentRequests = [];
   }
 }
 
@@ -3027,6 +3081,29 @@ async function addConversation() {
     renderImages();
     syncConversationUrl();
     renderShell();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function startZiinaPayment(planId) {
+  if (!requireAuth()) return;
+  const plan = state.plans.find((candidate) => candidate.id === planId);
+  if (!plan) return;
+  const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
+  if (existing) {
+    if (existing.paymentUrl) window.open(existing.paymentUrl, "_blank", "noopener");
+    showToast(`Ziina reference: ${existing.referenceCode}`);
+    return;
+  }
+
+  try {
+    const payload = await createZiinaPaymentRequest(state.session, planId);
+    const request = payload.paymentRequest;
+    state.paymentRequests = [request, ...(state.paymentRequests || [])];
+    renderPlans();
+    if (request.paymentUrl) window.open(request.paymentUrl, "_blank", "noopener");
+    showToast(`Ziina reference: ${request.referenceCode}`);
   } catch (err) {
     showToast(err.message);
   }
@@ -3364,12 +3441,38 @@ async function signOutAndReset() {
   await signOut(state.config, state.session);
   state.session = null;
   state.me = null;
+  state.paymentRequests = [];
   state.conversations = [];
   state.messages = [];
   state.activeConversationId = "";
   syncConversationUrl({ replace: true });
   closeAllDrawers();
   renderShell();
+}
+
+async function loadAdminDashboard() {
+  els.loadAdminButton.disabled = true;
+  els.loadAdminButton.textContent = "Loading...";
+  try {
+    renderAdminDashboard(await fetchAdminSummary(state.session));
+  } catch (err) {
+    els.adminOutput.textContent = err.message;
+  } finally {
+    els.loadAdminButton.disabled = false;
+    els.loadAdminButton.textContent = "Refresh dashboard";
+  }
+}
+
+async function updateAdminPayment(id, action) {
+  if (!id) return;
+  try {
+    if (action === "approve") await approveAdminPayment(state.session, id);
+    else await rejectAdminPayment(state.session, id);
+    await loadAdminDashboard();
+    showToast(action === "approve" ? "Payment approved." : "Payment rejected.");
+  } catch (err) {
+    showToast(err.message);
+  }
 }
 
 /* ─── Bootstrap ─── */
@@ -3407,6 +3510,7 @@ async function bootstrap() {
     if (state.session) {
       try {
         await withTimeout(loadMe(), 8000, "Account load");
+        await loadPaymentRequests();
       } catch {
         clearSession();
         state.session = null;
@@ -3440,6 +3544,11 @@ function bindEvents() {
 
   els.guestLoginButton.addEventListener("click", openAuthDialog);
   els.authDialogClose.addEventListener("click", closeAuthDialog);
+  els.paywallPlans.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-start-payment]");
+    if (!button) return;
+    startZiinaPayment(button.dataset.startPayment);
+  });
   els.paywallSignOutButton.addEventListener("click", signOutAndReset);
   els.signOutButton.addEventListener("click", signOutAndReset);
 
@@ -3823,17 +3932,15 @@ function bindEvents() {
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
 
-  els.loadAdminButton.addEventListener("click", async () => {
-    els.loadAdminButton.disabled = true;
-    els.loadAdminButton.textContent = "Loading...";
-    try {
-      renderAdminDashboard(await fetchAdminSummary(state.session));
-    } catch (err) {
-      els.adminOutput.textContent = err.message;
-    } finally {
-      els.loadAdminButton.disabled = false;
-      els.loadAdminButton.textContent = "Refresh dashboard";
+  els.loadAdminButton.addEventListener("click", loadAdminDashboard);
+  els.adminOutput.addEventListener("click", (e) => {
+    const approve = e.target.closest("[data-approve-payment]");
+    if (approve) {
+      updateAdminPayment(approve.dataset.approvePayment, "approve");
+      return;
     }
+    const reject = e.target.closest("[data-reject-payment]");
+    if (reject) updateAdminPayment(reject.dataset.rejectPayment, "reject");
   });
 }
 

@@ -123,6 +123,63 @@ export class SupabaseRest {
     return single(rows);
   }
 
+  async createPaymentRequest(row, { signal } = {}) {
+    const rows = await this.request("payment_requests", {
+      method: "POST",
+      body: row,
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
+  async listPaymentRequests(userId, { signal } = {}) {
+    return this.request("payment_requests", {
+      query: {
+        user_id: `eq.${userId}`,
+        select: "*",
+        order: "created_at.desc",
+        limit: "10"
+      },
+      signal
+    });
+  }
+
+  async listPendingPaymentRequests({ signal } = {}) {
+    return this.request("payment_requests", {
+      query: {
+        status: "eq.pending",
+        select: "*",
+        order: "created_at.asc",
+        limit: "100"
+      },
+      signal
+    });
+  }
+
+  async getPaymentRequest(id, { signal } = {}) {
+    const rows = await this.request("payment_requests", {
+      query: {
+        id: `eq.${id}`,
+        select: "*",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
+  async updatePaymentRequest(id, patch, { signal } = {}) {
+    const rows = await this.request("payment_requests", {
+      method: "PATCH",
+      query: { id: `eq.${id}` },
+      body: { ...patch, updated_at: new Date().toISOString() },
+      prefer: "return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
   async listConversations(userId, { signal } = {}) {
     return this.request("conversations", {
       query: {
@@ -592,7 +649,7 @@ export class SupabaseRest {
   }
 
   async adminSummary({ signal } = {}) {
-    const [profiles, subscriptions, usageRows] = await Promise.all([
+    const [profiles, subscriptions, usageRows, paymentRequests] = await Promise.all([
       this.request("profiles", {
         query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "500" },
         signal
@@ -612,10 +669,18 @@ export class SupabaseRest {
           limit: "2000"
         },
         signal
+      }),
+      this.request("payment_requests", {
+        query: {
+          select: "id,user_id,plan_id,amount_aed,currency,provider,reference_code,status,created_at,updated_at,approved_at",
+          order: "created_at.desc",
+          limit: "100"
+        },
+        signal
       })
     ]);
 
-    return { profiles, subscriptions, usage: usageRows };
+    return { profiles, subscriptions, usage: usageRows, paymentRequests };
   }
 
   async getSearchCache(queryHash, { signal } = {}) {

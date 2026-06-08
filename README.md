@@ -4,9 +4,9 @@ Klui Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible mode
 
 ## What Is Included
 
-- Testing access mode: signed-in users can chat without a payment gateway while the product is in MVP testing.
+- Testing access mode for local/MVP testing, plus subscription access mode for paid users.
 - Supabase Auth with Google sign-in. The client uses Google Identity Services plus Supabase `signInWithIdToken`; enable it with `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID` after configuring the Google provider in Supabase.
-- Supabase Postgres persistence for profiles, plans, gateway-neutral subscriptions, conversations, messages, usage, and attachments.
+- Supabase Postgres persistence for profiles, Lite/Essential/Pro plans, manual Ziina payment requests, subscriptions, conversations, messages, usage, and attachments.
 - Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only Crof model API key and cached `/models` access.
 - Streaming chat responses with usage metering and plan limits.
@@ -36,7 +36,7 @@ For future packages:
 3. Configure Google Auth before setting `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID`.
 4. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
 5. Copy `.env.example` to `.env` and fill in all required values.
-6. Keep `ACCESS_MODE=testing` for MVP testing. Switch it to `subscription` only after the new payment gateway is implemented.
+6. Keep `ACCESS_MODE=testing` for local/MVP testing. Use `ACCESS_MODE=subscription` in production so only approved paid subscriptions can chat.
 
 ## Environment
 
@@ -63,6 +63,12 @@ Model provider and usage billing:
 - `OPENROUTER_API_KEY` (and optional `OPENROUTER_BASE_URL`) is the default model backend. Klui records each OpenRouter call using provider-reported `usage.cost` when available, with a generation-detail lookup/fallback token estimate for edge cases.
 - `PLAN_*_MONTHLY_API_CREDITS` sets the hidden monthly API-credit allowance per plan. Klui splits each subscription billing month into four dynamic weekly buckets and shows users only a whole-number weekly percentage.
 
+Payments:
+
+- Plans are Lite (`10 AED`), Essential (`30 AED`), and Pro (`50 AED`).
+- `PLAN_LITE_ZIINA_PAYMENT_URL`, `PLAN_ESSENTIAL_ZIINA_PAYMENT_URL`, and `PLAN_PRO_ZIINA_PAYMENT_URL` point users to your Ziina payment links. Optional `PLAN_*_ZIINA_QR_IMAGE_URL` values show QR codes on the plan cards.
+- Ziina personal QR/link payments are activated by admin verification: the user creates a pending payment request with a Klui reference code, pays through Ziina, then an admin approves the request in the lightweight admin dashboard. Approval creates the active subscription.
+
 Optional for document tools:
 
 - `DOCUMENTS_ENABLED=true`
@@ -80,7 +86,7 @@ Optional for web search:
 
 - `JINA_API_KEY` (required for `s.jina.ai` search; new keys include a 10M-token free trial).
 - `BRAVE_SEARCH_API_KEY` (fallback; $5/month free credit).
-- `WEBSEARCH_*` knobs (default mode, per-plan daily quotas, cache TTL, max tool calls per turn). See `.env.example`.
+- `WEBSEARCH_*` knobs (default mode, per-plan daily search quotas, cache TTL, max tool calls per turn). See `.env.example`.
 
 You need at least one of the two keys above. The reader endpoint `r.jina.ai` used by the `read_url` tool still works anonymously when no Jina key is set. If neither key is set the toggle is hidden from the UI and the tool is never offered to the model.
 

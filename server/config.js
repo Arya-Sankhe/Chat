@@ -50,11 +50,9 @@ function readDocumentMode(value) {
 }
 
 const PLAN_SEARCH_DEFAULTS = {
-  hobby: 50,
-  pro: 200,
-  intermediate: 500,
-  scale: 2000,
-  max: 5000
+  lite: 50,
+  essential: 200,
+  pro: 500
 };
 
 function loadSearchLimits(env) {
@@ -90,7 +88,7 @@ export function loadConfig(env = process.env) {
     plans,
     access: {
       mode: accessMode,
-      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
+      testingPlanId: clean(env.TEST_PLAN_ID) || "essential"
     },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),

@@ -72,6 +72,45 @@ export async function fetchPlans() {
   return response.json();
 }
 
+export async function createZiinaPaymentRequest(session, planId) {
+  const response = await apiFetch("/api/payments/ziina", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ planId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchZiinaPaymentRequests(session) {
+  const response = await apiFetch("/api/payments/ziina", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function approveAdminPayment(session, id) {
+  const response = await apiFetch(`/api/admin/payments/${encodeURIComponent(id)}/approve`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function rejectAdminPayment(session, id) {
+  const response = await apiFetch(`/api/admin/payments/${encodeURIComponent(id)}/reject`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchMe(session) {
   const response = await apiFetch("/api/me", { session });
   if (!response.ok) throw new Error(await readProblem(response));

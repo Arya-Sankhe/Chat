@@ -152,6 +152,149 @@ function publicMe({ user, profile, subscription, plan, usage, config }) {
   };
 }
 
+function addMonths(date, months) {
+  const next = new Date(date);
+  const day = next.getUTCDate();
+  next.setUTCMonth(next.getUTCMonth() + months);
+  if (next.getUTCDate() !== day) next.setUTCDate(0);
+  return next;
+}
+
+function paymentReferenceCode() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const suffix = generateNonce(5).toUpperCase();
+  return `KLUI-${date}-${suffix}`;
+}
+
+function publicPaymentRequest(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    planId: row.plan_id,
+    amountAed: Number(row.amount_aed || 0),
+    currency: row.currency || "AED",
+    provider: row.provider || "ziina",
+    paymentUrl: row.payment_url || "",
+    qrImageUrl: row.qr_image_url || "",
+    referenceCode: row.reference_code,
+    status: row.status,
+    adminNote: row.admin_note || "",
+    approvedAt: row.approved_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+async function handleCreateZiinaPaymentRequest(req, res, config) {
+  const context = await authContext(req, config);
+  const body = await parseJsonBody(req, 16 * 1024);
+  const planId = String(body.planId || "").trim();
+  const plan = config.plans.find((candidate) => candidate.id === planId);
+  if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
+
+  let row = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      row = await context.db.createPaymentRequest({
+        user_id: context.user.id,
+        plan_id: plan.id,
+        amount_aed: plan.amountAed,
+        currency: "AED",
+        provider: "ziina",
+        payment_url: plan.ziinaPaymentUrl || null,
+        qr_image_url: plan.ziinaQrImageUrl || null,
+        reference_code: paymentReferenceCode(),
+        status: "pending"
+      }, { signal: req.signal });
+      break;
+    } catch (error) {
+      if (error?.status !== 409 || attempt === 2) throw error;
+    }
+  }
+
+  sendJson(res, 201, {
+    paymentRequest: publicPaymentRequest(row),
+    instructions: "Pay with Ziina, include the reference code if Ziina lets you add a note, then wait for admin approval."
+  });
+}
+
+async function handleListPaymentRequests(req, res, config) {
+  const context = await authContext(req, config);
+  const rows = await context.db.listPaymentRequests(context.user.id, { signal: req.signal });
+  sendJson(res, 200, { paymentRequests: rows.map(publicPaymentRequest) });
+}
+
+async function requireAdminContext(req, config) {
+  const context = await authContext(req, config);
+  if (context.profile?.role !== "admin") throw new HttpError(403, "Admin access is required.");
+  return context;
+}
+
+async function handleAdminPaymentRequests(req, res, config) {
+  const context = await requireAdminContext(req, config);
+  const rows = await context.db.listPendingPaymentRequests({ signal: req.signal });
+  sendJson(res, 200, { paymentRequests: rows.map(publicPaymentRequest) });
+}
+
+async function handleAdminUpdatePaymentRequest(req, res, config, id, action) {
+  const context = await requireAdminContext(req, config);
+  if (!["approve", "reject"].includes(action)) throw new HttpError(404, "Admin payment action not found.");
+  const payment = await context.db.getPaymentRequest(id, { signal: req.signal });
+  if (!payment) throw new HttpError(404, "Payment request was not found.");
+  if (payment.status !== "pending") throw new HttpError(409, "Payment request is no longer pending.");
+
+  const body = await parseJsonBody(req, 16 * 1024);
+  if (action === "reject") {
+    const rejected = await context.db.updatePaymentRequest(id, {
+      status: "rejected",
+      admin_note: String(body.note || "").trim() || null
+    }, { signal: req.signal });
+    sendJson(res, 200, { paymentRequest: publicPaymentRequest(rejected) });
+    return;
+  }
+
+  const plan = config.plans.find((candidate) => candidate.id === payment.plan_id);
+  if (!plan) throw new HttpError(400, "Payment request plan is not available.");
+
+  const now = new Date();
+  const subscription = await context.db.upsertSubscription({
+    user_id: payment.user_id,
+    provider: "ziina",
+    provider_subscription_id: `ziina:${payment.id}`,
+    provider_price_id: payment.plan_id,
+    plan_id: payment.plan_id,
+    status: "active",
+    cancel_at_period_end: false,
+    current_period_end: addMonths(now, 1).toISOString(),
+    raw: {
+      payment_request_id: payment.id,
+      reference_code: payment.reference_code,
+      amount_aed: Number(payment.amount_aed || 0),
+      approved_by: context.user.id,
+      approved_at: now.toISOString()
+    },
+    updated_at: now.toISOString()
+  }, { signal: req.signal });
+
+  const approved = await context.db.updatePaymentRequest(id, {
+    status: "approved",
+    admin_note: String(body.note || "").trim() || null,
+    approved_by: context.user.id,
+    approved_at: now.toISOString()
+  }, { signal: req.signal });
+
+  adminSummaryCache = null;
+  sendJson(res, 200, {
+    paymentRequest: publicPaymentRequest(approved),
+    subscription: {
+      id: subscription.id,
+      planId: subscription.plan_id,
+      status: subscription.status,
+      currentPeriodEnd: subscription.current_period_end
+    }
+  });
+}
+
 async function handleMe(req, res, config) {
   const context = await authContext(req, config);
   const entitlement = await getCurrentEntitlement({
@@ -2238,7 +2381,9 @@ function buildAdminDashboardSummary(raw, config) {
   const profiles = Array.isArray(raw?.profiles) ? raw.profiles : [];
   const subscriptions = Array.isArray(raw?.subscriptions) ? raw.subscriptions : [];
   const usageRows = Array.isArray(raw?.usage) ? raw.usage : [];
+  const paymentRequests = Array.isArray(raw?.paymentRequests) ? raw.paymentRequests : [];
   const planNames = new Map((config.plans || []).map((plan) => [plan.id, plan.name || plan.id]));
+  const profileEmails = new Map(profiles.map((profile) => [profile.id, profile.email || "Unknown"]));
   const latestSubscriptionByUser = new Map();
   for (const subscription of subscriptions) {
     if (!subscription?.user_id || latestSubscriptionByUser.has(subscription.user_id)) continue;
@@ -2307,6 +2452,21 @@ function buildAdminDashboardSummary(raw, config) {
     cacheTtlSeconds: Math.round(adminSummaryCacheTtlMs / 1000),
     cached: false,
     totals,
+    pendingPayments: paymentRequests
+      .filter((payment) => payment.status === "pending")
+      .slice(0, 50)
+      .map((payment) => ({
+        id: payment.id,
+        userId: payment.user_id,
+        email: profileEmails.get(payment.user_id) || "Unknown",
+        planId: payment.plan_id,
+        planName: planNames.get(payment.plan_id) || payment.plan_id,
+        amountAed: Number(payment.amount_aed || 0),
+        currency: payment.currency || "AED",
+        referenceCode: payment.reference_code,
+        status: payment.status,
+        createdAt: payment.created_at
+      })),
     plans: Array.from(planCounts.values())
       .map((plan) => ({ ...plan, creditsUsed: roundCredits(plan.creditsUsed) }))
       .sort((a, b) => b.activeUsers - a.activeUsers || b.users - a.users || a.name.localeCompare(b.name)),
@@ -2361,6 +2521,16 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (req.method === "GET" && url.pathname === "/api/plans") {
       sendJson(res, 200, { plans: config.plans.map(publicPlan) });
+      return;
+    }
+
+    if (url.pathname === "/api/payments/ziina" && req.method === "POST") {
+      await handleCreateZiinaPaymentRequest(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/payments/ziina" && req.method === "GET") {
+      await handleListPaymentRequests(req, res, config);
       return;
     }
 
@@ -2436,6 +2606,16 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/admin/summary" && req.method === "GET") {
       await handleAdminSummary(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/admin/payments" && req.method === "GET") {
+      await handleAdminPaymentRequests(req, res, config);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "payments" && parts[3] && parts[4] && req.method === "POST") {
+      await handleAdminUpdatePaymentRequest(req, res, config, parts[3], parts[4]);
       return;
     }
 
