@@ -156,9 +156,9 @@ test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the c
   assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
 
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
-  assert.match(hint, /PDF visual reading skill/);
-  assert.match(hint, /Inspect the attached images directly/);
-  assert.match(hint, /consecutive read_document calls/);
+  assert.match(hint, /PDF reading/);
+  assert.match(hint, /page images are the source of truth/);
+  assert.match(hint, /inspect returned page images before answering/);
   assert.match(hint, /cmp466 hw3\.pdf \(pdf, 3 pages/);
 });
 
@@ -169,6 +169,24 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   assert.match(hint, /Available document tools this turn: create_document/);
   assert.doesNotMatch(hint, /Excel\/XLSX creation skill/);
   assert.doesNotMatch(hint, /Word\/DOCX creation skill/);
+  assert.doesNotMatch(hint, /polished document, not a chat transcript/);
+});
+
+test("buildDocumentSystemHint injects professional Word guidance only for DOCX creation", () => {
+  const wordSelection = selectDocumentSkills({ text: "create a word doc for a client proposal", readyDocuments: [] });
+  const wordHint = buildDocumentSystemHint({ readyDocuments: [], selection: wordSelection });
+
+  assert.match(wordHint, /Professional Word document creation skill/);
+  assert.match(wordHint, /infer the document's audience, purpose, formality level, and likely use case/);
+  assert.match(wordHint, /polished, human-quality document/);
+  assert.match(wordHint, /Title, Subtitle, Heading 1, Heading 2, Normal/);
+  assert.match(wordHint, /placeholder text, broken structure, inconsistent formatting/);
+  assert.doesNotMatch(wordHint, /PDF creation skill/);
+  assert.doesNotMatch(wordHint, /Excel\/XLSX creation skill/);
+
+  const excelSelection = selectDocumentSkills({ text: "create an excel tracker", readyDocuments: [] });
+  const excelHint = buildDocumentSystemHint({ readyDocuments: [], selection: excelSelection });
+  assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
 });
 
 test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready PDFs", () => {
@@ -183,7 +201,7 @@ test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready
   const selection = selectDocumentSkills({ text: "solve all questions in this pdf", readyDocuments });
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
 
-  assert.match(hint, /PDF visual reading skill/);
+  assert.match(hint, /PDF reading/);
   assert.match(hint, /start with read_document/);
   assert.match(hint, /Homework\.pdf \(pdf, 5 pages/);
 });
