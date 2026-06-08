@@ -11,8 +11,6 @@ create table if not exists public.profiles (
 create table if not exists public.plans (
   id text primary key,
   name text not null,
-  daily_message_limit integer not null,
-  monthly_image_limit integer not null,
   max_images_per_message integer not null,
   price_label text not null default 'Testing access',
   active boolean not null default true,
@@ -21,13 +19,13 @@ create table if not exists public.plans (
   updated_at timestamptz not null default now()
 );
 
-insert into public.plans (id, name, daily_message_limit, monthly_image_limit, max_images_per_message, sort_order)
+insert into public.plans (id, name, max_images_per_message, sort_order)
 values
-  ('hobby', 'Hobby', 150, 200, 4, 10),
-  ('pro', 'Pro', 600, 1000, 4, 20),
-  ('intermediate', 'Intermediate', 1500, 2500, 4, 30),
-  ('scale', 'Scale', 5000, 7500, 6, 40),
-  ('max', 'Max', 15000, 20000, 8, 50)
+  ('hobby', 'Hobby', 4, 10),
+  ('pro', 'Pro', 4, 20),
+  ('intermediate', 'Intermediate', 4, 30),
+  ('scale', 'Scale', 6, 40),
+  ('max', 'Max', 8, 50)
 on conflict (id) do nothing;
 
 create table if not exists public.subscriptions (
@@ -195,48 +193,37 @@ create table if not exists public.document_jobs (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.usage_daily (
+create table if not exists public.usage_api_weekly (
   user_id uuid not null references public.profiles(id) on delete cascade,
-  day date not null,
+  period_start date not null,
+  period_end date not null,
+  week_index integer not null check (week_index between 1 and 4),
+  week_start date not null,
+  week_end date not null,
   plan_id text not null,
-  message_count integer not null default 0,
-  image_count integer not null default 0,
-  search_count integer not null default 0,
-  document_tool_count integer not null default 0,
-  generated_document_count integer not null default 0,
+  api_credit_limit numeric(18,8) not null default 0,
+  api_credit_used numeric(18,8) not null default 0,
   updated_at timestamptz not null default now(),
-  primary key (user_id, day)
+  primary key (user_id, period_start, week_index)
 );
 
-alter table public.usage_daily
-  add column if not exists search_count integer not null default 0;
-
-alter table public.usage_daily
-  add column if not exists document_tool_count integer not null default 0;
-
-alter table public.usage_daily
-  add column if not exists generated_document_count integer not null default 0;
-
-create table if not exists public.usage_monthly (
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  month date not null,
-  plan_id text not null,
-  image_count integer not null default 0,
-  updated_at timestamptz not null default now(),
-  primary key (user_id, month)
-);
-
-create table if not exists public.usage_events (
+create table if not exists public.usage_api_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   subscription_id uuid references public.subscriptions(id) on delete set null,
   plan_id text,
-  event_type text not null,
+  provider text,
   model text,
-  conversation_id uuid references public.conversations(id) on delete set null,
-  message_id uuid references public.messages(id) on delete set null,
-  image_count integer not null default 0,
-  status text not null,
+  generation_id text,
+  period_start date not null,
+  period_end date not null,
+  week_index integer not null check (week_index between 1 and 4),
+  week_start date not null,
+  week_end date not null,
+  cost_credits numeric(18,8) not null default 0,
+  cost_source text not null default 'unknown',
+  usage jsonb not null default '{}'::jsonb,
+  status text not null default 'completed',
   created_at timestamptz not null default now()
 );
 
@@ -310,8 +297,9 @@ create index if not exists document_jobs_user_status_idx on public.document_jobs
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
-grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_daily, public.usage_monthly to authenticated;
-grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_daily, public.usage_monthly, public.usage_events, public.model_cache, public.search_cache to service_role;
+grant select on public.profiles, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
+grant select on public.usage_api_weekly to authenticated;
+grant all on public.profiles, public.plans, public.subscriptions, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.plans enable row level security;
@@ -323,9 +311,8 @@ alter table public.document_files enable row level security;
 alter table public.document_chunks enable row level security;
 alter table public.document_pages enable row level security;
 alter table public.document_jobs enable row level security;
-alter table public.usage_daily enable row level security;
-alter table public.usage_monthly enable row level security;
-alter table public.usage_events enable row level security;
+alter table public.usage_api_weekly enable row level security;
+alter table public.usage_api_events enable row level security;
 alter table public.model_cache enable row level security;
 
 drop policy if exists "profiles read own" on public.profiles;
@@ -338,8 +325,7 @@ drop policy if exists "document files read own" on public.document_files;
 drop policy if exists "document chunks read own" on public.document_chunks;
 drop policy if exists "document pages read own" on public.document_pages;
 drop policy if exists "document jobs read own" on public.document_jobs;
-drop policy if exists "usage daily read own" on public.usage_daily;
-drop policy if exists "usage monthly read own" on public.usage_monthly;
+drop policy if exists "usage api weekly read own" on public.usage_api_weekly;
 
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);
 create policy "plans read active" on public.plans for select using (active = true);
@@ -351,216 +337,150 @@ create policy "document files read own" on public.document_files for select usin
 create policy "document chunks read own" on public.document_chunks for select using (auth.uid() = user_id);
 create policy "document pages read own" on public.document_pages for select using (auth.uid() = user_id);
 create policy "document jobs read own" on public.document_jobs for select using (auth.uid() = user_id);
-create policy "usage daily read own" on public.usage_daily for select using (auth.uid() = user_id);
-create policy "usage monthly read own" on public.usage_monthly for select using (auth.uid() = user_id);
+create policy "usage api weekly read own" on public.usage_api_weekly for select using (auth.uid() = user_id);
 
-create or replace function public.klui_consume_usage(
+create or replace function public.klui_check_api_budget(
   p_user_id uuid,
   p_plan_id text,
-  p_daily_message_limit integer,
-  p_monthly_image_limit integer,
-  p_image_count integer,
-  p_message_count integer default 1
+  p_period_start date,
+  p_period_end date,
+  p_week_start date,
+  p_week_end date,
+  p_week_index integer,
+  p_weekly_credit_limit numeric
 ) returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_day date := current_date;
-  v_month date := date_trunc('month', now())::date;
-  v_daily public.usage_daily%rowtype;
-  v_monthly public.usage_monthly%rowtype;
-  v_message_count integer := greatest(coalesce(p_message_count, 1), 1);
+  v_row public.usage_api_weekly%rowtype;
 begin
-  insert into public.usage_daily (user_id, day, plan_id)
-  values (p_user_id, v_day, p_plan_id)
-  on conflict (user_id, day) do nothing;
+  insert into public.usage_api_weekly (
+    user_id, period_start, period_end, week_index, week_start, week_end, plan_id, api_credit_limit
+  )
+  values (
+    p_user_id, p_period_start, p_period_end, p_week_index, p_week_start, p_week_end, p_plan_id, greatest(coalesce(p_weekly_credit_limit, 0), 0)
+  )
+  on conflict (user_id, period_start, week_index) do update
+  set
+    period_end = excluded.period_end,
+    week_start = excluded.week_start,
+    week_end = excluded.week_end,
+    plan_id = excluded.plan_id,
+    api_credit_limit = excluded.api_credit_limit,
+    updated_at = now();
 
-  insert into public.usage_monthly (user_id, month, plan_id)
-  values (p_user_id, v_month, p_plan_id)
-  on conflict (user_id, month) do nothing;
-
-  select * into v_daily
-  from public.usage_daily
-  where user_id = p_user_id and day = v_day
+  select * into v_row
+  from public.usage_api_weekly
+  where user_id = p_user_id
+    and period_start = p_period_start
+    and week_index = p_week_index
   for update;
 
-  select * into v_monthly
-  from public.usage_monthly
-  where user_id = p_user_id and month = v_month
-  for update;
-
-  if v_daily.message_count + v_message_count > p_daily_message_limit then
-    return jsonb_build_object(
-      'allowed', false,
-      'reason', 'Daily message limit reached.',
-      'message_count', v_daily.message_count,
-      'requested_message_count', v_message_count,
-      'daily_message_limit', p_daily_message_limit
-    );
+  if v_row.api_credit_limit <= 0 then
+    return jsonb_build_object('allowed', false, 'reason', 'API usage is not enabled for your plan.');
   end if;
 
-  if v_monthly.image_count + greatest(p_image_count, 0) > p_monthly_image_limit then
+  if v_row.api_credit_used >= v_row.api_credit_limit then
     return jsonb_build_object(
       'allowed', false,
-      'reason', 'Monthly image limit reached.',
-      'image_count', v_monthly.image_count,
-      'monthly_image_limit', p_monthly_image_limit
+      'reason', 'Weekly API limit reached.',
+      'api_credit_used', v_row.api_credit_used,
+      'api_credit_limit', v_row.api_credit_limit,
+      'week_index', v_row.week_index,
+      'week_start', v_row.week_start,
+      'week_end', v_row.week_end
     );
   end if;
-
-  update public.usage_daily
-  set
-    plan_id = p_plan_id,
-    message_count = message_count + v_message_count,
-    image_count = image_count + greatest(p_image_count, 0),
-    updated_at = now()
-  where user_id = p_user_id and day = v_day
-  returning * into v_daily;
-
-  update public.usage_monthly
-  set
-    plan_id = p_plan_id,
-    image_count = image_count + greatest(p_image_count, 0),
-    updated_at = now()
-  where user_id = p_user_id and month = v_month
-  returning * into v_monthly;
 
   return jsonb_build_object(
     'allowed', true,
-    'message_count', v_daily.message_count,
-    'consumed_message_count', v_message_count,
-    'image_count', v_daily.image_count,
-    'daily_message_limit', p_daily_message_limit,
-    'monthly_image_count', v_monthly.image_count,
-    'monthly_image_limit', p_monthly_image_limit
+    'api_credit_used', v_row.api_credit_used,
+    'api_credit_limit', v_row.api_credit_limit,
+    'week_index', v_row.week_index,
+    'week_start', v_row.week_start,
+    'week_end', v_row.week_end
   );
 end;
 $$;
 
-create or replace function public.klui_consume_search(
+create or replace function public.klui_record_api_usage(
   p_user_id uuid,
+  p_subscription_id uuid,
   p_plan_id text,
-  p_daily_search_limit integer,
-  p_search_count integer default 1
+  p_model text,
+  p_provider text,
+  p_generation_id text,
+  p_period_start date,
+  p_period_end date,
+  p_week_start date,
+  p_week_end date,
+  p_week_index integer,
+  p_weekly_credit_limit numeric,
+  p_cost_credits numeric,
+  p_cost_source text,
+  p_usage jsonb,
+  p_status text
 ) returns jsonb
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_day date := current_date;
-  v_daily public.usage_daily%rowtype;
-  v_count integer := greatest(coalesce(p_search_count, 1), 1);
+  v_limit numeric := greatest(coalesce(p_weekly_credit_limit, 0), 0);
+  v_cost numeric := greatest(coalesce(p_cost_credits, 0), 0);
+  v_row public.usage_api_weekly%rowtype;
 begin
-  insert into public.usage_daily (user_id, day, plan_id)
-  values (p_user_id, v_day, p_plan_id)
-  on conflict (user_id, day) do nothing;
+  insert into public.usage_api_weekly (
+    user_id, period_start, period_end, week_index, week_start, week_end, plan_id, api_credit_limit, api_credit_used
+  )
+  values (
+    p_user_id, p_period_start, p_period_end, p_week_index, p_week_start, p_week_end, p_plan_id, v_limit, 0
+  )
+  on conflict (user_id, period_start, week_index) do update
+  set
+    period_end = excluded.period_end,
+    week_start = excluded.week_start,
+    week_end = excluded.week_end,
+    plan_id = excluded.plan_id,
+    api_credit_limit = excluded.api_credit_limit,
+    updated_at = now();
 
-  select * into v_daily
-  from public.usage_daily
-  where user_id = p_user_id and day = v_day
-  for update;
-
-  if v_daily.search_count + v_count > p_daily_search_limit then
-    return jsonb_build_object(
-      'allowed', false,
-      'reason', 'Daily web-search limit reached for your plan.',
-      'search_count', v_daily.search_count,
-      'requested_search_count', v_count,
-      'daily_search_limit', p_daily_search_limit
-    );
-  end if;
-
-  update public.usage_daily
+  update public.usage_api_weekly
   set
     plan_id = p_plan_id,
-    search_count = search_count + v_count,
+    api_credit_used = api_credit_used + v_cost,
     updated_at = now()
-  where user_id = p_user_id and day = v_day
-  returning * into v_daily;
+  where user_id = p_user_id
+    and period_start = p_period_start
+    and week_index = p_week_index
+  returning * into v_row;
+
+  insert into public.usage_api_events (
+    user_id, subscription_id, plan_id, provider, model, generation_id,
+    period_start, period_end, week_index, week_start, week_end,
+    cost_credits, cost_source, usage, status
+  )
+  values (
+    p_user_id, p_subscription_id, p_plan_id, p_provider, p_model, p_generation_id,
+    v_row.period_start, v_row.period_end, v_row.week_index, v_row.week_start, v_row.week_end,
+    v_cost, coalesce(p_cost_source, 'unknown'), coalesce(p_usage, '{}'::jsonb), coalesce(p_status, 'completed')
+  );
 
   return jsonb_build_object(
     'allowed', true,
-    'search_count', v_daily.search_count,
-    'consumed_search_count', v_count,
-    'daily_search_limit', p_daily_search_limit
+    'api_credit_used', v_row.api_credit_used,
+    'api_credit_limit', v_row.api_credit_limit,
+    'cost_credits', v_cost,
+    'cost_source', coalesce(p_cost_source, 'unknown'),
+    'week_index', v_row.week_index
   );
 end;
 $$;
 
-grant execute on function public.klui_consume_search(uuid, text, integer, integer) to service_role;
-
-create or replace function public.klui_consume_documents(
-  p_user_id uuid,
-  p_plan_id text,
-  p_daily_document_tool_limit integer,
-  p_daily_generated_document_limit integer,
-  p_tool_count integer default 1,
-  p_generated_count integer default 0
-) returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_day date := current_date;
-  v_daily public.usage_daily%rowtype;
-  v_tool_count integer := greatest(coalesce(p_tool_count, 1), 0);
-  v_generated_count integer := greatest(coalesce(p_generated_count, 0), 0);
-begin
-  insert into public.usage_daily (user_id, day, plan_id)
-  values (p_user_id, v_day, p_plan_id)
-  on conflict (user_id, day) do nothing;
-
-  select * into v_daily
-  from public.usage_daily
-  where user_id = p_user_id and day = v_day
-  for update;
-
-  if v_daily.document_tool_count + v_tool_count > p_daily_document_tool_limit then
-    return jsonb_build_object(
-      'allowed', false,
-      'reason', 'Daily document tool limit reached for your plan.',
-      'document_tool_count', v_daily.document_tool_count,
-      'requested_document_tool_count', v_tool_count,
-      'daily_document_tool_limit', p_daily_document_tool_limit
-    );
-  end if;
-
-  if v_daily.generated_document_count + v_generated_count > p_daily_generated_document_limit then
-    return jsonb_build_object(
-      'allowed', false,
-      'reason', 'Daily generated document limit reached for your plan.',
-      'generated_document_count', v_daily.generated_document_count,
-      'requested_generated_document_count', v_generated_count,
-      'daily_generated_document_limit', p_daily_generated_document_limit
-    );
-  end if;
-
-  update public.usage_daily
-  set
-    plan_id = p_plan_id,
-    document_tool_count = document_tool_count + v_tool_count,
-    generated_document_count = generated_document_count + v_generated_count,
-    updated_at = now()
-  where user_id = p_user_id and day = v_day
-  returning * into v_daily;
-
-  return jsonb_build_object(
-    'allowed', true,
-    'document_tool_count', v_daily.document_tool_count,
-    'generated_document_count', v_daily.generated_document_count,
-    'consumed_document_tool_count', v_tool_count,
-    'consumed_generated_document_count', v_generated_count,
-    'daily_document_tool_limit', p_daily_document_tool_limit,
-    'daily_generated_document_limit', p_daily_generated_document_limit
-  );
-end;
-$$;
-
-grant execute on function public.klui_consume_documents(uuid, text, integer, integer, integer, integer) to service_role;
+grant execute on function public.klui_check_api_budget(uuid, text, date, date, date, date, integer, numeric) to service_role;
+grant execute on function public.klui_record_api_usage(uuid, uuid, text, text, text, text, date, date, date, date, integer, numeric, numeric, text, jsonb, text) to service_role;
 
 create or replace function public.klui_claim_document_job(
   p_worker_id text,

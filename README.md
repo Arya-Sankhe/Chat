@@ -57,9 +57,10 @@ Required:
 
 Optional plan limit overrides are available in `.env.example`.
 
-Optional alternate model provider:
+Model provider and usage billing:
 
-- `OPENROUTER_API_KEY` (and optional `OPENROUTER_BASE_URL`) enables an "OpenRouter" toggle in the composer that routes the current chat through OpenRouter for side-by-side testing. The default OpenRouter model is `xiaomi/mimo-v2.5` ([model page](https://openrouter.ai/xiaomi/mimo-v2.5)). Tool calling, streaming, vision inputs, and document tools all work the same as the Klui provider — only the upstream host changes. Compare/Council modes stay on the Klui provider; toggling OpenRouter clears any active compare selection.
+- `OPENROUTER_API_KEY` (and optional `OPENROUTER_BASE_URL`) is the default model backend. Klui records each OpenRouter call using provider-reported `usage.cost` when available, with a generation-detail lookup/fallback token estimate for edge cases.
+- `PLAN_*_MONTHLY_API_CREDITS` sets the hidden monthly API-credit allowance per plan. Klui splits each subscription billing month into four dynamic weekly buckets and shows users only a whole-number weekly percentage.
 
 Optional for document tools:
 
@@ -70,7 +71,7 @@ Optional for document tools:
 - `DOCUMENT_VISUAL_INLINE_IMAGES=true` sends bounded PDF page image bytes to vision models directly as base64 data URLs (fetched concurrently with a per-image and per-turn byte budget, deduplicated across iterations). `DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN` (default 24), `DOCUMENT_VISUAL_INLINE_MAX_BYTES` (per-image), and `DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES` (per-turn) cap request size.
 - Agent mode gates web/document tool calls in chat. With Agent off, uploaded ready PDFs are attached as hidden visual page context for vision-capable models instead of using `read_document`.
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` (default 5) controls how many such batches fit in one turn. Raise it for very long PDFs.
-- `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE`, `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE`, `PLAN_*_DAILY_DOCUMENT_TOOL_CALLS`, and `PLAN_*_DAILY_GENERATED_DOCUMENTS` control per-plan quotas.
+- `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE` and `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE` control hard document upload safety limits. Document tool usage is billed through the unified API-credit bar, not separate counters.
 
 The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
 

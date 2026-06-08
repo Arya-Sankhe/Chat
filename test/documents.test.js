@@ -23,11 +23,7 @@ function documentServiceWithDb(db) {
     r2: {},
     userId,
     conversationId,
-    plan: {
-      id: "pro",
-      dailyDocumentToolLimit: 10,
-      dailyGeneratedDocumentLimit: 2
-    },
+    plan: { id: "pro" },
     signal: new AbortController().signal
   });
 }
@@ -193,12 +189,7 @@ test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready
 });
 
 test("DocumentService searches ready document chunks and returns document citations", async () => {
-  let usagePayload;
   const db = {
-    async consumeDocuments(payload) {
-      usagePayload = payload;
-      return { allowed: true };
-    },
     async listReadyDocumentFiles() {
       return [{
         id: documentFileId,
@@ -228,7 +219,6 @@ test("DocumentService searches ready document chunks and returns document citati
   const service = documentServiceWithDb(db);
   const result = await service.search({ query: "termination clause", maxResults: 3 });
 
-  assert.equal(usagePayload.toolCount, 1);
   assert.equal(result.ok, true);
   assert.equal(result.results[0].title, "Contract.pdf - Page 4");
   assert.equal(result.citations[0].type, "document");
@@ -238,9 +228,6 @@ test("DocumentService searches ready document chunks and returns document citati
 
 test("DocumentService searches visual PDF pages and returns page image context", async () => {
   const db = {
-    async consumeDocuments() {
-      return { allowed: true };
-    },
     async listReadyDocumentFiles() {
       return [{
         id: documentFileId,
@@ -278,7 +265,7 @@ test("DocumentService searches visual PDF pages and returns page image context",
     },
     userId,
     conversationId,
-    plan: { id: "pro", dailyDocumentToolLimit: 10, dailyGeneratedDocumentLimit: 2 },
+    plan: { id: "pro" },
     signal: new AbortController().signal
   });
 
@@ -305,11 +292,7 @@ test("DocumentService hides internal preview exports from automatic ready docume
 });
 
 test("DocumentService validates attachment ownership-shaped ids before document lookup", async () => {
-  const service = documentServiceWithDb({
-    async consumeDocuments() {
-      return { allowed: true };
-    }
-  });
+  const service = documentServiceWithDb({});
 
   await assert.rejects(
     service.search({ attachmentIds: ["not-a-uuid"], query: "anything" }),
@@ -344,9 +327,6 @@ test("DocumentService rejects document_file_id edits outside the active conversa
 test("DocumentService fills vague create-document requests from the previous assistant answer", async () => {
   let capturedJob;
   const service = documentServiceWithDb({
-    async consumeDocuments() {
-      return { allowed: true };
-    },
     async listMessages() {
       return [
         { role: "user", content: "make it concise" },
@@ -379,9 +359,6 @@ test("DocumentService fills vague create-document requests from the previous ass
 test("DocumentService honors Word intent when the model passes the wrong create format", async () => {
   let capturedJob;
   const service = documentServiceWithDb({
-    async consumeDocuments() {
-      return { allowed: true };
-    },
     async createDocumentJob(job) {
       capturedJob = job;
       return { id: "job_1", status: "queued", job_type: job.job_type };

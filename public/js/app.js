@@ -554,8 +554,7 @@ function renderPlans() {
       <div class="price">${escapeHtml(plan.priceLabel || "")}</div>
       <p>${escapeHtml(plan.description || "")}</p>
       <ul>
-        <li>${Number(plan.dailyMessageLimit).toLocaleString()} messages/day</li>
-        <li>${Number(plan.monthlyImageLimit).toLocaleString()} images/month</li>
+        <li>Weekly API usage bar</li>
         <li>${Number(plan.maxDocumentsPerMessage || 0).toLocaleString()} documents/message</li>
       </ul>
     </article>
@@ -569,7 +568,9 @@ function renderUsage() {
     els.usagePill.textContent = "";
     return;
   }
-  els.usagePill.textContent = `${usage.message_count || 0}/${plan.dailyMessageLimit} today`;
+  const api = usage.api || {};
+  const percent = Math.max(0, Math.min(999, Math.floor(Number(api.percent || 0))));
+  els.usagePill.textContent = `${percent}% weekly`;
 }
 
 /* Rough chars-per-token ratio for English-ish text. Only used to

@@ -2,7 +2,8 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
-import { consumeDocumentsOrThrow, consumeUsageOrThrow, getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
 import { buildStoredUserContent, imageCountFromContent } from "../server/saas/messages.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
@@ -11,22 +12,20 @@ import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, sa
 test("loadPlans maps Crof-style tiers from env", () => {
   const plans = loadPlans({
     PLAN_HOBBY_PRICE_LABEL: "Testing",
-    PLAN_HOBBY_DAILY_MESSAGES: "25",
-    PLAN_HOBBY_MONTHLY_IMAGES: "50",
+    PLAN_HOBBY_MONTHLY_API_CREDITS: "3.5",
     PLAN_HOBBY_MAX_DOCUMENTS_PER_MESSAGE: "5",
-    PLAN_HOBBY_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280",
-    PLAN_HOBBY_DAILY_DOCUMENT_TOOL_CALLS: "33",
-    PLAN_HOBBY_DAILY_GENERATED_DOCUMENTS: "7"
+    PLAN_HOBBY_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280"
   });
 
   assert.equal(plans[0].id, "hobby");
   assert.equal(plans[0].priceLabel, "Testing");
-  assert.equal(plans[0].dailyMessageLimit, 25);
-  assert.equal(plans[0].monthlyImageLimit, 50);
+  assert.equal(plans[0].monthlyApiCreditLimit, 3.5);
   assert.equal(plans[0].maxDocumentsPerMessage, 5);
   assert.equal(plans[0].maxDocumentBytesPerMessage, 31457280);
-  assert.equal(plans[0].dailyDocumentToolLimit, 33);
-  assert.equal(plans[0].dailyGeneratedDocumentLimit, 7);
+  assert.equal(Object.hasOwn(plans[0], "dailyMessageLimit"), false);
+  assert.equal(Object.hasOwn(plans[0], "monthlyImageLimit"), false);
+  assert.equal(Object.hasOwn(plans[0], "dailyDocumentToolLimit"), false);
+  assert.equal(Object.hasOwn(plans[0], "dailyGeneratedDocumentLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
 });
 
@@ -44,92 +43,95 @@ test("testing access grants the configured plan without a payment gateway", asyn
   assert.equal(entitlement.subscription.status, "testing");
 });
 
-test("consumeUsageOrThrow debits one unit per CrofAI model call", async () => {
-  const calls = [];
-  const db = {
-    async consumeUsage(payload) {
-      calls.push({ type: "consume", payload });
-      return { allowed: true, message_count: payload.messageCount };
-    },
-    async recordUsageEvent(event) {
-      calls.push({ type: "event", event });
-      return event;
-    }
-  };
+test("apiUsageWindow splits a subscription month into four dynamic weeks", () => {
+  const window = apiUsageWindow(
+    { current_period_end: "2026-03-02T00:00:00.000Z" },
+    { monthlyApiCreditLimit: 8 },
+    new Date("2026-02-16T12:00:00.000Z")
+  );
 
-  const usage = await consumeUsageOrThrow({
-    db,
-    userId: "user_1",
-    subscription: { id: "sub_1" },
-    plan: { id: "pro", dailyMessageLimit: 600, monthlyImageLimit: 1000 },
-    imageCount: 0,
-    messageCount: 4,
-    models: ["a", "b", "c", "d"]
-  });
-
-  assert.equal(usage.allowed, true);
-  assert.equal(calls[0].payload.messageCount, 4);
-  assert.equal(calls.filter((call) => call.type === "event").length, 4);
-  assert.deepEqual(calls.filter((call) => call.type === "event").map((call) => call.event.model), ["a", "b", "c", "d"]);
+  assert.equal(window.periodStart, "2026-02-02");
+  assert.equal(window.periodEnd, "2026-03-02");
+  assert.equal(window.weekStart, "2026-02-16");
+  assert.equal(window.weekEnd, "2026-02-23");
+  assert.equal(window.weekIndex, 3);
+  assert.equal(window.weeklyLimit, 2);
 });
 
-test("createCrofaiUsageMeter debits exactly one usage unit before each CrofAI call", async () => {
+test("usageCostCredits reads OpenRouter cost fields", () => {
+  assert.equal(usageCostCredits({ cost: 0.0012 }), 0.0012);
+  assert.equal(usageCostCredits({ total_cost: 0.004 }), 0.004);
+});
+
+test("createCrofaiUsageMeter checks budget then records actual streamed OpenRouter cost", async () => {
   const events = [];
   const db = {
-    async consumeUsage(payload) {
-      events.push({ type: "consume", payload });
-      return { allowed: true, message_count: events.filter((event) => event.type === "consume").length };
+    async checkApiBudget(payload) {
+      events.push({ type: "check", payload });
+      return { allowed: true };
     },
-    async recordUsageEvent(event) {
-      events.push({ type: "event", event });
-      return event;
+    async recordApiUsageCost(payload) {
+      events.push({ type: "cost", payload });
+      return { allowed: true };
     }
   };
   const crofCalls = [];
+  const streamForCost = (cost) => {
+    const encoder = new TextEncoder();
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: {"id":"gen_1","choices":[{"delta":{"content":"ok"}}]}\n\n`));
+        controller.enqueue(encoder.encode(`data: {"usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110,"cost":${cost}},"choices":[]}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      }
+    }));
+  };
   const meter = createCrofaiUsageMeter({
     db,
     userId: "user_1",
-    subscription: { id: "sub_1" },
-    plan: { id: "pro", dailyMessageLimit: 600, monthlyImageLimit: 1000 },
-    imageCount: 2,
+    subscription: { id: "sub_1", current_period_end: "2026-07-01T00:00:00.000Z" },
+    plan: { id: "pro", monthlyApiCreditLimit: 10 },
     chatCompletionFn: async (params) => {
       crofCalls.push({ type: "chat", model: params.body.model });
+      params.onResponsePayload?.({
+        id: "gen_chat",
+        usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, cost: 0.0005 }
+      });
       return "ok";
     },
     streamChatCompletionFn: async (params) => {
       crofCalls.push({ type: "stream", model: params.body.model });
-      return { body: { getReader() {} } };
+      return streamForCost(0.001);
     }
   });
 
-  await Promise.all([
-    meter.chatCompletion({ body: { model: "alpha" } }),
-    meter.chatCompletion({ body: { model: "beta" } }),
-    meter.streamChatCompletion({ body: { model: "gamma" } })
-  ]);
+  await meter.chatCompletion({ apiKey: "or", baseUrl: "https://openrouter.ai/api/v1", body: { model: "alpha" }, providerId: "openrouter" });
+  const upstream = await meter.streamChatCompletion({ apiKey: "or", baseUrl: "https://openrouter.ai/api/v1", body: { model: "gamma" }, providerId: "openrouter" });
+  await upstream.text();
 
-  const consumes = events.filter((event) => event.type === "consume").map((event) => event.payload);
-  assert.equal(consumes.length, crofCalls.length);
-  assert.deepEqual(consumes.map((payload) => payload.messageCount), [1, 1, 1]);
-  assert.deepEqual(consumes.map((payload) => payload.imageCount), [2, 0, 0]);
-  assert.deepEqual(events.filter((event) => event.type === "event").map((event) => event.event.model), ["alpha", "beta", "gamma"]);
-  assert.deepEqual(crofCalls.map((call) => call.model), ["alpha", "beta", "gamma"]);
+  assert.deepEqual(crofCalls.map((call) => call.model), ["alpha", "gamma"]);
+  assert.equal(events.filter((event) => event.type === "check").length, 2);
+  const costs = events.filter((event) => event.type === "cost").map((event) => event.payload);
+  assert.deepEqual(costs.map((payload) => payload.model), ["alpha", "gamma"]);
+  assert.deepEqual(costs.map((payload) => payload.costCredits), [0.0005, 0.001]);
+  assert.equal(costs[1].generationId, "gen_1");
 });
 
-test("createCrofaiUsageMeter does not call CrofAI when usage is denied", async () => {
+test("createCrofaiUsageMeter does not call OpenRouter when weekly budget is denied", async () => {
   let crofCalls = 0;
   const meter = createCrofaiUsageMeter({
     db: {
-      async consumeUsage() {
-        return { allowed: false, reason: "Daily message limit reached." };
+      async checkApiBudget() {
+        return { allowed: false, reason: "Weekly API limit reached." };
       },
-      async recordUsageEvent() {
-        throw new Error("usage events should not be written when usage is denied");
+      async recordApiUsageCost() {
+        throw new Error("usage cost should not be written when usage is denied");
       }
     },
     userId: "user_1",
     subscription: { id: "sub_1" },
-    plan: { id: "pro", dailyMessageLimit: 0, monthlyImageLimit: 1000 },
+    plan: { id: "pro", monthlyApiCreditLimit: 10 },
     chatCompletionFn: async () => {
       crofCalls += 1;
       return "not reached";
@@ -138,81 +140,12 @@ test("createCrofaiUsageMeter does not call CrofAI when usage is denied", async (
 
   await assert.rejects(
     meter.chatCompletion({ body: { model: "alpha" } }),
-    /Daily message limit reached/
+    /Weekly API limit reached/
   );
   assert.equal(crofCalls, 0);
 });
 
-test("SupabaseRest passes message count into usage RPC", async () => {
-  const originalFetch = globalThis.fetch;
-  let rpcBody;
-  globalThis.fetch = async (_url, options = {}) => {
-    rpcBody = JSON.parse(options.body);
-    return new Response(JSON.stringify({ allowed: true }), {
-      status: 200,
-      headers: { "content-type": "application/json" }
-    });
-  };
-
-  try {
-    const db = new SupabaseRest({
-      supabase: {
-        url: "https://example.supabase.co",
-        serviceRoleKey: "service-role-key"
-      }
-    });
-
-    await db.consumeUsage({
-      userId: "user_1",
-      planId: "pro",
-      dailyMessageLimit: 600,
-      monthlyImageLimit: 1000,
-      imageCount: 2,
-      messageCount: 3
-    });
-
-    assert.equal(rpcBody.p_message_count, 3);
-    assert.equal(rpcBody.p_image_count, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("SupabaseRest keeps single-message usage compatible with the legacy RPC signature", async () => {
-  const originalFetch = globalThis.fetch;
-  let rpcBody;
-  globalThis.fetch = async (_url, options = {}) => {
-    rpcBody = JSON.parse(options.body);
-    return new Response(JSON.stringify({ allowed: true }), {
-      status: 200,
-      headers: { "content-type": "application/json" }
-    });
-  };
-
-  try {
-    const db = new SupabaseRest({
-      supabase: {
-        url: "https://example.supabase.co",
-        serviceRoleKey: "service-role-key"
-      }
-    });
-
-    await db.consumeUsage({
-      userId: "user_1",
-      planId: "pro",
-      dailyMessageLimit: 600,
-      monthlyImageLimit: 1000,
-      imageCount: 0,
-      messageCount: 1
-    });
-
-    assert.equal(Object.hasOwn(rpcBody, "p_message_count"), false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("SupabaseRest passes document usage into the document metering RPC", async () => {
+test("SupabaseRest records API usage cost with the active weekly window", async () => {
   const originalFetch = globalThis.fetch;
   let calledUrl;
   let rpcBody;
@@ -233,43 +166,32 @@ test("SupabaseRest passes document usage into the document metering RPC", async 
       }
     });
 
-    await db.consumeDocuments({
+    await db.recordApiUsageCost({
       userId: "user_1",
+      subscriptionId: "sub_1",
       planId: "pro",
-      dailyDocumentToolLimit: 100,
-      dailyGeneratedDocumentLimit: 20,
-      toolCount: 2,
-      generatedCount: 1
+      model: "deepseek/deepseek-v4-flash",
+      provider: "openrouter",
+      generationId: "gen_1",
+      periodStart: "2026-02-02",
+      periodEnd: "2026-03-02",
+      weekStart: "2026-02-09",
+      weekEnd: "2026-02-16",
+      weekIndex: 2,
+      weeklyLimit: 2.5,
+      costCredits: 0.00123,
+      costSource: "openrouter_usage",
+      usage: { cost: 0.00123 }
     });
 
-    assert.match(calledUrl, /\/rpc\/klui_consume_documents$/);
-    assert.equal(rpcBody.p_user_id, "user_1");
-    assert.equal(rpcBody.p_plan_id, "pro");
-    assert.equal(rpcBody.p_daily_document_tool_limit, 100);
-    assert.equal(rpcBody.p_daily_generated_document_limit, 20);
-    assert.equal(rpcBody.p_tool_count, 2);
-    assert.equal(rpcBody.p_generated_count, 1);
+    assert.match(calledUrl, /\/rpc\/klui_record_api_usage$/);
+    assert.equal(rpcBody.p_period_start, "2026-02-02");
+    assert.equal(rpcBody.p_week_index, 2);
+    assert.equal(rpcBody.p_weekly_credit_limit, 2.5);
+    assert.equal(rpcBody.p_cost_credits, 0.00123);
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test("consumeDocumentsOrThrow rejects document usage past plan limits", async () => {
-  const db = {
-    async consumeDocuments() {
-      return { allowed: false, reason: "Daily document tool limit reached for your plan." };
-    }
-  };
-
-  await assert.rejects(
-    consumeDocumentsOrThrow({
-      db,
-      userId: "user_1",
-      plan: { id: "hobby", dailyDocumentToolLimit: 1, dailyGeneratedDocumentLimit: 0 },
-      toolCount: 2
-    }),
-    /Daily document tool limit reached/
-  );
 });
 
 test("R2 upload helpers validate images and sanitize names", () => {

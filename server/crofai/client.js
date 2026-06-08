@@ -146,9 +146,10 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
   return postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
 }
 
-export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
+export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponsePayload }) {
   const requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: false };
   const response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
   const payload = await response.json();
+  if (typeof onResponsePayload === "function") onResponsePayload(payload);
   return payload?.choices?.[0]?.message?.content || "";
 }

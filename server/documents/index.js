@@ -1,5 +1,4 @@
 import { HttpError } from "../http/responses.js";
-import { consumeDocumentsOrThrow } from "../saas/entitlements.js";
 
 const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -184,14 +183,14 @@ export class DocumentService {
   }
 
   async consume({ toolCount = 1, generatedCount = 0 } = {}) {
-    await consumeDocumentsOrThrow({
-      db: this.db,
-      userId: this.userId,
-      plan: this.plan,
-      toolCount,
-      generatedCount,
-      signal: this.signal
-    });
+    const tools = Number(toolCount);
+    const generated = Number(generatedCount);
+    if (!Number.isInteger(tools) || tools < 0) {
+      throw new HttpError(400, "Document tool count must be zero or greater.");
+    }
+    if (!Number.isInteger(generated) || generated < 0) {
+      throw new HttpError(400, "Generated document count must be zero or greater.");
+    }
   }
 
   async readyDocuments() {

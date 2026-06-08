@@ -13,11 +13,6 @@ function single(rows) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-function isMissingMessageCountRpc(error) {
-  const text = `${error?.message || ""} ${JSON.stringify(error?.details || {})}`;
-  return /p_message_count|schema cache|klui_consume_usage/i.test(text);
-}
-
 export class SupabaseRest {
   constructor(config) {
     this.url = config.supabase.url;
@@ -522,58 +517,72 @@ export class SupabaseRest {
     }, { signal });
   }
 
-  async consumeUsage({ userId, planId, dailyMessageLimit, monthlyImageLimit, imageCount, messageCount = 1 }, { signal } = {}) {
-    const body = {
+  async checkApiBudget({
+    userId,
+    planId,
+    periodStart,
+    periodEnd,
+    weekStart,
+    weekEnd,
+    weekIndex,
+    weeklyLimit
+  }, { signal } = {}) {
+    return this.rpc("klui_check_api_budget", {
       p_user_id: userId,
       p_plan_id: planId,
-      p_daily_message_limit: dailyMessageLimit,
-      p_monthly_image_limit: monthlyImageLimit,
-      p_image_count: imageCount
-    };
-
-    if (messageCount !== 1) body.p_message_count = messageCount;
-
-    try {
-      return await this.rpc("klui_consume_usage", body, { signal });
-    } catch (error) {
-      if (!isMissingMessageCountRpc(error)) throw error;
-    }
-
-    let usage;
-    for (let i = 0; i < messageCount; i++) {
-      usage = await this.rpc("klui_consume_usage", {
-        p_user_id: userId,
-        p_plan_id: planId,
-        p_daily_message_limit: dailyMessageLimit,
-        p_monthly_image_limit: monthlyImageLimit,
-        p_image_count: i === 0 ? imageCount : 0
-      }, { signal });
-
-      if (!usage?.allowed) return usage;
-    }
-
-    return {
-      ...usage,
-      consumed_message_count: messageCount,
-      legacy_usage_fallback: true
-    };
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+      p_week_index: weekIndex,
+      p_weekly_credit_limit: weeklyLimit
+    }, { signal });
   }
 
-  async recordUsageEvent(event, { signal } = {}) {
-    const rows = await this.request("usage_events", {
-      method: "POST",
-      body: event,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async recordApiUsageCost({
+    userId,
+    subscriptionId,
+    planId,
+    model,
+    provider,
+    generationId,
+    periodStart,
+    periodEnd,
+    weekStart,
+    weekEnd,
+    weekIndex,
+    weeklyLimit,
+    costCredits,
+    costSource,
+    usage,
+    status = "completed"
+  }, { signal } = {}) {
+    return this.rpc("klui_record_api_usage", {
+      p_user_id: userId,
+      p_subscription_id: subscriptionId,
+      p_plan_id: planId,
+      p_model: model || null,
+      p_provider: provider || null,
+      p_generation_id: generationId || null,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_week_start: weekStart,
+      p_week_end: weekEnd,
+      p_week_index: weekIndex,
+      p_weekly_credit_limit: weeklyLimit,
+      p_cost_credits: costCredits,
+      p_cost_source: costSource || "unknown",
+      p_usage: usage || {},
+      p_status: status
+    }, { signal });
   }
 
-  async getTodayUsage(userId, { signal } = {}) {
-    const rows = await this.request("usage_daily", {
+  async getApiWeeklyUsage(userId, { periodStart, weekIndex, signal } = {}) {
+    const rows = await this.request("usage_api_weekly", {
       query: {
         user_id: `eq.${userId}`,
-        day: `eq.${new Date().toISOString().slice(0, 10)}`,
+        period_start: `eq.${periodStart}`,
+        week_index: `eq.${weekIndex}`,
         select: "*",
         limit: "1"
       },
@@ -586,37 +595,10 @@ export class SupabaseRest {
     const [profiles, subscriptions, usage] = await Promise.all([
       this.request("profiles", { query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "25" }, signal }),
       this.request("subscriptions", { query: { select: "*", order: "updated_at.desc", limit: "25" }, signal }),
-      this.request("usage_daily", { query: { select: "*", order: "day.desc", limit: "25" }, signal })
+      this.request("usage_api_weekly", { query: { select: "*", order: "updated_at.desc", limit: "25" }, signal })
     ]);
 
     return { profiles, subscriptions, usage };
-  }
-
-  async consumeSearch({ userId, planId, dailySearchLimit, searchCount = 1 }, { signal } = {}) {
-    return this.rpc("klui_consume_search", {
-      p_user_id: userId,
-      p_plan_id: planId,
-      p_daily_search_limit: dailySearchLimit,
-      p_search_count: searchCount
-    }, { signal });
-  }
-
-  async consumeDocuments({
-    userId,
-    planId,
-    dailyDocumentToolLimit,
-    dailyGeneratedDocumentLimit,
-    toolCount = 1,
-    generatedCount = 0
-  }, { signal } = {}) {
-    return this.rpc("klui_consume_documents", {
-      p_user_id: userId,
-      p_plan_id: planId,
-      p_daily_document_tool_limit: dailyDocumentToolLimit,
-      p_daily_generated_document_limit: dailyGeneratedDocumentLimit,
-      p_tool_count: toolCount,
-      p_generated_count: generatedCount
-    }, { signal });
   }
 
   async getSearchCache(queryHash, { signal } = {}) {

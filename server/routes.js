@@ -5,7 +5,8 @@ import { normalizeChatRequest } from "./crofai/normalize.js";
 import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson, sendProblem } from "./http/responses.js";
-import { consumeSearchOrThrow, getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
+import { apiUsageWindow } from "./saas/billing.js";
+import { getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
   buildChairmanPrompt,
   generateNonce,
@@ -140,7 +141,7 @@ function publicMe({ user, profile, subscription, plan, usage, config }) {
       cancelAtPeriodEnd: subscription.cancel_at_period_end
     } : null,
     plan: plan ? publicPlan(plan) : null,
-    usage: usage || { message_count: 0, image_count: 0, search_count: 0, document_tool_count: 0, generated_document_count: 0 },
+    usage: usage || {},
     access: {
       mode: config.access.mode,
       active: Boolean(plan)
@@ -158,7 +159,28 @@ async function handleMe(req, res, config) {
     access: config.access,
     signal: req.signal
   });
-  const usage = await context.db.getTodayUsage(context.user.id, { signal: req.signal });
+  let apiUsage = null;
+  if (entitlement.plan) {
+    const window = apiUsageWindow(entitlement.subscription, entitlement.plan);
+    const row = await context.db.getApiWeeklyUsage(context.user.id, {
+      periodStart: window.periodStart,
+      weekIndex: window.weekIndex,
+      signal: req.signal
+    }).catch(() => null);
+    const used = Number(row?.api_credit_used || 0);
+    const limit = Number(row?.api_credit_limit || window.weeklyLimit || 0);
+    apiUsage = {
+      used,
+      limit,
+      percent: limit > 0 ? Math.max(0, Math.floor((used / limit) * 100)) : 0,
+      periodStart: window.periodStart,
+      periodEnd: window.periodEnd,
+      weekStart: window.weekStart,
+      weekEnd: window.weekEnd,
+      weekIndex: window.weekIndex
+    };
+  }
+  const usage = apiUsage ? { api: apiUsage } : {};
   sendJson(res, 200, publicMe({
     ...context,
     subscription: entitlement.subscription,
@@ -823,16 +845,13 @@ function normalizeWebSearchMode(value, fallback) {
 }
 
 /**
- * Builds a per-request WebSearchOrchestrator whose `search` is wrapped in
- * a daily-limit consume call. The Supabase REST client doubles as the
- * persistent cache backend.
+ * Builds a per-request WebSearchOrchestrator. The Supabase REST client
+ * doubles as the persistent cache backend; search calls are billed through
+ * the unified API-credit ledger once provider usage is wired in.
  */
 function buildMeteredWebsearch({ config, context, signal }) {
   if (!configuredServices(config).websearch) return null;
   if (config.websearch.defaultMode === "off") return null;
-
-  const dailyLimit = config.websearch.dailyLimits?.[context.plan.id] || 0;
-  if (!dailyLimit) return null;
 
   const persistentCache = {
     async get(key) {
@@ -848,17 +867,6 @@ function buildMeteredWebsearch({ config, context, signal }) {
     persistentCache
   });
   if (!orchestrator.hasAnyProvider) return null;
-
-  orchestrator.beforeNetwork = async () => {
-    await consumeSearchOrThrow({
-      db: context.db,
-      userId: context.user.id,
-      plan: context.plan,
-      dailyLimit,
-      searchCount: 1,
-      signal
-    });
-  };
 
   return orchestrator;
 }

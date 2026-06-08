@@ -8,9 +8,10 @@ test("normalizeUsage maps OpenAI/OpenRouter usage fields", () => {
       prompt_tokens: 1200,
       completion_tokens: 800,
       total_tokens: 2000,
+      cost: 0.00042,
       completion_tokens_details: { reasoning_tokens: 300 }
     }),
-    { promptTokens: 1200, completionTokens: 800, reasoningTokens: 300, totalTokens: 2000 }
+    { promptTokens: 1200, completionTokens: 800, reasoningTokens: 300, totalTokens: 2000, costCredits: 0.00042 }
   );
 });
 

@@ -241,6 +241,10 @@ export function normalizeUsage(usage) {
     const n = Number(value);
     return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
   };
+  const decimal = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
   const prompt = num(usage.prompt_tokens ?? usage.promptTokens);
   const completion = num(usage.completion_tokens ?? usage.completionTokens);
   const reasoning = num(
@@ -248,6 +252,7 @@ export function normalizeUsage(usage) {
     ?? usage.reasoning_tokens
     ?? usage.reasoningTokens
   );
+  const cost = decimal(usage.cost ?? usage.costCredits ?? usage.total_cost ?? usage.totalCost);
   let total = num(usage.total_tokens ?? usage.totalTokens);
   if (total == null && (prompt != null || completion != null)) {
     total = (prompt || 0) + (completion || 0);
@@ -258,10 +263,14 @@ export function normalizeUsage(usage) {
   if (completion != null) result.completionTokens = completion;
   if (reasoning != null) result.reasoningTokens = reasoning;
   if (total != null) result.totalTokens = total;
+  if (cost != null) result.costCredits = cost;
+  if (usage.cost_details && typeof usage.cost_details === "object") result.costDetails = usage.cost_details;
   return Object.keys(result).length ? result : null;
 }
 
 export function applyStreamEvent(message, event) {
+  if (event?.id && !message.generationId) message.generationId = String(event.id);
+
   /* Usage arrives in a trailing chunk (often with an empty `choices`
      array), so capture it before bailing on the missing choice. */
   if (event?.usage) {
@@ -336,7 +345,8 @@ export async function pipeProviderStreamAndAccumulate(upstream, res) {
     reasoning: "",
     toolCalls: [],
     finishReason: "",
-    usage: null
+    usage: null,
+    generationId: ""
   };
   let buffer = "";
 
@@ -361,7 +371,8 @@ export async function streamProviderAndAccumulate(upstream, onEvent) {
     reasoning: "",
     toolCalls: [],
     finishReason: "",
-    usage: null
+    usage: null,
+    generationId: ""
   };
   let buffer = "";
 
