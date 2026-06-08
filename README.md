@@ -5,7 +5,7 @@ Klui Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible mode
 ## What Is Included
 
 - Testing access mode: signed-in users can chat without a payment gateway while the product is in MVP testing.
-- Supabase Auth with email magic links. Google OAuth is supported behind `SUPABASE_GOOGLE_ENABLED=true` after the provider is configured in Supabase.
+- Supabase Auth with email magic links. Google sign-in uses Google Identity Services plus Supabase `signInWithIdToken`; enable it with `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID` after configuring the Google provider in Supabase.
 - Supabase Postgres persistence for profiles, plans, gateway-neutral subscriptions, conversations, messages, usage, and attachments.
 - Cloudflare R2 signed uploads for user images and supported documents.
 - Server-only Crof model API key and cached `/models` access.
@@ -33,7 +33,7 @@ For future packages:
 
 1. Create a Supabase project.
 2. Run [`supabase/schema.sql`](./supabase/schema.sql) in the Supabase SQL editor.
-3. Enable Supabase email magic links. Configure Google OAuth separately before setting `SUPABASE_GOOGLE_ENABLED=true`.
+3. Enable Supabase email magic links. Configure Google Auth separately before setting `SUPABASE_GOOGLE_ENABLED=true` and `GOOGLE_CLIENT_ID`.
 4. Create a private Cloudflare R2 bucket and allow browser `PUT` uploads from your app origin.
 5. Copy `.env.example` to `.env` and fill in all required values.
 6. Keep `ACCESS_MODE=testing` for MVP testing. Switch it to `subscription` only after the new payment gateway is implemented.
@@ -48,6 +48,7 @@ Required:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_GOOGLE_ENABLED`
+- `GOOGLE_CLIENT_ID` when Google sign-in is enabled
 - `R2_ACCOUNT_ID`
 - `R2_ACCESS_KEY_ID`
 - `R2_SECRET_ACCESS_KEY`

@@ -23,10 +23,11 @@ import {
 } from "./api.js";
 import {
   clearSession,
-  googleSignInUrl,
   loadSession,
+  parseAuthErrorFromUrl,
   parseSessionFromUrl,
   refreshSession,
+  renderGoogleSignInButton,
   saveSession,
   sendMagicLink,
   signOut
@@ -107,6 +108,7 @@ const state = {
 };
 
 let renderQueued = false;
+let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
@@ -564,7 +566,33 @@ function renderServices() {
 }
 
 function renderAuthOptions() {
-  els.googleButton.classList.toggle("hidden", !state.config?.auth?.googleEnabled);
+  const googleEnabled = Boolean(state.config?.auth?.googleEnabled);
+  const googleReady = Boolean(googleEnabled && state.config?.auth?.googleClientId);
+  els.googleButton.classList.toggle("hidden", !googleReady);
+  if (!googleReady) {
+    els.googleButton.innerHTML = "";
+    googleButtonRenderKey = "";
+    if (googleEnabled) els.authNotice.textContent = "Google sign-in needs GOOGLE_CLIENT_ID in your environment.";
+    return;
+  }
+
+  if (els.authNotice.textContent === "Google sign-in needs GOOGLE_CLIENT_ID in your environment.") {
+    els.authNotice.textContent = "";
+  }
+
+  const renderKey = `${state.config.auth.googleClientId}:${els.googleButton.clientWidth || 0}`;
+  if (googleButtonRenderKey === renderKey && els.googleButton.childElementCount) return;
+  googleButtonRenderKey = renderKey;
+
+  renderGoogleSignInButton(state.config, els.googleButton, {
+    onSession: handleAuthenticatedSession,
+    onError: (err) => {
+      els.authNotice.textContent = err?.message || "Google sign-in failed.";
+    }
+  }).catch((err) => {
+    googleButtonRenderKey = "";
+    els.authNotice.textContent = err?.message || "Google sign-in could not be loaded.";
+  });
 }
 
 function renderPlans() {
@@ -2875,6 +2903,20 @@ async function loadMe() {
   state.me = await fetchMe(state.session);
 }
 
+async function handleAuthenticatedSession(session) {
+  if (!session?.access_token) return;
+  state.session = session;
+  saveSession(session);
+  els.authNotice.textContent = "";
+  try {
+    await withTimeout(loadMe(), 8000, "Account load");
+    renderShell();
+    if (hasChatAccess()) await loadChatApp();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
 async function loadModels() {
   if (!state.config?.services?.crof) {
     state.models = [];
@@ -3301,6 +3343,8 @@ async function bootstrap() {
     });
     const plansPayload = await fetchPlans();
     state.plans = plansPayload.plans || [];
+    const authError = parseAuthErrorFromUrl();
+    if (authError) showToast(authError);
     state.session = parseSessionFromUrl() || loadSession();
     if (state.session) {
       try {
@@ -3344,11 +3388,6 @@ function bindEvents() {
     if (!state.running) return;
     state.autoScroll = isNearBottom(els.messages);
   }, { passive: true });
-  els.googleButton.addEventListener("click", () => {
-    if (!state.config?.auth?.googleEnabled) return;
-    window.location.href = googleSignInUrl(state.config);
-  });
-
   els.magicForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     try {

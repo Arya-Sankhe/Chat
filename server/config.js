@@ -98,7 +98,8 @@ export function loadConfig(env = process.env) {
       serviceRoleKey: clean(env.SUPABASE_SERVICE_ROLE_KEY)
     },
     auth: {
-      googleEnabled: readBoolean(env.SUPABASE_GOOGLE_ENABLED, false)
+      googleEnabled: readBoolean(env.SUPABASE_GOOGLE_ENABLED, false),
+      googleClientId: clean(env.GOOGLE_CLIENT_ID || env.SUPABASE_GOOGLE_CLIENT_ID)
     },
     r2: {
       accountId: r2AccountId,

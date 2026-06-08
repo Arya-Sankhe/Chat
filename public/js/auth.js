@@ -1,4 +1,7 @@
 const AUTH_STORAGE_KEY = "klui.auth.v1";
+const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
+
+let googleIdentityPromise = null;
 
 function cleanUrl(value) {
   return String(value || "").replace(/\/+$/, "");
@@ -45,6 +48,18 @@ export function parseSessionFromUrl() {
   saveSession(session);
   window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
   return session;
+}
+
+export function parseAuthErrorFromUrl() {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const query = new URLSearchParams(window.location.search);
+  const error = hash.get("error_description")
+    || query.get("error_description")
+    || hash.get("error")
+    || query.get("error");
+  if (!error) return "";
+  window.history.replaceState({}, document.title, window.location.pathname);
+  return error;
 }
 
 export async function refreshSession(config, session, { force = false } = {}) {
@@ -97,12 +112,90 @@ export async function sendMagicLink(config, email) {
   if (!response.ok) throw new Error("Could not send the magic link.");
 }
 
-export function googleSignInUrl(config) {
-  const url = new URL(`${cleanUrl(config.supabaseUrl)}/auth/v1/authorize`);
-  url.searchParams.set("provider", "google");
-  url.searchParams.set("redirect_to", window.location.origin);
-  if (config.supabaseAnonKey) url.searchParams.set("apikey", config.supabaseAnonKey);
-  return url.toString();
+function sessionFromAuthPayload(payload, previousSession = null) {
+  return {
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token || previousSession?.refresh_token || null,
+    expires_at: Math.floor(Date.now() / 1000) + Number(payload.expires_in || 3600),
+    token_type: payload.token_type || "bearer"
+  };
+}
+
+function loadGoogleIdentityServices() {
+  if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
+  if (googleIdentityPromise) return googleIdentityPromise;
+
+  googleIdentityPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${GIS_SCRIPT_URL}"]`);
+    const script = existing || document.createElement("script");
+    script.src = GIS_SCRIPT_URL;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.google?.accounts?.id) resolve(window.google.accounts.id);
+      else reject(new Error("Google sign-in could not be loaded."));
+    };
+    script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
+    if (!existing) document.head.appendChild(script);
+  });
+
+  return googleIdentityPromise;
+}
+
+export async function signInWithGoogleIdToken(config, credential) {
+  if (!credential) throw new Error("Google did not return a sign-in token.");
+
+  const response = await fetch(`${cleanUrl(config.supabaseUrl)}/auth/v1/token?grant_type=id_token`, {
+    method: "POST",
+    headers: {
+      apikey: config.supabaseAnonKey,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "google",
+      id_token: credential
+    })
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error_description || payload.msg || payload.message || "Google sign-in failed.");
+  }
+
+  const payload = await response.json();
+  const session = sessionFromAuthPayload(payload);
+  saveSession(session);
+  return session;
+}
+
+export async function renderGoogleSignInButton(config, element, { onSession, onError } = {}) {
+  if (!element) return;
+  const clientId = config?.auth?.googleClientId;
+  if (!clientId) throw new Error("Google sign-in needs GOOGLE_CLIENT_ID.");
+
+  const googleId = await loadGoogleIdentityServices();
+  googleId.initialize({
+    client_id: clientId,
+    callback: async (response) => {
+      try {
+        const session = await signInWithGoogleIdToken(config, response?.credential);
+        onSession?.(session);
+      } catch (err) {
+        onError?.(err);
+      }
+    }
+  });
+
+  element.innerHTML = "";
+  googleId.renderButton(element, {
+    theme: "outline",
+    size: "large",
+    type: "standard",
+    shape: "rectangular",
+    text: "continue_with",
+    logo_alignment: "left",
+    width: Math.max(240, Math.min(400, element.clientWidth || 320))
+  });
 }
 
 export async function signOut(config, session) {

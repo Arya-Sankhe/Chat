@@ -95,24 +95,8 @@ button { cursor: pointer; border: none; background: none; }
 }
 
 .auth-google {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   width: 100%;
-  height: 48px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  transition: background var(--transition), border-color var(--transition);
-}
-
-.auth-google:hover {
-  background: var(--bg-secondary);
-  border-color: #ccc;
+  min-height: 44px;
 }
 
 .magic-form {
