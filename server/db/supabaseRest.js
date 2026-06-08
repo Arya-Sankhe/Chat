@@ -592,13 +592,30 @@ export class SupabaseRest {
   }
 
   async adminSummary({ signal } = {}) {
-    const [profiles, subscriptions, usage] = await Promise.all([
-      this.request("profiles", { query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "25" }, signal }),
-      this.request("subscriptions", { query: { select: "*", order: "updated_at.desc", limit: "25" }, signal }),
-      this.request("usage_api_weekly", { query: { select: "*", order: "updated_at.desc", limit: "25" }, signal })
+    const [profiles, subscriptions, usageRows] = await Promise.all([
+      this.request("profiles", {
+        query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "500" },
+        signal
+      }),
+      this.request("subscriptions", {
+        query: {
+          select: "id,user_id,plan_id,status,cancel_at_period_end,current_period_end,updated_at",
+          order: "updated_at.desc",
+          limit: "1000"
+        },
+        signal
+      }),
+      this.request("usage_api_weekly", {
+        query: {
+          select: "user_id,plan_id,period_start,period_end,week_index,week_start,week_end,api_credit_used,api_credit_limit,updated_at",
+          order: "updated_at.desc",
+          limit: "2000"
+        },
+        signal
+      })
     ]);
 
-    return { profiles, subscriptions, usage };
+    return { profiles, subscriptions, usage: usageRows };
   }
 
   async getSearchCache(queryHash, { signal } = {}) {

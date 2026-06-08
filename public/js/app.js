@@ -759,6 +759,76 @@ function renderAccount() {
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
 }
 
+function formatAdminCredits(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (n >= 10) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function formatAdminDate(value) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Never";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function activeSubscriptionStatus(status) {
+  return ["active", "trialing", "testing"].includes(String(status || "").toLowerCase());
+}
+
+function renderAdminDashboard(summary) {
+  const totals = summary?.totals || {};
+  const plans = Array.isArray(summary?.plans) ? summary.plans : [];
+  const users = Array.isArray(summary?.users) ? summary.users : [];
+  const generated = summary?.generatedAt ? new Date(summary.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  els.adminOutput.innerHTML = `
+    <p class="admin-meta">${summary?.cached ? "Cached" : "Fresh"} overview${generated ? ` · ${escapeHtml(generated)}` : ""}</p>
+    <div class="admin-stats">
+      <div class="admin-stat">
+        <div class="admin-stat-value">${Number(totals.users || 0).toLocaleString()}</div>
+        <div class="admin-stat-label">users</div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-value">${Number(totals.subscribedUsers || 0).toLocaleString()}</div>
+        <div class="admin-stat-label">subscribed</div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-value">${formatAdminCredits(totals.currentWeekCreditsUsed)}</div>
+        <div class="admin-stat-label">week credits</div>
+      </div>
+      <div class="admin-stat">
+        <div class="admin-stat-value">${formatAdminCredits(totals.totalCreditsUsed)}</div>
+        <div class="admin-stat-label">tracked credits</div>
+      </div>
+    </div>
+    <div class="admin-subtitle">Plans</div>
+    ${plans.length ? plans.map((plan) => `
+      <div class="admin-plan-row">
+        <div>
+          <div class="admin-row-title">${escapeHtml(plan.name || plan.id || "Plan")}</div>
+          <div class="admin-row-sub">${Number(plan.activeUsers || 0).toLocaleString()} active · ${Number(plan.users || 0).toLocaleString()} total</div>
+        </div>
+        <div class="admin-row-metric">${formatAdminCredits(plan.creditsUsed)} cr</div>
+      </div>
+    `).join("") : `<div class="admin-row-sub">No plan data yet.</div>`}
+    <div class="admin-subtitle">Top Users</div>
+    ${users.length ? users.map((user) => `
+      <div class="admin-user-row">
+        <div>
+          <div class="admin-row-title" title="${escapeHtml(user.email || "")}">${escapeHtml(user.email || "Unknown")}</div>
+          <div class="admin-row-sub">${escapeHtml(user.planName || "No plan")} · last use ${escapeHtml(formatAdminDate(user.lastUsageAt))}</div>
+        </div>
+        <div>
+          <div class="admin-row-metric">${formatAdminCredits(user.totalCreditsUsed)} cr</div>
+          <div class="admin-status ${activeSubscriptionStatus(user.subscriptionStatus) ? "active" : ""}">${escapeHtml(user.subscriptionStatus || "none")}</div>
+        </div>
+      </div>
+    `).join("") : `<div class="admin-row-sub">No users yet.</div>`}
+  `;
+}
+
 /* ─── Conversations ─── */
 
 function renderConversations() {
@@ -3670,10 +3740,15 @@ function bindEvents() {
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
 
   els.loadAdminButton.addEventListener("click", async () => {
+    els.loadAdminButton.disabled = true;
+    els.loadAdminButton.textContent = "Loading...";
     try {
-      els.adminOutput.textContent = JSON.stringify(await fetchAdminSummary(state.session), null, 2);
+      renderAdminDashboard(await fetchAdminSummary(state.session));
     } catch (err) {
       els.adminOutput.textContent = err.message;
+    } finally {
+      els.loadAdminButton.disabled = false;
+      els.loadAdminButton.textContent = "Refresh dashboard";
     }
   });
 }

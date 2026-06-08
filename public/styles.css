@@ -2954,18 +2954,108 @@ body.document-viewer-resizing {
 
 .admin-output {
   margin-top: 10px;
-  padding: 10px 12px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  font-size: 12px;
-  font-family: "SF Mono", "Fira Code", monospace;
-  max-height: 300px;
+  max-height: min(620px, calc(100vh - 260px));
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
+  color: var(--text);
 }
 
 .admin-output:empty { display: none; }
+
+.admin-meta {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-stat {
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.admin-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.admin-stat-label {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.admin-subtitle {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-plan-row,
+.admin-user-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.admin-plan-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-row-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-row-sub {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.admin-row-metric {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.admin-user-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-status {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.admin-status.active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
 
 /* ─── Confirm Dialog ─── */
 .confirm-dialog {
