@@ -99,44 +99,6 @@ button { cursor: pointer; border: none; background: none; }
   min-height: 44px;
 }
 
-.magic-form {
-  display: flex;
-  gap: 8px;
-}
-
-.magic-form input {
-  flex: 1;
-  height: 48px;
-  padding: 0 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 15px;
-  outline: none;
-  transition: border-color var(--transition);
-}
-
-.magic-form input:focus {
-  border-color: var(--accent);
-}
-
-.auth-submit {
-  height: 48px;
-  padding: 0 20px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-  background: var(--accent);
-  white-space: nowrap;
-  transition: background var(--transition);
-}
-
-.auth-submit:hover {
-  background: var(--accent-hover);
-}
-
 .auth-notice {
   font-size: 13px;
   color: var(--text-secondary);
@@ -238,6 +200,14 @@ body.sidebar-expanded .sidebar {
   width: var(--sidebar-w-expanded);
 }
 
+body.guest-mode .app-shell {
+  grid-template-columns: var(--sidebar-w-expanded) minmax(0, 1fr);
+}
+
+body.guest-mode .sidebar {
+  width: var(--sidebar-w-expanded);
+}
+
 .sidebar-top {
   display: flex;
   flex-direction: column;
@@ -277,6 +247,51 @@ body.sidebar-expanded .sidebar {
 
 .sidebar-icon:hover {
   background: var(--bg-secondary);
+}
+
+.guest-login-panel {
+  margin: auto 12px 8px;
+  padding: 16px 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+body:not(.guest-mode) .guest-login-panel {
+  display: none !important;
+}
+
+.guest-login-panel strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.guest-login-panel p {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.guest-login-btn {
+  width: 100%;
+  min-height: 44px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+  font-weight: 650;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.guest-login-btn:hover {
+  background: var(--accent-hover);
+}
+
+body.guest-mode .sidebar-bottom {
+  display: none;
 }
 
 .conversation-row {
@@ -3134,6 +3149,74 @@ body.document-viewer-resizing {
   background: #dc2626;
 }
 
+/* ─── Sign-in Dialog ─── */
+.auth-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(420px, calc(100vw - 32px));
+  padding: 36px 26px 28px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 45;
+}
+
+.auth-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.auth-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.auth-dialog-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.auth-dialog h2 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.auth-dialog p {
+  margin: 0 auto 24px;
+  max-width: 300px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.auth-dialog .auth-google {
+  display: flex;
+  justify-content: center;
+}
+
+.auth-dialog .auth-notice {
+  margin-top: 12px;
+}
+
 /* ─── Overlay & Toast ─── */
 .overlay {
   position: fixed;
@@ -3176,6 +3259,10 @@ body.document-viewer-resizing {
   }
 
   .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  body.guest-mode .app-shell {
     grid-template-columns: 1fr;
   }
 
@@ -3223,6 +3310,16 @@ body.document-viewer-resizing {
   }
 
   body.sidebar-open .sidebar {
+    width: var(--sidebar-w-expanded);
+    transform: translateX(0);
+  }
+
+  body.guest-mode .sidebar {
+    width: 0;
+    transform: translateX(-100%);
+  }
+
+  body.guest-mode.sidebar-open .sidebar {
     width: var(--sidebar-w-expanded);
     transform: translateX(0);
   }
@@ -3360,7 +3457,4 @@ body.document-viewer-resizing {
     font-size: 22px;
   }
 
-  .magic-form {
-    flex-direction: column;
-  }
 }

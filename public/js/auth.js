@@ -91,27 +91,6 @@ export async function refreshSession(config, session, { force = false } = {}) {
   return next;
 }
 
-export async function sendMagicLink(config, email) {
-  const response = await fetch(`${cleanUrl(config.supabaseUrl)}/auth/v1/otp`, {
-    method: "POST",
-    headers: {
-      apikey: config.supabaseAnonKey,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      email,
-      type: "magiclink",
-      create_user: true,
-      options: {
-        email_redirect_to: window.location.origin,
-        emailRedirectTo: window.location.origin
-      }
-    })
-  });
-
-  if (!response.ok) throw new Error("Could not send the magic link.");
-}
-
 function sessionFromAuthPayload(payload, previousSession = null) {
   return {
     access_token: payload.access_token,

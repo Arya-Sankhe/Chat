@@ -29,7 +29,6 @@ import {
   refreshSession,
   renderGoogleSignInButton,
   saveSession,
-  sendMagicLink,
   signOut
 } from "./auth.js";
 import {
@@ -115,14 +114,15 @@ let suppressUrlSync = false;
 
 const els = {
   setupView: document.querySelector("#setupView"),
-  authView: document.querySelector("#authView"),
   paywallView: document.querySelector("#paywallView"),
   chatView: document.querySelector("#chatView"),
   serviceList: document.querySelector("#serviceList"),
   googleButton: document.querySelector("#googleButton"),
-  magicForm: document.querySelector("#magicForm"),
-  emailInput: document.querySelector("#emailInput"),
   authNotice: document.querySelector("#authNotice"),
+  authDialog: document.querySelector("#authDialog"),
+  authDialogClose: document.querySelector("#authDialogClose"),
+  guestLoginPanel: document.querySelector("#guestLoginPanel"),
+  guestLoginButton: document.querySelector("#guestLoginButton"),
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
   paywallSignOutButton: document.querySelector("#paywallSignOutButton"),
@@ -513,11 +513,14 @@ function hasChatAccess() {
 /* ─── View switching ─── */
 
 function showOnly(view) {
-  [els.setupView, els.authView, els.paywallView, els.chatView].forEach((el) => el.classList.add("hidden"));
+  [els.setupView, els.paywallView, els.chatView].forEach((el) => el?.classList.add("hidden"));
   view.classList.remove("hidden");
 }
 
 function renderShell() {
+  const guest = !state.session;
+  document.body.classList.toggle("guest-mode", guest);
+  els.guestLoginPanel?.classList.toggle("hidden", !guest);
   renderAuthOptions();
 
   if (!servicesReady()) {
@@ -527,7 +530,16 @@ function renderShell() {
   }
 
   if (!state.session) {
-    showOnly(els.authView);
+    showOnly(els.chatView);
+    state.conversations = [];
+    state.activeConversationId = "";
+    renderUsage();
+    renderConversations();
+    renderModelOptions();
+    renderContextMeter();
+    renderWebSearchToggle();
+    renderMessages();
+    renderDocumentViewer();
     return;
   }
 
@@ -579,6 +591,8 @@ function renderAuthOptions() {
   if (els.authNotice.textContent === "Google sign-in needs GOOGLE_CLIENT_ID in your environment.") {
     els.authNotice.textContent = "";
   }
+
+  if (!els.authDialog.classList.contains("open")) return;
 
   const renderKey = `${state.config.auth.googleClientId}:${els.googleButton.clientWidth || 0}`;
   if (googleButtonRenderKey === renderKey && els.googleButton.childElementCount) return;
@@ -2342,7 +2356,8 @@ function renderCouncilMessage(council) {
 
 function renderMessages() {
   if (!state.messages.length) {
-    els.messages.innerHTML = `<div class="empty-state"><div><h1>${getGreeting()}</h1></div></div>`;
+    const title = state.session ? getGreeting() : "Ready when you are.";
+    els.messages.innerHTML = `<div class="empty-state"><div><h1>${escapeHtml(title)}</h1></div></div>`;
     return;
   }
 
@@ -2463,6 +2478,7 @@ async function startDocumentUpload(item) {
 }
 
 function addImages(files) {
+  if (!requireAuth()) return;
   const plan = state.me?.plan || {};
   const accepted = [...files].filter(isSupportedPendingFile);
   const currentImages = state.images.filter((item) => item.category === "image").length;
@@ -2537,6 +2553,10 @@ function closeSettings() {
 }
 
 function openAccount() {
+  if (!state.session) {
+    openAuthDialog();
+    return;
+  }
   renderAccount();
   els.accountDrawer.classList.add("open");
   els.accountDrawer.setAttribute("aria-hidden", "false");
@@ -2548,6 +2568,23 @@ function closeAccount() {
   els.accountDrawer.classList.remove("open");
   els.accountDrawer.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "account") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+}
+
+function openAuthDialog() {
+  els.authDialog.classList.add("open");
+  els.authDialog.setAttribute("aria-hidden", "false");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "auth";
+  renderAuthOptions();
+}
+
+function closeAuthDialog() {
+  els.authDialog.classList.remove("open");
+  els.authDialog.setAttribute("aria-hidden", "true");
+  if (els.overlay.dataset.mode === "auth") {
     els.overlay.hidden = true;
     delete els.overlay.dataset.mode;
   }
@@ -2577,6 +2614,7 @@ function closeConfirmDialog() {
 function closeAllDrawers() {
   closeSettings();
   closeAccount();
+  closeAuthDialog();
   closeConfirmDialog();
 }
 
@@ -2908,6 +2946,7 @@ async function handleAuthenticatedSession(session) {
   state.session = session;
   saveSession(session);
   els.authNotice.textContent = "";
+  closeAuthDialog();
   try {
     await withTimeout(loadMe(), 8000, "Account load");
     renderShell();
@@ -2970,7 +3009,14 @@ async function loadChatApp() {
 
 /* ─── Actions ─── */
 
+function requireAuth() {
+  if (state.session) return true;
+  openAuthDialog();
+  return false;
+}
+
 async function addConversation() {
+  if (!requireAuth()) return;
   try {
     const payload = await createConversation(state.session, { model: resolveRoutedModel({ images: [] }) });
     state.conversations.unshift(payload.conversation);
@@ -3003,6 +3049,7 @@ async function removeConversation(id) {
 async function sendPrompt() {
   const text = els.promptInput.value.trim();
   if (!text && !state.images.length) return;
+  if (!requireAuth()) return;
   const compareModels = activeCompareModelIds();
   const pendingDocs = pendingDocumentUploads();
   if (pendingDocs.length) {
@@ -3319,6 +3366,8 @@ async function signOutAndReset() {
   state.me = null;
   state.conversations = [];
   state.messages = [];
+  state.activeConversationId = "";
+  syncConversationUrl({ replace: true });
   closeAllDrawers();
   renderShell();
 }
@@ -3388,16 +3437,9 @@ function bindEvents() {
     if (!state.running) return;
     state.autoScroll = isNearBottom(els.messages);
   }, { passive: true });
-  els.magicForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    try {
-      await sendMagicLink(state.config, els.emailInput.value.trim());
-      els.authNotice.textContent = "Check your email for the sign-in link.";
-    } catch (err) {
-      els.authNotice.textContent = err.message;
-    }
-  });
 
+  els.guestLoginButton.addEventListener("click", openAuthDialog);
+  els.authDialogClose.addEventListener("click", closeAuthDialog);
   els.paywallSignOutButton.addEventListener("click", signOutAndReset);
   els.signOutButton.addEventListener("click", signOutAndReset);
 
@@ -3418,6 +3460,7 @@ function bindEvents() {
   els.overlay.addEventListener("click", () => {
     const mode = els.overlay.dataset.mode;
     if (mode === "confirm") closeConfirmDialog();
+    else if (mode === "auth") closeAuthDialog();
     else if (mode === "account") closeAccount();
     else closeSettings();
   });
@@ -3430,6 +3473,7 @@ function bindEvents() {
     if (!els.composerActionMenu.classList.contains("hidden")) { closeActionMenu(); return; }
     if (!els.compareDropdown.classList.contains("hidden")) { closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
+    if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
     if (els.settingsDrawer.classList.contains("open")) { closeSettings(); return; }
   });
@@ -3640,6 +3684,7 @@ function bindEvents() {
 
   els.imageToggle.addEventListener("click", () => {
     closeActionMenu();
+    if (!requireAuth()) return;
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {

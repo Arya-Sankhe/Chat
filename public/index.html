@@ -24,22 +24,6 @@
         </div>
       </section>
 
-      <section class="fullscreen-view hidden" id="authView">
-        <div class="auth-panel">
-          <div class="auth-brand">Klui</div>
-          <h1>Sign in to Klui Chat</h1>
-          <p class="auth-sub">Managed AI chat for everyday work.</p>
-          <div class="auth-actions">
-            <div class="auth-google hidden" id="googleButton"></div>
-            <form class="magic-form" id="magicForm">
-              <input id="emailInput" type="email" autocomplete="email" placeholder="you@example.com" required>
-              <button class="auth-submit" type="submit">Send magic link</button>
-            </form>
-            <p class="auth-notice" id="authNotice"></p>
-          </div>
-        </div>
-      </section>
-
       <section class="fullscreen-view hidden" id="paywallView">
         <div class="auth-panel">
           <div class="auth-brand">Klui</div>
@@ -62,6 +46,11 @@
             </button>
           </nav>
           <nav class="sidebar-mid" id="conversationList" aria-label="Saved conversations"></nav>
+          <div class="guest-login-panel hidden" id="guestLoginPanel">
+            <strong>Get responses tailored to you</strong>
+            <p>Log in to save chats, upload files, and continue your work anywhere.</p>
+            <button class="guest-login-btn" id="guestLoginButton" type="button">Log in</button>
+          </div>
           <nav class="sidebar-bottom">
             <button class="sidebar-icon" id="accountButton" type="button" aria-label="Account" title="Account">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -265,6 +254,16 @@
             <button class="confirm-cancel" id="confirmCancelButton" type="button">Cancel</button>
             <button class="confirm-danger" id="confirmDeleteButton" type="button">Delete</button>
           </div>
+        </section>
+
+        <section class="auth-dialog" id="authDialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" aria-describedby="authDialogBody" aria-hidden="true">
+          <button class="auth-dialog-close" id="authDialogClose" type="button" aria-label="Close sign in">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+          </button>
+          <h2 id="authDialogTitle">Log in or sign up</h2>
+          <p id="authDialogBody">Continue with Google to save chats, upload files, and use Klui.</p>
+          <div class="auth-google" id="googleButton"></div>
+          <p class="auth-notice" id="authNotice"></p>
         </section>
 
         <div class="overlay" id="overlay" hidden></div>
