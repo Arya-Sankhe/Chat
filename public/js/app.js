@@ -632,8 +632,10 @@ function normalizeClientUsage(usage) {
   return Object.keys(result).length ? result : null;
 }
 
-/* Provider-reported total tokens for a turn (system + input + output +
-   reasoning), read from a live stream or persisted message metadata. */
+/* Provider-reported total tokens for a turn, read from a live stream or
+   persisted message metadata. Some providers report the full prompt context;
+   others report only the current exchange, so this is a useful signal but
+   not always authoritative for the whole visible chat. */
 function messageUsageTotalTokens(message) {
   const usage = normalizeClientUsage(message?.usage || message?.metadata?.usage);
   return usage && usage.totalTokens != null ? usage.totalTokens : null;
@@ -688,14 +690,23 @@ function estimatePendingInputTokens() {
 /**
  * Estimate how much of the model's context window this chat occupies.
  *
- * Prefers the provider's own token count from the most recent measured
- * turn — that already accounts for the system prompt, the full input
- * history, the streamed output, and reasoning tokens. Anything newer than
- * that turn (plus the unsent draft) is estimated and added on top. Falls
- * back to a full estimate for chats that predate usage reporting.
+ * Uses the larger of:
+ *   1. the local accumulated chat estimate, and
+ *   2. the most recent provider token total plus anything newer.
+ *
+ * This keeps provider-reported usage useful for large hidden prompt/tool
+ * costs without letting a later small response make the context bar shrink.
  */
 function estimateContextTokens() {
   const messages = state.messages || [];
+  const pendingTokens = estimatePendingInputTokens();
+
+  let localEstimate = estimateSystemPromptTokens();
+  for (const message of messages) {
+    localEstimate += estimateMessageTokens(message);
+  }
+  localEstimate += pendingTokens;
+
   let baseTokens = 0;
   let estimateFromIndex = 0;
   let measured = false;
@@ -714,8 +725,10 @@ function estimateContextTokens() {
   for (let i = estimateFromIndex; i < messages.length; i++) {
     estimated += estimateMessageTokens(messages[i]);
   }
-  estimated += estimatePendingInputTokens();
-  return Math.max(0, Math.round(baseTokens + estimated));
+  estimated += pendingTokens;
+
+  const providerEstimate = measured ? baseTokens + estimated : 0;
+  return Math.max(0, Math.round(Math.max(localEstimate, providerEstimate)));
 }
 
 function formatTokenCount(tokens) {
