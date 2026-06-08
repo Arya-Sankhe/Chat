@@ -135,7 +135,14 @@ export async function listModels({ apiKey, baseUrl, signal }) {
 }
 
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
-  const requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: true };
+  const requestBody = {
+    ...adaptChatRequestForProvider(body, providerId),
+    stream: true,
+    /* Ask the provider to emit a final usage chunk so we record the
+       model's own tokenizer count (prompt + completion + reasoning)
+       instead of relying on a client-side char estimate. */
+    stream_options: { include_usage: true }
+  };
   return postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
 }
 

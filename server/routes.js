@@ -2161,7 +2161,12 @@ async function handleConversationMessage(req, res, config, conversationId) {
           pdfPages: directPdfContext.pageCount,
           pdfDocuments: directPdfContext.documentCount
         }
-      } : {})
+      } : {}),
+      /* Provider-reported token usage for the final model call. This is
+         the ground truth for the context meter: prompt_tokens covers the
+         system prompt + full input history, and total_tokens additionally
+         covers the streamed output and reasoning tokens. */
+      ...(accumulated.usage ? { usage: accumulated.usage } : {})
     };
 
     const finalMetadata = reasoningDurationMetadata(metadataPatch, accumulated);
@@ -2172,6 +2177,9 @@ async function handleConversationMessage(req, res, config, conversationId) {
       finish_reason: accumulated.finishReason || null,
       ...(finalMetadata ? { metadata: finalMetadata } : {})
     }, { signal: req.signal });
+    if (accumulated.usage) {
+      writeSse(res, { type: "usage", usage: accumulated.usage });
+    }
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
     res.end();
   } catch (error) {

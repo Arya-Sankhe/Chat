@@ -575,6 +575,14 @@ body.document-viewer-resizing {
   background: #d97706;
 }
 
+.context-meter.over .context-meter-fill {
+  background: #dc2626;
+}
+
+.context-meter.over {
+  color: #dc2626;
+}
+
 .usage-pill {
   font-size: 12px;
   font-weight: 600;

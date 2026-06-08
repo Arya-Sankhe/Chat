@@ -572,24 +572,129 @@ function renderUsage() {
   els.usagePill.textContent = `${usage.message_count || 0}/${plan.dailyMessageLimit} today`;
 }
 
+/* Rough chars-per-token ratio for English-ish text. Only used to
+   estimate the parts of context we can't measure exactly yet (the unsent
+   draft, and turns that predate provider usage reporting). */
+const CHARS_PER_TOKEN = 4;
+/* Per-message envelope overhead (role markers / chat template tokens). */
+const MESSAGE_OVERHEAD_TOKENS = 8;
+/* Approximate vision token cost per attached image / document page. */
+const IMAGE_TOKENS = 1200;
+const FILE_TOKENS = 2500;
+
+function estimateTextTokens(text) {
+  return Math.ceil(String(text ?? "").length / CHARS_PER_TOKEN);
+}
+
+function normalizeClientUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const num = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+  };
+  const prompt = num(usage.promptTokens ?? usage.prompt_tokens);
+  const completion = num(usage.completionTokens ?? usage.completion_tokens);
+  const reasoning = num(
+    usage.reasoningTokens
+    ?? usage.reasoning_tokens
+    ?? usage.completion_tokens_details?.reasoning_tokens
+  );
+  let total = num(usage.totalTokens ?? usage.total_tokens);
+  if (total == null && (prompt != null || completion != null)) {
+    total = (prompt || 0) + (completion || 0);
+  }
+  const result = {};
+  if (prompt != null) result.promptTokens = prompt;
+  if (completion != null) result.completionTokens = completion;
+  if (reasoning != null) result.reasoningTokens = reasoning;
+  if (total != null) result.totalTokens = total;
+  return Object.keys(result).length ? result : null;
+}
+
+/* Provider-reported total tokens for a turn (system + input + output +
+   reasoning), read from a live stream or persisted message metadata. */
+function messageUsageTotalTokens(message) {
+  const usage = normalizeClientUsage(message?.usage || message?.metadata?.usage);
+  return usage && usage.totalTokens != null ? usage.totalTokens : null;
+}
+
 function estimateContentTokens(content) {
-  if (typeof content === "string") return Math.ceil(content.length / 4);
+  if (typeof content === "string") return estimateTextTokens(content);
   if (!Array.isArray(content)) return 0;
   let total = 0;
   for (const part of content) {
-    if (part?.type === "text") total += Math.ceil(String(part.text || "").length / 4);
-    else if (part?.type === "image_url") total += 1200;
-    else if (part?.type === "file") total += 2500;
+    if (part?.type === "text") total += estimateTextTokens(part.text);
+    else if (part?.type === "image_url") total += IMAGE_TOKENS;
+    else if (part?.type === "file") total += FILE_TOKENS;
   }
   return total;
 }
 
-function estimatePendingInputTokens() {
-  let total = Math.ceil(String(els.promptInput?.value || "").length / 4);
-  for (const item of state.images || []) {
-    total += item.category === "image" ? 1200 : 2500;
+/* Full estimate for a single message: content + reasoning + tool-call
+   arguments + envelope overhead. Mirrors everything that occupies the
+   context window for that turn. */
+function estimateMessageTokens(message) {
+  if (!message || typeof message !== "object") return 0;
+  let total = MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message.content);
+  if (message.reasoning) total += estimateTextTokens(message.reasoning);
+  const toolCalls = message.toolCalls || message.tool_calls;
+  if (Array.isArray(toolCalls)) {
+    for (const call of toolCalls) {
+      const fn = call?.function || call;
+      total += estimateTextTokens(`${fn?.name || ""}${fn?.arguments || ""}`);
+    }
   }
   return total;
+}
+
+/* Estimate the system prompt footprint when no measured turn exists yet.
+   Includes the custom prompt plus a small allowance for the agent tool
+   schemas / document hints the server injects. */
+function estimateSystemPromptTokens() {
+  let total = estimateTextTokens(state.settings?.systemPrompt || "");
+  if (state.settings?.agentMode) total += 500;
+  return total;
+}
+
+function estimatePendingInputTokens() {
+  let total = estimateTextTokens(els.promptInput?.value || "");
+  for (const item of state.images || []) {
+    total += item.category === "image" ? IMAGE_TOKENS : FILE_TOKENS;
+  }
+  return total ? total + MESSAGE_OVERHEAD_TOKENS : 0;
+}
+
+/**
+ * Estimate how much of the model's context window this chat occupies.
+ *
+ * Prefers the provider's own token count from the most recent measured
+ * turn — that already accounts for the system prompt, the full input
+ * history, the streamed output, and reasoning tokens. Anything newer than
+ * that turn (plus the unsent draft) is estimated and added on top. Falls
+ * back to a full estimate for chats that predate usage reporting.
+ */
+function estimateContextTokens() {
+  const messages = state.messages || [];
+  let baseTokens = 0;
+  let estimateFromIndex = 0;
+  let measured = false;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const total = messageUsageTotalTokens(messages[i]);
+    if (total != null) {
+      baseTokens = total;
+      estimateFromIndex = i + 1;
+      measured = true;
+      break;
+    }
+  }
+
+  let estimated = measured ? 0 : estimateSystemPromptTokens();
+  for (let i = estimateFromIndex; i < messages.length; i++) {
+    estimated += estimateMessageTokens(messages[i]);
+  }
+  estimated += estimatePendingInputTokens();
+  return Math.max(0, Math.round(baseTokens + estimated));
 }
 
 function formatTokenCount(tokens) {
@@ -599,17 +704,13 @@ function formatTokenCount(tokens) {
 
 function renderContextMeter() {
   if (!els.contextMeter) return;
-  const used = Math.min(
-    CONTEXT_LIMIT_TOKENS,
-    Math.max(0, Math.round(
-      (state.messages || []).reduce((sum, message) => sum + 8 + estimateContentTokens(message.content), 0)
-      + estimatePendingInputTokens()
-    ))
-  );
+  const raw = estimateContextTokens();
+  const used = Math.min(CONTEXT_LIMIT_TOKENS, raw);
   const percent = Math.min(100, Math.round((used / CONTEXT_LIMIT_TOKENS) * 100));
   els.contextMeterLabel.textContent = `${formatTokenCount(used)} / 256k`;
   els.contextMeterFill.style.width = `${percent}%`;
   els.contextMeter.classList.toggle("warn", percent >= 80);
+  els.contextMeter.classList.toggle("over", raw >= CONTEXT_LIMIT_TOKENS);
 }
 
 function renderAccount() {
@@ -2442,9 +2543,21 @@ function applyStreamEvent(message, event) {
     return;
   }
 
+  if (event?.type === "usage") {
+    if (event.usage) message.usage = event.usage;
+    return;
+  }
+
   if (typeof event?.type === "string" && event.type.startsWith("tool:")) {
     applyToolEvent(message, event);
     return;
+  }
+
+  /* Providers stream a trailing usage chunk (usually with empty choices)
+     when usage reporting is enabled — record it for the context meter. */
+  if (event?.usage) {
+    const usage = normalizeClientUsage(event.usage);
+    if (usage) message.usage = usage;
   }
 
   const choice = event?.choices?.[0];

@@ -229,7 +229,46 @@ export function reasoningDurationMetadata(existingMetadata, accumulated) {
   return { ...(existingMetadata || {}), reasoningDurationMs: ms };
 }
 
+/**
+ * Normalize an OpenAI/OpenRouter `usage` object to a stable shape.
+ * `total_tokens` already includes reasoning tokens (reasoning is part of
+ * the completion), so it represents everything in the context window for
+ * that turn: system prompt + full input history + output + reasoning.
+ */
+export function normalizeUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const num = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+  };
+  const prompt = num(usage.prompt_tokens ?? usage.promptTokens);
+  const completion = num(usage.completion_tokens ?? usage.completionTokens);
+  const reasoning = num(
+    usage.completion_tokens_details?.reasoning_tokens
+    ?? usage.reasoning_tokens
+    ?? usage.reasoningTokens
+  );
+  let total = num(usage.total_tokens ?? usage.totalTokens);
+  if (total == null && (prompt != null || completion != null)) {
+    total = (prompt || 0) + (completion || 0);
+  }
+
+  const result = {};
+  if (prompt != null) result.promptTokens = prompt;
+  if (completion != null) result.completionTokens = completion;
+  if (reasoning != null) result.reasoningTokens = reasoning;
+  if (total != null) result.totalTokens = total;
+  return Object.keys(result).length ? result : null;
+}
+
 export function applyStreamEvent(message, event) {
+  /* Usage arrives in a trailing chunk (often with an empty `choices`
+     array), so capture it before bailing on the missing choice. */
+  if (event?.usage) {
+    const usage = normalizeUsage(event.usage);
+    if (usage) message.usage = usage;
+  }
+
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
 
@@ -296,7 +335,8 @@ export async function pipeProviderStreamAndAccumulate(upstream, res) {
     content: "",
     reasoning: "",
     toolCalls: [],
-    finishReason: ""
+    finishReason: "",
+    usage: null
   };
   let buffer = "";
 
@@ -320,7 +360,8 @@ export async function streamProviderAndAccumulate(upstream, onEvent) {
     content: "",
     reasoning: "",
     toolCalls: [],
-    finishReason: ""
+    finishReason: "",
+    usage: null
   };
   let buffer = "";
 

@@ -111,6 +111,12 @@ export function adaptChatRequestForProvider(body, providerId) {
     reasoning: {
       effort,
       exclude: false
+    },
+    /* OpenRouter reports token usage on streamed responses only when
+       explicitly opted in. Mirrors `stream_options.include_usage`. */
+    usage: {
+      ...(rest.usage && typeof rest.usage === "object" ? rest.usage : {}),
+      include: true
     }
   };
 
