@@ -158,12 +158,18 @@ describe("WebSearchOrchestrator", () => {
   after(() => restoreFetch());
 
   test("Jina search success returns normalized results", async () => {
-    installFetch(async () => jsonResponse({
-      data: [
-        { url: "https://a.example/1", title: "Result A", description: "snippet A", content: "page content A" },
-        { url: "https://b.example/2", title: "Result B", description: "snippet B", content: "page content B" }
-      ]
-    }));
+    let capturedUrl;
+    let capturedOptions;
+    installFetch(async (url, options) => {
+      capturedUrl = String(url);
+      capturedOptions = options;
+      return jsonResponse({
+        data: [
+          { url: "https://a.example/1", title: "Result A", description: "snippet A", content: "page content A" },
+          { url: "https://b.example/2", title: "Result B", description: "snippet B", content: "page content B" }
+        ]
+      });
+    });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
     const result = await orchestrator.search({ query: "latest ai news" });
     assert.equal(result.ok, true);
@@ -171,6 +177,10 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.results.length, 2);
     assert.equal(result.results[0].title, "Result A");
     assert.equal(result.results[0].content, "page content A");
+    assert.equal(capturedUrl, "https://s.jina.ai/search");
+    assert.equal(capturedOptions.method, "POST");
+    assert.equal(capturedOptions.headers["x-respond-with"], "markdown");
+    assert.equal(JSON.parse(capturedOptions.body).q, "latest ai news");
   });
 
   test("cache short-circuits a repeat query without calling fetch", async () => {

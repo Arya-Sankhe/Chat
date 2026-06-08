@@ -275,7 +275,6 @@ export class WebSearchOrchestrator {
     if (name === "jina") {
       return jinaSearch({
         ...params,
-        backend: this.config.jina.backend,
         engine: this.config.jina.engine,
         apiKey: this.config.jina.apiKey,
         pageContentChars: this.config.pageContentChars,

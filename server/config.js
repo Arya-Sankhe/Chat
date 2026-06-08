@@ -45,11 +45,6 @@ function readJinaEngine(value) {
   return engine === "browser" ? "browser" : "direct";
 }
 
-function readJinaBackend(value) {
-  const backend = clean(value || "google").toLowerCase();
-  return backend === "bing" ? "bing" : "google";
-}
-
 function readDocumentMode(value) {
   return readBoolean(value, true);
 }
@@ -162,7 +157,6 @@ export function loadConfig(env = process.env) {
       dailyLimits: loadSearchLimits(env),
       jina: {
         apiKey: clean(env.JINA_API_KEY),
-        backend: readJinaBackend(env.JINA_SEARCH_PROVIDER),
         engine: readJinaEngine(env.JINA_SEARCH_ENGINE)
       },
       brave: {

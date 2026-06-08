@@ -13,7 +13,7 @@
 
 import { HttpError } from "../http/responses.js";
 
-const S_JINA_ENDPOINT = "https://s.jina.ai/";
+const S_JINA_ENDPOINT = "https://s.jina.ai/search";
 const R_JINA_PREFIX = "https://r.jina.ai/";
 
 class WebSearchError extends Error {
@@ -33,7 +33,7 @@ function buildSearchHeaders({ apiKey, engine }) {
   const headers = {
     accept: "application/json",
     "content-type": "application/json",
-    "x-return-format": "markdown"
+    "x-respond-with": "markdown"
   };
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
   if (engine === "browser") headers["x-engine"] = "browser";
@@ -44,7 +44,7 @@ function buildSearchHeaders({ apiKey, engine }) {
 function buildReadHeaders({ apiKey }) {
   const headers = {
     accept: "application/json",
-    "x-return-format": "markdown",
+    "x-respond-with": "markdown",
     "x-engine": "direct"
   };
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
@@ -99,7 +99,6 @@ export async function jinaSearch({
   lang = "en",
   location,
   freshness,
-  backend = "google",
   engine = "direct",
   apiKey,
   pageContentChars = 4000,
@@ -123,7 +122,6 @@ export async function jinaSearch({
     num: Math.max(1, Math.min(20, Number(numResults) || 5)),
     gl: country || "us",
     hl: lang || "en",
-    provider: backend === "bing" ? "bing" : "google",
     fallback: true
   };
   if (location) body.location = location;
