@@ -740,6 +740,165 @@ function normalizeSlide(slide, fallbackTitle) {
   };
 }
 
+function slideText(slide) {
+  return [
+    slide?.title,
+    slide?.subtitle,
+    ...(Array.isArray(slide?.bullets) ? slide.bullets : [])
+  ].map(cleanText).filter(Boolean).join(" ");
+}
+
+function slideHasTable(slide) {
+  if (!slide?.table || typeof slide.table !== "object") return false;
+  return tableRows(slide.table, 4).length >= 2;
+}
+
+function isWeakContentSlide(slide, index) {
+  if (index === 0 || slideHasTable(slide)) return false;
+  const bullets = Array.isArray(slide?.bullets) ? slide.bullets.filter((item) => cleanText(item)) : [];
+  const substance = [slide?.subtitle, ...bullets].map(cleanText).filter(Boolean).join(" ");
+  if (bullets.length >= 2 && substance.length >= 60) return false;
+  return substance.length < 90;
+}
+
+function titleLooksLikeDivider(title) {
+  return /^(agenda|overview|introduction|context|question|section|part|next|summary)$/i.test(cleanText(title));
+}
+
+function fallbackBulletsFromInput(input) {
+  const bullets = [
+    ...textToBullets(artifactContent(input)),
+    ...textToBullets(input.instructions || "")
+  ].filter((item) => cleanText(item).length > 12);
+  const unique = [];
+  const seen = new Set();
+  for (const bullet of bullets) {
+    const key = comparableHeading(bullet);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(bullet);
+    if (unique.length >= 5) break;
+  }
+  return unique.length ? unique : ["Clarify the core point.", "Show the supporting evidence.", "End with the practical takeaway."];
+}
+
+function mergeWeakSlides(slides, input) {
+  const repaired = [];
+  const fallback = fallbackBulletsFromInput(input);
+
+  for (const [index, original] of slides.entries()) {
+    const slide = {
+      ...original,
+      title: cleanText(original.title) || (index === 0 ? cleanText(input.title) || "Presentation" : "Key Takeaway"),
+      subtitle: cleanText(original.subtitle || ""),
+      bullets: Array.isArray(original.bullets) ? original.bullets.map(cleanText).filter(Boolean) : []
+    };
+
+    if (index === 0) {
+      if (!slide.subtitle) slide.subtitle = firstUsefulSentence(input.instructions || artifactContent(input), 155);
+      repaired.push(slide);
+      continue;
+    }
+
+    if (!isWeakContentSlide(slide, index) && !titleLooksLikeDivider(slide.title)) {
+      repaired.push(slide);
+      continue;
+    }
+
+    const payload = [
+      slide.subtitle,
+      ...slide.bullets,
+      titleLooksLikeDivider(slide.title) ? "" : slide.title
+    ].map(cleanText).filter(Boolean);
+
+    const previous = repaired.at(-1);
+    if (previous && repaired.length > 1 && !slideHasTable(previous)) {
+      const label = titleLooksLikeDivider(slide.title) ? "" : `${slide.title}: `;
+      for (const item of payload.length ? payload : fallback.slice(0, 2)) {
+        previous.bullets = previous.bullets || [];
+        if (previous.bullets.length < 6) previous.bullets.push(cleanText(`${label}${item}`));
+      }
+      continue;
+    }
+
+    slide.title = titleLooksLikeDivider(slide.title) ? "Key Takeaways" : slide.title;
+    slide.bullets = [...payload, ...fallback].map(cleanText).filter(Boolean).slice(0, 4);
+    if (!slide.subtitle && slide.bullets.length) slide.subtitle = firstUsefulSentence(slide.bullets[0], 120);
+    repaired.push(slide);
+  }
+
+  if (repaired.length === 1) {
+    repaired.push({
+      title: "Key Takeaways",
+      subtitle: "The essential points are grouped into a concise working summary.",
+      bullets: fallback.slice(0, 4)
+    });
+  }
+
+  return repaired.map((slide, index) => {
+    if (index === 0 || slideHasTable(slide) || !isWeakContentSlide(slide, index)) return slide;
+    return {
+      ...slide,
+      bullets: [...(slide.bullets || []), ...fallback].map(cleanText).filter(Boolean).slice(0, 4)
+    };
+  });
+}
+
+function compactDefaultPresentation(slides, input) {
+  const text = `${input.title || ""} ${input.instructions || ""}`.toLowerCase();
+  const explicitCount = /\b\d+\s*(slides?|pages?)\b/.test(text);
+  const asksLong = /\b(detailed|comprehensive|full|complete|many|more slides|long deck|appendix)\b/.test(text);
+  if (explicitCount || asksLong || slides.length <= 7) return slides;
+
+  const title = slides[0];
+  const body = slides.slice(1);
+  const keep = body.filter((slide) => slideHasTable(slide) || (slide.bullets || []).length >= 3).slice(0, 4);
+  const rest = body.filter((slide) => !keep.includes(slide));
+  if (rest.length) {
+    keep.push({
+      title: "Bottom Line",
+      subtitle: "The main conclusion is condensed from the remaining supporting points.",
+      bullets: rest.flatMap((slide) => [slide.subtitle, ...(slide.bullets || [])]).map(cleanText).filter(Boolean).slice(0, 4)
+    });
+  }
+  return [title, ...keep].slice(0, 6);
+}
+
+function qualitySlides(input) {
+  const normalized = slidesFromInput(input).map((slide, index) => normalizeSlide(slide, index === 0 ? input.title : ""));
+  const repaired = mergeWeakSlides(normalized, input);
+  return compactDefaultPresentation(repaired, input);
+}
+
+function objectBounds(obj) {
+  const data = obj?.data || obj?.options || {};
+  const x = Number(data.x);
+  const y = Number(data.y);
+  const w = Number(data.w);
+  const h = Number(data.h);
+  if (![x, y, w, h].every(Number.isFinite)) return null;
+  return { x, y, w, h };
+}
+
+function inspectPptxLayout(pptx) {
+  const issues = [];
+  const width = 13.333;
+  const height = 7.5;
+  for (const [slideIndex, slide] of (pptx?._slides || []).entries()) {
+    for (const [objectIndex, obj] of (slide?._slideObjects || []).entries()) {
+      const box = objectBounds(obj);
+      if (!box) continue;
+      if (box.w <= 0 || box.h <= 0) {
+        issues.push(`Slide ${slideIndex + 1} object ${objectIndex + 1} has invalid size.`);
+      }
+      if (box.x < -0.05 || box.y < -0.05 || box.x + box.w > width + 0.08 || box.y + box.h > height + 0.08) {
+        issues.push(`Slide ${slideIndex + 1} object ${objectIndex + 1} is outside the slide bounds.`);
+      }
+    }
+  }
+  return issues;
+}
+
 function addTextBox(slide, text, options) {
   slide.addText(text, {
     margin: 0,
@@ -828,7 +987,7 @@ function createPptx(input, outputPath) {
     ],
     slideNumber: { x: 12.2, y: 7.03, color: theme.muted, fontSize: 7.5 }
   });
-  const slides = slidesFromInput(input).map((slide, index) => normalizeSlide(slide, index === 0 ? input.title : ""));
+  const slides = qualitySlides(input);
   const kpis = extractKpis(input, slides);
   slides.forEach((slideData, index) => {
     const slide = pptx.addSlide("KLUI");
@@ -887,6 +1046,10 @@ function createPptx(input, outputPath) {
     }
     if (slideData.notes) slide.addNotes(slideData.notes);
   });
+  const layoutIssues = inspectPptxLayout(pptx);
+  if (layoutIssues.length) {
+    process.stderr.write(`pptx_quality_warnings: ${layoutIssues.slice(0, 8).join(" ")}\n`);
+  }
   return pptx.writeFile({ fileName: outputPath });
 }
 
