@@ -736,7 +736,8 @@ function normalizeSlide(slide, fallbackTitle) {
     subtitle: stripPlannerPrefix(slide.subtitle || slide.message || slide.takeaway || ""),
     bullets: bullets.map(stripPlannerPrefix).filter((item) => item && !isPlannerLine(item)).slice(0, 7),
     notes: String(slide.notes || slide.speaker_notes || "").trim().slice(0, 2000),
-    table: slide.table && typeof slide.table === "object" ? slide.table : null
+    table: slide.table && typeof slide.table === "object" ? slide.table : null,
+    chart: slide.chart && typeof slide.chart === "object" ? slide.chart : null
   };
 }
 
@@ -763,6 +764,123 @@ function isWeakContentSlide(slide, index) {
 
 function titleLooksLikeDivider(title) {
   return /^(agenda|overview|introduction|context|question|section|part|next|summary)$/i.test(cleanText(title));
+}
+
+function numberFromCell(value) {
+  const text = cleanText(value).replace(/,/g, "");
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number.parseFloat(match[0]) : Number.NaN;
+}
+
+function allPresentationTables(input, slides) {
+  const tables = [];
+  for (const table of Array.isArray(input.tables) ? input.tables : []) {
+    if (table && typeof table === "object") tables.push(table);
+  }
+  for (const table of Array.isArray(input.data?.tables) ? input.data.tables : []) {
+    if (table && typeof table === "object") tables.push(table);
+  }
+  for (const slide of slides) {
+    if (slideHasTable(slide)) tables.push(slide.table);
+  }
+  return tables;
+}
+
+function chartFromTable(table) {
+  const rows = tableRows(table, 12);
+  if (rows.length < 3) return null;
+  const headers = rows[0].map(cleanText);
+  const body = rows.slice(1).filter((row) => cleanText(row[0]));
+  if (body.length < 2) return null;
+
+  const scores = headers.map((header, colIndex) => {
+    if (colIndex === 0) return null;
+    const values = body.map((row) => numberFromCell(row[colIndex])).filter(Number.isFinite);
+    if (values.length < 2) return null;
+    const label = header.toLowerCase();
+    let score = values.length;
+    if (/\b(blended|total|overall|cost|price|rate|output)\b/.test(label)) score += 3;
+    if (/\b(input|prompt)\b/.test(label)) score -= 1;
+    return { colIndex, score, header };
+  }).filter(Boolean);
+  if (!scores.length) return null;
+  scores.sort((a, b) => b.score - a.score || b.colIndex - a.colIndex);
+  const selected = scores[0];
+  const points = body
+    .map((row) => ({
+      label: cleanText(row[0]).slice(0, 42),
+      value: numberFromCell(row[selected.colIndex])
+    }))
+    .filter((point) => point.label && Number.isFinite(point.value));
+  if (points.length < 2) return null;
+  return {
+    type: "bar",
+    title: selected.header || "Comparison",
+    labels: points.map((point) => point.label),
+    values: points.map((point) => point.value)
+  };
+}
+
+function comparisonRecommendation(input, slides) {
+  const explicit = cleanText(input.data?.recommendation || input.recommendation || "");
+  if (explicit) return explicit;
+  const text = [
+    artifactContent(input),
+    input.instructions,
+    ...slides.flatMap((slide) => [slide.subtitle, ...(slide.bullets || [])])
+  ].join(" ");
+  const sentence = text.split(/(?<=[.!?])\s+/).find((part) => /\b(recommend|bottom line|winner|use|choose|lower|cheaper|cost|better)\b/i.test(part));
+  return firstUsefulSentence(sentence || text, 150);
+}
+
+function isComparisonPresentation(input, slides) {
+  const text = [
+    input.title,
+    input.instructions,
+    artifactContent(input),
+    ...slides.map(slideText)
+  ].join(" ").toLowerCase();
+  return /\b(compare|comparison|versus|vs\.?|pricing|price|cost|rate|winner|cheaper|savings)\b/.test(text);
+}
+
+function comparisonNarrativeSlides(input, slides) {
+  if (!isComparisonPresentation(input, slides)) return null;
+  const table = allPresentationTables(input, slides).find((candidate) => tableRows(candidate, 12).length >= 3);
+  const chart = chartFromTable(table);
+  if (!table || !chart) return null;
+  const recommendation = comparisonRecommendation(input, slides);
+  const source = cleanText(input.source || input.sources || input.data?.source || input.data?.sources || "");
+  const title = cleanText(input.title || slides[0]?.title || "Comparison");
+  return [
+    {
+      title,
+      subtitle: recommendation || "A concise comparison focused on the decision that matters.",
+      bullets: recommendation ? [recommendation] : []
+    },
+    {
+      title: "Pricing Inputs",
+      subtitle: "The source data used for the comparison.",
+      table
+    },
+    {
+      title: chart.title || "Cost Comparison",
+      subtitle: "The key difference is easiest to see when the comparable metric is charted.",
+      chart,
+      bullets: [
+        "Compare the same unit across every option.",
+        "Focus on the column that best reflects the user's actual workload."
+      ]
+    },
+    {
+      title: "Bottom Line",
+      subtitle: recommendation || "Use the comparison to pick the option that best matches the workload.",
+      bullets: [
+        recommendation || "Choose the option with the strongest fit for the stated goal.",
+        source ? `Sources: ${source}` : "Keep source assumptions visible so the deck can be checked later.",
+        "Re-check pricing before using the deck for a live buying decision."
+      ]
+    }
+  ];
 }
 
 function fallbackBulletsFromInput(input) {
@@ -866,7 +984,8 @@ function compactDefaultPresentation(slides, input) {
 
 function qualitySlides(input) {
   const normalized = slidesFromInput(input).map((slide, index) => normalizeSlide(slide, index === 0 ? input.title : ""));
-  const repaired = mergeWeakSlides(normalized, input);
+  const planned = comparisonNarrativeSlides(input, normalized) || normalized;
+  const repaired = mergeWeakSlides(planned, input);
   return compactDefaultPresentation(repaired, input);
 }
 
@@ -966,6 +1085,37 @@ function addTwoColumnBullets(slide, theme, items, yStart = 1.45) {
   });
 }
 
+function addNativeBarChart(pptx, slide, theme, chart, { x = 0.82, y = 1.72, w = 7.6, h = 4.42 } = {}) {
+  const labels = Array.isArray(chart?.labels) ? chart.labels.map(cleanText).filter(Boolean).slice(0, 8) : [];
+  const values = Array.isArray(chart?.values) ? chart.values.map(Number).filter(Number.isFinite).slice(0, labels.length) : [];
+  if (labels.length < 2 || values.length < 2) return false;
+  slide.addChart(pptx.ChartType.bar, [{
+    name: cleanText(chart.title || "Value"),
+    labels,
+    values
+  }], {
+    x,
+    y,
+    w,
+    h,
+    showLegend: false,
+    showValue: true,
+    showTitle: false,
+    showCatName: false,
+    showValAxis: true,
+    showCatAxis: true,
+    showGridLines: true,
+    valAxisMinVal: 0,
+    valAxisLabelColor: theme.muted,
+    catAxisLabelColor: theme.body,
+    dataLabelPosition: "outEnd",
+    chartColors: [theme.accent],
+    valAxisTitle: cleanText(chart.unit || chart.title || "Value"),
+    valAxisTitleColor: theme.muted
+  });
+  return true;
+}
+
 function createPptx(input, outputPath) {
   const theme = resolveTheme(input);
   const pptx = new pptxgen();
@@ -1022,7 +1172,21 @@ function createPptx(input, outputPath) {
       if (slideData.subtitle) {
         addTextBox(slide, slideData.subtitle, { x: 0.68, y: 1.04, w: 11.5, h: 0.38, fontSize: 11.8, color: theme.muted });
       }
-      if (slideData.table) {
+      if (slideData.chart && addNativeBarChart(pptx, slide, theme, slideData.chart, { x: 0.82, y: slideData.subtitle ? 1.72 : 1.38, w: 7.65, h: 4.5 })) {
+        const items = (slideData.bullets || []).slice(0, 3);
+        if (items.length) {
+          items.forEach((item, bulletIndex) => {
+            const y = 2.0 + bulletIndex * 1.1;
+            slide.addShape(pptx.ShapeType.roundRect, {
+              x: 9.02, y, w: 3.05, h: 0.78,
+              rectRadius: 0.07,
+              fill: { color: theme.panel, transparency: 8 },
+              line: { color: theme.border, width: 0.6 }
+            });
+            addTextBox(slide, item, { x: 9.24, y: y + 0.18, w: 2.62, h: 0.36, fontSize: 11.2, color: theme.body });
+          });
+        }
+      } else if (slideData.table) {
         const rows = tableRows(slideData.table, 12);
         if (rows.length) {
           slide.addTable(rows, {

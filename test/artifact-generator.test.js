@@ -60,3 +60,48 @@ test("PPTX generator repairs title-only and one-line slide plans", async () => {
   assert.ok(bodyTexts.every((text) => text.length >= 90), "content slides should contain real substance");
   assert.match(bodyTexts.join(" "), /Use MiMo|MiMo is lower cost|Qwen costs more/);
 });
+
+test("PPTX generator plans pricing comparisons with a native chart narrative", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "klui-pptx-comparison-"));
+  const inputPath = path.join(tmp, "input.json");
+  await fs.writeFile(inputPath, JSON.stringify({
+    format: "pptx",
+    title: "Xiaomi MiMo v2.5 vs Qwen 3.7 Plus",
+    instructions: "Create a concise pricing comparison deck.",
+    source: "MiMo pricing page; OpenRouter Qwen pricing page",
+    tables: [{
+      title: "Pricing inputs",
+      headers: ["Model", "Input $/1M", "Output $/1M", "Blended $/1M"],
+      rows: [
+        ["Xiaomi MiMo v2.5", "$0.14", "$0.28", "$0.196"],
+        ["Qwen 3.7 Plus", "$0.40", "$1.60", "$0.88"]
+      ]
+    }],
+    data: {
+      recommendation: "Use MiMo when token cost is the primary decision factor.",
+      slides: [
+        { title: "Title" },
+        { title: "The Question" },
+        { title: "Verdict" }
+      ]
+    }
+  }));
+
+  const { stdout } = await execFileAsync("node", ["worker/artifact_generator.mjs", inputPath, tmp], {
+    cwd: path.resolve(".")
+  });
+  const result = JSON.parse(stdout);
+  const zip = await JSZip.loadAsync(await fs.readFile(result.path));
+  const slideEntries = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => Number(a.match(/slide(\d+)/)?.[1] || 0) - Number(b.match(/slide(\d+)/)?.[1] || 0));
+  const deckText = (await Promise.all(slideEntries.map(async (entry) => slideTexts(await zip.file(entry).async("string"))))).join(" ");
+  const chartEntries = Object.keys(zip.files).filter((name) => /^ppt\/charts\/chart\d+\.xml$/.test(name));
+
+  assert.equal(slideEntries.length, 4);
+  assert.ok(chartEntries.length >= 1, "pricing comparison deck should include a native PPTX chart");
+  assert.match(deckText, /Pricing Inputs/);
+  assert.match(deckText, /Blended \$\/1M/);
+  assert.match(deckText, /Bottom Line/);
+  assert.match(deckText, /Use MiMo/);
+});
