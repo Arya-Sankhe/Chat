@@ -80,6 +80,8 @@ function safeName(value, fallback = "document") {
 
 function cleanText(value) {
   return String(value || "")
+    .replace(/[\u2010-\u2015]/g, "-")
+    .replace(/\s-{2,}\s/g, " - ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
@@ -116,6 +118,22 @@ function comparableHeading(text) {
   return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function headingTokens(text) {
+  const stop = new Set(["api", "price", "pricing", "comparison", "analysis", "report", "document", "vs", "v", "plus"]);
+  return new Set(cleanText(text).toLowerCase().split(/[^a-z0-9.]+/).filter((token) => token.length > 1 && !stop.has(token)));
+}
+
+function headingsLookDuplicate(a, b) {
+  const left = comparableHeading(a);
+  const right = comparableHeading(b);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+  const leftTokens = headingTokens(a);
+  const rightTokens = headingTokens(b);
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return shared >= 2 && shared >= Math.min(leftTokens.size, rightTokens.size) * 0.6;
+}
+
 function stripDuplicateTitleHeading(text, title) {
   const lines = String(text || "").split(/\r?\n/);
   const titleKey = comparableHeading(title);
@@ -123,12 +141,34 @@ function stripDuplicateTitleHeading(text, title) {
     const line = lines[index].trim();
     if (!line) continue;
     const heading = line.match(/^#{1,3}\s+(.+)$/);
-    if (heading && comparableHeading(cleanText(heading[1])) === titleKey) {
+    if (heading && (comparableHeading(cleanText(heading[1])) === titleKey || headingsLookDuplicate(heading[1], title))) {
       return [...lines.slice(0, index), ...lines.slice(index + 1)].join("\n").trim();
     }
     return String(text || "");
   }
   return String(text || "");
+}
+
+function stripDuplicateLeadingMetadata(text, title, subtitle = "") {
+  let lines = String(text || "").split(/\r?\n/);
+  while (lines.length) {
+    const firstIndex = lines.findIndex((line) => line.trim());
+    if (firstIndex < 0) return "";
+    if (firstIndex > 0) lines = lines.slice(firstIndex);
+    const raw = lines[0].trim();
+    const heading = raw.match(/^#{1,3}\s+(.+)$/);
+    const visible = heading ? heading[1] : raw;
+    if (heading && headingsLookDuplicate(visible, title)) {
+      lines = lines.slice(1);
+      continue;
+    }
+    if (subtitle && headingsLookDuplicate(visible, subtitle)) {
+      lines = lines.slice(1);
+      continue;
+    }
+    break;
+  }
+  return lines.join("\n").trim();
 }
 
 function splitMarkdownTableRow(line) {
@@ -211,6 +251,10 @@ function markdownBlocks(text) {
       index += 1;
       continue;
     }
+    if (/^[-*_]{3,}$/.test(line)) {
+      index += 1;
+      continue;
+    }
     const table = collectMarkdownTable(lines, index);
     if (table) {
       blocks.push({ type: "table", table: table.table });
@@ -256,10 +300,10 @@ function docxParagraph(block, theme) {
     return new Paragraph({ text: block.text, heading, spacing: { before: 220, after: 100 } });
   }
   if (block.type === "bullet") {
-    return new Paragraph({ text: block.text, bullet: { level: 0 }, spacing: { after: 80 } });
+    return new Paragraph({ text: block.text, style: "Normal", bullet: { level: 0 }, spacing: { after: 80 } });
   }
   if (block.type === "number") {
-    return new Paragraph({ text: block.text, numbering: { reference: "default-numbering", level: 0 }, spacing: { after: 80 } });
+    return new Paragraph({ text: block.text, style: "Normal", numbering: { reference: "default-numbering", level: 0 }, spacing: { after: 80 } });
   }
   if (block.type === "code") {
     return new Paragraph({
@@ -271,6 +315,7 @@ function docxParagraph(block, theme) {
   }
   return new Paragraph({
     children: [new TextRun({ text: block.text, size: 22, color: theme.body })],
+    style: "Normal",
     spacing: { after: 120 },
     alignment: AlignmentType.LEFT
   });
@@ -285,12 +330,26 @@ function docxTable(tableData, theme) {
       tableHeader: rowIndex === 0,
       children: row.map((cell) => new TableCell({
         children: [new Paragraph({
-          children: [new TextRun({ text: cleanText(cell), bold: rowIndex === 0, size: 19, color: theme.body })]
+          children: [new TextRun({ text: cleanText(cell), bold: rowIndex === 0, size: 19, color: rowIndex === 0 ? "FFFFFF" : theme.body })],
+          spacing: { before: 20, after: 20 }
         })],
-        shading: rowIndex === 0 ? { fill: theme.tableHeader } : rowIndex % 2 === 0 ? { fill: theme.tableStripe } : undefined,
-        margins: { top: 90, bottom: 90, left: 100, right: 100 }
+        shading: rowIndex === 0 ? { fill: theme.accent } : rowIndex % 2 === 0 ? { fill: theme.tableStripe } : undefined,
+        margins: { top: 105, bottom: 105, left: 120, right: 120 }
       }))
     }))
+  });
+}
+
+function docxCallout(text, theme) {
+  const cleaned = cleanText(text).slice(0, 650);
+  if (!cleaned) return null;
+  return new Paragraph({
+    children: [new TextRun({ text: cleaned, size: 22, color: theme.body })],
+    style: "Normal",
+    shading: { fill: theme.panel },
+    border: { left: { style: BorderStyle.SINGLE, size: 12, color: theme.accent } },
+    spacing: { before: 80, after: 220 },
+    indent: { left: 180 }
   });
 }
 
@@ -308,14 +367,19 @@ async function createDocx(input, outputPath) {
   if (input.instructions) {
     children.push(new Paragraph({
       children: [new TextRun({ text: cleanText(input.instructions).slice(0, 240), color: theme.muted, size: 21 })],
+      style: "Subtitle",
       spacing: { after: 240 }
     }));
   }
-  const body = stripDuplicateTitleHeading(artifactContent(input), title);
+  const body = stripDuplicateLeadingMetadata(stripDuplicateTitleHeading(artifactContent(input), title), title, input.instructions || "");
+  const summary = input.data?.summary || input.data?.recommendation || input.recommendation;
+  const callout = docxCallout(summary, theme);
+  if (callout) children.push(callout);
   for (const block of markdownBlocks(body || input.instructions || "")) {
     if (block.type === "table") {
       const table = docxTable(block.table, theme);
       if (table) children.push(table);
+      children.push(new Paragraph({ text: "", spacing: { after: 160 } }));
     } else {
       children.push(docxParagraph(block, theme));
     }
@@ -327,6 +391,7 @@ async function createDocx(input, outputPath) {
       if (block.type === "table") {
         const table = docxTable(block.table, theme);
         if (table) children.push(table);
+        children.push(new Paragraph({ text: "", spacing: { after: 160 } }));
       } else {
         children.push(docxParagraph(block, theme));
       }
@@ -338,6 +403,7 @@ async function createDocx(input, outputPath) {
     }
     const table = docxTable(tableData, theme);
     if (table) children.push(table);
+    children.push(new Paragraph({ text: "", spacing: { after: 160 } }));
   }
   const doc = new Document({
     creator: "Klui",
@@ -353,6 +419,7 @@ async function createDocx(input, outputPath) {
       paragraphStyles: [
         { id: "Normal", name: "Normal", run: { font: theme.font, size: 22, color: theme.body }, paragraph: { spacing: { line: 276 } } },
         { id: "Title", name: "Title", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 42, color: theme.accent } },
+        { id: "Subtitle", name: "Subtitle", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.font, size: 22, color: theme.muted }, paragraph: { spacing: { after: 240 } } },
         { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 30, color: theme.accent } },
         { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 25, color: theme.accent2 } },
         { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 23, color: theme.body } }
