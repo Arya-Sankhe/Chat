@@ -314,7 +314,7 @@ async function createXlsx(input, outputPath) {
   sheet.eachRow((row) => {
     row.eachCell((cell) => {
       cell.alignment = { vertical: "top", wrapText: true };
-      if (typeof cell.value === "number") cell.numFmt = "0.00";
+      if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
       if (typeof cell.value === "string" && /^=/.test(cell.value)) cell.value = { formula: cell.value.slice(1) };
     });
   });
@@ -330,7 +330,7 @@ async function createXlsx(input, outputPath) {
   if (sheet.rowCount > 1 && sheet.columnCount > 1) {
     sheet.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: Math.min(sheet.rowCount, 1), column: sheet.columnCount }
+      to: { row: sheet.rowCount, column: sheet.columnCount }
     };
   }
   for (const [index, tableData] of (Array.isArray(input.tables) ? input.tables.slice(1, 8) : []).entries()) {
@@ -408,8 +408,7 @@ function createPptx(input, outputPath) {
   pptx.title = input.title || "Presentation";
   pptx.theme = {
     headFontFace: "Aptos Display",
-    bodyFontFace: "Aptos",
-    lang: "en-US"
+    bodyFontFace: "Aptos"
   };
   pptx.defineSlideMaster({
     title: "KLUI",

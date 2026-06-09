@@ -21,6 +21,8 @@ RUN apt-get update \
     qpdf \
     fonts-dejavu \
     fonts-liberation \
+    libstdc++6 \
+    libgcc-s1 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY worker/requirements.txt ./requirements.txt
