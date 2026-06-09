@@ -444,6 +444,58 @@ function textToBullets(text) {
   return bullets.slice(0, 7);
 }
 
+function stripPlannerPrefix(value) {
+  return cleanText(value)
+    .replace(/^slide\s+\d+\s*:\s*/i, "")
+    .replace(/^layout\s*:\s*/i, "")
+    .replace(/^subtitle\s*:\s*/i, "")
+    .replace(/^speaker\s+notes?\s*:\s*/i, "")
+    .trim();
+}
+
+function isPlannerLine(value) {
+  return /^(layout|speaker\s+notes?|visual|design|format)\s*:/i.test(cleanText(value));
+}
+
+function firstUsefulSentence(value, maxLength = 150) {
+  const text = cleanText(value).replace(/\s+/g, " ");
+  if (!text) return "";
+  const first = text.split(/(?<=[.!?])\s+/).find(Boolean) || text;
+  return first.length > maxLength ? `${first.slice(0, maxLength - 1).trim()}…` : first;
+}
+
+function extractKpis(input, slides) {
+  const explicit = Array.isArray(input.kpis) ? input.kpis : Array.isArray(input.data?.kpis) ? input.data.kpis : [];
+  const kpis = explicit
+    .map((item) => ({
+      value: cleanText(item.value || item.metric || item.number || ""),
+      label: cleanText(item.label || item.title || item.description || "")
+    }))
+    .filter((item) => item.value && item.label);
+  const text = [
+    input.title,
+    input.instructions,
+    artifactContent(input),
+    ...slides.flatMap((slide) => [slide.title, slide.subtitle, ...(slide.bullets || [])])
+  ].join(" ");
+  const patterns = [
+    /\$[\d,.]+(?:\s*[kmb])?(?:\s*\/\s*[a-z0-9 ]+)?/gi,
+    /\b\d+(?:\.\d+)?\s*[x×]\b/gi,
+    /\b\d+(?:\.\d+)?\s*%/gi,
+    /\b\d+(?:\.\d+)?\s*(?:AED|USD|tokens?|credits?)\b/gi
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.match(pattern) || []) {
+      if (kpis.length >= 3) break;
+      const value = cleanText(match);
+      if (!kpis.some((item) => item.value === value)) {
+        kpis.push({ value, label: value.includes("$") ? "highlighted cost metric" : "key comparison metric" });
+      }
+    }
+  }
+  return kpis.slice(0, 3);
+}
+
 function slidesFromInput(input) {
   const data = input && typeof input.data === "object" && input.data ? input.data : {};
   if (Array.isArray(data.slides) && data.slides.length) return data.slides;
@@ -482,12 +534,79 @@ function normalizeSlide(slide, fallbackTitle) {
   if (!slide || typeof slide !== "object") return { title: cleanText(slide || fallbackTitle || "Slide"), bullets: [] };
   const bullets = Array.isArray(slide.bullets) ? slide.bullets : Array.isArray(slide.points) ? slide.points : Array.isArray(slide.items) ? slide.items : textToBullets(slide.bullets || slide.points || slide.items || "");
   return {
-    title: cleanText(slide.title || slide.heading || fallbackTitle || "Slide"),
-    subtitle: cleanText(slide.subtitle || slide.message || slide.takeaway || ""),
-    bullets: bullets.map(cleanText).filter(Boolean).slice(0, 7),
+    title: stripPlannerPrefix(slide.title || slide.heading || fallbackTitle || "Slide"),
+    subtitle: stripPlannerPrefix(slide.subtitle || slide.message || slide.takeaway || ""),
+    bullets: bullets.map(stripPlannerPrefix).filter((item) => item && !isPlannerLine(item)).slice(0, 7),
     notes: String(slide.notes || slide.speaker_notes || "").trim().slice(0, 2000),
     table: slide.table && typeof slide.table === "object" ? slide.table : null
   };
+}
+
+function addTextBox(slide, text, options) {
+  slide.addText(text, {
+    margin: 0,
+    breakLine: false,
+    fit: "shrink",
+    ...options
+  });
+}
+
+function addFooter(slide, theme, input) {
+  const source = cleanText(input.source || input.sources || input.data?.source || input.data?.sources || "");
+  if (source) {
+    slide.addText(`Sources: ${source}`.slice(0, 180), { x: 0.58, y: 6.78, w: 8.8, h: 0.16, fontSize: 6.5, color: theme.muted, margin: 0 });
+  }
+}
+
+function addKpiCard(pptx, slide, theme, x, y, w, value, label, accent = theme.accent) {
+  slide.addShape(pptx.ShapeType.roundRect, {
+    x, y, w, h: 0.95,
+    rectRadius: 0.08,
+    fill: { color: "FFFFFF", transparency: 6 },
+    line: { color: theme.border, width: 0.8 }
+  });
+  addTextBox(slide, value, { x: x + 0.18, y: y + 0.16, w: w - 0.36, h: 0.32, fontSize: 20, bold: true, color: accent, fontFace: theme.headingFont });
+  addTextBox(slide, label, { x: x + 0.18, y: y + 0.55, w: w - 0.36, h: 0.22, fontSize: 8.5, color: theme.body });
+}
+
+function addBulletCards(pptx, slide, theme, items, yStart = 1.45) {
+  const visible = items.slice(0, 4);
+  const cols = visible.length <= 2 ? visible.length : 2;
+  const cardW = cols === 1 ? 11.6 : 5.65;
+  visible.forEach((item, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const x = 0.72 + col * 5.95;
+    const y = yStart + row * 1.55;
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x, y, w: cardW, h: 1.25,
+      rectRadius: 0.08,
+      fill: { color: theme.panel, transparency: 8 },
+      line: { color: theme.border, width: 0.7 }
+    });
+    slide.addShape(pptx.ShapeType.rect, { x, y, w: 0.08, h: 1.25, fill: { color: theme.accent }, line: { color: theme.accent } });
+    addTextBox(slide, item, { x: x + 0.25, y: y + 0.24, w: cardW - 0.45, h: 0.7, fontSize: 13.5, color: theme.body });
+  });
+}
+
+function addTwoColumnBullets(slide, theme, items, yStart = 1.45) {
+  const left = items.slice(0, Math.ceil(items.length / 2));
+  const right = items.slice(Math.ceil(items.length / 2));
+  [left, right].forEach((group, index) => {
+    if (!group.length) return;
+    slide.addText(group.map((text) => ({ text, options: { bullet: { type: "ul" } } })), {
+      x: index === 0 ? 0.92 : 6.85,
+      y: yStart,
+      w: 5.15,
+      h: 4.55,
+      fontSize: group.length > 4 ? 12.5 : 14,
+      color: theme.body,
+      breakLine: false,
+      fit: "shrink",
+      margin: 0.02,
+      paraSpaceAfterPt: 8
+    });
+  });
 }
 
 function createPptx(input, outputPath) {
@@ -512,22 +631,39 @@ function createPptx(input, outputPath) {
     slideNumber: { x: 12.2, y: 7.03, color: theme.muted, fontSize: 7.5 }
   });
   const slides = slidesFromInput(input).map((slide, index) => normalizeSlide(slide, index === 0 ? input.title : ""));
+  const kpis = extractKpis(input, slides);
   slides.forEach((slideData, index) => {
     const slide = pptx.addSlide("KLUI");
     if (index === 0) {
-      slide.addShape(pptx.ShapeType.rect, { x: 0.72, y: 1.92, w: 0.78, h: 0.08, fill: { color: theme.accent }, line: { color: theme.accent } });
-      slide.addText(slideData.title || input.title || "Presentation", {
-        x: 0.75, y: 2.25, w: 11.8, h: 0.75, fontFace: theme.headingFont, fontSize: 34, bold: true, color: theme.body, margin: 0
+      const kicker = input.kicker || input.data?.kicker || (theme.name === "academic" ? "Study summary" : theme.name === "business" ? "Executive summary" : "Overview");
+      addTextBox(slide, kicker, { x: 0.75, y: 0.82, w: 4.7, h: 0.24, fontSize: 11, bold: true, color: theme.accent });
+      addTextBox(slide, slideData.title || input.title || "Presentation", {
+        x: 0.75, y: 1.42, w: kpis.length ? 7.2 : 11.3, h: 1.25, fontFace: theme.headingFont, fontSize: 34, bold: true, color: theme.body
       });
-      if (slideData.subtitle) {
-        slide.addText(slideData.subtitle, { x: 0.78, y: 3.1, w: 10.6, h: 0.7, fontSize: 16, color: theme.muted, fit: "shrink", margin: 0 });
+      const subtitle = slideData.subtitle || firstUsefulSentence(input.instructions || artifactContent(input), 155);
+      if (subtitle) addTextBox(slide, subtitle, { x: 0.78, y: 2.88, w: kpis.length ? 6.8 : 10.4, h: 0.55, fontSize: 14.5, color: theme.muted });
+      const chips = [input.data?.chip, input.data?.metric_label, input.data?.unit].filter(Boolean).map(cleanText);
+      if (!chips.length && /price|cost|comparison|pricing/i.test(`${input.title} ${input.instructions}`)) chips.push("comparison", "cost view");
+      chips.slice(0, 2).forEach((chip, chipIndex) => {
+        slide.addShape(pptx.ShapeType.roundRect, {
+          x: 0.78 + chipIndex * 1.9, y: 3.92, w: 1.65, h: 0.34, rectRadius: 0.06,
+          fill: { color: chipIndex ? theme.accent : theme.body },
+          line: { color: chipIndex ? theme.accent : theme.body }
+        });
+        addTextBox(slide, chip, { x: 0.9 + chipIndex * 1.9, y: 4.02, w: 1.4, h: 0.11, fontSize: 6.6, bold: true, color: "FFFFFF", align: "center" });
+      });
+      if (kpis.length) {
+        kpis.forEach((item, kpiIndex) => addKpiCard(pptx, slide, theme, 9.15, 1.25 + kpiIndex * 1.28, 2.35, item.value, item.label, kpiIndex === 1 ? "C2410C" : theme.accent));
       }
+      const recommendation = slideData.bullets.find((item) => /recommend|bottom line|winner|use /i.test(item)) || input.data?.recommendation;
+      if (recommendation) addTextBox(slide, recommendation, { x: 0.78, y: 5.24, w: 7.5, h: 0.48, fontSize: 14, bold: true, color: theme.body });
+      addFooter(slide, theme, input);
     } else {
-      slide.addText(slideData.title || "Slide", {
-        x: 0.65, y: 0.45, w: 11.9, h: 0.45, fontFace: theme.headingFont, fontSize: 24, bold: true, color: theme.body, margin: 0
+      addTextBox(slide, slideData.title || "Slide", {
+        x: 0.65, y: 0.45, w: 11.9, h: 0.45, fontFace: theme.headingFont, fontSize: 23, bold: true, color: theme.body
       });
       if (slideData.subtitle) {
-        slide.addText(slideData.subtitle, { x: 0.68, y: 1.05, w: 11.5, h: 0.42, fontSize: 12.5, color: theme.muted, fit: "shrink", margin: 0 });
+        addTextBox(slide, slideData.subtitle, { x: 0.68, y: 1.04, w: 11.5, h: 0.38, fontSize: 11.8, color: theme.muted });
       }
       if (slideData.table) {
         const rows = tableRows(slideData.table, 12);
@@ -546,16 +682,10 @@ function createPptx(input, outputPath) {
         }
       } else {
         const items = slideData.bullets.length ? slideData.bullets : ["Key point"];
-        slide.addText(items.map((text) => ({ text, options: { bullet: { type: "ul" } } })), {
-          x: 0.95, y: slideData.subtitle ? 1.75 : 1.45, w: 11.1, h: 4.8,
-          fontSize: items.length > 5 ? 15 : 17,
-          color: theme.body,
-          breakLine: false,
-          fit: "shrink",
-          margin: 0.02,
-          paraSpaceAfterPt: 9
-        });
+        if (items.length <= 4) addBulletCards(pptx, slide, theme, items, slideData.subtitle ? 1.7 : 1.35);
+        else addTwoColumnBullets(slide, theme, items, slideData.subtitle ? 1.7 : 1.35);
       }
+      addFooter(slide, theme, input);
     }
     if (slideData.notes) slide.addNotes(slideData.notes);
   });

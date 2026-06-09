@@ -86,7 +86,8 @@ const SPECIALIZED_SKILLS = {
   "presentation-create": [
     "Professional PPTX presentation skill:",
     "- Use create_document with format \"pptx\" when the user asks for PowerPoint, PPTX, slides, a deck, or a presentation.",
-    "- Provide complete slide-ready content. Prefer data.slides as an array of slides with title, subtitle/message, bullets, notes, layout, and optional tables.",
+    "- Provide complete slide-ready content. Prefer data.slides as 3-7 polished slides with title, subtitle/message, bullets, notes, and optional tables; do not write visible planner labels like \"Slide 1\", \"Layout\", or \"Speaker notes\".",
+    "- For comparison, pricing, strategy, or report decks, include data.kpis, data.recommendation, and source/sources when available so the generator can create KPI panels and quiet source footers.",
     "- Infer the audience, purpose, setting, and desired outcome: live presentation, self-reading deck, sales, teaching, reporting, strategy, training, or executive review.",
     "- Build a clear narrative arc: title, context, problem, insight, evidence, recommendation, next steps, and appendix only when useful.",
     "- Design each proposed slide around one main message with an action-oriented title, concise supporting text, and a suggested visual such as a chart, timeline, comparison, process flow, screenshot, or callout.",
