@@ -23,6 +23,55 @@ const MIME = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
 
+const THEMES = {
+  clean: {
+    name: "clean",
+    font: "Aptos",
+    headingFont: "Aptos Display",
+    accent: "111111",
+    accent2: "4B5563",
+    bg: "FFFFFF",
+    panel: "F7F7F8",
+    tableHeader: "F2F4F7",
+    tableStripe: "FAFAFA",
+    border: "D9DDE3",
+    body: "252525",
+    muted: "777777"
+  },
+  business: {
+    name: "business",
+    font: "Aptos",
+    headingFont: "Aptos Display",
+    accent: "0F766E",
+    accent2: "155E75",
+    bg: "FFFFFF",
+    panel: "ECFDF5",
+    tableHeader: "CCFBF1",
+    tableStripe: "F0FDFA",
+    border: "99F6E4",
+    body: "172B2A",
+    muted: "64748B"
+  },
+  academic: {
+    name: "academic",
+    font: "Georgia",
+    headingFont: "Georgia",
+    accent: "1D4ED8",
+    accent2: "334155",
+    bg: "FFFFFF",
+    panel: "EFF6FF",
+    tableHeader: "DBEAFE",
+    tableStripe: "F8FAFC",
+    border: "BFDBFE",
+    body: "1E293B",
+    muted: "64748B"
+  }
+};
+
+function argb(color) {
+  return `FF${String(color || "000000").replace(/^#/, "").toUpperCase()}`;
+}
+
 function safeName(value, fallback = "document") {
   const base = path.basename(String(value || fallback));
   const cleaned = base.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "");
@@ -42,6 +91,25 @@ function cleanText(value) {
 function artifactContent(input) {
   const data = input && typeof input.data === "object" && input.data ? input.data : {};
   return String(input.content || input.source_text || data.content || data.text || data.body || "").trim();
+}
+
+function resolveTheme(input) {
+  const data = input && typeof input.data === "object" && input.data ? input.data : {};
+  const explicit = String(input.theme || data.theme || "").toLowerCase();
+  if (THEMES[explicit]) return THEMES[explicit];
+  const text = [
+    input.title,
+    input.instructions,
+    artifactContent(input),
+    ...(Array.isArray(input.sections) ? input.sections.map((section) => `${section.title || section.heading || ""} ${section.content || section.text || ""}`) : [])
+  ].join(" ").toLowerCase();
+  if (/\b(homework|assignment|lecture|class|course|student|teacher|professor|university|school|research|paper|study|citation|chapter|exam)\b/.test(text)) {
+    return THEMES.academic;
+  }
+  if (/\b(business|strategy|proposal|client|executive|sales|market|marketing|finance|budget|roadmap|kpi|dashboard|operations|plan|report)\b/.test(text)) {
+    return THEMES.business;
+  }
+  return THEMES.clean;
 }
 
 function comparableHeading(text) {
@@ -182,7 +250,7 @@ function tableRows(tableData, limit = 200) {
   return all.slice(0, limit).map((row) => normalizeRowWidth(row, width));
 }
 
-function docxParagraph(block) {
+function docxParagraph(block, theme) {
   if (block.type === "heading") {
     const heading = block.level === 1 ? HeadingLevel.HEADING_1 : block.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3;
     return new Paragraph({ text: block.text, heading, spacing: { before: 220, after: 100 } });
@@ -195,20 +263,20 @@ function docxParagraph(block) {
   }
   if (block.type === "code") {
     return new Paragraph({
-      children: [new TextRun({ text: block.text.slice(0, 4000), font: "Courier New", size: 19 })],
+      children: [new TextRun({ text: block.text.slice(0, 4000), font: "Courier New", size: 19, color: theme.body })],
       spacing: { before: 120, after: 120 },
-      shading: { fill: "F5F5F5" },
-      border: { left: { style: BorderStyle.SINGLE, size: 8, color: "DDDDDD" } }
+      shading: { fill: theme.panel },
+      border: { left: { style: BorderStyle.SINGLE, size: 8, color: theme.accent } }
     });
   }
   return new Paragraph({
-    children: [new TextRun({ text: block.text, size: 22 })],
+    children: [new TextRun({ text: block.text, size: 22, color: theme.body })],
     spacing: { after: 120 },
     alignment: AlignmentType.LEFT
   });
 }
 
-function docxTable(tableData) {
+function docxTable(tableData, theme) {
   const rows = tableRows(tableData);
   if (!rows.length) return null;
   return new Table({
@@ -217,9 +285,10 @@ function docxTable(tableData) {
       tableHeader: rowIndex === 0,
       children: row.map((cell) => new TableCell({
         children: [new Paragraph({
-          children: [new TextRun({ text: cleanText(cell), bold: rowIndex === 0, size: 19 })]
+          children: [new TextRun({ text: cleanText(cell), bold: rowIndex === 0, size: 19, color: theme.body })]
         })],
-        shading: rowIndex === 0 ? { fill: "F2F4F7" } : undefined
+        shading: rowIndex === 0 ? { fill: theme.tableHeader } : rowIndex % 2 === 0 ? { fill: theme.tableStripe } : undefined,
+        margins: { top: 90, bottom: 90, left: 100, right: 100 }
       }))
     }))
   });
@@ -227,16 +296,28 @@ function docxTable(tableData) {
 
 async function createDocx(input, outputPath) {
   const title = input.title || "Generated document";
+  const theme = resolveTheme(input);
   const children = [
-    new Paragraph({ text: title, heading: HeadingLevel.TITLE, spacing: { after: 220 } })
+    new Paragraph({
+      text: title,
+      heading: HeadingLevel.TITLE,
+      spacing: { after: input.instructions ? 80 : 240 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: theme.accent } }
+    })
   ];
+  if (input.instructions) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: cleanText(input.instructions).slice(0, 240), color: theme.muted, size: 21 })],
+      spacing: { after: 240 }
+    }));
+  }
   const body = stripDuplicateTitleHeading(artifactContent(input), title);
   for (const block of markdownBlocks(body || input.instructions || "")) {
     if (block.type === "table") {
-      const table = docxTable(block.table);
+      const table = docxTable(block.table, theme);
       if (table) children.push(table);
     } else {
-      children.push(docxParagraph(block));
+      children.push(docxParagraph(block, theme));
     }
   }
   for (const section of Array.isArray(input.sections) ? input.sections.slice(0, 40) : []) {
@@ -244,10 +325,10 @@ async function createDocx(input, outputPath) {
     if (heading) children.push(new Paragraph({ text: cleanText(heading), heading: HeadingLevel.HEADING_2, spacing: { before: 220, after: 100 } }));
     for (const block of markdownBlocks(section.content || section.text || "")) {
       if (block.type === "table") {
-        const table = docxTable(block.table);
+        const table = docxTable(block.table, theme);
         if (table) children.push(table);
       } else {
-        children.push(docxParagraph(block));
+        children.push(docxParagraph(block, theme));
       }
     }
   }
@@ -255,7 +336,7 @@ async function createDocx(input, outputPath) {
     if (tableData.title || tableData.caption) {
       children.push(new Paragraph({ text: cleanText(tableData.title || tableData.caption), heading: HeadingLevel.HEADING_2 }));
     }
-    const table = docxTable(tableData);
+    const table = docxTable(tableData, theme);
     if (table) children.push(table);
   }
   const doc = new Document({
@@ -270,9 +351,11 @@ async function createDocx(input, outputPath) {
     },
     styles: {
       paragraphStyles: [
-        { id: "Normal", name: "Normal", run: { font: "Aptos", size: 22 }, paragraph: { spacing: { line: 276 } } },
-        { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true, run: { bold: true, size: 30, color: "111111" } },
-        { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true, run: { bold: true, size: 25, color: "222222" } }
+        { id: "Normal", name: "Normal", run: { font: theme.font, size: 22, color: theme.body }, paragraph: { spacing: { line: 276 } } },
+        { id: "Title", name: "Title", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 42, color: theme.accent } },
+        { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 30, color: theme.accent } },
+        { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 25, color: theme.accent2 } },
+        { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true, run: { font: theme.headingFont, bold: true, size: 23, color: theme.body } }
       ]
     },
     sections: [{
@@ -296,6 +379,7 @@ function rowsFromInput(input) {
 }
 
 async function createXlsx(input, outputPath) {
+  const theme = resolveTheme(input);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Klui";
   workbook.created = new Date();
@@ -306,14 +390,19 @@ async function createXlsx(input, outputPath) {
   rows.forEach((row) => sheet.addRow(Array.isArray(row) ? row : [row]));
   if (sheet.rowCount > 0) {
     const header = sheet.getRow(1);
-    header.font = { bold: true, color: { argb: "FF111111" } };
-    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F4F7" } };
+    header.font = { bold: true, color: { argb: argb(theme.body) }, name: theme.font };
+    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
     header.alignment = { vertical: "middle", wrapText: true };
-    header.border = { bottom: { style: "thin", color: { argb: "FFD9DDE3" } } };
+    header.border = { bottom: { style: "thin", color: { argb: argb(theme.accent) } } };
   }
   sheet.eachRow((row) => {
+    if (row.number > 1 && row.number % 2 === 0) {
+      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableStripe) } };
+    }
     row.eachCell((cell) => {
+      cell.font = { ...(cell.font || {}), name: theme.font, color: { argb: argb(theme.body) } };
       cell.alignment = { vertical: "top", wrapText: true };
+      cell.border = { bottom: { style: "hair", color: { argb: argb(theme.border) } } };
       if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
       if (typeof cell.value === "string" && /^=/.test(cell.value)) cell.value = { formula: cell.value.slice(1) };
     });
@@ -336,7 +425,8 @@ async function createXlsx(input, outputPath) {
   for (const [index, tableData] of (Array.isArray(input.tables) ? input.tables.slice(1, 8) : []).entries()) {
     const ws = workbook.addWorksheet(safeName(tableData.title || tableData.caption || `Table ${index + 2}`).slice(0, 31));
     tableRows(tableData, 5000).forEach((row) => ws.addRow(row));
-    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).font = { bold: true, name: theme.font, color: { argb: argb(theme.body) } };
+    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
     ws.views = [{ state: "frozen", ySplit: 1 }];
   }
   await workbook.xlsx.writeFile(outputPath);
@@ -401,49 +491,52 @@ function normalizeSlide(slide, fallbackTitle) {
 }
 
 function createPptx(input, outputPath) {
+  const theme = resolveTheme(input);
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_WIDE";
   pptx.author = "Klui";
   pptx.subject = input.instructions || "";
   pptx.title = input.title || "Presentation";
   pptx.theme = {
-    headFontFace: "Aptos Display",
-    bodyFontFace: "Aptos"
+    headFontFace: theme.headingFont,
+    bodyFontFace: theme.font
   };
   pptx.defineSlideMaster({
     title: "KLUI",
-    background: { color: "FFFFFF" },
+    background: { color: theme.bg },
     objects: [
-      { line: { x: 0.55, y: 6.95, w: 12.2, h: 0, line: { color: "E5E7EB", width: 0.7 } } },
-      { text: { text: "Klui", options: { x: 0.62, y: 7.03, w: 1.2, h: 0.22, fontSize: 7.5, color: "8A8A8A", margin: 0 } } }
+      { rect: { x: 0, y: 0, w: 13.333, h: 0.08, fill: { color: theme.accent }, line: { color: theme.accent } } },
+      { line: { x: 0.55, y: 6.95, w: 12.2, h: 0, line: { color: theme.border, width: 0.7 } } },
+      { text: { text: "Klui", options: { x: 0.62, y: 7.03, w: 1.2, h: 0.22, fontSize: 7.5, color: theme.muted, margin: 0 } } }
     ],
-    slideNumber: { x: 12.2, y: 7.03, color: "8A8A8A", fontSize: 7.5 }
+    slideNumber: { x: 12.2, y: 7.03, color: theme.muted, fontSize: 7.5 }
   });
   const slides = slidesFromInput(input).map((slide, index) => normalizeSlide(slide, index === 0 ? input.title : ""));
   slides.forEach((slideData, index) => {
     const slide = pptx.addSlide("KLUI");
     if (index === 0) {
+      slide.addShape(pptx.ShapeType.rect, { x: 0.72, y: 1.92, w: 0.78, h: 0.08, fill: { color: theme.accent }, line: { color: theme.accent } });
       slide.addText(slideData.title || input.title || "Presentation", {
-        x: 0.75, y: 2.25, w: 11.8, h: 0.75, fontFace: "Aptos Display", fontSize: 34, bold: true, color: "141414", margin: 0
+        x: 0.75, y: 2.25, w: 11.8, h: 0.75, fontFace: theme.headingFont, fontSize: 34, bold: true, color: theme.body, margin: 0
       });
       if (slideData.subtitle) {
-        slide.addText(slideData.subtitle, { x: 0.78, y: 3.1, w: 10.6, h: 0.7, fontSize: 16, color: "666666", fit: "shrink", margin: 0 });
+        slide.addText(slideData.subtitle, { x: 0.78, y: 3.1, w: 10.6, h: 0.7, fontSize: 16, color: theme.muted, fit: "shrink", margin: 0 });
       }
     } else {
       slide.addText(slideData.title || "Slide", {
-        x: 0.65, y: 0.45, w: 11.9, h: 0.45, fontFace: "Aptos Display", fontSize: 24, bold: true, color: "151515", margin: 0
+        x: 0.65, y: 0.45, w: 11.9, h: 0.45, fontFace: theme.headingFont, fontSize: 24, bold: true, color: theme.body, margin: 0
       });
       if (slideData.subtitle) {
-        slide.addText(slideData.subtitle, { x: 0.68, y: 1.05, w: 11.5, h: 0.42, fontSize: 12.5, color: "666666", fit: "shrink", margin: 0 });
+        slide.addText(slideData.subtitle, { x: 0.68, y: 1.05, w: 11.5, h: 0.42, fontSize: 12.5, color: theme.muted, fit: "shrink", margin: 0 });
       }
       if (slideData.table) {
         const rows = tableRows(slideData.table, 12);
         if (rows.length) {
           slide.addTable(rows, {
             x: 0.72, y: slideData.subtitle ? 1.65 : 1.35, w: 11.8, h: 4.8,
-            border: { type: "solid", color: "D4D8DE", pt: 0.6 },
-            fill: "FFFFFF",
-            color: "1F2933",
+            border: { type: "solid", color: theme.border, pt: 0.6 },
+            fill: theme.bg,
+            color: theme.body,
             fontSize: rows[0].length > 5 ? 8.5 : 10,
             valign: "mid",
             margin: 0.08,
@@ -456,7 +549,7 @@ function createPptx(input, outputPath) {
         slide.addText(items.map((text) => ({ text, options: { bullet: { type: "ul" } } })), {
           x: 0.95, y: slideData.subtitle ? 1.75 : 1.45, w: 11.1, h: 4.8,
           fontSize: items.length > 5 ? 15 : 17,
-          color: "252525",
+          color: theme.body,
           breakLine: false,
           fit: "shrink",
           margin: 0.02,

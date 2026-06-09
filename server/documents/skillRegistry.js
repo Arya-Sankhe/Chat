@@ -3,6 +3,7 @@ const BASE_SKILLS = {
     "Artifact planner:",
     "- Before creating a file, choose the smallest useful artifact type that matches the user's goal and requested format.",
     "- Prefer DOCX for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
+    "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
     "- Put complete artifact-ready content into the tool call instead of relying on prior chat references."
   ].join("\n"),
@@ -57,6 +58,7 @@ const SPECIALIZED_SKILLS = {
     "- Use Word-native editable structure: Title, Subtitle, Heading 1, Heading 2, Normal, lists, quotes, and table content where appropriate.",
     "- Maintain consistent font sizes, spacing, margins, indentation, heading hierarchy, and alignment through clean markdown/structured content rather than decorative manual styling.",
     "- Use generous whitespace, left-aligned body text, restrained emphasis, and no more than one subtle accent style unless branding is provided.",
+    "- Set theme to academic, business, or clean when the use case clearly implies one.",
     "- Make the document visually useful, not decorative. Add a cover section, table of contents, executive summary, key takeaways, comparison table, timeline, checklist, or appendix only when the document benefits from it.",
     "- Keep tables simple, readable, and labeled. Use header rows, avoid clutter, avoid heavy borders/excessive colors, and use structured tables for complex or wide table data.",
     "- Inside markdown tables, avoid unescaped vertical bars in formulas or use structured tables instead.",
@@ -75,6 +77,7 @@ const SPECIALIZED_SKILLS = {
     "- Avoid hidden magic numbers. Put assumptions in labeled cells/sections and use consistent ranges, clear references, and appropriate number/currency/percentage/date/text formats.",
     "- Make the workbook easy to use: short instruction area near the top, styled headers, readable columns, wrapped long text, filters/frozen panes/data validation/conditional formatting when useful, and no unused blank sheets.",
     "- Keep formatting professional: consistent spacing, alignment, borders, fills, font sizes, section labels, and restrained color. Avoid overusing merged cells, heavy borders, or decoration.",
+    "- Set theme to academic, business, or clean when the use case clearly implies one.",
     "- For dashboards, include KPI blocks, summaries, charts, and tables only when they answer the user's question quickly.",
     "- Make the workbook auditable: descriptive sheet/table names, source notes or links for researched inputs, simple table structures, and accessible colors that do not rely on color alone.",
     "- Before calling create_document, verify key formulas or calculated values, check for missing assumptions, duplicated rows, malformed ranges, and obvious formula-error risks such as #REF!, #DIV/0!, #VALUE!, #NAME?, and #N/A.",
@@ -89,6 +92,7 @@ const SPECIALIZED_SKILLS = {
     "- Design each proposed slide around one main message with an action-oriented title, concise supporting text, and a suggested visual such as a chart, timeline, comparison, process flow, screenshot, or callout.",
     "- Avoid crowded slides, generic stock layouts, long bullet lists, repeated AI phrasing, and decorative visuals that do not clarify the point.",
     "- Keep the proposed deck visually practical: consistent margins, typography, spacing, colors, footer treatment, and a small number of reusable layouts.",
+    "- Set theme to academic, business, or clean when the use case clearly implies one.",
     "- Include accessibility notes when relevant: readable font sizes, strong contrast, meaningful slide titles, logical reading order, descriptive links, chart labels, and avoiding color-only meaning.",
     "- Before calling create_document, check for weak slide titles, overflow-prone bullets, missing evidence, repeated layouts, and generic filler.",
     "- Do not claim the PPTX is ready until create_document returns ready output."

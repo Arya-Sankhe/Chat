@@ -101,6 +101,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
           properties: {
             format: { type: "string", enum: ["docx", "xlsx", "pptx", "pdf"] },
             title: { type: "string" },
+            theme: { type: "string", enum: ["clean", "business", "academic"], description: "Optional visual theme. Use academic for school/research/coursework, business for strategy/reports/proposals/dashboards, and clean otherwise." },
             instructions: { type: "string", description: "Formatting or construction instructions for the worker." },
             content: { type: "string", description: "Complete text that must be written into the generated document or presentation. Required for PDF/DOCX/PPTX prose documents." },
             sections: { type: "array", items: { type: "object" } },
