@@ -146,7 +146,7 @@ export function assertImageUpload({ contentType, sizeBytes }, maxImageBytes) {
 
 export function assertDocumentUpload({ contentType, fileName, sizeBytes }, maxDocumentBytes) {
   if (!isSupportedDocumentType(contentType, fileName)) {
-    throw new HttpError(400, "Upload must be a PDF, DOCX, XLSX, CSV, or TSV file.");
+    throw new HttpError(400, "Upload must be a PDF, DOCX, XLSX, PPTX, CSV, or TSV file.");
   }
 
   const size = Number(sizeBytes);

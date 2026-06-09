@@ -230,7 +230,7 @@ test("R2 upload helpers validate document files by MIME type and extension", () 
     contentType: "application/javascript",
     fileName: "x.js",
     sizeBytes: 1024
-  }, { maxDocumentBytes: 2048 }), /PDF, DOCX, XLSX, CSV, or TSV/);
+  }, { maxDocumentBytes: 2048 }), /PDF, DOCX, XLSX, PPTX, CSV, or TSV/);
   assert.throws(() => assertUpload({
     category: "document",
     contentType: "application/pdf",
