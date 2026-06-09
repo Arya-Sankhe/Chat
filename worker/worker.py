@@ -38,6 +38,11 @@ def env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
+NODE_ARTIFACT_GENERATOR = env("DOCUMENT_ARTIFACT_GENERATOR", str(Path(__file__).resolve().parent / "artifact_generator.mjs"))
+NODE_BIN = env("DOCUMENT_NODE_BIN", "node")
+USE_JS_ARTIFACT_GENERATOR = env("DOCUMENT_USE_JS_ARTIFACT_GENERATOR", "1").lower() not in ("0", "false", "no")
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -953,20 +958,51 @@ class Processor:
         fmt = input_data.get("format") or job["job_type"].split(".")[-1]
         title = input_data.get("title") or "Generated document"
         if fmt == "docx":
-            path = self.create_docx(tmp, title, input_data)
+            path = self.create_js_artifact(tmp, title, input_data, "docx") or self.create_docx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif fmt == "xlsx":
-            path = self.create_xlsx(tmp, title, input_data)
+            path = self.create_js_artifact(tmp, title, input_data, "xlsx") or self.create_xlsx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         elif fmt == "pdf":
             path = self.create_pdf(tmp, title, input_data)
             content_type = "application/pdf"
         elif fmt == "pptx":
-            path = self.create_pptx(tmp, title, input_data)
+            path = self.create_js_artifact(tmp, title, input_data, "pptx") or self.create_pptx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         else:
             raise RuntimeError(f"Unsupported create format: {fmt}")
         return self.store_generated(job, tmp, path, fmt, content_type, "generated", None)
+
+    def create_js_artifact(self, tmp, title, input_data, fmt):
+        if not USE_JS_ARTIFACT_GENERATOR:
+            return None
+        generator = Path(NODE_ARTIFACT_GENERATOR)
+        if not generator.exists():
+            return None
+        payload = dict(input_data or {})
+        payload["format"] = fmt
+        payload["title"] = title
+        input_path = tmp / f"artifact-input-{uuid.uuid4()}.json"
+        outdir = tmp / f"artifact-out-{uuid.uuid4()}"
+        outdir.mkdir(exist_ok=True)
+        input_path.write_text(json.dumps(payload), encoding="utf-8")
+        cmd = [NODE_BIN, str(generator), str(input_path), str(outdir)]
+        try:
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+            data = json.loads(result.stdout or "{}")
+            output = Path(data.get("path") or "")
+            if not output.exists():
+                raise RuntimeError("JS artifact generator did not produce an output file.")
+            resolved_output = output.resolve()
+            resolved_outdir = outdir.resolve()
+            if resolved_outdir not in resolved_output.parents:
+                raise RuntimeError("JS artifact generator returned a path outside the output directory.")
+            if output.suffix.lower() != f".{fmt}":
+                raise RuntimeError("JS artifact generator returned the wrong file type.")
+            return output
+        except Exception as exc:
+            print(f"JS artifact generator failed for {fmt}; using Python fallback: {exc}", flush=True)
+            return None
 
     def create_docx(self, tmp, title, input_data):
         doc = Document()

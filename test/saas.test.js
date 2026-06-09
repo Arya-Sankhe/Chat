@@ -258,10 +258,16 @@ test("stored user content keeps document uploads out of the vision image count",
 test("dependency policy pins npm supply-chain guardrails", () => {
   const npmrc = fs.readFileSync(new URL("../.npmrc", import.meta.url), "utf8");
   const lock = JSON.parse(fs.readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  const workerLock = JSON.parse(fs.readFileSync(new URL("../worker/package-lock.json", import.meta.url), "utf8"));
 
   assert.match(npmrc, /min-release-age=7/);
   assert.match(npmrc, /ignore-scripts=true/);
   assert.deepEqual(lock.packages[""].dependencies, undefined);
+  assert.deepEqual(workerLock.packages[""].dependencies, {
+    docx: "9.7.1",
+    exceljs: "4.4.0",
+    pptxgenjs: "4.0.1"
+  });
 });
 
 test("deleteConversation hard-deletes chat data in Supabase", async () => {

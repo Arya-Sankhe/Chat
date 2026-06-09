@@ -1,6 +1,7 @@
 .git
 .env
 node_modules
+worker/node_modules
 npm-debug.log*
 coverage
 .DS_Store

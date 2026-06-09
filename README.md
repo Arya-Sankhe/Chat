@@ -80,7 +80,7 @@ Optional for document tools:
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` (default 5) controls how many such batches fit in one turn. Raise it for very long PDFs.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE` and `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE` control hard document upload safety limits. Document tool usage is billed through the unified API-credit bar, not separate counters.
 
-The document worker uses open-source local libraries only: `pdfplumber`, `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
+The document worker uses open-source local libraries only. Generated Office artifacts are JS-first through `docx`, `PptxGenJS`, and `ExcelJS`, with the existing Python generators kept as fallbacks. Extraction/export still uses `pdfplumber`, `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, Poppler, and CSV streaming. OCR is intentionally disabled and no Tesseract packages are installed.
 
 Optional for web search:
 
