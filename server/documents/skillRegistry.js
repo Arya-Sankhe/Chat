@@ -5,7 +5,8 @@ const BASE_SKILLS = {
     "- Prefer DOCX for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
     "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
-    "- Put complete artifact-ready content into the tool call instead of relying on prior chat references."
+    "- Put complete artifact-ready content into the tool call instead of relying on prior chat references.",
+    "- Never claim a file is ready by writing a markdown download link. A generated, edited, or exported file is only ready after the document tool returns a ready or pending artifact card."
   ].join("\n"),
   "document-read": [
     "Document reading:",
@@ -20,11 +21,13 @@ const BASE_SKILLS = {
   ].join("\n"),
   "document-edit": [
     "Document editing:",
-    "- Use edit_document only for existing ready DOCX/XLSX files, include source_etag/version_no when available, and create a new version."
+    "- Use edit_document only for existing ready DOCX/XLSX files, include source_etag/version_no when available, and create a new version.",
+    "- Do not claim the edited file is ready unless edit_document returns a ready or pending artifact card. Never invent markdown download links."
   ].join("\n"),
   "document-export": [
     "Document export:",
-    "- Use export_document only when converting an existing ready document. Do not claim success until the tool returns ready output."
+    "- Use export_document only when converting an existing ready document. Do not claim success until the tool returns ready or pending output.",
+    "- Never invent markdown download links; rely on the returned artifact card for the user's download."
   ].join("\n")
 };
 
@@ -86,17 +89,19 @@ const SPECIALIZED_SKILLS = {
   "presentation-create": [
     "Professional PPTX presentation skill:",
     "- Use create_document with format \"pptx\" when the user asks for PowerPoint, PPTX, slides, a deck, or a presentation.",
-    "- Provide complete slide-ready content. Prefer data.slides as 3-7 polished slides with title, subtitle/message, bullets, notes, and optional tables; do not write visible planner labels like \"Slide 1\", \"Layout\", or \"Speaker notes\".",
+    "- Provide complete slide-ready content. By default, make the deck concise: usually 3-5 strong slides unless the user asks for more depth.",
+    "- Each slide must have a clear intent, a cohesive role in the deck narrative, and enough substance to be useful. Avoid title-only slides, one-line slides, empty section dividers, and decorative filler.",
+    "- Prefer data.slides with title, subtitle/message, short bullets or a table/KPI/callout where useful, notes, and optional visuals; do not write visible planner labels like \"Slide 1\", \"Layout\", or \"Speaker notes\".",
     "- For comparison, pricing, strategy, or report decks, include data.kpis, data.recommendation, and source/sources when available so the generator can create KPI panels and quiet source footers.",
     "- Infer the audience, purpose, setting, and desired outcome: live presentation, self-reading deck, sales, teaching, reporting, strategy, training, or executive review.",
     "- Build a clear narrative arc: title, context, problem, insight, evidence, recommendation, next steps, and appendix only when useful.",
-    "- Design each proposed slide around one main message with an action-oriented title, concise supporting text, and a suggested visual such as a chart, timeline, comparison, process flow, screenshot, or callout.",
+    "- Design each proposed slide around one main message with an action-oriented title, concise supporting text, and a suggested visual such as a chart, timeline, comparison, process flow, screenshot, KPI, table, or callout.",
     "- Avoid crowded slides, generic stock layouts, long bullet lists, repeated AI phrasing, and decorative visuals that do not clarify the point.",
     "- Keep the proposed deck visually practical: consistent margins, typography, spacing, colors, footer treatment, and a small number of reusable layouts.",
     "- Set theme to academic, business, or clean when the use case clearly implies one.",
     "- Include accessibility notes when relevant: readable font sizes, strong contrast, meaningful slide titles, logical reading order, descriptive links, chart labels, and avoiding color-only meaning.",
-    "- Before calling create_document, check for weak slide titles, overflow-prone bullets, missing evidence, repeated layouts, and generic filler.",
-    "- Do not claim the PPTX is ready until create_document returns ready output."
+    "- Before calling create_document, check for weak slide titles, one-line slides, overflow-prone bullets, missing evidence, repeated layouts, poor slide-to-slide cohesion, and generic filler.",
+    "- Do not claim the PPTX is ready until create_document returns ready or pending output. Never invent markdown download links; rely on the returned artifact card."
   ].join("\n")
 };
 

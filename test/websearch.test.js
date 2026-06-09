@@ -5,6 +5,7 @@ import { SearchCache, hashKey } from "../server/websearch/cache.js";
 import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
 import { WebSearchOrchestrator, formatResultsForModel } from "../server/websearch/index.js";
 import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
+import { buildDocumentTools } from "../server/documents/tool.js";
 
 const realFetch = globalThis.fetch;
 
@@ -57,6 +58,19 @@ function contentDelta(content) {
   return {
     choices: [{ delta: { content }, finish_reason: "stop" }]
   };
+}
+
+function latestUserTextFromBody(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") continue;
+    if (typeof message.content === "string") return message.content;
+    if (Array.isArray(message.content)) {
+      return message.content.map((part) => typeof part === "string" ? part : part?.text || "").join("\n");
+    }
+  }
+  return "";
 }
 
 const baseConfig = {
@@ -405,6 +419,69 @@ describe("tool", () => {
     });
     assert.equal(result.accumulated.content, "Hi");
     assert.equal(result.toolCallCount, 0);
+  });
+
+  test("runChatWithToolLoop corrects fake document download handoffs into real artifact calls", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return streamResponse([contentDelta("Here you go - the PPTX is ready: [Price Comparison.pptx](Price Comparison.pptx)")]);
+        }
+        if (bodies.length === 2) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: {
+              format: "pptx",
+              title: "Price Comparison",
+              content: "Complete deck content."
+            }
+          })]);
+        }
+        return streamResponse([contentDelta("Done.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "make the ppt more concise and send the pptx" }],
+        tools: buildDocumentTools({ toolNames: ["create_document"] }),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
+      },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      documents: {
+        async createDocument() {
+          return {
+            ok: true,
+            output: {
+              attachment_id: "att-pptx",
+              document_file_id: "doc-pptx",
+              file_name: "Price Comparison.pptx",
+              kind: "pptx",
+              status: "ready"
+            }
+          };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(bodies.length, 3);
+    assert.match(latestUserTextFromBody(bodies[1]), /no document tool returned a real artifact card/);
+    assert.equal(result.accumulated.content, "Done.");
+    assert.equal(result.toolCallCount, 1);
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(result.artifacts[0].download_url, "/api/attachments/att-pptx/download");
   });
 
   test("runChatWithToolLoop routes through the supplied provider override", async () => {

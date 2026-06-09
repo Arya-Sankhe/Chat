@@ -47,6 +47,49 @@ function safeJson(value) {
   }
 }
 
+function textFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => {
+    if (typeof part === "string") return part;
+    if (part?.type === "text" && typeof part.text === "string") return part.text;
+    return "";
+  }).filter(Boolean).join("\n");
+}
+
+function latestUserText(messages = []) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") return textFromContent(messages[index].content);
+  }
+  return "";
+}
+
+function hasDocumentArtifactTool(chatRequest) {
+  const artifactTools = new Set(["create_document", "edit_document", "export_document"]);
+  return Array.isArray(chatRequest?.tools)
+    && chatRequest.tools.some((tool) => artifactTools.has(tool?.function?.name));
+}
+
+function requestLikelyNeedsDocumentArtifact(messages = []) {
+  const text = latestUserText(messages).toLowerCase();
+  if (!text) return false;
+  const wantsFileAction = /\b(create|make|generate|write|build|edit|update|change|modify|revise|export|convert|download|send|attach)\b/.test(text);
+  const namesArtifact = /\b(docx?|word|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck|presentation|document|file)\b/.test(text);
+  return wantsFileAction && namesArtifact;
+}
+
+function assistantLooksLikeDocumentArtifactHandoff(content) {
+  const text = textFromContent(content).trim();
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const claimsReady = /\b(ready|created|updated|edited|exported|converted|download|downloadable|here you go|attached|proper download card)\b/.test(lower);
+  const namesArtifact = /\.(docx|pdf|xlsx|xls|pptx)\b/i.test(text)
+    || /\b(docx?|word document|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck)\b/.test(lower);
+  const hasMarkdownLink = /\[[^\]]+\]\([^)]+\)/.test(text)
+    || /^\s*\*{0,2}[^*\n]+\.(?:docx|pdf|xlsx|xls|pptx)\b/im.test(text);
+  return claimsReady && namesArtifact && hasMarkdownLink;
+}
+
 /**
  * Progressively strip tool-related fields from a chat request body so a
  * provider that can't honor them still produces an answer.
@@ -465,6 +508,7 @@ export async function runChatWithToolLoop({
   let forceFinalWithoutTools = false;
   let limitEventSent = false;
   let toolFallbackLevel = 0;
+  let artifactHandoffCorrectionSent = false;
   const inlineImageCache = new Map();
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -520,6 +564,28 @@ export async function runChatWithToolLoop({
     const finishedForTools = accumulated.finishReason === "tool_calls";
 
     if (!hasToolCalls || !finishedForTools) {
+      if (
+        documents
+        && !forceFinalWithoutTools
+        && toolFallbackLevel < 2
+        && !artifactHandoffCorrectionSent
+        && artifacts.length === 0
+        && hasDocumentArtifactTool(chatRequest)
+        && requestLikelyNeedsDocumentArtifact(messages)
+        && assistantLooksLikeDocumentArtifactHandoff(accumulated.content)
+      ) {
+        artifactHandoffCorrectionSent = true;
+        messages.push({ role: "assistant", content: accumulated.content || "" });
+        messages.push({
+          role: "user",
+          content: [
+            "The previous response claimed a downloadable document, but no document tool returned a real artifact card.",
+            "Do not write markdown download links or claim the file is ready from text alone.",
+            "Call create_document, edit_document, or export_document now to produce the real artifact card. If you cannot create it, say plainly that the file could not be created."
+          ].join(" ")
+        });
+        continue;
+      }
       return { accumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
     }
 

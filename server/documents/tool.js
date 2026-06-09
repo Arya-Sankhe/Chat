@@ -192,15 +192,18 @@ function artifactFromDocumentResult(name, result, args = {}) {
     }];
   }
 
-  if (!output.attachment_id || !output.download_url) return [];
+  const attachmentId = clean(output.attachment_id);
+  const downloadUrl = clean(output.download_url)
+    || (attachmentId ? `/api/attachments/${encodeURIComponent(attachmentId)}/download` : "");
+  if (!attachmentId || !downloadUrl) return [];
   return [{
-    id: output.attachment_id,
-    attachment_id: output.attachment_id,
+    id: attachmentId,
+    attachment_id: attachmentId,
     document_file_id: output.document_file_id || "",
     file_name: output.file_name || args.title || "Generated document",
     format: output.kind || args.format || args.target_format || "",
     status: output.status || "ready",
-    download_url: output.download_url,
+    download_url: downloadUrl,
     source_tool: name
   }];
 }

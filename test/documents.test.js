@@ -584,6 +584,40 @@ test("executeDocumentToolCall returns generated document artifacts", async () =>
   });
 });
 
+test("executeDocumentToolCall synthesizes attachment download URLs for generated artifacts", async () => {
+  const result = await executeDocumentToolCall({
+    toolCall: {
+      function: {
+        name: "create_document",
+        arguments: JSON.stringify({
+          format: "pptx",
+          title: "Price Comparison",
+          content: "Deck content."
+        })
+      }
+    },
+    documents: {
+      async createDocument() {
+        return {
+          ok: true,
+          output: {
+            attachment_id: attachmentId,
+            document_file_id: documentFileId,
+            file_name: "Price Comparison.pptx",
+            kind: "pptx",
+            status: "ready"
+          }
+        };
+      }
+    },
+    maxToolResultChars: 5000
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(result.artifacts[0].download_url, `/api/attachments/${attachmentId}/download`);
+});
+
 test("executeDocumentToolCall emits a pending artifact when the job hasn't finished", async () => {
   const result = await executeDocumentToolCall({
     toolCall: {
