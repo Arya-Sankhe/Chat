@@ -445,33 +445,152 @@ function rowsFromInput(input) {
   return [["Title", input.title || "Generated workbook"], ["Instructions", input.instructions || ""]];
 }
 
+function excelColumn(index) {
+  let value = index;
+  let out = "";
+  while (value > 0) {
+    const mod = (value - 1) % 26;
+    out = String.fromCharCode(65 + mod) + out;
+    value = Math.floor((value - mod) / 26);
+  }
+  return out;
+}
+
+function cleanCellValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return cleanText(value);
+  return value;
+}
+
+function normalizeXlsxRows(rows) {
+  return rows
+    .map((row) => (Array.isArray(row) ? row : [row]).map(cleanCellValue))
+    .filter((row) => row.some((cell) => cell !== ""));
+}
+
+function splitSparseNotes(rows) {
+  const mainRows = [];
+  const notes = [];
+  let inNotes = false;
+  for (const row of rows) {
+    const first = cleanText(row[0] || "");
+    const filled = row.filter((cell) => cell !== "").length;
+    if (/^notes?$/i.test(first)) {
+      inNotes = true;
+      continue;
+    }
+    if (inNotes || (filled === 1 && mainRows.length > 3 && first.length > 35)) {
+      if (first) notes.push([first]);
+      continue;
+    }
+    mainRows.push(row);
+  }
+  return { mainRows, notes };
+}
+
+function parseTokenSplit(rows) {
+  const row = rows.find((values) => /token split|ratio/i.test(String(values[0] || "")));
+  const text = row ? row.join(" ") : "";
+  const match = text.match(/(\d+(?:\.\d+)?)\s*%\s*input.*?(\d+(?:\.\d+)?)\s*%\s*output/i);
+  if (match) return { input: Number(match[1]) / 100, output: Number(match[2]) / 100 };
+  return { input: 0.6, output: 0.4 };
+}
+
+function rowIndexByLabel(rows, pattern) {
+  return rows.findIndex((row) => pattern.test(String(row[0] || "")));
+}
+
+function enrichMetricComparisonRows(rows, tableStartRow) {
+  if (!rows.length || !/^metric$/i.test(String(rows[0][0] || ""))) return rows;
+  const split = parseTokenSplit(rows);
+  const notesCol = rows[0].findIndex((cell) => /^notes?$/i.test(String(cell || "")));
+  const lastMetricCol = notesCol > 0 ? notesCol - 1 : rows[0].length - 1;
+  const inputPrice = rowIndexByLabel(rows, /input price/i);
+  const outputPrice = rowIndexByLabel(rows, /output price/i);
+  const inputCost = rowIndexByLabel(rows, /input cost/i);
+  const outputCost = rowIndexByLabel(rows, /output cost/i);
+  const totalCost = rowIndexByLabel(rows, /total cost/i);
+  const savings = rowIndexByLabel(rows, /savings with/i);
+  const savingsPct = rowIndexByLabel(rows, /savings\s*%/i);
+  const enriched = rows.map((row) => [...row]);
+  for (let col = 2; col <= lastMetricCol + 1; col += 1) {
+    const letter = excelColumn(col);
+    if (inputPrice >= 0 && inputCost >= 0 && enriched[inputCost][col - 1] === "") {
+      enriched[inputCost][col - 1] = { formula: `${letter}${tableStartRow + inputPrice}*${split.input}` };
+    }
+    if (outputPrice >= 0 && outputCost >= 0 && enriched[outputCost][col - 1] === "") {
+      enriched[outputCost][col - 1] = { formula: `${letter}${tableStartRow + outputPrice}*${split.output}` };
+    }
+    if (inputCost >= 0 && outputCost >= 0 && totalCost >= 0 && enriched[totalCost][col - 1] === "") {
+      enriched[totalCost][col - 1] = { formula: `${letter}${tableStartRow + inputCost}+${letter}${tableStartRow + outputCost}` };
+    }
+  }
+  if (lastMetricCol >= 2 && totalCost >= 0 && savings >= 0 && enriched[savings][1] !== "" && enriched[savings][2] === "") {
+    enriched[savings][2] = { formula: `${excelColumn(3)}${tableStartRow + totalCost}-${excelColumn(2)}${tableStartRow + totalCost}` };
+  }
+  if (lastMetricCol >= 2 && totalCost >= 0 && savingsPct >= 0 && enriched[savingsPct][1] !== "" && enriched[savingsPct][2] === "") {
+    enriched[savingsPct][2] = { formula: `${excelColumn(3)}${tableStartRow + totalCost}/${excelColumn(2)}${tableStartRow + totalCost}-1` };
+  }
+  return enriched;
+}
+
+function setCellValue(cell, value) {
+  if (value && typeof value === "object" && value.formula) {
+    cell.value = { formula: value.formula };
+    return;
+  }
+  if (typeof value === "string" && /^=/.test(value)) {
+    cell.value = { formula: value.slice(1) };
+    return;
+  }
+  cell.value = value;
+}
+
 async function createXlsx(input, outputPath) {
   const theme = resolveTheme(input);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Klui";
   workbook.created = new Date();
   const sheet = workbook.addWorksheet("Summary", {
-    views: [{ state: "frozen", ySplit: 1 }]
+    views: [{ state: "frozen", ySplit: 4 }]
   });
-  const rows = rowsFromInput(input).slice(0, 5000);
-  rows.forEach((row) => sheet.addRow(Array.isArray(row) ? row : [row]));
-  if (sheet.rowCount > 0) {
-    const header = sheet.getRow(1);
+  const { mainRows, notes } = splitSparseNotes(normalizeXlsxRows(rowsFromInput(input).slice(0, 5000)));
+  const tableStartRow = input.title || input.instructions ? 4 : 1;
+  if (input.title) {
+    sheet.mergeCells(1, 1, 1, Math.max(4, mainRows[0]?.length || 4));
+    const titleCell = sheet.getCell(1, 1);
+    titleCell.value = cleanText(input.title);
+    titleCell.font = { bold: true, size: 16, color: { argb: argb(theme.accent) }, name: theme.headingFont };
+  }
+  if (input.instructions) {
+    sheet.mergeCells(2, 1, 2, Math.max(4, mainRows[0]?.length || 4));
+    const subtitleCell = sheet.getCell(2, 1);
+    subtitleCell.value = cleanText(input.instructions);
+    subtitleCell.font = { italic: true, size: 10.5, color: { argb: argb(theme.muted) }, name: theme.font };
+  }
+  const rows = enrichMetricComparisonRows(mainRows, tableStartRow);
+  rows.forEach((row, rowOffset) => {
+    row.forEach((value, colOffset) => setCellValue(sheet.getCell(tableStartRow + rowOffset, colOffset + 1), value));
+  });
+  if (rows.length > 0) {
+    const header = sheet.getRow(tableStartRow);
     header.font = { bold: true, color: { argb: argb(theme.body) }, name: theme.font };
     header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
     header.alignment = { vertical: "middle", wrapText: true };
     header.border = { bottom: { style: "thin", color: { argb: argb(theme.accent) } } };
   }
   sheet.eachRow((row) => {
-    if (row.number > 1 && row.number % 2 === 0) {
+    if (row.number > tableStartRow && row.number % 2 === 0) {
       row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableStripe) } };
     }
+    const rowLabel = String(row.getCell(1).value || "");
     row.eachCell((cell) => {
       cell.font = { ...(cell.font || {}), name: theme.font, color: { argb: argb(theme.body) } };
       cell.alignment = { vertical: "top", wrapText: true };
       cell.border = { bottom: { style: "hair", color: { argb: argb(theme.border) } } };
-      if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
-      if (typeof cell.value === "string" && /^=/.test(cell.value)) cell.value = { formula: cell.value.slice(1) };
+      if (cell.col > 1 && /%|ratio/i.test(rowLabel)) cell.numFmt = "0.0%";
+      else if (cell.col > 1 && /price|cost|savings/i.test(rowLabel)) cell.numFmt = "$0.000";
+      else if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
     });
   });
   for (let index = 1; index <= sheet.columnCount; index += 1) {
@@ -485,9 +604,21 @@ async function createXlsx(input, outputPath) {
   }
   if (sheet.rowCount > 1 && sheet.columnCount > 1) {
     sheet.autoFilter = {
-      from: { row: 1, column: 1 },
+      from: { row: tableStartRow, column: 1 },
       to: { row: sheet.rowCount, column: sheet.columnCount }
     };
+  }
+  if (notes.length) {
+    const notesSheet = workbook.addWorksheet("Notes");
+    notesSheet.addRow(["Notes"]);
+    notes.forEach((row) => notesSheet.addRow(row));
+    notesSheet.getRow(1).font = { bold: true, name: theme.font, color: { argb: argb(theme.body) } };
+    notesSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
+    notesSheet.getColumn(1).width = 84;
+    notesSheet.eachRow((row) => row.eachCell((cell) => {
+      cell.font = { name: theme.font, color: { argb: argb(theme.body) } };
+      cell.alignment = { vertical: "top", wrapText: true };
+    }));
   }
   for (const [index, tableData] of (Array.isArray(input.tables) ? input.tables.slice(1, 8) : []).entries()) {
     const ws = workbook.addWorksheet(safeName(tableData.title || tableData.caption || `Table ${index + 2}`).slice(0, 31));
