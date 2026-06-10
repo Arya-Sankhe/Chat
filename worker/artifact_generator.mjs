@@ -78,6 +78,16 @@ function safeName(value, fallback = "document") {
   return (cleaned || fallback).slice(0, 120);
 }
 
+function safeSheetName(value, fallback = "Sheet") {
+  const cleaned = String(value || fallback)
+    .replace(/[\[\]:*?/\\]+/g, " ")
+    .replace(/[^a-z0-9._ -]+/gi, " ")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (cleaned || fallback).slice(0, 31);
+}
+
 function cleanText(value) {
   return String(value || "")
     .replace(/[\u2010-\u2015]/g, "-")
@@ -286,6 +296,42 @@ function markdownBlocks(text) {
   return blocks;
 }
 
+function qualityDocumentMarkdown(text, title = "") {
+  const lines = String(text || "").split(/\r?\n/);
+  const out = [];
+  let previous = "";
+  const hasHeading = lines.some((line) => /^#{1,3}\s+\S/.test(line.trim()));
+  for (let index = 0; index < lines.length; index += 1) {
+    const raw = lines[index].replace(/\s+$/g, "");
+    const line = raw.trim();
+    if (line && line === previous) continue;
+    previous = line;
+    const next = lines.slice(index + 1).find((candidate) => candidate.trim()) || "";
+    const label = line.match(/^([A-Z][A-Za-z0-9 &/(),.-]{2,58}):$/);
+    if (!hasHeading && label && next.trim() && !/^\|/.test(next.trim())) {
+      out.push(`## ${cleanText(label[1])}`);
+      continue;
+    }
+    out.push(raw);
+  }
+  const body = out.join("\n").trim();
+  if (!body) return "";
+  if (!hasHeading && body.split(/\n\s*\n/).filter((block) => block.trim()).length >= 3) {
+    return `## Overview\n\n${body}`;
+  }
+  return stripDuplicateTitleHeading(body, title);
+}
+
+function qualityDocumentBlocks(text, title = "") {
+  const blocks = markdownBlocks(qualityDocumentMarkdown(text, title));
+  return blocks.filter((block, index) => {
+    if (block.type !== "heading") return true;
+    const next = blocks[index + 1];
+    if (!next || next.type === "heading") return false;
+    return true;
+  });
+}
+
 function tableRows(tableData, limit = 200) {
   const headers = Array.isArray(tableData?.headers) ? tableData.headers : [];
   const rows = Array.isArray(tableData?.rows) ? tableData.rows : Array.isArray(tableData?.data) ? tableData.data : [];
@@ -375,7 +421,7 @@ async function createDocx(input, outputPath) {
   const summary = input.data?.summary || input.data?.recommendation || input.recommendation;
   const callout = docxCallout(summary, theme);
   if (callout) children.push(callout);
-  for (const block of markdownBlocks(body || input.instructions || "")) {
+  for (const block of qualityDocumentBlocks(body || input.instructions || "", title)) {
     if (block.type === "table") {
       const table = docxTable(block.table, theme);
       if (table) children.push(table);
@@ -387,7 +433,7 @@ async function createDocx(input, outputPath) {
   for (const section of Array.isArray(input.sections) ? input.sections.slice(0, 40) : []) {
     const heading = section.heading || section.title;
     if (heading) children.push(new Paragraph({ text: cleanText(heading), heading: HeadingLevel.HEADING_2, spacing: { before: 220, after: 100 } }));
-    for (const block of markdownBlocks(section.content || section.text || "")) {
+    for (const block of qualityDocumentBlocks(section.content || section.text || "", heading || title)) {
       if (block.type === "table") {
         const table = docxTable(block.table, theme);
         if (table) children.push(table);
@@ -488,6 +534,51 @@ function splitSparseNotes(rows) {
   return { mainRows, notes };
 }
 
+function isSingleCellSection(row) {
+  const values = (row || []).filter((cell) => cell !== "");
+  const label = cleanText(values[0] || "");
+  return values.length === 1 && label.length >= 3 && label.length <= 80 && !/[.!?]$/.test(label);
+}
+
+function rowsLookTabular(rows) {
+  if (!rows.length) return false;
+  const widths = rows.map((row) => row.filter((cell) => cell !== "").length);
+  return widths.filter((width) => width >= 2).length >= Math.min(2, rows.length);
+}
+
+function splitSectionedSheetPlans(rows) {
+  const plans = [];
+  let current = null;
+  for (const row of rows) {
+    if (isSingleCellSection(row)) {
+      if (current?.rows?.length) plans.push(current);
+      current = { name: cleanText(row[0]), rows: [] };
+      continue;
+    }
+    if (!current) current = { name: "Summary", rows: [] };
+    current.rows.push(row);
+  }
+  if (current?.rows?.length) plans.push(current);
+  const useful = plans.filter((plan) => rowsLookTabular(plan.rows));
+  return useful.length >= 2 ? useful : [];
+}
+
+function sheetPlansFromInput(input) {
+  const data = input && typeof input.data === "object" && input.data ? input.data : {};
+  const explicitSheets = Array.isArray(data.sheets) ? data.sheets : Array.isArray(input.sheets) ? input.sheets : [];
+  const plans = [];
+  for (const [index, sheet] of explicitSheets.slice(0, 12).entries()) {
+    const rows = normalizeXlsxRows(sheet.rows || tableRows(sheet, 5000));
+    if (rows.length) plans.push({ name: sheet.name || sheet.title || `Sheet ${index + 1}`, rows });
+  }
+  if (plans.length) return plans;
+
+  const primaryRows = normalizeXlsxRows(rowsFromInput(input).slice(0, 5000));
+  const sectioned = splitSectionedSheetPlans(primaryRows);
+  if (sectioned.length) return sectioned;
+  return [{ name: "Summary", rows: primaryRows }];
+}
+
 function parseTokenSplit(rows) {
   const row = rows.find((values) => /token split|ratio/i.test(String(values[0] || "")));
   const text = row ? row.join(" ") : "";
@@ -546,15 +637,76 @@ function setCellValue(cell, value) {
   cell.value = value;
 }
 
+function styleWorksheet(ws, theme, { tableStartRow = 1 } = {}) {
+  if (ws.rowCount >= tableStartRow) {
+    const header = ws.getRow(tableStartRow);
+    header.font = { bold: true, color: { argb: argb(theme.body) }, name: theme.font };
+    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
+    header.alignment = { vertical: "middle", wrapText: true };
+    header.border = { bottom: { style: "thin", color: { argb: argb(theme.accent) } } };
+  }
+  ws.eachRow((row) => {
+    if (row.number > tableStartRow && row.number % 2 === 0) {
+      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableStripe) } };
+    }
+    const rowLabel = String(row.getCell(1).value || "");
+    row.eachCell((cell) => {
+      cell.font = { ...(cell.font || {}), name: theme.font, color: { argb: argb(theme.body) } };
+      cell.alignment = { vertical: "top", wrapText: true };
+      cell.border = { bottom: { style: "hair", color: { argb: argb(theme.border) } } };
+      if (cell.col > 1 && /%|ratio/i.test(rowLabel)) cell.numFmt = "0.0%";
+      else if (cell.col > 1 && /price|cost|savings/i.test(rowLabel)) cell.numFmt = "$0.000";
+      else if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
+    });
+  });
+  for (let index = 1; index <= ws.columnCount; index += 1) {
+    const column = ws.getColumn(index);
+    let width = 10;
+    column.eachCell({ includeEmpty: false }, (cell) => {
+      const value = typeof cell.value === "object" && cell.value?.formula ? cell.value.formula : cell.value;
+      width = Math.max(width, Math.min(48, String(value ?? "").length + 2));
+    });
+    column.width = width;
+  }
+  if (ws.rowCount >= tableStartRow && ws.columnCount > 1) {
+    ws.autoFilter = {
+      from: { row: tableStartRow, column: 1 },
+      to: { row: ws.rowCount, column: ws.columnCount }
+    };
+  }
+}
+
 async function createXlsx(input, outputPath) {
   const theme = resolveTheme(input);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Klui";
   workbook.created = new Date();
+  const sheetPlans = sheetPlansFromInput(input);
+  if (sheetPlans.length > 1) {
+    if (input.title || input.instructions || input.data?.recommendation || input.data?.summary) {
+      const overview = workbook.addWorksheet("Overview");
+      overview.addRow(["Title", cleanText(input.title || "Generated workbook")]);
+      if (input.instructions) overview.addRow(["Purpose", cleanText(input.instructions)]);
+      if (input.data?.recommendation || input.data?.summary) overview.addRow(["Key takeaway", cleanText(input.data.recommendation || input.data.summary)]);
+      styleWorksheet(overview, theme, { tableStartRow: 1 });
+      overview.getColumn(1).width = 18;
+      overview.getColumn(2).width = 72;
+    }
+    for (const [index, plan] of sheetPlans.entries()) {
+      const ws = workbook.addWorksheet(safeSheetName(plan.name || `Table ${index + 1}`), {
+        views: [{ state: "frozen", ySplit: 1 }]
+      });
+      const rows = enrichMetricComparisonRows(plan.rows, 1);
+      rows.forEach((row) => ws.addRow(row));
+      styleWorksheet(ws, theme, { tableStartRow: 1 });
+    }
+    await workbook.xlsx.writeFile(outputPath);
+    return;
+  }
   const sheet = workbook.addWorksheet("Summary", {
     views: [{ state: "frozen", ySplit: 4 }]
   });
-  const { mainRows, notes } = splitSparseNotes(normalizeXlsxRows(rowsFromInput(input).slice(0, 5000)));
+  const { mainRows, notes } = splitSparseNotes(sheetPlans[0]?.rows || normalizeXlsxRows(rowsFromInput(input).slice(0, 5000)));
   const tableStartRow = input.title || input.instructions ? 4 : 1;
   if (input.title) {
     sheet.mergeCells(1, 1, 1, Math.max(4, mainRows[0]?.length || 4));
@@ -572,42 +724,7 @@ async function createXlsx(input, outputPath) {
   rows.forEach((row, rowOffset) => {
     row.forEach((value, colOffset) => setCellValue(sheet.getCell(tableStartRow + rowOffset, colOffset + 1), value));
   });
-  if (rows.length > 0) {
-    const header = sheet.getRow(tableStartRow);
-    header.font = { bold: true, color: { argb: argb(theme.body) }, name: theme.font };
-    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
-    header.alignment = { vertical: "middle", wrapText: true };
-    header.border = { bottom: { style: "thin", color: { argb: argb(theme.accent) } } };
-  }
-  sheet.eachRow((row) => {
-    if (row.number > tableStartRow && row.number % 2 === 0) {
-      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableStripe) } };
-    }
-    const rowLabel = String(row.getCell(1).value || "");
-    row.eachCell((cell) => {
-      cell.font = { ...(cell.font || {}), name: theme.font, color: { argb: argb(theme.body) } };
-      cell.alignment = { vertical: "top", wrapText: true };
-      cell.border = { bottom: { style: "hair", color: { argb: argb(theme.border) } } };
-      if (cell.col > 1 && /%|ratio/i.test(rowLabel)) cell.numFmt = "0.0%";
-      else if (cell.col > 1 && /price|cost|savings/i.test(rowLabel)) cell.numFmt = "$0.000";
-      else if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
-    });
-  });
-  for (let index = 1; index <= sheet.columnCount; index += 1) {
-    const column = sheet.getColumn(index);
-    let width = 10;
-    column.eachCell({ includeEmpty: false }, (cell) => {
-      const value = typeof cell.value === "object" && cell.value?.formula ? cell.value.formula : cell.value;
-      width = Math.max(width, Math.min(48, String(value ?? "").length + 2));
-    });
-    column.width = width;
-  }
-  if (sheet.rowCount > 1 && sheet.columnCount > 1) {
-    sheet.autoFilter = {
-      from: { row: tableStartRow, column: 1 },
-      to: { row: sheet.rowCount, column: sheet.columnCount }
-    };
-  }
+  styleWorksheet(sheet, theme, { tableStartRow });
   if (notes.length) {
     const notesSheet = workbook.addWorksheet("Notes");
     notesSheet.addRow(["Notes"]);
@@ -621,7 +738,7 @@ async function createXlsx(input, outputPath) {
     }));
   }
   for (const [index, tableData] of (Array.isArray(input.tables) ? input.tables.slice(1, 8) : []).entries()) {
-    const ws = workbook.addWorksheet(safeName(tableData.title || tableData.caption || `Table ${index + 2}`).slice(0, 31));
+    const ws = workbook.addWorksheet(safeSheetName(tableData.title || tableData.caption || `Table ${index + 2}`));
     tableRows(tableData, 5000).forEach((row) => ws.addRow(row));
     ws.getRow(1).font = { bold: true, name: theme.font, color: { argb: argb(theme.body) } };
     ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };

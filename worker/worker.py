@@ -1331,7 +1331,26 @@ class Processor:
         styles["Normal"].fontName = fonts["regular"]
         styles["Normal"].fontSize = 10.5
         styles["Normal"].leading = 14
+        callout_style = ParagraphStyle(
+            "KluiCallout",
+            parent=styles["Normal"],
+            fontName=fonts["regular"],
+            fontSize=10.5,
+            leading=14,
+            leftIndent=10,
+            rightIndent=10,
+            spaceBefore=4,
+            spaceAfter=10,
+            borderColor=colors.HexColor("#CBD5E1"),
+            borderWidth=0.5,
+            borderPadding=8,
+            backColor=colors.HexColor("#F8FAFC"),
+        )
         story = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
+        summary = (input_data.get("data") or {}).get("summary") or (input_data.get("data") or {}).get("recommendation") or input_data.get("recommendation")
+        if summary:
+            story.append(Paragraph(f"<b>Key takeaway:</b> {xml_escape(clean_markdown(str(summary)))}", callout_style))
+            story.append(Spacer(1, 8))
         body = strip_duplicate_title_heading(artifact_content(input_data), title)
         if body:
             self.append_pdf_markdown(story, body, styles, fonts)
@@ -1350,7 +1369,14 @@ class Processor:
                 self.append_pdf_markdown(story, str(content), styles, fonts)
         for table in input_data.get("tables") or []:
             self.append_pdf_table(story, table, styles, fonts)
-        doc.build(story)
+        def draw_footer(canvas, document):
+            canvas.saveState()
+            canvas.setFont(fonts["regular"], 8)
+            canvas.setFillColor(colors.grey)
+            canvas.drawRightString(letter[0] - 54, 24, f"Page {document.page}")
+            canvas.restoreState()
+
+        doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
         return path
 
     def append_pdf_markdown(self, story, text, styles, fonts):
@@ -1461,8 +1487,9 @@ class Processor:
         table = Table(clean_rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
         table.setStyle(TableStyle([
             ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
             ("FONTNAME", (0, 0), (-1, 0), fonts["bold"]),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAFA")]),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 5),
             ("RIGHTPADDING", (0, 0), (-1, -1), 5),

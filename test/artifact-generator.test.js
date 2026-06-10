@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
+import ExcelJS from "../worker/node_modules/exceljs/excel.js";
 import JSZip from "../worker/node_modules/jszip/lib/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -17,6 +18,81 @@ function slideTexts(xml) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+function docxTexts(xml) {
+  return [...String(xml || "").matchAll(/<w:t[^>]*>(.*?)<\/w:t>/g)]
+    .map((match) => match[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">"))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function runArtifact(input, tmpPrefix) {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), tmpPrefix));
+  const inputPath = path.join(tmp, "input.json");
+  await fs.writeFile(inputPath, JSON.stringify(input));
+  const { stdout } = await execFileAsync("node", ["worker/artifact_generator.mjs", inputPath, tmp], {
+    cwd: path.resolve(".")
+  });
+  return { tmp, result: JSON.parse(stdout) };
+}
+
+test("DOCX generator promotes plain section labels into real document structure", async () => {
+  const { result } = await runArtifact({
+    format: "docx",
+    title: "Pricing Comparison",
+    content: [
+      "Executive Summary:",
+      "MiMo is cheaper for the tested 60/40 token mix.",
+      "",
+      "Recommendation:",
+      "Use MiMo for cost-sensitive workloads and reserve Qwen for quality-sensitive cases."
+    ].join("\n")
+  }, "klui-docx-quality-");
+  const zip = await JSZip.loadAsync(await fs.readFile(result.path));
+  const xml = await zip.file("word/document.xml").async("string");
+  const text = docxTexts(xml);
+
+  assert.match(xml, /Heading2/);
+  assert.match(text, /Executive Summary/);
+  assert.match(text, /Recommendation/);
+  assert.match(text, /MiMo is cheaper/);
+});
+
+test("XLSX generator splits sectioned rows into clean worksheets", async () => {
+  const { result } = await runArtifact({
+    format: "xlsx",
+    title: "Model Price Workbook",
+    instructions: "Compare model pricing.",
+    data: {
+      recommendation: "Use MiMo when cost matters."
+    },
+    rows: [
+      ["Per-Token Pricing (per 1M tokens)", "", "", ""],
+      ["Model", "Input Price", "Output Price", ""],
+      ["MiMo-V2.5", "$0.14", "$0.28", ""],
+      ["Qwen 3.7 Plus", "$0.40", "$1.60", ""],
+      ["Blended Cost (60/40)", "", "", ""],
+      ["Model", "Input Price", "Output Price", "Blended Cost"],
+      ["MiMo-V2.5", "$0.14", "$0.28", "$0.196"],
+      ["Qwen 3.7 Plus", "$0.40", "$1.60", "$0.880"],
+      ["Scenario Analysis", "", "", ""],
+      ["Volume", "MiMo Total", "Qwen Total", "Savings"],
+      ["1", "$0.20", "$0.88", "$0.68"]
+    ]
+  }, "klui-xlsx-quality-");
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(result.path);
+  assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), [
+    "Overview",
+    "Per-Token-Pricing-per-1M-tokens",
+    "Blended-Cost-60-40",
+    "Scenario-Analysis"
+  ]);
+  assert.equal(workbook.getWorksheet("Per-Token-Pricing-per-1M-tokens").getCell("A1").value, "Model");
+  assert.equal(workbook.getWorksheet("Blended-Cost-60-40").getCell("D1").value, "Blended Cost");
+});
 
 test("PPTX generator repairs title-only and one-line slide plans", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "klui-pptx-quality-"));
