@@ -5,7 +5,8 @@ import test from "node:test";
 import {
   buildDirectPdfVisualContext,
   installStableRequestSignal,
-  normalizeAgentMode
+  normalizeAgentMode,
+  shouldSuppressWebSearchForDocumentTurn
 } from "../server/routes.js";
 
 test("installStableRequestSignal shadows Node's request signal getter", () => {
@@ -43,6 +44,34 @@ test("normalizeAgentMode only enables tools for explicit opt-in values", () => {
   assert.equal(normalizeAgentMode(false), false);
   assert.equal(normalizeAgentMode(undefined), false);
   assert.equal(normalizeAgentMode("off"), false);
+});
+
+test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups cheap", () => {
+  const documentSkills = { toolNames: ["create_document"] };
+
+  assert.equal(shouldSuppressWebSearchForDocumentTurn({
+    webMode: "auto",
+    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
+    documentSkills
+  }), true);
+
+  assert.equal(shouldSuppressWebSearchForDocumentTurn({
+    webMode: "auto",
+    detection: { score: 1, reasons: ["time-sensitive"], hasUrls: false, urls: [] },
+    documentSkills
+  }), false);
+
+  assert.equal(shouldSuppressWebSearchForDocumentTurn({
+    webMode: "auto",
+    detection: { score: 1, reasons: ["explicit-search-command"], hasUrls: false, urls: [] },
+    documentSkills
+  }), false);
+
+  assert.equal(shouldSuppressWebSearchForDocumentTurn({
+    webMode: "on",
+    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
+    documentSkills
+  }), false);
 });
 
 test("buildDirectPdfVisualContext attaches only relevant ready PDF pages", async () => {

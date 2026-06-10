@@ -6,6 +6,7 @@ const BASE_SKILLS = {
     "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
     "- Put complete artifact-ready content into the tool call instead of relying on prior chat references.",
+    "- If create_document is available for the requested format, do not say you cannot create or send downloadable files; call create_document.",
     "- Never claim a file is ready by writing a markdown download link. A generated, edited, or exported file is only ready after the document tool returns a ready or pending artifact card."
   ].join("\n"),
   "document-read": [
@@ -73,6 +74,7 @@ const SPECIALIZED_SKILLS = {
   "excel-create": [
     "Professional XLSX workbook creation skill:",
     "- Use create_document with format \"xlsx\" for spreadsheets, workbooks, trackers, dashboards, calculators, planners, models, CSV-like data, or tabular analysis.",
+    "- Do not offer CSV text, Python scripts, or manual spreadsheet instructions as a substitute unless create_document fails with a real error.",
     "- Infer the workbook purpose first: analysis, tracker, dashboard, report, model, template, calculator, planner, or raw data table.",
     "- Design the workbook before writing: clear sheet names, logical sheet order, and separate areas for inputs, assumptions, calculations, outputs, charts, raw data, and notes when useful.",
     "- Provide data.rows or structured tables with headers; do not put spreadsheet data only in prose content.",

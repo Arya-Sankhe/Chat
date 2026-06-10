@@ -39,7 +39,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const readAction = /\b(summarize|summarise|summary|explain|analyze|analyse|review|read|search|find|extract|pull|compare|answer|solve|homework|questions?|what|where|which|how)\b/i.test(prompt);
   const taskOnUploadedDocs = /\b(solve|homework|assignment|worksheet|problem\s?set|exercise|quiz|exam)\b/i.test(prompt);
   const followUpOnDocs = /\b(try again|retry|use (the )?(document )?tools?|read (it|them|the (document|file|pdf)))\b/i.test(prompt);
-  const createAction = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\b/i.test(prompt);
+  const createAction = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|add)\b/i.test(prompt);
   const editAction = /\b(edit|revise|redline|update|rewrite|change|modify|polish|fix)\b/i.test(prompt);
   const exportAction = /\b(export|convert|download\s+as|save\s+as)\b/i.test(prompt);
 
@@ -49,12 +49,12 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksPpt = /\b(powerpoint|ppt|pptx|slides?|deck|presentation)\b/i.test(prompt);
   const asksGenericDocument = /\b(document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
   const hasReadyPdf = (readyDocuments || []).some((doc) => doc?.kind === "pdf");
-  const wordOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\s+(an?\s+)?(word|docx)\b/i.test(prompt)
+  const wordOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|add)\s+(an?\s+)?(word|docx)\b/i.test(prompt)
     || /\b(word\s+(doc|document|file)|docx\s+(file|document))\b/i.test(prompt);
-  const pdfOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\s+(an?\s+)?pdf\b/i.test(prompt)
+  const pdfOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|add)\s+(an?\s+)?pdf\b/i.test(prompt)
     || /\b(as|to|into)\s+(an?\s+)?pdf\b/i.test(prompt)
     || /\.pdf\b/i.test(prompt);
-  const excelOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\s+(an?\s+)?(excel|xlsx|spreadsheet|workbook)\b/i.test(prompt)
+  const excelOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|add)\s+(an?\s+)?(excel|xlsx|spreadsheet|workbook)\b/i.test(prompt)
     || /\b(excel\s+(file|sheet|workbook)|xlsx\s+(file|document)|spreadsheet|workbook)\b/i.test(prompt);
 
   const skills = new Set();
@@ -141,6 +141,10 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
   const needsReadyList = selectedSkills.some((skill) => ["document-read", "pdf-read", "document-edit", "document-export"].includes(skill));
   if (needsReadyList && readyDocuments?.length) {
     sections.push(`Ready uploaded/generated documents:\n${readyDocumentList(readyDocuments)}`);
+  }
+
+  if ((selection.toolNames || []).includes("create_document")) {
+    sections.push("Capability check: create_document can create downloadable DOCX, XLSX, PPTX, and PDF files. Do not claim you lack this capability when this tool is available; call it for requested artifacts or explain the real tool error if it fails.");
   }
 
   sections.push("When a document tool returns output.download_url, mention the generated file briefly. The app will render a download card from tool metadata.");

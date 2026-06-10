@@ -1034,6 +1034,14 @@ export function normalizeAgentMode(value) {
   return false;
 }
 
+export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, documentSkills } = {}) {
+  if (webMode === "on") return false;
+  if (!documentSkills?.toolNames?.includes("create_document")) return false;
+  if (detection?.hasUrls) return false;
+  if ((detection?.reasons || []).includes("explicit-search-command")) return false;
+  return Number(detection?.score || 0) === 0;
+}
+
 function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null }) {
   const tools = [];
   const hints = [];
@@ -2163,21 +2171,25 @@ async function handleConversationMessage(req, res, config, conversationId) {
     signal: req.signal
   });
   const selectedModelSupportsVision = modelSupportsVision(selectedModelMetadata || chatRequest.model);
-
-  const detection = webSearchMode !== "off"
-    ? detectSearchNeed(promptText)
-    : { score: 0, reasons: [], hasUrls: false, urls: [] };
-  const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
   const readyDocuments = documents ? await documents.readyDocuments() : [];
   const documentSkills = agentMode && documents ? selectDocumentSkills({
     text: promptText,
     readyDocuments,
     messageHasDocuments: attachments.some((attachment) => attachment.category === "document")
   }) : null;
+  const detection = webSearchMode !== "off"
+    ? detectSearchNeed(promptText)
+    : { score: 0, reasons: [], hasUrls: false, urls: [] };
+  const effectiveWebSearchMode = shouldSuppressWebSearchForDocumentTurn({
+    webMode: webSearchMode,
+    detection,
+    documentSkills
+  }) ? "off" : webSearchMode;
+  const hint = effectiveWebSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
   let toolSetup = agentMode
     ? withAvailableTools(chatRequest, {
         config,
-        webMode: webSearchMode,
+        webMode: effectiveWebSearchMode,
         webHint: hint,
         readyDocuments,
         documentSkills

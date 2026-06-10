@@ -96,6 +96,11 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.ok(ppt.toolNames.includes("create_document"));
   assert.ok(ppt.skills.includes("presentation-create"));
 
+  const followUpExcel = selectDocumentSkills({ text: "also give me excel file", readyDocuments });
+  assert.ok(followUpExcel.skills.includes("artifact-planner"));
+  assert.ok(followUpExcel.skills.includes("excel-create"));
+  assert.ok(followUpExcel.toolNames.includes("create_document"));
+
   /* Combined read+create on an existing upload should expose both the
      read and create skills so the model can inspect the upload before
      producing the new artifact. */
@@ -193,6 +198,8 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   assert.match(excelHint, /Professional XLSX workbook creation skill/);
   assert.match(excelHint, /Infer the workbook purpose first/);
   assert.match(excelHint, /formulas for derived values/);
+  assert.match(excelHint, /Do not offer CSV text, Python scripts, or manual spreadsheet instructions as a substitute/);
+  assert.match(excelHint, /create_document can create downloadable DOCX, XLSX, PPTX, and PDF files/);
   assert.doesNotMatch(excelHint, /Professional Word document creation skill/);
   assert.doesNotMatch(excelHint, /Professional PDF creation skill/);
   assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
