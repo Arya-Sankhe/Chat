@@ -61,7 +61,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     || (fileDeliveryAction && /\b(excel\s+(file|sheet|workbook)|xlsx\s+(file|document)|spreadsheet|workbook|\.xlsx|\.csv|\.tsv)\b/i.test(prompt));
   const pptOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?(powerpoint|pptx?|slides?|deck|presentation)\b/i.test(prompt)
     || (fileDeliveryAction && /\b(powerpoint\s+(file|deck|presentation)|pptx?\s+(file|deck)|slide\s+deck|deck|presentation|\.pptx?)\b/i.test(prompt));
-  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput;
+  const explicitArtifactFormat = asksPdf || asksWord || asksExcel || asksPpt;
+  const artifactTaskIntent = createAction || fileDeliveryAction || mentionsExisting || readAction;
+  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || (explicitArtifactFormat && artifactTaskIntent);
 
   const skills = new Set();
   const tools = new Set();
@@ -93,11 +95,11 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
 
   if (wantsArtifactOutput) {
     skills.add("artifact-planner");
-    if (asksPdf && (!asksWord || pdfOutput && !wordOutput) && (!asksExcel || pdfOutput && !excelOutput)) {
+    if (asksPdf && (!asksWord || pdfOutput && !wordOutput) && (!asksExcel || pdfOutput && !excelOutput) && (!asksPpt || pdfOutput && !pptOutput)) {
       skills.add("pdf-create");
       tools.add("create_document");
     }
-    if (asksWord || (!asksPdf && !asksExcel && !asksPpt && asksGenericDocument)) {
+    if (asksWord || (!explicitArtifactFormat && createAction && asksGenericDocument)) {
       skills.add("word-create");
       tools.add("create_document");
     }

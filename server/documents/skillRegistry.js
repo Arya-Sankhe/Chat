@@ -4,6 +4,7 @@ const BASE_SKILLS = {
     "- Before creating a file, choose the smallest useful artifact type that matches the user's goal and requested format.",
     "- Prefer DOCX for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
     "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
+    "- Tool availability is not an instruction to create a file. Only call create_document when the user wants a downloadable/generated artifact, not when they only want an answer or summary.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
     "- Put complete artifact-ready content into the tool call instead of relying on prior chat references.",
     "- If create_document is available for the requested format, do not say you cannot create or send downloadable files; call create_document.",

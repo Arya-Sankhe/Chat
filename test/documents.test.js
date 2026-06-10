@@ -58,8 +58,8 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   }];
 
   const read = selectDocumentSkills({ text: "can you summarize this pdf for me", readyDocuments });
-  assert.deepEqual(read.skills, ["document-read", "pdf-read"]);
-  assert.deepEqual(read.toolNames, ["search_document", "read_document", "extract_tables"]);
+  assert.deepEqual(read.skills.sort(), ["artifact-planner", "document-read", "pdf-create", "pdf-read"].sort());
+  assert.deepEqual(read.toolNames.sort(), ["create_document", "search_document", "read_document", "extract_tables"].sort());
 
   /* When the prompt mentions documents and includes summary-like
      read-actions, expose both read and create skills so the model can
@@ -113,8 +113,11 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.ok(followUpPpt.skills.includes("presentation-create"));
   assert.ok(followUpPpt.toolNames.includes("create_document"));
 
-  const summaryOnly = selectDocumentSkills({ text: "read this pdf and give me a summary", readyDocuments: [] });
-  assert.equal(summaryOnly.enabled, false);
+  const summaryWithFormat = selectDocumentSkills({ text: "read this pdf and give me a summary", readyDocuments: [] });
+  assert.equal(summaryWithFormat.enabled, true);
+  assert.ok(summaryWithFormat.skills.includes("artifact-planner"));
+  assert.ok(summaryWithFormat.skills.includes("pdf-create"));
+  assert.ok(summaryWithFormat.toolNames.includes("create_document"));
 
   /* Combined read+create on an existing upload should expose both the
      read and create skills so the model can inspect the upload before
@@ -187,6 +190,7 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   const hint = buildDocumentSystemHint({ readyDocuments: [], selection });
   assert.match(hint, /Professional PDF creation skill/);
   assert.match(hint, /Artifact planner/);
+  assert.match(hint, /Tool availability is not an instruction to create a file/);
   assert.match(hint, /publication-ready document/);
   assert.match(hint, /complete final PDF body/);
   assert.match(hint, /Available document tools this turn: create_document/);
