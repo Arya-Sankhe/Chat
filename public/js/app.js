@@ -112,6 +112,8 @@ const state = {
 };
 
 let renderQueued = false;
+let streamingRenderQueued = false;
+const streamingRenderTargets = new Map();
 let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
@@ -1583,6 +1585,14 @@ function renderAssistantContent(content, message) {
   return renderAssistantText(text, citations);
 }
 
+function renderAssistantMessageContent(message, role = "assistant") {
+  const msg = normalizeMessage(message);
+  const content = typeof msg.content === "string" ? msg.content : msg.content;
+  const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
+  if (role !== "assistant") return renderContent(content || "");
+  return `${renderReasoning(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderCitations(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
+}
+
 function renderCitations(message) {
   const citations = dedupeCitationsForDisplay(citationListFromMessage(message));
   if (!citations.length) return "";
@@ -2147,19 +2157,15 @@ function messageCopyButton(msg) {
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
-  const content = typeof msg.content === "string" ? msg.content : msg.content;
-  const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
-  const body = role === "assistant"
-    ? renderAssistantContent(content, msg)
-    : renderContent(content || "");
   const rawText = rawTextContent(msg.content);
+  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
 
   return `
-    <article class="message ${role}" data-raw-text="${escapeHtml(rawText)}">
+    <article class="message ${role}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-avatar">${role === "user" ? "You" : "K"}</div>
       <div class="message-body">
         <div class="message-meta"><strong>${role === "user" ? "You" : "Klui"}</strong>${messageCopyButton(msg)}</div>
-        <div class="message-content">${role === "assistant" ? renderReasoning(msg, { streaming }) : ""}${body}${role === "assistant" ? renderArtifacts(msg) : ""}${role === "assistant" ? renderCitations(msg) : ""}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}</div>
+        <div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
       </div>
     </article>
   `;
@@ -2167,25 +2173,16 @@ function renderStandardMessage(raw) {
 
 function renderCompareResponse(raw, index) {
   const msg = normalizeMessage(raw);
-  const content = msg.content || "";
-  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
+  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
 
   return `
-    <section class="compare-response" data-raw-text="${escapeHtml(rawText)}">
+    <section class="compare-response"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <header class="compare-response-head">
         <strong>${escapeHtml(compareModelAlias(index))}</strong>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
-      <div class="compare-response-body message-content">
-        ${renderReasoning(msg, { streaming })}
-        ${renderAssistantContent(content, msg)}
-        ${renderArtifacts(msg)}
-        ${renderCitations(msg)}
-        ${renderMessageError(msg)}
-        ${renderMessageNote(msg)}
-        ${renderMissingFinal(msg, "assistant")}
-      </div>
+      <div class="compare-response-body message-content">${renderAssistantMessageContent(msg)}</div>
     </section>
   `;
 }
@@ -2272,9 +2269,8 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
   const msg = normalizeMessage(panelist);
   const modelId = msg.model || "";
   const modelAlias = councilModelAlias(modelId, index);
-  const content = msg.content || "";
-  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
+  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const rank = msg.metadata?.council?.peerRank;
   const ballotCount = Number(msg.metadata?.council?.ballotCount || 0);
   const justifications = msg.metadata?.council?.peerJustifications || {};
@@ -2293,7 +2289,7 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
     </div>` : "";
 
   return `
-    <section class="council-panelist ${showRank && rank === 1 ? "rank-1" : ""}" data-raw-text="${escapeHtml(rawText)}">
+    <section class="council-panelist ${showRank && rank === 1 ? "rank-1" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <header class="council-panelist-head">
         <span class="compare-model-mark">
           <span>${escapeHtml(modelAlias.replace("Model ", ""))}</span>
@@ -2302,15 +2298,7 @@ function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = 
         ${rankBadge}
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
-      <div class="council-panelist-body message-content">
-        ${renderReasoning(msg, { streaming })}
-        ${renderAssistantContent(content, msg)}
-        ${renderArtifacts(msg)}
-        ${renderCitations(msg)}
-        ${renderMessageError(msg)}
-        ${renderMessageNote(msg)}
-        ${renderMissingFinal(msg, "assistant")}
-      </div>
+      <div class="council-panelist-body message-content">${renderAssistantMessageContent(msg)}</div>
       ${justBlock}
     </section>
   `;
@@ -2329,27 +2317,19 @@ function renderCouncilSynthesis(chairman) {
 
   const msg = normalizeMessage(chairman);
   const modelId = msg.model || "";
-  const content = msg.content || "";
-  const streaming = isAssistantMessageStreaming(msg);
   const rawText = rawTextContent(msg.content);
   const modelName = councilModelAlias(modelId);
+  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
 
   return `
-    <div class="council-synthesis" data-raw-text="${escapeHtml(rawText)}">
+    <div class="council-synthesis"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="council-synthesis-head">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
         <span>Council Synthesis</span>
         <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </div>
-      <div class="council-synthesis-body message-content">
-        ${renderReasoning(msg, { streaming })}
-        ${renderAssistantContent(content, msg)}
-        ${renderArtifacts(msg)}
-        ${renderCitations(msg)}
-        ${renderMessageError(msg)}
-        ${renderMessageNote(msg)}
-      </div>
+      <div class="council-synthesis-body message-content">${renderAssistantMessageContent(msg)}</div>
     </div>
   `;
 }
@@ -2417,6 +2397,62 @@ function renderMessages() {
 
   syncPendingArtifactPolls();
   renderContextMeter();
+}
+
+function cssString(value) {
+  const raw = String(value ?? "");
+  if (globalThis.CSS?.escape) return CSS.escape(raw);
+  return raw.replace(/["\\]/g, "\\$&");
+}
+
+function preserveMessageScroll(update) {
+  const beforePinned = state.autoScroll && isNearBottom(els.messages);
+  const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
+  update();
+  if (beforePinned) {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  } else {
+    els.messages.scrollTop = Math.max(0, els.messages.scrollHeight - beforeBottom);
+  }
+}
+
+function renderStreamingMessageSurface(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id) return false;
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
+  const contentEl = surface?.querySelector(".message-content");
+  if (!surface || !contentEl) return false;
+
+  captureReasoningOpenState();
+  preserveMessageScroll(() => {
+    const rawText = rawTextContent(message.content);
+    surface.dataset.rawText = rawText;
+    contentEl.innerHTML = renderAssistantMessageContent(message);
+  });
+  syncPendingArtifactPolls();
+  renderContextMeter();
+  return true;
+}
+
+function flushStreamingMessageSurfaces() {
+  streamingRenderQueued = false;
+  const targets = Array.from(streamingRenderTargets.values());
+  streamingRenderTargets.clear();
+  for (const target of targets) {
+    if (!renderStreamingMessageSurface(target)) renderMessages();
+  }
+}
+
+function queueStreamingMessageRender(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id) {
+    queueRenderMessages();
+    return;
+  }
+  streamingRenderTargets.set(id, message);
+  if (streamingRenderQueued) return;
+  streamingRenderQueued = true;
+  requestAnimationFrame(flushStreamingMessageSurfaces);
 }
 
 function queueRenderMessages() {
@@ -2801,30 +2837,47 @@ function applyStreamEvent(message, event) {
   }
 }
 
+function isStreamDeltaEvent(event) {
+  if (event?.type === "delta") return isStreamDeltaEvent(event.event);
+  if (event?.type === "council:chairman:delta") return isStreamDeltaEvent(event.event);
+  const delta = event?.choices?.[0]?.delta || {};
+  return Boolean(
+    typeof delta.content === "string" && delta.content
+    || extractReasoningDelta(delta)
+  );
+}
+
+function queueStreamRenderForEvent(message, event) {
+  if (isStreamDeltaEvent(event)) queueStreamingMessageRender(message);
+  else queueRenderMessages();
+}
+
 function applyCompareStreamEvent(compareMessage, event) {
   const index = Number(event?.index);
-  if (!Number.isInteger(index) || !compareMessage.compareResponses?.[index]) return;
+  if (!Number.isInteger(index) || !compareMessage.compareResponses?.[index]) return null;
   const target = compareMessage.compareResponses[index];
 
   if (event.type === "start") {
     target.id = event.assistantMessageId || target.id;
-    return;
+    return target;
   }
 
   if (event.type === "delta") {
     applyStreamEvent(target, event.event);
-    return;
+    return target;
   }
 
   if (event.type === "error") {
     target.error = event.error || "Model request failed.";
     target.finishReason = "error";
-    return;
+    return target;
   }
 
   if (event.type === "done") {
     target.finishReason ||= "stop";
+    return target;
   }
+  return target;
 }
 
 function applyCouncilStreamEvent(council, event) {
@@ -2832,14 +2885,14 @@ function applyCouncilStreamEvent(council, event) {
 
   if (type === "council:start") {
     council.sessionId = event.sessionId || council.sessionId;
-    return;
+    return null;
   }
 
   /* Stage 1 events reuse compare-style envelope */
   if (type === "start" || type === "delta" || type === "done" || type === "error") {
     const index = Number(event.index);
     const target = council.panelists?.[index];
-    if (!target) return;
+    if (!target) return null;
     if (type === "start") {
       target.id = event.assistantMessageId || target.id;
       if (!target.metadata) target.metadata = { council: { sessionId: council.sessionId, role: "panelist", stage: 1 } };
@@ -2851,14 +2904,14 @@ function applyCouncilStreamEvent(council, event) {
     } else if (type === "done") {
       target.finishReason ||= "stop";
     }
-    return;
+    return target;
   }
 
   if (type === "council:peer:start") {
     council.stage1Status = "done";
     council.stage2Status = "active";
     council.peerStatus = "Peers are evaluating each response…";
-    return;
+    return null;
   }
 
   if (type === "council:peer:ballot") {
@@ -2880,7 +2933,7 @@ function applyCouncilStreamEvent(council, event) {
       if (!target.metadata.council.peerJustifications) target.metadata.council.peerJustifications = {};
       target.metadata.council.peerJustifications[event.reviewerModel] = reason;
     }
-    return;
+    return null;
   }
 
   if (type === "council:peer:done") {
@@ -2895,7 +2948,7 @@ function applyCouncilStreamEvent(council, event) {
       target.metadata.council.bordaScore = row.bordaScore;
       target.metadata.council.ballotCount = row.ballotCount;
     }
-    return;
+    return null;
   }
 
   if (type === "council:peer:error") {
@@ -2907,7 +2960,7 @@ function applyCouncilStreamEvent(council, event) {
       panelist.metadata.council.peerReviewStatus = "error";
       panelist.metadata.council.peerReviewReason = event.error || "Peer review failed.";
     }
-    return;
+    return null;
   }
 
   if (type === "council:peer:skipped") {
@@ -2919,7 +2972,7 @@ function applyCouncilStreamEvent(council, event) {
       panelist.metadata.council.peerReviewStatus = "skipped";
       panelist.metadata.council.peerReviewReason = event.reason || "Peer review skipped.";
     }
-    return;
+    return null;
   }
 
   if (type === "council:chairman:start") {
@@ -2945,19 +2998,19 @@ function applyCouncilStreamEvent(council, event) {
       council.chairman.model = event.chairmanModel || council.chairman.model;
       council.chairman.id = event.assistantMessageId || council.chairman.id;
     }
-    return;
+    return council.chairman;
   }
 
   if (type === "council:chairman:delta") {
-    if (!council.chairman) return;
+    if (!council.chairman) return null;
     applyStreamEvent(council.chairman, event.event);
-    return;
+    return council.chairman;
   }
 
   if (type === "council:chairman:done") {
     council.stage3Status = "done";
     if (council.chairman) council.chairman.finishReason ||= "stop";
-    return;
+    return council.chairman || null;
   }
 
   if (type === "council:chairman:error") {
@@ -2966,13 +3019,14 @@ function applyCouncilStreamEvent(council, event) {
       council.chairman.error = event.error || "Chairman synthesis failed.";
       council.chairman.finishReason = "error";
     }
-    return;
+    return council.chairman || null;
   }
 
   if (type === "council:chairman:skipped") {
     council.stage3Status = "skipped";
-    return;
+    return null;
   }
+  return null;
 }
 
 /* ─── API data loading ─── */
@@ -3216,7 +3270,7 @@ async function retryFailedAssistant(assistantMessageId) {
       signal: state.abortController.signal,
       onEvent: (event) => {
         applyStreamEvent(localAssistant, event);
-        queueRenderMessages();
+        queueStreamRenderForEvent(localAssistant, event);
       }
     });
 
@@ -3371,8 +3425,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }, {
         signal: state.abortController.signal,
         onEvent: (event) => {
-          applyCouncilStreamEvent(localAssistant, event);
-          queueRenderMessages();
+          const target = applyCouncilStreamEvent(localAssistant, event);
+          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          else queueRenderMessages();
         }
       });
     } else if (compareModels.length) {
@@ -3382,8 +3437,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }, {
         signal: state.abortController.signal,
         onEvent: (event) => {
-          applyCompareStreamEvent(localAssistant, event);
-          queueRenderMessages();
+          const target = applyCompareStreamEvent(localAssistant, event);
+          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          else queueRenderMessages();
         }
       });
     } else {
@@ -3391,7 +3447,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         signal: state.abortController.signal,
         onEvent: (event) => {
           applyStreamEvent(localAssistant, event);
-          queueRenderMessages();
+          queueStreamRenderForEvent(localAssistant, event);
         }
       });
     }
