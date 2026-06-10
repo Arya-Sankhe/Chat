@@ -1687,6 +1687,10 @@ body.document-viewer-resizing {
   background: var(--surface-muted, #f5f5f5);
 }
 
+.inline-source-row.is-static {
+  cursor: default;
+}
+
 .inline-source-row img {
   flex: 0 0 14px;
   border-radius: 3px;
@@ -1797,6 +1801,10 @@ body.document-viewer-resizing {
 
 .sources-row:hover {
   background: rgba(0, 0, 0, 0.04);
+}
+
+.sources-row.is-static {
+  cursor: default;
 }
 
 .sources-row-icon,

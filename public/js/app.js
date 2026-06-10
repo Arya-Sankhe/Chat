@@ -1456,6 +1456,11 @@ function citationFaviconUrl(url) {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`;
 }
 
+function isClickableSourceUrl(url) {
+  const value = String(url || "").trim();
+  return /^https?:\/\//i.test(value);
+}
+
 function uniqueCitationPreview(citations, limit = 3) {
   const seen = new Set();
   const preview = [];
@@ -1490,12 +1495,16 @@ function renderInlineSourcePill(sources) {
     const host = citationHost(entry.url);
     const rowIcon = citationFaviconUrl(entry.url);
     const title = citationDisplayTitle(entry) || host || entry.url;
-    const href = entry.url || "#";
+    const href = isClickableSourceUrl(entry.url) ? entry.url : "";
+    const content = `
+      ${rowIcon ? `<img src="${escapeHtml(rowIcon)}" alt="" width="14" height="14" decoding="async">` : ""}
+      <span class="inline-source-row-title">${escapeHtml(title)}</span>
+      ${host ? `<span class="inline-source-row-host">${escapeHtml(host)}</span>` : ""}
+    `;
+    if (!href) return `<div class="inline-source-row is-static">${content}</div>`;
     return `
       <a class="inline-source-row" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">
-        ${rowIcon ? `<img src="${escapeHtml(rowIcon)}" alt="" width="14" height="14" decoding="async">` : ""}
-        <span class="inline-source-row-title">${escapeHtml(title)}</span>
-        ${host ? `<span class="inline-source-row-host">${escapeHtml(host)}</span>` : ""}
+        ${content}
       </a>
     `;
   }).join("");
@@ -1609,14 +1618,20 @@ function renderCitations(message) {
     const host = citationHost(entry.url);
     const icon = citationFaviconUrl(entry.url);
     const title = entry.title || host || entry.url;
-    const href = entry.url || "#";
+    const href = isClickableSourceUrl(entry.url) ? entry.url : "";
+    const content = `
+      ${icon ? `<img class="sources-row-icon" src="${escapeHtml(icon)}" alt="" width="16" height="16" decoding="async">` : `<span class="sources-row-fallback" aria-hidden="true"></span>`}
+      <span class="sources-row-text">
+        <span class="sources-row-title">${escapeHtml(title)}</span>
+        ${host ? `<span class="sources-row-host">${escapeHtml(host)}</span>` : ""}
+      </span>
+    `;
+    if (!href) {
+      return `<div class="sources-row is-static">${content}</div>`;
+    }
     return `
       <a class="sources-row" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">
-        ${icon ? `<img class="sources-row-icon" src="${escapeHtml(icon)}" alt="" width="16" height="16" decoding="async">` : `<span class="sources-row-fallback" aria-hidden="true"></span>`}
-        <span class="sources-row-text">
-          <span class="sources-row-title">${escapeHtml(title)}</span>
-          ${host ? `<span class="sources-row-host">${escapeHtml(host)}</span>` : ""}
-        </span>
+        ${content}
       </a>
     `;
   }).join("");
