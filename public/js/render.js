@@ -127,12 +127,20 @@ function restoreMath(html, slots) {
 
 /* Syntax highlighting for code blocks */
 
+function normalizeCodeLanguage(value) {
+  const lang = String(value || "").trim().toLowerCase();
+  if (!lang || lang.length > 24) return "";
+  if (!/^[a-z0-9_+#.-]+$/.test(lang)) return "";
+  return lang;
+}
+
 function highlightCodeBlocks(html) {
   const hljs = globalThis.hljs;
 
   return html.replace(
     /<pre><code(?:\s+class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g,
     (match, lang, code) => {
+      const requestedLang = normalizeCodeLanguage(lang);
       const decoded = code
         .replaceAll("&amp;", "&")
         .replaceAll("&lt;", "<")
@@ -142,14 +150,14 @@ function highlightCodeBlocks(html) {
         .replaceAll("&#039;", "'");
 
       let highlighted = code;
-      let detectedLang = lang || "";
+      let detectedLang = requestedLang;
       if (hljs) {
         try {
-          const result = lang && hljs.getLanguage(lang)
-            ? hljs.highlight(decoded, { language: lang })
+          const result = requestedLang && hljs.getLanguage(requestedLang)
+            ? hljs.highlight(decoded, { language: requestedLang })
             : hljs.highlightAuto(decoded);
           highlighted = result.value;
-          if (!lang && result.language) detectedLang = result.language;
+          if (!requestedLang && result.language) detectedLang = normalizeCodeLanguage(result.language);
         } catch { /* keep original */ }
       }
 

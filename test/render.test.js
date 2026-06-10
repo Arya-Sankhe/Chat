@@ -223,6 +223,24 @@ test("renderContent does not extract math inside code spans or fences", () => {
   assert.doesNotMatch(renderContent("```js\nconst price = '$x_1$';\n```"), /class="katex"/);
 });
 
+test("renderContent ignores malformed code fence language headers", () => {
+  globalThis.marked = {
+    parse() {
+      return `<pre><code class="language-print(&quot;bad&quot;) aria-label=&quot;Copy code&quot;">print(&quot;ok&quot;)</code></pre>`;
+    },
+    use() {}
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  const html = renderContent("```bad\nprint('ok')\n```");
+  assert.match(html, /code-block-header/);
+  assert.doesNotMatch(html, /code-block-lang">print/);
+  assert.doesNotMatch(html, /aria-label=&quot;Copy code&quot;/);
+  assert.match(html, /data-copy-code="print\(&quot;ok&quot;\)"/);
+});
+
 test("renderContent allows safe br tags without allowing arbitrary HTML", async () => {
   let renderer;
   globalThis.marked = {
