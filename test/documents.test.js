@@ -101,6 +101,21 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.ok(followUpExcel.skills.includes("excel-create"));
   assert.ok(followUpExcel.toolNames.includes("create_document"));
 
+  const followUpWord = selectDocumentSkills({ text: "can I get a word doc too", readyDocuments });
+  assert.ok(followUpWord.skills.includes("word-create"));
+  assert.ok(followUpWord.toolNames.includes("create_document"));
+
+  const followUpPdf = selectDocumentSkills({ text: "please send me a pdf file", readyDocuments });
+  assert.ok(followUpPdf.skills.includes("pdf-create"));
+  assert.ok(followUpPdf.toolNames.includes("create_document"));
+
+  const followUpPpt = selectDocumentSkills({ text: "share a ppt deck as well", readyDocuments });
+  assert.ok(followUpPpt.skills.includes("presentation-create"));
+  assert.ok(followUpPpt.toolNames.includes("create_document"));
+
+  const summaryOnly = selectDocumentSkills({ text: "read this pdf and give me a summary", readyDocuments: [] });
+  assert.equal(summaryOnly.enabled, false);
+
   /* Combined read+create on an existing upload should expose both the
      read and create skills so the model can inspect the upload before
      producing the new artifact. */
