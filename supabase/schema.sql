@@ -521,7 +521,7 @@ $$;
 grant execute on function public.klui_check_api_budget(uuid, text, date, date, date, date, integer, numeric) to service_role;
 grant execute on function public.klui_record_api_usage(uuid, uuid, text, text, text, text, date, date, date, date, integer, numeric, numeric, text, jsonb, text) to service_role;
 
-create or replace function public.klui_cleanup_orphan_documents(
+create or replace function public.klui_cleanup_storage_and_cache(
   p_limit integer default 500,
   p_grace interval default interval '7 days'
 ) returns jsonb
@@ -534,6 +534,8 @@ declare
   v_jobs_deleted integer := 0;
   v_attachments_deleted integer := 0;
   v_document_files_deleted integer := 0;
+  v_search_cache_deleted integer := 0;
+  v_model_cache_deleted integer := 0;
 begin
   if v_grace < interval '1 day' then
     v_grace := interval '1 day';
@@ -597,12 +599,58 @@ begin
   )
   select count(*) into v_document_files_deleted from deleted;
 
+  with doomed as (
+    select query_hash
+    from public.search_cache
+    where expires_at < now()
+    order by expires_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.search_cache sc
+    using doomed d
+    where sc.query_hash = d.query_hash
+    returning sc.query_hash
+  )
+  select count(*) into v_search_cache_deleted from deleted;
+
+  with doomed as (
+    select id
+    from public.model_cache
+    where fetched_at < now() - v_grace
+    order by fetched_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.model_cache mc
+    using doomed d
+    where mc.id = d.id
+    returning mc.id
+  )
+  select count(*) into v_model_cache_deleted from deleted;
+
   return jsonb_build_object(
     'document_jobs_deleted', v_jobs_deleted,
     'attachments_deleted', v_attachments_deleted,
-    'document_files_deleted', v_document_files_deleted
+    'document_files_deleted', v_document_files_deleted,
+    'search_cache_deleted', v_search_cache_deleted,
+    'model_cache_deleted', v_model_cache_deleted
   );
 end;
+$$;
+
+revoke all on function public.klui_cleanup_orphan_documents(integer, interval) from public, anon, authenticated;
+revoke all on function public.klui_cleanup_storage_and_cache(integer, interval) from public, anon, authenticated;
+grant execute on function public.klui_cleanup_storage_and_cache(integer, interval) to service_role;
+
+create or replace function public.klui_cleanup_orphan_documents(
+  p_limit integer default 500,
+  p_grace interval default interval '7 days'
+) returns jsonb
+language sql
+set search_path = public
+as $$
+  select public.klui_cleanup_storage_and_cache(p_limit, p_grace);
 $$;
 
 revoke all on function public.klui_cleanup_orphan_documents(integer, interval) from public, anon, authenticated;
