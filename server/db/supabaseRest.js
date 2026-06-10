@@ -242,6 +242,8 @@ export class SupabaseRest {
       });
     }
 
+    await this.deleteConversationDocumentJobs(userId, conversationId, { signal });
+
     const rows = await this.request("conversations", {
       method: "DELETE",
       query: {
@@ -254,6 +256,18 @@ export class SupabaseRest {
     });
 
     return single(rows);
+  }
+
+  async deleteConversationDocumentJobs(userId, conversationId, { signal } = {}) {
+    return this.request("document_jobs", {
+      method: "DELETE",
+      query: {
+        user_id: `eq.${userId}`,
+        conversation_id: `eq.${conversationId}`
+      },
+      prefer: "return=minimal",
+      signal
+    });
   }
 
   async listConversationAttachments(userId, conversationId, { signal } = {}) {
@@ -282,6 +296,8 @@ export class SupabaseRest {
       });
     }
 
+    await this.deleteMessageDocumentJobs(userId, messageId, { signal });
+
     const rows = await this.request("messages", {
       method: "DELETE",
       query: {
@@ -293,6 +309,18 @@ export class SupabaseRest {
     });
 
     return single(rows);
+  }
+
+  async deleteMessageDocumentJobs(userId, messageId, { signal } = {}) {
+    return this.request("document_jobs", {
+      method: "DELETE",
+      query: {
+        user_id: `eq.${userId}`,
+        message_id: `eq.${messageId}`
+      },
+      prefer: "return=minimal",
+      signal
+    });
   }
 
   async listMessageAttachments(userId, messageId, { signal } = {}) {

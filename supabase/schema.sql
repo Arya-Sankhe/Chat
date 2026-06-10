@@ -98,8 +98,8 @@ alter table public.messages add column if not exists metadata jsonb not null def
 create table if not exists public.attachments (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  conversation_id uuid references public.conversations(id) on delete set null,
-  message_id uuid references public.messages(id) on delete set null,
+  conversation_id uuid references public.conversations(id) on delete cascade,
+  message_id uuid references public.messages(id) on delete cascade,
   category text not null default 'image' check (category in ('image', 'document')),
   object_key text not null unique,
   file_name text not null,
@@ -132,8 +132,8 @@ create table if not exists public.document_files (
   id uuid primary key default gen_random_uuid(),
   attachment_id uuid not null references public.attachments(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  conversation_id uuid references public.conversations(id) on delete set null,
-  message_id uuid references public.messages(id) on delete set null,
+  conversation_id uuid references public.conversations(id) on delete cascade,
+  message_id uuid references public.messages(id) on delete cascade,
   kind text not null check (kind in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv')),
   source text not null default 'upload' check (source in ('upload', 'generated', 'edited', 'exported')),
   parent_document_id uuid references public.document_files(id) on delete set null,
@@ -200,8 +200,8 @@ create table if not exists public.document_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   document_file_id uuid references public.document_files(id) on delete cascade,
-  conversation_id uuid references public.conversations(id) on delete set null,
-  message_id uuid references public.messages(id) on delete set null,
+  conversation_id uuid references public.conversations(id) on delete cascade,
+  message_id uuid references public.messages(id) on delete cascade,
   job_type text not null,
   status text not null default 'queued' check (status in ('queued', 'running', 'succeeded', 'failed', 'expired')),
   priority integer not null default 0,
@@ -306,6 +306,9 @@ create index if not exists conversations_user_updated_idx on public.conversation
 create index if not exists messages_conversation_created_idx on public.messages (conversation_id, created_at);
 create index if not exists attachments_user_status_idx on public.attachments (user_id, status);
 create index if not exists attachments_user_category_idx on public.attachments (user_id, category);
+create index if not exists attachments_conversation_idx on public.attachments (conversation_id) where conversation_id is not null;
+create index if not exists attachments_message_idx on public.attachments (message_id) where message_id is not null;
+create index if not exists attachments_orphan_cleanup_idx on public.attachments (created_at) where conversation_id is null and message_id is null;
 create index if not exists document_chunks_tsv_idx on public.document_chunks using gin (tsv);
 create index if not exists document_chunks_doc_idx on public.document_chunks (document_file_id, chunk_index);
 create index if not exists document_chunks_user_doc_idx on public.document_chunks (user_id, document_file_id);
@@ -315,9 +318,16 @@ create index if not exists document_pages_embedding_hnsw_idx on public.document_
 create index if not exists document_files_attachment_idx on public.document_files (attachment_id);
 create index if not exists document_files_user_status_idx on public.document_files (user_id, processing_status);
 create index if not exists document_files_conversation_status_idx on public.document_files (conversation_id, processing_status);
+create index if not exists document_files_message_idx on public.document_files (message_id) where message_id is not null;
+create index if not exists document_files_parent_document_idx on public.document_files (parent_document_id) where parent_document_id is not null;
+create index if not exists document_files_orphan_cleanup_idx on public.document_files (created_at) where conversation_id is null and message_id is null;
 create index if not exists document_jobs_claim_idx on public.document_jobs (priority desc, created_at asc) where status = 'queued';
 create index if not exists document_jobs_lease_idx on public.document_jobs (lease_until) where status = 'running';
 create index if not exists document_jobs_user_status_idx on public.document_jobs (user_id, status);
+create index if not exists document_jobs_document_file_idx on public.document_jobs (document_file_id) where document_file_id is not null;
+create index if not exists document_jobs_conversation_idx on public.document_jobs (conversation_id) where conversation_id is not null;
+create index if not exists document_jobs_message_idx on public.document_jobs (message_id) where message_id is not null;
+create index if not exists document_jobs_orphan_cleanup_idx on public.document_jobs (created_at) where conversation_id is null and message_id is null and document_file_id is null and status in ('succeeded', 'failed', 'expired');
 create index if not exists payment_requests_user_created_idx on public.payment_requests (user_id, created_at desc);
 create index if not exists payment_requests_status_created_idx on public.payment_requests (status, created_at desc);
 
@@ -510,6 +520,93 @@ $$;
 
 grant execute on function public.klui_check_api_budget(uuid, text, date, date, date, date, integer, numeric) to service_role;
 grant execute on function public.klui_record_api_usage(uuid, uuid, text, text, text, text, date, date, date, date, integer, numeric, numeric, text, jsonb, text) to service_role;
+
+create or replace function public.klui_cleanup_orphan_documents(
+  p_limit integer default 500,
+  p_grace interval default interval '7 days'
+) returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_limit integer := least(greatest(coalesce(p_limit, 500), 1), 5000);
+  v_grace interval := coalesce(p_grace, interval '7 days');
+  v_jobs_deleted integer := 0;
+  v_attachments_deleted integer := 0;
+  v_document_files_deleted integer := 0;
+begin
+  if v_grace < interval '1 day' then
+    v_grace := interval '1 day';
+  end if;
+
+  with doomed as (
+    select id
+    from public.document_jobs
+    where conversation_id is null
+      and message_id is null
+      and document_file_id is null
+      and status in ('succeeded', 'failed', 'expired')
+      and created_at < now() - v_grace
+    order by created_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.document_jobs j
+    using doomed d
+    where j.id = d.id
+    returning j.id
+  )
+  select count(*) into v_jobs_deleted from deleted;
+
+  with doomed as (
+    select id
+    from public.attachments
+    where conversation_id is null
+      and message_id is null
+      and created_at < now() - v_grace
+    order by created_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.attachments a
+    using doomed d
+    where a.id = d.id
+    returning a.id
+  )
+  select count(*) into v_attachments_deleted from deleted;
+
+  with doomed as (
+    select df.id
+    from public.document_files df
+    where df.conversation_id is null
+      and df.message_id is null
+      and df.created_at < now() - v_grace
+      and not exists (
+        select 1
+        from public.attachments a
+        where a.id = df.attachment_id
+      )
+    order by df.created_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.document_files df
+    using doomed d
+    where df.id = d.id
+    returning df.id
+  )
+  select count(*) into v_document_files_deleted from deleted;
+
+  return jsonb_build_object(
+    'document_jobs_deleted', v_jobs_deleted,
+    'attachments_deleted', v_attachments_deleted,
+    'document_files_deleted', v_document_files_deleted
+  );
+end;
+$$;
+
+revoke all on function public.klui_cleanup_orphan_documents(integer, interval) from public, anon, authenticated;
+grant execute on function public.klui_cleanup_orphan_documents(integer, interval) to service_role;
 
 create or replace function public.klui_claim_document_job(
   p_worker_id text,
