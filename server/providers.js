@@ -120,11 +120,23 @@ export function adaptChatRequestForProvider(body, providerId) {
     }
   };
 
-  if (Array.isArray(rest.tools) && rest.tools.length) {
-    adapted.provider = {
-      ...(rest.provider && typeof rest.provider === "object" ? rest.provider : {}),
-      require_parameters: true
-    };
+  const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
+  const isDeepSeekModel = String(rest.model || "").trim().toLowerCase().startsWith("deepseek/");
+  const providerPrefs = {
+    ...(rest.provider && typeof rest.provider === "object" ? rest.provider : {})
+  };
+
+  if (isDeepSeekModel) {
+    providerPrefs.order = ["deepseek"];
+    providerPrefs.allow_fallbacks = true;
+  }
+
+  if (hasTools) {
+    providerPrefs.require_parameters = true;
+  }
+
+  if (Object.keys(providerPrefs).length) {
+    adapted.provider = providerPrefs;
   }
 
   return adapted;

@@ -65,6 +65,32 @@ test("adaptChatRequestForProvider does not force require_parameters without tool
   assert.equal(adapted.provider, undefined);
 });
 
+test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "hi" }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.provider, {
+    order: ["deepseek"],
+    allow_fallbacks: true
+  });
+});
+
+test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "search" }],
+    tools: [{ type: "function", function: { name: "web_search" } }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.provider, {
+    order: ["deepseek"],
+    allow_fallbacks: true,
+    require_parameters: true
+  });
+});
+
 test("adaptChatRequestForProvider preserves caller provider routing alongside require_parameters", () => {
   const adapted = adaptChatRequestForProvider({
     model: "xiaomi/mimo-v2.5",
