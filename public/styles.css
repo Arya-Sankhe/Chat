@@ -17,7 +17,7 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
   --sidebar-w: 52px;
-  --sidebar-w-expanded: 195px;
+  --sidebar-w-expanded: 244px;
   --sidebar-active-w: var(--sidebar-w);
   --document-viewer-w: min(720px, 46vw);
   --content-max: 1040px;
@@ -336,6 +336,7 @@ body.guest-mode .sidebar {
 .sidebar-top {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
   padding: 4px 8px;
 }
@@ -356,6 +357,7 @@ body.guest-mode .sidebar {
   border-top: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
   margin-top: auto;
   position: relative;
@@ -366,7 +368,7 @@ body.guest-mode .sidebar {
 .sidebar-profile-wrap {
   position: relative;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   width: 100%;
 }
 
@@ -2981,10 +2983,10 @@ body[data-chat-theme="cyber"] .sidebar {
   padding: 10px 0;
 }
 
-body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
-body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
-  padding: 4px 0;
-  align-items: center;
+body[data-chat-theme="cyber"] .sidebar-top,
+body[data-chat-theme="cyber"] .sidebar-bottom {
+  padding: 4px 8px;
+  align-items: flex-start;
 }
 
 body[data-chat-theme="cyber"] .sidebar-icon,
@@ -3331,12 +3333,8 @@ body[data-chat-theme="doodle"] .sidebar {
 
 body[data-chat-theme="doodle"] .sidebar-top,
 body[data-chat-theme="doodle"] .sidebar-bottom {
-  padding: 4px 0;
-}
-
-body[data-chat-theme="doodle"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
-body[data-chat-theme="doodle"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
-  align-items: center;
+  padding: 4px 8px;
+  align-items: flex-start;
 }
 
 body[data-chat-theme="doodle"] .sidebar-bottom {
@@ -4246,7 +4244,7 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   :root {
-    --sidebar-w-expanded: 169px;
+    --sidebar-w-expanded: 211px;
     --content-max: 680px;
     --composer-max: 680px;
   }
@@ -4451,10 +4449,10 @@ body[data-chat-theme="doodle"] .document-viewer-body {
     font-size: 22px;
   }
 
-  body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
-  body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
-    padding: 4px 0;
-    align-items: center;
+  body[data-chat-theme="cyber"] .sidebar-top,
+  body[data-chat-theme="cyber"] .sidebar-bottom {
+    padding: 4px 8px;
+    align-items: flex-start;
   }
 
   body[data-chat-theme="cyber"] .sidebar {
@@ -4512,10 +4510,10 @@ body[data-chat-theme="doodle"] .document-viewer-body {
     box-shadow: 4px 4px 0 #101010;
   }
 
-  body[data-chat-theme="doodle"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
-  body[data-chat-theme="doodle"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
-    padding: 4px 0;
-    align-items: center;
+  body[data-chat-theme="doodle"] .sidebar-top,
+  body[data-chat-theme="doodle"] .sidebar-bottom {
+    padding: 4px 8px;
+    align-items: flex-start;
   }
 
   body[data-chat-theme="doodle"] .sidebar {
