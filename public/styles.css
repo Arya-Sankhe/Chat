@@ -60,6 +60,8 @@ body[data-chat-theme="cyber"] {
   --shadow-lg: 8px 8px 0 #101010;
   --radius: 0;
   --radius-lg: 0;
+  --content-max: 1040px;
+  --composer-max: 1040px;
   --code-bg: #ffffff;
   --code-header-bg: #e7e2d9;
   --code-border: #101010;
@@ -2842,8 +2844,8 @@ body[data-chat-theme="cyber"] .plan-pay-btn {
 }
 
 body[data-chat-theme="cyber"] .chat-panel {
-  margin: 22px 24px 22px 26px;
-  height: calc(100vh - 44px);
+  margin: 14px 20px 14px 22px;
+  height: calc(100vh - 28px);
   background: #eeeeee;
   border: 2px solid #101010;
   box-shadow: 10px 10px 0 #101010;
@@ -2888,7 +2890,7 @@ body[data-chat-theme="cyber"] .messages {
   flex: 1;
   overflow-y: auto;
   margin: 0;
-  padding: 28px 26px 190px;
+  padding: 12px 20px 150px;
   background: transparent;
   border: none;
   box-shadow: none;
@@ -2903,7 +2905,14 @@ body[data-chat-theme="cyber"] .empty-state h1 {
 }
 
 body[data-chat-theme="cyber"] .message {
-  max-width: min(920px, 100%);
+  max-width: var(--content-max);
+  width: 100%;
+}
+
+body[data-chat-theme="cyber"] .compare-message,
+body[data-chat-theme="cyber"] .council-message {
+  max-width: min(1480px, calc(100vw - 80px));
+  width: 100%;
 }
 
 body[data-chat-theme="cyber"] .message.user {
@@ -2948,15 +2957,20 @@ body[data-chat-theme="cyber"] .message.assistant .message-avatar {
 }
 
 body[data-chat-theme="cyber"] .message:not(.compare-message):not(.council-message) .message-content {
-  width: fit-content;
-  max-width: min(780px, 100%);
+  max-width: 100%;
   padding: 16px 18px;
   border: 2px solid #101010;
   background: #ffffff;
   box-shadow: 4px 4px 0 rgba(16, 16, 16, 0.18);
 }
 
+body[data-chat-theme="cyber"] .message.assistant:not(.compare-message):not(.council-message) .message-content {
+  width: 100%;
+}
+
 body[data-chat-theme="cyber"] .message.user:not(.compare-message):not(.council-message) .message-content {
+  width: fit-content;
+  max-width: 100%;
   background: #ffdad8;
 }
 
@@ -2989,9 +3003,13 @@ body[data-chat-theme="cyber"] .composer-area {
   right: 0;
   bottom: 0;
   z-index: 3;
-  padding: 56px 22px 22px;
-  background: linear-gradient(to top, #eeeeee 72%, rgba(238, 238, 238, 0));
+  padding: 28px 20px 8px;
+  background: linear-gradient(to top, #eeeeee 78%, rgba(238, 238, 238, 0));
   pointer-events: none;
+}
+
+body[data-chat-theme="cyber"] .composer-area .app-footer {
+  display: none;
 }
 
 body[data-chat-theme="cyber"] .composer-area .composer-wrap {
@@ -3002,10 +3020,10 @@ body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 148px;
+  bottom: 118px;
   z-index: 4;
   margin: 0;
-  padding: 0 22px;
+  padding: 0 20px;
   pointer-events: auto;
 }
 
@@ -4212,7 +4230,12 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 
   body[data-chat-theme="cyber"] .messages {
     margin: 0;
-    padding: 16px 12px 170px;
+    padding: 10px 12px 140px;
+  }
+
+  body[data-chat-theme="cyber"] .compare-message,
+  body[data-chat-theme="cyber"] .council-message {
+    max-width: calc(100vw - 24px);
   }
 
   body[data-chat-theme="cyber"] .message:not(.compare-message):not(.council-message) .message-content {
@@ -4220,11 +4243,11 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   }
 
   body[data-chat-theme="cyber"] .composer-area {
-    padding: 48px 12px 12px;
+    padding: 24px 12px 6px;
   }
 
   body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
-    bottom: 132px;
+    bottom: 108px;
     padding: 0 12px;
   }
 
