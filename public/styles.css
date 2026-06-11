@@ -737,9 +737,25 @@ body.document-viewer-resizing {
 
 .message {
   max-width: var(--content-max);
+  width: 100%;
   margin: 0 auto 30px;
   display: flex;
   gap: 18px;
+}
+
+.message.user {
+  flex-direction: row-reverse;
+}
+
+.message.user .message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message.user:not(.compare-message):not(.council-message) .message-content {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .message-avatar {
@@ -2919,12 +2935,12 @@ body[data-chat-theme="cyber"] .council-message {
 
 body[data-chat-theme="cyber"] .message.user {
   flex-direction: row-reverse;
-  margin-left: auto;
 }
 
 body[data-chat-theme="cyber"] .message.user .message-body {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 body[data-chat-theme="cyber"] .message-meta {
@@ -3222,6 +3238,16 @@ body[data-chat-theme="doodle"] .compare-message,
 body[data-chat-theme="doodle"] .council-message {
   max-width: min(1480px, calc(100vw - 80px));
   width: 100%;
+}
+
+body[data-chat-theme="doodle"] .message.user {
+  flex-direction: row-reverse;
+}
+
+body[data-chat-theme="doodle"] .message.user .message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 body[data-chat-theme="doodle"] .message-avatar {
