@@ -2885,11 +2885,13 @@ body[data-chat-theme="cyber"] .usage-pill {
 }
 
 body[data-chat-theme="cyber"] .messages {
-  margin: 22px;
-  padding: 28px 26px;
-  background: #f0f0f0;
-  border: 2px solid #101010;
-  box-shadow: inset 2px 2px 0 #101010;
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 28px 26px 190px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 body[data-chat-theme="cyber"] .empty-state h1 {
@@ -2982,7 +2984,29 @@ body[data-chat-theme="cyber"] .message-image {
 }
 
 body[data-chat-theme="cyber"] .composer-area {
-  padding: 0 22px 22px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 56px 22px 22px;
+  background: linear-gradient(to top, #eeeeee 72%, rgba(238, 238, 238, 0));
+  pointer-events: none;
+}
+
+body[data-chat-theme="cyber"] .composer-area .composer-wrap {
+  pointer-events: auto;
+}
+
+body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 148px;
+  z-index: 4;
+  margin: 0;
+  padding: 0 22px;
+  pointer-events: auto;
 }
 
 body[data-chat-theme="cyber"] .composer {
@@ -4187,8 +4211,8 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   }
 
   body[data-chat-theme="cyber"] .messages {
-    margin: 10px;
-    padding: 16px 12px;
+    margin: 0;
+    padding: 16px 12px 170px;
   }
 
   body[data-chat-theme="cyber"] .message:not(.compare-message):not(.council-message) .message-content {
@@ -4196,7 +4220,12 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   }
 
   body[data-chat-theme="cyber"] .composer-area {
-    padding: 0 12px 12px;
+    padding: 48px 12px 12px;
+  }
+
+  body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
+    bottom: 132px;
+    padding: 0 12px;
   }
 
   body[data-chat-theme="cyber"] .composer {
