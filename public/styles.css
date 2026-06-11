@@ -681,6 +681,7 @@ body:not(.sidebar-expanded) .conversation-row {
 .chat-panel {
   display: flex;
   flex-direction: column;
+  position: relative;
   min-width: 0;
   max-width: 100vw;
   height: 100vh;
@@ -916,7 +917,7 @@ body.document-viewer-resizing {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 36px 24px;
+  padding: 36px 24px 160px;
   scroll-behavior: auto;
 }
 
@@ -1470,6 +1471,16 @@ body.document-viewer-resizing {
   padding: 0 24px;
 }
 
+.compare-context-banner:not(.hidden) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 132px;
+  z-index: 4;
+  margin: 0;
+  pointer-events: auto;
+}
+
 .compare-context-banner.hidden {
   display: none;
 }
@@ -1551,11 +1562,24 @@ body.document-viewer-resizing {
 }
 
 .composer-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
   padding: 0 24px 18px;
+  background: transparent;
+  pointer-events: none;
   flex-shrink: 0;
   overflow: visible;
-  position: relative;
-  z-index: 1;
+}
+
+.composer-area .composer-wrap {
+  pointer-events: auto;
+}
+
+.composer-area .app-footer {
+  display: none;
 }
 
 .composer-wrap {
@@ -1568,10 +1592,11 @@ body.document-viewer-resizing {
 .composer {
   position: relative;
   overflow: visible;
-  background: var(--bg-secondary);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 16px 18px 12px;
+  box-shadow: var(--shadow-md);
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
@@ -3259,22 +3284,8 @@ body[data-chat-theme="cyber"] .message-image {
 }
 
 body[data-chat-theme="cyber"] .composer-area {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 3;
   padding: 28px 20px 8px;
-  background: linear-gradient(to top, #eeeeee 78%, rgba(238, 238, 238, 0));
-  pointer-events: none;
-}
-
-body[data-chat-theme="cyber"] .composer-area .app-footer {
-  display: none;
-}
-
-body[data-chat-theme="cyber"] .composer-area .composer-wrap {
-  pointer-events: auto;
+  background: transparent;
 }
 
 body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
@@ -3446,7 +3457,12 @@ body[data-chat-theme="doodle"] .usage-pill {
 }
 
 body[data-chat-theme="doodle"] .messages {
-  padding: 24px 24px 36px;
+  padding: 24px 24px 160px;
+}
+
+body[data-chat-theme="doodle"] .composer-area {
+  padding: 0 24px 24px;
+  background: transparent;
 }
 
 body[data-chat-theme="doodle"] .empty-state h1 {
@@ -3574,11 +3590,6 @@ body[data-chat-theme="doodle"] .message-image {
   border: 2px solid #ffffff;
   border-radius: 24px;
   box-shadow: 0 12px 28px rgba(32, 25, 36, 0.12);
-}
-
-body[data-chat-theme="doodle"] .composer-area {
-  padding: 0 24px 24px;
-  background: linear-gradient(to top, #f9f9fc 72%, rgba(249, 249, 252, 0));
 }
 
 body[data-chat-theme="doodle"] .composer {
@@ -4392,7 +4403,7 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   }
 
   .messages {
-    padding: 16px 12px;
+    padding: 16px 12px 140px;
   }
 
   .empty-state h1 {
@@ -4593,7 +4604,7 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   }
 
   body[data-chat-theme="doodle"] .messages {
-    padding: 18px 12px 24px;
+    padding: 18px 12px 140px;
   }
 
   body[data-chat-theme="doodle"] .compare-message,
