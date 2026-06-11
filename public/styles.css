@@ -2848,7 +2848,10 @@ body[data-chat-theme="cyber"] .conversation-row.active {
   box-shadow: 2px 2px 0 #101010;
 }
 
-body[data-chat-theme="cyber"] .sidebar-bottom,
+body[data-chat-theme="cyber"] .sidebar-bottom {
+  border-top: none;
+}
+
 body[data-chat-theme="cyber"] .guest-login-panel {
   border-top: 2px solid #101010;
 }
