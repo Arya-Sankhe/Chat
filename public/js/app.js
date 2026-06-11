@@ -61,6 +61,7 @@ const DEFAULT_COUNCIL_MODELS = [
 ];
 const DEFAULT_REASONING_EFFORT = "high";
 const CONTEXT_LIMIT_TOKENS = 256000;
+const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 
 const defaultSettings = {
   model: OPENROUTER_TEXT_MODEL,
@@ -381,7 +382,7 @@ function loadSettings() {
     loaded.temperature = 0.7;
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
-    loaded.theme = loaded.theme === "cyber" ? "cyber" : "classic";
+    loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
     loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
     return loaded;
   } catch {
@@ -390,7 +391,7 @@ function loadSettings() {
 }
 
 function applyChatTheme() {
-  const theme = state.settings.theme === "cyber" ? "cyber" : "classic";
+  const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
   document.body.dataset.chatTheme = theme;
   if (els.themeSelect) els.themeSelect.value = theme;
 }
@@ -2726,7 +2727,7 @@ function syncSettingsInputs() {
   els.maxTokensInput.value = state.settings.max_tokens;
   els.seedInput.value = state.settings.seed;
   els.systemPromptInput.value = state.settings.systemPrompt;
-  if (els.themeSelect) els.themeSelect.value = state.settings.theme === "cyber" ? "cyber" : "classic";
+  if (els.themeSelect) els.themeSelect.value = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
 }
 
 function setRunning(running) {
@@ -4035,7 +4036,7 @@ function bindEvents() {
   els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
-  els.themeSelect?.addEventListener("change", (e) => updateSetting("theme", e.target.value === "cyber" ? "cyber" : "classic"));
+  els.themeSelect?.addEventListener("change", (e) => updateSetting("theme", CHAT_THEMES.has(e.target.value) ? e.target.value : "classic"));
 
   els.loadAdminButton.addEventListener("click", loadAdminDashboard);
   els.adminOutput.addEventListener("click", (e) => {
