@@ -376,6 +376,7 @@ body.guest-mode .sidebar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   width: 36px;
   height: 36px;
   padding: 0;
@@ -383,7 +384,56 @@ body.guest-mode .sidebar {
   background: transparent;
   border-radius: var(--radius-full);
   cursor: pointer;
-  transition: transform var(--transition);
+  transition: transform var(--transition), width 220ms ease;
+  min-width: 0;
+}
+
+body.sidebar-expanded .sidebar-profile-btn {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 10px;
+  padding: 2px 0;
+}
+
+body.sidebar-expanded .sidebar-profile-btn:hover {
+  background: var(--bg-secondary);
+  transform: none;
+}
+
+.sidebar-profile-meta {
+  display: none;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  line-height: 1.2;
+}
+
+body.sidebar-expanded .sidebar-profile-meta {
+  display: flex;
+}
+
+.sidebar-profile-name {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-profile-plan {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-profile-btn:hover {
@@ -400,6 +450,7 @@ body.guest-mode .sidebar {
   justify-content: center;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: var(--radius-full);
   background: var(--accent);
   color: #fff;
@@ -411,8 +462,8 @@ body.guest-mode .sidebar {
 
 .profile-menu {
   position: absolute;
-  bottom: 0;
-  left: calc(100% + 10px);
+  bottom: calc(100% + 10px);
+  left: -8px;
   z-index: 45;
   width: min(280px, calc(100vw - 24px));
   padding: 8px;
@@ -486,9 +537,9 @@ body.guest-mode .sidebar {
 }
 
 body.sidebar-expanded .profile-menu {
-  left: 8px;
+  left: -8px;
   bottom: calc(100% + 10px);
-  width: min(280px, calc(var(--sidebar-w-expanded) - 16px));
+  width: calc(100% + 16px);
 }
 
 .sidebar-icon {
@@ -3018,6 +3069,15 @@ body[data-chat-theme="cyber"] .sidebar-profile-avatar {
   color: #fef9f0;
 }
 
+body[data-chat-theme="cyber"].sidebar-expanded .sidebar-profile-btn {
+  border-radius: 0;
+}
+
+body[data-chat-theme="cyber"].sidebar-expanded .sidebar-profile-btn:hover {
+  background: #ffdad8;
+  box-shadow: 2px 2px 0 #101010;
+}
+
 body[data-chat-theme="cyber"] .profile-menu {
   border: 2px solid #101010;
   border-radius: 0;
@@ -3428,6 +3488,11 @@ body[data-chat-theme="doodle"] .sidebar-profile-avatar {
   border: 2px solid #1d1b18;
   background: #655b68;
   box-shadow: 2px 2px 0 rgba(29, 27, 24, 0.15);
+}
+
+body[data-chat-theme="doodle"].sidebar-expanded .sidebar-profile-btn:hover {
+  background: #ecdeee;
+  border-radius: 999px;
 }
 
 body[data-chat-theme="doodle"] .profile-menu {

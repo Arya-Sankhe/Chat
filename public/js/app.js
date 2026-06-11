@@ -140,6 +140,9 @@ const els = {
   newChatButton: document.querySelector("#newChatButton"),
   accountButton: document.querySelector("#accountButton"),
   profileAvatar: document.querySelector("#profileAvatar"),
+  profileName: document.querySelector("#profileName"),
+  profilePlan: document.querySelector("#profilePlan"),
+  profileMeta: document.querySelector("#profileMeta"),
   profileMenu: document.querySelector("#profileMenu"),
   profileMenuEmail: document.querySelector("#profileMenuEmail"),
   profileMenuUsage: document.querySelector("#profileMenuUsage"),
@@ -672,9 +675,18 @@ function profileInitials(email) {
   return "K";
 }
 
+function profileDisplayName(email) {
+  const local = String(email || "").split("@")[0] || "";
+  return local || "Signed in";
+}
+
 function renderProfileMenu() {
   const email = state.me?.user?.email || "";
+  const planName = state.me?.plan?.name || "Free";
   if (els.profileAvatar) els.profileAvatar.textContent = state.session ? profileInitials(email) : "K";
+  if (els.profileName) els.profileName.textContent = state.session ? profileDisplayName(email) : "";
+  if (els.profilePlan) els.profilePlan.textContent = state.session ? planName : "";
+  if (els.profileMeta) els.profileMeta.setAttribute("aria-hidden", state.session ? "false" : "true");
   if (!els.profileMenuEmail || !els.profileMenuUsage) return;
 
   if (!state.session) {

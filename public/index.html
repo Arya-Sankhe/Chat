@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-sidebar-pin-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260612-profile-inline-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
@@ -55,6 +55,10 @@
             <div class="sidebar-profile-wrap" id="sidebarProfileWrap">
               <button class="sidebar-profile-btn" id="accountButton" type="button" aria-label="Account" aria-haspopup="menu" aria-expanded="false" title="Account">
                 <span class="sidebar-profile-avatar" id="profileAvatar">K</span>
+                <span class="sidebar-profile-meta" id="profileMeta" aria-hidden="true">
+                  <span class="sidebar-profile-name" id="profileName"></span>
+                  <span class="sidebar-profile-plan" id="profilePlan"></span>
+                </span>
               </button>
               <div class="profile-menu hidden" id="profileMenu" role="menu" aria-label="Account menu">
                 <div class="profile-menu-email" id="profileMenuEmail"></div>
@@ -297,6 +301,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260612-profile-sidebar-v1"></script>
+    <script type="module" src="/js/app.js?v=20260612-profile-inline-v1"></script>
   </body>
 </html>
