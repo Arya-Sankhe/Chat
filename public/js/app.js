@@ -77,7 +77,8 @@ const defaultSettings = {
   agentMode: true,
   webSearchMode: "auto",
   provider: "openrouter",
-  kluiModel: ""
+  kluiModel: "",
+  theme: "classic"
 };
 
 const state = {
@@ -161,6 +162,7 @@ const els = {
   maxTokensInput: document.querySelector("#maxTokensInput"),
   seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
+  themeSelect: document.querySelector("#themeSelect"),
   modelDetails: document.querySelector("#modelDetails"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
@@ -379,11 +381,18 @@ function loadSettings() {
     loaded.temperature = 0.7;
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
+    loaded.theme = loaded.theme === "cyber" ? "cyber" : "classic";
     loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
     return loaded;
   } catch {
     return { ...defaultSettings };
   }
+}
+
+function applyChatTheme() {
+  const theme = state.settings.theme === "cyber" ? "cyber" : "classic";
+  document.body.dataset.chatTheme = theme;
+  if (els.themeSelect) els.themeSelect.value = theme;
 }
 
 function webSearchAvailable() {
@@ -484,6 +493,7 @@ function saveSettings() {
 function updateSetting(key, value) {
   state.settings[key] = value;
   saveSettings();
+  if (key === "theme") applyChatTheme();
 }
 
 function getGreeting() {
@@ -2716,6 +2726,7 @@ function syncSettingsInputs() {
   els.maxTokensInput.value = state.settings.max_tokens;
   els.seedInput.value = state.settings.seed;
   els.systemPromptInput.value = state.settings.systemPrompt;
+  if (els.themeSelect) els.themeSelect.value = state.settings.theme === "cyber" ? "cyber" : "classic";
 }
 
 function setRunning(running) {
@@ -3550,6 +3561,7 @@ async function updateAdminPayment(id, action) {
 /* ─── Bootstrap ─── */
 
 async function bootstrap() {
+  applyChatTheme();
   try {
     state.config = await fetchConfig();
     configureApiAuth({
@@ -4023,6 +4035,7 @@ function bindEvents() {
   els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
+  els.themeSelect?.addEventListener("change", (e) => updateSetting("theme", e.target.value === "cyber" ? "cyber" : "classic"));
 
   els.loadAdminButton.addEventListener("click", loadAdminDashboard);
   els.adminOutput.addEventListener("click", (e) => {
