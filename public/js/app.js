@@ -141,10 +141,6 @@ const els = {
   accountButton: document.querySelector("#accountButton"),
   settingsButton: document.querySelector("#settingsButton"),
   conversationList: document.querySelector("#conversationList"),
-  usagePill: document.querySelector("#usagePill"),
-  contextMeter: document.querySelector("#contextMeter"),
-  contextMeterLabel: document.querySelector("#contextMeterLabel"),
-  contextMeterFill: document.querySelector("#contextMeterFill"),
   messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
   imagePreviews: document.querySelector("#imagePreviews"),
@@ -552,10 +548,8 @@ function renderShell() {
     showOnly(els.chatView);
     state.conversations = [];
     state.activeConversationId = "";
-    renderUsage();
     renderConversations();
     renderModelOptions();
-    renderContextMeter();
     renderWebSearchToggle();
     renderMessages();
     renderDocumentViewer();
@@ -570,10 +564,8 @@ function renderShell() {
   }
 
   showOnly(els.chatView);
-  renderUsage();
   renderConversations();
   renderModelOptions();
-  renderContextMeter();
   renderWebSearchToggle();
   renderMessages();
   renderDocumentViewer();
@@ -662,16 +654,29 @@ function renderPendingPayment(request) {
   `;
 }
 
-function renderUsage() {
+function renderAccountUsageMarkup() {
   const plan = state.me?.plan;
   const usage = state.me?.usage || {};
-  if (!plan) {
-    els.usagePill.textContent = "";
-    return;
-  }
+  if (!plan) return "";
+
   const api = usage.api || {};
-  const percent = Math.max(0, Math.min(999, Math.floor(Number(api.percent || 0))));
-  els.usagePill.textContent = `${percent}% weekly`;
+  const percent = Math.max(0, Math.min(100, Math.floor(Number(api.percent || 0))));
+  const resetLabel = api.weekEnd
+    ? `Resets ${new Date(api.weekEnd).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+    : "Resets weekly";
+
+  return `
+    <div class="account-usage">
+      <div class="account-usage-head">
+        <span class="account-usage-label">Weekly usage</span>
+        <span class="account-usage-value">${percent}%</span>
+      </div>
+      <div class="account-usage-track" aria-hidden="true">
+        <span class="account-usage-fill" style="width: ${percent}%"></span>
+      </div>
+      <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
+    </div>
+  `;
 }
 
 /* Rough chars-per-token ratio for English-ish text. Only used to
@@ -818,14 +823,7 @@ function formatTokenCount(tokens) {
 }
 
 function renderContextMeter() {
-  if (!els.contextMeter) return;
-  const raw = estimateContextTokens();
-  const used = Math.min(CONTEXT_LIMIT_TOKENS, raw);
-  const percent = Math.min(100, Math.round((used / CONTEXT_LIMIT_TOKENS) * 100));
-  els.contextMeterLabel.textContent = `${formatTokenCount(used)} / 256k`;
-  els.contextMeterFill.style.width = `${percent}%`;
-  els.contextMeter.classList.toggle("warn", percent >= 80);
-  els.contextMeter.classList.toggle("over", raw >= CONTEXT_LIMIT_TOKENS);
+  /* Context estimation stays available for backend logic; UI is hidden. */
 }
 
 function renderAccount() {
@@ -836,6 +834,7 @@ function renderAccount() {
     <p class="account-detail">Plan: ${escapeHtml(plan?.name || "No active plan")}</p>
     <p class="account-detail">Access: ${escapeHtml(sub?.status || state.me?.access?.mode || "none")}</p>
     ${sub?.currentPeriodEnd ? `<p class="account-detail">Renews: ${escapeHtml(new Date(sub.currentPeriodEnd).toLocaleDateString())}</p>` : ""}
+    ${renderAccountUsageMarkup()}
   `;
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
 }

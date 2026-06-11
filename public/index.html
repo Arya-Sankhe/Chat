@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260611-chat-themes-v2">
+    <link rel="stylesheet" href="/styles.css?v=20260612-account-usage-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
@@ -62,14 +62,6 @@
         </aside>
 
         <main class="chat-panel">
-          <header class="topbar">
-            <div class="context-meter" id="contextMeter" title="Estimated context usage">
-              <span class="context-meter-label" id="contextMeterLabel">0 / 256k</span>
-              <span class="context-meter-track"><span class="context-meter-fill" id="contextMeterFill"></span></span>
-            </div>
-            <div class="usage-pill" id="usagePill"></div>
-          </header>
-
           <section class="messages" id="messages" aria-live="polite"></section>
 
           <div class="compare-context-banner hidden" id="compareContextBanner" role="dialog" aria-labelledby="compareContextTitle" aria-describedby="compareContextBody">
@@ -288,6 +280,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260611-chat-themes-v2"></script>
+    <script type="module" src="/js/app.js?v=20260612-account-usage-v1"></script>
   </body>
 </html>
