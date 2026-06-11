@@ -139,7 +139,13 @@ const els = {
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
   accountButton: document.querySelector("#accountButton"),
-  settingsButton: document.querySelector("#settingsButton"),
+  profileAvatar: document.querySelector("#profileAvatar"),
+  profileMenu: document.querySelector("#profileMenu"),
+  profileMenuEmail: document.querySelector("#profileMenuEmail"),
+  profileMenuUsage: document.querySelector("#profileMenuUsage"),
+  profileMenuSettings: document.querySelector("#profileMenuSettings"),
+  profileMenuAdmin: document.querySelector("#profileMenuAdmin"),
+  profileMenuSignOut: document.querySelector("#profileMenuSignOut"),
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
@@ -553,6 +559,7 @@ function renderShell() {
     renderWebSearchToggle();
     renderMessages();
     renderDocumentViewer();
+    renderProfileMenu();
     return;
   }
 
@@ -560,6 +567,7 @@ function renderShell() {
     els.paywallEmail.textContent = state.me?.user?.email || "";
     renderPlans();
     showOnly(els.paywallView);
+    renderProfileMenu();
     return;
   }
 
@@ -569,6 +577,7 @@ function renderShell() {
   renderWebSearchToggle();
   renderMessages();
   renderDocumentViewer();
+  renderProfileMenu();
   syncCompareContextBanner();
 }
 
@@ -652,6 +661,66 @@ function renderPendingPayment(request) {
       <strong>${escapeHtml(request.referenceCode || "")}</strong>
     </div>
   `;
+}
+
+function profileInitials(email) {
+  const local = String(email || "").split("@")[0] || "";
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  if (local.length >= 2) return local.slice(0, 2).toUpperCase();
+  if (local.length === 1) return local.toUpperCase();
+  return "K";
+}
+
+function renderProfileMenu() {
+  const email = state.me?.user?.email || "";
+  if (els.profileAvatar) els.profileAvatar.textContent = state.session ? profileInitials(email) : "K";
+  if (!els.profileMenuEmail || !els.profileMenuUsage) return;
+
+  if (!state.session) {
+    els.profileMenuEmail.textContent = "";
+    els.profileMenuUsage.innerHTML = "";
+    els.profileMenuAdmin?.classList.add("hidden");
+    return;
+  }
+
+  els.profileMenuEmail.textContent = email || "Signed in";
+  els.profileMenuUsage.innerHTML = renderAccountUsageMarkup();
+  els.profileMenuAdmin?.classList.toggle("hidden", state.me?.profile?.role !== "admin");
+}
+
+function isProfileMenuOpen() {
+  return els.profileMenu && !els.profileMenu.classList.contains("hidden");
+}
+
+function closeProfileMenu() {
+  if (!els.profileMenu) return;
+  els.profileMenu.classList.add("hidden");
+  els.accountButton?.setAttribute("aria-expanded", "false");
+}
+
+function toggleProfileMenu() {
+  if (!state.session) {
+    openAuthDialog();
+    return;
+  }
+  renderProfileMenu();
+  if (isProfileMenuOpen()) {
+    closeProfileMenu();
+    return;
+  }
+  els.profileMenu.classList.remove("hidden");
+  els.accountButton?.setAttribute("aria-expanded", "true");
+}
+
+function openAdminDrawer() {
+  if (!state.session) return;
+  closeProfileMenu();
+  renderAccount();
+  els.accountDrawer.classList.add("open");
+  els.accountDrawer.setAttribute("aria-hidden", "false");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "account";
 }
 
 function renderAccountUsageMarkup() {
@@ -2654,18 +2723,6 @@ function closeSettings() {
   }
 }
 
-function openAccount() {
-  if (!state.session) {
-    openAuthDialog();
-    return;
-  }
-  renderAccount();
-  els.accountDrawer.classList.add("open");
-  els.accountDrawer.setAttribute("aria-hidden", "false");
-  els.overlay.hidden = false;
-  els.overlay.dataset.mode = "account";
-}
-
 function closeAccount() {
   els.accountDrawer.classList.remove("open");
   els.accountDrawer.setAttribute("aria-hidden", "true");
@@ -2716,6 +2773,7 @@ function closeConfirmDialog() {
 function closeAllDrawers() {
   closeSettings();
   closeAccount();
+  closeProfileMenu();
   closeAuthDialog();
   closeConfirmDialog();
 }
@@ -3657,13 +3715,25 @@ function bindEvents() {
   els.signOutButton.addEventListener("click", signOutAndReset);
 
   els.sidebarButton.addEventListener("click", () => {
+    closeProfileMenu();
     document.body.classList.toggle("sidebar-expanded");
   });
 
   els.newChatButton.addEventListener("click", addConversation);
-  els.accountButton.addEventListener("click", openAccount);
+  els.accountButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleProfileMenu();
+  });
+  els.profileMenuSettings?.addEventListener("click", () => {
+    closeProfileMenu();
+    openSettings();
+  });
+  els.profileMenuAdmin?.addEventListener("click", openAdminDrawer);
+  els.profileMenuSignOut?.addEventListener("click", () => {
+    closeProfileMenu();
+    signOutAndReset();
+  });
   els.closeAccountButton.addEventListener("click", closeAccount);
-  els.settingsButton.addEventListener("click", openSettings);
   els.settingsButtonAlt.addEventListener("click", () => {
     closeActionMenu();
     openSettings();
@@ -3678,8 +3748,15 @@ function bindEvents() {
     else closeSettings();
   });
 
+  document.addEventListener("click", (event) => {
+    if (!isProfileMenuOpen()) return;
+    if (event.target.closest("#sidebarProfileWrap")) return;
+    closeProfileMenu();
+  });
+
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (isProfileMenuOpen()) { closeProfileMenu(); return; }
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
