@@ -2835,6 +2835,12 @@ body[data-chat-theme="cyber"] .sidebar {
   padding: 10px 0;
 }
 
+body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
+body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
+  padding: 4px 0;
+  align-items: center;
+}
+
 body[data-chat-theme="cyber"] .sidebar-icon,
 body[data-chat-theme="cyber"] .conversation-row,
 body[data-chat-theme="cyber"] .conversation-delete {
@@ -4254,6 +4260,12 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 
   .auth-panel h1 {
     font-size: 22px;
+  }
+
+  body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
+  body[data-chat-theme="cyber"]:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
+    padding: 4px 0;
+    align-items: center;
   }
 
   body[data-chat-theme="cyber"] .sidebar {
