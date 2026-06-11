@@ -135,6 +135,7 @@ const els = {
   guestLoginButton: document.querySelector("#guestLoginButton"),
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
+  paywallBackButton: document.querySelector("#paywallBackButton"),
   paywallSignOutButton: document.querySelector("#paywallSignOutButton"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
@@ -146,6 +147,7 @@ const els = {
   profileMenu: document.querySelector("#profileMenu"),
   profileMenuEmail: document.querySelector("#profileMenuEmail"),
   profileMenuUsage: document.querySelector("#profileMenuUsage"),
+  profileMenuUpgrade: document.querySelector("#profileMenuUpgrade"),
   profileMenuSettings: document.querySelector("#profileMenuSettings"),
   profileMenuAdmin: document.querySelector("#profileMenuAdmin"),
   profileMenuSignOut: document.querySelector("#profileMenuSignOut"),
@@ -534,6 +536,24 @@ function hasChatAccess() {
   return Boolean(state.me?.access?.active || ["active", "trialing", "testing"].includes(state.me?.subscription?.status));
 }
 
+function hasUpgradePlans() {
+  return Array.isArray(state.plans) && state.plans.length > 0;
+}
+
+function showPaywall({ allowReturn = false } = {}) {
+  els.paywallEmail.textContent = state.me?.user?.email || "";
+  renderPlans();
+  els.paywallBackButton?.classList.toggle("hidden", !allowReturn);
+  showOnly(els.paywallView);
+}
+
+function openUpgradePlans() {
+  if (!state.session || !hasUpgradePlans()) return;
+  closeProfileMenu();
+  closeAllDrawers();
+  showPaywall({ allowReturn: hasChatAccess() });
+}
+
 /* ─── View switching ─── */
 
 function showOnly(view) {
@@ -567,9 +587,7 @@ function renderShell() {
   }
 
   if (!hasChatAccess()) {
-    els.paywallEmail.textContent = state.me?.user?.email || "";
-    renderPlans();
-    showOnly(els.paywallView);
+    showPaywall({ allowReturn: false });
     renderProfileMenu();
     return;
   }
@@ -692,12 +710,14 @@ function renderProfileMenu() {
   if (!state.session) {
     els.profileMenuEmail.textContent = "";
     els.profileMenuUsage.innerHTML = "";
+    els.profileMenuUpgrade?.classList.add("hidden");
     els.profileMenuAdmin?.classList.add("hidden");
     return;
   }
 
   els.profileMenuEmail.textContent = email || "Signed in";
   els.profileMenuUsage.innerHTML = renderAccountUsageMarkup();
+  els.profileMenuUpgrade?.classList.toggle("hidden", !hasUpgradePlans());
   els.profileMenuAdmin?.classList.toggle("hidden", state.me?.profile?.role !== "admin");
 }
 
@@ -3723,6 +3743,10 @@ function bindEvents() {
     if (!button) return;
     startZiinaPayment(button.dataset.startPayment);
   });
+  els.paywallBackButton?.addEventListener("click", () => {
+    if (!hasChatAccess()) return;
+    renderShell();
+  });
   els.paywallSignOutButton.addEventListener("click", signOutAndReset);
   els.signOutButton.addEventListener("click", signOutAndReset);
 
@@ -3740,6 +3764,7 @@ function bindEvents() {
     closeProfileMenu();
     openSettings();
   });
+  els.profileMenuUpgrade?.addEventListener("click", openUpgradePlans);
   els.profileMenuAdmin?.addEventListener("click", openAdminDrawer);
   els.profileMenuSignOut?.addEventListener("click", () => {
     closeProfileMenu();

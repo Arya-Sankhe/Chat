@@ -174,8 +174,25 @@ button { cursor: pointer; border: none; background: none; }
   margin: 0 0 20px;
 }
 
-.auth-signout {
+.auth-back {
   margin-top: 20px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.auth-back:hover {
+  background: var(--bg);
+}
+
+.auth-signout {
+  margin-top: 12px;
   height: 40px;
   padding: 0 20px;
   border-radius: 8px;
