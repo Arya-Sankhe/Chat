@@ -1720,8 +1720,7 @@ function renderToolCalls() {
 
 function renderMessageError(message) {
   if (!message.error) return "";
-  const retry = message.error === "Stopped by user." ? "" : renderMessageRetry(message);
-  return `<div class="message-error"><span>${escapeHtml(message.error)}</span>${retry}</div>`;
+  return `<div class="message-error"><span>${escapeHtml(message.error)}</span></div>`;
 }
 
 function canRetryAssistant(message) {
@@ -1729,16 +1728,13 @@ function canRetryAssistant(message) {
   if (message?.councilGroup || message?.compareGroup) return false;
   const id = message?.id ? String(message.id) : "";
   if (!id || id.startsWith("local_")) return false;
-  if (message.error) return message.error !== "Stopped by user.";
-  const hasFinal = String(message.content || "").trim()
-    || (Array.isArray(message.toolCalls) && message.toolCalls.length)
-    || artifactListFromMessage(message).length;
-  return !message.stopped && !hasFinal;
+  if (message.error === "Stopped by user.") return false;
+  return true;
 }
 
 function renderMessageRetry(message) {
   if (!canRetryAssistant(message)) return "";
-  return `<button class="message-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}">Retry</button>`;
+  return `<button class="msg-action-btn msg-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}" aria-label="Retry" title="Retry"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>`;
 }
 
 function renderToolStatuses() {
@@ -2014,7 +2010,7 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderContent(content || "");
-  return `${renderReasoning(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderCitations(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
+  return `${renderReasoning(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
 }
 
 function renderCitations(message) {
@@ -2570,7 +2566,7 @@ function renderMissingFinal(message, role) {
     || (Array.isArray(message.toolCalls) && message.toolCalls.length)
     || artifactListFromMessage(message).length;
   if (role !== "assistant" || state.running || message.error || message.stopped || hasFinal) return "";
-  return `<div class="message-error"><span>No final response was saved.</span>${renderMessageRetry(message)}</div>`;
+  return `<div class="message-error"><span>No final response was saved.</span></div>`;
 }
 
 function rawTextContent(content) {
@@ -2582,14 +2578,21 @@ function messageCopyButton(msg, { iconOnly = false } = {}) {
   const text = rawTextContent(msg.content);
   if (!text.trim()) return "";
   const label = iconOnly ? "" : "<span>Copy</span>";
-  return `<button class="msg-copy-btn${iconOnly ? " msg-copy-btn--icon" : ""}" type="button" data-copy-msg aria-label="Copy message" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>${label}</button>`;
+  return `<button class="msg-action-btn msg-copy-btn${iconOnly ? " msg-copy-btn--icon" : ""}" type="button" data-copy-msg aria-label="Copy message" title="Copy message"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>${label}</button>`;
 }
 
-function renderMessageActions(msg, role) {
+function renderMessageFooter(msg, role) {
   if (role !== "assistant") return "";
-  const text = rawTextContent(msg.content);
-  if (!text.trim()) return "";
-  return `<div class="message-actions">${messageCopyButton(msg, { iconOnly: true })}</div>`;
+  const copy = messageCopyButton(msg, { iconOnly: true });
+  const retry = renderMessageRetry(msg);
+  const citations = renderCitations(msg);
+  if (!copy && !retry && !citations) return "";
+  return `
+    <div class="message-footer">
+      ${copy || retry ? `<div class="message-footer-actions">${copy}${retry}</div>` : ""}
+      ${citations ? `<div class="message-footer-sources">${citations}</div>` : ""}
+    </div>
+  `;
 }
 
 function renderStandardMessage(raw) {
@@ -2602,7 +2605,7 @@ function renderStandardMessage(raw) {
     <article class="message ${role}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-body">
         <div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
-        ${renderMessageActions(msg, role)}
+        ${renderMessageFooter(msg, role)}
       </div>
     </article>
   `;

@@ -1275,18 +1275,62 @@ body.document-viewer-resizing {
   font-weight: 500;
 }
 
-.message-actions {
+.message-footer {
   display: flex;
   align-items: center;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: 10px;
+}
+
+.message-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   opacity: 0;
   transition: opacity var(--transition);
 }
 
-.message.assistant:hover .message-actions,
-.message.assistant:focus-within .message-actions {
+.message.assistant:hover .message-footer-actions,
+.message.assistant:focus-within .message-footer-actions {
   opacity: 1;
+}
+
+.message-footer-sources {
+  display: inline-flex;
+  align-items: center;
+}
+
+.message-footer-sources .sources-pill {
+  margin: 0;
+}
+
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.msg-action-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.msg-copy-btn--icon,
+.msg-retry-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
 }
 
 .msg-copy-btn {
@@ -2191,7 +2235,7 @@ body.document-viewer-resizing {
 }
 
 .sources-pill {
-  margin: 14px 0 0;
+  margin: 0;
   max-width: 100%;
 }
 

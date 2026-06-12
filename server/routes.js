@@ -939,9 +939,6 @@ async function resolveMessageRetry({ db, userId, conversationId, retryAssistantM
 
   const failedAssistant = existingMessages[failedIdx];
   if (failedAssistant.role !== "assistant") throw new HttpError(400, "Retry target must be an assistant message.");
-  if (assistantMessageHasOutput(failedAssistant) && !failedAssistant.error) {
-    throw new HttpError(400, "Only failed or empty assistant messages can be retried.");
-  }
 
   const userMessage = existingMessages[failedIdx - 1];
   if (!userMessage || userMessage.role !== "user") {
