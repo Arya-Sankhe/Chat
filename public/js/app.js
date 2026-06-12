@@ -46,6 +46,9 @@ import {
 import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
+const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
+
+const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
 
 const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
@@ -89,6 +92,7 @@ const state = {
   plans: [],
   paymentRequests: [],
   conversations: [],
+  pinnedChatIds: [],
   activeConversationId: "",
   messages: [],
   models: [],
@@ -98,6 +102,7 @@ const state = {
   autoScroll: true,
   abortController: null,
   pendingDeleteId: "",
+  openConversationMenuId: "",
   compareDescribeImages: false,
   viewer: {
     open: false,
@@ -139,6 +144,17 @@ const els = {
   paywallSignOutButton: document.querySelector("#paywallSignOutButton"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
+  searchChatsButton: document.querySelector("#searchChatsButton"),
+  pinnedChatsButton: document.querySelector("#pinnedChatsButton"),
+  pinnedPopup: document.querySelector("#pinnedPopup"),
+  pinnedPopupList: document.querySelector("#pinnedPopupList"),
+  pinnedSection: document.querySelector("#pinnedSection"),
+  pinnedConversationList: document.querySelector("#pinnedConversationList"),
+  sidebarMid: document.querySelector("#sidebarMid"),
+  searchDialog: document.querySelector("#searchDialog"),
+  searchChatInput: document.querySelector("#searchChatInput"),
+  searchChatResults: document.querySelector("#searchChatResults"),
+  searchDialogClose: document.querySelector("#searchDialogClose"),
   accountButton: document.querySelector("#accountButton"),
   profileAvatar: document.querySelector("#profileAvatar"),
   profileName: document.querySelector("#profileName"),
@@ -1027,26 +1043,279 @@ function renderAdminDashboard(summary) {
 
 /* ─── Conversations ─── */
 
-function renderConversations() {
-  const sorted = state.conversations.slice().sort((a, b) => {
+function pinnedStorageKey() {
+  const userId = state.me?.user?.id;
+  return userId ? `${PINNED_CHATS_KEY}.${userId}` : "";
+}
+
+function loadPinnedChatIds() {
+  const key = pinnedStorageKey();
+  if (!key) {
+    state.pinnedChatIds = [];
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    state.pinnedChatIds = Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    state.pinnedChatIds = [];
+  }
+}
+
+function savePinnedChatIds() {
+  const key = pinnedStorageKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(state.pinnedChatIds));
+}
+
+function isPinnedChat(id) {
+  return state.pinnedChatIds.includes(id);
+}
+
+function togglePinChat(id) {
+  if (!id) return;
+  if (isPinnedChat(id)) {
+    state.pinnedChatIds = state.pinnedChatIds.filter((item) => item !== id);
+    showToast("Chat unpinned.");
+  } else {
+    state.pinnedChatIds = [id, ...state.pinnedChatIds.filter((item) => item !== id)];
+    showToast("Chat pinned.");
+  }
+  savePinnedChatIds();
+  closeConversationMenus();
+  renderConversations();
+}
+
+function unpinChat(id) {
+  if (!isPinnedChat(id)) return;
+  state.pinnedChatIds = state.pinnedChatIds.filter((item) => item !== id);
+  savePinnedChatIds();
+}
+
+function sortedConversations() {
+  return state.conversations.slice().sort((a, b) => {
     const ta = a.updated_at || a.created_at || "";
     const tb = b.updated_at || b.created_at || "";
     return String(tb).localeCompare(String(ta));
   });
+}
 
-  els.conversationList.innerHTML = sorted.map((c) => {
-    const active = c.id === state.activeConversationId ? "active" : "";
-    return `
-      <div class="conversation-row ${active}" data-chat-id="${escapeHtml(c.id)}">
-        <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(c.id)}">
-          <span>${escapeHtml(c.title || "New chat")}</span>
-        </button>
-        <button class="conversation-delete" type="button" data-delete-chat-id="${escapeHtml(c.id)}" aria-label="Delete ${escapeHtml(c.title || "chat")}" title="Delete chat">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
-        </button>
+function formatChatAge(iso) {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const day = 86400000;
+  if (diff < day) return "Today";
+  if (diff < 7 * day) return "Past week";
+  if (diff < 30 * day) return "Past month";
+  if (diff < 365 * day) return "Past year";
+  return "Older";
+}
+
+function conversationMenuMarkup(conversation) {
+  const pinned = isPinnedChat(conversation.id);
+  return `
+    <div class="conversation-menu-wrap">
+      <button class="conversation-menu-btn" type="button" data-toggle-menu-id="${escapeHtml(conversation.id)}" aria-label="Chat options" aria-haspopup="menu" aria-expanded="false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+      </button>
+      <div class="conversation-menu hidden" data-menu-id="${escapeHtml(conversation.id)}" role="menu">
+        <button class="conversation-menu-item" type="button" role="menuitem" data-pin-chat-id="${escapeHtml(conversation.id)}">${pinned ? "Unpin chat" : "Pin chat"}</button>
+        <button class="conversation-menu-item conversation-menu-danger" type="button" role="menuitem" data-delete-chat-id="${escapeHtml(conversation.id)}">Delete chat</button>
       </div>
+    </div>
+  `;
+}
+
+function renderConversationRow(conversation) {
+  const active = conversation.id === state.activeConversationId ? "active" : "";
+  return `
+    <div class="conversation-row ${active}" data-chat-id="${escapeHtml(conversation.id)}">
+      <span class="conversation-icon">${CHAT_ICON_SVG}</span>
+      <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+        <span>${escapeHtml(conversation.title || "New chat")}</span>
+      </button>
+      ${conversationMenuMarkup(conversation)}
+    </div>
+  `;
+}
+
+function renderPinnedPopupList(conversations) {
+  if (!els.pinnedPopupList) return;
+  if (!conversations.length) {
+    els.pinnedPopupList.innerHTML = `<div class="pinned-popup-empty">No pinned chats yet.</div>`;
+    return;
+  }
+  els.pinnedPopupList.innerHTML = conversations.map((conversation) => `
+    <button class="pinned-popup-item" type="button" role="menuitem" data-open-chat-id="${escapeHtml(conversation.id)}">
+      ${CHAT_ICON_SVG}
+      <span>${escapeHtml(conversation.title || "New chat")}</span>
+    </button>
+  `).join("");
+}
+
+function renderConversations() {
+  const sorted = sortedConversations();
+  const pinned = sorted.filter((conversation) => isPinnedChat(conversation.id));
+  const recent = sorted.filter((conversation) => !isPinnedChat(conversation.id));
+
+  if (els.pinnedSection) {
+    els.pinnedSection.classList.toggle("hidden", !pinned.length);
+  }
+  if (els.pinnedConversationList) {
+    els.pinnedConversationList.innerHTML = pinned.map(renderConversationRow).join("");
+  }
+  if (els.conversationList) {
+    els.conversationList.innerHTML = recent.map(renderConversationRow).join("");
+  }
+  renderPinnedPopupList(pinned);
+}
+
+function isPinnedPopupOpen() {
+  return Boolean(els.pinnedPopup && !els.pinnedPopup.classList.contains("hidden"));
+}
+
+function closePinnedPopup() {
+  if (!els.pinnedPopup) return;
+  els.pinnedPopup.classList.add("hidden");
+  els.pinnedChatsButton?.setAttribute("aria-expanded", "false");
+}
+
+function togglePinnedPopup() {
+  if (!els.pinnedPopup || !els.pinnedChatsButton) return;
+  closeConversationMenus();
+  closeSearchDialog();
+  closeProfileMenu();
+  const open = isPinnedPopupOpen();
+  if (open) {
+    closePinnedPopup();
+    return;
+  }
+  renderConversations();
+  els.pinnedPopup.classList.remove("hidden");
+  els.pinnedChatsButton.setAttribute("aria-expanded", "true");
+}
+
+function isSearchDialogOpen() {
+  return Boolean(els.searchDialog && !els.searchDialog.classList.contains("hidden"));
+}
+
+function renderSearchResults(query = "") {
+  if (!els.searchChatResults) return;
+  const needle = query.trim().toLowerCase();
+  const matches = sortedConversations().filter((conversation) => {
+    const title = String(conversation.title || "New chat").toLowerCase();
+    return !needle || title.includes(needle);
+  });
+
+  if (!matches.length) {
+    els.searchChatResults.innerHTML = `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
+    return;
+  }
+
+  els.searchChatResults.innerHTML = matches.map((conversation) => {
+    const active = conversation.id === state.activeConversationId ? "active" : "";
+    return `
+      <button class="search-result-row ${active}" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+        <span class="search-result-icon">${CHAT_ICON_SVG}</span>
+        <span class="search-result-copy">
+          <span class="search-result-title">${escapeHtml(conversation.title || "New chat")}</span>
+        </span>
+        <span class="search-result-meta">${escapeHtml(formatChatAge(conversation.updated_at || conversation.created_at))}</span>
+      </button>
     `;
   }).join("");
+}
+
+function openSearchDialog() {
+  if (!els.searchDialog) return;
+  closePinnedPopup();
+  closeConversationMenus();
+  closeProfileMenu();
+  els.searchDialog.classList.remove("hidden");
+  els.searchDialog.setAttribute("aria-hidden", "false");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "search";
+  renderSearchResults("");
+  window.requestAnimationFrame(() => {
+    els.searchChatInput?.focus();
+    els.searchChatInput?.select();
+  });
+}
+
+function closeSearchDialog() {
+  if (!els.searchDialog) return;
+  els.searchDialog.classList.add("hidden");
+  els.searchDialog.setAttribute("aria-hidden", "true");
+  if (els.searchChatInput) els.searchChatInput.value = "";
+  if (els.overlay.dataset.mode === "search") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+}
+
+function closeConversationMenus() {
+  document.querySelectorAll(".conversation-menu:not(.hidden)").forEach((menu) => menu.classList.add("hidden"));
+  document.querySelectorAll(".conversation-menu-btn[aria-expanded='true']").forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+  });
+  state.openConversationMenuId = "";
+}
+
+function toggleConversationMenu(conversationId, button) {
+  const menu = document.querySelector(`[data-menu-id="${conversationId}"]`);
+  if (!menu) return;
+  const isOpen = state.openConversationMenuId === conversationId;
+  closeConversationMenus();
+  if (isOpen) return;
+  menu.classList.remove("hidden");
+  button?.setAttribute("aria-expanded", "true");
+  state.openConversationMenuId = conversationId;
+}
+
+async function openConversation(conversationId) {
+  if (!conversationId) return;
+  state.activeConversationId = conversationId;
+  document.body.classList.remove("sidebar-open");
+  state.compareDescribeImages = false;
+  closeDocumentViewer();
+  closeCompareContextBanner();
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
+  try {
+    await loadActiveConversation();
+    syncConversationUrl();
+    renderShell();
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function handleConversationListClick(event) {
+  const menuToggle = event.target.closest("[data-toggle-menu-id]");
+  if (menuToggle) {
+    event.stopPropagation();
+    toggleConversationMenu(menuToggle.dataset.toggleMenuId, menuToggle);
+    return;
+  }
+
+  const pinAction = event.target.closest("[data-pin-chat-id]");
+  if (pinAction) {
+    togglePinChat(pinAction.dataset.pinChatId);
+    return;
+  }
+
+  const del = event.target.closest("[data-delete-chat-id]");
+  if (del) {
+    const conversation = state.conversations.find((item) => item.id === del.dataset.deleteChatId);
+    if (conversation) openConfirmDialog(conversation);
+    return;
+  }
+
+  const open = event.target.closest("[data-open-chat-id]");
+  if (!open) return;
+  await openConversation(open.dataset.openChatId);
 }
 
 /* ─── Model selector ─── */
@@ -2814,6 +3083,9 @@ function closeAllDrawers() {
   closeProfileMenu();
   closeAuthDialog();
   closeConfirmDialog();
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
 }
 
 function syncSettingsInputs() {
@@ -3156,6 +3428,7 @@ function applyCouncilStreamEvent(council, event) {
 
 async function loadMe() {
   state.me = await fetchMe(state.session);
+  loadPinnedChatIds();
 }
 
 async function handleAuthenticatedSession(session) {
@@ -3203,6 +3476,9 @@ async function loadPaymentRequests() {
 async function loadConversations({ ensure = true } = {}) {
   const payload = await listConversations(state.session);
   state.conversations = payload.conversations || [];
+  const validIds = new Set(state.conversations.map((conversation) => conversation.id));
+  state.pinnedChatIds = state.pinnedChatIds.filter((id) => validIds.has(id));
+  savePinnedChatIds();
   const routeConversationId = conversationIdFromLocation();
   if (routeConversationId) {
     state.activeConversationId = state.conversations.some((conversation) => conversation.id === routeConversationId)
@@ -3289,6 +3565,7 @@ async function startZiinaPayment(planId) {
 async function removeConversation(id) {
   try {
     await deleteConversation(state.session, id);
+    unpinChat(id);
     state.activeConversationId = "";
     await loadConversations();
     syncConversationUrl({ replace: true });
@@ -3622,6 +3899,7 @@ async function signOutAndReset() {
   state.me = null;
   state.paymentRequests = [];
   state.conversations = [];
+  state.pinnedChatIds = [];
   state.messages = [];
   state.activeConversationId = "";
   syncConversationUrl({ replace: true });
@@ -3758,10 +4036,21 @@ function bindEvents() {
 
   els.sidebarButton.addEventListener("click", () => {
     closeProfileMenu();
+    closePinnedPopup();
+    closeConversationMenus();
     document.body.classList.toggle("sidebar-expanded");
   });
 
   els.newChatButton.addEventListener("click", addConversation);
+  els.searchChatsButton?.addEventListener("click", openSearchDialog);
+  els.pinnedChatsButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    togglePinnedPopup();
+  });
+  els.searchDialogClose?.addEventListener("click", closeSearchDialog);
+  els.searchChatInput?.addEventListener("input", (event) => {
+    renderSearchResults(event.target.value);
+  });
   els.accountButton.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleProfileMenu();
@@ -3787,19 +4076,29 @@ function bindEvents() {
     const mode = els.overlay.dataset.mode;
     if (mode === "confirm") closeConfirmDialog();
     else if (mode === "auth") closeAuthDialog();
+    else if (mode === "search") closeSearchDialog();
     else if (mode === "account") closeAccount();
     else closeSettings();
   });
 
   document.addEventListener("click", (event) => {
-    if (!isProfileMenuOpen()) return;
-    if (event.target.closest("#sidebarProfileWrap")) return;
-    closeProfileMenu();
+    if (isProfileMenuOpen() && !event.target.closest("#sidebarProfileWrap")) {
+      closeProfileMenu();
+    }
+    if (isPinnedPopupOpen() && !event.target.closest("#sidebarPinWrap")) {
+      closePinnedPopup();
+    }
+    if (state.openConversationMenuId && !event.target.closest(".conversation-menu-wrap")) {
+      closeConversationMenus();
+    }
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }
+    if (isSearchDialogOpen()) { closeSearchDialog(); return; }
+    if (isPinnedPopupOpen()) { closePinnedPopup(); return; }
+    if (state.openConversationMenuId) { closeConversationMenus(); return; }
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
@@ -3945,28 +4244,9 @@ function bindEvents() {
 
   els.compareInput.addEventListener("input", renderCompareCatalog);
 
-  els.conversationList.addEventListener("click", async (e) => {
-    const del = e.target.closest("[data-delete-chat-id]");
-    if (del) {
-      const c = state.conversations.find((item) => item.id === del.dataset.deleteChatId);
-      if (c) openConfirmDialog(c);
-      return;
-    }
-    const open = e.target.closest("[data-open-chat-id]");
-    if (!open) return;
-    state.activeConversationId = open.dataset.openChatId;
-    document.body.classList.remove("sidebar-open");
-    state.compareDescribeImages = false;
-    closeDocumentViewer();
-    closeCompareContextBanner();
-    try {
-      await loadActiveConversation();
-      syncConversationUrl();
-      renderShell();
-    } catch (err) {
-      showToast(err.message);
-    }
-  });
+  els.sidebarMid?.addEventListener("click", handleConversationListClick);
+  els.pinnedPopupList?.addEventListener("click", handleConversationListClick);
+  els.searchChatResults?.addEventListener("click", handleConversationListClick);
 
   window.addEventListener("popstate", async () => {
     if (!state.session?.access_token) return;

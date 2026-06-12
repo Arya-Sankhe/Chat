@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-clean-chat-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260612-sidebar-nav-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
@@ -39,14 +39,49 @@
       <div class="app-shell hidden" id="chatView">
         <aside class="sidebar" aria-label="Navigation">
           <nav class="sidebar-top">
-            <button class="sidebar-icon" id="sidebarButton" type="button" aria-label="Toggle sidebar" title="Menu">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-            </button>
-            <button class="sidebar-icon" id="newChatButton" type="button" aria-label="New chat" title="New chat">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            </button>
+            <div class="sidebar-header">
+              <span class="sidebar-brand">Klui</span>
+              <button class="sidebar-icon sidebar-toggle" id="sidebarButton" type="button" aria-label="Toggle sidebar" title="Menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              </button>
+            </div>
+            <div class="sidebar-nav">
+              <button class="sidebar-nav-item" id="newChatButton" type="button" aria-label="New chat" title="New chat">
+                <span class="sidebar-nav-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </span>
+                <span class="sidebar-nav-label">New chat</span>
+              </button>
+              <button class="sidebar-nav-item" id="searchChatsButton" type="button" aria-label="Search chats" title="Search chats">
+                <span class="sidebar-nav-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </span>
+                <span class="sidebar-nav-label">Search chats</span>
+              </button>
+              <div class="sidebar-pin-wrap" id="sidebarPinWrap">
+                <button class="sidebar-nav-item sidebar-pin-trigger" id="pinnedChatsButton" type="button" aria-label="Pinned chats" aria-haspopup="menu" aria-expanded="false" title="Pinned chats">
+                  <span class="sidebar-nav-icon" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V17z"/></svg>
+                  </span>
+                  <span class="sidebar-nav-label">Pinned</span>
+                </button>
+                <div class="pinned-popup hidden" id="pinnedPopup" role="menu" aria-label="Pinned chats">
+                  <div class="pinned-popup-title">Pinned</div>
+                  <div class="pinned-popup-list" id="pinnedPopupList"></div>
+                </div>
+              </div>
+            </div>
           </nav>
-          <nav class="sidebar-mid" id="conversationList" aria-label="Saved conversations"></nav>
+          <nav class="sidebar-mid" id="sidebarMid" aria-label="Saved conversations">
+            <div class="sidebar-section pinned-section hidden" id="pinnedSection">
+              <div class="sidebar-section-label">Pinned</div>
+              <div id="pinnedConversationList"></div>
+            </div>
+            <div class="sidebar-section recents-section">
+              <div class="sidebar-section-label">Recents</div>
+              <div id="conversationList"></div>
+            </div>
+          </nav>
           <div class="guest-login-panel hidden" id="guestLoginPanel">
             <strong>Get responses tailored to you</strong>
             <p>Log in to save chats, upload files, and continue your work anywhere.</p>
@@ -283,6 +318,19 @@
           </div>
         </section>
 
+        <section class="search-dialog hidden" id="searchDialog" role="dialog" aria-modal="true" aria-label="Search chats" aria-hidden="true">
+          <div class="search-dialog-inner">
+            <div class="search-dialog-input-wrap">
+              <svg class="search-dialog-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input id="searchChatInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search chats">
+              <button class="search-dialog-close" id="searchDialogClose" type="button" aria-label="Close search">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div class="search-dialog-results" id="searchChatResults"></div>
+          </div>
+        </section>
+
         <section class="auth-dialog" id="authDialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" aria-describedby="authDialogBody" aria-hidden="true">
           <button class="auth-dialog-close" id="authDialogClose" type="button" aria-label="Close sign in">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
@@ -306,6 +354,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260612-compare-label-v1"></script>
+    <script type="module" src="/js/app.js?v=20260612-sidebar-nav-v1"></script>
   </body>
 </html>
