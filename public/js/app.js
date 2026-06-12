@@ -2058,6 +2058,12 @@ function renderCitations(message) {
   `;
 }
 
+function closeOpenSourcesPills() {
+  document.querySelectorAll(".sources-pill[open]").forEach((el) => {
+    el.removeAttribute("open");
+  });
+}
+
 function artifactLabel(artifact) {
   const fileName = String(artifact?.file_name || "Generated document").trim();
   return fileName || "Generated document";
@@ -4080,6 +4086,7 @@ function bindEvents() {
   initDocumentViewerWidth();
 
   els.messages.addEventListener("scroll", () => {
+    closeOpenSourcesPills();
     if (!state.running) return;
     state.autoScroll = isNearBottom(els.messages);
   }, { passive: true });
@@ -4175,6 +4182,9 @@ function bindEvents() {
     }
     if (state.openConversationMenuId && !event.target.closest(".conversation-menu-wrap")) {
       closeConversationMenus();
+    }
+    if (!event.target.closest(".sources-pill")) {
+      closeOpenSourcesPills();
     }
   });
 
