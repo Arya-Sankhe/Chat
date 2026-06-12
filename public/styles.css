@@ -1308,8 +1308,9 @@ body.document-viewer-resizing {
 
 .message-footer-sources .sources-panel {
   position: absolute;
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   left: 0;
+  top: auto;
   z-index: 12;
   min-width: min(100%, 320px);
   width: max-content;
