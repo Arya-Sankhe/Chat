@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-sidebar-nav-v2">
+    <link rel="stylesheet" href="/styles.css?v=20260612-sidebar-brand-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
@@ -318,6 +318,20 @@
           </div>
         </section>
 
+        <section class="rename-dialog" id="renameDialog" role="dialog" aria-modal="true" aria-labelledby="renameTitle" aria-hidden="true">
+          <div class="rename-copy">
+            <h2 id="renameTitle">Rename chat</h2>
+          </div>
+          <div class="field-group rename-field">
+            <label for="renameChatInput">Title</label>
+            <input id="renameChatInput" type="text" maxlength="120" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="rename-actions">
+            <button class="rename-cancel" id="renameCancelButton" type="button">Cancel</button>
+            <button class="rename-save" id="renameSaveButton" type="button">Save</button>
+          </div>
+        </section>
+
         <section class="search-dialog hidden" id="searchDialog" role="dialog" aria-modal="true" aria-label="Search chats" aria-hidden="true">
           <div class="search-dialog-inner">
             <div class="search-dialog-input-wrap">
@@ -354,6 +368,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260612-sidebar-nav-v2"></script>
+    <script type="module" src="/js/app.js?v=20260612-menu-icons-v1"></script>
   </body>
 </html>

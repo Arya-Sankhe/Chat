@@ -846,6 +846,15 @@ async function handleConversationById(req, res, config, conversationId) {
     return;
   }
 
+  if (req.method === "PATCH") {
+    const body = await parseJsonBody(req);
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!title) throw new HttpError(400, "Title is required.");
+    const updated = await context.db.updateConversation(context.user.id, conversation.id, { title }, { signal: req.signal });
+    sendJson(res, 200, { conversation: updated });
+    return;
+  }
+
   if (req.method === "DELETE") {
     const attachments = await context.db.listConversationAttachments(context.user.id, conversation.id, { signal: req.signal });
     const keys = [];

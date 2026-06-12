@@ -155,6 +155,17 @@ export async function deleteConversation(session, id) {
   return response.json();
 }
 
+export async function updateConversation(session, id, body) {
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }

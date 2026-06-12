@@ -378,7 +378,7 @@ body.sidebar-expanded .sidebar-header {
 
 .sidebar-brand {
   display: none;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 650;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -509,11 +509,6 @@ body.sidebar-expanded .sidebar-pin-trigger {
 
 .pinned-popup-item:hover {
   background: var(--bg-secondary);
-}
-
-.pinned-popup-item svg {
-  flex-shrink: 0;
-  color: var(--text-secondary);
 }
 
 .pinned-popup-item span {
@@ -830,21 +825,6 @@ body.guest-mode .sidebar-bottom {
   position: relative;
 }
 
-.conversation-icon {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin-left: 6px;
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-body.sidebar-expanded .conversation-icon {
-  display: inline-flex;
-}
-
 body.sidebar-expanded .conversation-row {
   opacity: 1;
   pointer-events: auto;
@@ -864,7 +844,7 @@ body:not(.sidebar-expanded) .conversation-row {
   flex: 1;
   min-width: 0;
   text-align: left;
-  padding: 8px 4px 8px 4px;
+  padding: 8px 10px;
   color: var(--text);
   font-size: 13px;
   white-space: nowrap;
@@ -873,10 +853,6 @@ body:not(.sidebar-expanded) .conversation-row {
   border: none;
   background: transparent;
   cursor: pointer;
-}
-
-body.sidebar-expanded .conversation-item {
-  padding-left: 0;
 }
 
 .conversation-item span {
@@ -959,6 +935,14 @@ body.sidebar-expanded .conversation-item {
 
 .conversation-menu-item:hover {
   background: var(--bg-secondary);
+}
+
+.conversation-menu-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
 }
 
 .conversation-menu-item.conversation-menu-danger {
@@ -3649,7 +3633,8 @@ body[data-chat-theme="cyber"] .compare-dropdown,
 body[data-chat-theme="cyber"] .settings-drawer,
 body[data-chat-theme="cyber"] .account-drawer,
 body[data-chat-theme="cyber"] .auth-dialog,
-body[data-chat-theme="cyber"] .confirm-dialog {
+body[data-chat-theme="cyber"] .confirm-dialog,
+body[data-chat-theme="cyber"] .rename-dialog {
   border: 2px solid #101010;
   border-radius: 0;
   box-shadow: 7px 7px 0 #101010;
@@ -3931,7 +3916,8 @@ body[data-chat-theme="doodle"] .compare-dropdown,
 body[data-chat-theme="doodle"] .settings-drawer,
 body[data-chat-theme="doodle"] .account-drawer,
 body[data-chat-theme="doodle"] .auth-dialog,
-body[data-chat-theme="doodle"] .confirm-dialog {
+body[data-chat-theme="doodle"] .confirm-dialog,
+body[data-chat-theme="doodle"] .rename-dialog {
   border: 1px solid #e2e2e5;
   border-radius: 28px;
   box-shadow: 0 22px 52px rgba(32, 25, 36, 0.16);
@@ -4514,6 +4500,78 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 
 .confirm-danger:hover {
   background: #dc2626;
+}
+
+/* ─── Rename Dialog ─── */
+.rename-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 14px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: 45;
+}
+
+.rename-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.rename-copy h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.rename-field {
+  margin: 0;
+}
+
+.rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rename-cancel,
+.rename-save {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.rename-cancel {
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.rename-cancel:hover {
+  background: var(--bg-secondary);
+}
+
+.rename-save {
+  color: white;
+  background: var(--text);
+  border: 1px solid var(--text);
+}
+
+.rename-save:hover {
+  background: var(--accent-hover);
 }
 
 /* ─── Sign-in Dialog ─── */

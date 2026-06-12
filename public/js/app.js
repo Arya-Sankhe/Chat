@@ -5,6 +5,7 @@ import {
   createZiinaPaymentRequest,
   deleteAttachment,
   deleteConversation,
+  updateConversation,
   downloadAttachment,
   fetchAttachmentView,
   fetchAdminSummary,
@@ -49,6 +50,10 @@ const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
 
 const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
+const MENU_ICON_ATTRS = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
+const PIN_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>`;
+const RENAME_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+const DELETE_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>`;
 
 const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
@@ -102,6 +107,7 @@ const state = {
   autoScroll: true,
   abortController: null,
   pendingDeleteId: "",
+  pendingRenameId: "",
   openConversationMenuId: "",
   compareDescribeImages: false,
   viewer: {
@@ -218,6 +224,10 @@ const els = {
   confirmBody: document.querySelector("#confirmBody"),
   confirmCancelButton: document.querySelector("#confirmCancelButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
+  renameDialog: document.querySelector("#renameDialog"),
+  renameChatInput: document.querySelector("#renameChatInput"),
+  renameCancelButton: document.querySelector("#renameCancelButton"),
+  renameSaveButton: document.querySelector("#renameSaveButton"),
   overlay: document.querySelector("#overlay"),
   toast: document.querySelector("#toast"),
   lightbox: document.querySelector("#lightbox"),
@@ -1120,8 +1130,18 @@ function conversationMenuMarkup(conversation) {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
       </button>
       <div class="conversation-menu hidden" data-menu-id="${escapeHtml(conversation.id)}" role="menu">
-        <button class="conversation-menu-item" type="button" role="menuitem" data-pin-chat-id="${escapeHtml(conversation.id)}">${pinned ? "Unpin chat" : "Pin chat"}</button>
-        <button class="conversation-menu-item conversation-menu-danger" type="button" role="menuitem" data-delete-chat-id="${escapeHtml(conversation.id)}">Delete chat</button>
+        <button class="conversation-menu-item" type="button" role="menuitem" data-pin-chat-id="${escapeHtml(conversation.id)}">
+          <span class="conversation-menu-item-icon">${PIN_MENU_ICON_SVG}</span>
+          <span>${pinned ? "Unpin chat" : "Pin chat"}</span>
+        </button>
+        <button class="conversation-menu-item" type="button" role="menuitem" data-rename-chat-id="${escapeHtml(conversation.id)}">
+          <span class="conversation-menu-item-icon">${RENAME_MENU_ICON_SVG}</span>
+          <span>Rename chat</span>
+        </button>
+        <button class="conversation-menu-item conversation-menu-danger" type="button" role="menuitem" data-delete-chat-id="${escapeHtml(conversation.id)}">
+          <span class="conversation-menu-item-icon">${DELETE_MENU_ICON_SVG}</span>
+          <span>Delete chat</span>
+        </button>
       </div>
     </div>
   `;
@@ -1131,7 +1151,6 @@ function renderConversationRow(conversation) {
   const active = conversation.id === state.activeConversationId ? "active" : "";
   return `
     <div class="conversation-row ${active}" data-chat-id="${escapeHtml(conversation.id)}">
-      <span class="conversation-icon">${CHAT_ICON_SVG}</span>
       <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
         <span>${escapeHtml(conversation.title || "New chat")}</span>
       </button>
@@ -1148,7 +1167,6 @@ function renderPinnedPopupList(conversations) {
   }
   els.pinnedPopupList.innerHTML = conversations.map((conversation) => `
     <button class="pinned-popup-item" type="button" role="menuitem" data-open-chat-id="${escapeHtml(conversation.id)}">
-      ${CHAT_ICON_SVG}
       <span>${escapeHtml(conversation.title || "New chat")}</span>
     </button>
   `).join("");
@@ -1312,6 +1330,13 @@ async function handleConversationListClick(event) {
   const pinAction = event.target.closest("[data-pin-chat-id]");
   if (pinAction) {
     togglePinChat(pinAction.dataset.pinChatId);
+    return;
+  }
+
+  const renameAction = event.target.closest("[data-rename-chat-id]");
+  if (renameAction) {
+    const conversation = state.conversations.find((item) => item.id === renameAction.dataset.renameChatId);
+    if (conversation) openRenameDialog(conversation);
     return;
   }
 
@@ -3086,12 +3111,58 @@ function closeConfirmDialog() {
   }
 }
 
+function openRenameDialog(conversation) {
+  closeConversationMenus();
+  state.pendingRenameId = conversation.id;
+  els.renameChatInput.value = conversation.title || "New chat";
+  els.renameDialog.classList.add("open");
+  els.renameDialog.setAttribute("aria-hidden", "false");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "rename";
+  requestAnimationFrame(() => {
+    els.renameChatInput.focus();
+    els.renameChatInput.select();
+  });
+}
+
+function closeRenameDialog() {
+  state.pendingRenameId = "";
+  els.renameDialog.classList.remove("open");
+  els.renameDialog.setAttribute("aria-hidden", "true");
+  if (els.overlay.dataset.mode === "rename") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+}
+
+async function saveRenameDialog() {
+  const id = state.pendingRenameId;
+  if (!id) return;
+  const title = els.renameChatInput.value.trim();
+  if (!title) {
+    showToast("Enter a chat title.");
+    return;
+  }
+  try {
+    const payload = await updateConversation(state.session, id, { title });
+    const index = state.conversations.findIndex((item) => item.id === id);
+    if (index >= 0) state.conversations[index] = { ...state.conversations[index], ...payload.conversation };
+    closeRenameDialog();
+    renderConversations();
+    if (isSearchDialogOpen()) renderSearchResults(els.searchChatInput?.value || "");
+    showToast("Chat renamed.");
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
 function closeAllDrawers() {
   closeSettings();
   closeAccount();
   closeProfileMenu();
   closeAuthDialog();
   closeConfirmDialog();
+  closeRenameDialog();
   closeSearchDialog();
   closePinnedPopup();
   closeConversationMenus();
@@ -4084,6 +4155,7 @@ function bindEvents() {
   els.overlay.addEventListener("click", () => {
     const mode = els.overlay.dataset.mode;
     if (mode === "confirm") closeConfirmDialog();
+    else if (mode === "rename") closeRenameDialog();
     else if (mode === "auth") closeAuthDialog();
     else if (mode === "search") closeSearchDialog();
     else if (mode === "account") closeAccount();
@@ -4108,6 +4180,7 @@ function bindEvents() {
     if (isSearchDialogOpen()) { closeSearchDialog(); return; }
     if (isPinnedPopupOpen()) { closePinnedPopup(); return; }
     if (state.openConversationMenuId) { closeConversationMenus(); return; }
+    if (els.renameDialog.classList.contains("open")) { closeRenameDialog(); return; }
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
@@ -4295,6 +4368,14 @@ function bindEvents() {
   els.confirmCancelButton.addEventListener("click", closeConfirmDialog);
   els.confirmDeleteButton.addEventListener("click", () => {
     if (state.pendingDeleteId) removeConversation(state.pendingDeleteId);
+  });
+  els.renameCancelButton.addEventListener("click", closeRenameDialog);
+  els.renameSaveButton.addEventListener("click", saveRenameDialog);
+  els.renameChatInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveRenameDialog();
+    }
   });
 
   els.actionMenuButton.addEventListener("click", (e) => {
