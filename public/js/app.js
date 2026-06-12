@@ -131,7 +131,8 @@ let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
-let lastMessageTouchY = 0;
+let suppressScrollHandler = false;
+let lastMessagesScrollTop = 0;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -2838,7 +2839,7 @@ function renderMessages() {
     .join("");
 
   if (state.autoScroll) {
-    els.messages.scrollTop = els.messages.scrollHeight;
+    pinMessagesToBottom();
   }
 
   syncPendingArtifactPolls();
@@ -2856,10 +2857,27 @@ function preserveMessageScroll(update) {
   const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
   update();
   if (beforePinned) {
-    els.messages.scrollTop = els.messages.scrollHeight;
+    pinMessagesToBottom();
   } else {
-    els.messages.scrollTop = Math.max(0, els.messages.scrollHeight - beforeBottom);
+    setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - beforeBottom));
   }
+}
+
+/**
+ * Programmatic scrolls of the messages list. We flag these so the `scroll`
+ * event handler can ignore them and only react to genuine user scrolling.
+ */
+function setMessagesScrollTop(value) {
+  suppressScrollHandler = true;
+  els.messages.scrollTop = value;
+  lastMessagesScrollTop = els.messages.scrollTop;
+  requestAnimationFrame(() => {
+    suppressScrollHandler = false;
+  });
+}
+
+function pinMessagesToBottom() {
+  setMessagesScrollTop(els.messages.scrollHeight);
 }
 
 function renderStreamingMessageSurface(message) {
@@ -4087,29 +4105,26 @@ function bindEvents() {
 
   els.messages.addEventListener("scroll", () => {
     closeOpenSourcesPills();
-    if (!state.running) return;
-    state.autoScroll = isNearBottom(els.messages);
+    const el = els.messages;
+    // Ignore scroll events caused by our own auto-scrolling.
+    if (suppressScrollHandler) {
+      lastMessagesScrollTop = el.scrollTop;
+      return;
+    }
+    if (!state.running) {
+      lastMessagesScrollTop = el.scrollTop;
+      return;
+    }
+    const wentUp = el.scrollTop < lastMessagesScrollTop - 1;
+    lastMessagesScrollTop = el.scrollTop;
+    // Any upward user scroll stops auto-scroll immediately; scrolling back to
+    // the bottom re-enables it.
+    if (wentUp) {
+      state.autoScroll = false;
+    } else if (isNearBottom(el)) {
+      state.autoScroll = true;
+    }
   }, { passive: true });
-  els.messages.addEventListener("wheel", (event) => {
-    if (!state.running) return;
-    if (event.deltaY < 0) state.autoScroll = false;
-    else if (event.deltaY > 0 && isNearBottom(els.messages, 120)) state.autoScroll = true;
-  }, { passive: true });
-  els.messages.addEventListener("touchstart", (event) => {
-    lastMessageTouchY = event.touches?.[0]?.clientY || 0;
-  }, { passive: true });
-  els.messages.addEventListener("touchmove", (event) => {
-    if (!state.running || !lastMessageTouchY) return;
-    const y = event.touches?.[0]?.clientY || lastMessageTouchY;
-    if (y > lastMessageTouchY) state.autoScroll = false;
-    else if (y < lastMessageTouchY && isNearBottom(els.messages, 120)) state.autoScroll = true;
-    lastMessageTouchY = y;
-  }, { passive: true });
-  els.messages.addEventListener("keydown", (event) => {
-    if (!state.running) return;
-    if (["ArrowUp", "PageUp", "Home"].includes(event.key)) state.autoScroll = false;
-    if (["ArrowDown", "PageDown", "End"].includes(event.key) && isNearBottom(els.messages, 120)) state.autoScroll = true;
-  });
 
   els.guestLoginButton.addEventListener("click", openAuthDialog);
   els.authDialogClose.addEventListener("click", closeAuthDialog);
