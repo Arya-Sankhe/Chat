@@ -2275,10 +2275,18 @@ function rawTextContent(content) {
   return String(content || "");
 }
 
-function messageCopyButton(msg) {
+function messageCopyButton(msg, { iconOnly = false } = {}) {
   const text = rawTextContent(msg.content);
   if (!text.trim()) return "";
-  return `<button class="msg-copy-btn" type="button" data-copy-msg aria-label="Copy message" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>`;
+  const label = iconOnly ? "" : "<span>Copy</span>";
+  return `<button class="msg-copy-btn${iconOnly ? " msg-copy-btn--icon" : ""}" type="button" data-copy-msg aria-label="Copy message" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>${label}</button>`;
+}
+
+function renderMessageActions(msg, role) {
+  if (role !== "assistant") return "";
+  const text = rawTextContent(msg.content);
+  if (!text.trim()) return "";
+  return `<div class="message-actions">${messageCopyButton(msg, { iconOnly: true })}</div>`;
 }
 
 function renderStandardMessage(raw) {
@@ -2289,10 +2297,9 @@ function renderStandardMessage(raw) {
 
   return `
     <article class="message ${role}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
-      <div class="message-avatar">${role === "user" ? "You" : "K"}</div>
       <div class="message-body">
-        <div class="message-meta"><strong>${role === "user" ? "You" : "Klui"}</strong>${messageCopyButton(msg)}</div>
         <div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
+        ${renderMessageActions(msg, role)}
       </div>
     </article>
   `;
@@ -2317,9 +2324,8 @@ function renderCompareResponse(raw, index) {
 function renderCompareMessage(messages) {
   return `
     <article class="message assistant compare-message">
-      <div class="message-avatar">K</div>
       <div class="message-body">
-        <div class="message-meta"><strong>Klui Compare</strong><span>${messages.length} models</span></div>
+        <div class="compare-message-label">${messages.length} models</div>
         <div class="compare-grid">
           ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
         </div>
