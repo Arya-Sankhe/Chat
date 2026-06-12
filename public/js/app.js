@@ -1268,9 +1268,18 @@ function toggleConversationMenu(conversationId, button) {
   const isOpen = state.openConversationMenuId === conversationId;
   closeConversationMenus();
   if (isOpen) return;
-  menu.classList.remove("hidden");
+  menu.classList.remove("hidden", "conversation-menu--up");
   button?.setAttribute("aria-expanded", "true");
   state.openConversationMenuId = conversationId;
+
+  const scroller = menu.closest(".sidebar-mid");
+  if (scroller) {
+    const menuRect = menu.getBoundingClientRect();
+    const bounds = scroller.getBoundingClientRect();
+    if (menuRect.bottom > bounds.bottom) {
+      menu.classList.add("conversation-menu--up");
+    }
+  }
 }
 
 async function openConversation(conversationId) {

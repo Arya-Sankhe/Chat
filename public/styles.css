@@ -885,31 +885,6 @@ body.sidebar-expanded .conversation-item {
   text-overflow: ellipsis;
 }
 
-.conversation-delete {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-right: 4px;
-  border-radius: 8px;
-  color: var(--text-tertiary);
-  opacity: 0;
-  transition: background var(--transition), color var(--transition), opacity var(--transition);
-  flex-shrink: 0;
-}
-
-.conversation-row:hover .conversation-delete,
-.conversation-row.active .conversation-delete,
-.conversation-delete:focus-visible {
-  opacity: 1;
-}
-
-.conversation-delete:hover {
-  background: #fef2f2;
-  color: var(--danger);
-}
-
 .conversation-menu-wrap {
   position: relative;
   flex-shrink: 0;
@@ -953,6 +928,11 @@ body.sidebar-expanded .conversation-item {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow-md);
+}
+
+.conversation-menu.conversation-menu--up {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .conversation-menu.hidden {
@@ -3407,7 +3387,7 @@ body[data-chat-theme="cyber"] .sidebar-bottom {
 
 body[data-chat-theme="cyber"] .sidebar-icon,
 body[data-chat-theme="cyber"] .conversation-row,
-body[data-chat-theme="cyber"] .conversation-delete {
+body[data-chat-theme="cyber"] .conversation-menu-btn {
   border-radius: 0;
 }
 
@@ -3741,7 +3721,7 @@ body[data-chat-theme="doodle"] .sidebar-mid {
 
 body[data-chat-theme="doodle"] .sidebar-icon,
 body[data-chat-theme="doodle"] .conversation-row,
-body[data-chat-theme="doodle"] .conversation-delete {
+body[data-chat-theme="doodle"] .conversation-menu-btn {
   border-radius: 999px;
 }
 
