@@ -2325,7 +2325,7 @@ function renderCompareMessage(messages) {
   return `
     <article class="message assistant compare-message">
       <div class="message-body">
-        <div class="compare-message-label">${messages.length} models</div>
+        <div class="compare-message-label">Klui Compare</div>
         <div class="compare-grid">
           ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
         </div>
