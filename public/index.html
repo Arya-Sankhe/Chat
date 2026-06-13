@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260613-pricing-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260613-followups-v2">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -147,6 +147,7 @@
 
           <section class="composer-area" aria-label="Message composer">
             <div class="composer-wrap">
+              <div class="followup-queue hidden" id="followupQueue" aria-label="Queued follow-up messages"></div>
               <div class="composer">
                 <div class="composer-previews" id="imagePreviews"></div>
                 <textarea id="promptInput" rows="1" placeholder="Message Klui" spellcheck="true"></textarea>
@@ -392,6 +393,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260613-pricing-v1"></script>
+    <script type="module" src="/js/app.js?v=20260613-followups-v2"></script>
   </body>
 </html>

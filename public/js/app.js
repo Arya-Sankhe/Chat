@@ -107,6 +107,7 @@ const state = {
   models: [],
   settings: loadSettings(),
   images: [],
+  followUps: [],
   running: false,
   autoScroll: true,
   abortController: null,
@@ -181,6 +182,7 @@ const els = {
   messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
   imagePreviews: document.querySelector("#imagePreviews"),
+  followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
@@ -323,6 +325,7 @@ function modelModeLabel(mode = selectedModelMode()) {
 }
 
 function composerPlaceholder() {
+  if (state.running) return "Send a follow up message";
   if (state.settings.compareEnabled) {
     return isCouncilMode() ? "Message Klui Council" : "Message Klui Compare";
   }
@@ -331,6 +334,137 @@ function composerPlaceholder() {
 
 function updateComposerPlaceholder() {
   if (els.promptInput) els.promptInput.placeholder = composerPlaceholder();
+}
+
+function renderFollowUps() {
+  if (!els.followupQueue) return;
+  if (!state.followUps.length) {
+    els.followupQueue.classList.add("hidden");
+    els.followupQueue.innerHTML = "";
+    return;
+  }
+  els.followupQueue.classList.remove("hidden");
+  els.followupQueue.innerHTML = state.followUps.map((item, index) => {
+    const editing = item.editing ? " is-editing" : "";
+    const images = Array.isArray(item.images) ? item.images : [];
+    const imageBadge = images.length ? `<span class="followup-media-count">${images.length} image${images.length === 1 ? "" : "s"}</span>` : "";
+    const imageEditor = item.editing && images.length
+      ? `<div class="followup-media-strip">
+          ${images.map((img) => `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file?.name || "Follow-up image")}">`).join("")}
+        </div>`
+      : "";
+    const body = item.editing
+      ? `<input class="followup-input" type="text" value="${escapeHtml(item.text)}" data-followup-input="${escapeHtml(item.id)}" aria-label="Edit follow-up message">
+         <button class="followup-edit" type="button" data-save-followup="${escapeHtml(item.id)}">Save</button>
+         ${imageEditor}`
+      : `<span class="followup-text">${escapeHtml(item.text)}</span>
+         ${imageBadge}
+         <button class="followup-edit" type="button" data-edit-followup="${escapeHtml(item.id)}">Edit</button>`;
+    return `
+      <div class="followup-pill${editing}" data-followup-id="${escapeHtml(item.id)}">
+        <span class="followup-index">${index + 1}</span>
+        ${body}
+        <button class="followup-delete" type="button" data-delete-followup="${escapeHtml(item.id)}" aria-label="Remove follow-up">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+        </button>
+      </div>
+    `;
+  }).join("");
+}
+
+function addFollowUpFromInput() {
+  const text = els.promptInput.value.trim();
+  const images = state.images.filter((item) => item.category === "image");
+  const blocked = state.images.some((item) => item.category !== "image");
+  if (blocked) {
+    showToast("Follow-up attachments can only be images while Klui is working.");
+    return;
+  }
+  if (!text && !images.length) return;
+  if (state.followUps.length >= 3) {
+    showToast("You can queue up to 3 follow-up messages.");
+    return;
+  }
+  state.followUps.push({
+    id: `followup_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    text,
+    images
+  });
+  els.promptInput.value = "";
+  state.images = [];
+  applyComposerHeight();
+  renderImages();
+  renderFollowUps();
+  updateSendButton();
+}
+
+function editFollowUp(id) {
+  const item = state.followUps.find((candidate) => candidate.id === id);
+  if (!item) return;
+  for (const candidate of state.followUps) candidate.editing = candidate.id === id;
+  renderFollowUps();
+  window.requestAnimationFrame(() => {
+    const input = els.followupQueue?.querySelector(`[data-followup-input="${cssString(id)}"]`);
+    input?.focus();
+    input?.select();
+  });
+}
+
+function saveFollowUp(id) {
+  const item = state.followUps.find((candidate) => candidate.id === id);
+  const input = els.followupQueue?.querySelector(`[data-followup-input="${cssString(id)}"]`);
+  if (!item || !input) return;
+  const text = input.value.trim();
+  if (!text && !item.images?.length) return;
+  item.text = text;
+  item.editing = false;
+  renderFollowUps();
+}
+
+function deleteFollowUp(id) {
+  const removed = state.followUps.find((item) => item.id === id);
+  if (removed?.images?.length) {
+    for (const img of removed.images) {
+      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    }
+  }
+  state.followUps = state.followUps.filter((item) => item.id !== id);
+  renderFollowUps();
+  updateSendButton();
+}
+
+function clearFollowUps({ revoke = true } = {}) {
+  if (revoke) {
+    for (const item of state.followUps) {
+      for (const img of item.images || []) {
+        if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      }
+    }
+  }
+  state.followUps = [];
+  renderFollowUps();
+  updateSendButton();
+}
+
+function drainFollowUps() {
+  const queued = state.followUps
+    .map((item) => ({
+      text: item.text.trim(),
+      images: Array.isArray(item.images) ? item.images : []
+    }))
+    .filter((item) => item.text || item.images.length);
+  clearFollowUps({ revoke: false });
+  return queued;
+}
+
+function followUpBatchText(queued) {
+  if (!queued.length) return "";
+  if (queued.length === 1) return queued[0].text || "Follow-up image";
+  return queued.map((item, index) => `Follow-up ${index + 1}: ${item.text || "Image attached"}`).join("\n\n");
+}
+
+function followUpBatchImages(queued) {
+  return queued.flatMap((item) => item.images || []);
 }
 
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
@@ -1376,6 +1510,7 @@ function toggleConversationMenu(conversationId, button) {
 async function openConversation(conversationId) {
   if (!conversationId) return;
   state.activeConversationId = conversationId;
+  clearFollowUps();
   document.body.classList.remove("sidebar-open");
   state.compareDescribeImages = false;
   closeDocumentViewer();
@@ -3089,7 +3224,15 @@ async function startDocumentUpload(item) {
 function addImages(files) {
   if (!requireAuth()) return;
   const plan = state.me?.plan || {};
-  const accepted = [...files].filter(isSupportedPendingFile);
+  const allFiles = [...files];
+  const accepted = allFiles.filter((file) => state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
+  if (state.running && allFiles.length && !accepted.length) {
+    showToast("Follow-up attachments can only be images while Klui is working.");
+    return;
+  }
+  if (state.running && accepted.length < allFiles.length) {
+    showToast("Only images were added to the follow-up.");
+  }
   const currentImages = state.images.filter((item) => item.category === "image").length;
   const currentDocs = state.images.filter((item) => item.category === "document").length;
   const maxImages = plan.maxImagesPerMessage || 4;
@@ -3107,8 +3250,8 @@ function addImages(files) {
       docSlots -= 1;
     }
   }
-  if (accepted.length > chosen.length) showToast(`Attach up to ${maxImages} images and ${maxDocs} documents.`);
-  if ([...files].length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
+  if (accepted.length > chosen.length) showToast(state.running ? `Attach up to ${maxImages} images.` : `Attach up to ${maxImages} images and ${maxDocs} documents.`);
+  if (allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
 
   for (const file of chosen) {
     const category = fileCategory(file);
@@ -3276,20 +3419,29 @@ function syncSettingsInputs() {
 
 function setRunning(running) {
   state.running = running;
-  els.sendButton.classList.toggle("hidden", running);
   els.stopButton.classList.toggle("hidden", !running);
-  els.sendButton.disabled = running || pendingDocumentUploads().length > 0;
-  els.promptInput.disabled = running;
-  els.imageToggle.disabled = running;
+  els.sendButton.classList.remove("hidden");
+  els.promptInput.disabled = false;
+  els.imageToggle.disabled = false;
   els.modelButton.disabled = running;
   els.compareButton.disabled = running;
+  updateComposerPlaceholder();
+  updateSendButton();
 }
 
 function updateSendButton() {
-  const hasContent = els.promptInput.value.trim() || state.images.length;
+  const hasText = Boolean(els.promptInput.value.trim());
+  if (state.running) {
+    const hasContent = hasText || state.images.some((item) => item.category === "image");
+    const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 3;
+    els.sendButton.classList.toggle("active", hasContent && !blocked);
+    els.sendButton.disabled = !hasContent || blocked;
+    return;
+  }
+  const hasContent = hasText || state.images.length || state.followUps.length;
   const blocked = pendingDocumentUploads().length > 0;
   els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
-  els.sendButton.disabled = state.running || blocked;
+  els.sendButton.disabled = blocked;
 }
 
 function applyComposerHeight() {
@@ -3707,6 +3859,7 @@ async function addConversation() {
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
     state.images = [];
+    clearFollowUps();
     closeDocumentViewer();
     renderImages();
     syncConversationUrl();
@@ -3744,6 +3897,7 @@ async function removeConversation(id) {
     await deleteConversation(state.session, id);
     unpinChat(id);
     state.activeConversationId = "";
+    clearFollowUps();
     await loadConversations();
     syncConversationUrl({ replace: true });
     closeConfirmDialog();
@@ -3755,7 +3909,23 @@ async function removeConversation(id) {
 }
 
 async function sendPrompt() {
-  const text = els.promptInput.value.trim();
+  let text = els.promptInput.value.trim();
+  if (state.running) {
+    if (!requireAuth()) return;
+    addFollowUpFromInput();
+    return;
+  }
+  if (!text && state.followUps.length) {
+    const queued = drainFollowUps();
+    text = followUpBatchText(queued);
+    state.images = [...followUpBatchImages(queued), ...state.images];
+    renderImages();
+  } else if (text && state.followUps.length) {
+    const queued = drainFollowUps();
+    text = [followUpBatchText(queued), text].filter(Boolean).join("\n\n");
+    state.images = [...followUpBatchImages(queued), ...state.images];
+    renderImages();
+  }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
   const compareModels = activeCompareModelIds();
@@ -3828,6 +3998,8 @@ async function retryFailedAssistant(assistantMessageId) {
   setRunning(true);
   renderMessages();
   pinMessagesToBottom();
+  let wasAborted = false;
+  let shouldReloadConversation = false;
 
   try {
     const retryProvider = activeProvider();
@@ -3854,16 +4026,28 @@ async function retryFailedAssistant(assistantMessageId) {
 
     await Promise.all([loadMe(), loadConversations({ ensure: false })]);
     await loadActiveConversation();
+    shouldReloadConversation = true;
   } catch (err) {
     if (err.name === "AbortError") {
+      wasAborted = true;
       localAssistant.stopped = true;
     } else {
       localAssistant.error = err.message;
     }
   } finally {
+    const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
     state.abortController = null;
     setRunning(false);
     renderShell();
+    if (queuedFollowUps.length) {
+      await executeSend({
+        text: followUpBatchText(queuedFollowUps),
+        images: followUpBatchImages(queuedFollowUps),
+        compareModels: activeCompareModelIds(),
+        council: Boolean(activeCompareModelIds().length && isCouncilMode()),
+        describeImages: Boolean(activeCompareModelIds().length)
+      });
+    }
   }
 }
 
@@ -3953,6 +4137,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   renderMessages();
   pinMessagesToBottom();
   let shouldReloadConversation = false;
+  let wasAborted = false;
   const sentPreviewUrls = images
     .filter((img) => img.category === "image" && img.previewUrl)
     .map((img) => img.previewUrl);
@@ -4035,6 +4220,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     shouldReloadConversation = true;
   } catch (err) {
     if (err.name === "AbortError") {
+      wasAborted = true;
       if (localAssistant.councilGroup) {
         for (const panelist of localAssistant.panelists) panelist.stopped = true;
         if (localAssistant.chairman) localAssistant.chairman.stopped = true;
@@ -4060,6 +4246,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }
     }
   } finally {
+    const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
     state.abortController = null;
     setRunning(false);
     if (shouldReloadConversation) {
@@ -4069,6 +4256,15 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }
     }
     renderShell();
+    if (queuedFollowUps.length) {
+      await executeSend({
+        text: followUpBatchText(queuedFollowUps),
+        images: followUpBatchImages(queuedFollowUps),
+        compareModels: activeCompareModelIds(),
+        council: Boolean(activeCompareModelIds().length && isCouncilMode()),
+        describeImages: Boolean(activeCompareModelIds().length)
+      });
+    }
   }
 }
 
@@ -4080,6 +4276,7 @@ async function signOutAndReset() {
   state.conversations = [];
   state.pinnedChatIds = [];
   state.messages = [];
+  clearFollowUps();
   state.activeConversationId = "";
   syncConversationUrl({ replace: true });
   closeAllDrawers();
@@ -4533,6 +4730,36 @@ function bindEvents() {
     }
     const thumb = e.target.closest("[data-preview-src]");
     if (thumb) openLightbox(thumb.dataset.previewSrc);
+  });
+
+  els.followupQueue?.addEventListener("click", (e) => {
+    const edit = e.target.closest("[data-edit-followup]");
+    if (edit) {
+      editFollowUp(edit.dataset.editFollowup);
+      return;
+    }
+    const save = e.target.closest("[data-save-followup]");
+    if (save) {
+      saveFollowUp(save.dataset.saveFollowup);
+      return;
+    }
+    const del = e.target.closest("[data-delete-followup]");
+    if (del) {
+      deleteFollowUp(del.dataset.deleteFollowup);
+    }
+  });
+
+  els.followupQueue?.addEventListener("keydown", (e) => {
+    const input = e.target.closest("[data-followup-input]");
+    if (!input) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveFollowUp(input.dataset.followupInput);
+    } else if (e.key === "Escape") {
+      const item = state.followUps.find((candidate) => candidate.id === input.dataset.followupInput);
+      if (item) item.editing = false;
+      renderFollowUps();
+    }
   });
 
   els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });

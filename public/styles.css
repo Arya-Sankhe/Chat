@@ -2384,6 +2384,129 @@ body.document-viewer-resizing {
   overflow: visible;
 }
 
+.followup-queue {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.followup-queue.hidden {
+  display: none;
+}
+
+.followup-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--surface));
+  box-shadow: var(--shadow-sm);
+}
+
+.followup-pill.is-editing {
+  flex-wrap: wrap;
+}
+
+.followup-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  flex: 0 0 auto;
+}
+
+.followup-text {
+  min-width: 0;
+  flex: 1;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.followup-media-count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border-radius: var(--radius-full);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.followup-media-strip {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  padding-left: 29px;
+}
+
+.followup-media-strip img {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.followup-input {
+  min-width: 0;
+  flex: 1;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.followup-input:focus {
+  border-color: var(--accent);
+}
+
+.followup-edit,
+.followup-delete {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.followup-edit:hover,
+.followup-delete:hover {
+  color: var(--text);
+}
+
+.followup-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+}
+
+.followup-delete:hover {
+  background: var(--surface);
+}
+
 .composer {
   position: relative;
   overflow: visible;
