@@ -728,23 +728,50 @@ function renderPlans() {
       .filter((request) => request.status === "pending")
       .map((request) => [request.planId, request])
   );
-  els.paywallPlans.innerHTML = (state.plans || []).map((plan) => `
-    <article class="plan-card">
-      <h3>${escapeHtml(plan.name)}</h3>
-      <div class="price">${escapeHtml(plan.priceLabel || "")}</div>
-      <p>${escapeHtml(plan.description || "")}</p>
+  const planMeta = {
+    lite: {
+      tagline: "For light everyday use",
+      features: ["Access to premium models", "Model compare"]
+    },
+    essential: {
+      tagline: "For regular everyday use",
+      badge: "Most popular",
+      usage: "3.5x more usage",
+      features: ["Access to premium models", "Model compare", "Model council"]
+    },
+    pro: {
+      tagline: "For pro workflows",
+      usage: "6x more usage",
+      features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
+    }
+  };
+  els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
+    const id = String(plan.id || "").toLowerCase();
+    const planClass = id.replace(/[^a-z0-9_-]/g, "");
+    const meta = planMeta[id] || { tagline: plan.description || "", features: ["Access to premium models"] };
+    const pending = requestsByPlan.get(plan.id);
+    const price = plan.amountAed ? `${Number(plan.amountAed).toLocaleString()} AED` : (plan.priceLabel || "");
+    return `
+    <article class="plan-card plan-card-${escapeHtml(planClass)}">
+      <div class="plan-pin" aria-hidden="true"></div>
+      ${meta.badge ? `<div class="plan-ribbon">${escapeHtml(meta.badge)}</div>` : ""}
+      ${meta.usage ? `<div class="plan-usage-badge">${escapeHtml(meta.usage)}</div>` : ""}
+      <div class="plan-head">
+        <h3>${escapeHtml(plan.name)}</h3>
+        <div class="price"><strong>${escapeHtml(price)}</strong><span>/month</span></div>
+        <p>${escapeHtml(meta.tagline)}</p>
+      </div>
       <ul>
-        <li>Weekly API usage bar</li>
-        <li>${Number(plan.maxDocumentsPerMessage || 0).toLocaleString()} documents/message</li>
+        ${meta.features.map((feature) => `<li><span aria-hidden="true">✓</span>${escapeHtml(feature)}</li>`).join("")}
       </ul>
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
-      ${plan.ziinaQrImageUrl ? `<img class="plan-qr" src="${escapeHtml(plan.ziinaQrImageUrl)}" alt="${escapeHtml(plan.name)} Ziina QR code">` : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
-        ${requestsByPlan.has(plan.id) ? "Open Ziina payment" : "Pay with Ziina"}
+        ${pending ? "Open Ziina payment" : "Pay with Ziina"}
       </button>
       ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? `<p class="plan-payment-note">Access activates after we verify your Ziina payment.</p>` : `<p class="plan-payment-note">Ziina link is not configured yet.</p>`}
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderPendingPayment(request) {

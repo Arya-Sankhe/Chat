@@ -335,6 +335,58 @@ button { cursor: pointer; border: none; background: none; }
   margin: 0 0 20px;
 }
 
+#paywallView {
+  align-items: flex-start;
+  min-height: 100vh;
+  padding: clamp(36px, 6vw, 72px) 24px 44px;
+  background-color: #fef9f0;
+  background-image:
+    linear-gradient(#e7e2d9 1px, transparent 1px),
+    linear-gradient(90deg, #e7e2d9 1px, transparent 1px);
+  background-size: 40px 40px;
+  color: #1d1c16;
+}
+
+.paywall-panel {
+  width: min(100%, 1240px);
+  margin: 0 auto;
+}
+
+.paywall-hero {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  margin-bottom: clamp(56px, 8vw, 112px);
+  text-align: center;
+}
+
+.paywall-brand {
+  font-size: clamp(54px, 8vw, 92px);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+  color: #000101;
+}
+
+.paywall-sticker {
+  display: inline-block;
+  padding: 12px 44px;
+  border: 3px solid #000101;
+  border-radius: 2% 6% 5% 4% / 1% 1% 2% 4%;
+  background: #ffdad8;
+  color: #8c1520;
+  font-size: clamp(15px, 2vw, 20px);
+  font-weight: 850;
+  transform: rotate(-1deg);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.06);
+}
+
+#paywallView .auth-email {
+  margin: -40px 0 36px;
+  text-align: center;
+  color: #75777a;
+}
+
 .auth-back {
   margin-top: 20px;
   height: 40px;
@@ -391,23 +443,172 @@ button { cursor: pointer; border: none; background: none; }
 
 .plan-grid {
   display: grid;
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: clamp(20px, 4vw, 44px);
   margin-top: 12px;
 }
 
 .plan-card {
+  position: relative;
+  display: flex;
+  min-height: 420px;
+  flex-direction: column;
   text-align: left;
-  padding: 18px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-  background: var(--bg-secondary);
+  padding: clamp(26px, 3vw, 38px);
+  border: 3px solid #000101;
+  border-radius: 2% 6% 5% 4% / 1% 1% 2% 4%;
+  background: #ffffff;
+  box-shadow: 10px 12px 0 rgba(0, 0, 0, 0.05);
 }
 
-.plan-card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 650; }
-.plan-card .price { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
-.plan-card p { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
-.plan-card ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text-secondary); }
-.plan-card li { margin-bottom: 2px; }
+.plan-card-lite {
+  transform: rotate(0.9deg);
+}
+
+.plan-card-essential {
+  background: #eee9e0;
+  box-shadow: 14px 14px 0 rgba(174, 47, 52, 0.1);
+  transform: rotate(0.35deg);
+}
+
+.plan-card-pro {
+  background: #000101;
+  color: #ffffff;
+  box-shadow: 14px 14px 0 rgba(0, 0, 0, 0.08);
+  transform: rotate(0.5deg);
+}
+
+.plan-pin {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ae2f34;
+  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.2);
+  transform: translateX(-50%);
+}
+
+.plan-ribbon,
+.plan-usage-badge {
+  position: absolute;
+  top: -22px;
+  z-index: 1;
+  padding: 8px 14px;
+  border: 3px solid #000101;
+  border-radius: 2% 6% 5% 4% / 1% 1% 2% 4%;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.06);
+}
+
+.plan-ribbon {
+  left: 28px;
+  background: #ae2f34;
+  color: #ffffff;
+  transform: rotate(-3deg);
+}
+
+.plan-ribbon::before {
+  content: "★ ";
+}
+
+.plan-usage-badge {
+  right: 28px;
+  background: #ffffff;
+  color: #44474a;
+  transform: rotate(3deg);
+}
+
+.plan-card-pro .plan-usage-badge {
+  background: #ffdad8;
+  color: #8c1520;
+}
+
+.plan-head {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 2px dashed rgba(117, 119, 122, 0.28);
+}
+
+.plan-card h3 {
+  margin: 0 0 14px;
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 850;
+  letter-spacing: -0.03em;
+}
+
+.plan-card .price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.plan-card .price strong {
+  font-size: clamp(38px, 5vw, 52px);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+}
+
+.plan-card .price span {
+  font-size: 22px;
+  color: #44474a;
+}
+
+.plan-card-pro .price span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.plan-card p {
+  margin: 0;
+  color: #75777a;
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 650;
+}
+
+.plan-card-pro p {
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.plan-card ul {
+  display: grid;
+  gap: 22px;
+  margin: 0 0 36px;
+  padding: 0;
+  color: #1d1c16;
+  font-size: clamp(17px, 2vw, 22px);
+  font-weight: 650;
+  list-style: none;
+}
+
+.plan-card-pro ul {
+  color: #ffffff;
+}
+
+.plan-card li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.plan-card li span {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: #ae2f34;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+}
 
 .plan-qr {
   display: block;
@@ -422,28 +623,106 @@ button { cursor: pointer; border: none; background: none; }
 
 .plan-pay-btn {
   width: 100%;
-  min-height: 42px;
-  margin-top: 12px;
-  border-radius: var(--radius-full);
-  background: var(--text);
-  color: var(--bg);
-  font-size: 14px;
-  font-weight: 650;
+  min-height: 68px;
+  margin-top: auto;
+  border: 3px solid #000101;
+  border-radius: 0;
+  background: #000101;
+  color: #ffffff;
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.08);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(16px, 2vw, 20px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
 
 .plan-pay-btn:hover {
-  background: var(--accent-hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 7px 7px 0 rgba(0, 0, 0, 0.08);
+}
+
+.plan-pay-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.plan-card-essential .plan-pay-btn {
+  border-color: #ae2f34;
+}
+
+.plan-card-pro .plan-pay-btn {
+  background: #ffffff;
+  color: #000101;
+  border-color: #ffffff;
 }
 
 .plan-pay-btn:disabled {
   cursor: not-allowed;
-  background: var(--bg-secondary);
-  color: var(--text-tertiary);
+  opacity: 0.45;
 }
 
 .plan-payment-note {
-  margin-top: 8px !important;
+  margin-top: 18px !important;
   text-align: center;
+  color: #8a8a8a !important;
+  font-size: 12px !important;
+  font-style: normal !important;
+  font-weight: 800 !important;
+  line-height: 1.3 !important;
+  text-transform: uppercase;
+}
+
+.paywall-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 36px;
+}
+
+@media (max-width: 1100px) {
+  .plan-grid {
+    grid-template-columns: 1fr;
+    max-width: 620px;
+    margin-inline: auto;
+  }
+
+  .plan-card,
+  .plan-card-lite,
+  .plan-card-essential,
+  .plan-card-pro {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  #paywallView {
+    padding: 28px 16px 32px;
+    background-size: 28px 28px;
+  }
+
+  .paywall-hero {
+    margin-bottom: 44px;
+  }
+
+  .paywall-sticker {
+    width: min(100%, 340px);
+    padding: 10px 18px;
+  }
+
+  .plan-card {
+    min-height: auto;
+    padding: 24px;
+  }
+
+  .plan-ribbon,
+  .plan-usage-badge {
+    position: static;
+    display: inline-flex;
+    width: max-content;
+    margin: -8px 0 16px;
+    transform: none;
+  }
 }
 
 .payment-pending {
@@ -451,14 +730,15 @@ button { cursor: pointer; border: none; background: none; }
   gap: 3px;
   margin-top: 12px;
   padding: 10px 12px;
+  border: 2px dashed rgba(174, 47, 52, 0.45);
   border-radius: 10px;
-  background: #fff7ed;
-  color: #9a3412;
+  background: rgba(255, 218, 216, 0.55);
+  color: #8c1520;
   font-size: 12px;
 }
 
 .payment-pending strong {
-  color: #7c2d12;
+  color: #6d0010;
   font-size: 13px;
   letter-spacing: 0.02em;
 }

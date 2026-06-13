@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260613-profile-menu-fix-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260613-pricing-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -26,14 +26,17 @@
       </section>
 
       <section class="fullscreen-view hidden" id="paywallView">
-        <div class="auth-panel">
-          <div class="auth-brand">Klui</div>
-          <h1>Choose your plan</h1>
-          <p class="auth-sub">Pay with Ziina. Your plan activates after we verify the payment.</p>
+        <div class="paywall-panel">
+          <div class="paywall-hero">
+            <div class="paywall-brand">Klui</div>
+            <div class="paywall-sticker">No 5 hour limits for all plans</div>
+          </div>
           <p class="auth-email" id="paywallEmail"></p>
           <div class="plan-grid" id="paywallPlans"></div>
-          <button class="auth-back hidden" id="paywallBackButton" type="button">Back to chat</button>
-          <button class="auth-signout" id="paywallSignOutButton" type="button">Sign out</button>
+          <div class="paywall-actions">
+            <button class="auth-back hidden" id="paywallBackButton" type="button">Back to chat</button>
+            <button class="auth-signout" id="paywallSignOutButton" type="button">Sign out</button>
+          </div>
         </div>
       </section>
 
@@ -389,6 +392,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260613-themes-v1"></script>
+    <script type="module" src="/js/app.js?v=20260613-pricing-v1"></script>
   </body>
 </html>
