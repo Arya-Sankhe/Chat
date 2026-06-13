@@ -3900,7 +3900,28 @@ body[data-chat-theme="cyber"] .document-viewer-body {
 
 /* ─── Chat Themes: Doodle Luxe ─── */
 body[data-chat-theme="doodle"] .app-shell {
+  position: relative;
+  isolation: isolate;
   background: var(--paper);
+}
+
+/* Light mode: soft ambient wash across the full page (no hard side/center seam). */
+body[data-mode="light"][data-chat-theme="doodle"] .app-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--hi) 52%, transparent), transparent 46%),
+    radial-gradient(circle at 92% 10%, color-mix(in srgb, #d4e6e5 44%, transparent), transparent 42%),
+    radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--hi) 26%, transparent), transparent 52%),
+    radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--paper-2) 32%, transparent), transparent 68%);
+}
+
+body[data-chat-theme="doodle"] .app-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 body[data-chat-theme="doodle"] .chat-panel {
@@ -3908,7 +3929,7 @@ body[data-chat-theme="doodle"] .chat-panel {
   isolation: isolate;
 }
 
-/* Sparse side dots — center column stays clear for chat, compare, and council. */
+/* Sparse side dots — center stays clear; edges feather in light mode. */
 body[data-chat-theme="doodle"] .chat-panel::before {
   content: "";
   position: absolute;
@@ -3934,6 +3955,32 @@ body[data-chat-theme="doodle"] .chat-panel::before {
     transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
     transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
     #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 100%
+  );
+}
+
+body[data-mode="light"][data-chat-theme="doodle"] .chat-panel::before {
+  opacity: 0.3;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 140px)),
+    rgba(0, 0, 0, 0.35) max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 70px)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    rgba(0, 0, 0, 0.35) min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 70px)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 140px)),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 140px)),
+    rgba(0, 0, 0, 0.35) max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 70px)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    rgba(0, 0, 0, 0.35) min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 70px)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 140px)),
     #000 100%
   );
 }
@@ -3969,6 +4016,10 @@ body[data-chat-theme="doodle"] .chat-panel::after {
     #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
     #000 100%
   );
+}
+
+body[data-mode="light"][data-chat-theme="doodle"] .chat-panel::after {
+  display: none;
 }
 
 body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::after {
