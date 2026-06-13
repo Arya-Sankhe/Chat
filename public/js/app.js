@@ -3419,7 +3419,7 @@ function syncSettingsInputs() {
 function setRunning(running) {
   state.running = running;
   els.stopButton.classList.toggle("hidden", !running);
-  els.sendButton.classList.remove("hidden");
+  els.sendButton.classList.toggle("hidden", running);
   els.promptInput.disabled = false;
   els.imageToggle.disabled = false;
   els.modelButton.disabled = running;
