@@ -4,9 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-message-footer-v4">
+    <link rel="stylesheet" href="/styles.css?v=20260613-themes-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
+    <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
+    <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
     <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js"></script>
@@ -261,6 +262,26 @@
             </select>
           </div>
 
+          <div class="field-group">
+            <label for="appearanceSelect">Appearance</label>
+            <select id="appearanceSelect">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label>Color</label>
+            <div class="color-preset-row" id="colorPresetRow" role="group" aria-label="Accent color">
+              <button type="button" class="color-swatch" data-accent="default" title="Default" aria-label="Default" aria-pressed="true"><span class="color-swatch-dot" data-swatch="default"></span></button>
+              <button type="button" class="color-swatch" data-accent="indigo" title="Indigo" aria-label="Indigo" aria-pressed="false"><span class="color-swatch-dot" data-swatch="indigo"></span></button>
+              <button type="button" class="color-swatch" data-accent="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false"><span class="color-swatch-dot" data-swatch="emerald"></span></button>
+              <button type="button" class="color-swatch" data-accent="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="color-swatch-dot" data-swatch="rose"></span></button>
+              <button type="button" class="color-swatch" data-accent="ocean" title="Ocean" aria-label="Ocean" aria-pressed="false"><span class="color-swatch-dot" data-swatch="ocean"></span></button>
+            </div>
+          </div>
+
           <div class="field-grid">
             <label>
               <span>Temperature</span>
@@ -368,6 +389,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260613-autoscroll-v6"></script>
+    <script type="module" src="/js/app.js?v=20260613-themes-v1"></script>
   </body>
 </html>

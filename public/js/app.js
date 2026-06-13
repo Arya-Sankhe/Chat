@@ -70,6 +70,8 @@ const DEFAULT_COUNCIL_MODELS = [
 const DEFAULT_REASONING_EFFORT = "high";
 const CONTEXT_LIMIT_TOKENS = 256000;
 const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
+const APPEARANCES = new Set(["light", "dark", "system"]);
+const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
 
 const defaultSettings = {
   model: OPENROUTER_TEXT_MODEL,
@@ -87,7 +89,9 @@ const defaultSettings = {
   webSearchMode: "auto",
   provider: "openrouter",
   kluiModel: "",
-  theme: "classic"
+  theme: "classic",
+  appearance: "system",
+  colorPreset: "default"
 };
 
 const state = {
@@ -193,6 +197,8 @@ const els = {
   seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
   themeSelect: document.querySelector("#themeSelect"),
+  appearanceSelect: document.querySelector("#appearanceSelect"),
+  colorPresetRow: document.querySelector("#colorPresetRow"),
   modelDetails: document.querySelector("#modelDetails"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
@@ -416,6 +422,8 @@ function loadSettings() {
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
     loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
+    loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
+    loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
     loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
     return loaded;
   } catch {
@@ -423,10 +431,48 @@ function loadSettings() {
   }
 }
 
+function systemPrefersDark() {
+  return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+}
+
+function resolvedAppearance() {
+  const appearance = APPEARANCES.has(state.settings.appearance) ? state.settings.appearance : "system";
+  if (appearance === "system") return systemPrefersDark() ? "dark" : "light";
+  return appearance;
+}
+
+function applyCodeHighlightTheme(mode) {
+  const light = document.querySelector("#hljsLight");
+  const dark = document.querySelector("#hljsDark");
+  if (light) light.disabled = mode === "dark";
+  if (dark) dark.disabled = mode !== "dark";
+}
+
 function applyChatTheme() {
   const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
+  const preset = COLOR_PRESETS.has(state.settings.colorPreset) ? state.settings.colorPreset : "default";
+  const mode = resolvedAppearance();
   document.body.dataset.chatTheme = theme;
+  document.body.dataset.accent = preset;
+  document.body.dataset.mode = mode;
+  applyCodeHighlightTheme(mode);
+  syncAppearanceControls();
+}
+
+function syncAppearanceControls() {
+  const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
+  const preset = COLOR_PRESETS.has(state.settings.colorPreset) ? state.settings.colorPreset : "default";
   if (els.themeSelect) els.themeSelect.value = theme;
+  if (els.appearanceSelect) {
+    els.appearanceSelect.value = APPEARANCES.has(state.settings.appearance) ? state.settings.appearance : "system";
+  }
+  if (els.colorPresetRow) {
+    els.colorPresetRow.querySelectorAll("[data-accent]").forEach((btn) => {
+      const active = btn.dataset.accent === preset;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
 }
 
 function webSearchAvailable() {
@@ -527,7 +573,7 @@ function saveSettings() {
 function updateSetting(key, value) {
   state.settings[key] = value;
   saveSettings();
-  if (key === "theme") applyChatTheme();
+  if (key === "theme" || key === "appearance" || key === "colorPreset") applyChatTheme();
 }
 
 function getGreeting() {
@@ -3198,7 +3244,7 @@ function syncSettingsInputs() {
   els.maxTokensInput.value = state.settings.max_tokens;
   els.seedInput.value = state.settings.seed;
   els.systemPromptInput.value = state.settings.systemPrompt;
-  if (els.themeSelect) els.themeSelect.value = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
+  syncAppearanceControls();
 }
 
 function setRunning(running) {
@@ -4563,6 +4609,15 @@ function bindEvents() {
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
   els.themeSelect?.addEventListener("change", (e) => updateSetting("theme", CHAT_THEMES.has(e.target.value) ? e.target.value : "classic"));
+  els.appearanceSelect?.addEventListener("change", (e) => updateSetting("appearance", APPEARANCES.has(e.target.value) ? e.target.value : "system"));
+  els.colorPresetRow?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-accent]");
+    if (!btn) return;
+    updateSetting("colorPreset", COLOR_PRESETS.has(btn.dataset.accent) ? btn.dataset.accent : "default");
+  });
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+    if (state.settings.appearance === "system") applyChatTheme();
+  });
 
   els.loadAdminButton.addEventListener("click", loadAdminDashboard);
   els.adminOutput.addEventListener("click", (e) => {
