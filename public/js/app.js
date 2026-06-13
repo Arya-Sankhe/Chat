@@ -131,8 +131,7 @@ let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
-let suppressScrollHandler = false;
-let lastMessagesScrollTop = 0;
+let lastMessagesTouchY = 0;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -2869,13 +2868,8 @@ function preserveMessageScroll(update) {
 }
 
 function setMessagesScrollTop(value) {
-  suppressScrollHandler = true;
   const maxScroll = Math.max(0, els.messages.scrollHeight - els.messages.clientHeight);
   els.messages.scrollTop = Math.min(Math.max(0, value), maxScroll);
-  lastMessagesScrollTop = els.messages.scrollTop;
-  requestAnimationFrame(() => {
-    suppressScrollHandler = false;
-  });
 }
 
 function pinMessagesToBottom() {
@@ -4111,26 +4105,33 @@ function setAutoScroll(enabled) {
 function bindEvents() {
   initDocumentViewerWidth();
 
-  els.messages.addEventListener("scroll", () => {
-    closeOpenSourcesPills();
-    const el = els.messages;
-    if (suppressScrollHandler) {
-      lastMessagesScrollTop = el.scrollTop;
-      return;
-    }
-    const scrollTop = el.scrollTop;
-    if (scrollTop < lastMessagesScrollTop - 1) {
-      setAutoScroll(false);
-    } else if (isNearBottom(el, 80)) {
-      setAutoScroll(true);
-    } else {
-      setAutoScroll(false);
-    }
-    lastMessagesScrollTop = scrollTop;
-  }, { passive: true });
+  els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
 
+  // Auto-scroll is controlled ONLY by genuine user gestures (wheel, touch,
+  // keys). Programmatic pinning during streaming never fires these events, so
+  // it can never accidentally stop or restart auto-scroll. Any upward gesture
+  // stops it immediately; returning to the bottom resumes it.
   els.messages.addEventListener("wheel", (event) => {
     if (event.deltaY < 0) setAutoScroll(false);
+    else if (event.deltaY > 0 && isNearBottom(els.messages, 40)) setAutoScroll(true);
+  }, { passive: true });
+
+  els.messages.addEventListener("touchstart", (event) => {
+    lastMessagesTouchY = event.touches?.[0]?.clientY ?? 0;
+  }, { passive: true });
+
+  els.messages.addEventListener("touchmove", (event) => {
+    const y = event.touches?.[0]?.clientY ?? lastMessagesTouchY;
+    if (y > lastMessagesTouchY + 2) setAutoScroll(false);
+    else if (y < lastMessagesTouchY - 2 && isNearBottom(els.messages, 40)) setAutoScroll(true);
+    lastMessagesTouchY = y;
+  }, { passive: true });
+
+  document.addEventListener("keydown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+    if (["ArrowUp", "PageUp", "Home"].includes(event.key)) setAutoScroll(false);
+    else if (["ArrowDown", "PageDown", "End"].includes(event.key) && isNearBottom(els.messages, 40)) setAutoScroll(true);
   }, { passive: true });
 
   els.guestLoginButton.addEventListener("click", openAuthDialog);
