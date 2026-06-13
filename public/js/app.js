@@ -152,7 +152,6 @@ const els = {
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
-  paywallSignOutButton: document.querySelector("#paywallSignOutButton"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
   searchChatsButton: document.querySelector("#searchChatsButton"),
@@ -4415,7 +4414,6 @@ function bindEvents() {
     if (!hasChatAccess()) return;
     renderShell();
   });
-  els.paywallSignOutButton.addEventListener("click", signOutAndReset);
   els.signOutButton.addEventListener("click", signOutAndReset);
 
   els.sidebarButton.addEventListener("click", () => {
