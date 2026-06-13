@@ -2428,11 +2428,11 @@ body.document-viewer-resizing {
   cursor: pointer;
   padding: 3px 9px 3px 5px;
   border-radius: 999px;
-  background: var(--inline-cite-bg, #ececec);
-  border: 1px solid var(--border, #ddd);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary, #555);
+  color: var(--text-secondary);
   line-height: 1.2;
   transition: background var(--transition), border-color var(--transition);
   user-select: none;
@@ -2447,8 +2447,8 @@ body.document-viewer-resizing {
 }
 
 .inline-source-pill-trigger:hover {
-  background: var(--surface-hover, #e2e2e2);
-  border-color: var(--border-strong, #ccc);
+  background: var(--border-light);
+  border-color: var(--border);
 }
 
 .inline-source-favicon {
@@ -2457,11 +2457,12 @@ body.document-viewer-resizing {
   border-radius: 50%;
   flex-shrink: 0;
   object-fit: cover;
-  background: #fff;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
 }
 
 .inline-source-pill-label {
-  color: var(--text, #222);
+  color: var(--text);
   font-weight: 600;
   max-width: 120px;
   white-space: nowrap;
@@ -2470,7 +2471,7 @@ body.document-viewer-resizing {
 }
 
 .inline-source-pill-more {
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   font-weight: 600;
   font-size: 11.5px;
 }
@@ -2487,9 +2488,9 @@ body.document-viewer-resizing {
   gap: 2px;
   padding: 6px;
   border-radius: 10px;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #e0e0e0);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
 }
 
 .inline-source-row {
@@ -2504,7 +2505,7 @@ body.document-viewer-resizing {
 }
 
 .inline-source-row:hover {
-  background: var(--surface-muted, #f5f5f5);
+  background: var(--bg-secondary);
 }
 
 .inline-source-row.is-static {
@@ -2521,7 +2522,7 @@ body.document-viewer-resizing {
   min-width: 0;
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--text, #1a1a1a);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2530,7 +2531,7 @@ body.document-viewer-resizing {
 .inline-source-row-host {
   flex: 0 0 auto;
   font-size: 11px;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 .sources-pill-trigger {
@@ -2541,11 +2542,11 @@ body.document-viewer-resizing {
   cursor: pointer;
   padding: 6px 12px 6px 8px;
   border-radius: 999px;
-  background: var(--surface-muted, #f0f0f0);
-  border: 1px solid var(--border, #e8e8e8);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-secondary, #555);
+  color: var(--text-secondary);
   transition: background var(--transition), border-color var(--transition);
   user-select: none;
 }
@@ -2559,8 +2560,8 @@ body.document-viewer-resizing {
 }
 
 .sources-pill-trigger:hover {
-  background: var(--surface-hover, #e8e8e8);
-  border-color: var(--border-strong, #ddd);
+  background: var(--border-light);
+  border-color: var(--border);
 }
 
 .sources-pill[open] .sources-pill-trigger {
@@ -2578,8 +2579,8 @@ body.document-viewer-resizing {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid var(--surface-muted, #f0f0f0);
-  background: #fff;
+  border: 2px solid var(--bg-secondary);
+  background: var(--bg);
   object-fit: cover;
   margin-left: calc(var(--stack, 0) * -7px);
 }
@@ -2589,7 +2590,7 @@ body.document-viewer-resizing {
 }
 
 .sources-pill-label {
-  color: var(--text, #1a1a1a);
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -2603,8 +2604,8 @@ body.document-viewer-resizing {
   gap: 2px;
   padding: 6px;
   border-radius: 12px;
-  background: var(--surface-muted, #f7f7f7);
-  border: 1px solid var(--border, #ececec);
+  background: var(--bg);
+  border: 1px solid var(--border);
   max-width: min(100%, 520px);
 }
 
@@ -2620,7 +2621,7 @@ body.document-viewer-resizing {
 }
 
 .sources-row:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--bg-secondary);
 }
 
 .sources-row.is-static {
@@ -2636,7 +2637,7 @@ body.document-viewer-resizing {
 }
 
 .sources-row-fallback {
-  background: var(--border, #ddd);
+  background: var(--border);
 }
 
 .sources-row-text {
@@ -2649,7 +2650,7 @@ body.document-viewer-resizing {
 .sources-row-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text, #1a1a1a);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2657,7 +2658,7 @@ body.document-viewer-resizing {
 
 .sources-row-host {
   font-size: 11.5px;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 .composer-send {
