@@ -131,10 +131,6 @@ let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
-let suppressScrollHandler = false;
-let programmaticScrollToken = 0;
-let lastMessagesScrollTop = 0;
-let lastMessagesTouchY = 0;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -2830,6 +2826,9 @@ function renderMessages() {
     return;
   }
 
+  const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
+  const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
+
   captureReasoningOpenState();
 
   els.messages.innerHTML = messageViews(state.messages)
@@ -2840,8 +2839,10 @@ function renderMessages() {
     })
     .join("");
 
-  if (state.autoScroll) {
+  if (beforePinned) {
     pinMessagesToBottom();
+  } else {
+    setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - beforeBottom));
   }
 
   syncPendingArtifactPolls();
@@ -2858,31 +2859,19 @@ function preserveMessageScroll(update) {
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
   const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
   update();
-  if (beforePinned && state.autoScroll) {
+  if (beforePinned) {
     pinMessagesToBottom();
   } else {
     setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - beforeBottom));
   }
 }
 
-/**
- * Programmatic scrolls of the messages list. We flag these so the `scroll`
- * event handler can ignore them and only react to genuine user scrolling.
- */
 function setMessagesScrollTop(value) {
-  const token = ++programmaticScrollToken;
-  suppressScrollHandler = true;
-  els.messages.scrollTop = value;
-  lastMessagesScrollTop = els.messages.scrollTop;
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (token !== programmaticScrollToken) return;
-    suppressScrollHandler = false;
-    lastMessagesScrollTop = els.messages.scrollTop;
-  }));
+  const maxScroll = Math.max(0, els.messages.scrollHeight - els.messages.clientHeight);
+  els.messages.scrollTop = Math.min(Math.max(0, value), maxScroll);
 }
 
-function pinMessagesToBottom({ force = false } = {}) {
-  if (!force && !state.autoScroll) return;
+function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
 }
 
@@ -3764,6 +3753,7 @@ async function retryFailedAssistant(assistantMessageId) {
   setAutoScroll(true);
   setRunning(true);
   renderMessages();
+  pinMessagesToBottom();
 
   try {
     const retryProvider = activeProvider();
@@ -3887,6 +3877,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   setAutoScroll(true);
   setRunning(true);
   renderMessages();
+  pinMessagesToBottom();
   let shouldReloadConversation = false;
   const sentPreviewUrls = images
     .filter((img) => img.category === "image" && img.previewUrl)
@@ -4110,74 +4101,13 @@ function setAutoScroll(enabled) {
   state.autoScroll = Boolean(enabled);
 }
 
-function noteUserMessageScroll(direction) {
-  if (!state.running) return;
-  if (direction === "up") {
-    setAutoScroll(false);
-  } else if (direction === "down" && isNearBottom(els.messages, 100)) {
-    setAutoScroll(true);
-  }
-}
-
-function isEditableTarget(target) {
-  const node = target instanceof Element ? target : null;
-  if (!node) return false;
-  return Boolean(node.closest("input, textarea, select, [contenteditable='true']"));
-}
-
 function bindEvents() {
   initDocumentViewerWidth();
 
-  els.messages.addEventListener("wheel", (e) => {
-    if (e.deltaY < -1) {
-      noteUserMessageScroll("up");
-    } else if (e.deltaY > 1) {
-      noteUserMessageScroll("down");
-    }
-  }, { passive: true });
-
-  els.messages.addEventListener("touchstart", (e) => {
-    lastMessagesTouchY = e.touches?.[0]?.clientY || 0;
-  }, { passive: true });
-
-  els.messages.addEventListener("touchmove", (e) => {
-    const y = e.touches?.[0]?.clientY || 0;
-    if (lastMessagesTouchY && y > lastMessagesTouchY + 2) noteUserMessageScroll("up");
-    if (lastMessagesTouchY && y < lastMessagesTouchY - 2) noteUserMessageScroll("down");
-    lastMessagesTouchY = y;
-  }, { passive: true });
-
   els.messages.addEventListener("scroll", () => {
     closeOpenSourcesPills();
-    const el = els.messages;
-    // Ignore scroll events caused by our own auto-scrolling.
-    if (suppressScrollHandler) {
-      lastMessagesScrollTop = el.scrollTop;
-      return;
-    }
-    if (!state.running) {
-      lastMessagesScrollTop = el.scrollTop;
-      return;
-    }
-    const wentUp = el.scrollTop < lastMessagesScrollTop - 1;
-    lastMessagesScrollTop = el.scrollTop;
-    // Any upward user scroll stops auto-scroll immediately; scrolling back to
-    // the bottom re-enables it.
-    if (wentUp) {
-      setAutoScroll(false);
-    } else if (isNearBottom(el)) {
-      setAutoScroll(true);
-    }
+    setAutoScroll(isNearBottom(els.messages, 80));
   }, { passive: true });
-
-  document.addEventListener("keydown", (e) => {
-    if (!state.running || isEditableTarget(e.target)) return;
-    if (e.key === "ArrowUp" || e.key === "PageUp" || e.key === "Home" || (e.key === " " && e.shiftKey)) {
-      noteUserMessageScroll("up");
-    } else if (e.key === "End") {
-      setAutoScroll(true);
-    }
-  });
 
   els.guestLoginButton.addEventListener("click", openAuthDialog);
   els.authDialogClose.addEventListener("click", closeAuthDialog);
