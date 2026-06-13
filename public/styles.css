@@ -4372,18 +4372,8 @@ body[data-chat-theme="doodle"] .app-shell {
   background: var(--paper);
 }
 
-/* Light mode: soft ambient wash across the full page (no hard side/center seam). */
 body[data-mode="light"][data-chat-theme="doodle"] .app-shell::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--hi) 52%, transparent), transparent 46%),
-    radial-gradient(circle at 92% 10%, color-mix(in srgb, #d4e6e5 44%, transparent), transparent 42%),
-    radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--hi) 26%, transparent), transparent 52%),
-    radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--paper-2) 32%, transparent), transparent 68%);
+  display: none;
 }
 
 body[data-chat-theme="doodle"] .app-shell > .chat-panel {
@@ -4396,97 +4386,24 @@ body[data-chat-theme="doodle"] .app-shell > .sidebar {
 }
 
 body[data-chat-theme="doodle"] .chat-panel {
-  background: transparent;
+  background: var(--paper);
   isolation: isolate;
 }
 
-/* Sparse side dots — center stays clear; edges feather in light mode. */
 body[data-chat-theme="doodle"] .chat-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.42;
-  background-image: radial-gradient(circle, var(--doodle-dot-color) 1.25px, transparent 2px);
-  background-size: var(--doodle-dot-size) var(--doodle-dot-size);
-  -webkit-mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 100%
-  );
+  display: none;
 }
 
 body[data-mode="light"][data-chat-theme="doodle"] .chat-panel::before {
-  opacity: 0.3;
-  -webkit-mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 140px)),
-    rgba(0, 0, 0, 0.35) max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 70px)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    rgba(0, 0, 0, 0.35) min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 70px)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 140px)),
-    #000 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 140px)),
-    rgba(0, 0, 0, 0.35) max(0px, calc((100% - var(--doodle-clear-width)) / 2 - 70px)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    rgba(0, 0, 0, 0.35) min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 70px)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2 + 140px)),
-    #000 100%
-  );
+  display: none;
 }
 
 body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::before {
-  opacity: 0.24;
+  display: none;
 }
 
 body[data-chat-theme="doodle"] .chat-panel::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 10% 14%, color-mix(in srgb, var(--hi) 22%, transparent), transparent 38%),
-    radial-gradient(circle at 90% 18%, color-mix(in srgb, var(--dot) 18%, transparent), transparent 34%);
-  -webkit-mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    #000 0,
-    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
-    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
-    #000 100%
-  );
+  display: none;
 }
 
 body[data-mode="light"][data-chat-theme="doodle"] .chat-panel::after {
@@ -4494,7 +4411,7 @@ body[data-mode="light"][data-chat-theme="doodle"] .chat-panel::after {
 }
 
 body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::after {
-  opacity: 0.55;
+  display: none;
 }
 
 body[data-chat-theme="doodle"] .chat-panel > * {
@@ -6025,4 +5942,46 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
     padding: 16px 16px 12px;
   }
 
+}
+
+body.chat-empty[data-chat-theme="doodle"] .app-shell,
+body.chat-empty[data-chat-theme="doodle"] .chat-panel {
+  background: var(--paper);
+}
+
+body.chat-empty[data-chat-theme="doodle"] .app-shell::before,
+body.chat-empty[data-chat-theme="doodle"] .chat-panel::before,
+body.chat-empty[data-chat-theme="doodle"] .chat-panel::after {
+  display: none;
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer-area {
+  position: absolute;
+  top: calc(min(20vh, 180px) + clamp(132px, 10vh, 164px));
+  right: 0;
+  bottom: auto;
+  left: 0;
+  z-index: 8;
+  display: block;
+  visibility: visible;
+  opacity: 1;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer-wrap {
+  pointer-events: auto;
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer {
+  background: var(--code-bg);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 768px) {
+  body.chat-empty[data-chat-theme="doodle"] .composer-area {
+    top: calc(15vh + 96px);
+    padding: 0 12px;
+  }
 }
