@@ -2109,12 +2109,6 @@ body.document-viewer-resizing {
   border-radius: var(--radius-lg);
   padding: 16px 18px 12px;
   box-shadow: var(--shadow-md);
-  transition: border-color var(--transition), box-shadow var(--transition);
-}
-
-.composer:focus-within {
-  border-color: #ccc;
-  box-shadow: var(--shadow-sm);
 }
 
 .composer textarea {
@@ -2753,14 +2747,28 @@ body.document-viewer-resizing {
   border-color: var(--border);
 }
 
-.composer-model-btn.pro-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
+.composer-model-btn.pro-active,
+.compare-btn.active,
+.compare-btn.council-active {
+  background: var(--bg-secondary);
+  border-color: var(--text);
+  color: var(--text);
 }
 
-.composer-model-btn.pro-active:hover {
-  background: var(--accent-hover);
+.composer-model-btn.pro-active:hover,
+.compare-btn.active:hover,
+.compare-btn.council-active:hover {
+  background: var(--border-light);
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.composer-model-btn.pro-active .composer-model-chevron {
+  color: var(--text-tertiary);
+}
+
+.composer-model-btn.pro-active .composer-model-price {
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
 .composer-model-label {
@@ -2959,12 +2967,6 @@ body.document-viewer-resizing {
   color: var(--text);
 }
 
-.compare-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-}
-
 .compare-dropdown {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -3061,12 +3063,6 @@ body.document-viewer-resizing {
 }
 
 /* ─── Council ─── */
-.compare-btn.council-active {
-  background: linear-gradient(135deg, #3b3a48 0%, #0d0d0d 100%);
-  border-color: var(--accent);
-  color: white;
-}
-
 .council-message {
   width: min(1480px, calc(100vw - 40px));
   max-width: calc(100vw - 40px);
@@ -3806,7 +3802,7 @@ body[data-chat-theme="cyber"] .composer {
 
 body[data-chat-theme="cyber"] .composer:focus-within {
   border-color: var(--ink);
-  box-shadow: 4px 4px 0 var(--ink);
+  box-shadow: 7px 7px 0 var(--ink);
 }
 
 body[data-chat-theme="cyber"] .composer textarea::placeholder {
@@ -3836,7 +3832,6 @@ body[data-chat-theme="cyber"] .compare-btn:hover {
 }
 
 body[data-chat-theme="cyber"] .composer-plus-btn[aria-expanded="true"],
-body[data-chat-theme="cyber"] .compare-btn.active,
 body[data-chat-theme="cyber"] .send-btn.active {
   background: var(--ink);
   border-color: var(--ink);
@@ -4099,7 +4094,7 @@ body[data-chat-theme="doodle"] .composer {
 
 body[data-chat-theme="doodle"] .composer:focus-within {
   border-color: var(--ink);
-  box-shadow: 0 18px 44px rgba(32, 25, 36, 0.16);
+  box-shadow: 0 16px 40px rgba(32, 25, 36, 0.12);
 }
 
 body[data-chat-theme="doodle"] .composer-tool,
@@ -4120,8 +4115,7 @@ body[data-chat-theme="doodle"] .composer-plus-btn[aria-expanded="true"] {
   color: var(--plum-d);
 }
 
-body[data-chat-theme="doodle"] .send-btn.active,
-body[data-chat-theme="doodle"] .compare-btn.active {
+body[data-chat-theme="doodle"] .send-btn.active {
   background: var(--plum);
   color: #ffffff;
 }
