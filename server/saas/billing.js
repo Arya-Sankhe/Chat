@@ -7,7 +7,8 @@ const OPENROUTER_FALLBACK_PRICING = {
   "deepseek/deepseek-v4-pro": { prompt: 1.20, completion: 2.40 },
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },
   "xiaomi/mimo-v2.5-pro": { prompt: 1.20, completion: 3.60 },
-  "qwen/qwen3.7-plus": { prompt: 2.00, completion: 6.00 }
+  "qwen/qwen3.7-plus": { prompt: 0.32, completion: 1.28 },
+  "minimax/minimax-m3": { prompt: 0.30, completion: 1.20 }
 };
 
 function dateOnly(date) {

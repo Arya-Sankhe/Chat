@@ -348,8 +348,41 @@ button { cursor: pointer; border: none; background: none; }
 }
 
 .paywall-panel {
+  position: relative;
   width: min(100%, 1240px);
   margin: 0 auto;
+}
+
+.paywall-close {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 3px solid #000101;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #000101;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.08);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.paywall-close:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.08);
+}
+
+.paywall-close:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
 }
 
 .paywall-hero {
@@ -2533,6 +2566,41 @@ body.document-viewer-resizing {
 
 .composer textarea::placeholder {
   color: var(--text-tertiary);
+}
+
+.starter-help {
+  display: none;
+  justify-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.starter-help p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.starter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.starter-pills span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg) 76%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .composer-bottom {
@@ -5582,6 +5650,32 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   transform: translateY(0);
 }
 
+body.chat-empty .messages {
+  padding-bottom: 320px;
+}
+
+body.chat-empty .empty-state {
+  justify-content: flex-start;
+  height: auto;
+  min-height: 100%;
+  padding-top: min(25vh, 220px);
+  padding-bottom: 0;
+}
+
+body.chat-empty .empty-state h1 {
+  font-size: clamp(32px, 4vw, 44px);
+}
+
+body.chat-empty .composer-area {
+  top: calc(min(25vh, 220px) + 84px);
+  bottom: auto;
+  padding: 0 24px;
+}
+
+body.chat-empty .starter-help {
+  display: grid;
+}
+
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
   :root {
@@ -5666,12 +5760,39 @@ body[data-chat-theme="doodle"] .document-viewer-body {
     padding: 16px 12px 140px;
   }
 
+  body.chat-empty .messages {
+    padding-bottom: 300px;
+  }
+
+  body.chat-empty .empty-state {
+    padding-top: 18vh;
+  }
+
   .empty-state h1 {
     font-size: 28px;
   }
 
+  body.chat-empty .empty-state h1 {
+    font-size: 30px;
+  }
+
   .composer-area {
     padding: 0 12px 8px;
+  }
+
+  body.chat-empty .composer-area {
+    top: calc(18vh + 70px);
+    padding: 0 12px;
+  }
+
+  .starter-help {
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .starter-help p {
+    max-width: 320px;
+    font-size: 12px;
   }
 
   .compare-context-banner {

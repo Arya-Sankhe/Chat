@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Klui Chat</title>
-    <link rel="stylesheet" href="/styles.css?v=20260613-followups-v2">
+    <link rel="stylesheet" href="/styles.css?v=20260614-home-pricing-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -27,6 +27,7 @@
 
       <section class="fullscreen-view hidden" id="paywallView">
         <div class="paywall-panel">
+          <button class="paywall-close hidden" id="paywallCloseButton" type="button" aria-label="Close pricing">x</button>
           <div class="paywall-hero">
             <div class="paywall-brand">Klui</div>
             <div class="paywall-sticker">No 5 hour limits for all plans</div>
@@ -174,7 +175,7 @@
                     <div class="composer-model-wrap" id="composerModelWrap">
                       <button class="composer-model-btn" id="modelButton" type="button" aria-haspopup="listbox" aria-expanded="false">
                         <span class="composer-model-label" id="modelLabel">Model</span>
-                        <span class="composer-model-price hidden" id="modelPriceBadge">5x</span>
+                        <span class="composer-model-price hidden" id="modelPriceBadge">4x</span>
                         <svg class="composer-model-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       <div class="composer-model-dropdown hidden" id="modelDropdown" role="listbox" aria-label="Models">
@@ -220,6 +221,15 @@
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
                     </button>
                   </div>
+                </div>
+              </div>
+              <div class="starter-help" aria-label="Klui capabilities">
+                <p>Klui can help with Searching web, coding, writing, and more</p>
+                <div class="starter-pills">
+                  <span>Searching web</span>
+                  <span>Coding</span>
+                  <span>Writing</span>
+                  <span>More</span>
                 </div>
               </div>
             </div>
@@ -392,6 +402,6 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260613-followups-v2"></script>
+    <script type="module" src="/js/app.js?v=20260614-home-pricing-v1"></script>
   </body>
 </html>

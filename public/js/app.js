@@ -59,7 +59,7 @@ const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
 const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
-const OPENROUTER_PRO_MODEL = "qwen/qwen3.7-plus";
+const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
@@ -152,6 +152,7 @@ const els = {
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
+  paywallCloseButton: document.querySelector("#paywallCloseButton"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
   searchChatsButton: document.querySelector("#searchChatsButton"),
@@ -710,10 +711,7 @@ function updateSetting(key, value) {
 }
 
 function getGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+  return "How can I help you?";
 }
 
 function showToast(message) {
@@ -749,6 +747,7 @@ function showPaywall({ allowReturn = false } = {}) {
   els.paywallEmail.textContent = state.me?.user?.email || "";
   renderPlans();
   els.paywallBackButton?.classList.toggle("hidden", !allowReturn);
+  els.paywallCloseButton?.classList.toggle("hidden", !allowReturn);
   showOnly(els.paywallView);
 }
 
@@ -874,7 +873,7 @@ function renderPlans() {
     },
     pro: {
       tagline: "For pro workflows",
-      usage: "6x more usage",
+      usage: "4x more usage",
       features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
     }
   };
@@ -1574,7 +1573,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_PRO_MODEL) return "DeepSeek Pro";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
-  if (id === OPENROUTER_PRO_MODEL) return "Pro";
+  if (id === OPENROUTER_PRO_MODEL) return "MiniMax M3";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }
@@ -1678,7 +1677,7 @@ function renderModelCatalog() {
     <button class="model-option mode-option ${mode === "pro" ? "active" : ""}" type="button" data-model-mode="pro" aria-selected="${mode === "pro"}">
       <span class="model-option-main">
         <span class="model-option-copy">
-          <span class="model-option-name">Pro <span class="model-price-note">5x</span></span>
+          <span class="model-option-name">Pro <span class="model-price-note">4x</span></span>
           <span class="model-option-desc">Use for the most complex tasks.</span>
         </span>
       </span>
@@ -3028,6 +3027,7 @@ function renderCouncilMessage(council) {
 }
 
 function renderMessages() {
+  document.body.classList.toggle("chat-empty", !state.messages.length);
   if (!state.messages.length) {
     const title = state.session ? getGreeting() : "What can I help you with?";
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${escapeHtml(title)}</h1></div></div>`;
@@ -4411,6 +4411,10 @@ function bindEvents() {
     startZiinaPayment(button.dataset.startPayment);
   });
   els.paywallBackButton?.addEventListener("click", () => {
+    if (!hasChatAccess()) return;
+    renderShell();
+  });
+  els.paywallCloseButton?.addEventListener("click", () => {
     if (!hasChatAccess()) return;
     renderShell();
   });
