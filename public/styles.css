@@ -2568,37 +2568,6 @@ body.document-viewer-resizing {
   color: var(--text-tertiary);
 }
 
-.starter-help {
-  display: none;
-  justify-content: center;
-  margin-top: 20px;
-  color: var(--text-tertiary);
-  text-align: center;
-}
-
-.starter-help p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 2.15;
-}
-
-.starter-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  margin: 0 3px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--bg) 76%, var(--surface));
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 750;
-  white-space: nowrap;
-}
-
 .composer-bottom {
   display: flex;
   align-items: center;
@@ -5586,10 +5555,6 @@ body.chat-empty .composer-area {
   padding: 0 24px;
 }
 
-body.chat-empty .starter-help {
-  display: flex;
-}
-
 body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
   display: none;
 }
@@ -5709,22 +5674,6 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   body.chat-empty .composer-area {
     top: calc(50vh - 108px);
     padding: 0 12px;
-  }
-
-  .starter-help {
-    margin-top: 14px;
-  }
-
-  .starter-help p {
-    max-width: 360px;
-    font-size: 14px;
-    line-height: 2.25;
-  }
-
-  .starter-pill {
-    min-height: 28px;
-    padding: 0 11px;
-    font-size: 13px;
   }
 
   .compare-context-banner {
