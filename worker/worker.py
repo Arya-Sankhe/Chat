@@ -468,6 +468,7 @@ class Processor:
         self.worker_id = f"document-worker-{uuid.uuid4()}"
         self.lease_seconds = int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000
         self.poll_seconds = float(env("DOCUMENT_WORKER_POLL_SECONDS", "1.5"))
+        self.max_backoff_seconds = float(env("DOCUMENT_WORKER_MAX_BACKOFF_SECONDS", "30"))
         self.max_extracted_chars = int(env("DOCUMENT_MAX_EXTRACTED_CHARS", "500000"))
         self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "144"))
         self.default_limits = {
@@ -485,13 +486,23 @@ class Processor:
 
     def run(self):
         print(f"{self.worker_id} started", flush=True)
+        claim_failures = 0
         while True:
             try:
                 job = self.db.claim_job(self.worker_id, self.lease_seconds)
+                claim_failures = 0
                 if not job:
                     time.sleep(self.poll_seconds)
                     continue
                 self.handle_job(job)
+            except requests.exceptions.RequestException as exc:
+                claim_failures += 1
+                sleep_for = min(
+                    self.max_backoff_seconds,
+                    self.poll_seconds * (2 ** min(claim_failures - 1, 5)),
+                )
+                print(f"worker claim network error; retrying in {sleep_for:.1f}s: {exc}", flush=True)
+                time.sleep(sleep_for)
             except Exception as exc:
                 print(f"worker loop error: {exc}", flush=True)
                 time.sleep(self.poll_seconds)
