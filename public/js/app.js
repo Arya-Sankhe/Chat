@@ -2828,7 +2828,7 @@ function renderMessages() {
   }
 
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
-  const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
+  const beforeScrollTop = els.messages.scrollTop;
 
   captureReasoningOpenState();
 
@@ -2843,7 +2843,7 @@ function renderMessages() {
   if (beforePinned) {
     pinMessagesToBottom();
   } else {
-    setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - beforeBottom));
+    setMessagesScrollTop(beforeScrollTop);
   }
 
   syncPendingArtifactPolls();
@@ -2858,12 +2858,12 @@ function cssString(value) {
 
 function preserveMessageScroll(update) {
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
-  const beforeBottom = els.messages.scrollHeight - els.messages.scrollTop;
+  const beforeScrollTop = els.messages.scrollTop;
   update();
   if (beforePinned) {
     pinMessagesToBottom();
   } else {
-    setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - beforeBottom));
+    setMessagesScrollTop(beforeScrollTop);
   }
 }
 
