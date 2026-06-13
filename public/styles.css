@@ -119,10 +119,10 @@ body[data-chat-theme="doodle"] {
   --code-text: var(--ink);
   --code-inline-bg: var(--hi);
   --code-inline-text: var(--plum-d);
-  background:
-    linear-gradient(135deg, rgba(236, 222, 238, 0.24) 25%, transparent 25%) 0 0 / 32px 32px,
-    linear-gradient(315deg, rgba(212, 230, 229, 0.3) 25%, transparent 25%) 0 0 / 32px 32px,
-    var(--paper);
+  --doodle-clear-width: min(1520px, 100%);
+  --doodle-dot-color: color-mix(in srgb, var(--dot) 38%, transparent);
+  --doodle-dot-size: 52px;
+  background: var(--paper);
   font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -206,10 +206,9 @@ body[data-mode="dark"][data-chat-theme="doodle"] {
   --code-border: #3a3548;
   --code-text: var(--ink);
   --code-inline-text: #d8c2e2;
-  background:
-    linear-gradient(135deg, rgba(120, 100, 130, 0.16) 25%, transparent 25%) 0 0 / 32px 32px,
-    linear-gradient(315deg, rgba(90, 120, 118, 0.18) 25%, transparent 25%) 0 0 / 32px 32px,
-    var(--paper);
+  --doodle-dot-color: rgba(110, 100, 125, 0.22);
+  --doodle-dot-size: 64px;
+  background: var(--paper);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -3901,11 +3900,84 @@ body[data-chat-theme="cyber"] .document-viewer-body {
 
 /* ─── Chat Themes: Doodle Luxe ─── */
 body[data-chat-theme="doodle"] .app-shell {
+  background: var(--paper);
+}
+
+body[data-chat-theme="doodle"] .chat-panel {
+  background: transparent;
+  isolation: isolate;
+}
+
+/* Sparse side dots — center column stays clear for chat, compare, and council. */
+body[data-chat-theme="doodle"] .chat-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.42;
+  background-image: radial-gradient(circle, var(--doodle-dot-color) 1.25px, transparent 2px);
+  background-size: var(--doodle-dot-size) var(--doodle-dot-size);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 100%
+  );
+}
+
+body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::before {
+  opacity: 0.24;
+}
+
+body[data-chat-theme="doodle"] .chat-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background:
-    radial-gradient(circle at 20% 10%, rgba(236, 222, 238, 0.7), transparent 28%),
-    radial-gradient(circle at 88% 18%, rgba(212, 230, 229, 0.72), transparent 24%),
-    linear-gradient(135deg, rgba(236, 222, 238, 0.18) 25%, transparent 25%) 0 0 / 34px 34px,
-    var(--paper);
+    radial-gradient(circle at 10% 14%, color-mix(in srgb, var(--hi) 22%, transparent), transparent 38%),
+    radial-gradient(circle at 90% 18%, color-mix(in srgb, var(--dot) 18%, transparent), transparent 34%);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent max(0px, calc((100% - var(--doodle-clear-width)) / 2)),
+    transparent min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 min(100%, calc((100% + var(--doodle-clear-width)) / 2)),
+    #000 100%
+  );
+}
+
+body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::after {
+  opacity: 0.55;
+}
+
+body[data-chat-theme="doodle"] .chat-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 body[data-chat-theme="doodle"] .sidebar {
@@ -3949,10 +4021,6 @@ body[data-chat-theme="doodle"] .conversation-row.active {
 
 body[data-chat-theme="doodle"] .guest-login-panel {
   border-top: 2px dashed var(--dot);
-}
-
-body[data-chat-theme="doodle"] .chat-panel {
-  background: transparent;
 }
 
 body[data-chat-theme="doodle"] .topbar {
