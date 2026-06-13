@@ -131,6 +131,8 @@ let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
+let suppressScrollHandler = false;
+let lastMessagesScrollTop = 0;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -2867,8 +2869,13 @@ function preserveMessageScroll(update) {
 }
 
 function setMessagesScrollTop(value) {
+  suppressScrollHandler = true;
   const maxScroll = Math.max(0, els.messages.scrollHeight - els.messages.clientHeight);
   els.messages.scrollTop = Math.min(Math.max(0, value), maxScroll);
+  lastMessagesScrollTop = els.messages.scrollTop;
+  requestAnimationFrame(() => {
+    suppressScrollHandler = false;
+  });
 }
 
 function pinMessagesToBottom() {
@@ -4106,7 +4113,24 @@ function bindEvents() {
 
   els.messages.addEventListener("scroll", () => {
     closeOpenSourcesPills();
-    setAutoScroll(isNearBottom(els.messages, 80));
+    const el = els.messages;
+    if (suppressScrollHandler) {
+      lastMessagesScrollTop = el.scrollTop;
+      return;
+    }
+    const scrollTop = el.scrollTop;
+    if (scrollTop < lastMessagesScrollTop - 1) {
+      setAutoScroll(false);
+    } else if (isNearBottom(el, 80)) {
+      setAutoScroll(true);
+    } else {
+      setAutoScroll(false);
+    }
+    lastMessagesScrollTop = scrollTop;
+  }, { passive: true });
+
+  els.messages.addEventListener("wheel", (event) => {
+    if (event.deltaY < 0) setAutoScroll(false);
   }, { passive: true });
 
   els.guestLoginButton.addEventListener("click", openAuthDialog);
