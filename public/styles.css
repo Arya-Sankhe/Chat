@@ -3919,9 +3919,13 @@ body[data-mode="light"][data-chat-theme="doodle"] .app-shell::before {
     radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--paper-2) 32%, transparent), transparent 68%);
 }
 
-body[data-chat-theme="doodle"] .app-shell > * {
+body[data-chat-theme="doodle"] .app-shell > .chat-panel {
   position: relative;
   z-index: 1;
+}
+
+body[data-chat-theme="doodle"] .app-shell > .sidebar {
+  z-index: 20;
 }
 
 body[data-chat-theme="doodle"] .chat-panel {
