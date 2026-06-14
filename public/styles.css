@@ -2276,9 +2276,31 @@ body.document-viewer-resizing {
   animation: thinking-status-pulse 1.2s ease-in-out infinite;
 }
 
+.thinking-status.is-active span {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--text-tertiary) 0%,
+    var(--text-tertiary) 38%,
+    var(--text-primary) 50%,
+    var(--text-tertiary) 62%,
+    var(--text-tertiary) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% center;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: thinking-status-shimmer 1.2s linear infinite;
+}
+
 @keyframes thinking-status-pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50% { opacity: 0.9; transform: scale(1.15); }
+}
+
+@keyframes thinking-status-shimmer {
+  from { background-position: 100% center; }
+  to { background-position: 0% center; }
 }
 
 .reasoning summary,
