@@ -2011,9 +2011,9 @@ function reasoningSummaryLabel(message, { streaming = false } = {}) {
   const ms = resolveReasoningDurationMs(message);
   if (ms != null) {
     const seconds = Math.max(1, Math.round(ms / 1000));
-    return `Thought for ${seconds} second${seconds === 1 ? "" : "s"}`;
+    return `Worked for ${seconds} second${seconds === 1 ? "" : "s"}`;
   }
-  return "Thought";
+  return "Worked";
 }
 
 function toolStatusLabel(tool = {}) {
@@ -2041,7 +2041,7 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
   if (hasAnswer || isFinalFinishReason(message?.finishReason)) {
     if (streaming && hasAnswer && !isFinalFinishReason(message?.finishReason)) return "Answering";
     if (ms != null) return reasoningSummaryLabel(message, { streaming: false });
-    return "Thought";
+    return "Worked";
   }
 
   if (streaming) {
