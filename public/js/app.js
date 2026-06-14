@@ -3953,16 +3953,51 @@ async function startZiinaPayment(planId) {
 }
 
 async function removeConversation(id) {
+  const index = state.conversations.findIndex((conversation) => conversation.id === id);
+  if (index < 0) {
+    closeConfirmDialog();
+    return;
+  }
+
+  const deletedConversation = state.conversations[index];
+  const previousPinnedChatIds = [...state.pinnedChatIds];
+  const wasActive = state.activeConversationId === id;
+  const previousMessages = wasActive ? [...state.messages] : [];
+
+  closeConfirmDialog();
+  closeConversationMenus();
+  state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+  unpinChat(id);
+
+  if (wasActive) {
+    state.activeConversationId = "";
+    state.messages = [];
+    clearFollowUps();
+    closeDocumentViewer();
+    closeCompareContextBanner();
+    syncConversationUrl({ replace: true });
+  }
+
+  renderShell();
+  if (isSearchDialogOpen()) renderSearchResults(els.searchChatInput?.value || "");
+
   try {
     await deleteConversation(state.session, id);
-    unpinChat(id);
-    state.activeConversationId = "";
-    clearFollowUps();
-    await loadConversations();
-    syncConversationUrl({ replace: true });
-    closeConfirmDialog();
-    renderShell();
   } catch (err) {
+    if (!state.conversations.some((conversation) => conversation.id === id)) {
+      state.conversations.splice(Math.min(index, state.conversations.length), 0, deletedConversation);
+    }
+    state.pinnedChatIds = previousPinnedChatIds;
+    savePinnedChatIds();
+
+    if (wasActive && !state.activeConversationId && window.location.pathname === "/") {
+      state.activeConversationId = id;
+      state.messages = previousMessages;
+      syncConversationUrl({ replace: true });
+    }
+
+    renderShell();
+    if (isSearchDialogOpen()) renderSearchResults(els.searchChatInput?.value || "");
     showToast(err.message);
   }
 }
