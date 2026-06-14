@@ -225,6 +225,10 @@ function markActivityEnded(message) {
   }
 }
 
+function isFinalFinishReason(reason) {
+  return Boolean(reason && reason !== "tool_calls");
+}
+
 export function resolveReasoningDurationMs(message) {
   const stored = message?.metadata?.reasoningDurationMs ?? message?.reasoningDurationMs;
   if (stored != null && Number.isFinite(Number(stored))) return Math.max(0, Number(stored));
@@ -303,7 +307,6 @@ export function applyStreamEvent(message, event) {
   }
 
   if (typeof delta.content === "string" && delta.content) {
-    markActivityEnded(message);
     markReasoningEnded(message);
     message.content += delta.content;
   }
@@ -327,8 +330,14 @@ export function applyStreamEvent(message, event) {
 
   if (choice?.finish_reason) {
     message.finishReason = choice.finish_reason;
-    markActivityEnded(message);
+    if (isFinalFinishReason(choice.finish_reason)) markActivityEnded(message);
     markReasoningEnded(message);
+  }
+}
+
+function finalizeAccumulatedAssistant(assistant) {
+  if (assistant?.activityStartedAt && !assistant.activityEndedAt) {
+    markActivityEnded(assistant);
   }
 }
 
@@ -408,6 +417,7 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
     });
   }
 
+  finalizeAccumulatedAssistant(assistant);
   return assistant;
 }
 
@@ -435,5 +445,6 @@ export async function streamProviderAndAccumulate(upstream, onEvent) {
     });
   }
 
+  finalizeAccumulatedAssistant(assistant);
   return assistant;
 }

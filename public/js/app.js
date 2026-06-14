@@ -1928,8 +1928,13 @@ function captureReasoningOpenState() {
 }
 
 function isAssistantMessageStreaming(message) {
-  if (!state.running || message?.error || message?.finishReason) return false;
+  if (!state.running || message?.error) return false;
+  if (message?.finishReason && message.finishReason !== "tool_calls") return false;
   return Boolean(message?.id);
+}
+
+function isFinalFinishReason(reason) {
+  return Boolean(reason && reason !== "tool_calls");
 }
 
 function resolveReasoningDurationMs(message) {
@@ -1963,7 +1968,6 @@ function markReasoningEnded(message) {
   if (message.reasoningStartedAt && !message.reasoningEndedAt) {
     message.reasoningEndedAt = Date.now();
   }
-  markActivityEnded(message);
 }
 
 function markAssistantActivityTree(message) {
@@ -1981,12 +1985,27 @@ function markAssistantActivityTree(message) {
   }
 }
 
+function markAssistantActivityDoneTree(message) {
+  const now = Date.now();
+  const stamp = (entry) => {
+    if (entry?.activityStartedAt && !entry.activityEndedAt) entry.activityEndedAt = now;
+  };
+  stamp(message);
+  if (message?.compareGroup) {
+    for (const response of message.compareResponses || []) stamp(response);
+  }
+  if (message?.councilGroup) {
+    for (const panelist of message.panelists || []) stamp(panelist);
+    if (message.chairman) stamp(message.chairman);
+  }
+}
+
 function isAdminUser() {
   return state.me?.profile?.role === "admin";
 }
 
 function reasoningSummaryLabel(message, { streaming = false } = {}) {
-  const stillThinking = streaming && !message?.finishReason && !message?.reasoningEndedAt;
+  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
   if (stillThinking) return "Thinking";
 
   const ms = resolveReasoningDurationMs(message);
@@ -2019,10 +2038,10 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
 
   const hasAnswer = rawTextContent(message?.content).trim().length > 0;
   const ms = resolveReasoningDurationMs(message);
-  if (hasAnswer || message?.finishReason || message?.reasoningEndedAt) {
+  if (hasAnswer || isFinalFinishReason(message?.finishReason)) {
+    if (streaming && hasAnswer && !isFinalFinishReason(message?.finishReason)) return "Answering";
     if (ms != null) return reasoningSummaryLabel(message, { streaming: false });
-    if (streaming && hasAnswer) return "Answering";
-    return tools.length ? "Finished working" : "";
+    return "Thought";
   }
 
   if (streaming) {
@@ -2036,7 +2055,7 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
 function renderThinkingStatus(message, { streaming = false } = {}) {
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
-  const active = streaming && !message?.finishReason && !rawTextContent(message?.content).trim();
+  const active = streaming && !isFinalFinishReason(message?.finishReason) && !rawTextContent(message?.content).trim();
   return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span>${escapeHtml(label)}</span></div>`;
 }
 
@@ -2049,7 +2068,7 @@ function renderReasoning(message, { streaming = false } = {}) {
   const shouldOpen = messageId && reasoningOpenIds.has(messageId);
   const openAttr = shouldOpen ? " open" : "";
   const idAttr = messageId ? ` data-message-id="${escapeHtml(messageId)}"` : "";
-  const stillThinking = streaming && !message?.finishReason && !message?.reasoningEndedAt;
+  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
   const streamingClass = stillThinking ? " is-streaming" : "";
   const doneClass = !stillThinking && (hasReasoning || message?.reasoningEndedAt) ? " is-done" : "";
   const body = hasReasoning ? renderContent(text) : "";
@@ -3651,6 +3670,7 @@ function applyStreamEvent(message, event) {
   if (event?.type === "error") {
     message.error = event.error || "Model request failed.";
     message.finishReason = "error";
+    markActivityEnded(message);
     markReasoningEnded(message);
     return;
   }
@@ -3690,7 +3710,6 @@ function applyStreamEvent(message, event) {
     if (isAdminUser()) message.reasoning += reasoningDelta;
   }
   if (typeof delta.content === "string" && delta.content) {
-    markActivityEnded(message);
     markReasoningEnded(message);
     message.content += delta.content;
   }
@@ -3709,6 +3728,7 @@ function applyStreamEvent(message, event) {
 
   if (choice?.finish_reason) {
     message.finishReason = choice.finish_reason;
+    if (isFinalFinishReason(choice.finish_reason)) markActivityEnded(message);
     markReasoningEnded(message);
   }
 }
@@ -3747,6 +3767,7 @@ function applyCompareStreamEvent(compareMessage, event) {
   if (event.type === "error") {
     target.error = event.error || "Model request failed.";
     target.finishReason = "error";
+    markActivityEnded(target);
     return target;
   }
 
@@ -3780,6 +3801,7 @@ function applyCouncilStreamEvent(council, event) {
     } else if (type === "error") {
       target.error = event.error || "Model request failed.";
       target.finishReason = "error";
+      markActivityEnded(target);
     } else if (type === "done") {
       target.finishReason ||= "stop";
       markActivityEnded(target);
@@ -3902,6 +3924,7 @@ function applyCouncilStreamEvent(council, event) {
     if (council.chairman) {
       council.chairman.error = event.error || "Chairman synthesis failed.";
       council.chairman.finishReason = "error";
+      markActivityEnded(council.chairman);
     }
     return council.chairman || null;
   }
@@ -4223,6 +4246,7 @@ async function retryFailedAssistant(assistantMessageId) {
       }
     });
 
+    markAssistantActivityDoneTree(localAssistant);
     await Promise.all([loadMe(), loadConversations()]);
     await loadActiveConversation();
     shouldReloadConversation = true;
@@ -4231,7 +4255,9 @@ async function retryFailedAssistant(assistantMessageId) {
       wasAborted = true;
       localAssistant.stopped = true;
     } else {
-      localAssistant.error = err.message;
+      const hasRenderedOutput = rawTextContent(localAssistant.content).trim()
+        || artifactListFromMessage(localAssistant).length;
+      if (!hasRenderedOutput) localAssistant.error = err.message;
     }
   } finally {
     const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
@@ -4427,6 +4453,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       });
     }
 
+    markAssistantActivityDoneTree(localAssistant);
     await (temporaryChat ? loadMe() : Promise.all([loadMe(), loadConversations()]));
     shouldReloadConversation = true;
   } catch (err) {
@@ -4453,7 +4480,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
           if (!response.content) response.error = err.message;
         }
       } else {
-        localAssistant.error = err.message;
+        const hasRenderedOutput = rawTextContent(localAssistant.content).trim()
+          || artifactListFromMessage(localAssistant).length;
+        if (!hasRenderedOutput) localAssistant.error = err.message;
       }
     }
   } finally {
