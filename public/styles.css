@@ -4331,6 +4331,28 @@ body[data-chat-theme="cyber"] .preview-file {
   box-shadow: var(--cyber-drop-sm);
 }
 
+body[data-chat-theme="cyber"] .composer-tool {
+  width: 32px;
+  height: 32px;
+}
+
+body[data-chat-theme="cyber"] .composer-model-btn,
+body[data-chat-theme="cyber"] .compare-btn {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+body[data-chat-theme="cyber"] .send-btn,
+body[data-chat-theme="cyber"] .stop-btn {
+  width: 34px;
+  height: 34px;
+}
+
+body[data-chat-theme="cyber"] .composer-actions {
+  gap: 6px;
+}
+
 body[data-chat-theme="cyber"] .composer-tool:hover,
 body[data-chat-theme="cyber"] .composer-model-btn:hover:not(.pro-active),
 body[data-chat-theme="cyber"] .compare-btn:hover:not(.active):not(.council-active) {
@@ -5617,7 +5639,7 @@ body.chat-empty .empty-state {
   justify-content: flex-start;
   height: auto;
   min-height: 100%;
-  padding-top: calc(50dvh - 240px);
+  padding-top: calc(50dvh - 214px);
   padding-bottom: 0;
 }
 
@@ -5648,7 +5670,7 @@ body.chat-empty .composer-bottom {
 }
 
 body.chat-empty .composer-area {
-  top: calc(50dvh - 94px);
+  top: calc(50dvh - 72px);
   bottom: auto;
   padding: 0 24px;
 }
@@ -5659,7 +5681,7 @@ body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
 
 body.chat-empty[data-chat-theme="cyber"] .composer-area,
 body.chat-empty[data-chat-theme="doodle"] .composer-area {
-  top: calc(50dvh - 94px);
+  top: calc(50dvh - 72px);
   bottom: auto;
   padding-inline: 24px;
 }
@@ -5845,7 +5867,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   }
 
   body.chat-empty .empty-state {
-    padding-top: calc(50dvh - 220px);
+    padding-top: calc(50dvh - 198px);
   }
 
   .empty-state h1 {
@@ -5863,7 +5885,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   }
 
   body.chat-empty .composer-area {
-    top: calc(50dvh - 90px);
+    top: calc(50dvh - 72px);
     padding: 0 12px;
   }
 
