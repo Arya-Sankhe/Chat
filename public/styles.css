@@ -2277,36 +2277,23 @@ body.document-viewer-resizing {
 }
 
 .thinking-status.is-active span {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-tertiary);
-  animation: thinking-status-text-pulse 1.2s ease-in-out infinite;
-}
-
-@supports ((background-clip: text) or (-webkit-background-clip: text)) {
-  .thinking-status.is-active span::after {
-    content: attr(data-label);
-    position: absolute;
-    inset: 0;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    background-image: linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 35%,
-      var(--text-primary) 50%,
-      transparent 65%,
-      transparent 100%
-    );
-    background-size: 250% 100%;
-    background-position: 100% center;
-    background-repeat: no-repeat;
-    background-clip: text;
-    -webkit-background-clip: text;
-    pointer-events: none;
-    animation: thinking-status-shimmer 1.2s linear infinite;
-  }
+  display: inline-block;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--text-tertiary) 0%,
+    var(--text-tertiary) 40%,
+    var(--text-primary) 50%,
+    var(--text-tertiary) 60%,
+    var(--text-tertiary) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% center;
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: thinking-status-shimmer 1.2s linear infinite;
 }
 
 @keyframes thinking-status-pulse {
@@ -2317,11 +2304,6 @@ body.document-viewer-resizing {
 @keyframes thinking-status-shimmer {
   from { background-position: 100% center; }
   to { background-position: 0% center; }
-}
-
-@keyframes thinking-status-text-pulse {
-  0%, 100% { opacity: 0.62; }
-  50% { opacity: 1; }
 }
 
 .reasoning summary,

@@ -2056,7 +2056,7 @@ function renderThinkingStatus(message, { streaming = false } = {}) {
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
   const active = streaming && !isFinalFinishReason(message?.finishReason) && !rawTextContent(message?.content).trim();
-  return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span data-label="${escapeHtml(label)}">${escapeHtml(label)}</span></div>`;
+  return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span>${escapeHtml(label)}</span></div>`;
 }
 
 function renderReasoning(message, { streaming = false } = {}) {
