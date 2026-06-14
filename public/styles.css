@@ -2277,6 +2277,7 @@ body.document-viewer-resizing {
 }
 
 .thinking-status.is-active span {
+  position: relative;
   display: inline-flex;
   align-items: center;
   color: var(--text-tertiary);
@@ -2284,28 +2285,28 @@ body.document-viewer-resizing {
 }
 
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
-  .thinking-status.is-active span {
-    color: var(--text-tertiary);
+  .thinking-status.is-active span::after {
+    content: attr(data-label);
+    position: absolute;
+    inset: 0;
+    color: transparent;
     -webkit-text-fill-color: transparent;
-    text-shadow: 0 0 0 var(--text-tertiary);
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 35%,
+      var(--text-primary) 50%,
+      transparent 65%,
+      transparent 100%
+    );
+    background-size: 250% 100%;
+    background-position: 100% center;
+    background-repeat: no-repeat;
+    background-clip: text;
+    -webkit-background-clip: text;
+    pointer-events: none;
     animation: thinking-status-shimmer 1.2s linear infinite;
   }
-}
-
-.thinking-status.is-active span {
-  background-image: linear-gradient(
-    90deg,
-    var(--text-tertiary) 0%,
-    var(--text-tertiary) 38%,
-    var(--text-primary) 50%,
-    var(--text-tertiary) 62%,
-    var(--text-tertiary) 100%
-  );
-  background-size: 250% 100%;
-  background-position: 100% center;
-  background-repeat: no-repeat;
-  background-clip: text;
-  -webkit-background-clip: text;
 }
 
 @keyframes thinking-status-pulse {
