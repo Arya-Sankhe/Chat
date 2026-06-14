@@ -1940,11 +1940,11 @@ function isFinalFinishReason(reason) {
 function resolveReasoningDurationMs(message) {
   const stored = message?.metadata?.reasoningDurationMs ?? message?.reasoningDurationMs;
   if (stored != null && Number.isFinite(Number(stored))) return Math.max(0, Number(stored));
-  if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
-    return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
-  }
   if (message?.activityStartedAt && message?.activityEndedAt) {
     return Math.max(0, message.activityEndedAt - message.activityStartedAt);
+  }
+  if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
+    return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
   }
   return null;
 }

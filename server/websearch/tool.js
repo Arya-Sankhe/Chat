@@ -503,6 +503,7 @@ export async function runChatWithToolLoop({
   const citations = [];
   const artifacts = [];
   const providers = new Set();
+  const activityStartedAt = Date.now();
   let toolCallCount = 0;
   let lastAccumulated = null;
   let forceFinalWithoutTools = false;
@@ -586,6 +587,8 @@ export async function runChatWithToolLoop({
         });
         continue;
       }
+      accumulated.activityStartedAt = activityStartedAt;
+      accumulated.activityEndedAt = Date.now();
       return { accumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
     }
 
@@ -683,6 +686,10 @@ export async function runChatWithToolLoop({
     }
   }
 
+  if (lastAccumulated) {
+    lastAccumulated.activityStartedAt = activityStartedAt;
+    lastAccumulated.activityEndedAt = Date.now();
+  }
   return { accumulated: lastAccumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
 }
 
