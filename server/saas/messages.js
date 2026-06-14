@@ -151,11 +151,12 @@ async function hydrateContent(content, r2, mode, { imageDescriptions = null } = 
   return hydrated;
 }
 
-export async function hydrateMessagesForClient(messages, r2) {
+export async function hydrateMessagesForClient(messages, r2, { includeReasoning = false } = {}) {
   const result = [];
   for (const message of messages) {
     result.push({
       ...message,
+      reasoning: includeReasoning ? message.reasoning : "",
       content: await hydrateContent(message.content, r2, "client")
     });
   }
@@ -214,11 +215,24 @@ function markReasoningEnded(message) {
   }
 }
 
+function markActivityStarted(message) {
+  if (!message.activityStartedAt) message.activityStartedAt = Date.now();
+}
+
+function markActivityEnded(message) {
+  if (message.activityStartedAt && !message.activityEndedAt) {
+    message.activityEndedAt = Date.now();
+  }
+}
+
 export function resolveReasoningDurationMs(message) {
   const stored = message?.metadata?.reasoningDurationMs ?? message?.reasoningDurationMs;
   if (stored != null && Number.isFinite(Number(stored))) return Math.max(0, Number(stored));
   if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
     return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
+  }
+  if (message?.activityStartedAt && message?.activityEndedAt) {
+    return Math.max(0, message.activityEndedAt - message.activityStartedAt);
   }
   return null;
 }
@@ -280,6 +294,7 @@ export function applyStreamEvent(message, event) {
 
   const choice = event?.choices?.[0];
   const delta = choice?.delta || {};
+  if (choice || event?.usage) markActivityStarted(message);
 
   const reasoningDelta = extractReasoningDelta(delta);
   if (reasoningDelta) {
@@ -288,6 +303,7 @@ export function applyStreamEvent(message, event) {
   }
 
   if (typeof delta.content === "string" && delta.content) {
+    markActivityEnded(message);
     markReasoningEnded(message);
     message.content += delta.content;
   }
@@ -311,8 +327,38 @@ export function applyStreamEvent(message, event) {
 
   if (choice?.finish_reason) {
     message.finishReason = choice.finish_reason;
+    markActivityEnded(message);
     markReasoningEnded(message);
   }
+}
+
+function stripReasoningFields(target) {
+  if (!target || typeof target !== "object") return target;
+  const stripped = { ...target };
+  delete stripped.reasoning;
+  delete stripped.reasoning_content;
+  delete stripped.reasoning_details;
+  return stripped;
+}
+
+export function sanitizeProviderEvent(event, { includeReasoning = false } = {}) {
+  if (includeReasoning || !event || typeof event !== "object") return event;
+  const sanitized = stripReasoningFields(event);
+  if (Array.isArray(event.choices)) {
+    sanitized.choices = event.choices.map((choice) => {
+      if (!choice || typeof choice !== "object") return choice;
+      return {
+        ...choice,
+        ...(choice.delta ? { delta: stripReasoningFields(choice.delta) } : {}),
+        ...(choice.message ? { message: stripReasoningFields(choice.message) } : {})
+      };
+    });
+  }
+  return sanitized;
+}
+
+export function writeProviderEvent(res, event, { includeReasoning = false } = {}) {
+  res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
 }
 
 function parseSseEvents(buffer, onEvent) {
@@ -337,7 +383,7 @@ function parseSseEvents(buffer, onEvent) {
   return remaining;
 }
 
-export async function pipeProviderStreamAndAccumulate(upstream, res) {
+export async function pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning = false } = {}) {
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
   const assistant = {
@@ -354,10 +400,12 @@ export async function pipeProviderStreamAndAccumulate(upstream, res) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunk = Buffer.from(value);
-    res.write(chunk);
+    if (includeReasoning) res.write(Buffer.from(value));
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    buffer = parseSseEvents(buffer, (event) => applyStreamEvent(assistant, event));
+    buffer = parseSseEvents(buffer, (event) => {
+      applyStreamEvent(assistant, event);
+      if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
+    });
   }
 
   return assistant;

@@ -31,6 +31,7 @@ import {
   normalizeMessageSettings,
   pipeProviderStreamAndAccumulate,
   reasoningDurationMetadata,
+  sanitizeProviderEvent,
   streamProviderAndAccumulate,
   titleFromText
 } from "./saas/messages.js";
@@ -839,9 +840,10 @@ async function handleConversationById(req, res, config, conversationId) {
 
   if (req.method === "GET") {
     const messages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+    const includeReasoning = context.profile?.role === "admin";
     sendJson(res, 200, {
       conversation,
-      messages: await hydrateMessagesForClient(messages, context.r2)
+      messages: await hydrateMessagesForClient(messages, context.r2, { includeReasoning })
     });
     return;
   }
@@ -1432,6 +1434,7 @@ async function handleCouncilConversationMessage({
   webSearch,
   documentSearch
 }) {
+  const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
     ? webSearch
     : { contextMessage: "", citations: [], providers: [], detection: null };
@@ -1525,7 +1528,12 @@ async function handleCouncilConversationMessage({
       if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
-        writeSse(res, { type: "delta", index, model: entry.chatRequest.model, event });
+        writeSse(res, {
+          type: "delta",
+          index,
+          model: entry.chatRequest.model,
+          event: sanitizeProviderEvent(event, { includeReasoning })
+        });
       });
 
       if (!hasAssistantOutput(accumulated)) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
@@ -1744,7 +1752,7 @@ async function handleCouncilConversationMessage({
       maxTokens: settings?.max_tokens,
       streamChatCompletionFn: crofai.streamChatCompletion,
       onEvent: (event) => {
-        writeSse(res, { type: "council:chairman:delta", event });
+        writeSse(res, { type: "council:chairman:delta", event: sanitizeProviderEvent(event, { includeReasoning }) });
       }
     });
 
@@ -1788,6 +1796,7 @@ async function handleCompareConversationMessage({
   webSearch,
   documentSearch
 }) {
+  const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
     ? webSearch
     : { contextMessage: "", citations: [], providers: [], detection: null };
@@ -1867,7 +1876,12 @@ async function handleCompareConversationMessage({
       if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
-        writeSse(res, { type: "delta", index, model: chatRequest.model, event });
+        writeSse(res, {
+          type: "delta",
+          index,
+          model: chatRequest.model,
+          event: sanitizeProviderEvent(event, { includeReasoning })
+        });
       });
       if (!hasAssistantOutput(accumulated)) {
         throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
@@ -1901,6 +1915,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
 
   const context = await requireChatContext(req, config);
+  const includeReasoning = context.profile?.role === "admin";
   const body = await parseJsonBody(req, 2 * 1024 * 1024);
   const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
   if (!conversation) throw new HttpError(404, "Conversation not found.");
@@ -2292,7 +2307,9 @@ async function handleConversationMessage(req, res, config, conversationId) {
           websearch,
           documents,
           visualDocuments: selectedModelSupportsVision,
-          onUpstreamEvent: (event) => { res.write(`data: ${JSON.stringify(event)}\n\n`); },
+          onUpstreamEvent: (event) => {
+            res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+          },
           onToolEvent: (event) => { writeSse(res, event); }
         })
       : await streamSingleChat({
@@ -2301,7 +2318,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
           config,
           provider,
           signal: controller.signal,
-          res
+          res,
+          includeReasoning
         });
 
     if (Array.isArray(citations) && citations.length) allCitations.push(...citations);
@@ -2388,7 +2406,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
  * the upstream stream is piped 1:1 to the SSE response. Returns the
  * same shape as runChatWithToolLoop.
  */
-async function streamSingleChat({ chatRequest, crofai, config, provider, signal, res }) {
+async function streamSingleChat({ chatRequest, crofai, config, provider, signal, res, includeReasoning = false }) {
   const upstream = await crofai.streamChatCompletion({
     apiKey: provider?.apiKey || config.serverApiKey,
     baseUrl: provider?.baseUrl || config.defaultBaseUrl,
@@ -2397,7 +2415,7 @@ async function streamSingleChat({ chatRequest, crofai, config, provider, signal,
     signal
   });
   if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
-  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res);
+  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning });
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
 
@@ -2406,6 +2424,7 @@ async function handleTemporaryChat(req, res, config) {
   requireServerCrofKey(config);
 
   const context = await requireChatContext(req, config);
+  const includeReasoning = context.profile?.role === "admin";
   const body = await parseJsonBody(req, 1024 * 1024);
   if (Array.isArray(body.attachments) && body.attachments.length) {
     throw new HttpError(400, "Temporary chat does not support attachments yet.");
@@ -2460,7 +2479,8 @@ async function handleTemporaryChat(req, res, config) {
       config,
       provider,
       signal: controller.signal,
-      res
+      res,
+      includeReasoning
     });
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });

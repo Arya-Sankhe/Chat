@@ -1938,10 +1938,24 @@ function resolveReasoningDurationMs(message) {
   if (message?.reasoningStartedAt && message?.reasoningEndedAt) {
     return Math.max(0, message.reasoningEndedAt - message.reasoningStartedAt);
   }
+  if (message?.activityStartedAt && message?.activityEndedAt) {
+    return Math.max(0, message.activityEndedAt - message.activityStartedAt);
+  }
   return null;
 }
 
+function markActivityStarted(message) {
+  if (!message.activityStartedAt) message.activityStartedAt = Date.now();
+}
+
+function markActivityEnded(message) {
+  if (message.activityStartedAt && !message.activityEndedAt) {
+    message.activityEndedAt = Date.now();
+  }
+}
+
 function markReasoningStarted(message) {
+  markActivityStarted(message);
   if (!message.reasoningStartedAt) message.reasoningStartedAt = Date.now();
 }
 
@@ -1949,6 +1963,26 @@ function markReasoningEnded(message) {
   if (message.reasoningStartedAt && !message.reasoningEndedAt) {
     message.reasoningEndedAt = Date.now();
   }
+  markActivityEnded(message);
+}
+
+function markAssistantActivityTree(message) {
+  const now = Date.now();
+  const stamp = (entry) => {
+    if (entry && !entry.activityStartedAt) entry.activityStartedAt = now;
+  };
+  stamp(message);
+  if (message?.compareGroup) {
+    for (const response of message.compareResponses || []) stamp(response);
+  }
+  if (message?.councilGroup) {
+    for (const panelist of message.panelists || []) stamp(panelist);
+    if (message.chairman) stamp(message.chairman);
+  }
+}
+
+function isAdminUser() {
+  return state.me?.profile?.role === "admin";
 }
 
 function reasoningSummaryLabel(message, { streaming = false } = {}) {
@@ -1958,9 +1992,52 @@ function reasoningSummaryLabel(message, { streaming = false } = {}) {
   const ms = resolveReasoningDurationMs(message);
   if (ms != null) {
     const seconds = Math.max(1, Math.round(ms / 1000));
-    return `Thought for ${seconds}s`;
+    return `Thought for ${seconds} second${seconds === 1 ? "" : "s"}`;
   }
   return "Thought";
+}
+
+function toolStatusLabel(tool = {}) {
+  const name = String(tool.name || "").toLowerCase();
+  if (name === "web_search") return "Searching web";
+  if (name === "read_url") return "Reading page";
+  if (name === "search_document") return "Searching documents";
+  if (name === "read_document") return "Reading document";
+  if (name === "extract_tables") return "Reading tables";
+  if (name === "create_document") return "Creating document";
+  if (name === "edit_document") return "Editing document";
+  if (name === "export_document") return "Exporting document";
+  if (name === "limit") return "Wrapping up";
+  return "Working";
+}
+
+function currentThinkingStatus(message, { streaming = false } = {}) {
+  if (message?.error) return "";
+  const tools = Array.isArray(message?.toolEvents) ? message.toolEvents : [];
+  const runningTool = [...tools].reverse().find((tool) => tool.status === "running");
+  if (streaming && runningTool) return toolStatusLabel(runningTool);
+
+  const hasAnswer = rawTextContent(message?.content).trim().length > 0;
+  const ms = resolveReasoningDurationMs(message);
+  if (hasAnswer || message?.finishReason || message?.reasoningEndedAt) {
+    if (ms != null) return reasoningSummaryLabel(message, { streaming: false });
+    if (streaming && hasAnswer) return "Answering";
+    return tools.length ? "Finished working" : "";
+  }
+
+  if (streaming) {
+    const lastTool = [...tools].reverse().find((tool) => tool.status === "done");
+    return lastTool ? "Reviewing results" : "Thinking";
+  }
+
+  return "";
+}
+
+function renderThinkingStatus(message, { streaming = false } = {}) {
+  const label = currentThinkingStatus(message, { streaming });
+  if (!label) return "";
+  const active = streaming && !message?.finishReason && !rawTextContent(message?.content).trim();
+  return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span>${escapeHtml(label)}</span></div>`;
 }
 
 function renderReasoning(message, { streaming = false } = {}) {
@@ -1979,6 +2056,12 @@ function renderReasoning(message, { streaming = false } = {}) {
   const summary = reasoningSummaryLabel(message, { streaming });
 
   return `<details class="reasoning${streamingClass}${doneClass}"${openAttr}${idAttr}><summary>${escapeHtml(summary)}</summary><div>${body}</div></details>`;
+}
+
+function renderAssistantActivity(message, { streaming = false } = {}) {
+  return isAdminUser()
+    ? renderReasoning(message, { streaming })
+    : renderThinkingStatus(message, { streaming });
 }
 
 function renderToolCalls() {
@@ -2277,7 +2360,7 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderContent(content || "");
-  return `${renderReasoning(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
+  return `${renderAssistantActivity(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
 }
 
 function renderCitations(message) {
@@ -3523,6 +3606,7 @@ function ensureToolState(message) {
 function applyToolEvent(message, event) {
   ensureToolState(message);
   if (event.type === "tool:start") {
+    markActivityStarted(message);
     let parsedArgs = {};
     try { parsedArgs = JSON.parse(event.arguments || "{}"); } catch {}
     message.toolEvents.push({
@@ -3573,6 +3657,7 @@ function applyStreamEvent(message, event) {
 
   if (event?.type === "done") {
     message.finishReason ||= "stop";
+    markActivityEnded(message);
     markReasoningEnded(message);
     return;
   }
@@ -3587,6 +3672,8 @@ function applyStreamEvent(message, event) {
     return;
   }
 
+  markActivityStarted(message);
+
   /* Providers stream a trailing usage chunk (usually with empty choices)
      when usage reporting is enabled — record it for the context meter. */
   if (event?.usage) {
@@ -3600,9 +3687,10 @@ function applyStreamEvent(message, event) {
   const reasoningDelta = extractReasoningDelta(delta);
   if (reasoningDelta) {
     markReasoningStarted(message);
-    message.reasoning += reasoningDelta;
+    if (isAdminUser()) message.reasoning += reasoningDelta;
   }
   if (typeof delta.content === "string" && delta.content) {
+    markActivityEnded(message);
     markReasoningEnded(message);
     message.content += delta.content;
   }
@@ -3647,6 +3735,7 @@ function applyCompareStreamEvent(compareMessage, event) {
 
   if (event.type === "start") {
     target.id = event.assistantMessageId || target.id;
+    markActivityStarted(target);
     return target;
   }
 
@@ -3663,6 +3752,7 @@ function applyCompareStreamEvent(compareMessage, event) {
 
   if (event.type === "done") {
     target.finishReason ||= "stop";
+    markActivityEnded(target);
     return target;
   }
   return target;
@@ -3683,6 +3773,7 @@ function applyCouncilStreamEvent(council, event) {
     if (!target) return null;
     if (type === "start") {
       target.id = event.assistantMessageId || target.id;
+      markActivityStarted(target);
       if (!target.metadata) target.metadata = { council: { sessionId: council.sessionId, role: "panelist", stage: 1 } };
     } else if (type === "delta") {
       applyStreamEvent(target, event.event);
@@ -3691,6 +3782,7 @@ function applyCouncilStreamEvent(council, event) {
       target.finishReason = "error";
     } else if (type === "done") {
       target.finishReason ||= "stop";
+      markActivityEnded(target);
     }
     return target;
   }
@@ -3786,6 +3878,7 @@ function applyCouncilStreamEvent(council, event) {
       council.chairman.model = event.chairmanModel || council.chairman.model;
       council.chairman.id = event.assistantMessageId || council.chairman.id;
     }
+    markActivityStarted(council.chairman);
     return council.chairman;
   }
 
@@ -3797,7 +3890,10 @@ function applyCouncilStreamEvent(council, event) {
 
   if (type === "council:chairman:done") {
     council.stage3Status = "done";
-    if (council.chairman) council.chairman.finishReason ||= "stop";
+    if (council.chairman) {
+      council.chairman.finishReason ||= "stop";
+      markActivityEnded(council.chairman);
+    }
     return council.chairman || null;
   }
 
@@ -4093,6 +4189,7 @@ async function retryFailedAssistant(assistantMessageId) {
     reasoning: "",
     toolCalls: []
   };
+  markAssistantActivityTree(localAssistant);
   state.messages[index] = localAssistant;
 
   state.abortController = new AbortController();
@@ -4228,6 +4325,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     };
   }
 
+  markAssistantActivityTree(localAssistant);
   state.messages.push(localUser, localAssistant);
   els.promptInput.value = "";
   applyComposerHeight();

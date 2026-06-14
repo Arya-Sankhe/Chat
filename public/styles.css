@@ -2252,6 +2252,35 @@ body.document-viewer-resizing {
   background: var(--bg-secondary);
 }
 
+.thinking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.thinking-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.thinking-status.is-active::before {
+  animation: thinking-status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thinking-status-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 0.9; transform: scale(1.15); }
+}
+
 .reasoning summary,
 .tool-call summary {
   padding: 10px 14px;
