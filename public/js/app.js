@@ -24,6 +24,7 @@ import {
   putUploadContent,
   streamCompareConversationMessage,
   streamConversationMessage,
+  streamTemporaryChat,
   uploadFile
 } from "./api.js";
 import {
@@ -103,6 +104,7 @@ const state = {
   conversations: [],
   pinnedChatIds: [],
   activeConversationId: "",
+  temporaryChat: false,
   messages: [],
   models: [],
   settings: loadSettings(),
@@ -181,6 +183,8 @@ const els = {
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
+  temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
+  temporaryChatLabel: document.querySelector("#temporaryChatLabel"),
   imagePreviews: document.querySelector("#imagePreviews"),
   followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
@@ -281,6 +285,68 @@ function syncConversationUrl({ replace = false } = {}) {
   if (window.location.pathname === target) return;
   const method = replace ? "replaceState" : "pushState";
   window.history[method]({ conversationId: state.activeConversationId || "" }, "", target);
+}
+
+function textFromMessageContent(content) {
+  if (!Array.isArray(content)) return String(content || "");
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part?.type === "text") return String(part.text || "");
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function temporaryHistoryForRequest() {
+  return state.messages
+    .filter((message) => (message.role === "user" || message.role === "assistant") && !message.error && !message.compareGroup && !message.councilGroup)
+    .map((message) => ({
+      role: message.role,
+      content: textFromMessageContent(message.content)
+    }))
+    .filter((message) => message.content.trim())
+    .slice(-20);
+}
+
+function renderTemporaryChatMode() {
+  document.body.classList.toggle("temporary-chat", state.temporaryChat);
+  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat);
+  if (els.temporaryChatToggle) {
+    els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
+    els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
+    els.temporaryChatToggle.setAttribute("title", state.temporaryChat ? "Temporary chat is on" : "Temporary chat");
+  }
+  if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat;
+}
+
+function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
+  const next = Boolean(enabled);
+  if (state.temporaryChat === next && !resetChat) {
+    renderTemporaryChatMode();
+    return;
+  }
+  state.temporaryChat = next;
+  if (resetChat) {
+    state.activeConversationId = "";
+    state.messages = [];
+    state.images = [];
+    state.compareDescribeImages = false;
+    clearFollowUps();
+    closeDocumentViewer();
+    closeCompareContextBanner();
+    closeSearchDialog();
+    closePinnedPopup();
+    closeConversationMenus();
+    renderImages();
+    syncConversationUrl({ replace: true });
+  }
+  if (next && state.settings.compareEnabled) {
+    cancelCompareMode();
+  }
+  renderTemporaryChatMode();
+  renderShell();
 }
 
 function isSupportedDocumentFile(file) {
@@ -529,15 +595,11 @@ async function activateCouncilMode() {
 async function startCompareFreshChat() {
   const compareModels = selectedCompareModelIds();
   const shouldDescribePendingImages = pendingPromptHasImages() && compareIncludesTextOnlyModels(compareModels);
-  const payload = await createConversation(state.session, {
-    model: compareModels[0] || state.settings.model
-  });
-  state.conversations.unshift(payload.conversation);
-  state.activeConversationId = payload.conversation.id;
+  openNewChat({ replaceUrl: false });
+  updateSetting("compareModels", compareModels);
+  updateSetting("compareEnabled", compareModels.length >= 2);
   state.messages = [];
   state.compareDescribeImages = shouldDescribePendingImages;
-  syncConversationUrl();
-  renderConversations();
   renderShell();
 }
 
@@ -770,6 +832,7 @@ function renderShell() {
   document.body.classList.toggle("guest-mode", guest);
   els.guestLoginPanel?.classList.toggle("hidden", !guest);
   renderAuthOptions();
+  renderTemporaryChatMode();
 
   if (!servicesReady()) {
     renderServices();
@@ -1507,6 +1570,7 @@ function toggleConversationMenu(conversationId, button) {
 
 async function openConversation(conversationId) {
   if (!conversationId) return;
+  state.temporaryChat = false;
   state.activeConversationId = conversationId;
   clearFollowUps();
   document.body.classList.remove("sidebar-open");
@@ -1732,19 +1796,21 @@ function renderCompareControls() {
   els.councilWrap?.classList.remove("hidden");
   closeCompareContextBanner();
   closeCompareDropdown();
-  const compareActive = Boolean(state.settings.compareEnabled && state.settings.compareMode !== "council");
-  const councilActive = Boolean(state.settings.compareEnabled && state.settings.compareMode === "council");
+  const compareActive = Boolean(!state.temporaryChat && state.settings.compareEnabled && state.settings.compareMode !== "council");
+  const councilActive = Boolean(!state.temporaryChat && state.settings.compareEnabled && state.settings.compareMode === "council");
   els.compareButton.classList.toggle("active", compareActive);
   els.compareButton.classList.remove("council-active");
   els.compareButton.setAttribute("aria-pressed", String(compareActive));
   els.compareButton.setAttribute("aria-expanded", "false");
-  els.compareButton.setAttribute("title", compareActive ? "Compare mode on" : "Compare two answers");
+  els.compareButton.disabled = state.running || state.temporaryChat;
+  els.compareButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (compareActive ? "Compare mode on" : "Compare two answers"));
   els.compareLabel.textContent = compareActive ? "Compare on" : "Compare";
   if (els.councilButton) {
     els.councilButton.classList.toggle("active", councilActive);
     els.councilButton.classList.toggle("council-active", councilActive);
     els.councilButton.setAttribute("aria-pressed", String(councilActive));
-    els.councilButton.setAttribute("title", councilActive ? "Council mode on" : "Council mode");
+    els.councilButton.disabled = state.running || state.temporaryChat;
+    els.councilButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (councilActive ? "Council mode on" : "Council mode"));
   }
   if (els.councilLabel) els.councilLabel.textContent = councilActive ? "Council on" : "Council";
   updateComposerPlaceholder();
@@ -3222,6 +3288,10 @@ async function startDocumentUpload(item) {
 
 function addImages(files) {
   if (!requireAuth()) return;
+  if (state.temporaryChat) {
+    showToast("Temporary chat is text-only for now.");
+    return;
+  }
   const plan = state.me?.plan || {};
   const allFiles = [...files];
   const accepted = allFiles.filter((file) => state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
@@ -3421,9 +3491,10 @@ function setRunning(running) {
   els.stopButton.classList.toggle("hidden", !running);
   els.sendButton.classList.toggle("hidden", running);
   els.promptInput.disabled = false;
-  els.imageToggle.disabled = false;
+  els.imageToggle.disabled = state.temporaryChat;
   els.modelButton.disabled = running;
-  els.compareButton.disabled = running;
+  els.compareButton.disabled = running || state.temporaryChat;
+  if (els.councilButton) els.councilButton.disabled = running || state.temporaryChat;
   updateComposerPlaceholder();
   updateSendButton();
 }
@@ -3801,7 +3872,7 @@ async function loadPaymentRequests() {
   }
 }
 
-async function loadConversations({ ensure = true } = {}) {
+async function loadConversations() {
   const payload = await listConversations(state.session);
   state.conversations = payload.conversations || [];
   const validIds = new Set(state.conversations.map((conversation) => conversation.id));
@@ -3813,16 +3884,10 @@ async function loadConversations({ ensure = true } = {}) {
       ? routeConversationId
       : "";
   }
-  if (!state.conversations.length && ensure) {
-    const created = await createConversation(state.session, { model: resolveRoutedModel() });
-    state.conversations = [created.conversation];
-  }
   if (state.activeConversationId && !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
     state.activeConversationId = "";
   }
-  if (!routeConversationId) {
-    state.activeConversationId ||= state.conversations[0]?.id || "";
-  }
+  if (!routeConversationId) state.activeConversationId = "";
   if (state.activeConversationId) await loadActiveConversation();
   else state.messages = [];
   if (routeConversationId && !state.activeConversationId) syncConversationUrl({ replace: true });
@@ -3850,22 +3915,26 @@ function requireAuth() {
   return false;
 }
 
+function openNewChat({ replaceUrl = false } = {}) {
+  state.activeConversationId = "";
+  state.messages = [];
+  state.images = [];
+  state.compareDescribeImages = false;
+  clearFollowUps();
+  closeDocumentViewer();
+  closeCompareContextBanner();
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
+  renderImages();
+  syncConversationUrl({ replace: replaceUrl });
+  renderShell();
+  els.promptInput?.focus();
+}
+
 async function addConversation() {
   if (!requireAuth()) return;
-  try {
-    const payload = await createConversation(state.session, { model: resolveRoutedModel({ images: [] }) });
-    state.conversations.unshift(payload.conversation);
-    state.activeConversationId = payload.conversation.id;
-    state.messages = [];
-    state.images = [];
-    clearFollowUps();
-    closeDocumentViewer();
-    renderImages();
-    syncConversationUrl();
-    renderShell();
-  } catch (err) {
-    showToast(err.message);
-  }
+  openNewChat();
 }
 
 async function startZiinaPayment(planId) {
@@ -3928,6 +3997,14 @@ async function sendPrompt() {
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
   const compareModels = activeCompareModelIds();
+  if (state.temporaryChat && state.images.length) {
+    showToast("Temporary chat is text-only for now.");
+    return;
+  }
+  if (state.temporaryChat && compareModels.length) {
+    showToast("Temporary chat uses one model for now.");
+    return;
+  }
   const pendingDocs = pendingDocumentUploads();
   if (pendingDocs.length) {
     const failed = pendingDocs.find((item) => item.status === "failed");
@@ -4023,7 +4100,7 @@ async function retryFailedAssistant(assistantMessageId) {
       }
     });
 
-    await Promise.all([loadMe(), loadConversations({ ensure: false })]);
+    await Promise.all([loadMe(), loadConversations()]);
     await loadActiveConversation();
     shouldReloadConversation = true;
   } catch (err) {
@@ -4053,15 +4130,16 @@ async function retryFailedAssistant(assistantMessageId) {
 async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false }) {
   closeCompareContextBanner();
 
-  if (newChat) {
+  const temporaryChat = state.temporaryChat;
+  const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
+
+  if (!temporaryChat && (newChat || !state.activeConversationId)) {
     const payload = await createConversation(state.session, { model: compareModels[0] || resolveRoutedModel({ images }) });
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
     state.messages = [];
     syncConversationUrl();
     renderConversations();
-  } else if (!state.activeConversationId) {
-    await addConversation();
   }
 
   const localUser = {
@@ -4143,7 +4221,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   try {
     const uploaded = [];
-    for (const img of images) {
+    for (const img of temporaryChat ? [] : images) {
       if (img.category === "document" && img.attachmentId) {
         uploaded.push(img.uploaded || {
           id: img.attachmentId,
@@ -4180,7 +4258,18 @@ async function executeSend({ text, images, compareModels, council = false, descr
       ...(describeImages ? { describeImages: true } : {})
     };
 
-    if (council) {
+    if (temporaryChat) {
+      await streamTemporaryChat(state.session, {
+        ...payload,
+        messages: previousTemporaryMessages
+      }, {
+        signal: state.abortController.signal,
+        onEvent: (event) => {
+          applyStreamEvent(localAssistant, event);
+          queueStreamRenderForEvent(localAssistant, event);
+        }
+      });
+    } else if (council) {
       await streamCompareConversationMessage(state.session, state.activeConversationId, {
         ...payload,
         models: compareModels,
@@ -4215,7 +4304,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       });
     }
 
-    await Promise.all([loadMe(), loadConversations({ ensure: false })]);
+    await (temporaryChat ? loadMe() : Promise.all([loadMe(), loadConversations()]));
     shouldReloadConversation = true;
   } catch (err) {
     if (err.name === "AbortError") {
@@ -4248,7 +4337,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
     state.abortController = null;
     setRunning(false);
-    if (shouldReloadConversation) {
+    if (shouldReloadConversation && !temporaryChat) {
       const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
       if (reloaded) {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
@@ -4275,6 +4364,7 @@ async function signOutAndReset() {
   state.conversations = [];
   state.pinnedChatIds = [];
   state.messages = [];
+  state.temporaryChat = false;
   clearFollowUps();
   state.activeConversationId = "";
   syncConversationUrl({ replace: true });
@@ -4634,6 +4724,12 @@ function bindEvents() {
   });
 
   els.compareInput.addEventListener("input", renderCompareCatalog);
+  els.temporaryChatToggle?.addEventListener("click", () => {
+    if (!requireAuth()) return;
+    setTemporaryChatMode(!state.temporaryChat);
+    showToast(state.temporaryChat ? "Temporary chat is on." : "Temporary chat is off.");
+    els.promptInput?.focus();
+  });
 
   els.sidebarMid?.addEventListener("click", handleConversationListClick);
   els.pinnedPopupList?.addEventListener("click", handleConversationListClick);
@@ -4645,6 +4741,7 @@ function bindEvents() {
     suppressUrlSync = true;
     try {
       if (!routeConversationId) {
+        state.temporaryChat = false;
         state.activeConversationId = "";
         state.messages = [];
         closeDocumentViewer();
@@ -4653,7 +4750,7 @@ function bindEvents() {
         return;
       }
       if (!state.conversations.some((conversation) => conversation.id === routeConversationId)) {
-        await loadConversations({ ensure: false });
+        await loadConversations();
       }
       if (!state.conversations.some((conversation) => conversation.id === routeConversationId)) {
         state.activeConversationId = "";
@@ -4663,6 +4760,7 @@ function bindEvents() {
         return;
       }
       state.activeConversationId = routeConversationId;
+      state.temporaryChat = false;
       closeDocumentViewer();
       closeCompareContextBanner();
       await loadActiveConversation();
@@ -4697,6 +4795,10 @@ function bindEvents() {
   els.imageToggle.addEventListener("click", () => {
     closeActionMenu();
     if (!requireAuth()) return;
+    if (state.temporaryChat) {
+      showToast("Temporary chat is text-only for now.");
+      return;
+    }
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {

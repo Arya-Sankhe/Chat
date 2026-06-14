@@ -989,6 +989,19 @@ function normalizeCouncilFlag(value) {
   return Boolean(value === true || value === "true" || value === 1 || value === "1");
 }
 
+function normalizeTemporaryHistory(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .slice(-20)
+    .map((message) => {
+      const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : "";
+      const content = typeof message?.content === "string" ? message.content.trim() : "";
+      if (!role || !content) return null;
+      return { role, content: content.slice(0, 100000) };
+    })
+    .filter(Boolean);
+}
+
 function normalizeWebSearchMode(value, fallback) {
   if (typeof value !== "string") return fallback;
   const mode = value.trim().toLowerCase();
@@ -2388,6 +2401,83 @@ async function streamSingleChat({ chatRequest, crofai, config, provider, signal,
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
 
+async function handleTemporaryChat(req, res, config) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  requireServerCrofKey(config);
+
+  const context = await requireChatContext(req, config);
+  const body = await parseJsonBody(req, 1024 * 1024);
+  if (Array.isArray(body.attachments) && body.attachments.length) {
+    throw new HttpError(400, "Temporary chat does not support attachments yet.");
+  }
+  if (Array.isArray(body.models) && body.models.length) {
+    throw new HttpError(400, "Temporary chat does not support compare or council mode yet.");
+  }
+  if (normalizeCouncilFlag(body.council)) {
+    throw new HttpError(400, "Temporary chat does not support council mode yet.");
+  }
+
+  const settings = normalizeMessageSettings(body);
+  const userContent = buildStoredUserContent(body.text, []);
+  const historyMessages = [
+    ...normalizeTemporaryHistory(body.messages),
+    { role: "user", content: userContent }
+  ];
+  const provider = resolveProvider(body.provider, config);
+  const chatRequest = normalizeChatRequest({
+    model: body.model || OPENROUTER_TEXT_MODEL,
+    messages: await buildProviderMessages({
+      messages: historyMessages,
+      systemPrompt: settings.systemPrompt || "",
+      r2: context.r2
+    }),
+    ...settings
+  });
+  const crofai = createCrofaiUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    imageCount: 0,
+    signal: req.signal
+  });
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  try {
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+      "x-klui-temporary-chat": "1"
+    });
+    const { accumulated } = await streamSingleChat({
+      chatRequest,
+      crofai,
+      config,
+      provider,
+      signal: controller.signal,
+      res
+    });
+    if (accumulated.usage) {
+      writeSse(res, { type: "usage", usage: accumulated.usage });
+    }
+    writeSse(res, { type: "done", temporary: true });
+    res.end();
+  } catch (error) {
+    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+    if (res.headersSent) {
+      writeSse(res, { type: "error", error: message });
+      res.end();
+      return;
+    }
+    throw error;
+  }
+}
+
 function activeSubscriptionStatus(status) {
   return ["active", "trialing", "testing"].includes(String(status || "").toLowerCase());
 }
@@ -2616,6 +2706,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "conversations" && parts[2] && parts[3] === "messages") {
       await handleConversationMessage(req, res, config, parts[2]);
+      return;
+    }
+
+    if (url.pathname === "/api/temporary-chat") {
+      await handleTemporaryChat(req, res, config);
       return;
     }
 

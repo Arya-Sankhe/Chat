@@ -1434,6 +1434,60 @@ body:not(.sidebar-expanded) .conversation-row {
   overflow: hidden;
 }
 
+.temporary-chat-bar {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  left: 18px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.temporary-chat-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  box-shadow: var(--shadow-sm);
+  pointer-events: auto;
+}
+
+.temporary-chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  pointer-events: auto;
+  transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
+}
+
+.temporary-chat-toggle:hover,
+.temporary-chat-toggle.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.temporary-chat-toggle:active {
+  transform: scale(0.96);
+}
+
 .document-viewer {
   position: relative;
   display: flex;

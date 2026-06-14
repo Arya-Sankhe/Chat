@@ -301,16 +301,7 @@ export async function downloadAttachment(session, attachmentId, fileName = "down
   anchor.remove();
 }
 
-export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
-  const response = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
-    session,
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-    signal
-  });
-
-  if (!response.ok) throw new Error(await readProblem(response));
+async function readSseStream(response, onEvent) {
   if (!response.body) throw new Error("Streaming is not available in this browser.");
 
   const reader = response.body.getReader();
@@ -339,7 +330,7 @@ export async function streamConversationMessage(session, conversationId, payload
   }
 }
 
-export async function streamCompareConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+export async function streamConversationMessage(session, conversationId, payload, { signal, onEvent }) {
   const response = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
     session,
     method: "POST",
@@ -349,32 +340,24 @@ export async function streamCompareConversationMessage(session, conversationId, 
   });
 
   if (!response.ok) throw new Error(await readProblem(response));
-  if (!response.body) throw new Error("Streaming is not available in this browser.");
+  return readSseStream(response, onEvent);
+}
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+export async function streamCompareConversationMessage(session, conversationId, payload, { signal, onEvent }) {
+  return streamConversationMessage(session, conversationId, payload, { signal, onEvent });
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+export async function streamTemporaryChat(session, payload, { signal, onEvent }) {
+  const response = await apiFetch("/api/temporary-chat", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal
+  });
 
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-
-    for (const event of events) {
-      const data = event
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim())
-        .join("\n");
-
-      if (!data) continue;
-      if (data === "[DONE]") return;
-      onEvent(JSON.parse(data));
-    }
-  }
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, onEvent);
 }
 
 export async function fetchAdminSummary(session) {
