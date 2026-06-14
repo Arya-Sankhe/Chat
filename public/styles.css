@@ -4912,7 +4912,160 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 }
 
 /* ─── Settings Drawer ─── */
-.settings-drawer,
+.settings-drawer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: transparent;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.settings-drawer.open {
+  pointer-events: auto;
+}
+
+.settings-panel {
+  width: min(640px, 100%);
+  max-height: calc(100dvh - 64px);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 24px 28px;
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+}
+
+.settings-section {
+  margin-top: 24px;
+}
+
+.settings-section h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.theme-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.theme-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color var(--transition), transform var(--transition);
+  font: inherit;
+  color: inherit;
+}
+
+.theme-preview:hover {
+  transform: translateY(-1px);
+}
+
+.theme-preview[aria-checked="true"] {
+  border-color: var(--accent);
+}
+
+.theme-preview-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.theme-preview-mock {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  display: flex;
+}
+
+.tpm-sidebar {
+  width: 14%;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-light);
+}
+
+.tpm-main {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tpm-bubble {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.tpm-bubble.user {
+  align-self: flex-end;
+  width: 40%;
+  background: var(--accent);
+}
+
+.tpm-bubble.assistant {
+  width: 70%;
+  background: var(--bg-secondary);
+}
+
+.tpm-composer {
+  margin-top: auto;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.appearance-pill {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+}
+
+.appearance-pill button {
+  flex: 1;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+  font-family: inherit;
+}
+
+.appearance-pill button:hover {
+  color: var(--text);
+}
+
+.appearance-pill button[aria-checked="true"] {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
 .account-drawer {
   position: fixed;
   inset: 0 0 0 auto;
@@ -4927,7 +5080,6 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   overflow-y: auto;
 }
 
-.settings-drawer.open,
 .account-drawer.open {
   transform: translateX(0);
 }

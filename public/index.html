@@ -262,67 +262,104 @@
         </aside>
 
         <aside class="settings-drawer" id="settingsDrawer" aria-label="Settings" aria-hidden="true">
-          <div class="drawer-header">
-            <strong>Settings</strong>
-            <button class="drawer-close" id="closeSettingsButton" type="button" aria-label="Close settings">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-
-          <div class="field-group">
-            <label for="themeSelect">Theme</label>
-            <select id="themeSelect">
-              <option value="classic">Klui Classic</option>
-              <option value="cyber">Cyber Mind</option>
-              <option value="doodle">Doodle Luxe</option>
-            </select>
-          </div>
-
-          <div class="field-group">
-            <label for="appearanceSelect">Appearance</label>
-            <select id="appearanceSelect">
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </div>
-
-          <div class="field-group">
-            <label>Color</label>
-            <div class="color-preset-row" id="colorPresetRow" role="group" aria-label="Accent color">
-              <button type="button" class="color-swatch" data-accent="default" title="Default" aria-label="Default" aria-pressed="true"><span class="color-swatch-dot" data-swatch="default"></span></button>
-              <button type="button" class="color-swatch" data-accent="indigo" title="Indigo" aria-label="Indigo" aria-pressed="false"><span class="color-swatch-dot" data-swatch="indigo"></span></button>
-              <button type="button" class="color-swatch" data-accent="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false"><span class="color-swatch-dot" data-swatch="emerald"></span></button>
-              <button type="button" class="color-swatch" data-accent="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="color-swatch-dot" data-swatch="rose"></span></button>
-              <button type="button" class="color-swatch" data-accent="ocean" title="Ocean" aria-label="Ocean" aria-pressed="false"><span class="color-swatch-dot" data-swatch="ocean"></span></button>
+          <div class="settings-panel">
+            <div class="drawer-header">
+              <strong>Settings</strong>
+              <button class="drawer-close" id="closeSettingsButton" type="button" aria-label="Close settings">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
             </div>
-          </div>
 
-          <div class="field-grid">
-            <label>
-              <span>Temperature</span>
-              <input id="temperatureInput" type="number" min="0" max="2" step="0.1">
-            </label>
-            <label>
-              <span>Top P</span>
-              <input id="topPInput" type="number" min="0" max="1" step="0.05">
-            </label>
-            <label>
-              <span>Max tokens</span>
-              <input id="maxTokensInput" type="number" min="1" step="1">
-            </label>
-            <label>
-              <span>Seed</span>
-              <input id="seedInput" type="number" min="0" step="1">
-            </label>
-          </div>
+            <section class="settings-section">
+              <h2>Theme</h2>
+              <div class="theme-preview-grid" id="themePreviewGrid" role="radiogroup" aria-label="Theme">
+                <button type="button" class="theme-preview" data-theme="classic" role="radio" aria-checked="true">
+                  <div class="theme-preview-mock">
+                    <div class="tpm-sidebar"></div>
+                    <div class="tpm-main">
+                      <div class="tpm-bubble user"></div>
+                      <div class="tpm-bubble assistant"></div>
+                      <div class="tpm-composer"></div>
+                    </div>
+                  </div>
+                  <span class="theme-preview-label">Klui Classic</span>
+                </button>
+                <button type="button" class="theme-preview" data-theme="cyber" role="radio" aria-checked="false">
+                  <div class="theme-preview-mock">
+                    <div class="tpm-sidebar"></div>
+                    <div class="tpm-main">
+                      <div class="tpm-bubble user"></div>
+                      <div class="tpm-bubble assistant"></div>
+                      <div class="tpm-composer"></div>
+                    </div>
+                  </div>
+                  <span class="theme-preview-label">Cyber Mind</span>
+                </button>
+                <button type="button" class="theme-preview" data-theme="doodle" role="radio" aria-checked="false">
+                  <div class="theme-preview-mock">
+                    <div class="tpm-sidebar"></div>
+                    <div class="tpm-main">
+                      <div class="tpm-bubble user"></div>
+                      <div class="tpm-bubble assistant"></div>
+                      <div class="tpm-composer"></div>
+                    </div>
+                  </div>
+                  <span class="theme-preview-label">Doodle Luxe</span>
+                </button>
+              </div>
+            </section>
 
-          <div class="field-group">
-            <label for="systemPromptInput">System prompt</label>
-            <textarea id="systemPromptInput" rows="4" spellcheck="true"></textarea>
-          </div>
+            <section class="settings-section">
+              <h2>Appearance</h2>
+              <div class="appearance-pill" id="appearancePill" role="radiogroup" aria-label="Appearance">
+                <button type="button" data-appearance="light" role="radio" aria-checked="false">Light</button>
+                <button type="button" data-appearance="system" role="radio" aria-checked="true">System</button>
+                <button type="button" data-appearance="dark" role="radio" aria-checked="false">Dark</button>
+              </div>
+            </section>
 
-          <div class="model-details" id="modelDetails"></div>
+            <section class="settings-section">
+              <h2>Accent color</h2>
+              <div class="color-preset-row" id="colorPresetRow" role="group" aria-label="Accent color">
+                <button type="button" class="color-swatch" data-accent="default" title="Default" aria-label="Default" aria-pressed="true"><span class="color-swatch-dot" data-swatch="default"></span></button>
+                <button type="button" class="color-swatch" data-accent="indigo" title="Indigo" aria-label="Indigo" aria-pressed="false"><span class="color-swatch-dot" data-swatch="indigo"></span></button>
+                <button type="button" class="color-swatch" data-accent="emerald" title="Emerald" aria-label="Emerald" aria-pressed="false"><span class="color-swatch-dot" data-swatch="emerald"></span></button>
+                <button type="button" class="color-swatch" data-accent="rose" title="Rose" aria-label="Rose" aria-pressed="false"><span class="color-swatch-dot" data-swatch="rose"></span></button>
+                <button type="button" class="color-swatch" data-accent="ocean" title="Ocean" aria-label="Ocean" aria-pressed="false"><span class="color-swatch-dot" data-swatch="ocean"></span></button>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h2>Model parameters</h2>
+              <div class="field-grid">
+                <label>
+                  <span>Temperature</span>
+                  <input id="temperatureInput" type="number" min="0" max="2" step="0.1">
+                </label>
+                <label>
+                  <span>Top P</span>
+                  <input id="topPInput" type="number" min="0" max="1" step="0.05">
+                </label>
+                <label>
+                  <span>Max tokens</span>
+                  <input id="maxTokensInput" type="number" min="1" step="1">
+                </label>
+                <label>
+                  <span>Seed</span>
+                  <input id="seedInput" type="number" min="0" step="1">
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h2>System prompt</h2>
+              <div class="field-group">
+                <textarea id="systemPromptInput" rows="4" spellcheck="true"></textarea>
+              </div>
+            </section>
+
+            <div class="model-details" id="modelDetails"></div>
+          </div>
         </aside>
 
         <aside class="account-drawer" id="accountDrawer" aria-label="Account" aria-hidden="true">

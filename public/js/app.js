@@ -202,8 +202,8 @@ const els = {
   maxTokensInput: document.querySelector("#maxTokensInput"),
   seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
-  themeSelect: document.querySelector("#themeSelect"),
-  appearanceSelect: document.querySelector("#appearanceSelect"),
+  themePreviewGrid: document.querySelector("#themePreviewGrid"),
+  appearancePill: document.querySelector("#appearancePill"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
   modelDetails: document.querySelector("#modelDetails"),
   accountDrawer: document.querySelector("#accountDrawer"),
@@ -658,9 +658,16 @@ function applyChatTheme() {
 function syncAppearanceControls() {
   const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
   const preset = COLOR_PRESETS.has(state.settings.colorPreset) ? state.settings.colorPreset : "default";
-  if (els.themeSelect) els.themeSelect.value = theme;
-  if (els.appearanceSelect) {
-    els.appearanceSelect.value = APPEARANCES.has(state.settings.appearance) ? state.settings.appearance : "system";
+  const appearance = APPEARANCES.has(state.settings.appearance) ? state.settings.appearance : "system";
+  if (els.themePreviewGrid) {
+    els.themePreviewGrid.querySelectorAll("[data-theme]").forEach((btn) => {
+      btn.setAttribute("aria-checked", btn.dataset.theme === theme ? "true" : "false");
+    });
+  }
+  if (els.appearancePill) {
+    els.appearancePill.querySelectorAll("[data-appearance]").forEach((btn) => {
+      btn.setAttribute("aria-checked", btn.dataset.appearance === appearance ? "true" : "false");
+    });
   }
   if (els.colorPresetRow) {
     els.colorPresetRow.querySelectorAll("[data-accent]").forEach((btn) => {
@@ -5116,8 +5123,16 @@ function bindEvents() {
   els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
-  els.themeSelect?.addEventListener("change", (e) => updateSetting("theme", CHAT_THEMES.has(e.target.value) ? e.target.value : "classic"));
-  els.appearanceSelect?.addEventListener("change", (e) => updateSetting("appearance", APPEARANCES.has(e.target.value) ? e.target.value : "system"));
+  els.themePreviewGrid?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-theme]");
+    if (!btn) return;
+    updateSetting("theme", CHAT_THEMES.has(btn.dataset.theme) ? btn.dataset.theme : "classic");
+  });
+  els.appearancePill?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-appearance]");
+    if (!btn) return;
+    updateSetting("appearance", APPEARANCES.has(btn.dataset.appearance) ? btn.dataset.appearance : "system");
+  });
   els.colorPresetRow?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-accent]");
     if (!btn) return;
