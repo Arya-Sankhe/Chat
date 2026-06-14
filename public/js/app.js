@@ -737,14 +737,12 @@ function toggleProvider() {
       updateSetting("compareModels", []);
       closeCompareDropdown();
     }
-    showToast("Routing this chat through OpenRouter.");
   } else {
     updateSetting("provider", "klui");
     const restored = state.settings.kluiModel
       || state.models.find((m) => m.id !== OPENROUTER_VISION_MODEL)?.id
       || "";
     if (restored) updateSetting("model", restored);
-    showToast("Routing this chat through Klui.");
   }
   renderProviderToggle();
   renderModelOptions();
@@ -755,7 +753,6 @@ function toggleWebSearchMode() {
   const next = state.settings.webSearchMode === "off" ? "auto" : "off";
   updateSetting("webSearchMode", next);
   renderWebSearchToggle();
-  showToast(next === "off" ? "Web search disabled for this chat." : "Web search set to Auto.");
 }
 
 function isCouncilMode() {
@@ -1355,10 +1352,8 @@ function togglePinChat(id) {
   if (!id) return;
   if (isPinnedChat(id)) {
     state.pinnedChatIds = state.pinnedChatIds.filter((item) => item !== id);
-    showToast("Chat unpinned.");
   } else {
     state.pinnedChatIds = [id, ...state.pinnedChatIds.filter((item) => item !== id)];
-    showToast("Chat pinned.");
   }
   savePinnedChatIds();
   closeConversationMenus();
@@ -3459,7 +3454,6 @@ async function saveRenameDialog() {
     closeRenameDialog();
     renderConversations();
     if (isSearchDialogOpen()) renderSearchResults(els.searchChatInput?.value || "");
-    showToast("Chat renamed.");
   } catch (err) {
     showToast(err.message);
   }
@@ -3944,7 +3938,6 @@ async function startZiinaPayment(planId) {
   const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
   if (existing) {
     if (existing.paymentUrl) window.open(existing.paymentUrl, "_blank", "noopener");
-    showToast(`Ziina reference: ${existing.referenceCode}`);
     return;
   }
 
@@ -3954,7 +3947,6 @@ async function startZiinaPayment(planId) {
     state.paymentRequests = [request, ...(state.paymentRequests || [])];
     renderPlans();
     if (request.paymentUrl) window.open(request.paymentUrl, "_blank", "noopener");
-    showToast(`Ziina reference: ${request.referenceCode}`);
   } catch (err) {
     showToast(err.message);
   }
@@ -3970,7 +3962,6 @@ async function removeConversation(id) {
     syncConversationUrl({ replace: true });
     closeConfirmDialog();
     renderShell();
-    showToast("Chat deleted.");
   } catch (err) {
     showToast(err.message);
   }
@@ -4235,7 +4226,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
       const uploadedFile = await uploadFile(state.session, img.file);
       if (uploadedFile.category === "document") {
-        showToast(`Processing ${img.file.name}...`);
         await waitForDocumentReady(uploadedFile.id, img.file.name);
       }
       uploaded.push(uploadedFile);
@@ -4391,7 +4381,6 @@ async function updateAdminPayment(id, action) {
     if (action === "approve") await approveAdminPayment(state.session, id);
     else await rejectAdminPayment(state.session, id);
     await loadAdminDashboard();
-    showToast(action === "approve" ? "Payment approved." : "Payment rejected.");
   } catch (err) {
     showToast(err.message);
   }
@@ -4727,7 +4716,6 @@ function bindEvents() {
   els.temporaryChatToggle?.addEventListener("click", () => {
     if (!requireAuth()) return;
     setTemporaryChatMode(!state.temporaryChat);
-    showToast(state.temporaryChat ? "Temporary chat is on." : "Temporary chat is off.");
     els.promptInput?.focus();
   });
 
