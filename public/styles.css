@@ -2283,14 +2283,16 @@ body.document-viewer-resizing {
 }
 
 .thinking-status.is-active span::after {
-  content: "";
+  content: attr(data-label);
   position: absolute;
   inset: 0;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   background-image: linear-gradient(
     90deg,
     transparent 0%,
     transparent 40%,
-    var(--text-primary) 50%,
+    var(--text) 50%,
     transparent 60%,
     transparent 100%
   );
