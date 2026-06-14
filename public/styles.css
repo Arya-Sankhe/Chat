@@ -4921,11 +4921,16 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   padding: 32px;
   background: transparent;
   z-index: 40;
+  opacity: 0;
   pointer-events: none;
+  visibility: hidden;
+  transition: opacity var(--transition), visibility var(--transition);
 }
 
 .settings-drawer.open {
+  opacity: 1;
   pointer-events: auto;
+  visibility: visible;
 }
 
 .settings-panel {
