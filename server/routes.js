@@ -2438,12 +2438,13 @@ async function handleTemporaryChat(req, res, config) {
 
   const settings = normalizeMessageSettings(body);
   const userContent = buildStoredUserContent(body.text, []);
+  const promptText = contentText(userContent);
   const historyMessages = [
     ...normalizeTemporaryHistory(body.messages),
     { role: "user", content: userContent }
   ];
   const provider = resolveProvider(body.provider, config);
-  const chatRequest = normalizeChatRequest({
+  const baseChatRequest = normalizeChatRequest({
     model: body.model || OPENROUTER_TEXT_MODEL,
     messages: await buildProviderMessages({
       messages: historyMessages,
@@ -2460,6 +2461,23 @@ async function handleTemporaryChat(req, res, config) {
     imageCount: 0,
     signal: req.signal
   });
+  const agentMode = normalizeAgentMode(body.agentMode);
+  const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
+  const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
+  const detection = webSearchMode !== "off"
+    ? detectSearchNeed(promptText)
+    : { score: 0, reasons: [], hasUrls: false, urls: [] };
+  const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
+  const toolSetup = agentMode
+    ? withAvailableTools(baseChatRequest, {
+        config,
+        webMode: webSearchMode,
+        webHint: hint,
+        readyDocuments: [],
+        documentSkills: null
+      })
+    : { request: baseChatRequest, augmented: false };
+  const chatRequest = toolSetup.request;
   const controller = new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();
@@ -2473,15 +2491,30 @@ async function handleTemporaryChat(req, res, config) {
       "x-accel-buffering": "no",
       "x-klui-temporary-chat": "1"
     });
-    const { accumulated } = await streamSingleChat({
-      chatRequest,
-      crofai,
-      config,
-      provider,
-      signal: controller.signal,
-      res,
-      includeReasoning
-    });
+    const { accumulated } = toolSetup.augmented
+      ? await runChatWithToolLoop({
+          chatRequest,
+          crofai,
+          config,
+          provider,
+          signal: controller.signal,
+          websearch,
+          documents: null,
+          visualDocuments: false,
+          onUpstreamEvent: (event) => {
+            res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+          },
+          onToolEvent: (event) => { writeSse(res, event); }
+        })
+      : await streamSingleChat({
+          chatRequest,
+          crofai,
+          config,
+          provider,
+          signal: controller.signal,
+          res,
+          includeReasoning
+        });
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }
