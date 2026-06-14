@@ -1456,6 +1456,10 @@ body:not(.sidebar-expanded) .conversation-row {
   pointer-events: none;
 }
 
+.chat-panel > .temporary-chat-bar {
+  position: absolute;
+}
+
 .temporary-chat-label {
   display: inline-flex;
   align-items: center;
@@ -1463,7 +1467,7 @@ body:not(.sidebar-expanded) .conversation-row {
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--bg-primary);
+  background: var(--bg);
   color: var(--text);
   font-size: 13px;
   font-weight: 650;
@@ -1475,6 +1479,7 @@ body:not(.sidebar-expanded) .conversation-row {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-left: auto;
   width: 40px;
   height: 40px;
   border: 1px solid var(--border);
@@ -4450,6 +4455,14 @@ body[data-mode="dark"][data-chat-theme="doodle"] .chat-panel::after {
 body[data-chat-theme="doodle"] .chat-panel > * {
   position: relative;
   z-index: 1;
+}
+
+body[data-chat-theme="doodle"] .chat-panel > .temporary-chat-bar {
+  position: absolute;
+  top: 28px;
+  right: 34px;
+  left: 34px;
+  z-index: 9;
 }
 
 body[data-chat-theme="doodle"] .sidebar {
