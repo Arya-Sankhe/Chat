@@ -30,12 +30,17 @@
   --code-text: #24292f;
   --code-inline-bg: #fce8ef;
   --code-inline-text: #9b2335;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html, body { height: 100%; margin: 0; }
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
 
 body {
   background: var(--bg);
@@ -44,6 +49,11 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+}
+
+#app {
+  min-width: 0;
+  min-height: 100dvh;
 }
 
 body[data-chat-theme="cyber"] {
@@ -277,7 +287,7 @@ button { cursor: pointer; border: none; background: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: 40px 24px;
   background: var(--bg);
 }
@@ -337,7 +347,7 @@ button { cursor: pointer; border: none; background: none; }
 
 #paywallView {
   align-items: flex-start;
-  min-height: 100vh;
+  min-height: 100dvh;
   padding: clamp(36px, 6vw, 72px) 24px 44px;
   background-color: #fef9f0;
   background-image:
@@ -782,7 +792,7 @@ button { cursor: pointer; border: none; background: none; }
   grid-template-columns: var(--sidebar-active-w) minmax(0, 1fr);
   width: 100%;
   max-width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   transition: grid-template-columns 220ms ease;
 }
@@ -796,7 +806,7 @@ body.guest-mode {
 }
 
 body.document-viewer-open .app-shell {
-  grid-template-columns: var(--sidebar-active-w) minmax(360px, 1fr) minmax(360px, var(--document-viewer-w));
+  grid-template-columns: var(--sidebar-active-w) minmax(0, 1fr) minmax(300px, var(--document-viewer-w));
 }
 
 /* ─── Sidebar ─── */
@@ -810,7 +820,7 @@ body.document-viewer-open .app-shell {
   overflow: visible;
   width: var(--sidebar-active-w);
   height: 100%;
-  max-height: 100vh;
+  max-height: 100dvh;
   min-height: 0;
   transition: width 220ms ease;
 }
@@ -959,7 +969,7 @@ body.sidebar-expanded .sidebar-pin-trigger {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: min(320px, 50vh);
+  max-height: min(320px, 50dvh);
   overflow-y: auto;
 }
 
@@ -1430,7 +1440,7 @@ body:not(.sidebar-expanded) .conversation-row {
   position: relative;
   min-width: 0;
   max-width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -1493,7 +1503,7 @@ body:not(.sidebar-expanded) .conversation-row {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 100vh;
+  height: 100dvh;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   overflow: hidden;
@@ -1717,7 +1727,7 @@ body.document-viewer-resizing {
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 36px 24px 160px;
+  padding: 36px clamp(12px, 2vw, 24px) 160px;
   scroll-behavior: auto;
 }
 
@@ -2449,7 +2459,7 @@ body.document-viewer-resizing {
   right: 0;
   bottom: 0;
   z-index: 3;
-  padding: 0 24px 18px;
+  padding: 0 clamp(12px, 2vw, 24px) 18px;
   background: transparent;
   pointer-events: none;
   flex-shrink: 0;
@@ -4061,7 +4071,7 @@ body[data-chat-theme="cyber"] .app-shell {
 
 body[data-chat-theme="cyber"] .sidebar {
   margin: 14px 0 14px 14px;
-  height: calc(100vh - 28px);
+  height: calc(100dvh - 28px);
   background: var(--paper);
   border: var(--cyber-stroke) solid var(--ink);
   box-shadow: var(--cyber-drop-md);
@@ -4136,7 +4146,7 @@ body[data-chat-theme="cyber"] .plan-pay-btn {
 
 body[data-chat-theme="cyber"] .chat-panel {
   margin: 14px 20px 14px 22px;
-  height: calc(100vh - 28px);
+  height: calc(100dvh - 28px);
   background: var(--panel);
   border: var(--cyber-stroke) solid var(--ink);
   box-shadow: var(--cyber-drop-lg);
@@ -4444,7 +4454,7 @@ body[data-chat-theme="doodle"] .chat-panel > * {
 
 body[data-chat-theme="doodle"] .sidebar {
   margin: 18px 0 18px 18px;
-  height: calc(100vh - 36px);
+  height: calc(100dvh - 36px);
   padding: 14px 0;
   background: var(--glass);
   border: 2px solid var(--ink);
@@ -5047,7 +5057,7 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 
 .admin-output {
   margin-top: 10px;
-  max-height: min(620px, calc(100vh - 260px));
+  max-height: min(620px, calc(100dvh - 260px));
   overflow: auto;
   color: var(--text);
 }
@@ -5594,17 +5604,38 @@ body.chat-empty .empty-state {
   justify-content: flex-start;
   height: auto;
   min-height: 100%;
-  padding-top: calc(50vh - 240px);
+  padding-top: calc(50dvh - 240px);
   padding-bottom: 0;
 }
 
 body.chat-empty .empty-state h1 {
-  font-size: clamp(32px, 4vw, 44px);
-  line-height: 1.15;
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+body.chat-empty .composer-wrap {
+  max-width: min(820px, calc(100vw - 48px));
+}
+
+body.chat-empty .composer {
+  padding: 12px 14px 10px;
+  border-radius: 28px;
+}
+
+body.chat-empty .composer textarea {
+  min-height: 26px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+body.chat-empty .composer-bottom {
+  margin-top: 8px;
 }
 
 body.chat-empty .composer-area {
-  top: calc(50vh - 118px);
+  top: calc(50dvh - 94px);
   bottom: auto;
   padding: 0 24px;
 }
@@ -5615,12 +5646,95 @@ body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
 
 body.chat-empty[data-chat-theme="cyber"] .composer-area,
 body.chat-empty[data-chat-theme="doodle"] .composer-area {
-  top: calc(50vh - 118px);
+  top: calc(50dvh - 94px);
   bottom: auto;
   padding-inline: 24px;
 }
 
 /* ─── Responsive ─── */
+@media (max-width: 1180px) {
+  :root {
+    --content-max: 860px;
+    --composer-max: 860px;
+    --document-viewer-w: min(520px, 44vw);
+  }
+
+  body.sidebar-expanded:not(.guest-mode) {
+    --sidebar-active-w: 220px;
+  }
+
+  .message,
+  .composer-wrap {
+    max-width: min(var(--content-max), calc(100vw - var(--sidebar-active-w) - 32px));
+  }
+
+  .compare-message,
+  .council-message {
+    max-width: calc(100vw - var(--sidebar-active-w) - 32px);
+  }
+
+  .composer-actions {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 980px) {
+  :root {
+    --content-max: 760px;
+    --composer-max: 760px;
+  }
+
+  body.document-viewer-open .app-shell {
+    grid-template-columns: var(--sidebar-active-w) minmax(0, 1fr);
+  }
+
+  body.document-viewer-open .document-viewer {
+    position: fixed;
+    inset: 0 0 0 var(--sidebar-active-w);
+    z-index: 55;
+    width: auto;
+    max-width: none;
+    box-shadow: var(--shadow-lg);
+  }
+
+  body.document-viewer-open .document-viewer-resizer {
+    display: none;
+  }
+
+  .compare-grid,
+  .council-panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .council-stages {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .council-stage-sep {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  body.sidebar-expanded:not(.guest-mode) {
+    --sidebar-active-w: var(--sidebar-w);
+  }
+
+  .composer-bottom {
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .composer-actions {
+    flex-wrap: wrap;
+  }
+
+  .composer-model-wrap {
+    max-width: min(220px, 58vw);
+  }
+}
+
 @media (max-width: 768px) {
   :root {
     --sidebar-w-expanded: 211px;
@@ -5647,6 +5761,10 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
     width: 100vw;
     height: 100dvh;
     border-left: 0;
+  }
+
+  body.document-viewer-open .document-viewer {
+    inset: 0;
   }
 
   .document-viewer-resizer {
@@ -5704,12 +5822,17 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
     padding: 16px 12px 140px;
   }
 
+  .message,
+  .composer-wrap {
+    max-width: 100%;
+  }
+
   body.chat-empty .messages {
     padding-bottom: 220px;
   }
 
   body.chat-empty .empty-state {
-    padding-top: calc(50vh - 220px);
+    padding-top: calc(50dvh - 220px);
   }
 
   .empty-state h1 {
@@ -5717,8 +5840,9 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   }
 
   body.chat-empty .empty-state h1 {
-    font-size: 30px;
-    line-height: 1.15;
+    font-size: 24px;
+    font-weight: 400;
+    line-height: 1.25;
   }
 
   .composer-area {
@@ -5726,7 +5850,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   }
 
   body.chat-empty .composer-area {
-    top: calc(50vh - 108px);
+    top: calc(50dvh - 90px);
     padding: 0 12px;
   }
 
@@ -5960,7 +6084,7 @@ body.chat-empty[data-chat-theme="doodle"] .chat-panel::after {
 
 body.chat-empty[data-chat-theme="doodle"] .composer-area {
   position: absolute;
-  top: calc(50vh - 118px);
+  top: calc(50dvh - 94px);
   right: 0;
   bottom: auto;
   left: 0;
@@ -5982,9 +6106,24 @@ body.chat-empty[data-chat-theme="doodle"] .composer {
   box-shadow: var(--shadow-md);
 }
 
+body.chat-empty[data-chat-theme="cyber"] .empty-state h1,
+body.chat-empty[data-chat-theme="doodle"] .empty-state h1 {
+  font-family: var(--font-sans);
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer {
+  border-radius: 28px;
+  padding: 12px 14px 10px;
+}
+
 @media (max-width: 768px) {
   body.chat-empty[data-chat-theme="doodle"] .composer-area {
-    top: calc(50vh - 108px);
+    top: calc(50dvh - 90px);
     padding: 0 12px;
   }
 }
