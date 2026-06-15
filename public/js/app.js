@@ -183,6 +183,7 @@ const els = {
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
   promptInput: document.querySelector("#promptInput"),
+  temporaryChatBar: document.querySelector(".temporary-chat-bar"),
   temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
   temporaryChatLabel: document.querySelector("#temporaryChatLabel"),
   imagePreviews: document.querySelector("#imagePreviews"),
@@ -312,7 +313,8 @@ function temporaryHistoryForRequest() {
 
 function renderTemporaryChatMode() {
   document.body.classList.toggle("temporary-chat", state.temporaryChat);
-  const onEmptyChat = document.body.classList.contains("chat-empty");
+  const onEmptyChat = !state.messages.length;
+  els.temporaryChatBar?.classList.toggle("hidden", !onEmptyChat);
   els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat || !onEmptyChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
