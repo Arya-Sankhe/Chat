@@ -196,6 +196,8 @@ const els = {
   sendButton: document.querySelector("#sendButton"),
   stopButton: document.querySelector("#stopButton"),
   settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
+  settingsModelParamsSection: document.querySelector("#settingsModelParamsSection"),
+  settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
   temperatureInput: document.querySelector("#temperatureInput"),
@@ -206,7 +208,6 @@ const els = {
   themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
-  modelDetails: document.querySelector("#modelDetails"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
@@ -840,6 +841,7 @@ function renderShell() {
   els.guestLoginPanel?.classList.toggle("hidden", !guest);
   renderAuthOptions();
   renderTemporaryChatMode();
+  renderAdminOnlyControls();
 
   if (!servicesReady()) {
     renderServices();
@@ -1824,9 +1826,6 @@ function renderCompareControls() {
 function renderModelOptions() {
   const mode = selectedModelMode();
   const displayName = modelModeLabel(mode);
-  if (els.modelDetails) {
-    els.modelDetails.innerHTML = `<div class="model-empty">${mode === "pro" ? "For the most complex tasks." : "Best model for most tasks."}</div>`;
-  }
 
   els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
   els.modelButton.classList.remove("has-brand-logo");
@@ -2012,6 +2011,13 @@ function markAssistantActivityDoneTree(message) {
 
 function isAdminUser() {
   return state.me?.profile?.role === "admin";
+}
+
+function renderAdminOnlyControls() {
+  const admin = isAdminUser();
+  els.settingsModelParamsSection?.classList.toggle("hidden", !admin);
+  els.settingsSystemPromptSection?.classList.toggle("hidden", !admin);
+  els.settingsButtonAlt?.classList.toggle("hidden", !admin);
 }
 
 function reasoningSummaryLabel(message, { streaming = false } = {}) {
@@ -4719,11 +4725,16 @@ function bindEvents() {
     signOutAndReset();
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
-  els.settingsButtonAlt.addEventListener("click", () => {
+  els.settingsButtonAlt?.addEventListener("click", () => {
     closeActionMenu();
     openSettings();
   });
   els.closeSettingsButton.addEventListener("click", closeSettings);
+  els.settingsDrawer?.addEventListener("click", (event) => {
+    if (!els.settingsDrawer.classList.contains("open")) return;
+    if (event.target.closest(".settings-panel")) return;
+    closeSettings();
+  });
 
   els.overlay.addEventListener("click", () => {
     const mode = els.overlay.dataset.mode;
