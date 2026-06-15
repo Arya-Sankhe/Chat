@@ -42,7 +42,7 @@ import { assertUpload, documentKindFromFileName, R2Client } from "./storage/r2.j
 import { DocumentService, buildUntrustedDocumentContext } from "./documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "./documents/skills.js";
 import { buildDocumentTools } from "./documents/tool.js";
-import { WebSearchOrchestrator } from "./websearch/index.js";
+import { WebSearchOrchestrator, formatResultsForModel } from "./websearch/index.js";
 import {
   buildWebSearchTools,
   prepareVisualPagesForModel,
@@ -1157,9 +1157,25 @@ export async function runSharedPreSearch({ websearch, userText, mode, signal }) 
     return { contextMessage: "", citations: [], providers: [], detection };
   }
 
-  const formatted = result.results
-    .map((entry) => `[${entry.index}] ${entry.title}\nURL: ${entry.url}\n${entry.content || entry.snippet || ""}`)
-    .join("\n\n---\n\n");
+  /* SERP providers (SearXNG) return empty `content`; deep-read the top
+     results so the model has the actual page text — same outcome as the
+     single-agent path's `read_url` follow-up. Skip providers (Jina/Brave)
+     that already returned body content. */
+  const deepProviders = new Set();
+  const needDeepRead = result.results.some((entry) => !entry.content);
+  if (needDeepRead) {
+    for (const entry of result.results.slice(0, 2)) {
+      if (entry.content) continue;
+      const read = await websearch.readUrl({ url: entry.url, signal });
+      if (read.ok && read.content) {
+        entry.content = read.content;
+        if (!entry.publishedAt && read.publishedAt) entry.publishedAt = read.publishedAt;
+        if (read.provider) deepProviders.add(read.provider);
+      }
+    }
+  }
+
+  const formatted = formatResultsForModel(result.results);
 
   const citations = result.results.map((entry) => ({
     index: entry.index,
@@ -1176,7 +1192,7 @@ export async function runSharedPreSearch({ websearch, userText, mode, signal }) 
       formatted
     }),
     citations,
-    providers: result.provider ? [result.provider] : [],
+    providers: result.provider ? [result.provider, ...deepProviders] : Array.from(deepProviders),
     detection
   };
 }

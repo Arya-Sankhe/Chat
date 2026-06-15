@@ -94,8 +94,16 @@ test("runSharedPreSearch searches in auto mode even when heuristic score is zero
         }]
       };
     },
-    async readUrl() {
-      throw new Error("readUrl should not be called for non-URL prompts");
+    async readUrl({ url }) {
+      calls.push({ type: "readUrl", url });
+      return {
+        ok: true,
+        provider: "jina",
+        title: "MiniMax M3 reviews (full)",
+        url,
+        content: "Full body of the MiniMax M3 reviews page.",
+        publishedAt: null
+      };
     }
   };
 
@@ -106,11 +114,15 @@ test("runSharedPreSearch searches in auto mode even when heuristic score is zero
     signal: new AbortController().signal
   });
 
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].type, "search");
-  assert.equal(result.providers[0], "searxng");
+  assert.equal(calls[1].type, "readUrl");
+  assert.equal(calls[1].url, "https://example.com/minimax-m3");
+  assert.ok(result.providers.includes("searxng"));
+  assert.ok(result.providers.includes("jina"));
   assert.equal(result.citations.length, 1);
   assert.match(result.contextMessage, /MiniMax M3 reviews/);
+  assert.match(result.contextMessage, /Full body of the MiniMax M3 reviews page/);
 });
 
 test("runSharedPreSearch still reads pasted URLs instead of searching", async () => {
