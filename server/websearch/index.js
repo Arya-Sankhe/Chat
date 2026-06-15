@@ -318,7 +318,7 @@ export function formatResultsForModel(results) {
   return results
     .map((entry) => {
       const lines = [
-        `[${entry.index}] ${entry.title}`,
+        entry.title,
         `URL: ${entry.url}`,
         entry.publishedAt ? `Published: ${entry.publishedAt}` : null,
         entry.snippet ? `Snippet: ${entry.snippet}` : null,

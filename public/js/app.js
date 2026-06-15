@@ -3011,6 +3011,7 @@ function renderCompareResponse(raw, index) {
 }
 
 function renderCompareMessage(messages) {
+  const sharedCitations = (messages || []).map((m) => renderCitations(m)).find((html) => html);
   return `
     <article class="message assistant compare-message">
       <div class="message-body">
@@ -3018,6 +3019,7 @@ function renderCompareMessage(messages) {
         <div class="compare-grid">
           ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
         </div>
+        ${sharedCitations ? `<div class="message-footer-sources">${sharedCitations}</div>` : ""}
       </div>
     </article>
   `;
@@ -4335,12 +4337,15 @@ async function executeSend({ text, images, compareModels, council = false, descr
       ballots: []
     };
   } else if (compareModels.length) {
+    const stamp = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     localAssistant = {
-      id: `local_compare_${Date.now()}`,
+      id: `local_compare_${stamp}`,
       role: "assistant",
       compareGroup: true,
       compareResponses: compareModels.map((model) => ({
-        id: `local_compare_${model}_${Date.now()}`,
+        id: `local_compare_${model}_${stamp}`,
         role: "assistant",
         model,
         content: "",
@@ -4359,6 +4364,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
   }
 
   markAssistantActivityTree(localAssistant);
+  /* Drop any cancelled local compare/council group from the previous send
+     so its stale "Stopped by user" bubbles can't collide with the new
+     streaming ids in the DOM. */
+  if (localAssistant.compareGroup || localAssistant.councilGroup) {
+    state.messages = state.messages.filter((m) => {
+      if (m === localAssistant) return true;
+      if (m.role !== "assistant") return true;
+      if (!m.stopped) return true;
+      return !(m.compareGroup || m.councilGroup);
+    });
+  }
   state.messages.push(localUser, localAssistant);
   els.promptInput.value = "";
   applyComposerHeight();

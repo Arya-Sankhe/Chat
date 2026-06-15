@@ -452,8 +452,8 @@ describe("WebSearchOrchestrator", () => {
     const text = formatResultsForModel([
       { index: 1, title: "T", url: "https://u", snippet: "s", content: "c", publishedAt: null }
     ]);
-    assert.match(text, /\[1] T/);
-    assert.match(text, /URL: https:\/\/u/);
+    assert.match(text, /^T\nURL: https:\/\/u/);
+    assert.doesNotMatch(text, /\[1\]/);
     assert.match(text, /Snippet: s/);
     assert.match(text, /Content:\nc/);
   });
