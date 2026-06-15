@@ -1,0 +1,24 @@
+use_default_settings: true
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "klui-internal-searxng-change-me"
+  limiter: false
+  image_proxy: false
+
+ui:
+  static_use_hash: true
+
+engines:
+  - name: duckduckgo
+    disabled: false
+  - name: bing
+    disabled: false

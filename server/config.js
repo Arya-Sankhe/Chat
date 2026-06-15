@@ -36,8 +36,9 @@ function readSearchMode(value) {
 }
 
 function readSearchProvider(value) {
-  const provider = clean(value || "jina").toLowerCase();
-  return provider === "brave" ? "brave" : "jina";
+  const provider = clean(value || "searxng").toLowerCase();
+  if (provider === "jina" || provider === "brave" || provider === "searxng") return provider;
+  return "searxng";
 }
 
 function readJinaEngine(value) {
@@ -61,6 +62,14 @@ function loadSearchLimits(env) {
     limits[planId] = readInt(env[`WEBSEARCH_DAILY_LIMIT_${planId.toUpperCase()}`], fallback);
   }
   return limits;
+}
+
+function readList(value, fallback = []) {
+  const entries = clean(value)
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return entries.length ? entries : fallback;
 }
 
 export function loadConfig(env = process.env) {
@@ -154,6 +163,10 @@ export function loadConfig(env = process.env) {
         .map((entry) => entry.trim().toLowerCase())
         .filter(Boolean),
       dailyLimits: loadSearchLimits(env),
+      searxng: {
+        baseUrl: cleanUrl(env.SEARXNG_BASE_URL) || "http://searxng:8080",
+        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo", "bing"])
+      },
       jina: {
         apiKey: clean(env.JINA_API_KEY),
         engine: readJinaEngine(env.JINA_SEARCH_ENGINE)
@@ -172,7 +185,7 @@ export function configuredServices(config) {
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
-    websearch: Boolean(config.websearch.jina.apiKey || config.websearch.brave.apiKey),
+    websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
     documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket)
   };
 }

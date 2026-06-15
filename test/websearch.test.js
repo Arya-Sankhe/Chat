@@ -6,6 +6,7 @@ import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/
 import { WebSearchOrchestrator, formatResultsForModel } from "../server/websearch/index.js";
 import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
+import { loadConfig } from "../server/config.js";
 
 const realFetch = globalThis.fetch;
 
@@ -85,6 +86,7 @@ const baseConfig = {
   maxToolCallsPerTurn: 3,
   denyDomains: [],
   dailyLimits: { pro: 100 },
+  searxng: { baseUrl: "http://searxng:8080", engines: ["duckduckgo", "bing"] },
   jina: { apiKey: "test-jina-key", backend: "google", engine: "direct" },
   brave: { apiKey: "test-brave-key" }
 };
@@ -171,6 +173,57 @@ describe("cache", () => {
 describe("WebSearchOrchestrator", () => {
   after(() => restoreFetch());
 
+  test("config defaults to SearXNG search with internal Docker URL", () => {
+    const config = loadConfig({});
+    assert.equal(config.websearch.primaryProvider, "searxng");
+    assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
+    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo", "bing"]);
+  });
+
+  test("SearXNG search success returns normalized snippet-only results", async () => {
+    let capturedUrl;
+    installFetch(async (url) => {
+      capturedUrl = new URL(String(url));
+      return jsonResponse({
+        results: [
+          {
+            url: "https://example.com/news",
+            title: "Example News",
+            content: "A relevant search snippet.",
+            publishedDate: "2026-06-01"
+          },
+          {
+            url: "https://example.com/news",
+            title: "Duplicate",
+            content: "duplicate"
+          },
+          {
+            url: "https://example.org/other",
+            title: "Other Result",
+            content: "Another snippet."
+          }
+        ]
+      });
+    });
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "latest ai news", freshness: "week" });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "searxng");
+    assert.equal(result.results.length, 2);
+    assert.equal(result.results[0].title, "Example News");
+    assert.equal(result.results[0].snippet, "A relevant search snippet.");
+    assert.equal(result.results[0].content, "");
+    assert.equal(result.results[0].publishedAt, "2026-06-01");
+    assert.equal(capturedUrl.origin, "http://searxng:8080");
+    assert.equal(capturedUrl.pathname, "/search");
+    assert.equal(capturedUrl.searchParams.get("format"), "json");
+    assert.equal(capturedUrl.searchParams.get("engines"), "duckduckgo,bing");
+    assert.equal(capturedUrl.searchParams.get("time_range"), "week");
+  });
+
   test("Jina search success returns normalized results", async () => {
     let capturedUrl;
     let capturedOptions;
@@ -233,6 +286,73 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(stage, "brave");
     assert.equal(result.results[0].title, "Brave A");
     assert.equal(result.results[0].publishedAt, "2026-05-22");
+  });
+
+  test("falls back from SearXNG to Jina when SearXNG fails", async () => {
+    let stage = "searxng";
+    installFetch(async (url) => {
+      if (String(url).includes("searxng:8080")) {
+        return new Response("upstream busy", { status: 502 });
+      }
+      stage = "jina";
+      return jsonResponse({
+        data: [{ url: "https://j.example/1", title: "Jina A", description: "jina snippet", content: "jina content" }]
+      });
+    });
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "anything" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "jina");
+    assert.equal(stage, "jina");
+    assert.equal(result.results[0].content, "jina content");
+  });
+
+  test("SearXNG 403 surfaces a JSON-format configuration error", async () => {
+    installFetch(async () => new Response("json disabled", { status: 403 }));
+    const config = {
+      ...baseConfig,
+      primaryProvider: "searxng",
+      jina: { ...baseConfig.jina, apiKey: "" },
+      brave: { apiKey: "" }
+    };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "json disabled" });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.provider, "searxng");
+    assert.equal(result.error.status, 403);
+    assert.match(result.error.message, /Enable `search\.formats/);
+  });
+
+  test("SearXNG web_search does not auto-read pages; readUrl still uses Jina Reader", async () => {
+    const called = [];
+    installFetch(async (url) => {
+      called.push(String(url));
+      if (String(url).includes("searxng:8080")) {
+        return jsonResponse({
+          results: [{ url: "https://example.com/a", title: "A", content: "snippet A" }]
+        });
+      }
+      if (String(url).startsWith("https://r.jina.ai/")) {
+        return jsonResponse({ data: { title: "Read A", content: "full page A" } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const search = await orchestrator.search({ query: "snippet only" });
+    assert.equal(search.ok, true);
+    assert.equal(search.provider, "searxng");
+    assert.equal(called.length, 1);
+    assert.equal(called.some((url) => url.startsWith("https://r.jina.ai/")), false);
+
+    const read = await orchestrator.readUrl({ url: "https://example.com/a" });
+    assert.equal(read.ok, true);
+    assert.equal(read.provider, "jina");
+    assert.equal(read.content, "full page A");
+    assert.equal(called.some((url) => url === "https://r.jina.ai/https://example.com/a"), true);
   });
 
   test("Brave current LLM Context schema returns normalized context", async () => {

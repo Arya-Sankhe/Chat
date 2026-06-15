@@ -9,6 +9,30 @@ services:
     environment:
       PORT: 3000
       HOST: 0.0.0.0
+      WEBSEARCH_PRIMARY_PROVIDER: searxng
+      SEARXNG_BASE_URL: http://searxng:8080
+    depends_on:
+      searxng:
+        condition: service_healthy
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    expose:
+      - "8080"
+    volumes:
+      - ./ops/searxng:/etc/searxng:ro
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-klui-local-searxng-change-me}
+    mem_limit: 512m
+    cpus: "0.75"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   document-worker:

@@ -113,7 +113,7 @@ export function buildWebSearchTools({ maxResults = 5 } = {}) {
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the live web for current information. Use ONLY when the answer depends on facts you may not have — current events, today's news, prices, scores, recent releases, weather, or anything time-sensitive — or when the user explicitly asks you to search. Do not use for general knowledge, definitions, code help, math, or stable historical facts.",
+        description: "Search the live web for current information. Use ONLY when the answer depends on facts you may not have — current events, today's news, prices, scores, recent releases, weather, or anything time-sensitive — or when the user explicitly asks you to search. Search results may only include snippets; call read_url for a specific result when you need exact page content. Do not use for general knowledge, definitions, code help, math, or stable historical facts.",
         parameters: {
           type: "object",
           properties: {

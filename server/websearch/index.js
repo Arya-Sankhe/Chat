@@ -4,8 +4,9 @@
  * which provider answered.
  *
  * Provider chain (default):
- *   1. Jina  (s.jina.ai)        — primary, search + extracted content in one call
- *   2. Brave (LLM Context)      — fallback when Jina fails or is rate-limited
+ *   1. SearXNG                  — primary, cheap SERP/snippet discovery
+ *   2. Jina  (s.jina.ai)        — fallback, search + extracted content
+ *   3. Brave (LLM Context)      — fallback when paid/search providers fail
  *
  * A tiny circuit breaker flips to the fallback for 5 minutes if the
  * primary returns 3 consecutive 5xx/429 within 60 seconds.
@@ -14,6 +15,7 @@
 import { braveSearch } from "./brave.js";
 import { hashKey, SearchCache } from "./cache.js";
 import { jinaRead, jinaSearch, WebSearchError } from "./jina.js";
+import { searxngSearch } from "./searxng.js";
 
 const CIRCUIT_BREAKER_THRESHOLD = 3;
 const CIRCUIT_BREAKER_WINDOW_MS = 60_000;
@@ -61,22 +63,24 @@ export class WebSearchOrchestrator {
       persistent: persistentCache
     });
     this.health = {
+      searxng: new ProviderHealth("searxng"),
       jina: new ProviderHealth("jina"),
       brave: new ProviderHealth("brave")
     };
   }
 
   get hasAnyProvider() {
-    return Boolean(this.config.jina.apiKey || this.config.brave.apiKey);
+    return Boolean(this.config.searxng?.baseUrl || this.config.jina?.apiKey || this.config.brave?.apiKey);
   }
 
   resolveChain() {
-    const requested = this.config.primaryProvider === "brave" ? "brave" : "jina";
-    const primary = this.providerAvailable(requested)
-      ? requested
-      : (requested === "jina" ? "brave" : "jina");
-    const fallback = primary === "jina" ? "brave" : "jina";
-    return [primary, fallback];
+    const providers = ["searxng", "jina", "brave"];
+    const requested = providers.includes(this.config.primaryProvider)
+      ? this.config.primaryProvider
+      : "searxng";
+    if (requested === "jina") return ["jina", "brave", "searxng"];
+    if (requested === "brave") return ["brave", "searxng", "jina"];
+    return ["searxng", "jina", "brave"];
   }
 
   filterDeniedDomains(results) {
@@ -115,6 +119,7 @@ export class WebSearchOrchestrator {
 
     const cacheKey = hashKey({
       kind: "search",
+      providers: this.resolveChain().filter((provider) => this.providerAvailable(provider)).join(",") || "none",
       query: normalizedQuery.toLowerCase(),
       numResults: numResults || this.config.maxResults,
       freshness: freshness || null,
@@ -263,15 +268,24 @@ export class WebSearchOrchestrator {
   }
 
   providerAvailable(name) {
+    if (name === "searxng") return Boolean(this.config.searxng?.baseUrl);
     /* s.jina.ai (search) requires an API key. r.jina.ai (reader) is the
        only Jina endpoint with a real anonymous tier, so readUrl can still
        call Jina without a key — but plain search cannot. */
-    if (name === "jina") return Boolean(this.config.jina.apiKey);
-    if (name === "brave") return Boolean(this.config.brave.apiKey);
+    if (name === "jina") return Boolean(this.config.jina?.apiKey);
+    if (name === "brave") return Boolean(this.config.brave?.apiKey);
     return false;
   }
 
   async callProvider(name, params) {
+    if (name === "searxng") {
+      return searxngSearch({
+        ...params,
+        baseUrl: this.config.searxng.baseUrl,
+        engines: this.config.searxng.engines,
+        timeoutMs: this.config.fetchTimeoutMs
+      });
+    }
     if (name === "jina") {
       return jinaSearch({
         ...params,
