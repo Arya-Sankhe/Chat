@@ -312,7 +312,8 @@ function temporaryHistoryForRequest() {
 
 function renderTemporaryChatMode() {
   document.body.classList.toggle("temporary-chat", state.temporaryChat);
-  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat);
+  const onEmptyChat = document.body.classList.contains("chat-empty");
+  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat || !onEmptyChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
     els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
@@ -3132,7 +3133,6 @@ function renderCouncilSynthesis(chairman) {
   if (!chairman) {
     return `<div class="council-synthesis">
       <div class="council-synthesis-head">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
         <span>Council Synthesis</span>
       </div>
       <div class="council-synthesis-pending">Waiting for the chairman to synthesize the final answer…</div>
@@ -3148,7 +3148,6 @@ function renderCouncilSynthesis(chairman) {
   return `
     <div class="council-synthesis"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="council-synthesis-head">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3 6 6 1-4.5 4.5L18 20l-6-3-6 3 1.5-6.5L3 9l6-1z"/></svg>
         <span>Council Synthesis</span>
         <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
@@ -3200,6 +3199,7 @@ function renderCouncilMessage(council) {
 
 function renderMessages() {
   document.body.classList.toggle("chat-empty", !state.messages.length);
+  renderTemporaryChatMode();
   if (!state.messages.length) {
     const title = state.session ? getGreeting() : "What can I help you with?";
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${escapeHtml(title)}</h1></div></div>`;

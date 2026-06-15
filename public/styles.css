@@ -1021,9 +1021,10 @@ body.sidebar-expanded .sidebar-pin-trigger {
 .sidebar-section-label {
   display: none;
   padding: 4px 10px 6px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
 
 body.sidebar-expanded .sidebar-section-label {
