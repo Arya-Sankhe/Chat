@@ -1902,7 +1902,7 @@ async function handleCompareConversationMessage({
         throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
       }
 
-      const compareDurationMeta = reasoningDurationMetadata(null, accumulated);
+      const compareDurationMeta = reasoningDurationMetadata(assistantMessage.metadata, accumulated);
       await context.db.updateMessage(context.user.id, assistantMessage.id, {
         content: accumulated.content,
         reasoning: accumulated.reasoning,
