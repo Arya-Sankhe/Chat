@@ -190,8 +190,8 @@ describe("WebSearchOrchestrator", () => {
         results: [
           {
             url: "https://example.com/news",
-            title: "Example News",
-            content: "A relevant search snippet.",
+            title: "Latest AI News",
+            content: "A relevant search snippet about artificial intelligence.",
             publishedDate: "2026-06-01"
           },
           {
@@ -201,8 +201,8 @@ describe("WebSearchOrchestrator", () => {
           },
           {
             url: "https://example.org/other",
-            title: "Other Result",
-            content: "Another snippet."
+            title: "Other AI News Result",
+            content: "Another artificial intelligence news snippet."
           }
         ]
       });
@@ -215,8 +215,8 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.ok, true);
     assert.equal(result.provider, "searxng");
     assert.equal(result.results.length, 2);
-    assert.equal(result.results[0].title, "Example News");
-    assert.equal(result.results[0].snippet, "A relevant search snippet.");
+    assert.equal(result.results[0].title, "Latest AI News");
+    assert.equal(result.results[0].snippet, "A relevant search snippet about artificial intelligence.");
     assert.equal(result.results[0].content, "");
     assert.equal(result.results[0].publishedAt, "2026-06-01");
     assert.equal(capturedUrl.origin, "http://searxng:8080");
@@ -226,6 +226,99 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(capturedUrl.searchParams.get("time_range"), "week");
     assert.equal(capturedOptions.headers["x-forwarded-for"], "127.0.0.1");
     assert.equal(capturedOptions.headers["x-real-ip"], "127.0.0.1");
+  });
+
+  test("SearXNG filters generic retail and dictionary noise from local intent searches", async () => {
+    installFetch(async () => jsonResponse({
+      results: [
+        {
+          url: "https://www.cntravellerme.com/story/best-beachfront-restaurants-dubai",
+          title: "The 23 best beachfront restaurants in Dubai",
+          content: "Seafood spots, beach clubs, and restaurants around Dubai."
+        },
+        {
+          url: "https://www.bestbuy.com/",
+          title: "Best Buy | Official Online Store | Shop Now & Save",
+          content: "Shop electronics, appliances, and deals."
+        },
+        {
+          url: "https://dictionary.cambridge.org/dictionary/english/best",
+          title: "BEST | English meaning - Cambridge Dictionary",
+          content: "Meaning of best in English."
+        },
+        {
+          url: "https://seafoodslurps.com/best-seafood-buffet-dubai",
+          title: "2026 Ranked: Best Seafood Buffet in Dubai",
+          content: "A Dubai seafood buffet guide with restaurant picks."
+        },
+        {
+          url: "https://wordreference.com/definition/best",
+          title: "best - WordReference.com Dictionary of English",
+          content: "Dictionary entry."
+        }
+      ]
+    }));
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({ query: "best seafood restuarents dubai?", numResults: 5 });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(
+      result.results.map((entry) => new URL(entry.url).hostname.replace(/^www\./, "")),
+      ["cntravellerme.com", "seafoodslurps.com"]
+    );
+    assert.deepEqual(result.results.map((entry) => entry.index), [1, 2]);
+  });
+
+  test("SearXNG keeps Reddit-style results while dropping generic shopping noise", async () => {
+    installFetch(async () => jsonResponse({
+      results: [
+        {
+          url: "https://www.bestbuy.com/",
+          title: "Best Buy | Official Online Store | Shop Now & Save",
+          content: "Shop electronics."
+        },
+        {
+          url: "https://www.reddit.com/r/fragrance/comments/cheap_perfume/",
+          title: "What is your best cheap perfume that gets so many compliments?",
+          content: "Reddit users discuss budget fragrances for men."
+        },
+        {
+          url: "https://dictionary.cambridge.org/dictionary/english/top",
+          title: "TOP | English meaning - Cambridge Dictionary",
+          content: "Meaning of top in English."
+        },
+        {
+          url: "https://shop.topsmarkets.com/",
+          title: "Tops Markets Delivery or Pickup Near Me",
+          content: "Grocery delivery."
+        },
+        {
+          url: "https://www.reddit.com/r/AskMen/comments/affordable_fragrance/",
+          title: "Which perfumes smell great but aren't expensive?",
+          content: "Men recommend affordable perfume and fragrance options."
+        },
+        {
+          url: "https://www.canva.com/",
+          title: "Canva: Visual Suite for Everyone",
+          content: "Design anything."
+        }
+      ]
+    }));
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({
+      query: "can u give me a quick top 5 cheap perfumes, tell me based on what real people are saying on stuff like reddit for men",
+      numResults: 5
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.results.map((entry) => new URL(entry.url).hostname.replace(/^www\./, "")), [
+      "reddit.com",
+      "reddit.com"
+    ]);
   });
 
   test("Jina search success returns normalized results", async () => {

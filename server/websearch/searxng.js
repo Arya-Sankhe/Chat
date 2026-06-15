@@ -40,6 +40,127 @@ function normalizeEngines(engines) {
     .filter(Boolean);
 }
 
+const QUERY_STOPWORDS = new Set([
+  "about", "again", "also", "and", "any", "are", "based", "best", "can", "could", "for", "from", "get",
+  "give", "good", "great", "help", "how", "like", "look", "looking", "me", "more", "near", "now", "of",
+  "on", "or", "please", "quick", "quickly", "show", "some", "stuff", "tell", "the", "these", "this",
+  "those", "to", "top", "tops", "want", "what", "where", "who", "with", "you", "your"
+]);
+
+const TOKEN_ALIASES = new Map([
+  ["restaraunt", "restaurant"],
+  ["restaraunts", "restaurant"],
+  ["restuarent", "restaurant"],
+  ["restuarents", "restaurant"],
+  ["resturant", "restaurant"],
+  ["resturants", "restaurant"],
+  ["restaurants", "restaurant"],
+  ["restos", "restaurant"],
+  ["perfumes", "perfume"],
+  ["fragrances", "fragrance"]
+]);
+
+const NOISY_SOURCE_HOSTS = [
+  "bestbuy.com",
+  "bestbuy.ca",
+  "dictionary.cambridge.org",
+  "merriam-webster.com",
+  "wordreference.com",
+  "topsmarkets.com",
+  "shop.topsmarkets.com",
+  "canva.com"
+];
+
+function normalizeToken(value) {
+  let token = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!token) return "";
+  token = TOKEN_ALIASES.get(token) || token;
+  if (token.length > 4 && token.endsWith("s") && !token.endsWith("ss")) {
+    token = TOKEN_ALIASES.get(token.slice(0, -1)) || token.slice(0, -1);
+  }
+  return TOKEN_ALIASES.get(token) || token;
+}
+
+function tokenize(value, { keepStopwords = false } = {}) {
+  return String(value || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map(normalizeToken)
+    .filter((token) => token.length >= 3)
+    .filter((token) => keepStopwords || !QUERY_STOPWORDS.has(token));
+}
+
+function queryTerms(query) {
+  return [...new Set(tokenize(query))].slice(0, 12);
+}
+
+function urlParts(value) {
+  try {
+    const parsed = new URL(value);
+    return {
+      host: parsed.hostname.replace(/^www\./, "").toLowerCase(),
+      path: parsed.pathname.replace(/[/-]+/g, " ")
+    };
+  } catch {
+    return { host: "", path: "" };
+  }
+}
+
+function resultRelevance({ title, snippet, url }, terms) {
+  if (!terms.length) return 1;
+  const { host, path } = urlParts(url);
+  const haystackText = `${title} ${snippet} ${host.replace(/\./g, " ")} ${path}`;
+  const haystack = haystackText.toLowerCase();
+  const tokens = new Set(tokenize(haystackText, { keepStopwords: true }));
+  let score = 0;
+  for (const term of terms) {
+    if (tokens.has(term) || haystack.includes(term)) score += 1;
+  }
+  return score;
+}
+
+function isNoisyResult({ title, url }, score, terms) {
+  const { host } = urlParts(url);
+  const titleLower = String(title || "").toLowerCase();
+  const noisyHost = NOISY_SOURCE_HOSTS.some((entry) => host === entry || host.endsWith(`.${entry}`));
+  const dictionaryResult = /\b(dictionary|definition|meaning)\b/.test(titleLower);
+  if (dictionaryResult && !terms.some((term) => ["definition", "dictionary", "meaning"].includes(term))) return true;
+  return noisyHost && score < Math.min(2, Math.max(1, terms.length));
+}
+
+function selectRelevantResults(candidates, query, limit) {
+  const terms = queryTerms(query);
+  if (!candidates.length) return [];
+
+  const scored = candidates.map((result, originalIndex) => {
+    const score = resultRelevance(result, terms);
+    return {
+      result,
+      originalIndex,
+      score,
+      noisy: isNoisyResult(result, score, terms)
+    };
+  });
+
+  const strictThreshold = terms.length <= 1 ? 1 : Math.min(2, terms.length);
+  const strict = scored.filter((entry) => !entry.noisy && entry.score >= strictThreshold);
+  const loose = scored.filter((entry) => !entry.noisy && entry.score >= 1);
+  const clean = scored.filter((entry) => !entry.noisy);
+  const selectedPool = [...strict];
+  for (const entry of loose) {
+    if (selectedPool.length >= limit) break;
+    if (!selectedPool.includes(entry)) selectedPool.push(entry);
+  }
+  if (!selectedPool.length) selectedPool.push(...(clean.length ? clean : scored));
+
+  const selected = selectedPool
+    .sort((a, b) => a.originalIndex - b.originalIndex)
+    .slice(0, limit)
+    .map((entry, index) => ({ ...entry.result, index: index + 1 }));
+
+  return selected;
+}
+
 /**
  * Search through an internal SearXNG instance. This is intentionally a
  * SERP/snippet provider only; exact page extraction stays with read_url.
@@ -124,20 +245,21 @@ export async function searxngSearch({
   }
 
   const data = Array.isArray(payload?.results) ? payload.results : [];
-  const normalized = [];
+  const candidates = [];
   const seenUrls = new Set();
   const limit = Math.max(1, Math.min(20, Number(numResults) || 5));
+  const scanLimit = Math.min(40, Math.max(limit * 4, limit));
 
   for (const item of data) {
-    if (normalized.length >= limit) break;
+    if (candidates.length >= scanLimit) break;
     const url = typeof item?.url === "string" ? item.url.trim() : "";
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
 
     const title = String(item.title || url).replace(/\s+/g, " ").trim();
     const snippet = String(item.content || item.snippet || "").replace(/\s+/g, " ").trim();
-    normalized.push({
-      index: normalized.length + 1,
+    candidates.push({
+      index: candidates.length + 1,
       title: title.slice(0, 300),
       url,
       snippet: snippet.slice(0, 500),
@@ -149,7 +271,7 @@ export async function searxngSearch({
   return {
     provider: "searxng",
     query: params.get("q"),
-    results: normalized,
+    results: selectRelevantResults(candidates, params.get("q"), limit),
     tokens: null
   };
 }
