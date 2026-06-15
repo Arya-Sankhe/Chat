@@ -6,6 +6,7 @@ import {
   buildDirectPdfVisualContext,
   installStableRequestSignal,
   normalizeAgentMode,
+  runSharedPreSearch,
   shouldSuppressWebSearchForDocumentTurn
 } from "../server/routes.js";
 
@@ -72,6 +73,76 @@ test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups chea
     detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
     documentSkills
   }), false);
+});
+
+test("runSharedPreSearch searches in auto mode even when heuristic score is zero", async () => {
+  const calls = [];
+  const websearch = {
+    async search(args) {
+      calls.push({ type: "search", ...args });
+      return {
+        ok: true,
+        provider: "searxng",
+        query: args.query,
+        results: [{
+          index: 1,
+          title: "MiniMax M3 reviews",
+          url: "https://example.com/minimax-m3",
+          snippet: "Recent user reviews and discussion.",
+          content: "",
+          publishedAt: null
+        }]
+      };
+    },
+    async readUrl() {
+      throw new Error("readUrl should not be called for non-URL prompts");
+    }
+  };
+
+  const result = await runSharedPreSearch({
+    websearch,
+    userText: "what are the reviews on the MiniMax M3 model?",
+    mode: "auto",
+    signal: new AbortController().signal
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].type, "search");
+  assert.equal(result.providers[0], "searxng");
+  assert.equal(result.citations.length, 1);
+  assert.match(result.contextMessage, /MiniMax M3 reviews/);
+});
+
+test("runSharedPreSearch still reads pasted URLs instead of searching", async () => {
+  const calls = [];
+  const websearch = {
+    async search() {
+      throw new Error("search should not be called for URL-only prompts");
+    },
+    async readUrl({ url }) {
+      calls.push(url);
+      return {
+        ok: true,
+        provider: "jina",
+        title: "Article",
+        url,
+        content: "Fetched article content.",
+        publishedAt: null
+      };
+    }
+  };
+
+  const result = await runSharedPreSearch({
+    websearch,
+    userText: "read https://example.com/article",
+    mode: "auto",
+    signal: new AbortController().signal
+  });
+
+  assert.deepEqual(calls, ["https://example.com/article"]);
+  assert.equal(result.providers[0], "jina");
+  assert.equal(result.citations[0].url, "https://example.com/article");
+  assert.match(result.contextMessage, /Fetched article content/);
 });
 
 test("buildDirectPdfVisualContext attaches only relevant ready PDF pages", async () => {

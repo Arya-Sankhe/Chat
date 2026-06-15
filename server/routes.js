@@ -1099,23 +1099,20 @@ function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocume
 }
 
 /**
- * Council & Compare can't easily tool-call in parallel, so when the
- * heuristic detector strongly suggests a search we run it ONCE on the
- * user's prompt before the parallel models run and share the results
- * with every model as untrusted user-context, not system authority.
+ * Council & Compare can't easily tool-call in parallel, so when web
+ * search is enabled we run it ONCE on the user's prompt before the
+ * parallel models run and share the results with every model as
+ * untrusted user-context, not system authority.
  *
  * Returns the context message (or empty string), plus the citation
  * array to persist on each assistant message.
  */
-async function runSharedPreSearch({ websearch, userText, mode, signal }) {
+export async function runSharedPreSearch({ websearch, userText, mode, signal }) {
   if (!websearch || mode === "off") {
     return { contextMessage: "", citations: [], providers: [], detection: { score: 0, reasons: [], hasUrls: false, urls: [] } };
   }
 
   const detection = detectSearchNeed(userText);
-  if (detection.score < 1) {
-    return { contextMessage: "", citations: [], providers: [], detection };
-  }
 
   /* URL-only path: read the linked page(s) instead of searching. */
   if (detection.hasUrls && !detection.reasons.includes("explicit-search-command")) {
