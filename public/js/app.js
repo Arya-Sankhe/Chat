@@ -3764,6 +3764,7 @@ function applyCompareStreamEvent(compareMessage, event) {
 
   if (event.type === "start") {
     target.id = event.assistantMessageId || target.id;
+    if (event.metadata && !target.metadata) target.metadata = event.metadata;
     markActivityStarted(target);
     return target;
   }

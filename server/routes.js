@@ -1526,7 +1526,8 @@ async function handleCouncilConversationMessage({
       type: "start",
       index,
       model: entry.chatRequest.model,
-      assistantMessageId: entry.message.id
+      assistantMessageId: entry.message.id,
+      metadata: entry.message.metadata || null
     });
 
     try {
@@ -1874,7 +1875,8 @@ async function handleCompareConversationMessage({
       type: "start",
       index,
       model: chatRequest.model,
-      assistantMessageId: assistantMessage.id
+      assistantMessageId: assistantMessage.id,
+      metadata: assistantMessage.metadata || null
     });
 
     try {
