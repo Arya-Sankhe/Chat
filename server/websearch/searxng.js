@@ -80,7 +80,12 @@ export async function searxngSearch({
   try {
     response = await withTimeout(timeoutMs, (innerSignal) => fetch(`${root}/search?${params.toString()}`, {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        "user-agent": "Klui/1.0 (+https://klui.ai)",
+        "x-forwarded-for": "127.0.0.1",
+        "x-real-ip": "127.0.0.1"
+      },
       signal: innerSignal
     }), signal);
   } catch (error) {

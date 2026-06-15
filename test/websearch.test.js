@@ -182,8 +182,10 @@ describe("WebSearchOrchestrator", () => {
 
   test("SearXNG search success returns normalized snippet-only results", async () => {
     let capturedUrl;
-    installFetch(async (url) => {
+    let capturedOptions;
+    installFetch(async (url, options) => {
       capturedUrl = new URL(String(url));
+      capturedOptions = options;
       return jsonResponse({
         results: [
           {
@@ -222,6 +224,8 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(capturedUrl.searchParams.get("format"), "json");
     assert.equal(capturedUrl.searchParams.get("engines"), "duckduckgo,bing");
     assert.equal(capturedUrl.searchParams.get("time_range"), "week");
+    assert.equal(capturedOptions.headers["x-forwarded-for"], "127.0.0.1");
+    assert.equal(capturedOptions.headers["x-real-ip"], "127.0.0.1");
   });
 
   test("Jina search success returns normalized results", async () => {

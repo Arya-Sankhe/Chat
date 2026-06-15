@@ -21,14 +21,14 @@ services:
     expose:
       - "8080"
     volumes:
-      - ./ops/searxng:/etc/searxng:ro
+      - ./ops/searxng:/etc/searxng
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-klui-local-searxng-change-me}
     mem_limit: 512m
     cpus: "0.75"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget --header='X-Forwarded-For: 127.0.0.1' --header='X-Real-IP: 127.0.0.1' -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
