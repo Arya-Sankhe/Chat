@@ -44,8 +44,9 @@ import {
   modelBrandLogoUrl,
   modelSupportsVision,
   normalizeModelList,
-  renderContent
-} from "./render.js?v=20260607-codesource-v1";
+  renderContent,
+  resetCodeSourceStore
+} from "./render.js?v=20260616-codecopy-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
@@ -3207,6 +3208,7 @@ function renderCouncilMessage(council) {
 }
 
 function renderMessages() {
+  resetCodeSourceStore();
   document.body.classList.toggle("chat-empty", !state.messages.length);
   renderTemporaryChatMode();
   if (!state.messages.length) {
@@ -5107,7 +5109,13 @@ function bindEvents() {
 
     const codeCopy = e.target.closest("[data-code-id]");
     if (codeCopy) {
-      const text = getCodeSource(codeCopy.dataset.codeId) || "";
+      const text = getCodeSource(codeCopy.dataset.codeId)
+        || codeCopy.closest(".code-block-wrap")?.querySelector("code")?.textContent
+        || "";
+      if (!text) {
+        showToast("Copy failed.");
+        return;
+      }
       navigator.clipboard.writeText(text).then(() => {
         const label = codeCopy.querySelector("span");
         if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }

@@ -3,10 +3,12 @@ import test from "node:test";
 import {
   compactModelDisplayName,
   formatModelMeta,
+  getCodeSource,
   inferModelBadges,
   modelBrandLogoUrl,
   normalizeModelList,
   renderContent,
+  resetCodeSourceStore,
   resolveDefaultCompareModels
 } from "../public/js/render.js";
 
@@ -221,6 +223,28 @@ test("renderContent does not extract math inside code spans or fences", () => {
 
   assert.doesNotMatch(renderContent("Use `$x_1$` literally."), /class="katex"/);
   assert.doesNotMatch(renderContent("```js\nconst price = '$x_1$';\n```"), /class="katex"/);
+});
+
+test("renderContent stores large code blocks by id instead of data attributes", () => {
+  const source = `<!DOCTYPE html>\n<html>\n<body>\n${"<div>section</div>\n".repeat(5000)}</body>\n</html>`;
+  globalThis.marked = {
+    parse() {
+      return `<pre><code class="language-html">${source.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</code></pre>`;
+    },
+    use() {}
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  resetCodeSourceStore();
+  const html = renderContent("```html\nignored\n```");
+  const id = html.match(/data-code-id="(c\d+)"/)?.[1];
+  assert.ok(id);
+  assert.match(html, new RegExp(`data-code-id="${id}"`));
+  assert.doesNotMatch(html, /data-copy-code=/);
+  assert.ok(getCodeSource(id).length > 80_000);
+  assert.equal(getCodeSource(id), source);
 });
 
 test("renderContent ignores malformed code fence language headers", () => {
