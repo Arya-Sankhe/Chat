@@ -4746,7 +4746,6 @@ body[data-chat-theme="doodle"] .composer {
   border-radius: 28px;
   padding: 18px 20px 14px;
   box-shadow: 0 16px 40px rgba(32, 25, 36, 0.12);
-  backdrop-filter: blur(10px);
 }
 
 body[data-chat-theme="doodle"] .composer:focus-within {
