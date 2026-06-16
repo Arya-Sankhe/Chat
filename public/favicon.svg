@@ -1,0 +1,24 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="12" y1="6" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f8fbff"/>
+      <stop offset="0.52" stop-color="#dcecff"/>
+      <stop offset="1" stop-color="#3b8dff"/>
+    </linearGradient>
+    <linearGradient id="face" x1="22" y1="18" x2="43" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172d7a"/>
+      <stop offset="1" stop-color="#2f74dc"/>
+    </linearGradient>
+    <filter id="soft" x="4" y="4" width="56" height="58" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#1d62c9" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#73b8ff"/>
+  <g filter="url(#soft)">
+    <rect x="10" y="8" width="44" height="48" rx="14" fill="url(#bg)"/>
+    <rect x="12" y="10" width="40" height="44" rx="13" stroke="white" stroke-width="3" stroke-opacity="0.88"/>
+  </g>
+  <rect x="22" y="23" width="6" height="14" rx="3" fill="url(#face)"/>
+  <rect x="38" y="23" width="6" height="14" rx="3" fill="url(#face)"/>
+  <path d="M26 42c3.7 3.5 8.5 3.5 12 0" stroke="url(#face)" stroke-width="4" stroke-linecap="round"/>
+</svg>
