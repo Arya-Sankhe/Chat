@@ -40,11 +40,12 @@ import {
 import {
   compactModelDisplayName,
   escapeHtml,
+  getCodeSource,
   modelBrandLogoUrl,
   modelSupportsVision,
   normalizeModelList,
   renderContent
-} from "./render.js?v=20260607-render-currency-v1";
+} from "./render.js?v=20260607-codesource-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
@@ -5104,9 +5105,9 @@ function bindEvents() {
       }
     }
 
-    const codeCopy = e.target.closest("[data-copy-code]");
+    const codeCopy = e.target.closest("[data-code-id]");
     if (codeCopy) {
-      const text = codeCopy.dataset.copyCode;
+      const text = getCodeSource(codeCopy.dataset.codeId) || "";
       navigator.clipboard.writeText(text).then(() => {
         const label = codeCopy.querySelector("span");
         if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }

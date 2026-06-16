@@ -238,7 +238,7 @@ test("renderContent ignores malformed code fence language headers", () => {
   assert.match(html, /code-block-header/);
   assert.doesNotMatch(html, /code-block-lang">print/);
   assert.doesNotMatch(html, /aria-label=&quot;Copy code&quot;/);
-  assert.match(html, /data-copy-code="print\(&quot;ok&quot;\)"/);
+  assert.match(html, /data-code-id="c\d+"/);
 });
 
 test("renderContent allows safe br tags without allowing arbitrary HTML", async () => {
