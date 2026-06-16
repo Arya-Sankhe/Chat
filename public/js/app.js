@@ -947,7 +947,7 @@ function renderPlans() {
     },
     pro: {
       tagline: "For pro workflows",
-      usage: "4x more usage",
+      usage: "6x more usage",
       features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
     }
   };
