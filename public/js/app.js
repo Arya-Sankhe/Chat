@@ -2968,6 +2968,21 @@ function rawTextContent(content) {
   return String(content || "");
 }
 
+function flashCopySuccess(btn) {
+  if (!btn) return;
+  btn.classList.remove("copy-flash");
+  void btn.offsetWidth;
+  btn.classList.add("copy-flash");
+  const label = btn.querySelector("span");
+  const prevLabel = label?.textContent || "";
+  if (label) label.textContent = "Copied!";
+  clearTimeout(btn._copyFlashTimer);
+  btn._copyFlashTimer = setTimeout(() => {
+    btn.classList.remove("copy-flash");
+    if (label) label.textContent = prevLabel || "Copy";
+  }, 1200);
+}
+
 function messageCopyButton(msg, { iconOnly = false } = {}) {
   const text = rawTextContent(msg.content);
   if (!text.trim()) return "";
@@ -5250,10 +5265,7 @@ function bindEvents() {
         showToast("Copy failed.");
         return;
       }
-      navigator.clipboard.writeText(text).then(() => {
-        const label = codeCopy.querySelector("span");
-        if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }
-      }).catch(() => showToast("Copy failed."));
+      navigator.clipboard.writeText(text).then(() => flashCopySuccess(codeCopy)).catch(() => showToast("Copy failed."));
       return;
     }
 
@@ -5289,10 +5301,7 @@ function bindEvents() {
     if (msgCopy) {
       const container = msgCopy.closest("[data-raw-text]");
       const text = container?.dataset.rawText || "";
-      navigator.clipboard.writeText(text).then(() => {
-        const label = msgCopy.querySelector("span");
-        if (label) { label.textContent = "Copied!"; setTimeout(() => { label.textContent = "Copy"; }, 1500); }
-      }).catch(() => showToast("Copy failed."));
+      navigator.clipboard.writeText(text).then(() => flashCopySuccess(msgCopy)).catch(() => showToast("Copy failed."));
       return;
     }
   });

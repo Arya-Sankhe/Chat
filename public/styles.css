@@ -1926,6 +1926,19 @@ body.document-viewer-resizing {
   margin-left: auto;
 }
 
+@keyframes copy-success-flash {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.14); color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { transform: scale(1); }
+}
+
+.msg-copy-btn.copy-flash,
+.msg-action-btn.copy-flash,
+.code-copy-btn.copy-flash,
+.compare-copy-btn.copy-flash {
+  animation: copy-success-flash 0.42s ease;
+}
+
 .message-footer--user {
   justify-content: flex-end;
 }
