@@ -872,21 +872,25 @@ async function handleConversationById(req, res, config, conversationId) {
   throw new HttpError(405, "Method not allowed.");
 }
 
+async function purgeMessageStorage(context, messageId, config, signal) {
+  const attachments = await context.db.listMessageAttachments(context.user.id, messageId, { signal });
+  const keys = [];
+  for (const attachment of attachments) {
+    keys.push(...await attachmentStorageKeys(context, attachment, config, signal));
+  }
+  if (keys.length) await context.r2.deleteObjects(keys, { signal });
+  const message = await context.db.deleteMessage(context.user.id, messageId, { signal });
+  return { message, attachmentCount: attachments.length };
+}
+
 async function handleMessageById(req, res, config, messageId) {
   if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
 
   const context = await requireChatContext(req, config);
-  const attachments = await context.db.listMessageAttachments(context.user.id, messageId, { signal: req.signal });
-  const keys = [];
-  for (const attachment of attachments) {
-    keys.push(...await attachmentStorageKeys(context, attachment, config, req.signal));
-  }
-  await context.r2.deleteObjects(keys, { signal: req.signal });
-
-  const message = await context.db.deleteMessage(context.user.id, messageId, { signal: req.signal });
+  const { message, attachmentCount } = await purgeMessageStorage(context, messageId, config, req.signal);
   if (!message) throw new HttpError(404, "Message not found.");
 
-  sendJson(res, 200, { deleted: true, deletedImages: attachments.length });
+  sendJson(res, 200, { deleted: true, deletedImages: attachmentCount });
 }
 
 async function loadUploadedAttachments(context, attachmentIds, req, plan) {
@@ -955,6 +959,59 @@ async function resolveMessageRetry({ db, userId, conversationId, retryAssistantM
     existingMessages: trimmedMessages,
     userMessage,
     userContent: userMessage.content,
+    attachmentIds: attachmentRows.map((attachment) => attachment.id)
+  };
+}
+
+/**
+ * Replace the text of a stored user message while keeping its attachments
+ * (image/file parts) untouched and in their original order.
+ */
+export function applyEditedUserText(content, newText) {
+  const text = String(newText ?? "").trim();
+  const nonTextParts = Array.isArray(content)
+    ? content.filter((part) => part?.type && part.type !== "text")
+    : [];
+
+  if (!nonTextParts.length) {
+    if (!text) throw new HttpError(400, "Message cannot be empty.");
+    return text;
+  }
+
+  return [
+    ...(text ? [{ type: "text", text }] : []),
+    ...nonTextParts
+  ];
+}
+
+/**
+ * Edit a previously sent user message: rewrite its text (attachments stay),
+ * and delete every message that came after it so the next generation answers
+ * as if the old prompt and its responses never existed.
+ */
+async function resolveMessageEdit({ db, userId, conversationId, editUserMessageId, newText, context, config, signal }) {
+  const id = String(editUserMessageId || "").trim();
+  if (!id) return null;
+
+  const existingMessages = await db.listMessages(userId, conversationId, { signal });
+  const targetIdx = existingMessages.findIndex((message) => message.id === id);
+  if (targetIdx < 0) throw new HttpError(404, "Message was not found.");
+
+  const target = existingMessages[targetIdx];
+  if (target.role !== "user") throw new HttpError(400, "Only your own messages can be edited.");
+
+  const newContent = applyEditedUserText(target.content, newText);
+
+  for (const message of existingMessages.slice(targetIdx + 1)) {
+    await purgeMessageStorage(context, message.id, config, signal);
+  }
+
+  const attachmentRows = await db.listMessageAttachments(userId, id, { signal });
+
+  return {
+    existingMessages: existingMessages.slice(0, targetIdx),
+    userMessage: target,
+    userContent: newContent,
     attachmentIds: attachmentRows.map((attachment) => attachment.id)
   };
 }
@@ -1944,8 +2001,14 @@ async function handleConversationMessage(req, res, config, conversationId) {
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
+  const editUserMessageId = typeof body.editUserMessageId === "string"
+    ? body.editUserMessageId.trim()
+    : "";
   if (retryAssistantMessageId && (compareModels.length || councilEnabled)) {
     throw new HttpError(400, "Retry is not supported for compare or council chats yet.");
+  }
+  if (retryAssistantMessageId && editUserMessageId) {
+    throw new HttpError(400, "Cannot retry and edit in the same request.");
   }
 
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
@@ -1953,6 +2016,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
   let userContent;
   let attachments = [];
   let isRetry = false;
+  let isEdit = false;
 
   if (retryAssistantMessageId) {
     isRetry = true;
@@ -1967,6 +2031,22 @@ async function handleConversationMessage(req, res, config, conversationId) {
     userMessage = retryContext.userMessage;
     userContent = retryContext.userContent;
     attachments = await loadUploadedAttachments(context, retryContext.attachmentIds, req, context.plan);
+  } else if (editUserMessageId) {
+    isEdit = true;
+    const editContext = await resolveMessageEdit({
+      db: context.db,
+      userId: context.user.id,
+      conversationId: conversation.id,
+      editUserMessageId,
+      newText: body.text,
+      context,
+      config,
+      signal: req.signal
+    });
+    existingMessages = editContext.existingMessages;
+    userMessage = editContext.userMessage;
+    userContent = editContext.userContent;
+    attachments = await loadUploadedAttachments(context, editContext.attachmentIds, req, context.plan);
   } else {
     attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
     userContent = buildStoredUserContent(body.text, attachments);
@@ -1993,6 +2073,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
   let historyMessages = isRetry
     ? [...existingMessages]
     : [...existingMessages, { role: "user", content: userContent }];
+  // For an edit, `existingMessages` excludes the edited message, so the append
+  // above rebuilds history exactly as the "new message" path expects.
   const compareNeedsImageDescribe = compareModels.length > 0
     && messagesHaveImages(historyMessages)
     && compareModels.some((model) => !modelSupportsVision(model));
@@ -2080,7 +2162,13 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }
   }
 
-  if (!isRetry) {
+  if (isEdit) {
+    // Persist the rewritten text (with any freshly-applied image descriptions)
+    // onto the existing message; its attachments stay linked as-is.
+    userMessage = await context.db.updateMessage(context.user.id, editUserMessageId, {
+      content: userContent
+    }, { signal: req.signal }) || userMessage;
+  } else if (!isRetry) {
     userMessage = await context.db.insertMessage({
       user_id: context.user.id,
       conversation_id: conversation.id,

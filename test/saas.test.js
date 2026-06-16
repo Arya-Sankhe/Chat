@@ -5,6 +5,7 @@ import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
 import { buildStoredUserContent, imageCountFromContent } from "../server/saas/messages.js";
+import { applyEditedUserText } from "../server/routes.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
@@ -30,6 +31,39 @@ test("loadPlans maps Klui payment tiers from env", () => {
   assert.equal(Object.hasOwn(plans[0], "dailyDocumentToolLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "dailyGeneratedDocumentLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
+});
+
+test("applyEditedUserText rewrites plain text messages", () => {
+  assert.equal(applyEditedUserText("old prompt", "new prompt"), "new prompt");
+});
+
+test("applyEditedUserText keeps attachments and only swaps the text", () => {
+  const original = [
+    { type: "text", text: "describe this" },
+    { type: "image_url", image_url: { attachment_id: "att_1", file_name: "a.png", url: "r2://k1" } },
+    { type: "file", file: { attachment_id: "att_2", file_name: "b.pdf", url: "r2://k2" } }
+  ];
+  const edited = applyEditedUserText(original, "  what does this show?  ");
+  assert.deepEqual(edited, [
+    { type: "text", text: "what does this show?" },
+    { type: "image_url", image_url: { attachment_id: "att_1", file_name: "a.png", url: "r2://k1" } },
+    { type: "file", file: { attachment_id: "att_2", file_name: "b.pdf", url: "r2://k2" } }
+  ]);
+});
+
+test("applyEditedUserText allows clearing text when attachments remain", () => {
+  const original = [
+    { type: "text", text: "old" },
+    { type: "image_url", image_url: { attachment_id: "att_1" } }
+  ];
+  const edited = applyEditedUserText(original, "");
+  assert.deepEqual(edited, [
+    { type: "image_url", image_url: { attachment_id: "att_1" } }
+  ]);
+});
+
+test("applyEditedUserText rejects an empty text-only edit", () => {
+  assert.throws(() => applyEditedUserText("old", "   "), /empty/i);
 });
 
 test("testing access grants the configured plan", async () => {

@@ -118,6 +118,7 @@ const state = {
   pendingDeleteId: "",
   pendingRenameId: "",
   openConversationMenuId: "",
+  editingMessageId: "",
   compareDescribeImages: false,
   viewer: {
     open: false,
@@ -2976,6 +2977,7 @@ function messageCopyButton(msg, { iconOnly = false } = {}) {
 }
 
 function renderMessageFooter(msg, role) {
+  if (role === "user") return renderUserMessageFooter(msg);
   if (role !== "assistant") return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
   const retry = renderMessageRetry(msg);
@@ -2989,17 +2991,53 @@ function renderMessageFooter(msg, role) {
   `;
 }
 
+function canEditUserMessage(msg) {
+  if (state.running) return false;
+  const id = msg?.id ? String(msg.id) : "";
+  if (!id || id.startsWith("local_")) return false;
+  return msg.role === "user";
+}
+
+function renderUserMessageFooter(msg) {
+  if (!canEditUserMessage(msg)) return "";
+  const copy = messageCopyButton(msg, { iconOnly: true });
+  const edit = `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`;
+  return `
+    <div class="message-footer message-footer--user">
+      <div class="message-footer-actions">${copy}${edit}</div>
+    </div>
+  `;
+}
+
+function renderUserEditForm(msg, rawText) {
+  const id = escapeHtml(String(msg.id));
+  return `
+    <div class="message-edit">
+      <textarea class="message-edit-input" data-edit-input="${id}" rows="1" spellcheck="false">${escapeHtml(rawText)}</textarea>
+      <div class="message-edit-actions">
+        <button class="message-edit-cancel" type="button" data-edit-cancel>Cancel</button>
+        <button class="message-edit-save" type="button" data-edit-save="${id}">Send</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
   const rawText = rawTextContent(msg.content);
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
+  const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
+
+  const inner = editing
+    ? renderUserEditForm(msg, rawText)
+    : `<div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
+        ${renderMessageFooter(msg, role)}`;
 
   return `
-    <article class="message ${role}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
+    <article class="message ${role}${editing ? " editing" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-body">
-        <div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
-        ${renderMessageFooter(msg, role)}
+        ${inner}
       </div>
     </article>
   `;
@@ -4216,6 +4254,94 @@ async function waitForDocumentReady(attachmentId, fileName) {
   throw new Error(`${fileName || "Document"} is still processing. Try again in a moment.`);
 }
 
+function autoSizeEditInput(input) {
+  if (!input) return;
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 320)}px`;
+}
+
+function beginEditMessage(id) {
+  if (state.running || !id) return;
+  state.editingMessageId = String(id);
+  renderMessages();
+  const input = els.messages.querySelector(`[data-edit-input="${cssString(id)}"]`);
+  if (input) {
+    autoSizeEditInput(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
+function cancelEditMessage() {
+  if (!state.editingMessageId) return;
+  state.editingMessageId = "";
+  renderMessages();
+}
+
+function attachmentsFromMessageContent(content) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const part of content) {
+    if (part?.type === "image_url") {
+      const image = part.image_url || {};
+      out.push({
+        id: image.attachment_id || "",
+        category: "image",
+        fileName: image.file_name || "image",
+        contentType: image.content_type || "",
+        url: image.url || ""
+      });
+    } else if (part?.type === "file") {
+      const file = part.file || {};
+      out.push({
+        id: file.attachment_id || "",
+        category: "document",
+        fileName: file.file_name || "file",
+        contentType: file.content_type || "",
+        url: file.url || ""
+      });
+    }
+  }
+  return out.filter((att) => att.id);
+}
+
+/**
+ * Edit a previously sent user message. The server replaces the message text
+ * in place (keeping its original images and documents), drops every later
+ * message, and regenerates — so the model answers as if the old prompt never
+ * existed. This reuses executeSend, so it works for normal, compare and
+ * council chats through one code path.
+ */
+async function editUserMessage(id) {
+  if (state.running || !id) return;
+  const input = els.messages.querySelector(`[data-edit-input="${cssString(id)}"]`);
+  const text = (input?.value || "").trim();
+
+  const index = state.messages.findIndex((m) => String(m.id) === String(id));
+  if (index < 0) return;
+  const original = state.messages[index];
+  const keepAttachments = attachmentsFromMessageContent(original.content);
+  if (!text && !keepAttachments.length) {
+    showToast("Message can't be empty.");
+    return;
+  }
+
+  state.editingMessageId = "";
+  state.messages = state.messages.slice(0, index);
+  renderMessages();
+
+  const compareModels = activeCompareModelIds();
+  await executeSend({
+    text,
+    images: [],
+    compareModels,
+    council: Boolean(compareModels.length && isCouncilMode()),
+    describeImages: Boolean(compareModels.length),
+    editMessageId: String(id),
+    keepAttachments
+  });
+}
+
 async function retryFailedAssistant(assistantMessageId) {
   if (state.running || !state.activeConversationId || !assistantMessageId) return;
 
@@ -4297,7 +4423,7 @@ async function retryFailedAssistant(assistantMessageId) {
   }
 }
 
-async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false }) {
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [] }) {
   closeCompareContextBanner();
 
   const temporaryChat = state.temporaryChat;
@@ -4312,12 +4438,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
     renderConversations();
   }
 
+  const keptParts = keepAttachments.map((att) => att.category === "document"
+    ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
+    : { type: "image_url", image_url: { attachment_id: att.id, file_name: att.fileName, url: att.url } });
+
   const localUser = {
     id: `local_${Date.now()}`,
     role: "user",
-    content: images.length
+    content: (images.length || keptParts.length)
       ? [
           ...(text ? [{ type: "text", text }] : []),
+          ...keptParts,
           ...images.map((img) => img.category === "image"
             ? { type: "image_url", image_url: { url: img.previewUrl } }
             : { type: "file", file: { file_name: img.file.name, content_type: img.file.type } })
@@ -4426,7 +4557,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
     }
 
     const provider = activeProvider();
-    const effectiveModel = provider === "openrouter" ? resolveRoutedModel({ images }) : state.settings.model;
+    const effectiveModel = provider === "openrouter"
+      ? resolveRoutedModel({ images, userContent: localUser.content })
+      : state.settings.model;
     updateSetting("model", effectiveModel);
     const payload = {
       text,
@@ -4439,7 +4572,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
       },
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
-      ...(describeImages ? { describeImages: true } : {})
+      ...(describeImages ? { describeImages: true } : {}),
+      ...(editMessageId ? { editUserMessageId: editMessageId } : {})
     };
 
     if (temporaryChat) {
@@ -5131,6 +5265,26 @@ function bindEvents() {
       return;
     }
 
+    const editBtn = e.target.closest("[data-edit-msg]");
+    if (editBtn) {
+      e.preventDefault();
+      beginEditMessage(editBtn.dataset.editMsg);
+      return;
+    }
+
+    if (e.target.closest("[data-edit-cancel]")) {
+      e.preventDefault();
+      cancelEditMessage();
+      return;
+    }
+
+    const editSave = e.target.closest("[data-edit-save]");
+    if (editSave) {
+      e.preventDefault();
+      editUserMessage(editSave.dataset.editSave).catch((err) => showToast(err.message || "Edit failed."));
+      return;
+    }
+
     const msgCopy = e.target.closest("[data-copy-msg]");
     if (msgCopy) {
       const container = msgCopy.closest("[data-raw-text]");
@@ -5141,6 +5295,23 @@ function bindEvents() {
       }).catch(() => showToast("Copy failed."));
       return;
     }
+  });
+
+  els.messages.addEventListener("keydown", (e) => {
+    const input = e.target.closest("[data-edit-input]");
+    if (!input) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      editUserMessage(input.dataset.editInput).catch((err) => showToast(err.message || "Edit failed."));
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEditMessage();
+    }
+  });
+
+  els.messages.addEventListener("input", (e) => {
+    const input = e.target.closest("[data-edit-input]");
+    if (input) autoSizeEditInput(input);
   });
 
   els.sendButton.addEventListener("click", sendPrompt);
