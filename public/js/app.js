@@ -398,6 +398,7 @@ function modelModeLabel(mode = selectedModelMode()) {
 }
 
 function composerPlaceholder() {
+  if (state.session && !hasChatAccess()) return "Choose a plan to start chatting";
   if (state.running) return "Send a follow up message";
   if (state.settings.compareEnabled) {
     return isCouncilMode() ? "Message Klui Council" : "Message Klui Compare";
@@ -828,7 +829,7 @@ function openUpgradePlans() {
   if (!state.session || !hasUpgradePlans()) return;
   closeProfileMenu();
   closeAllDrawers();
-  showPaywall({ allowReturn: hasChatAccess() });
+  showPaywall({ allowReturn: true });
 }
 
 /* ─── View switching ─── */
@@ -866,8 +867,14 @@ function renderShell() {
   }
 
   if (!hasChatAccess()) {
-    showPaywall({ allowReturn: false });
+    showOnly(els.chatView);
+    renderConversations();
+    renderModelOptions();
+    renderWebSearchToggle();
+    renderMessages();
+    renderDocumentViewer();
     renderProfileMenu();
+    updateComposerPlaceholder();
     return;
   }
 
@@ -4196,6 +4203,10 @@ async function removeConversation(id) {
 }
 
 async function sendPrompt() {
+  if (state.session && !hasChatAccess()) {
+    openUpgradePlans();
+    return;
+  }
   let text = els.promptInput.value.trim();
   if (state.running) {
     if (!requireAuth()) return;
@@ -4836,11 +4847,9 @@ function bindEvents() {
     startZiinaPayment(button.dataset.startPayment);
   });
   els.paywallBackButton?.addEventListener("click", () => {
-    if (!hasChatAccess()) return;
     renderShell();
   });
   els.paywallCloseButton?.addEventListener("click", () => {
-    if (!hasChatAccess()) return;
     renderShell();
   });
   els.signOutButton.addEventListener("click", signOutAndReset);
