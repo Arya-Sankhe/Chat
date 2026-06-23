@@ -83,7 +83,7 @@ async function supabaseClient(config) {
     auth: {
       flowType: "pkce",
       detectSessionInUrl: false,
-      persistSession: false,
+      persistSession: true,
       autoRefreshToken: false,
       storage: {
         getItem: (key) => storage.get(key),
