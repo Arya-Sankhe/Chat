@@ -1,5 +1,6 @@
 import { CROFAI_BASE_URLS, DEFAULT_CROFAI_BASE_URL, normalizeBaseUrl } from "./crofai/constants.js";
 import { loadPlans } from "./saas/plans.js";
+import { normalizeAllowedOrigins } from "./http/cors.js";
 
 function readPort(value) {
   const port = Number.parseInt(value || "3000", 10);
@@ -79,6 +80,12 @@ export function loadConfig(env = process.env) {
   const plans = loadPlans(env);
   const accessMode = readAccessMode(env.ACCESS_MODE);
   const r2AccountId = clean(env.R2_ACCOUNT_ID);
+  const mobileAllowedOrigins = normalizeAllowedOrigins([
+    "https://klui.tech",
+    "https://www.klui.tech",
+    "https://localhost",
+    ...readList(env.MOBILE_ALLOWED_ORIGINS)
+  ]);
 
   return {
     host: env.HOST || "0.0.0.0",
@@ -107,6 +114,9 @@ export function loadConfig(env = process.env) {
     auth: {
       googleEnabled: readBoolean(env.SUPABASE_GOOGLE_ENABLED, false),
       googleClientId: clean(env.GOOGLE_CLIENT_ID || env.SUPABASE_GOOGLE_CLIENT_ID)
+    },
+    mobile: {
+      allowedOrigins: mobileAllowedOrigins
     },
     r2: {
       accountId: r2AccountId,

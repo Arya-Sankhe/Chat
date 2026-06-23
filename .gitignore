@@ -3,3 +3,10 @@ node_modules/
 .DS_Store
 npm-debug.log*
 coverage/
+dist-mobile/
+android/.gradle/
+android/app/build/
+android/local.properties
+*.keystore
+*.jks
+keystore.properties

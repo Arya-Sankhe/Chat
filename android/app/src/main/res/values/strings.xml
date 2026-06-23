@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Klui</string>
+    <string name="title_activity_main">Klui</string>
+    <string name="package_name">tech.klui.app</string>
+    <string name="custom_url_scheme">tech.klui.app</string>
+</resources>

@@ -1,0 +1,132 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+
+import { loadConfig } from "../server/config.js";
+import { applyApiCors, handleApiPreflight } from "../server/http/cors.js";
+import { apiUrl, parseAuthCallbackUrl } from "../public/js/platform/index.js";
+import { compareVersionCodes } from "../public/js/platform/updates.js";
+
+function responseRecorder() {
+  return {
+    headers: {},
+    status: null,
+    body: "",
+    setHeader(name, value) {
+      this.headers[name.toLowerCase()] = value;
+    },
+    writeHead(status, headers = {}) {
+      this.status = status;
+      for (const [name, value] of Object.entries(headers)) this.setHeader(name, value);
+    },
+    end(body = "") {
+      this.body = body;
+    }
+  };
+}
+
+test("mobile config includes the packaged Capacitor origin and configured development origins", () => {
+  const config = loadConfig({ MOBILE_ALLOWED_ORIGINS: "http://localhost:5173, https://preview.example" });
+  assert.deepEqual(config.mobile.allowedOrigins, [
+    "https://klui.tech",
+    "https://www.klui.tech",
+    "https://localhost",
+    "http://localhost:5173",
+    "https://preview.example"
+  ]);
+});
+
+test("API CORS accepts the packaged app origin without credentials", () => {
+  const response = responseRecorder();
+  const result = applyApiCors(
+    { headers: { origin: "https://localhost" } },
+    response,
+    ["https://localhost"]
+  );
+  assert.equal(result.allowed, true);
+  assert.equal(response.headers["access-control-allow-origin"], "https://localhost");
+  assert.equal(response.headers["access-control-allow-credentials"], undefined);
+  assert.equal(response.headers.vary, "Origin");
+});
+
+test("API CORS does not reflect an arbitrary origin", () => {
+  const response = responseRecorder();
+  const result = applyApiCors(
+    { headers: { origin: "https://malicious.example" } },
+    response,
+    ["https://localhost"]
+  );
+  assert.equal(result.allowed, false);
+  assert.equal(response.headers["access-control-allow-origin"], undefined);
+});
+
+test("API preflight rejects arbitrary origins and accepts the packaged app", () => {
+  const denied = responseRecorder();
+  assert.equal(handleApiPreflight(
+    { method: "OPTIONS", headers: { origin: "https://malicious.example" } },
+    denied,
+    ["https://localhost"]
+  ), true);
+  assert.equal(denied.status, 403);
+
+  const accepted = responseRecorder();
+  assert.equal(handleApiPreflight(
+    { method: "OPTIONS", headers: { origin: "https://localhost" } },
+    accepted,
+    ["https://localhost"]
+  ), true);
+  assert.equal(accepted.status, 204);
+  assert.equal(accepted.headers["access-control-allow-origin"], "https://localhost");
+});
+
+test("API URL resolver remains relative outside Capacitor", () => {
+  assert.equal(apiUrl("/api/me"), "/api/me");
+  assert.equal(apiUrl("api/plans"), "/api/plans");
+  assert.equal(apiUrl("https://example.com/value"), "https://example.com/value");
+});
+
+test("API URL resolver uses the production API origin inside Capacitor", () => {
+  const previous = globalThis.Capacitor;
+  globalThis.Capacitor = { isNativePlatform: () => true };
+  try {
+    assert.equal(apiUrl("/api/me"), "https://klui.tech/api/me");
+  } finally {
+    if (previous === undefined) delete globalThis.Capacitor;
+    else globalThis.Capacitor = previous;
+  }
+});
+
+test("native auth callback parser returns only the PKCE code", () => {
+  const parsed = parseAuthCallbackUrl(
+    "tech.klui.app://auth/callback?code=pkce-code&access_token=must-not-leak&refresh_token=must-not-leak"
+  );
+  assert.deepEqual(parsed, { code: "pkce-code", error: "" });
+  assert.equal("access_token" in parsed, false);
+  assert.equal("refresh_token" in parsed, false);
+});
+
+test("APK updates compare integer version codes", () => {
+  assert.equal(compareVersionCodes("1", 2), 1);
+  assert.equal(compareVersionCodes("2", 2), 0);
+  assert.equal(compareVersionCodes("3", 2), -1);
+  assert.equal(compareVersionCodes("invalid", 2), 0);
+});
+
+test("APK publishing refuses unsigned release artifacts", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/mobile/publish-release.mjs", "app-release-unsigned.apk", "1.0.0", "1"],
+    { cwd: new URL("..", import.meta.url), encoding: "utf8" }
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Refusing to publish an unsigned APK/);
+});
+
+test("service worker excludes APIs and only caches the public shell", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/service-worker.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(source, /request\.mode === "navigate"/);
+  assert.doesNotMatch(source, /cache\.put\(/);
+});

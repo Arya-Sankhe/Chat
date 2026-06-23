@@ -5,6 +5,7 @@ import { normalizeChatRequest } from "./crofai/normalize.js";
 import { SupabaseRest } from "./db/supabaseRest.js";
 import { configuredServices } from "./config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson, sendProblem } from "./http/responses.js";
+import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { apiUsageWindow } from "./saas/billing.js";
 import { getCurrentEntitlement, requireActiveEntitlement } from "./saas/entitlements.js";
 import {
@@ -2759,6 +2760,8 @@ async function handleAdminSummary(req, res, config) {
 
 export async function handleApiRequest(req, res, url, config) {
   installStableRequestSignal(req);
+  if (handleApiPreflight(req, res, config.mobile?.allowedOrigins || [])) return;
+  applyApiCors(req, res, config.mobile?.allowedOrigins || []);
 
   try {
     const parts = pathParts(url);

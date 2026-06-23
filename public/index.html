@@ -3,8 +3,15 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Klui">
     <title>Klui</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/styles.css?v=20260616-copy-flash-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
@@ -433,6 +440,24 @@
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+      <aside class="ios-install-hint hidden" id="iosInstallHint" aria-label="Install Klui">
+        <button class="ios-install-close" id="iosInstallClose" type="button" aria-label="Dismiss install instructions">x</button>
+        <img src="/icons/icon-192.png" width="44" height="44" alt="">
+        <div>
+          <strong>Install Klui</strong>
+          <p>Tap Share, then “Add to Home Screen”.</p>
+        </div>
+      </aside>
+
+      <section class="app-update-dialog hidden" id="appUpdateDialog" role="dialog" aria-modal="true" aria-labelledby="appUpdateTitle">
+        <h2 id="appUpdateTitle">Klui update available</h2>
+        <p id="appUpdateBody">Download the latest Android version.</p>
+        <div class="app-update-actions">
+          <button class="app-update-later" id="appUpdateLater" type="button">Later</button>
+          <button class="app-update-download" id="appUpdateDownload" type="button">Download update</button>
+        </div>
+      </section>
+
       <div class="lightbox hidden" id="lightbox" role="dialog" aria-label="Image preview">
         <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close preview">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -441,6 +466,7 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260616-copy-flash-v1"></script>
+    <script type="module" src="/js/app.js?v=20260622-mobile-v1"></script>
+    <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

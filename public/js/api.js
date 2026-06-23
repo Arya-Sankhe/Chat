@@ -42,7 +42,7 @@ async function resolveSession(session, { force = false } = {}) {
 
 async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ...options } = {}) {
   let activeSession = await resolveSession(session);
-  let response = await fetch(path, {
+  let response = await fetch(apiUrl(path), {
     ...options,
     headers: apiHeaders(activeSession, headers)
   });
@@ -50,7 +50,7 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
   if (response.status === 401 && retryOnUnauthorized && activeSession?.refresh_token && !options.signal?.aborted) {
     activeSession = await resolveSession(activeSession, { force: true });
     if (activeSession?.access_token) {
-      response = await fetch(path, {
+      response = await fetch(apiUrl(path), {
         ...options,
         headers: apiHeaders(activeSession, headers)
       });
@@ -61,13 +61,13 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
 }
 
 export async function fetchConfig() {
-  const response = await fetch("/api/config");
+  const response = await fetch(apiUrl("/api/config"));
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
 
 export async function fetchPlans() {
-  const response = await fetch("/api/plans");
+  const response = await fetch(apiUrl("/api/plans"));
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
@@ -291,14 +291,7 @@ export async function downloadAttachment(session, attachmentId, fileName = "down
   const url = payload?.url;
   if (!url) throw new Error("Download URL was not returned.");
 
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = payload.fileName || fileName;
-  anchor.rel = "noopener";
-  anchor.target = "_blank";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
+  await platformDownload(url, payload.fileName || fileName);
 }
 
 async function readSseStream(response, onEvent) {
@@ -365,3 +358,4 @@ export async function fetchAdminSummary(session) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
+import { apiUrl, download as platformDownload } from "./platform/index.js";

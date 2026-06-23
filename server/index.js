@@ -14,7 +14,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    await serveStatic(req, res, url);
+    await serveStatic(req, res, url, { allowedOrigins: config.mobile?.allowedOrigins || [] });
   } catch (error) {
     console.error(error);
     if (!res.headersSent) {

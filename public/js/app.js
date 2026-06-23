@@ -35,8 +35,21 @@ import {
   refreshSession,
   renderGoogleSignInButton,
   saveSession,
-  signOut
+  signOut,
+  listenForNativeAuth
 } from "./auth.js";
+import {
+  configureNativeChrome,
+  copyText,
+  exitApp,
+  isNative,
+  listenForDeepLinks,
+  onResume,
+  openExternal,
+  preferences,
+  registerBackButton
+} from "./platform/index.js";
+import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
 import {
   compactModelDisplayName,
   escapeHtml,
@@ -142,6 +155,9 @@ let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
 let lastMessagesTouchY = 0;
+let lastNativeBackAt = 0;
+let availableAppUpdate = null;
+let pendingNativeConversationId = "";
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -264,7 +280,11 @@ const els = {
   documentViewerMeta: document.querySelector("#documentViewerMeta"),
   documentViewerDownload: document.querySelector("#documentViewerDownload"),
   documentViewerClose: document.querySelector("#documentViewerClose"),
-  documentViewerBody: document.querySelector("#documentViewerBody")
+  documentViewerBody: document.querySelector("#documentViewerBody"),
+  appUpdateDialog: document.querySelector("#appUpdateDialog"),
+  appUpdateBody: document.querySelector("#appUpdateBody"),
+  appUpdateLater: document.querySelector("#appUpdateLater"),
+  appUpdateDownload: document.querySelector("#appUpdateDownload")
 };
 
 function imageDescription(part) {
@@ -661,6 +681,10 @@ function applyChatTheme() {
   document.body.dataset.mode = mode;
   applyCodeHighlightTheme(mode);
   syncAppearanceControls();
+  void configureNativeChrome({
+    dark: mode === "dark",
+    background: mode === "dark" ? "#1f1f1f" : "#ffffff"
+  });
 }
 
 function syncAppearanceControls() {
@@ -775,7 +799,9 @@ function isCouncilMode() {
 }
 
 function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  const value = JSON.stringify(state.settings);
+  localStorage.setItem(SETTINGS_KEY, value);
+  if (isNative()) void preferences.set(SETTINGS_KEY, value);
 }
 
 function updateSetting(key, value) {
@@ -1363,7 +1389,9 @@ function loadPinnedChatIds() {
 function savePinnedChatIds() {
   const key = pinnedStorageKey();
   if (!key) return;
-  localStorage.setItem(key, JSON.stringify(state.pinnedChatIds));
+  const value = JSON.stringify(state.pinnedChatIds);
+  localStorage.setItem(key, value);
+  if (isNative()) void preferences.set(key, value);
 }
 
 function isPinnedChat(id) {
@@ -4021,13 +4049,135 @@ function applyCouncilStreamEvent(council, event) {
 
 async function loadMe() {
   state.me = await fetchMe(state.session);
+  if (isNative()) {
+    const key = pinnedStorageKey();
+    const saved = key ? await preferences.get(key) : null;
+    if (saved) localStorage.setItem(key, saved);
+  }
   loadPinnedChatIds();
+}
+
+async function refreshAccountAfterResume() {
+  if (state.session?.access_token) {
+    try {
+      await Promise.all([loadMe(), loadPaymentRequests()]);
+      renderShell();
+    } catch {
+      // Normal request/session handling will surface any actionable error.
+    }
+  }
+  await checkAndShowAppUpdate();
+}
+
+async function checkAndShowAppUpdate() {
+  const update = await checkForAppUpdate().catch(() => null);
+  if (!update || !els.appUpdateDialog) return;
+  availableAppUpdate = update;
+  const notes = Array.isArray(update.releaseNotes) && update.releaseNotes.length
+    ? ` ${update.releaseNotes.join(" ")}`
+    : "";
+  els.appUpdateBody.textContent = `Version ${update.versionName} is ready.${notes}`;
+  els.appUpdateLater.classList.toggle("hidden", Boolean(update.required));
+  els.appUpdateDialog.classList.remove("hidden");
+  els.overlay.hidden = false;
+  els.overlay.dataset.mode = "app-update";
+}
+
+function closeAppUpdate() {
+  if (availableAppUpdate?.required) return;
+  els.appUpdateDialog?.classList.add("hidden");
+  if (els.overlay.dataset.mode === "app-update") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+}
+
+function closeTopNativeSurface() {
+  if (!els.appUpdateDialog?.classList.contains("hidden")) {
+    closeAppUpdate();
+    return true;
+  }
+  if (!els.lightbox.classList.contains("hidden")) {
+    closeLightbox();
+    return true;
+  }
+  if (state.viewer.open) {
+    closeDocumentViewer();
+    return true;
+  }
+  if (!els.paywallView.classList.contains("hidden")) {
+    renderShell();
+    return true;
+  }
+  if (els.settingsDrawer.classList.contains("open")) {
+    closeSettings();
+    return true;
+  }
+  if (els.accountDrawer.classList.contains("open")) {
+    closeAccount();
+    return true;
+  }
+  if (els.authDialog.classList.contains("open")) {
+    closeAuthDialog();
+    return true;
+  }
+  if (els.confirmDialog.classList.contains("open")) {
+    closeConfirmDialog();
+    return true;
+  }
+  if (els.renameDialog.classList.contains("open")) {
+    closeRenameDialog();
+    return true;
+  }
+  if (isSearchDialogOpen()) {
+    closeSearchDialog();
+    return true;
+  }
+  if (document.body.classList.contains("sidebar-open")) {
+    document.body.classList.remove("sidebar-open");
+    return true;
+  }
+  return false;
+}
+
+async function setupNativeLifecycle() {
+  if (!isNative()) return;
+  await listenForNativeAuth(state.config, {
+    onSession: handleAuthenticatedSession,
+    onError: (error) => {
+      els.authNotice.textContent = error?.message || "Google sign-in failed.";
+      openAuthDialog();
+    }
+  });
+  await onResume(refreshAccountAfterResume);
+  await listenForDeepLinks((url) => {
+    const match = url.pathname.match(/^\/c\/([^/]+)\/?$/);
+    if (!match) return;
+    pendingNativeConversationId = decodeURIComponent(match[1]);
+    if (state.session?.access_token) {
+      openConversation(pendingNativeConversationId).catch(() => {});
+    }
+  });
+  await registerBackButton(async () => {
+    if (closeTopNativeSurface()) return;
+    if (state.activeConversationId || window.location.pathname !== "/") {
+      openNewChat({ replaceUrl: true });
+      return;
+    }
+    const now = Date.now();
+    if (now - lastNativeBackAt < 1800) {
+      await exitApp();
+      return;
+    }
+    lastNativeBackAt = now;
+    showToast("Press back again to exit.");
+  });
 }
 
 async function handleAuthenticatedSession(session) {
   if (!session?.access_token) return;
   state.session = session;
-  saveSession(session);
+  await saveSession(session);
   els.authNotice.textContent = "";
   closeAuthDialog();
   try {
@@ -4098,6 +4248,14 @@ async function loadActiveConversation() {
 
 async function loadChatApp() {
   await Promise.all([loadModels(), loadConversations()]);
+  if (pendingNativeConversationId) {
+    const conversationId = pendingNativeConversationId;
+    pendingNativeConversationId = "";
+    if (state.conversations.some((conversation) => conversation.id === conversationId)) {
+      await openConversation(conversationId);
+      return;
+    }
+  }
   renderShell();
 }
 
@@ -4137,7 +4295,7 @@ async function startZiinaPayment(planId) {
   if (!plan) return;
   const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
   if (existing) {
-    if (existing.paymentUrl) window.open(existing.paymentUrl, "_blank", "noopener");
+    if (existing.paymentUrl) await openExternal(existing.paymentUrl);
     return;
   }
 
@@ -4146,7 +4304,7 @@ async function startZiinaPayment(planId) {
     const request = payload.paymentRequest;
     state.paymentRequests = [request, ...(state.paymentRequests || [])];
     renderPlans();
-    if (request.paymentUrl) window.open(request.paymentUrl, "_blank", "noopener");
+    if (request.paymentUrl) await openExternal(request.paymentUrl);
   } catch (err) {
     showToast(err.message);
   }
@@ -4745,19 +4903,29 @@ async function updateAdminPayment(id, action) {
 
 /* ─── Bootstrap ─── */
 
+async function hydrateNativeSettings() {
+  if (!isNative()) return;
+  const saved = await preferences.get(SETTINGS_KEY);
+  if (!saved) return;
+  localStorage.setItem(SETTINGS_KEY, saved);
+  state.settings = loadSettings();
+}
+
 async function bootstrap() {
+  await hydrateNativeSettings();
   applyChatTheme();
   try {
     state.config = await fetchConfig();
+    await setupNativeLifecycle();
     configureApiAuth({
       getSession: () => state.session,
       refresh: (session, options) => refreshSession(state.config, session, options),
       onSession: (session) => {
         state.session = session;
-        saveSession(session);
+        void saveSession(session);
       },
       onExpired: () => {
-        clearSession();
+        void clearSession();
         state.session = null;
         state.me = null;
       }
@@ -4766,13 +4934,13 @@ async function bootstrap() {
     state.plans = plansPayload.plans || [];
     const authError = parseAuthErrorFromUrl();
     if (authError) showToast(authError);
-    state.session = parseSessionFromUrl() || loadSession();
+    state.session = parseSessionFromUrl() || await loadSession();
     if (state.session) {
       try {
         state.session = await withTimeout(refreshSession(state.config, state.session), 8000, "Session refresh");
-        if (state.session) saveSession(state.session);
+        if (state.session) await saveSession(state.session);
       } catch {
-        clearSession();
+        await clearSession();
         state.session = null;
       }
     }
@@ -4781,12 +4949,13 @@ async function bootstrap() {
         await withTimeout(loadMe(), 8000, "Account load");
         await loadPaymentRequests();
       } catch {
-        clearSession();
+        await clearSession();
         state.session = null;
       }
     }
     renderShell();
     if (state.session && hasChatAccess()) await loadChatApp();
+    await checkAndShowAppUpdate();
   } catch (err) {
     state.session = null;
     state.me = null;
@@ -4811,6 +4980,20 @@ function bindEvents() {
   initDocumentViewerWidth();
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
+  els.appUpdateLater?.addEventListener("click", closeAppUpdate);
+  els.appUpdateDownload?.addEventListener("click", () => {
+    if (availableAppUpdate) openAppUpdate(availableAppUpdate);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!isNative() || event.defaultPrevented) return;
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+    const href = link.href;
+    if (!/^https?:\/\//i.test(href)) return;
+    event.preventDefault();
+    openExternal(href).catch(() => showToast("Could not open link."));
+  });
 
   // Auto-scroll is controlled ONLY by genuine user gestures (wheel, touch,
   // keys). Programmatic pinning during streaming never fires these events, so
@@ -4904,6 +5087,7 @@ function bindEvents() {
     else if (mode === "auth") closeAuthDialog();
     else if (mode === "search") closeSearchDialog();
     else if (mode === "account") closeAccount();
+    else if (mode === "app-update") closeAppUpdate();
     else closeSettings();
   });
 
@@ -5274,7 +5458,7 @@ function bindEvents() {
         showToast("Copy failed.");
         return;
       }
-      navigator.clipboard.writeText(text).then(() => flashCopySuccess(codeCopy)).catch(() => showToast("Copy failed."));
+      copyText(text).then(() => flashCopySuccess(codeCopy)).catch(() => showToast("Copy failed."));
       return;
     }
 
@@ -5310,7 +5494,7 @@ function bindEvents() {
     if (msgCopy) {
       const container = msgCopy.closest("[data-raw-text]");
       const text = container?.dataset.rawText || "";
-      navigator.clipboard.writeText(text).then(() => flashCopySuccess(msgCopy)).catch(() => showToast("Copy failed."));
+      copyText(text).then(() => flashCopySuccess(msgCopy)).catch(() => showToast("Copy failed."));
       return;
     }
   });
@@ -5382,5 +5566,6 @@ function bindEvents() {
   });
 }
 
+document.body.classList.toggle("capacitor-native", isNative());
 bindEvents();
 bootstrap();

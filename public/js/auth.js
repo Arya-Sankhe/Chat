@@ -1,3 +1,10 @@
+import {
+  isNative,
+  listenForAuthCallback,
+  signInWithGoogle as nativeSignInWithGoogle,
+  storage
+} from "./platform/index.js";
+
 const AUTH_STORAGE_KEY = "klui.auth.v1";
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 
@@ -14,22 +21,22 @@ function authHeaders(config, session) {
   };
 }
 
-export function loadSession() {
+export async function loadSession() {
   try {
-    const session = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "null");
+    const session = JSON.parse(await storage.get(AUTH_STORAGE_KEY) || "null");
     return session?.access_token ? session : null;
   } catch {
     return null;
   }
 }
 
-export function saveSession(session) {
+export async function saveSession(session) {
   if (!session?.access_token) return clearSession();
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  await storage.set(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
-export function clearSession() {
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+export async function clearSession() {
+  await storage.remove(AUTH_STORAGE_KEY);
 }
 
 export function parseSessionFromUrl() {
@@ -45,7 +52,7 @@ export function parseSessionFromUrl() {
     expires_at: expiresAt,
     token_type: hash.get("token_type") || "bearer"
   };
-  saveSession(session);
+  void saveSession(session);
   window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
   return session;
 }
@@ -76,7 +83,7 @@ export async function refreshSession(config, session, { force = false } = {}) {
   });
 
   if (!response.ok) {
-    clearSession();
+    await clearSession();
     return null;
   }
 
@@ -87,7 +94,7 @@ export async function refreshSession(config, session, { force = false } = {}) {
     expires_at: Math.floor(Date.now() / 1000) + Number(refreshed.expires_in || 3600),
     token_type: refreshed.token_type || "bearer"
   };
-  saveSession(next);
+  await saveSession(next);
   return next;
 }
 
@@ -121,6 +128,23 @@ function loadGoogleIdentityServices() {
   return googleIdentityPromise;
 }
 
+function installedIosPwa() {
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent || "")
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return ios && (window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true);
+}
+
+function renderRedirectGoogleButton(config, element) {
+  element.innerHTML = `<button class="native-google-button" type="button">Continue with Google</button>`;
+  element.querySelector("button")?.addEventListener("click", () => {
+    const redirectTo = `${window.location.origin}/`;
+    const url = new URL(`${cleanUrl(config.supabaseUrl)}/auth/v1/authorize`);
+    url.searchParams.set("provider", "google");
+    url.searchParams.set("redirect_to", redirectTo);
+    window.location.assign(url.toString());
+  });
+}
+
 export async function signInWithGoogleIdToken(config, credential) {
   if (!credential) throw new Error("Google did not return a sign-in token.");
 
@@ -143,16 +167,32 @@ export async function signInWithGoogleIdToken(config, credential) {
 
   const payload = await response.json();
   const session = sessionFromAuthPayload(payload);
-  saveSession(session);
+  await saveSession(session);
   return session;
 }
 
 export async function renderGoogleSignInButton(config, element, { onSession, onError } = {}) {
   if (!element) return;
+  if (isNative()) {
+    element.innerHTML = `<button class="native-google-button" type="button">Continue with Google</button>`;
+    element.querySelector("button")?.addEventListener("click", () => {
+      nativeSignInWithGoogle(config).catch((error) => onError?.(error));
+    });
+    return;
+  }
   const clientId = config?.auth?.googleClientId;
   if (!clientId) throw new Error("Google sign-in needs GOOGLE_CLIENT_ID.");
 
-  const googleId = await loadGoogleIdentityServices();
+  let googleId;
+  try {
+    googleId = await loadGoogleIdentityServices();
+  } catch (error) {
+    if (installedIosPwa()) {
+      renderRedirectGoogleButton(config, element);
+      return;
+    }
+    throw error;
+  }
   googleId.initialize({
     client_id: clientId,
     callback: async (response) => {
@@ -184,5 +224,9 @@ export async function signOut(config, session) {
       headers: authHeaders(config, session)
     }).catch(() => {});
   }
-  clearSession();
+  await clearSession();
+}
+
+export function listenForNativeAuth(config, handlers) {
+  return listenForAuthCallback(config, handlers);
 }

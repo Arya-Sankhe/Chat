@@ -6084,6 +6084,121 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   transform: translateY(0);
 }
 
+.ios-install-hint {
+  position: fixed;
+  z-index: 90;
+  left: max(14px, env(safe-area-inset-left));
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 12px 42px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+
+.ios-install-hint.hidden {
+  display: none;
+}
+
+.ios-install-hint img {
+  flex: 0 0 auto;
+  border-radius: 11px;
+}
+
+.ios-install-hint strong,
+.ios-install-hint p {
+  display: block;
+  margin: 0;
+}
+
+.ios-install-hint p {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ios-install-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  color: var(--text-secondary);
+}
+
+.native-google-button {
+  width: min(100%, 400px);
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.app-update-dialog {
+  position: fixed;
+  z-index: 110;
+  inset: 50% auto auto 50%;
+  width: min(390px, calc(100% - 32px));
+  transform: translate(-50%, -50%);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+
+.app-update-dialog.hidden {
+  display: none;
+}
+
+.app-update-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 19px;
+}
+
+.app-update-dialog p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.app-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.app-update-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+}
+
+.app-update-download {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+body.capacitor-native .topbar {
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+}
+
+body.capacitor-native .composer-area {
+  padding-bottom: max(8px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+}
+
 body.chat-empty .messages {
   padding-bottom: 240px;
 }
@@ -6299,6 +6414,10 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   body.guest-mode.sidebar-open .sidebar {
     width: var(--sidebar-w-expanded);
     transform: translateX(0);
+  }
+
+  body.guest-mode:not(.sidebar-open) .guest-login-panel {
+    display: none;
   }
 
   .topbar {

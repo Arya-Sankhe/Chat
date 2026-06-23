@@ -8,9 +8,39 @@
   "scripts": {
     "start": "node --env-file=.env server/index.js",
     "dev": "node --env-file=.env --watch server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "mobile:build": "vite build --config vite.mobile.config.js && node scripts/mobile/copy-static.mjs",
+    "mobile:sync": "npm run mobile:build && cap sync android",
+    "mobile:open": "cap open android",
+    "mobile:run": "npm run mobile:sync && cap run android",
+    "mobile:apk:debug": "npm run mobile:sync && cd android && ./gradlew assembleDebug",
+    "mobile:apk:release": "npm run mobile:sync && cd android && ./gradlew assembleRelease",
+    "mobile:release:publish": "node scripts/mobile/publish-release.mjs",
+    "mobile:assetlinks": "node scripts/mobile/write-asset-links.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
+  "devDependencies": {
+    "@aparajita/capacitor-secure-storage": "8.0.0",
+    "@capacitor/android": "8.4.0",
+    "@capacitor/app": "8.1.0",
+    "@capacitor/browser": "8.0.3",
+    "@capacitor/cli": "8.4.0",
+    "@capacitor/clipboard": "8.0.1",
+    "@capacitor/core": "8.4.0",
+    "@capacitor/file-transfer": "1.0.11",
+    "@capacitor/filesystem": "8.1.2",
+    "@capacitor/keyboard": "8.0.3",
+    "@capacitor/preferences": "8.0.1",
+    "@capacitor/share": "8.0.1",
+    "@capacitor/splash-screen": "8.0.1",
+    "@capacitor/status-bar": "8.0.2",
+    "@supabase/supabase-js": "2.108.2",
+    "typescript": "6.0.3",
+    "vite": "7.3.5"
   }
 }

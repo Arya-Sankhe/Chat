@@ -109,6 +109,12 @@ Compose starts two services: `klui-chat` for the Node app and `document-worker` 
 
 The health endpoint is `/api/health`.
 
+## Mobile MVP
+
+Klui includes an Android Capacitor APK build and an installable iPhone PWA.
+See [`MOBILE.md`](./MOBILE.md) for Android Studio requirements, native Google
+OAuth, release signing, APK publishing, updates and production configuration.
+
 ## R2 CORS
 
 Your R2 bucket needs CORS that allows your app origin to upload images and documents directly. Add the rule to the active `R2_BUCKET` bucket, and keep both local origins if you open the app through either `localhost` or `127.0.0.1`.

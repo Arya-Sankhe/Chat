@@ -1,0 +1,13 @@
+{
+  "published": true,
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "minimumVersionCode": 1,
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.0.apk",
+  "releaseNotes": [
+    "Initial Android MVP"
+  ],
+  "sizeBytes": 4061186,
+  "sha256": "1268ad002524170b4d14d4929a83bb15389286e145c431466f4dd6c904948f20",
+  "releasedAt": "2026-06-23T06:11:23.670Z"
+}
