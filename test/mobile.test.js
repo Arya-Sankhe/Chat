@@ -135,6 +135,34 @@ test("native OAuth asks Google to show account selection", async () => {
   assert.match(source, /prompt:\s*"select_account"/);
 });
 
+test("native OAuth keeps only the PKCE verifier in secure storage", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /key\.endsWith\("-code-verifier"\) \? storage\.get\(key\) : null/);
+  assert.match(source, /storage:\s*pkceStorage/);
+  assert.doesNotMatch(source, /storage:\s*\{\s*getItem:\s*\(key\) => preferences\.get/);
+});
+
+test("native OAuth ignores duplicate single-use callback URLs", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /const handledUrls = new Set\(\)/);
+  assert.match(source, /if \(handledUrls\.has\(value\)\) return/);
+});
+
+test("native login renders the authenticated shell before loading account data", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const handler = source.slice(
+    source.indexOf("async function handleAuthenticatedSession"),
+    source.indexOf("async function loadModels")
+  );
+  assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
+});
+
 test("Capacitor mobile styling stays isolated from the website", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")

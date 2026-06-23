@@ -4193,13 +4193,15 @@ async function handleAuthenticatedSession(session) {
   await saveSession(session);
   els.authNotice.textContent = "";
   closeAuthDialog();
+  renderShell();
   try {
     await withTimeout(loadMe(), 8000, "Account load");
     await loadPaymentRequests();
     renderShell();
     if (hasChatAccess()) await loadChatApp();
   } catch (err) {
-    showToast(err.message);
+    els.authNotice.textContent = err?.message || "Signed in, but your account could not be loaded.";
+    showToast(els.authNotice.textContent);
   }
 }
 

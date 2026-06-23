@@ -76,6 +76,12 @@ export const preferences = {
 
 let nativeSupabaseClient = null;
 
+const pkceStorage = {
+  getItem: (key) => key.endsWith("-code-verifier") ? storage.get(key) : null,
+  setItem: (key, value) => key.endsWith("-code-verifier") ? storage.set(key, value) : undefined,
+  removeItem: (key) => key.endsWith("-code-verifier") ? storage.remove(key) : undefined
+};
+
 async function supabaseClient(config) {
   if (nativeSupabaseClient) return nativeSupabaseClient;
   const { createClient } = await import("@supabase/supabase-js");
@@ -85,11 +91,7 @@ async function supabaseClient(config) {
       detectSessionInUrl: false,
       persistSession: true,
       autoRefreshToken: false,
-      storage: {
-        getItem: (key) => preferences.get(key),
-        setItem: (key, value) => preferences.set(key, value),
-        removeItem: (key) => preferences.remove(key)
-      }
+      storage: pkceStorage
     }
   });
   return nativeSupabaseClient;
@@ -159,8 +161,11 @@ export function parseAuthCallbackUrl(value) {
 export async function listenForAuthCallback(config, { onSession, onError } = {}) {
   if (!isNative()) return () => {};
   const { App } = await import("@capacitor/app");
+  const handledUrls = new Set();
   const handleUrl = async (value) => {
     if (!String(value || "").startsWith(AUTH_CALLBACK_URL)) return;
+    if (handledUrls.has(value)) return;
+    handledUrls.add(value);
     try {
       const session = await sessionFromCallback(config, value);
       if (session) await onSession?.(session);
