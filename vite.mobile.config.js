@@ -7,7 +7,7 @@ export default defineConfig({
   build: {
     outDir: "../dist-mobile",
     emptyOutDir: true,
-    target: "es2022",
+    target: "es2020",
     sourcemap: false,
     rollupOptions: {
       input: "public/index.html"

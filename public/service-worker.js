@@ -1,6 +1,5 @@
 const CACHE_NAME = "klui-shell-20260622-v1";
 const APP_SHELL = [
-  "/",
   "/offline.html",
   "/favicon.svg",
   "/manifest.webmanifest",

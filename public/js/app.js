@@ -4991,6 +4991,7 @@ function bindEvents() {
     if (!link) return;
     const href = link.href;
     if (!/^https?:\/\//i.test(href)) return;
+    // Product navigation uses pushState; ordinary HTTP anchors are external resources.
     event.preventDefault();
     openExternal(href).catch(() => showToast("Could not open link."));
   });

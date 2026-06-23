@@ -96,6 +96,22 @@ test("API URL resolver uses the production API origin inside Capacitor", () => {
   }
 });
 
+test("mobile build supports an API origin override without changing source", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /VITE_KLUI_API_ORIGIN/);
+  assert.match(source, /https:\/\/klui\.tech/);
+});
+
+test("chat shell is visible before JavaScript finishes booting", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(source, /class="app-shell" id="chatView"/);
+  assert.doesNotMatch(source, /class="app-shell hidden" id="chatView"/);
+});
+
 test("native auth callback parser returns only the PKCE code", () => {
   const parsed = parseAuthCallbackUrl(
     "tech.klui.app://auth/callback?code=pkce-code&access_token=must-not-leak&refresh_token=must-not-leak"
@@ -128,5 +144,6 @@ test("service worker excludes APIs and only caches the public shell", async () =
   );
   assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.match(source, /request\.mode === "navigate"/);
+  assert.doesNotMatch(source, /^\s*"\/",?$/m);
   assert.doesNotMatch(source, /cache\.put\(/);
 });

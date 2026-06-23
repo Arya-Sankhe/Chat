@@ -1,3 +1,5 @@
+import { apiUrl, download as platformDownload } from "./platform/index.js";
+
 async function readProblem(response) {
   try {
     const json = await response.json();
@@ -358,4 +360,3 @@ export async function fetchAdminSummary(session) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
-import { apiUrl, download as platformDownload } from "./platform/index.js";

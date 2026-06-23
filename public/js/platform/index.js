@@ -1,4 +1,4 @@
-const API_ORIGIN = "https://klui.tech";
+const API_ORIGIN = String(import.meta.env?.VITE_KLUI_API_ORIGIN || "https://klui.tech").replace(/\/+$/, "");
 const AUTH_CALLBACK_URL = "tech.klui.app://auth/callback";
 const AUTH_STORAGE_KEY = "klui.auth.v1";
 
