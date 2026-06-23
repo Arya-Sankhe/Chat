@@ -4843,7 +4843,7 @@ body[data-chat-theme="doodle"] .message-image {
 }
 
 body[data-chat-theme="doodle"] .composer {
-  background: var(--code-bg);
+  background: transparent;
   border: 1.5px solid var(--ink);
   border-radius: 28px;
   padding: 18px 20px 14px;
@@ -7255,7 +7255,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-wrap {
 }
 
 body.chat-empty[data-chat-theme="doodle"] .composer {
-  background: var(--code-bg);
+  background: transparent;
   border-color: var(--border);
   box-shadow: var(--shadow-md);
 }
@@ -7276,6 +7276,13 @@ body.chat-empty[data-chat-theme="doodle"] .composer {
 }
 
 @media (max-width: 768px) {
+  body[data-chat-theme="doodle"] .chat-panel > .temporary-chat-bar {
+    top: 64px;
+    right: 14px;
+    left: 64px;
+    gap: 10px;
+  }
+
   body.chat-empty[data-chat-theme="doodle"] .composer-area {
     top: calc(50dvh - 90px);
     padding: 0 12px;
