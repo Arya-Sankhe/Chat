@@ -220,7 +220,25 @@ test("narrow browser layout uses a drawer header and unclipped model menu", asyn
   );
   assert.match(source, /@media \(max-width: 860px\)/);
   assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
+  assert.match(source, /body\.sidebar-open \.sidebar-nav-label/);
+  assert.match(source, /body\.sidebar-open \.conversation-row/);
   assert.match(source, /\.composer-model-dropdown \{\s*\n\s*width: min\(280px, calc\(100vw - 24px\)\)/);
+});
+
+test("narrow browser temporary chat controls avoid the mobile header controls", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /\.temporary-chat-bar \{\s*\n\s*top: 64px;\s*\n\s*right: 14px;\s*\n\s*left: 64px;/);
+  assert.match(source, /\.temporary-chat-label \{[\s\S]*max-width: min\(220px, calc\(100vw - 152px\)\)/);
+});
+
+test("Doodle composer chrome stays transparent around the input", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-area \{[\s\S]*background: transparent !important;[\s\S]*backdrop-filter: none;[\s\S]*box-shadow: none;/);
+  assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-wrap \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none;/);
 });
 
 test("APK updates compare integer version codes", () => {
