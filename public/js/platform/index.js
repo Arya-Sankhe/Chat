@@ -102,7 +102,10 @@ export async function signInWithGoogle(config) {
     provider: "google",
     options: {
       redirectTo: AUTH_CALLBACK_URL,
-      skipBrowserRedirect: true
+      skipBrowserRedirect: true,
+      queryParams: {
+        prompt: "select_account"
+      }
     }
   });
   if (error) throw error;
@@ -137,9 +140,19 @@ async function sessionFromCallback(config, callbackUrl) {
 export function parseAuthCallbackUrl(value) {
   if (!String(value || "").startsWith(AUTH_CALLBACK_URL)) return null;
   const url = new URL(value);
+  const params = new URLSearchParams([
+    ...new URLSearchParams(url.hash.replace(/^#/, "")),
+    ...url.searchParams
+  ]);
+  const errorCode = params.get("error_code") || params.get("error") || "";
+  const errorDescription = params.get("error_description") || "";
+  let error = errorDescription || errorCode;
+  if (/redirect/i.test(error)) {
+    error = "Google sign-in redirect is not configured. Add tech.klui.app://auth/callback to Supabase Auth redirect URLs.";
+  }
   return {
-    code: url.searchParams.get("code") || "",
-    error: url.searchParams.get("error_description") || url.searchParams.get("error") || ""
+    code: params.get("code") || "",
+    error
   };
 }
 

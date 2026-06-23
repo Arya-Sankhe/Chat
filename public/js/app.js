@@ -174,6 +174,8 @@ const els = {
   paywallPlans: document.querySelector("#paywallPlans"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
   paywallCloseButton: document.querySelector("#paywallCloseButton"),
+  nativeMobileMenu: document.querySelector("#nativeMobileMenu"),
+  nativeNavBackdrop: document.querySelector("#nativeNavBackdrop"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
   searchChatsButton: document.querySelector("#searchChatsButton"),
@@ -932,7 +934,7 @@ function renderServices() {
 
 function renderAuthOptions() {
   const googleEnabled = Boolean(state.config?.auth?.googleEnabled);
-  const googleReady = Boolean(googleEnabled && state.config?.auth?.googleClientId);
+  const googleReady = Boolean(googleEnabled && (isNative() || state.config?.auth?.googleClientId));
   els.googleButton.classList.toggle("hidden", !googleReady);
   if (!googleReady) {
     els.googleButton.innerHTML = "";
@@ -1769,6 +1771,17 @@ function closeActionMenu() {
   els.composerActionMenu.classList.add("hidden");
   els.actionMenuButton?.setAttribute("aria-expanded", "false");
   els.composerActionMenuWrap?.classList.remove("is-open");
+}
+
+function toggleSidebar() {
+  closeProfileMenu();
+  closePinnedPopup();
+  closeConversationMenus();
+  if (document.body.classList.contains("capacitor-native")) {
+    document.body.classList.toggle("sidebar-open");
+    return;
+  }
+  document.body.classList.toggle("sidebar-expanded");
 }
 
 function renderModelCatalog() {
@@ -5038,15 +5051,25 @@ function bindEvents() {
   });
   els.signOutButton.addEventListener("click", signOutAndReset);
 
-  els.sidebarButton.addEventListener("click", () => {
-    closeProfileMenu();
-    closePinnedPopup();
-    closeConversationMenus();
-    document.body.classList.toggle("sidebar-expanded");
+  els.sidebarButton.addEventListener("click", toggleSidebar);
+  els.nativeMobileMenu?.addEventListener("click", toggleSidebar);
+  els.nativeNavBackdrop?.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+  });
+  els.sidebarMid?.addEventListener("click", (event) => {
+    if (document.body.classList.contains("capacitor-native") && event.target.closest("button")) {
+      document.body.classList.remove("sidebar-open");
+    }
   });
 
-  els.newChatButton.addEventListener("click", addConversation);
-  els.searchChatsButton?.addEventListener("click", openSearchDialog);
+  els.newChatButton.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+    addConversation();
+  });
+  els.searchChatsButton?.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+    openSearchDialog();
+  });
   els.pinnedChatsButton?.addEventListener("click", (event) => {
     event.stopPropagation();
     togglePinnedPopup();
@@ -5129,6 +5152,16 @@ function bindEvents() {
     e.stopPropagation();
     closeActionMenu();
     closeCompareDropdown();
+    if (document.body.classList.contains("capacitor-native")) {
+      const mode = selectedModelMode() === "pro" ? "thinking" : "pro";
+      updateSetting("modelMode", mode);
+      updateSetting("provider", "openrouter");
+      updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
+      updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
+      closeModelDropdown();
+      renderModelOptions();
+      return;
+    }
     toggleModelDropdown();
   });
 

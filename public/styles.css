@@ -6144,6 +6144,336 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   font-weight: 600;
 }
 
+.native-mobile-bar,
+.native-nav-backdrop {
+  display: none;
+}
+
+/* ─── Capacitor mobile app ─── */
+body.capacitor-native {
+  --native-header-h: 62px;
+  overscroll-behavior: none;
+}
+
+body.capacitor-native .native-mobile-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(var(--native-header-h) + var(--safe-area-inset-top, env(safe-area-inset-top)));
+  padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 18px 0;
+  pointer-events: none;
+}
+
+body.capacitor-native .native-mobile-menu {
+  position: absolute;
+  left: 18px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  pointer-events: auto;
+}
+
+body.capacitor-native .native-mobile-brand {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 680;
+}
+
+body.capacitor-native .temporary-chat-bar {
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px);
+  right: 18px;
+  left: auto;
+}
+
+body.capacitor-native .temporary-chat-label {
+  position: fixed;
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 66px);
+  left: 50%;
+  min-height: 30px;
+  transform: translateX(-50%);
+}
+
+body.capacitor-native .temporary-chat-toggle {
+  width: 44px;
+  height: 44px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+}
+
+body.capacitor-native .messages {
+  padding-top: calc(var(--native-header-h) + var(--safe-area-inset-top, env(safe-area-inset-top)) + 24px);
+  padding-right: 18px;
+  padding-bottom: 164px;
+  padding-left: 18px;
+}
+
+body.capacitor-native.chat-empty .messages {
+  padding-bottom: 174px;
+}
+
+body.capacitor-native.chat-empty .empty-state {
+  justify-content: center;
+  min-height: 100%;
+  padding: 0 0 88px;
+}
+
+body.capacitor-native.chat-empty .empty-state h1 {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  font-size: 27px;
+  font-weight: 430;
+}
+
+body.capacitor-native.chat-empty .empty-state h1::before {
+  width: 54px;
+  height: 54px;
+  border-radius: 17px;
+  background: url("/icons/icon-192.png") center / cover no-repeat;
+  box-shadow: var(--shadow-md);
+  content: "";
+}
+
+body.capacitor-native .composer-area,
+body.capacitor-native.chat-empty .composer-area,
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer-area,
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer-area {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 0 12px max(10px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+}
+
+body.capacitor-native .composer {
+  padding: 14px 14px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--text));
+  border-radius: 25px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg-secondary));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+}
+
+body.capacitor-native .composer textarea,
+body.capacitor-native.chat-empty .composer textarea {
+  min-height: 34px;
+  max-height: 160px;
+  padding: 2px 4px;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+body.capacitor-native .composer-bottom,
+body.capacitor-native.chat-empty .composer-bottom {
+  min-height: 38px;
+  margin-top: 10px;
+  padding-right: 46px;
+}
+
+body.capacitor-native .composer-actions {
+  flex-wrap: nowrap;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+body.capacitor-native .composer-actions::-webkit-scrollbar {
+  display: none;
+}
+
+body.capacitor-native .composer-tool,
+body.capacitor-native .composer-model-btn,
+body.capacitor-native .compare-btn {
+  height: 38px;
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--bg) 82%, var(--bg-secondary));
+}
+
+body.capacitor-native .composer-tool {
+  width: 38px;
+}
+
+body.capacitor-native .composer-model-wrap {
+  max-width: none;
+}
+
+body.capacitor-native .composer-model-btn {
+  min-width: 108px;
+  justify-content: center;
+}
+
+body.capacitor-native .composer-model-chevron {
+  display: none;
+}
+
+body.capacitor-native .composer-model-btn.pro-active {
+  background: var(--text);
+  color: var(--bg);
+}
+
+body.capacitor-native .compare-btn {
+  max-width: none;
+  padding-inline: 12px;
+}
+
+body.capacitor-native .send-btn,
+body.capacitor-native .stop-btn {
+  width: 38px;
+  height: 38px;
+}
+
+body.capacitor-native .composer-send {
+  right: 14px;
+  bottom: 10px;
+}
+
+body.capacitor-native .app-footer {
+  display: none;
+}
+
+body.capacitor-native .sidebar {
+  z-index: 80;
+  width: min(88vw, 360px);
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+  border-right: 1px solid var(--border);
+  border-radius: 0 24px 24px 0;
+  background: var(--bg);
+  transform: translateX(-102%);
+  box-shadow: var(--shadow-lg);
+}
+
+body.capacitor-native.sidebar-open .sidebar {
+  width: min(88vw, 360px);
+  transform: translateX(0);
+}
+
+body.capacitor-native .native-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: block;
+  border: 0;
+  background: rgba(0, 0, 0, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+body.capacitor-native.sidebar-open .native-nav-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.capacitor-native .sidebar-header {
+  justify-content: space-between;
+  height: 62px;
+  padding: 0 18px;
+}
+
+body.capacitor-native .sidebar-brand,
+body.capacitor-native .sidebar-nav-label,
+body.capacitor-native .sidebar-section-label,
+body.capacitor-native .sidebar-profile-meta {
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+}
+
+body.capacitor-native .sidebar-brand {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+body.capacitor-native .sidebar-nav {
+  gap: 5px;
+  padding: 8px 12px;
+}
+
+body.capacitor-native .sidebar-nav-item {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 15px;
+  gap: 13px;
+}
+
+body.capacitor-native .sidebar-nav-item:hover,
+body.capacitor-native .sidebar-nav-item:active {
+  background: var(--bg-secondary);
+}
+
+body.capacitor-native .sidebar-mid {
+  padding: 8px 12px 18px;
+}
+
+body.capacitor-native .sidebar-section-label {
+  padding: 10px 12px 6px;
+  color: var(--text-tertiary);
+}
+
+body.capacitor-native .conversation-row {
+  min-height: 43px;
+  border-radius: 12px;
+}
+
+body.capacitor-native .conversation-menu-btn {
+  opacity: 1;
+}
+
+body.capacitor-native .sidebar-bottom {
+  padding: 12px 14px max(12px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+}
+
+body.capacitor-native .sidebar-profile-btn {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 54px;
+  padding: 7px 9px;
+  gap: 11px;
+  border-radius: 15px;
+}
+
+body.capacitor-native .profile-menu {
+  right: 14px;
+  bottom: calc(74px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+  left: 14px;
+  width: auto;
+}
+
+body.capacitor-native .auth-dialog {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 34px 24px max(28px, calc(20px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom))));
+  border-width: 1px 0 0;
+  border-radius: 26px 26px 0 0;
+  transform: translateY(24px);
+}
+
+body.capacitor-native .auth-dialog.open {
+  transform: translateY(0);
+}
+
+body.capacitor-native .native-google-button {
+  min-height: 52px;
+  border-radius: 15px;
+  background: var(--text);
+  color: var(--bg);
+}
+
 .app-update-dialog {
   position: fixed;
   z-index: 110;
@@ -6733,4 +7063,39 @@ body.chat-empty[data-chat-theme="doodle"] .composer {
     top: calc(50dvh - 90px);
     padding: 0 12px;
   }
+}
+
+/* Keep native app rules authoritative after the website breakpoints above. */
+body.capacitor-native.guest-mode .sidebar,
+body.capacitor-native .sidebar {
+  width: min(88vw, 360px);
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-102%);
+}
+
+body.capacitor-native.guest-mode.sidebar-open .sidebar,
+body.capacitor-native.sidebar-open .sidebar {
+  width: min(88vw, 360px);
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+body.capacitor-native .composer-model-wrap {
+  flex: 0 0 auto;
+  min-width: 108px;
+  max-width: none;
+}
+
+body.capacitor-native .composer-actions {
+  padding-right: 2px;
+}
+
+body.capacitor-native.chat-empty .composer,
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer,
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer {
+  padding: 14px 14px 10px;
+  border-radius: 25px;
 }

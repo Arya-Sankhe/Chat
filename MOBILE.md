@@ -43,6 +43,8 @@ tech.klui.app://auth/callback
 
 Add that callback to the Supabase Auth redirect allow list. Keep
 `https://klui.tech` and `https://klui.tech/**` for the website/PWA.
+The callback must match exactly; otherwise Android returns to Klui immediately
+with a redirect configuration error instead of showing the Google account flow.
 
 The OAuth flow stores the Supabase session and PKCE verifier in Android secure
 storage. Access and refresh tokens are never included in the callback URL.

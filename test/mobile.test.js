@@ -121,6 +121,29 @@ test("native auth callback parser returns only the PKCE code", () => {
   assert.equal("refresh_token" in parsed, false);
 });
 
+test("native auth reports redirect configuration failures clearly", () => {
+  const parsed = parseAuthCallbackUrl(
+    "tech.klui.app://auth/callback?error=bad_oauth_state&error_description=redirect+URL+not+allowed"
+  );
+  assert.match(parsed.error, /tech\.klui\.app:\/\/auth\/callback/);
+});
+
+test("native OAuth asks Google to show account selection", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /prompt:\s*"select_account"/);
+});
+
+test("Capacitor mobile styling stays isolated from the website", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body\.capacitor-native \.native-mobile-bar/);
+  assert.match(source, /body\.capacitor-native \.composer/);
+  assert.match(source, /\.native-mobile-bar,\s*\n\.native-nav-backdrop \{\s*\n\s*display: none;/);
+});
+
 test("APK updates compare integer version codes", () => {
   assert.equal(compareVersionCodes("1", 2), 1);
   assert.equal(compareVersionCodes("2", 2), 0);
