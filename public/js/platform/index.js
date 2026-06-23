@@ -86,9 +86,9 @@ async function supabaseClient(config) {
       persistSession: true,
       autoRefreshToken: false,
       storage: {
-        getItem: (key) => storage.get(key),
-        setItem: (key, value) => storage.set(key, value),
-        removeItem: (key) => storage.remove(key)
+        getItem: (key) => preferences.get(key),
+        setItem: (key, value) => preferences.set(key, value),
+        removeItem: (key) => preferences.remove(key)
       }
     }
   });
