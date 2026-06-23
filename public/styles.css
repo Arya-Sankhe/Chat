@@ -6587,7 +6587,7 @@ body.chat-empty .composer-bottom {
 }
 
 body.chat-empty .composer-area {
-  top: calc(50dvh - 72px);
+  top: max(142px, calc(50dvh - 72px));
   bottom: auto;
   padding: 0 24px;
 }
@@ -6598,7 +6598,7 @@ body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
 
 body.chat-empty[data-chat-theme="cyber"] .composer-area,
 body.chat-empty[data-chat-theme="doodle"] .composer-area {
-  top: calc(50dvh - 72px);
+  top: max(142px, calc(50dvh - 72px));
   bottom: auto;
   padding-inline: 24px;
 }
@@ -7002,7 +7002,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   }
 
   body.chat-empty .composer-area {
-    top: calc(50dvh - 72px);
+    top: max(126px, calc(50dvh - 72px));
     padding: 0 12px;
   }
 
@@ -7238,7 +7238,7 @@ body.chat-empty[data-chat-theme="doodle"] .chat-panel::after {
 
 body.chat-empty[data-chat-theme="doodle"] .composer-area {
   position: absolute;
-  top: calc(50dvh - 94px);
+  top: max(120px, calc(50dvh - 94px));
   right: 0;
   bottom: auto;
   left: 0;
@@ -7284,7 +7284,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer {
   }
 
   body.chat-empty[data-chat-theme="doodle"] .composer-area {
-    top: calc(50dvh - 90px);
+    top: max(108px, calc(50dvh - 90px));
     padding: 0 12px;
   }
 }
