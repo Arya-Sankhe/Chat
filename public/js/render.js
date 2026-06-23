@@ -281,7 +281,7 @@ export function renderContent(content) {
         if (part.type === "text") return renderRichText(part.text);
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
-          return url ? `<img class="message-image" src="${escapeHtml(url)}" alt="User supplied image">` : "";
+          return url ? `<img class="message-image" src="${escapeHtml(url)}" data-preview-src="${escapeHtml(url)}" alt="User supplied image" role="button" tabindex="0">` : "";
         }
         if (part.type === "file") {
           const file = part.file || {};

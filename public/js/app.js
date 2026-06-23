@@ -59,7 +59,7 @@ import {
   normalizeModelList,
   renderContent,
   resetCodeSourceStore
-} from "./render.js?v=20260616-codecopy-v1";
+} from "./render.js?v=20260623-image-preview-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
@@ -175,6 +175,7 @@ const els = {
   paywallBackButton: document.querySelector("#paywallBackButton"),
   paywallCloseButton: document.querySelector("#paywallCloseButton"),
   nativeMobileMenu: document.querySelector("#nativeMobileMenu"),
+  compactNewChatButton: document.querySelector("#compactNewChatButton"),
   nativeNavBackdrop: document.querySelector("#nativeNavBackdrop"),
   sidebarButton: document.querySelector("#sidebarButton"),
   newChatButton: document.querySelector("#newChatButton"),
@@ -340,8 +341,8 @@ function temporaryHistoryForRequest() {
 function renderTemporaryChatMode() {
   document.body.classList.toggle("temporary-chat", state.temporaryChat);
   const onEmptyChat = !state.messages.length;
-  els.temporaryChatBar?.classList.toggle("hidden", !onEmptyChat);
-  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat || !onEmptyChat);
+  els.temporaryChatBar?.classList.toggle("hidden", !onEmptyChat && !state.temporaryChat);
+  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
     els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
@@ -1777,7 +1778,7 @@ function toggleSidebar() {
   closeProfileMenu();
   closePinnedPopup();
   closeConversationMenus();
-  if (document.body.classList.contains("capacitor-native")) {
+  if (document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches) {
     document.body.classList.toggle("sidebar-open");
     return;
   }
@@ -3510,6 +3511,7 @@ function addImages(files) {
     showToast("Temporary chat is text-only for now.");
     return;
   }
+  const draft = els.promptInput.value;
   const plan = state.me?.plan || {};
   const allFiles = [...files];
   const accepted = allFiles.filter((file) => state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
@@ -3559,6 +3561,8 @@ function addImages(files) {
     }
   }
   renderImages();
+  els.promptInput.value = draft;
+  applyComposerHeight();
   syncCompareContextBanner();
 }
 
@@ -4607,9 +4611,12 @@ async function retryFailedAssistant(assistantMessageId) {
     }
   } finally {
     const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
+    const completedScrollTop = els.messages.scrollTop;
     state.abortController = null;
     setRunning(false);
+    setAutoScroll(false);
     renderShell();
+    setMessagesScrollTop(completedScrollTop);
     if (queuedFollowUps.length) {
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
@@ -4855,8 +4862,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
     }
   } finally {
     const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
+    const completedScrollTop = els.messages.scrollTop;
     state.abortController = null;
     setRunning(false);
+    setAutoScroll(false);
     if (shouldReloadConversation && !temporaryChat) {
       const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
       if (reloaded) {
@@ -4864,6 +4873,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }
     }
     renderShell();
+    setMessagesScrollTop(completedScrollTop);
     if (queuedFollowUps.length) {
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
@@ -5055,11 +5065,15 @@ function bindEvents() {
 
   els.sidebarButton.addEventListener("click", toggleSidebar);
   els.nativeMobileMenu?.addEventListener("click", toggleSidebar);
+  els.compactNewChatButton?.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+    addConversation();
+  });
   els.nativeNavBackdrop?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
   });
   els.sidebarMid?.addEventListener("click", (event) => {
-    if (document.body.classList.contains("capacitor-native") && event.target.closest("button")) {
+    if ((document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches) && event.target.closest("button")) {
       document.body.classList.remove("sidebar-open");
     }
   });
@@ -5450,6 +5464,12 @@ function bindEvents() {
   });
 
   els.messages.addEventListener("click", async (e) => {
+    const previewImage = e.target.closest("[data-preview-src]");
+    if (previewImage) {
+      openLightbox(previewImage.dataset.previewSrc);
+      return;
+    }
+
     const viewButton = e.target.closest("[data-view-attachment-id]");
     if (viewButton) {
       e.preventDefault();
@@ -5536,6 +5556,12 @@ function bindEvents() {
   });
 
   els.messages.addEventListener("keydown", (e) => {
+    const previewImage = e.target.closest("[data-preview-src]");
+    if (previewImage && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      openLightbox(previewImage.dataset.previewSrc);
+      return;
+    }
     const input = e.target.closest("[data-edit-input]");
     if (!input) return;
     if (e.key === "Enter" && !e.shiftKey) {

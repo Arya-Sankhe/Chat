@@ -169,7 +169,58 @@ test("Capacitor mobile styling stays isolated from the website", async () => {
   );
   assert.match(source, /body\.capacitor-native \.native-mobile-bar/);
   assert.match(source, /body\.capacitor-native \.composer/);
-  assert.match(source, /\.native-mobile-bar,\s*\n\.native-nav-backdrop \{\s*\n\s*display: none;/);
+  assert.match(source, /\.native-mobile-bar,\s*\n\.native-nav-backdrop,\s*\n\.compact-new-chat \{\s*\n\s*display: none;/);
+});
+
+test("temporary chat label remains visible after messages exist", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /temporaryChatBar\?\.classList\.toggle\("hidden", !onEmptyChat && !state\.temporaryChat\)/);
+  assert.match(source, /temporaryChatLabel\?\.classList\.toggle\("hidden", !state\.temporaryChat\)/);
+});
+
+test("completed streaming preserves the current message scroll position", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const retryPath = source.slice(
+    source.indexOf("async function retryFailedAssistant"),
+    source.indexOf("async function executeSend")
+  );
+  const sendPath = source.slice(
+    source.indexOf("async function executeSend"),
+    source.indexOf("async function signOutAndReset")
+  );
+  for (const path of [retryPath, sendPath]) {
+    assert.match(path, /const completedScrollTop = els\.messages\.scrollTop/);
+    assert.match(path, /setAutoScroll\(false\)/);
+    assert.match(path, /renderShell\(\);\s*setMessagesScrollTop\(completedScrollTop\)/);
+  }
+});
+
+test("adding uploads preserves an existing composer draft", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /const draft = els\.promptInput\.value/);
+  assert.match(source, /renderImages\(\);\s*els\.promptInput\.value = draft;\s*applyComposerHeight\(\)/);
+});
+
+test("sent images can open in the existing lightbox", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/render.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /class="message-image"[^>]+data-preview-src=/);
+});
+
+test("narrow browser layout uses a drawer header and unclipped model menu", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /@media \(max-width: 860px\)/);
+  assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
+  assert.match(source, /\.composer-model-dropdown \{\s*\n\s*width: min\(280px, calc\(100vw - 24px\)\)/);
 });
 
 test("APK updates compare integer version codes", () => {
