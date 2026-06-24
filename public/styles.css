@@ -4843,7 +4843,9 @@ body[data-chat-theme="doodle"] .message-image {
 }
 
 body[data-chat-theme="doodle"] .composer {
-  background: transparent;
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1.5px solid var(--ink);
   border-radius: 28px;
   padding: 18px 20px 14px;
@@ -7255,7 +7257,9 @@ body.chat-empty[data-chat-theme="doodle"] .composer-wrap {
 }
 
 body.chat-empty[data-chat-theme="doodle"] .composer {
-  background: transparent;
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-color: var(--border);
   box-shadow: var(--shadow-md);
 }
