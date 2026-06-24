@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { adaptChatRequestForProvider } from "../server/providers.js";
-import { applyStreamEvent } from "../server/saas/messages.js";
+import { applyStreamEvent, stripLeakedToolMarkup } from "../server/saas/messages.js";
 import { extractReasoningDelta } from "../server/saas/reasoning.js";
 
 test("extractReasoningDelta reads Klui reasoning_content", () => {
@@ -286,4 +286,35 @@ test("applyStreamEvent still accumulates reasoning_content for Klui streams", ()
   });
 
   assert.equal(message.reasoning, "legacy reasoning");
+});
+
+test("stripLeakedToolMarkup removes provider DSML tool-call blocks", () => {
+  const leaked = `Here is the answer.
+
+< | | DSML | | tool_calls>
+< | | DSML | | invoke name="read_url">
+< | | DSML | | parameter name="url" string="true">https://github.com/example/repo</ | | DSML | | parameter>
+</ | | DSML | | invoke>
+</ | | DSML | | tool_calls>
+
+Done.`;
+
+  assert.equal(stripLeakedToolMarkup(leaked), "Here is the answer.\n\nDone.");
+});
+
+test("applyStreamEvent strips leaked DSML markup before finalizing content", () => {
+  const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
+
+  applyStreamEvent(message, {
+    choices: [{ delta: { content: "< | | DSML | | tool_calls>\n" } }]
+  });
+  applyStreamEvent(message, {
+    choices: [{ delta: { content: "< | | DSML | | invoke name=\"web_search\">\n" } }]
+  });
+  applyStreamEvent(message, {
+    choices: [{ delta: { content: "</ | | DSML | | tool_calls>" }, finish_reason: "stop" }]
+  });
+
+  assert.equal(message.content, "");
+  assert.equal(message.finishReason, "stop");
 });

@@ -286,6 +286,23 @@ export function normalizeUsage(usage) {
   return Object.keys(result).length ? result : null;
 }
 
+export function stripLeakedToolMarkup(value) {
+  let text = String(value ?? "");
+  if (!/\bDSML\b/i.test(text)) return text;
+
+  text = text.replace(
+    /<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi,
+    ""
+  );
+
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !/\bDSML\b/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function applyStreamEvent(message, event) {
   if (event?.id && !message.generationId) message.generationId = String(event.id);
 
@@ -332,6 +349,7 @@ export function applyStreamEvent(message, event) {
     message.finishReason = choice.finish_reason;
     if (isFinalFinishReason(choice.finish_reason)) markActivityEnded(message);
     markReasoningEnded(message);
+    message.content = stripLeakedToolMarkup(message.content);
   }
 }
 
@@ -339,6 +357,7 @@ function finalizeAccumulatedAssistant(assistant) {
   if (assistant?.activityStartedAt && !assistant.activityEndedAt) {
     markActivityEnded(assistant);
   }
+  assistant.content = stripLeakedToolMarkup(assistant.content);
 }
 
 function stripReasoningFields(target) {

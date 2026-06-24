@@ -2370,6 +2370,21 @@ function stripLeakedCitationHtml(text) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function stripLeakedToolMarkup(text) {
+  let s = String(text ?? "");
+  if (!/\bDSML\b/i.test(s)) return s;
+  s = s.replace(
+    /<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi,
+    ""
+  );
+  return s
+    .split(/\r?\n/)
+    .filter((line) => !/\bDSML\b/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function prepareCitationPlaceholders(text, citations) {
   const slots = [];
   if (!text || !citations?.length) return { text: String(text ?? ""), slots };
@@ -2410,7 +2425,7 @@ function restoreCitationPlaceholders(html, slots) {
 }
 
 function renderAssistantText(text, citations) {
-  const cleaned = stripLeakedCitationHtml(text);
+  const cleaned = stripLeakedToolMarkup(stripLeakedCitationHtml(text));
   if (!cleaned.trim()) return "";
   if (!citations.length) return renderContent(cleaned);
   const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
@@ -3855,6 +3870,7 @@ function applyStreamEvent(message, event) {
     message.finishReason = choice.finish_reason;
     if (isFinalFinishReason(choice.finish_reason)) markActivityEnded(message);
     markReasoningEnded(message);
+    message.content = stripLeakedToolMarkup(message.content);
   }
 }
 
