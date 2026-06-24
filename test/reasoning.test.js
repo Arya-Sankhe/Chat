@@ -302,6 +302,11 @@ Done.`;
   assert.equal(stripLeakedToolMarkup(leaked), "Here is the answer.\n\nDone.");
 });
 
+test("stripLeakedToolMarkup keeps prose that merely mentions DSML", () => {
+  const prose = "DSML is a domain-specific markup language.\nWhat is DSML used for?";
+  assert.equal(stripLeakedToolMarkup(prose), prose);
+});
+
 test("applyStreamEvent strips leaked DSML markup before finalizing content", () => {
   const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
 

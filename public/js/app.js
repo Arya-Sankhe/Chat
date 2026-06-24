@@ -2370,16 +2370,15 @@ function stripLeakedCitationHtml(text) {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function stripLeakedToolMarkup(text) {
-  let s = String(text ?? "");
-  if (!/\bDSML\b/i.test(s)) return s;
-  s = s.replace(
-    /<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi,
-    ""
-  );
-  return s
+// Keep in sync with the mirrored copy in server/saas/messages.js (client/server bundles are separate).
+function stripLeakedToolMarkup(value) {
+  const text = String(value ?? "");
+  const dsmlTag = /<[^>]*\bDSML\b/i;
+  if (!dsmlTag.test(text)) return text;
+  return text
+    .replace(/<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi, "")
     .split(/\r?\n/)
-    .filter((line) => !/\bDSML\b/i.test(line))
+    .filter((line) => !dsmlTag.test(line))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

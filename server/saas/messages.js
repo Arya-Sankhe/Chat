@@ -286,18 +286,16 @@ export function normalizeUsage(usage) {
   return Object.keys(result).length ? result : null;
 }
 
+// Keep in sync with the mirrored copy in public/js/app.js (client/server bundles are separate).
 export function stripLeakedToolMarkup(value) {
-  let text = String(value ?? "");
-  if (!/\bDSML\b/i.test(text)) return text;
-
-  text = text.replace(
-    /<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi,
-    ""
-  );
+  const text = String(value ?? "");
+  const dsmlTag = /<[^>]*\bDSML\b/i;
+  if (!dsmlTag.test(text)) return text;
 
   return text
+    .replace(/<\s*\|\s*\|?\s*DSML\s*\|[\s\S]*?<\s*\/\s*\|\s*\|?\s*DSML\s*\|\s*\|?\s*tool_calls\s*>/gi, "")
     .split(/\r?\n/)
-    .filter((line) => !/\bDSML\b/i.test(line))
+    .filter((line) => !dsmlTag.test(line))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
