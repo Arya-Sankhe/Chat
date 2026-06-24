@@ -321,6 +321,89 @@ describe("WebSearchOrchestrator", () => {
     ]);
   });
 
+  test("SearXNG prefers relevant app-development sources over generic GitHub and word noise", async () => {
+    let capturedUrl;
+    installFetch(async (url) => {
+      capturedUrl = new URL(String(url));
+      return jsonResponse({
+        results: [
+          {
+            url: "https://restaurantji.com/ga/chatsworth/",
+            title: "THE 15 BEST Restaurants in Chatsworth, GA - With Menus, Reviews",
+            content: "Restaurant menus and local food reviews."
+          },
+          {
+            url: "https://fontawesome.com/",
+            title: "Font Awesome",
+            content: "Icon library and toolkit."
+          },
+          {
+            url: "https://mrmrsenglish.com/100-synonyms-for-awesome/",
+            title: "100 Synonyms for Awesome in English with their Pictures",
+            content: "Vocabulary examples."
+          },
+          {
+            url: "https://cdnjs.com/libraries/font-awesome",
+            title: "font-awesome - Libraries - cdnjs - The #1 free and open source CDN",
+            content: "CDN assets for Font Awesome."
+          },
+          {
+            url: "https://github.com/",
+            title: "GitHub · Change is constant. GitHub keeps you ahead.",
+            content: "GitHub homepage."
+          },
+          {
+            url: "https://www.linkedin.com/company/github",
+            title: "GitHub - LinkedIn",
+            content: "Company profile."
+          },
+          {
+            url: "https://github.dev/",
+            title: "github.dev - Visual Studio Code for the Web",
+            content: "Open GitHub repositories in a browser editor."
+          },
+          {
+            url: "https://github.com/capacitor-community/awesome-capacitor",
+            title: "GitHub - capacitor-community/awesome-capacitor: A curated list of Capacitor plugins",
+            content: "A repository for Capacitor plugins and resources for Android, iOS, and mobile app development."
+          },
+          {
+            url: "https://github.com/topics/mobile-app-development",
+            title: "mobile-app-development · GitHub Topics",
+            content: "GitHub repositories for Android, iOS, React Native, Flutter, Expo, and mobile app development."
+          },
+          {
+            url: "https://docs.expo.dev/",
+            title: "Expo Documentation",
+            content: "Build native Android and iOS apps with React Native, Expo, and app development tools."
+          },
+          {
+            url: "https://capacitorjs.com/docs",
+            title: "Capacitor Documentation",
+            content: "Capacitor lets web developers build native iOS and Android apps from one codebase."
+          }
+        ]
+      });
+    });
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({
+      query: "Can you find me the best skills on a GitHub repo for making an Android app or iOS app, just like an app in general? The best GitHub skills to have the best design and code quality for making and building apps through AI agents.",
+      numResults: 10
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(capturedUrl.searchParams.get("q"), "skill github repository android app ios design code quality ai");
+    assert.deepEqual(new Set(result.results.map((entry) => entry.url)), new Set([
+      "https://github.com/capacitor-community/awesome-capacitor",
+      "https://github.com/topics/mobile-app-development",
+      "https://docs.expo.dev/",
+      "https://capacitorjs.com/docs"
+    ]));
+    assert.equal(result.results.length, 4);
+  });
+
   test("Jina search success returns normalized results", async () => {
     let capturedUrl;
     let capturedOptions;

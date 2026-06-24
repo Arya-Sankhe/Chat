@@ -119,7 +119,7 @@ export class WebSearchOrchestrator {
 
     const cacheKey = hashKey({
       kind: "search",
-      qualityVersion: 2,
+      qualityVersion: 3,
       providers: this.resolveChain().filter((provider) => this.providerAvailable(provider)).join(",") || "none",
       query: normalizedQuery.toLowerCase(),
       numResults: numResults || this.config.maxResults,
