@@ -404,6 +404,32 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.results.length, 4);
   });
 
+  test("SearXNG still returns weakly-relevant results instead of nothing", async () => {
+    installFetch(async () => jsonResponse({
+      results: [
+        { url: "https://example.com/a", title: "Kettle overview", content: "Product page." },
+        { url: "https://example.org/b", title: "Thermostat guide", content: "How it works." },
+        { url: "https://sample.net/c", title: "Warranty info", content: "Coverage details." },
+        { url: "https://demo.io/d", title: "Manual download", content: "PDF resource." }
+      ]
+    }));
+
+    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const result = await orchestrator.search({
+      query: "kettle thermostat warranty manual",
+      numResults: 5
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(new Set(result.results.map((entry) => entry.url)), new Set([
+      "https://example.com/a",
+      "https://example.org/b",
+      "https://sample.net/c",
+      "https://demo.io/d"
+    ]));
+  });
+
   test("Jina search success returns normalized results", async () => {
     let capturedUrl;
     let capturedOptions;

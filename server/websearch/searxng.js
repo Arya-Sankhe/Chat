@@ -77,7 +77,6 @@ const NOISY_SOURCE_HOSTS = [
   "dictionary.cambridge.org",
   "facebook.com",
   "fontawesome.com",
-  "github.dev",
   "linkedin.com",
   "merriam-webster.com",
   "mrmrsenglish.com",
@@ -147,9 +146,9 @@ function isHighQualityHost(host) {
   return hostMatches(host, HIGH_QUALITY_HOSTS);
 }
 
-function resultRelevance({ title, snippet, url }, terms) {
+function resultRelevance({ title, snippet }, parts, terms) {
   if (!terms.length) return 1;
-  const { host, path } = urlParts(url);
+  const { host, path } = parts;
   const haystackText = `${title} ${snippet} ${host.replace(/\./g, " ")} ${path}`;
   const haystack = haystackText.toLowerCase();
   const tokens = new Set(tokenize(haystackText, { keepStopwords: true }));
@@ -160,8 +159,8 @@ function resultRelevance({ title, snippet, url }, terms) {
   return score;
 }
 
-function isNoisyResult({ title, url }, score, terms) {
-  const { host, pathParts } = urlParts(url);
+function isNoisyResult({ title }, parts, score, terms) {
+  const { host, pathParts } = parts;
   const titleLower = String(title || "").toLowerCase();
   const noisyHost = hostMatches(host, NOISY_SOURCE_HOSTS);
   if (host === "github.dev") return true;
@@ -194,33 +193,36 @@ function selectRelevantResults(candidates, query, limit) {
   if (!candidates.length) return [];
 
   const scored = candidates.map((result, originalIndex) => {
-    const score = resultRelevance(result, terms);
-    const { host } = urlParts(result.url);
+    const parts = urlParts(result.url);
+    const score = resultRelevance(result, parts, terms);
     return {
       result,
       originalIndex,
       score,
-      qualityBonus: isHighQualityHost(host) ? 1 : 0,
-      noisy: isNoisyResult(result, score, terms)
+      qualityBonus: isHighQualityHost(parts.host) ? 1 : 0,
+      noisy: isNoisyResult(result, parts, score, terms)
     };
   });
 
   const minScore = terms.length >= 4 ? 2 : 1;
-  const selectedPool = scored.filter((entry) => !entry.noisy && entry.score >= minScore);
-  if (selectedPool.length < Math.min(3, limit)) {
-    for (const entry of scored) {
-      if (selectedPool.length >= limit) break;
-      if (entry.noisy || entry.score < 1 || entry.qualityBonus <= 0 || selectedPool.includes(entry)) continue;
-      selectedPool.push(entry);
+  const clean = scored.filter((entry) => !entry.noisy);
+  const pool = clean.filter((entry) => entry.score >= minScore);
+
+  // Too few strong matches: top up with weaker but still relevant results.
+  if (pool.length < Math.min(3, limit)) {
+    for (const entry of clean) {
+      if (pool.length >= limit) break;
+      if (entry.score >= 1 && !pool.includes(entry)) pool.push(entry);
     }
   }
 
-  const selected = selectedPool
+  // Never starve the model: if filtering removed everything, return the best we have.
+  const ranked = pool.length ? pool : (clean.length ? clean : scored);
+
+  return ranked
     .sort((a, b) => (b.score + b.qualityBonus) - (a.score + a.qualityBonus) || a.originalIndex - b.originalIndex)
     .slice(0, limit)
     .map((entry, index) => ({ ...entry.result, index: index + 1 }));
-
-  return selected;
 }
 
 /**
