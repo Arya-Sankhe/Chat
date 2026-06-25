@@ -1,0 +1,9 @@
+appId: tech.klui.app
+---
+- clearState
+- launchApp
+- extendedWaitUntil:
+    visible: "Klui"
+    timeout: 15000
+- assertVisible:
+    text: "Klui|Sign in|Continue|New Chat|Ask anything"

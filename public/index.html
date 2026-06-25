@@ -174,6 +174,7 @@
           </div>
 
           <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv" multiple class="sr-only">
+          <input id="cameraFileInput" type="file" accept="image/*" capture="environment" class="sr-only">
 
           <section class="composer-area" aria-label="Message composer">
             <div class="composer-wrap">
@@ -191,6 +192,10 @@
                         <button class="composer-action-menu-item" type="button" id="imageToggle" role="menuitem">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.49"/></svg>
                           <span>Add photos & files</span>
+                        </button>
+                        <button class="composer-action-menu-item mobile-camera-action hidden" type="button" id="cameraAction" role="menuitem">
+                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                          <span>Take photo</span>
                         </button>
                         <button class="composer-action-menu-item web-search-toggle hidden" type="button" id="webSearchToggle" role="menuitem" aria-pressed="true" aria-label="Web search auto" title="Web search: Auto — the model searches the web when needed. Click to turn off.">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>

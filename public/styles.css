@@ -6169,7 +6169,44 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 /* ─── Capacitor mobile app ─── */
 body.capacitor-native {
   --native-header-h: 62px;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
   overscroll-behavior: none;
+}
+
+body.capacitor-native *,
+body.capacitor-native *::before,
+body.capacitor-native *::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.capacitor-native button,
+body.capacitor-native a,
+body.capacitor-native [role="button"],
+body.capacitor-native input,
+body.capacitor-native textarea,
+body.capacitor-native select,
+body.capacitor-native summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.capacitor-native button,
+body.capacitor-native a,
+body.capacitor-native [role="button"],
+body.capacitor-native .sidebar,
+body.capacitor-native .native-mobile-bar,
+body.capacitor-native .composer-actions,
+body.capacitor-native .conversation-list {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.capacitor-native textarea,
+body.capacitor-native input,
+body.capacitor-native .message-content,
+body.capacitor-native .code-block {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 body.capacitor-native .native-mobile-bar {
@@ -6236,7 +6273,7 @@ body.capacitor-native .temporary-chat-toggle {
 body.capacitor-native .messages {
   padding-top: calc(var(--native-header-h) + var(--safe-area-inset-top, env(safe-area-inset-top)) + 24px);
   padding-right: 18px;
-  padding-bottom: 164px;
+  padding-bottom: 200px;
   padding-left: 18px;
 }
 
@@ -6251,20 +6288,9 @@ body.capacitor-native.chat-empty .empty-state {
 }
 
 body.capacitor-native.chat-empty .empty-state h1 {
-  display: grid;
-  justify-items: center;
-  gap: 18px;
+  display: block;
   font-size: 27px;
   font-weight: 430;
-}
-
-body.capacitor-native.chat-empty .empty-state h1::before {
-  width: 54px;
-  height: 54px;
-  border-radius: 17px;
-  background: url("/icons/icon-192.png") center / cover no-repeat;
-  box-shadow: var(--shadow-md);
-  content: "";
 }
 
 body.capacitor-native .composer-area,
@@ -6282,7 +6308,7 @@ body.capacitor-native .composer {
   padding: 14px 14px 10px;
   border: 1px solid color-mix(in srgb, var(--border) 88%, var(--text));
   border-radius: 25px;
-  background: color-mix(in srgb, var(--surface) 94%, var(--bg-secondary));
+  background: var(--bg);
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
 }
 
@@ -6357,6 +6383,19 @@ body.capacitor-native .stop-btn {
 body.capacitor-native .composer-send {
   right: 14px;
   bottom: 10px;
+}
+
+body.capacitor-native .composer-action-menu {
+  position: fixed;
+  top: auto;
+  left: 14px;
+  bottom: calc(100px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+  max-height: calc(60dvh);
+  overflow-y: auto;
+}
+
+body.capacitor-native .mobile-camera-action.hidden {
+  display: flex !important;
 }
 
 body.capacitor-native .app-footer {
@@ -7298,6 +7337,7 @@ body.capacitor-native.guest-mode .sidebar,
 body.capacitor-native .sidebar {
   width: min(88vw, 360px);
   overflow: hidden;
+  z-index: 80;
   visibility: hidden;
   pointer-events: none;
   transform: translateX(-102%);
@@ -7306,9 +7346,24 @@ body.capacitor-native .sidebar {
 body.capacitor-native.guest-mode.sidebar-open .sidebar,
 body.capacitor-native.sidebar-open .sidebar {
   width: min(88vw, 360px);
+  overflow: visible;
   visibility: visible;
   pointer-events: auto;
   transform: translateX(0);
+}
+
+body.capacitor-native .chat-panel > .temporary-chat-bar {
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px);
+  right: 18px;
+  left: auto;
+}
+
+body.capacitor-native.sidebar-open .pinned-popup {
+  left: 0;
+  right: auto;
+  top: calc(100% + 6px);
+  width: 100%;
+  max-width: 100%;
 }
 
 body.capacitor-native .composer-model-wrap {
@@ -7326,4 +7381,16 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer,
 body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer {
   padding: 14px 14px 10px;
   border-radius: 25px;
+}
+
+/* Keep the native backdrop behind the sidebar but above the chat content.
+   Must win over the website media-query rule that sets z-index: 29 on
+   body.sidebar-open .native-nav-backdrop (same specificity, appears later
+   in source order). */
+body.capacitor-native.sidebar-open .native-nav-backdrop {
+  z-index: 79;
+}
+
+body.capacitor-native.sidebar-open .sidebar {
+  z-index: 80;
 }

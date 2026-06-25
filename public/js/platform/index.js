@@ -20,16 +20,30 @@ export function apiUrl(path) {
   return `${apiOrigin()}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
+let secureStorageInstance = null;
+
 async function secureStorage() {
+  if (secureStorageInstance) return secureStorageInstance;
   const { SecureStorage } = await import("@aparajita/capacitor-secure-storage");
-  return SecureStorage;
+  // Return a plain wrapper object instead of the raw plugin object. The
+  // Capacitor plugin proxy is thenable (has a .then property), so returning
+  // it directly from an async function causes Promise resolution to
+  // assimilate it as a thenable and call SecureStorage.then(), which is not
+  // implemented on Android and throws. A plain object avoids this.
+  secureStorageInstance = {
+    get: SecureStorage.get.bind(SecureStorage),
+    set: SecureStorage.set.bind(SecureStorage),
+    remove: SecureStorage.remove.bind(SecureStorage)
+  };
+  return secureStorageInstance;
 }
 
 export const storage = {
   async get(key) {
     if (!isNative()) return globalThis.localStorage?.getItem(key) ?? null;
     try {
-      return await (await secureStorage()).get(key);
+      const store = await secureStorage();
+      return await store.get(key);
     } catch {
       return null;
     }
@@ -39,14 +53,16 @@ export const storage = {
       globalThis.localStorage?.setItem(key, String(value));
       return;
     }
-    await (await secureStorage()).set(key, String(value));
+    const store = await secureStorage();
+    await store.set(key, String(value));
   },
   async remove(key) {
     if (!isNative()) {
       globalThis.localStorage?.removeItem(key);
       return;
     }
-    await (await secureStorage()).remove(key).catch(() => {});
+    const store = await secureStorage();
+    await store.remove(key).catch(() => {});
   }
 };
 
@@ -97,24 +113,38 @@ async function supabaseClient(config) {
   return nativeSupabaseClient;
 }
 
+let googleSignInPromise = null;
+
 export async function signInWithGoogle(config) {
   if (!isNative()) return null;
-  const client = await supabaseClient(config);
-  const { data, error } = await client.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: AUTH_CALLBACK_URL,
-      skipBrowserRedirect: true,
-      queryParams: {
-        prompt: "select_account"
-      }
+  // Guard against concurrent sign-in attempts. Multiple PKCE flows
+  // overwrite each other's code verifier in storage, causing the OAuth
+  // callback to fail when the code verifier doesn't match the original
+  // request. Return the same promise for any concurrent callers.
+  if (googleSignInPromise) return googleSignInPromise;
+  googleSignInPromise = (async () => {
+    try {
+      const client = await supabaseClient(config);
+      const { data, error } = await client.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: AUTH_CALLBACK_URL,
+          skipBrowserRedirect: true,
+          queryParams: {
+            prompt: "select_account"
+          }
+        }
+      });
+      if (error) throw error;
+      if (!data?.url) throw new Error("Google sign-in could not be started.");
+      const { Browser } = await import("@capacitor/browser");
+      await Browser.open({ url: data.url, presentationStyle: "fullscreen" });
+      return null;
+    } finally {
+      googleSignInPromise = null;
     }
-  });
-  if (error) throw error;
-  if (!data?.url) throw new Error("Google sign-in could not be started.");
-  const { Browser } = await import("@capacitor/browser");
-  await Browser.open({ url: data.url, presentationStyle: "fullscreen" });
-  return null;
+  })();
+  return googleSignInPromise;
 }
 
 async function sessionFromCallback(config, callbackUrl) {

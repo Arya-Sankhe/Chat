@@ -47,7 +47,8 @@ import {
   onResume,
   openExternal,
   preferences,
-  registerBackButton
+  registerBackButton,
+  signInWithGoogle as nativeSignInWithGoogle
 } from "./platform/index.js";
 import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
 import {
@@ -211,6 +212,8 @@ const els = {
   imagePreviews: document.querySelector("#imagePreviews"),
   followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
+  cameraFileInput: document.querySelector("#cameraFileInput"),
+  cameraAction: document.querySelector("#cameraAction"),
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
   composerActionMenu: document.querySelector("#composerActionMenu"),
@@ -857,6 +860,7 @@ function showPaywall({ allowReturn = false } = {}) {
 function openUpgradePlans() {
   if (!state.session || !hasUpgradePlans()) return;
   closeProfileMenu();
+  document.body.classList.remove("sidebar-open");
   closeAllDrawers();
   showPaywall({ allowReturn: true });
 }
@@ -1090,6 +1094,7 @@ function toggleProfileMenu() {
 function openAdminDrawer() {
   if (!state.session) return;
   closeProfileMenu();
+  document.body.classList.remove("sidebar-open");
   renderAccount();
   els.accountDrawer.classList.add("open");
   els.accountDrawer.setAttribute("aria-hidden", "false");
@@ -3593,6 +3598,7 @@ function closeLightbox() {
 /* ─── Drawers / Dialogs ─── */
 
 function openSettings() {
+  document.body.classList.remove("sidebar-open");
   syncSettingsInputs();
   els.settingsDrawer.classList.add("open");
   els.settingsDrawer.setAttribute("aria-hidden", "false");
@@ -3624,6 +3630,20 @@ function openAuthDialog() {
   els.overlay.hidden = false;
   els.overlay.dataset.mode = "auth";
   renderAuthOptions();
+}
+
+function startSidebarLogin() {
+  if (!isNative()) {
+    openAuthDialog();
+    return;
+  }
+  document.body.classList.remove("sidebar-open");
+  closeAuthDialog();
+  els.authNotice.textContent = "";
+  nativeSignInWithGoogle(state.config).catch((error) => {
+    els.authNotice.textContent = error?.message || "Google sign-in failed.";
+    openAuthDialog();
+  });
 }
 
 function closeAuthDialog() {
@@ -5063,7 +5083,7 @@ function bindEvents() {
     else if (["ArrowDown", "PageDown", "End"].includes(event.key) && isNearBottom(els.messages, 40)) setAutoScroll(true);
   }, { passive: true });
 
-  els.guestLoginButton.addEventListener("click", openAuthDialog);
+  els.guestLoginButton.addEventListener("click", startSidebarLogin);
   els.authDialogClose.addEventListener("click", closeAuthDialog);
   els.paywallPlans.addEventListener("click", (e) => {
     const button = e.target.closest("[data-start-payment]");
@@ -5087,12 +5107,6 @@ function bindEvents() {
   els.nativeNavBackdrop?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
   });
-  els.sidebarMid?.addEventListener("click", (event) => {
-    if ((document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches) && event.target.closest("button")) {
-      document.body.classList.remove("sidebar-open");
-    }
-  });
-
   els.newChatButton.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
     addConversation();
@@ -5399,6 +5413,19 @@ function bindEvents() {
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {
+    addImages(e.target.files || []);
+    e.target.value = "";
+  });
+  els.cameraAction?.addEventListener("click", () => {
+    closeActionMenu();
+    if (!requireAuth()) return;
+    if (state.temporaryChat) {
+      showToast("Temporary chat is text-only for now.");
+      return;
+    }
+    els.cameraFileInput?.click();
+  });
+  els.cameraFileInput?.addEventListener("change", (e) => {
     addImages(e.target.files || []);
     e.target.value = "";
   });

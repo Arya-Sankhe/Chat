@@ -241,6 +241,55 @@ test("Doodle composer chrome stays transparent around the input", async () => {
   assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-wrap \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none;/);
 });
 
+test("secure storage wrapper is not thenable", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  // Must wrap the raw plugin to avoid Promise.then assimilation on Android.
+  assert.match(source, /secureStorageInstance\s*=\s*\{/);
+  assert.match(source, /SecureStorage\.get\.bind\(SecureStorage\)/);
+  // Must not return the raw plugin object which is thenable.
+  assert.doesNotMatch(source, /async function secureStorage\(\)[\s\S]*?^return SecureStorage;/m);
+  // Storage methods must resolve the wrapper before accessing plugin methods.
+  assert.doesNotMatch(source, /await \(await secureStorage\(\)\)\./);
+  assert.match(source, /const store = await secureStorage\(\);/);
+});
+
+test("secure storage wrapper avoids thenable Promise assimilation behavior", async () => {
+  // Simulate the Capacitor SecureStorage plugin: has a `then` property,
+  // making it a thenable that breaks Promise resolution on Android.
+  const mockPlugin = {
+    get: async (k) => `value-${k}`,
+    set: async (k, v) => undefined,
+    remove: async (k) => undefined,
+    then: "not-implemented-on-android"
+  };
+
+  // Duplicate the wrapper pattern from platform/index.js.
+  let instance = null;
+  async function getStorage() {
+    if (instance) return instance;
+    instance = {
+      get: mockPlugin.get.bind(mockPlugin),
+      set: mockPlugin.set.bind(mockPlugin),
+      remove: mockPlugin.remove.bind(mockPlugin)
+    };
+    return instance;
+  }
+
+  const store = await getStorage();
+  assert.equal(typeof store.then, "undefined", "wrapper must not expose a then property");
+  assert.equal(typeof store.get, "function");
+  assert.equal(typeof store.set, "function");
+  assert.equal(typeof store.remove, "function");
+  assert.equal(await store.get("key"), "value-key");
+
+  // Verify the cached instance is reused.
+  const prev = instance;
+  const again = await getStorage();
+  assert.equal(again, prev);
+});
+
 test("APK updates compare integer version codes", () => {
   assert.equal(compareVersionCodes("1", 2), 1);
   assert.equal(compareVersionCodes("2", 2), 0);
@@ -266,4 +315,202 @@ test("service worker excludes APIs and only caches the public shell", async () =
   assert.match(source, /request\.mode === "navigate"/);
   assert.doesNotMatch(source, /^\s*"\/",?$/m);
   assert.doesNotMatch(source, /cache\.put\(/);
+});
+
+test("capacitor composer has an opaque background using defined CSS variables", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The composer must use a defined variable (--bg, --bg-secondary, --surface etc.)
+  // and must NOT use var(--surface) which is never defined in the stylesheet.
+  const match = source.match(/body\.capacitor-native \.composer\s*\{[\s\S]*?background:\s*([^;}]+)/);
+  assert.ok(match, "capacitor-native .composer must have a background declaration");
+  const bgValue = match[1].trim();
+  assert.doesNotMatch(bgValue, /var\(--surface\)/, "composer background must not use undefined var(--surface)");
+  assert.ok(
+    bgValue.startsWith("var(--bg)") || bgValue.startsWith("var(--bg-secondary)"),
+    `composer background should reference a defined variable, got: ${bgValue}`
+  );
+});
+
+test("capacitor empty-state has no logo icon above the heading", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The ::before pseudo-element that showed the Klui icon must be removed.
+  assert.doesNotMatch(
+    source,
+    /body\.capacitor-native\.chat-empty \.empty-state h1::before/,
+    "empty-state h1 must not have a ::before pseudo-element on capacitor"
+  );
+  // The heading should not use display: grid with gap (which held the icon + text).
+  assert.doesNotMatch(
+    source,
+    /body\.capacitor-native\.chat-empty \.empty-state h1\s*\{[\s\S]*?display:\s*grid/,
+    "empty-state h1 should not use display: grid"
+  );
+});
+
+test("capacitor + action menu uses position fixed to avoid overflow clipping", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The action menu inside capacitor-native must use position: fixed
+  // so it isn't clipped by .chat-panel's overflow: hidden.
+  assert.match(
+    source,
+    /body\.capacitor-native \.composer-action-menu\s*\{[\s\S]*?position:\s*fixed/,
+    "composer-action-menu should use position: fixed on capacitor"
+  );
+});
+
+test("camera file input exists with capture=environment", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(source, /capture="environment"/, "camera input must have capture=environment");
+  assert.match(source, /id="cameraFileInput"/, "camera file input must exist in HTML");
+});
+
+test("camera action button exists in the + menu", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(source, /class="composer-action-menu-item mobile-camera-action hidden"[^>]+id="cameraAction"/, "camera action button must be hidden by default");
+  assert.match(source, /Take photo/, "camera action button must have label 'Take photo'");
+});
+
+test("camera action is only shown inside the Capacitor mobile app", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body\.capacitor-native \.mobile-camera-action\.hidden\s*\{[\s\S]*?display:\s*flex\s*!important/);
+});
+
+test("camera button and input are wired in app.js", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /cameraAction/, "cameraAction must be referenced in app.js");
+  assert.match(source, /cameraFileInput/, "cameraFileInput must be referenced in app.js");
+  // The click handler on cameraAction must exist.
+  assert.match(
+    source,
+    /els\.cameraAction\?\.addEventListener\("click"/,
+    "cameraAction must have a click event listener"
+  );
+  // The change handler on cameraFileInput must exist.
+  assert.match(
+    source,
+    /els\.cameraFileInput\?\.addEventListener\("change"/,
+    "cameraFileInput must have a change event listener"
+  );
+});
+
+test("capacitor messages have enough bottom padding to clear the composer", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(
+    source,
+    /body\.capacitor-native \.messages\s*\{[\s\S]*?padding-bottom:\s*200px/,
+    "capacitor messages bottom padding should be 200px to clear the composer"
+  );
+});
+
+test("capacitor native backdrop z-index sits below the sidebar when sidebar is open", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // Sidebar in capacitor-native is at z-index: 80.
+  // The backdrop uses z-index: 79 so it stays behind the sidebar.
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.native-nav-backdrop\s*\{[\s\S]*z-index:\s*79/);
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*z-index:\s*80/);
+});
+
+test("profile menu handlers close the mobile sidebar before opening drawers", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  // openSettings, openAdminDrawer, and openUpgradePlans all close the
+  // mobile sidebar so that settings / account / upgrade views appear
+  // above the chat content instead of behind the open sidebar.
+  assert.match(source, /function openSettings\(\) \{[^}]*document\.body\.classList\.remove\("sidebar-open"\)/);
+  assert.match(source, /function openAdminDrawer\(\) \{[^}]*document\.body\.classList\.remove\("sidebar-open"\)/);
+  assert.match(source, /function openUpgradePlans\(\) \{[^}]*document\.body\.classList\.remove\("sidebar-open"\)/);
+});
+
+test("capacitor native sidebar overflow does not clip conversation menus when open", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The closed sidebar keeps overflow: hidden to prevent content leak during
+  // slide-out animation; the open sidebar must use overflow: visible so
+  // absolutely-positioned conversation menus are not clipped.
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*?overflow:\s*visible/);
+});
+
+test("capacitor conversation menu z-index sits above the native nav backdrop", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The sidebar (z-index: 80) wraps the menu (z-index: 40 in its own stacking
+  // context), so the menu renders above the backdrop (z-index: 79). Verify the
+  // sidebar itself is always above the backdrop.
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.native-nav-backdrop\s*\{[\s\S]*?z-index:\s*79/);
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*?z-index:\s*80/);
+});
+
+test("openConversation closes the mobile sidebar", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /async function openConversation[\s\S]*?document\.body\.classList\.remove\("sidebar-open"\)/);
+});
+
+test("sidebar-mid button clicks do not aggressively close the sidebar before handlers run", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  // The old aggressive handler closed the sidebar on any button click inside
+  // sidebar-mid, which ran before handleConversationListClick, causing the
+  // three-dot menu to appear in an invisible sidebar. Verify it was removed.
+  assert.doesNotMatch(source, /sidebarMid\?\.addEventListener\("click",\s*\(event\)\s*=>\s*\{[\s\S]*?event\.target\.closest\("button"\)[\s\S]*?classList\.remove\("sidebar-open"\)/);
+});
+
+test("native sidebar login starts Google OAuth instead of opening auth behind the sidebar", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /signInWithGoogle as nativeSignInWithGoogle/);
+  assert.match(source, /function startSidebarLogin\(\) \{[\s\S]*?if \(!isNative\(\)\) \{[\s\S]*?openAuthDialog\(\);[\s\S]*?return;[\s\S]*?document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?nativeSignInWithGoogle\(state\.config\)/);
+  assert.match(source, /els\.guestLoginButton\.addEventListener\("click", startSidebarLogin\)/);
+  assert.doesNotMatch(source, /els\.guestLoginButton\.addEventListener\("click", openAuthDialog\)/);
+});
+
+test("capacitor doodle theme keeps temporary chat toggle aligned to native header", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The mobile website doodle breakpoint moves the temporary chat bar below
+  // the topbar. Native rules appear later and must win so the icon stays in
+  // the same header position as every other theme.
+  assert.match(source, /body\.capacitor-native \.chat-panel > \.temporary-chat-bar\s*\{[\s\S]*?top:\s*calc\(var\(--safe-area-inset-top, env\(safe-area-inset-top\)\) \+ 8px\);[\s\S]*?right:\s*18px;[\s\S]*?left:\s*auto/);
+});
+
+test("capacitor pinned popup is clamped inside the open sidebar", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.pinned-popup\s*\{[\s\S]*?left:\s*0;[\s\S]*?top:\s*calc\(100% \+ 6px\);[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%/);
+});
+
+test("capacitor native suppresses web tap highlight while preserving text entry selection", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body\.capacitor-native\s*\{[\s\S]*?-webkit-tap-highlight-color:\s*transparent;[\s\S]*?-webkit-touch-callout:\s*none/);
+  assert.match(source, /body\.capacitor-native \*,\s*body\.capacitor-native \*::before,\s*body\.capacitor-native \*::after\s*\{[\s\S]*?-webkit-tap-highlight-color:\s*transparent/);
+  assert.match(source, /body\.capacitor-native button,[\s\S]*?body\.capacitor-native \[role="button"\],[\s\S]*?user-select:\s*none/);
+  assert.match(source, /body\.capacitor-native textarea,[\s\S]*?body\.capacitor-native input,[\s\S]*?user-select:\s*text/);
 });
