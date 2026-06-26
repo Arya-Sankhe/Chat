@@ -1,13 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.2",
-  "versionCode": 3,
+  "versionName": "1.0.3",
+  "versionCode": 4,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.2.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.3.apk",
   "releaseNotes": [
-    "Polish Android native app experience"
+    "Update Android app icon"
   ],
-  "sizeBytes": 4064042,
-  "sha256": "8adcf0767c248380a1f6cba12a1a0e253e9f3fcb2bed828dbaef8711e98c4c27",
-  "releasedAt": "2026-06-26T06:44:51.299Z"
+  "sizeBytes": 4444998,
+  "sha256": "6c42f28f436c93bc53250f80380c1a9929e3acc3b0461f42ffbe1d99572b9922",
+  "releasedAt": "2026-06-26T06:53:43.934Z"
 }
