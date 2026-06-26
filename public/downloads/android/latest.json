@@ -1,13 +1,17 @@
 {
   "published": true,
-  "versionName": "1.0.3",
+  "versionName": "1.0.4",
   "versionCode": 4,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.3.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.4.apk",
   "releaseNotes": [
-    "Update Android app icon"
+    "“Fix",
+    "delete",
+    "and",
+    "edit",
+    "button”"
   ],
-  "sizeBytes": 4444998,
-  "sha256": "6c42f28f436c93bc53250f80380c1a9929e3acc3b0461f42ffbe1d99572b9922",
-  "releasedAt": "2026-06-26T06:53:43.934Z"
+  "sizeBytes": 4445246,
+  "sha256": "a9482ac62530e3eb659346e675bc7da6b3a3ba8139b45799ea932f9fdbfa4247",
+  "releasedAt": "2026-06-26T08:43:02.749Z"
 }
