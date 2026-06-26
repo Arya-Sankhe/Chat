@@ -514,3 +514,20 @@ test("capacitor native suppresses web tap highlight while preserving text entry 
   assert.match(source, /body\.capacitor-native button,[\s\S]*?body\.capacitor-native \[role="button"\],[\s\S]*?user-select:\s*none/);
   assert.match(source, /body\.capacitor-native textarea,[\s\S]*?body\.capacitor-native input,[\s\S]*?user-select:\s*text/);
 });
+
+test("native sidebar rename and delete actions close drawer before opening dialogs", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+
+  assert.match(
+    source,
+    /function openConfirmDialog\(conversation\) \{[\s\S]*?closeConversationMenus\(\);[\s\S]*?closePinnedPopup\(\);[\s\S]*?closeProfileMenu\(\);[\s\S]*?if \(isNative\(\)\) document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?els\.confirmDialog\.classList\.add\("open"\);/,
+    "delete confirmation should not open underneath the native sidebar"
+  );
+  assert.match(
+    source,
+    /function openRenameDialog\(conversation\) \{[\s\S]*?closeConversationMenus\(\);[\s\S]*?closePinnedPopup\(\);[\s\S]*?closeProfileMenu\(\);[\s\S]*?if \(isNative\(\)\) document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?els\.renameDialog\.classList\.add\("open"\);/,
+    "rename dialog should not open underneath the native sidebar"
+  );
+});

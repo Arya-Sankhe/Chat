@@ -3658,6 +3658,10 @@ function closeAuthDialog() {
 }
 
 function openConfirmDialog(conversation) {
+  closeConversationMenus();
+  closePinnedPopup();
+  closeProfileMenu();
+  if (isNative()) document.body.classList.remove("sidebar-open");
   state.pendingDeleteId = conversation.id;
   els.confirmTitle.textContent = "Delete chat?";
   els.confirmBody.textContent = `Delete "${conversation.title || "New chat"}" from your account?`;
@@ -3680,6 +3684,9 @@ function closeConfirmDialog() {
 
 function openRenameDialog(conversation) {
   closeConversationMenus();
+  closePinnedPopup();
+  closeProfileMenu();
+  if (isNative()) document.body.classList.remove("sidebar-open");
   state.pendingRenameId = conversation.id;
   els.renameChatInput.value = conversation.title || "New chat";
   els.renameDialog.classList.add("open");
