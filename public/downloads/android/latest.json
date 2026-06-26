@@ -1,13 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.1",
-  "versionCode": 2,
+  "versionName": "1.0.2",
+  "versionCode": 3,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.1.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.2.apk",
   "releaseNotes": [
-    "Fix Android startup blank screen"
+    "Polish Android native app experience"
   ],
-  "sizeBytes": 4061242,
-  "sha256": "c5e2e1a1281f2284c11057f68753659ec09af6d978c930b6e436dd5d7880322e",
-  "releasedAt": "2026-06-23T07:59:18.108Z"
+  "sizeBytes": 4064042,
+  "sha256": "8adcf0767c248380a1f6cba12a1a0e253e9f3fcb2bed828dbaef8711e98c4c27",
+  "releasedAt": "2026-06-26T06:44:51.299Z"
 }
