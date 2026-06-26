@@ -5559,6 +5559,10 @@ body[data-chat-theme="doodle"] .document-viewer-body {
   background: var(--border-light);
 }
 
+.settings-save-btn {
+  margin-top: 10px;
+}
+
 .admin-output {
   margin-top: 10px;
   max-height: min(620px, calc(100dvh - 260px));

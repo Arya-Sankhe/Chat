@@ -25,6 +25,7 @@ import {
   streamCompareConversationMessage,
   streamConversationMessage,
   streamTemporaryChat,
+  updateAdminSettings,
   uploadFile
 } from "./api.js";
 import {
@@ -230,6 +231,7 @@ const els = {
   maxTokensInput: document.querySelector("#maxTokensInput"),
   seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
+  saveSystemPromptButton: document.querySelector("#saveSystemPromptButton"),
   themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
@@ -4101,6 +4103,9 @@ function applyCouncilStreamEvent(council, event) {
 
 async function loadMe() {
   state.me = await fetchMe(state.session);
+  if (typeof state.me?.settings?.systemPrompt === "string") {
+    state.settings.systemPrompt = state.me.settings.systemPrompt;
+  }
   if (isNative()) {
     const key = pinnedStorageKey();
     const saved = key ? await preferences.get(key) : null;
@@ -4950,6 +4955,36 @@ async function loadAdminDashboard() {
   }
 }
 
+async function saveGlobalSystemPrompt() {
+  if (!isAdminUser() || !els.saveSystemPromptButton) return;
+  const systemPrompt = els.systemPromptInput.value.trim();
+  if (!systemPrompt) {
+    showToast("System prompt cannot be empty.");
+    return;
+  }
+
+  els.saveSystemPromptButton.disabled = true;
+  els.saveSystemPromptButton.textContent = "Saving...";
+  try {
+    const payload = await updateAdminSettings(state.session, { systemPrompt });
+    state.settings.systemPrompt = payload.settings?.systemPrompt || systemPrompt;
+    if (state.me) {
+      state.me.settings = {
+        ...(state.me.settings || {}),
+        systemPrompt: state.settings.systemPrompt
+      };
+    }
+    saveSettings();
+    syncSettingsInputs();
+    showToast("Global system prompt saved.");
+  } catch (err) {
+    showToast(err.message);
+  } finally {
+    els.saveSystemPromptButton.disabled = false;
+    els.saveSystemPromptButton.textContent = "Save global prompt";
+  }
+}
+
 async function updateAdminPayment(id, action) {
   if (!id) return;
   try {
@@ -5638,7 +5673,8 @@ function bindEvents() {
   els.topPInput.addEventListener("input", (e) => updateSetting("top_p", Number(e.target.value)));
   els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
-  els.systemPromptInput.addEventListener("input", (e) => updateSetting("systemPrompt", e.target.value));
+  els.systemPromptInput.addEventListener("input", (e) => { state.settings.systemPrompt = e.target.value; });
+  els.saveSystemPromptButton?.addEventListener("click", () => { void saveGlobalSystemPrompt(); });
   els.themePreviewGrid?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-theme]");
     if (!btn) return;

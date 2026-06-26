@@ -360,3 +360,14 @@ export async function fetchAdminSummary(session) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
+
+export async function updateAdminSettings(session, settings) {
+  const response = await apiFetch("/api/admin/settings", {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(settings)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}

@@ -38,6 +38,13 @@ import {
 } from "./saas/messages.js";
 import { modelSupportsVision } from "./saas/models.js";
 import { publicPlan } from "./saas/plans.js";
+import {
+  DEFAULT_GLOBAL_SYSTEM_PROMPT,
+  SYSTEM_PROMPT_SETTING_KEY,
+  loadGlobalSystemPrompt,
+  normalizeGlobalSystemPrompt,
+  systemPromptSettingValue
+} from "./saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "./saas/usageMeter.js";
 import { assertUpload, documentKindFromFileName, R2Client } from "./storage/r2.js";
 import { DocumentService, buildUntrustedDocumentContext } from "./documents/index.js";
@@ -132,7 +139,7 @@ function requireServerCrofKey(config) {
   }
 }
 
-function publicMe({ user, profile, subscription, plan, usage, config }) {
+function publicMe({ user, profile, subscription, plan, usage, config, settings }) {
   return {
     user: { id: user.id, email: user.email },
     profile: {
@@ -150,6 +157,7 @@ function publicMe({ user, profile, subscription, plan, usage, config }) {
       mode: config.access.mode,
       active: Boolean(plan)
     },
+    settings: settings || {},
     services: configuredServices(config)
   };
 }
@@ -328,13 +336,47 @@ async function handleMe(req, res, config) {
     };
   }
   const usage = apiUsage ? { api: apiUsage } : {};
+  const settings = context.profile?.role === "admin"
+    ? { systemPrompt: await loadGlobalSystemPrompt(context.db, { signal: req.signal }) }
+    : {};
   sendJson(res, 200, publicMe({
     ...context,
     subscription: entitlement.subscription,
     plan: entitlement.plan,
     usage,
-    config
+    config,
+    settings
   }));
+}
+
+async function handleAdminSettings(req, res, config) {
+  const context = await requireAdminContext(req, config);
+  if (req.method === "GET") {
+    sendJson(res, 200, {
+      settings: {
+        systemPrompt: await loadGlobalSystemPrompt(context.db, { signal: req.signal })
+      }
+    });
+    return;
+  }
+  if (req.method !== "PATCH") throw new HttpError(405, "Method not allowed.");
+
+  const body = await parseJsonBody(req, 64 * 1024);
+  const systemPrompt = normalizeGlobalSystemPrompt(body.systemPrompt);
+  if (!systemPrompt) throw new HttpError(400, "System prompt cannot be empty.");
+
+  const row = await context.db.upsertAppSetting(
+    SYSTEM_PROMPT_SETTING_KEY,
+    systemPromptSettingValue(systemPrompt),
+    context.user.id,
+    { signal: req.signal }
+  );
+
+  sendJson(res, 200, {
+    settings: {
+      systemPrompt: normalizeGlobalSystemPrompt(row?.value) || DEFAULT_GLOBAL_SYSTEM_PROMPT
+    }
+  });
 }
 
 async function handleModels(req, res, config) {
@@ -2063,6 +2105,7 @@ async function handleConversationMessage(req, res, config, conversationId) {
     }
   }
   const settings = normalizeMessageSettings(body);
+  settings.systemPrompt = await loadGlobalSystemPrompt(context.db, { signal: req.signal });
   const crofai = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,
@@ -2541,6 +2584,7 @@ async function handleTemporaryChat(req, res, config) {
   }
 
   const settings = normalizeMessageSettings(body);
+  settings.systemPrompt = await loadGlobalSystemPrompt(context.db, { signal: req.signal });
   const userContent = buildStoredUserContent(body.text, []);
   const promptText = contentText(userContent);
   const historyMessages = [
@@ -2880,6 +2924,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/admin/summary" && req.method === "GET") {
       await handleAdminSummary(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/admin/settings") {
+      await handleAdminSettings(req, res, config);
       return;
     }
 

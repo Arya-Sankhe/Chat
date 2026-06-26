@@ -40,9 +40,6 @@
       </ol>
       <dl>
         <dt>Version</dt><dd id="version">—</dd>
-        <dt>Size</dt><dd id="size">—</dd>
-        <dt>Released</dt><dd id="released">—</dd>
-        <dt>SHA-256</dt><dd id="checksum">—</dd>
       </dl>
     </main>
     <script type="module">
@@ -54,9 +51,6 @@
         link.textContent = "Download Klui APK";
         link.removeAttribute("aria-disabled");
         document.querySelector("#version").textContent = `${data.versionName} (${data.versionCode})`;
-        document.querySelector("#size").textContent = `${(Number(data.sizeBytes || 0) / 1048576).toFixed(1)} MB`;
-        document.querySelector("#released").textContent = new Date(data.releasedAt).toLocaleDateString();
-        document.querySelector("#checksum").textContent = data.sha256 || "—";
       } else {
         link.textContent = "Android build is not published yet";
       }

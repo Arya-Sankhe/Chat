@@ -91,6 +91,34 @@ export class SupabaseRest {
     return single(rows);
   }
 
+  async getAppSetting(key, { signal } = {}) {
+    const rows = await this.request("app_settings", {
+      query: {
+        key: `eq.${key}`,
+        select: "*",
+        limit: "1"
+      },
+      signal
+    });
+    return single(rows);
+  }
+
+  async upsertAppSetting(key, value, updatedBy, { signal } = {}) {
+    const rows = await this.request("app_settings", {
+      method: "POST",
+      query: { on_conflict: "key" },
+      body: {
+        key,
+        value,
+        updated_by: updatedBy || null,
+        updated_at: new Date().toISOString()
+      },
+      prefer: "resolution=merge-duplicates,return=representation",
+      signal
+    });
+    return single(rows);
+  }
+
   async getProfile(userId, { signal } = {}) {
     const rows = await this.request("profiles", {
       query: { id: `eq.${userId}`, select: "*" },
