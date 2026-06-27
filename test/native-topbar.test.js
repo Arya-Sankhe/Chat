@@ -178,14 +178,16 @@ test("the compact pill while scrolling is small, centered, solid, and tappable",
   const hiddenChildren = css.match(/body\.capacitor-native \.composer\.compact \.composer-previews,[\s\S]*?display:\s*none\s*!important/);
   assert.ok(hiddenChildren, "compact mode should hide textarea/actions so the pill has no text inside");
 
-  // JS toggles the class based on scroll position and tapping it expands/focuses the composer.
+  // JS uses hysteresis to avoid flicker, keeps typed text/attachments full-size,
+  // and tapping the compact pill expands + focuses the composer.
   const appJs = readPublic("js/app.js");
-  assert.match(
-    appJs,
-    /composer\.classList\.toggle\(\s*"compact"\s*,\s*!atBottom\s*\)/,
-    "compact class must toggle based on scroll position"
-  );
-  assert.match(appJs, /promptInput\?\.focus\(\)/, "tapping the compact pill should expand and focus the composer");
+  assert.match(appJs, /bottomDistance\s*<=\s*24/, "compact state should only clear when actually at the bottom");
+  assert.match(appJs, /bottomDistance\s*>=\s*180/, "compact state should only start once clearly away from bottom");
+  assert.match(appJs, /composerHasPendingContent\(\) \|\| composerHasFocus\(\)/, "pending text/attachments or focus should prevent compact mode");
+  assert.match(appJs, /state\.images\?\.length\) els\.composer\?\.classList\.remove\("compact"\)/, "attachment previews should keep the composer full-size");
+  assert.match(appJs, /blurEmptyComposerForHistoryScroll\(\)/, "scrolling history should blur an empty focused composer so it can compact");
+  assert.match(appJs, /focusPromptInput\(\)/, "tapping the compact pill should expand and focus the composer");
+  assert.match(appJs, /Keyboard\.show\(\)/, "native focus should request the Android keyboard");
 });
 
 test("the composer is hidden model/compare chips on the APK (Gemini-style clean pill)", () => {

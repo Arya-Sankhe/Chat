@@ -3461,6 +3461,7 @@ function pendingDocumentLabel(item) {
 }
 
 function renderImages() {
+  if (state.images?.length) els.composer?.classList.remove("compact");
   els.imagePreviews.innerHTML = state.images.map((img, i) => `
     <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
@@ -5067,6 +5068,7 @@ async function bootstrap() {
     }
     renderShell();
     if (state.session && hasChatAccess()) await loadChatApp();
+    focusPromptInputSoon();
     await checkAndShowAppUpdate();
   } catch (err) {
     state.session = null;
@@ -5080,8 +5082,59 @@ async function bootstrap() {
 
 /* ─── Event binding ─── */
 
+function distanceFromBottom(el) {
+  return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
+}
+
 function isNearBottom(el, threshold = 60) {
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  return distanceFromBottom(el) <= threshold;
+}
+
+function composerHasPendingContent() {
+  return Boolean(els.promptInput?.value?.trim() || state.images?.length);
+}
+
+function composerHasFocus() {
+  return Boolean(els.composer?.contains(document.activeElement));
+}
+
+async function showNativeKeyboard() {
+  if (!isNative()) return;
+  try {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    await Keyboard.show();
+  } catch {
+    // Some Android WebView/IME combinations only allow showing the keyboard
+    // after a user gesture. The input focus still remains correct.
+  }
+}
+
+async function hideNativeKeyboard() {
+  if (!isNative()) return;
+  try {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    await Keyboard.hide();
+  } catch {}
+}
+
+function blurEmptyComposerForHistoryScroll() {
+  if (composerHasPendingContent()) return;
+  if (!composerHasFocus()) return;
+  els.promptInput?.blur();
+  void hideNativeKeyboard();
+}
+
+function focusPromptInput() {
+  if (!els.promptInput || !isNative()) return;
+  els.composer?.classList.remove("compact");
+  els.promptInput.focus({ preventScroll: true });
+  void showNativeKeyboard();
+}
+
+function focusPromptInputSoon() {
+  if (!isNative()) return;
+  setTimeout(() => focusPromptInput(), 120);
+  setTimeout(() => focusPromptInput(), 450);
 }
 
 function setAutoScroll(enabled) {
@@ -5092,13 +5145,21 @@ function bindEvents() {
   initDocumentViewerWidth();
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
-  // Item 8 (APK polish): collapse the composer to a mini pill while the
-  // user scrolls through chat history. Re-expands when they return to
-  // the bottom, focus the composer, or tap it.
+  // APK polish: collapse the composer to a mini pill only when the user is
+  // clearly browsing history. Use hysteresis so normal/mini state does not
+  // flicker around the bottom threshold while momentum scrolling.
   if (els.messages && els.composer) {
     const updateCompact = () => {
-      const atBottom = isNearBottom(els.messages, 60);
-      els.composer.classList.toggle("compact", !atBottom);
+      if (composerHasPendingContent() || composerHasFocus()) {
+        els.composer.classList.remove("compact");
+        return;
+      }
+      const bottomDistance = distanceFromBottom(els.messages);
+      if (els.composer.classList.contains("compact")) {
+        if (bottomDistance <= 24) els.composer.classList.remove("compact");
+      } else if (bottomDistance >= 180) {
+        els.composer.classList.add("compact");
+      }
     };
     els.messages.addEventListener("scroll", updateCompact, { passive: true });
     const ro = new ResizeObserver(updateCompact);
@@ -5110,6 +5171,7 @@ function bindEvents() {
     els.composer.classList.remove("compact");
     requestAnimationFrame(() => {
       els.composer?.classList.remove("compact");
+      focusPromptInput();
     });
   };
   els.composer?.addEventListener("pointerdown", expandCompactComposer);
@@ -5147,12 +5209,14 @@ function bindEvents() {
   // it can never accidentally stop or restart auto-scroll. Any upward gesture
   // stops it immediately; returning to the bottom resumes it.
   els.messages.addEventListener("wheel", (event) => {
+    blurEmptyComposerForHistoryScroll();
     if (event.deltaY < 0) setAutoScroll(false);
     else if (event.deltaY > 0 && isNearBottom(els.messages, 40)) setAutoScroll(true);
   }, { passive: true });
 
   els.messages.addEventListener("touchstart", (event) => {
     lastMessagesTouchY = event.touches?.[0]?.clientY ?? 0;
+    blurEmptyComposerForHistoryScroll();
   }, { passive: true });
 
   els.messages.addEventListener("touchmove", (event) => {
@@ -5817,7 +5881,7 @@ function bindEvents() {
   els.sendButton.addEventListener("click", sendPrompt);
   els.stopButton.addEventListener("click", () => state.abortController?.abort());
 
-  els.promptInput.addEventListener("input", () => { applyComposerHeight(); updateSendButton(); renderContextMeter(); });
+  els.promptInput.addEventListener("input", () => { els.composer?.classList.remove("compact"); applyComposerHeight(); updateSendButton(); renderContextMeter(); });
   els.promptInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
   });
