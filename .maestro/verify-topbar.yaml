@@ -1,0 +1,31 @@
+appId: tech.klui.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Message Klui"
+    timeout: 20000
+- takeScreenshot: artifacts/r2/01_launch.png
+
+# Verify the mode chip shows "Thinking"
+- assertVisible: "Thinking"
+
+# Tap the mode chip to open dropdown
+- tapOn:
+    id: "nativeMobileModeButton"
+- extendedWaitUntil:
+    visible: "Pro"
+    timeout: 5000
+- takeScreenshot: artifacts/r2/02_dropdown_open.png
+
+# Verify dropdown options are visible
+- assertVisible: "Pro"
+- assertVisible: "Compare"
+- assertVisible: "Council"
+
+# Select Pro
+- tapOn:
+    text: "Pro"
+- extendedWaitUntil:
+    visible: "Pro"
+    timeout: 3000
+- takeScreenshot: artifacts/r2/03_pro_selected.png

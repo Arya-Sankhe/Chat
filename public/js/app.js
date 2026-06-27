@@ -211,6 +211,8 @@ const els = {
   temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
   temporaryChatLabel: document.querySelector("#temporaryChatLabel"),
   imagePreviews: document.querySelector("#imagePreviews"),
+  composer: document.querySelector(".composer"),
+  composerArea: document.querySelector(".composer-area"),
   followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
   cameraFileInput: document.querySelector("#cameraFileInput"),
@@ -292,7 +294,10 @@ const els = {
   appUpdateDialog: document.querySelector("#appUpdateDialog"),
   appUpdateBody: document.querySelector("#appUpdateBody"),
   appUpdateLater: document.querySelector("#appUpdateLater"),
-  appUpdateDownload: document.querySelector("#appUpdateDownload")
+  appUpdateDownload: document.querySelector("#appUpdateDownload"),
+  nativeMobileModeButton: document.querySelector("#nativeMobileModeButton"),
+  nativeMobileModeDropdown: document.querySelector("#nativeMobileModeDropdown"),
+  nativeMobileModeLabel: document.querySelector("#nativeMobileModeLabel")
 };
 
 function imageDescription(part) {
@@ -689,10 +694,12 @@ function applyChatTheme() {
   document.body.dataset.mode = mode;
   applyCodeHighlightTheme(mode);
   syncAppearanceControls();
-  void configureNativeChrome({
-    dark: mode === "dark",
-    background: mode === "dark" ? "#1f1f1f" : "#ffffff"
-  });
+  // Match the Android notification panel color to the chat surface so the
+  // status bar visually merges into the top bar. We read the resolved
+  // --bg from CSS so the StatusBar tracks every color preset / theme.
+  const nativeBg = (getComputedStyle(document.body).getPropertyValue("--bg") || "").trim()
+    || (mode === "dark" ? "#1f1f1f" : "#ffffff");
+  void configureNativeChrome({ dark: mode === "dark", background: nativeBg });
 }
 
 function syncAppearanceControls() {
@@ -2678,13 +2685,16 @@ function renderDocumentViewer() {
   const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
   const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
   els.documentViewerDownload.classList.toggle("hidden", !downloadHref);
+  els.documentViewerDownload.toggleAttribute("hidden", !downloadHref);
   if (downloadHref) {
-    els.documentViewerDownload.href = downloadHref;
+    // Anchor attrs no longer apply (the element is now a <button> so the
+    // WebView does not open the Android share sheet). Click handler reads
+    // these dataset values and routes through the Capacitor-aware download.
+    els.documentViewerDownload.dataset.attachmentId = downloadAttachmentId || "";
     els.documentViewerDownload.dataset.fileName = viewer.fileName || "download";
-    els.documentViewerDownload.setAttribute("download", viewer.fileName || "download");
   } else {
-    els.documentViewerDownload.removeAttribute("href");
-    els.documentViewerDownload.removeAttribute("download");
+    delete els.documentViewerDownload.dataset.attachmentId;
+    delete els.documentViewerDownload.dataset.fileName;
   }
 
   if (!viewer.open) {
@@ -5082,6 +5092,40 @@ function bindEvents() {
   initDocumentViewerWidth();
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
+  // Item 8 (APK polish): collapse the composer to a mini pill while the
+  // user scrolls through chat history. Re-expands when they return to
+  // the bottom, focus the composer, or tap it.
+  if (els.messages && els.composer) {
+    const updateCompact = () => {
+      const atBottom = isNearBottom(els.messages, 60);
+      els.composer.classList.toggle("compact", !atBottom);
+    };
+    els.messages.addEventListener("scroll", updateCompact, { passive: true });
+    const ro = new ResizeObserver(updateCompact);
+    ro.observe(els.messages);
+    state.composerCompactObserver = ro;
+  }
+  const expandCompactComposer = () => {
+    if (!els.composer?.classList.contains("compact")) return;
+    els.composer.classList.remove("compact");
+    requestAnimationFrame(() => {
+      els.composer?.classList.remove("compact");
+    });
+  };
+  els.composer?.addEventListener("pointerdown", expandCompactComposer);
+  els.composer?.addEventListener("click", expandCompactComposer);
+  els.composerArea?.addEventListener("pointerdown", expandCompactComposer);
+  els.composerArea?.addEventListener("click", expandCompactComposer);
+  document.addEventListener("pointerdown", (event) => {
+    if (!els.composer?.classList.contains("compact")) return;
+    const bottomTapZone = window.innerHeight - 220;
+    if (event.clientY < bottomTapZone) return;
+    event.preventDefault();
+    expandCompactComposer();
+  }, { capture: true });
+  els.composer?.querySelector("#promptInput")?.addEventListener("focus", () => {
+    els.composer?.classList.remove("compact");
+  });
   els.appUpdateLater?.addEventListener("click", closeAppUpdate);
   els.appUpdateDownload?.addEventListener("click", () => {
     if (availableAppUpdate) openAppUpdate(availableAppUpdate);
@@ -5247,6 +5291,7 @@ function bindEvents() {
       updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
       closeModelDropdown();
       renderModelOptions();
+      if (typeof renderTopBarMode === "function") renderTopBarMode();
       return;
     }
     toggleModelDropdown();
@@ -5300,6 +5345,7 @@ function bindEvents() {
       updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
       closeModelDropdown();
       renderModelOptions();
+      if (typeof renderTopBarMode === "function") renderTopBarMode();
       els.promptInput.focus();
       return;
     }
@@ -5381,7 +5427,105 @@ function bindEvents() {
   els.temporaryChatToggle?.addEventListener("click", () => {
     if (!requireAuth()) return;
     setTemporaryChatMode(!state.temporaryChat);
+    // Force-clear the press highlight so toggling off never leaves a stuck
+    // ring on the icon. (transitionend-based removal has a perceptible
+    // gap that the user noticed.)
+    els.temporaryChatToggle?.classList.remove("pressed");
     els.promptInput?.focus();
+  });
+
+  // ── Mode chip dropdown (APK only) ──────────────────────────────────
+  // Renders the current mode label inside the top-bar chip and wires
+  // the dropdown open/close + selection handlers.
+  function renderTopBarMode() {
+    const mode = state.settings.modelMode || "thinking";
+    const label = els.nativeMobileModeLabel;
+    if (label) {
+      const display = mode === "thinking" ? "Thinking"
+        : mode === "pro" ? "Pro"
+        : mode === "compare" ? "Compare"
+        : mode === "council" ? "Council"
+        : mode;
+      label.textContent = display;
+    }
+    // Mark the active item in the dropdown
+    const dropdown = els.nativeMobileModeDropdown;
+    if (dropdown) {
+      dropdown.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.mode === mode);
+        btn.setAttribute("aria-selected", btn.dataset.mode === mode ? "true" : "false");
+      });
+    }
+  }
+
+  function closeTopBarModeDropdown() {
+    if (!els.nativeMobileModeButton) return;
+    els.nativeMobileModeButton.setAttribute("aria-expanded", "false");
+    els.nativeMobileModeDropdown?.classList.add("hidden");
+  }
+
+  function openTopBarModeDropdown() {
+    if (!els.nativeMobileModeButton) return;
+    renderTopBarMode();
+    els.nativeMobileModeButton.setAttribute("aria-expanded", "true");
+    els.nativeMobileModeDropdown?.classList.remove("hidden");
+  }
+
+  // Wire mode chip click → toggle dropdown
+  els.nativeMobileModeButton?.addEventListener("click", () => {
+    const isOpen = els.nativeMobileModeButton?.getAttribute("aria-expanded") === "true";
+    if (isOpen) {
+      closeTopBarModeDropdown();
+    } else {
+      openTopBarModeDropdown();
+    }
+  });
+
+  // Wire mode item selection
+  els.nativeMobileModeDropdown?.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      if (mode) {
+        state.settings.modelMode = mode;
+        saveSettings();
+        renderTopBarMode();
+        closeTopBarModeDropdown();
+      }
+    });
+  });
+
+  // Close dropdown on outside click
+  document.addEventListener("click", (e) => {
+    if (!els.nativeMobileModeButton || !els.nativeMobileModeDropdown) return;
+    if (!els.nativeMobileModeButton.contains(e.target) && !els.nativeMobileModeDropdown.contains(e.target)) {
+      closeTopBarModeDropdown();
+    }
+  });
+
+  // Close dropdown on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeTopBarModeDropdown();
+  });
+
+  // Initial render
+  renderTopBarMode();
+
+  // Briefly show the .pressed highlight on the temporary-chat toggle and
+  // auto-remove it so the press feedback does not linger after the toggle.
+  els.temporaryChatToggle?.addEventListener("pointerdown", () => {
+    const btn = els.temporaryChatToggle;
+    if (!btn) return;
+    btn.classList.remove("pressed");
+    // Force a reflow so the class re-add restarts the transition.
+    void btn.offsetWidth;
+    btn.classList.add("pressed");
+  });
+  els.temporaryChatToggle?.addEventListener("transitionend", (event) => {
+    if (event.propertyName !== "background-color") return;
+    els.temporaryChatToggle.classList.remove("pressed");
+  });
+  els.temporaryChatToggle?.addEventListener("pointercancel", () => {
+    els.temporaryChatToggle.classList.remove("pressed");
   });
 
   els.sidebarMid?.addEventListener("click", handleConversationListClick);
@@ -5536,14 +5680,22 @@ function bindEvents() {
   els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
-  els.documentViewerDownload?.addEventListener("click", async (e) => {
-    const attachmentId = state.viewer.downloadAttachmentId || state.viewer.attachmentId;
+  els.documentViewerDownload?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const attachmentId = state.viewer?.downloadAttachmentId || state.viewer?.attachmentId;
     if (!attachmentId) return;
-    e.preventDefault();
+    if (!state.session?.access_token) {
+      showToast("Please sign in to download.");
+      return;
+    }
+    const fileName = state.viewer?.fileName || els.documentViewerDownload.dataset.fileName || "download";
     try {
-      await downloadAttachment(state.session, attachmentId, state.viewer.fileName || "download");
+      els.documentViewerDownload.disabled = true;
+      await downloadAttachment(state.session, attachmentId, fileName);
     } catch (err) {
-      showToast(err.message || "Download failed.");
+      showToast(err?.message || "Download failed.");
+    } finally {
+      els.documentViewerDownload.disabled = false;
     }
   });
 

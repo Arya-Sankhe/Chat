@@ -344,9 +344,11 @@ test("capacitor empty-state has no logo icon above the heading", async () => {
     "empty-state h1 must not have a ::before pseudo-element on capacitor"
   );
   // The heading should not use display: grid with gap (which held the icon + text).
+  const h1Rule = source.match(/body\.capacitor-native\.chat-empty \.empty-state h1\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.ok(h1Rule, "empty-state h1 capacitor rule should exist");
   assert.doesNotMatch(
-    source,
-    /body\.capacitor-native\.chat-empty \.empty-state h1\s*\{[\s\S]*?display:\s*grid/,
+    h1Rule,
+    /display:\s*grid/,
     "empty-state h1 should not use display: grid"
   );
 });
@@ -530,4 +532,55 @@ test("native sidebar rename and delete actions close drawer before opening dialo
     /function openRenameDialog\(conversation\) \{[\s\S]*?closeConversationMenus\(\);[\s\S]*?closePinnedPopup\(\);[\s\S]*?closeProfileMenu\(\);[\s\S]*?if \(isNative\(\)\) document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?els\.renameDialog\.classList\.add\("open"\);/,
     "rename dialog should not open underneath the native sidebar"
   );
+});
+
+
+test("native top bar blends with system bars and has no bottom border", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(
+    source,
+    /body\.capacitor-native \.native-mobile-bar\s*\{[\s\S]*?background:\s*var\(--bg\);[\s\S]*?border-bottom:\s*0;[\s\S]*?box-shadow:\s*none;/
+  );
+});
+
+test("native top bar inlines the temporary-chat toggle and hides the standalone wrapper", async () => {
+  const html = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  const css = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The toggle button is now a child of .native-mobile-bar on native.
+  assert.match(
+    html,
+    /<header[^>]*class="native-mobile-bar"[^>]*>[\s\S]*?id="temporaryChatToggle"[\s\S]*?<\/header>/
+  );
+  // Standalone .temporary-chat-bar wrapper must be hidden on native.
+  assert.match(css, /body\.capacitor-native \.temporary-chat-bar\s*\{[\s\S]*?display:\s*none/);
+});
+
+test("native temporary-chat toggle clears its own pressed highlight on press", async () => {
+  const js = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  // pointerdown adds .pressed; the click handler synchronously removes
+  // it so the press feedback never lingers (the user noticed the ring
+  // staying after toggling off).
+  assert.match(js, /temporaryChatToggle\?\.addEventListener\("pointerdown"/);
+  assert.match(js, /temporaryChatToggle\?\.addEventListener\("click"[\s\S]*?classList\.remove\("pressed"\)/);
+  assert.match(js, /addEventListener\("pointercancel"[\s\S]*?classList\.remove\("pressed"\)/);
+});
+
+test("native composer hides model and compare chips so only plus and send remain", async () => {
+  const css = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  // The composer model + compare chips must be hidden on the APK so only
+  // the + and send buttons remain. The rule uses a compound selector
+  // (.composer-bottom .composer-actions > ...) and a combined form
+  // (multiple selectors in one rule), but the behaviour is the same.
+  const composerChipRule = /body\.capacitor-native[\s\S]*?\.composer-(?:model|compare)-wrap[\s\S]*?display:\s*none\s*!important/;
+  assert.match(css, composerChipRule, "composer model/compare chips should be hidden on the APK");
 });

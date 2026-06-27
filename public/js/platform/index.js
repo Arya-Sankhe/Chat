@@ -312,7 +312,7 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
   await Promise.all([
     StatusBar.setStyle({ style: dark ? Style.Light : Style.Dark }),
     StatusBar.setBackgroundColor({ color: background }),
-    StatusBar.setOverlaysWebView({ overlay: false }),
+    StatusBar.setOverlaysWebView({ overlay: true }),
     Keyboard.setResizeMode({ mode: KeyboardResize.Native })
   ]).catch(() => {});
 }

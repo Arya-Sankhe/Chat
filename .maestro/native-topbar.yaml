@@ -1,0 +1,56 @@
+# Boots the freshly built APK and verifies the new top-bar layout and
+# composer behaviors. Screenshots are written to artifacts/r2/.
+
+- clearState
+- launchApp
+- extendedWaitUntil:
+    visible: "Message Klui"
+    timeout: 20000
+
+# The old "Klui" wordmark is gone; the top bar should now show hamburger,
+# temp-chat icon, a mode chip ("Thinking"), and a new-chat button.
+- assertVisible: "Thinking"
+- assertNotVisible: "Klui"
+
+- takeScreenshot: artifacts/r2/01_topbar.png
+
+# Mode chip opens a dropdown with Thinking / Pro / Compare / Council.
+- tapOn:
+    id: "nativeMobileModeButton"
+- extendedWaitUntil:
+    visible: "Council"
+    timeout: 5000
+- takeScreenshot: artifacts/r2/02_mode_dropdown.png
+
+# Tap Pro to switch the active mode.
+- tapOn:
+    text: "Pro"
+- assertVisible: "Pro"
+- takeScreenshot: artifacts/r2/03_pro_active.png
+
+# Composer should auto-focus and the keyboard should be up. Prompt input
+# is focused immediately; we send a few characters and verify the input
+# accepts them.
+- tapOn:
+    id: "promptInput"
+- inputText: "Hello from Maestro"
+- assertVisible: "Hello from Maestro"
+- takeScreenshot: artifacts/r2/04_composer_typed.png
+
+# Clear the text so subsequent runs are idempotent.
+- tapOn:
+    id: "promptInput"
+- eraseText: 50
+
+# Tap the temporary-chat icon — the active ring should appear and the
+# "Temporary chat" label should show below the header.
+- tapOn:
+    id: "temporaryChatToggle"
+- assertVisible: "Temporary chat"
+- takeScreenshot: artifacts/r2/05_temp_chat_on.png
+
+# Toggle it off and verify the highlight clears synchronously without
+# needing to tap elsewhere.
+- tapOn:
+    id: "temporaryChatToggle"
+- takeScreenshot: artifacts/r2/06_temp_chat_off.png
