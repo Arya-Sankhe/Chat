@@ -13609,19 +13609,19 @@ body.capacitor-native .native-mobile-brand { display: none; }
 
 body.capacitor-native .temporary-chat-bar { display: none; }
 
-/* The temp-chat label floats below the bar (only shown when active). */
+/* Active temp-chat label lives in the native top bar, between the mode chip and temp-chat icon. */
 
 body.capacitor-native .temporary-chat-label {
 
-  position: absolute;
+  position: static;
 
-  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 6px);
+  flex: 0 0 auto;
 
-  left: 50%;
+  transform: none;
 
-  transform: translateX(-50%);
+  min-height: 30px;
 
-  padding: 4px 12px;
+  padding: 0 12px;
 
   border-radius: 999px;
 
@@ -13846,7 +13846,7 @@ body.capacitor-native .composer {
   border-radius: 28px;
   padding: 6px 8px 6px 10px;
   border: 1px solid var(--border-light);
-  background: color-mix(in srgb, var(--bg) 96%, var(--surface));
+  background: var(--bg) !important;
   transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
   min-height: 44px;
 }

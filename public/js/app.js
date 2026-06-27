@@ -5149,15 +5149,33 @@ function bindEvents() {
   // clearly browsing history. Use hysteresis so normal/mini state does not
   // flicker around the bottom threshold while momentum scrolling.
   if (els.messages && els.composer) {
+    let compactBottomSettleTimer = null;
+    const clearCompactBottomSettleTimer = () => {
+      if (!compactBottomSettleTimer) return;
+      clearTimeout(compactBottomSettleTimer);
+      compactBottomSettleTimer = null;
+    };
+    const expandCompactAtSettledBottom = () => {
+      clearCompactBottomSettleTimer();
+      compactBottomSettleTimer = setTimeout(() => {
+        compactBottomSettleTimer = null;
+        if (els.composer.classList.contains("compact") && distanceFromBottom(els.messages) <= 2) {
+          els.composer.classList.remove("compact");
+        }
+      }, 120);
+    };
     const updateCompact = () => {
       if (composerHasPendingContent() || composerHasFocus()) {
+        clearCompactBottomSettleTimer();
         els.composer.classList.remove("compact");
         return;
       }
       const bottomDistance = distanceFromBottom(els.messages);
       if (els.composer.classList.contains("compact")) {
-        if (bottomDistance <= 24) els.composer.classList.remove("compact");
+        if (bottomDistance <= 2) expandCompactAtSettledBottom();
+        else clearCompactBottomSettleTimer();
       } else if (bottomDistance >= 180) {
+        clearCompactBottomSettleTimer();
         els.composer.classList.add("compact");
       }
     };

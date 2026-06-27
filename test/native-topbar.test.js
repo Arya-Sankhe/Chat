@@ -43,16 +43,28 @@ test("the APK top bar exposes a Thinking/Pro/Compare/Council mode dropdown and n
   );
 });
 
-test("the top bar markup order: hamburger → mode chip → temp-chat → new-chat (temp-chat to the right of the chip)", () => {
+test("the top bar markup order: hamburger → mode chip → temp-chat label → temp-chat icon → new-chat", () => {
   const html = readPublic("index.html");
   const idxMenu = html.indexOf('id="nativeMobileMenu"');
   const idxMode = html.indexOf('id="nativeMobileModeButton"');
+  const idxLabel = html.indexOf('id="temporaryChatLabel"');
   const idxTemp = html.indexOf('id="temporaryChatToggle"');
   const idxNew = html.indexOf('id="compactNewChatButton"');
-  assert.ok(idxMenu > 0 && idxMode > 0 && idxTemp > 0 && idxNew > 0, "all four buttons must exist");
+  assert.ok(idxMenu > 0 && idxMode > 0 && idxLabel > 0 && idxTemp > 0 && idxNew > 0, "top bar controls must exist");
   assert.ok(idxMenu < idxMode, "hamburger should be left of mode chip");
-  assert.ok(idxMode < idxTemp, "mode chip should be left of temp-chat");
-  assert.ok(idxTemp < idxNew, "temp-chat should be left of new-chat");
+  assert.ok(idxMode < idxLabel, "mode chip should be left of active temporary-chat label");
+  assert.ok(idxLabel < idxTemp, "active temporary-chat label should sit before the temp-chat icon");
+  assert.ok(idxTemp < idxNew, "temp-chat icon should be left of new-chat");
+});
+
+test("the APK temporary-chat label is in the top bar, not floated into the chat content", () => {
+  const css = readPublic("styles.css");
+  const blocks = [...css.matchAll(/body\.capacitor-native \.temporary-chat-label \{[^}]*\}/g)].map((m) => m[0]);
+  const block = blocks.find((candidate) => candidate.includes("position: static"));
+  assert.ok(block, "native temporary-chat label layout block not found");
+  assert.match(block, /position:\s*static/, "temporary-chat label should participate in the top bar row");
+  assert.doesNotMatch(block, /top:\s*calc/, "temporary-chat label must not be positioned below the bar");
+  assert.doesNotMatch(block, /left:\s*50%/, "temporary-chat label must not be centered in chat content");
 });
 
 test("the document viewer Download control is a <button> (not an <a>) so the Android WebView does not open the share sheet", () => {
@@ -167,6 +179,12 @@ test("the status bar / notification panel visually blends into the top bar (no s
 
 test("the compact pill while scrolling is small, centered, solid, and tappable", () => {
   const css = readPublic("styles.css");
+  assert.match(
+    css,
+    /body\.capacitor-native \.composer \{[\s\S]*?background:\s*var\(--bg\)\s*!important/,
+    "normal composer should use an opaque APK background"
+  );
+
   const compact = findLastNativeRule(css, ".composer.compact {");
   assert.ok(compact, ".composer.compact block not found");
   assert.match(compact, /background:\s*color-mix\(in srgb, var\(--text-secondary\)/, "compact should use a solid text-secondary-based pill background");
@@ -181,7 +199,8 @@ test("the compact pill while scrolling is small, centered, solid, and tappable",
   // JS uses hysteresis to avoid flicker, keeps typed text/attachments full-size,
   // and tapping the compact pill expands + focuses the composer.
   const appJs = readPublic("js/app.js");
-  assert.match(appJs, /bottomDistance\s*<=\s*24/, "compact state should only clear when actually at the bottom");
+  assert.match(appJs, /bottomDistance\s*<=\s*2/, "compact state should only clear at the actual bottom");
+  assert.match(appJs, /setTimeout\(\(\) => \{[\s\S]*?distanceFromBottom\(els\.messages\) <= 2[\s\S]*?\}, 120\)/, "compact state should wait for scroll to settle before auto-expanding at bottom");
   assert.match(appJs, /bottomDistance\s*>=\s*180/, "compact state should only start once clearly away from bottom");
   assert.match(appJs, /composerHasPendingContent\(\) \|\| composerHasFocus\(\)/, "pending text/attachments or focus should prevent compact mode");
   assert.match(appJs, /state\.images\?\.length\) els\.composer\?\.classList\.remove\("compact"\)/, "attachment previews should keep the composer full-size");
