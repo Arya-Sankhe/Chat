@@ -1,17 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.4",
-  "versionCode": 4,
+  "versionName": "1.0.5",
+  "versionCode": 5,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.4.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.5.apk",
   "releaseNotes": [
-    "“Fix",
-    "delete",
-    "and",
-    "edit",
-    "button”"
+    "Latest Android improvements"
   ],
-  "sizeBytes": 4445246,
-  "sha256": "a9482ac62530e3eb659346e675bc7da6b3a3ba8139b45799ea932f9fdbfa4247",
-  "releasedAt": "2026-06-26T08:43:02.749Z"
+  "sizeBytes": 4448454,
+  "sha256": "3c75dfd40cacf2cd75c43920dcce86780b9c6ec31a7b00d962ae14b658e6313e",
+  "releasedAt": "2026-06-27T07:00:39.884Z"
 }
