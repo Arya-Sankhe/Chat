@@ -233,6 +233,15 @@ test("narrow browser temporary chat controls avoid the mobile header controls", 
   assert.match(source, /\.temporary-chat-label \{[\s\S]*max-width: min\(220px, calc\(100vw - 152px\)\)/);
 });
 
+test("desktop browser shows the temporary chat icon without mobile controls", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-bar \{[\s\S]*display: block;[\s\S]*height: 0;/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-mode-wrap,[\s\S]*body:not\(\.capacitor-native\) \.compact-new-chat \{[\s\S]*display: none !important;/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.temporary-chat-toggle \{[\s\S]*display: inline-flex;[\s\S]*pointer-events: auto;/);
+});
+
 test("Doodle composer chrome stays transparent around the input", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")

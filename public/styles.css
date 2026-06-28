@@ -10758,6 +10758,72 @@ body[data-chat-theme="doodle"] .document-viewer-body {
 
 }
 
+body:not(.capacitor-native) .native-mobile-bar {
+
+  position: absolute;
+
+  top: 0;
+
+  right: 0;
+
+  left: 0;
+
+  z-index: 9;
+
+  display: block;
+
+  height: 0;
+
+  pointer-events: none;
+
+}
+
+body:not(.capacitor-native) .native-mobile-menu,
+
+body:not(.capacitor-native) .native-mobile-mode-wrap,
+
+body:not(.capacitor-native) .compact-new-chat {
+
+  display: none !important;
+
+}
+
+body:not(.capacitor-native) .temporary-chat-toggle {
+
+  position: absolute;
+
+  top: 18px;
+
+  right: 18px;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  pointer-events: auto;
+
+}
+
+body:not(.capacitor-native) .temporary-chat-label {
+
+  position: absolute;
+
+  top: 21px;
+
+  right: 68px;
+
+  max-width: min(240px, calc(100vw - 120px));
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
 /* ─── Capacitor mobile app ─── */
 
 body.capacitor-native {
@@ -11747,6 +11813,12 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
     align-items: center;
     justify-content: center;
     pointer-events: auto;
+  }
+
+  body:not(.capacitor-native) .temporary-chat-label {
+    top: 12px;
+    right: 60px;
+    max-width: min(220px, calc(100vw - 132px));
   }
 
   .native-mobile-brand {
