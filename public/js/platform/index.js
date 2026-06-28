@@ -311,7 +311,10 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
   ]);
   await Promise.all([
     StatusBar.setStyle({ style: dark ? Style.Light : Style.Dark }),
-    StatusBar.setBackgroundColor({ color: background }),
+    // Transparent + overlay keeps the app edge-to-edge: the page background
+    // shows through the status bar instead of a separate colored band. The
+    // safe-area padding still keeps the top bar icons clear of the clock.
+    StatusBar.setBackgroundColor({ color: "#00000000" }),
     StatusBar.setOverlaysWebView({ overlay: true }),
     Keyboard.setResizeMode({ mode: KeyboardResize.Native })
   ]).catch(() => {});

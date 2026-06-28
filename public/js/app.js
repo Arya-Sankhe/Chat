@@ -5192,17 +5192,26 @@ function bindEvents() {
       focusPromptInput();
     });
   };
-  els.composer?.addEventListener("pointerdown", expandCompactComposer);
   els.composer?.addEventListener("click", expandCompactComposer);
-  els.composerArea?.addEventListener("pointerdown", expandCompactComposer);
   els.composerArea?.addEventListener("click", expandCompactComposer);
+  // Expand the mini composer only on a deliberate tap near the bottom of the
+  // screen. Tracking pointer movement between down/up lets fast history scrolls
+  // that begin in this zone pass through without snapping the pill to full size.
+  let composerTapStart = null;
   document.addEventListener("pointerdown", (event) => {
-    if (!els.composer?.classList.contains("compact")) return;
-    const bottomTapZone = window.innerHeight - 220;
-    if (event.clientY < bottomTapZone) return;
-    event.preventDefault();
+    composerTapStart = isNative() && els.composer?.classList.contains("compact")
+      ? { x: event.clientX, y: event.clientY, t: Date.now() }
+      : null;
+  }, { capture: true, passive: true });
+  document.addEventListener("pointerup", (event) => {
+    const start = composerTapStart;
+    composerTapStart = null;
+    if (!start || !els.composer?.classList.contains("compact")) return;
+    if (Math.abs(event.clientX - start.x) > 10 || Math.abs(event.clientY - start.y) > 10) return;
+    if (Date.now() - start.t > 500) return;
+    if (event.clientY < window.innerHeight - 200) return;
     expandCompactComposer();
-  }, { capture: true });
+  }, { capture: true, passive: true });
   els.composer?.querySelector("#promptInput")?.addEventListener("focus", () => {
     els.composer?.classList.remove("compact");
   });

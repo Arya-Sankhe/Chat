@@ -14368,3 +14368,17 @@ body.capacitor-native .composer.compact {
   background: color-mix(in srgb, var(--text-secondary) 78%, var(--bg)) !important;
   opacity: 1 !important;
 }
+
+/* ── APK: keep the typing composer fully opaque on every theme. The doodle and
+   cyber themes use a translucent "glass" composer on the web, which makes typed
+   text hard to read inside the app. The mini pill keeps its own styling. */
+body.capacitor-native .composer:not(.compact),
+body.capacitor-native.chat-empty .composer:not(.compact),
+body.capacitor-native[data-chat-theme="doodle"] .composer:not(.compact),
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer:not(.compact),
+body.capacitor-native[data-chat-theme="cyber"] .composer:not(.compact),
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact) {
+  background: var(--bg) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
