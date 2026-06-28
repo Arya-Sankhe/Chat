@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260627-responsive-header-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260628-admin-reasoning-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -395,6 +395,17 @@
               </div>
             </section>
 
+            <section class="settings-section hidden" id="settingsReasoningSection">
+              <h2>Reasoning display</h2>
+              <label class="settings-switch-row" for="showModelReasoningInput">
+                <span>
+                  <strong>Show model reasoning</strong>
+                  <small>Turn off to use the simpler animated thinking bar.</small>
+                </span>
+                <input id="showModelReasoningInput" type="checkbox" role="switch">
+              </label>
+            </section>
+
             <section class="settings-section hidden" id="settingsSystemPromptSection">
               <h2>System prompt</h2>
               <div class="field-group">
@@ -503,7 +514,7 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260627-apk-modes-v1"></script>
+    <script type="module" src="/js/app.js?v=20260628-admin-reasoning-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

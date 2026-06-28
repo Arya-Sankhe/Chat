@@ -109,7 +109,8 @@ const defaultSettings = {
   kluiModel: "",
   theme: "classic",
   appearance: "system",
-  colorPreset: "default"
+  colorPreset: "default",
+  showModelReasoning: true
 };
 
 const state = {
@@ -225,6 +226,7 @@ const els = {
   stopButton: document.querySelector("#stopButton"),
   settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
   settingsModelParamsSection: document.querySelector("#settingsModelParamsSection"),
+  settingsReasoningSection: document.querySelector("#settingsReasoningSection"),
   settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
@@ -233,6 +235,7 @@ const els = {
   maxTokensInput: document.querySelector("#maxTokensInput"),
   seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
+  showModelReasoningInput: document.querySelector("#showModelReasoningInput"),
   saveSystemPromptButton: document.querySelector("#saveSystemPromptButton"),
   themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
@@ -685,6 +688,7 @@ function loadSettings() {
     loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
+    loaded.showModelReasoning = loaded.showModelReasoning !== false;
     loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
     return loaded;
   } catch {
@@ -2106,6 +2110,7 @@ function isAdminUser() {
 function renderAdminOnlyControls() {
   const admin = isAdminUser();
   els.settingsModelParamsSection?.classList.toggle("hidden", !admin);
+  els.settingsReasoningSection?.classList.toggle("hidden", !admin);
   els.settingsSystemPromptSection?.classList.toggle("hidden", !admin);
   els.settingsButtonAlt?.classList.toggle("hidden", !admin);
 }
@@ -2184,7 +2189,7 @@ function renderReasoning(message, { streaming = false } = {}) {
 }
 
 function renderAssistantActivity(message, { streaming = false } = {}) {
-  return isAdminUser()
+  return isAdminUser() && state.settings.showModelReasoning
     ? renderReasoning(message, { streaming })
     : renderThinkingStatus(message, { streaming });
 }
@@ -3782,6 +3787,9 @@ function syncSettingsInputs() {
   els.maxTokensInput.value = state.settings.max_tokens;
   els.seedInput.value = state.settings.seed;
   els.systemPromptInput.value = state.settings.systemPrompt;
+  if (els.showModelReasoningInput) {
+    els.showModelReasoningInput.checked = state.settings.showModelReasoning !== false;
+  }
   syncAppearanceControls();
 }
 
@@ -5946,6 +5954,10 @@ function bindEvents() {
   els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
   els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => { state.settings.systemPrompt = e.target.value; });
+  els.showModelReasoningInput?.addEventListener("change", (e) => {
+    updateSetting("showModelReasoning", e.target.checked);
+    renderMessages();
+  });
   els.saveSystemPromptButton?.addEventListener("click", () => { void saveGlobalSystemPrompt(); });
   els.themePreviewGrid?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-theme]");

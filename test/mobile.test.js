@@ -609,3 +609,18 @@ test("responsive web header hides APK-only controls that collide in narrow layou
     /body:not\(\.capacitor-native\) \.compact-new-chat[\s\S]*?display:\s*none\s*!important/
   );
 });
+
+test("admin can switch between full reasoning and the simple thinking bar", async () => {
+  const [html, js] = await Promise.all([
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/index.html", import.meta.url), "utf8")
+    ),
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+    )
+  ]);
+  assert.match(html, /id="settingsReasoningSection"[\s\S]*?id="showModelReasoningInput"/);
+  assert.match(js, /showModelReasoning:\s*true/);
+  assert.match(js, /isAdminUser\(\)\s*&&\s*state\.settings\.showModelReasoning[\s\S]*?renderReasoning/);
+  assert.match(js, /showModelReasoningInput\?\.addEventListener\("change"[\s\S]*?renderMessages\(\)/);
+});
