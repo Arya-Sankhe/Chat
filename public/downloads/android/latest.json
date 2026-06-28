@@ -1,13 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.7",
-  "versionCode": 7,
+  "versionName": "1.0.8",
+  "versionCode": 8,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.7.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.8.apk",
   "releaseNotes": [
-    "Latest Klui Android improvements"
+    "Improved mobile mode switching, composer behavior, and responsive layout"
   ],
-  "sizeBytes": 4448834,
-  "sha256": "02818411c26c806de8696703fadd45bbf61a5c5e4cc354cf3b214800b1362dd9",
-  "releasedAt": "2026-06-27T11:21:51.085Z"
+  "sizeBytes": 4449082,
+  "sha256": "bc8b3e7cc9d03dac1866bdf44bfc95246095a0cd20797b9f400801e997592d2b",
+  "releasedAt": "2026-06-28T11:32:23.179Z"
 }
