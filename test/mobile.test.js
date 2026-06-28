@@ -595,3 +595,17 @@ test("native top-bar mode picker activates compare and council modes", async () 
   assert.match(js, /function currentNativeTopBarMode\(\)[\s\S]*?compareEnabled[\s\S]*?compareMode/);
   assert.match(js, /applyNativeTopBarMode\(mode\)/);
 });
+
+test("responsive web header hides APK-only controls that collide in narrow layouts", async () => {
+  const css = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+  );
+  assert.match(
+    css,
+    /body:not\(\.capacitor-native\) \.native-mobile-mode-wrap[\s\S]*?display:\s*none\s*!important/
+  );
+  assert.match(
+    css,
+    /body:not\(\.capacitor-native\) \.compact-new-chat[\s\S]*?display:\s*none\s*!important/
+  );
+});
