@@ -633,6 +633,30 @@ async function activateCouncilMode() {
   renderCompareControls();
 }
 
+function currentNativeTopBarMode() {
+  if (state.settings.compareEnabled && state.settings.compareMode === "council") return "council";
+  if (state.settings.compareEnabled) return "compare";
+  return state.settings.modelMode === "pro" ? "pro" : "thinking";
+}
+
+function applyNativeTopBarMode(mode) {
+  if (mode === "compare") {
+    activateCompareMode();
+    return;
+  }
+  if (mode === "council") {
+    activateCouncilMode();
+    return;
+  }
+  if (state.settings.compareEnabled) cancelCompareMode();
+  const modelMode = mode === "pro" ? "pro" : "thinking";
+  updateSetting("modelMode", modelMode);
+  updateSetting("provider", "openrouter");
+  updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
+  updateSetting("model", modelMode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
+  renderModelOptions();
+}
+
 async function startCompareFreshChat() {
   const compareModels = selectedCompareModelIds();
   const shouldDescribePendingImages = pendingPromptHasImages() && compareIncludesTextOnlyModels(compareModels);
@@ -5529,7 +5553,7 @@ function bindEvents() {
   // Renders the current mode label inside the top-bar chip and wires
   // the dropdown open/close + selection handlers.
   function renderTopBarMode() {
-    const mode = state.settings.modelMode || "thinking";
+    const mode = currentNativeTopBarMode();
     const label = els.nativeMobileModeLabel;
     if (label) {
       const display = mode === "thinking" ? "Thinking"
@@ -5576,12 +5600,10 @@ function bindEvents() {
   els.nativeMobileModeDropdown?.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.dataset.mode;
-      if (mode) {
-        state.settings.modelMode = mode;
-        saveSettings();
-        renderTopBarMode();
-        closeTopBarModeDropdown();
-      }
+      if (!mode) return;
+      applyNativeTopBarMode(mode);
+      renderTopBarMode();
+      closeTopBarModeDropdown();
     });
   });
 

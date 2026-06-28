@@ -584,3 +584,14 @@ test("native composer hides model and compare chips so only plus and send remain
   const composerChipRule = /body\.capacitor-native[\s\S]*?\.composer-(?:model|compare)-wrap[\s\S]*?display:\s*none\s*!important/;
   assert.match(css, composerChipRule, "composer model/compare chips should be hidden on the APK");
 });
+
+test("native top-bar mode picker activates compare and council modes", async () => {
+  const js = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(js, /function applyNativeTopBarMode\(mode\)/);
+  assert.match(js, /mode === "compare"[\s\S]*?activateCompareMode\(\)/);
+  assert.match(js, /mode === "council"[\s\S]*?activateCouncilMode\(\)/);
+  assert.match(js, /function currentNativeTopBarMode\(\)[\s\S]*?compareEnabled[\s\S]*?compareMode/);
+  assert.match(js, /applyNativeTopBarMode\(mode\)/);
+});
