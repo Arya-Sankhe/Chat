@@ -48,7 +48,15 @@
 
   --composer-max: 1040px;
 
-  --transition: 180ms ease;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --motion-fast: 140ms;
+
+  --motion-medium: 200ms;
+
+  --transition: var(--motion-fast) var(--ease-out);
 
   --code-bg: #f6f8fa;
 
@@ -14503,23 +14511,80 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
   -webkit-backdrop-filter: none !important;
 }
 
+/* Motion polish: frequent controls only get immediate press feedback. */
+.composer-tool,
+.send-btn,
+.stop-btn,
+.composer-model-btn,
+.compare-btn,
+.sidebar-icon,
+.temporary-chat-toggle,
+.drawer-close,
+.profile-menu-item,
+.composer-action-menu-item,
+.model-option,
+.research-card-actions button,
+.research-report-header button,
+.confirm-actions button,
+.rename-actions button,
+.auth-dialog-close,
+.search-dialog-close {
+  transition-property: transform, background-color, border-color, color, opacity, box-shadow;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-out);
+}
+
+.composer-tool:active,
+.send-btn:active,
+.stop-btn:active,
+.composer-model-btn:active,
+.compare-btn:active,
+.sidebar-icon:active,
+.temporary-chat-toggle:active,
+.drawer-close:active,
+.profile-menu-item:active,
+.composer-action-menu-item:active,
+.model-option:active,
+.research-card-actions button:active,
+.research-report-header button:active,
+.confirm-actions button:active,
+.rename-actions button:active,
+.auth-dialog-close:active,
+.search-dialog-close:active {
+  transform: scale(.97);
+}
+
+.confirm-dialog,
+.rename-dialog,
+.auth-dialog,
+.search-dialog {
+  transition: opacity var(--motion-medium) var(--ease-out), transform var(--motion-medium) var(--ease-out);
+}
+
 /* Deep Research */
 .research-mode-chip { width: fit-content; display: inline-flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 5px 8px 5px 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: var(--radius-full); background: var(--bg-secondary); font-size: 13px; font-weight: 650; }
 .research-mode-chip.hidden { display: none; }
 .research-mode-chip button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 0 2px; font: inherit; }
-.research-card { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 12px; align-items: start; width: min(780px, 100%); padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-secondary); }
-.research-card-icon { width: 16px; height: 16px; margin-top: 3px; border: 2px solid var(--text-tertiary); border-top-color: transparent; border-radius: 50%; }
+.research-card { width: min(820px, 100%); padding: 20px; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg)); box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.research-card-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.research-card-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; color: var(--text-secondary); }
+.research-card.is-active .research-card-icon { border: 2px solid color-mix(in srgb, var(--text-tertiary) 35%, transparent); border-top-color: var(--text-secondary); }
 .research-card.is-active .research-card-icon { animation: research-spin 1s linear infinite; }
+.research-card.is-complete .research-card-icon { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.research-card.is-complete .research-card-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.research-card.is-stopped .research-card-icon { width: 8px; height: 8px; margin-inline: 5px; background: var(--text-tertiary); }
 @keyframes research-spin { to { transform: rotate(360deg); } }
 .research-card-main { min-width: 0; }
-.research-card-kicker { margin-bottom: 3px; color: var(--text-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.research-card-main strong { display: block; font-size: 16px; }
-.research-card-main p { margin: 6px 0 0; color: var(--text-secondary); font-size: 14px; }
+.research-card-kicker { color: var(--text-secondary); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: .08em; }
+.research-card-main strong { display: block; font-size: 17px; line-height: 1.35; }
+.research-card-main p { display: -webkit-box; margin: 8px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 14px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .research-card-progress { height: 3px; margin-top: 12px; overflow: hidden; border-radius: var(--radius-full); background: var(--border); }
-.research-card-progress span { display: block; height: 100%; background: var(--accent); transition: width 240ms ease; }
-.research-card-meta { display: flex; gap: 10px; margin-top: 8px; color: var(--text-tertiary); font-size: 12px; }
-.research-card-actions { display: flex; gap: 7px; }
-.research-card-actions button, .research-report-header button { border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); padding: 7px 10px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.research-card-progress span { display: block; height: 100%; background: var(--accent); transform: scaleX(var(--research-progress, 0)); transform-origin: left center; transition: transform 240ms var(--ease-in-out); }
+.research-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-light); }
+.research-card-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-tertiary); font-size: 12px; }
+.research-card-meta span + span::before { content: "·"; margin-right: 14px; }
+.research-card-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.research-card-actions button, .research-report-header button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .research-card-actions button:not(.secondary) { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .research-report-view { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: var(--bg); color: var(--text); }
 .research-report-view.hidden { display: none; }
@@ -14551,8 +14616,10 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
 .research-report-view.text-only .research-report-sources { grid-column: 1; }
 .research-report-view.text-only .research-report-article { font-size: 16px; line-height: 1.6; }
 @media (max-width: 720px) {
-  .research-card { grid-template-columns: 18px minmax(0, 1fr); }
-  .research-card-actions { grid-column: 2; }
+  .research-card { padding: 16px; }
+  .research-card-footer { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .research-card-actions { width: 100%; }
+  .research-card-actions button { flex: 1; }
   .research-report-header { grid-template-columns: 1fr auto; }
   .research-report-tabs { grid-row: 2; grid-column: 1 / -1; justify-self: center; }
   .research-report-actions { justify-self: end; }
@@ -14568,5 +14635,25 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
   .research-report-layout { display: block; width: 100%; margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .research-card.is-active .research-card-icon { animation: none; border-top-color: var(--text-tertiary); }
+  .research-card.is-active .research-card-icon { animation: none; border-color: var(--text-tertiary); }
+  .composer-tool,
+  .send-btn,
+  .stop-btn,
+  .composer-model-btn,
+  .compare-btn,
+  .sidebar-icon,
+  .temporary-chat-toggle,
+  .drawer-close,
+  .profile-menu-item,
+  .composer-action-menu-item,
+  .model-option,
+  .research-card-actions button,
+  .research-report-header button,
+  .confirm-actions button,
+  .rename-actions button,
+  .auth-dialog-close,
+  .search-dialog-close {
+    transform: none !important;
+    transition-duration: 0.01ms;
+  }
 }

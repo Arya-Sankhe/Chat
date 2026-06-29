@@ -3211,23 +3211,30 @@ function renderResearchCard(msg) {
   const label = progress.label || (active ? "Preparing research" : research.status === "cancelled" ? "Research cancelled" : "Research stopped");
   const percent = Math.max(0, Math.min(100, Number(progress.percent || (complete ? 100 : 0))));
   const elapsed = research.elapsedMs ? `${Math.max(1, Math.round(research.elapsedMs / 1000))}s` : "";
+  const icon = complete
+    ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>`
+    : "";
   return `
-    <div class="research-card ${active ? "is-active" : ""}">
-      <div class="research-card-icon" aria-hidden="true"></div>
+    <div class="research-card ${active ? "is-active" : complete ? "is-complete" : "is-stopped"}">
       <div class="research-card-main">
-        <div class="research-card-kicker">Deep research</div>
+        <div class="research-card-heading">
+          <span class="research-card-icon" aria-hidden="true">${icon}</span>
+          <span class="research-card-kicker">Deep research</span>
+        </div>
         <strong>${escapeHtml(research.title || label)}</strong>
         ${research.summary ? `<p>${escapeHtml(research.summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
-        ${active ? `<div class="research-card-progress"><span style="width:${percent}%"></span></div>` : ""}
-        <div class="research-card-meta">
-          ${research.sourceCount ? `<span>${research.sourceCount} sources</span>` : ""}
-          ${elapsed ? `<span>${elapsed}</span>` : ""}
-          ${research.partial ? "<span>Partial report</span>" : ""}
+        ${active ? `<div class="research-card-progress"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
+        <div class="research-card-footer">
+          <div class="research-card-meta">
+            ${research.sourceCount ? `<span>${research.sourceCount} sources</span>` : ""}
+            ${elapsed ? `<span>${elapsed}</span>` : ""}
+            ${research.partial ? "<span>Partial report</span>" : ""}
+          </div>
+          <div class="research-card-actions">
+            ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report <span aria-hidden="true">→</span></button>` : ""}
+            ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
+          </div>
         </div>
-      </div>
-      <div class="research-card-actions">
-        ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report</button>` : ""}
-        ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
       </div>
     </div>`;
 }

@@ -104,11 +104,19 @@ test("research engine uses cheap models for research and the selected model for 
 test("research path is SearXNG-only and exposes both report modes", () => {
   const search = fs.readFileSync(new URL("../server/research/search.js", import.meta.url), "utf8");
   const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const app = fs.readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const styles = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
   const schema = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
   assert.match(search, /searxngSearch/);
   assert.doesNotMatch(search, /jina|brave|read_url/i);
   assert.match(html, />Visual report</);
   assert.match(html, />Text only</);
+  assert.match(app, /research-card-footer/);
+  assert.match(app, /is-active.*is-complete.*is-stopped/);
+  assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
+  assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
+  assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);
+  assert.match(styles, /prefers-reduced-motion: reduce/);
   assert.match(schema, /enable row level security/i);
   assert.match(schema, /auth\.uid\(\).*user_id/i);
 });
