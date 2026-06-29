@@ -168,6 +168,38 @@ export async function updateConversation(session, id, body) {
   return response.json();
 }
 
+export async function createResearch(session, body) {
+  const response = await apiFetch("/api/research", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchResearchStatus(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function cancelResearch(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/cancel`, {
+    session,
+    method: "POST"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchResearchReport(session, id) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/report`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }

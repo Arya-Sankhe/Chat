@@ -53,3 +53,23 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+
+  research-worker:
+    build: .
+    command: ["node", "server/research/worker.js"]
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WEBSEARCH_PRIMARY_PROVIDER: searxng
+      SEARXNG_BASE_URL: http://searxng:8080
+      RESEARCH_WORKER_CONCURRENCY: 1
+    depends_on:
+      searxng:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: "0.75"
+    healthcheck:
+      disable: true
+    restart: unless-stopped

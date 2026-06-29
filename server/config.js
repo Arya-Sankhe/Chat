@@ -184,6 +184,23 @@ export function loadConfig(env = process.env) {
       brave: {
         apiKey: clean(env.BRAVE_SEARCH_API_KEY)
       }
+    },
+    research: {
+      enabled: readBoolean(env.RESEARCH_ENABLED, true),
+      cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash",
+      workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 1),
+      leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),
+      pollMs: readInt(env.RESEARCH_WORKER_POLL_MS, 2000),
+      maxRunMs: readInt(env.RESEARCH_MAX_RUN_MS, 10 * 60 * 1000),
+      fetchTimeoutMs: readInt(env.RESEARCH_FETCH_TIMEOUT_MS, 12_000),
+      fetchMaxBytes: readInt(env.RESEARCH_FETCH_MAX_BYTES, 5 * 1024 * 1024),
+      maxExtractedChars: readInt(env.RESEARCH_MAX_EXTRACTED_CHARS, 15_000),
+      maxPages: readInt(env.RESEARCH_MAX_PAGES, 12),
+      fetchConcurrency: readInt(env.RESEARCH_FETCH_CONCURRENCY, 3),
+      initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 4),
+      followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 2),
+      searchResultsPerQuery: readInt(env.RESEARCH_SEARCH_RESULTS, 8),
+      minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
     }
   };
 }
@@ -196,6 +213,7 @@ export function configuredServices(config) {
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
     websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
-    documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket)
+    documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
+    research: Boolean(config.research?.enabled && config.websearch?.searxng?.baseUrl && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)
   };
 }

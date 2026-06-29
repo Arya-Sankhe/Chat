@@ -202,6 +202,10 @@
               <div class="followup-queue hidden" id="followupQueue" aria-label="Queued follow-up messages"></div>
               <div class="composer">
                 <div class="composer-previews" id="imagePreviews"></div>
+                <div class="research-mode-chip hidden" id="researchModeChip">
+                  <span>Deep research</span>
+                  <button type="button" id="researchModeClose" aria-label="Turn off Deep Research">x</button>
+                </div>
                 <textarea id="promptInput" rows="1" placeholder="Message Klui" spellcheck="true"></textarea>
                 <div class="composer-bottom">
                   <div class="composer-actions">
@@ -221,6 +225,10 @@
                         <button class="composer-action-menu-item web-search-toggle hidden" type="button" id="webSearchToggle" role="menuitem" aria-pressed="true" aria-label="Web search auto" title="Web search: Auto — the model searches the web when needed. Click to turn off.">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
                           <span>Web search</span>
+                        </button>
+                        <button class="composer-action-menu-item hidden" type="button" id="deepResearchToggle" role="menuitem" aria-pressed="false">
+                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/><path d="M8 11h6M11 8v6"/></svg>
+                          <span>Deep research</span>
                         </button>
                         <button class="composer-action-menu-item hidden" type="button" id="settingsButtonAlt" role="menuitem">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
@@ -486,6 +494,29 @@
         <div class="overlay" id="overlay" hidden></div>
       </div>
 
+      <section class="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
+        <header class="research-report-header">
+          <button class="research-report-back" id="researchReportBack" type="button">Back to chat</button>
+          <div class="research-report-tabs" role="tablist" aria-label="Report view">
+            <button class="active" id="researchVisualTab" type="button" role="tab" aria-selected="true">Visual report</button>
+            <button id="researchTextTab" type="button" role="tab" aria-selected="false">Text only</button>
+          </div>
+          <div class="research-report-actions">
+            <button id="researchCopy" type="button">Copy</button>
+            <button id="researchPrint" type="button">Print</button>
+          </div>
+        </header>
+        <div class="research-report-loading" id="researchReportLoading">Loading report...</div>
+        <div class="research-report-layout hidden" id="researchReportLayout">
+          <aside class="research-report-toc" id="researchReportToc" aria-label="Report sections"></aside>
+          <article class="research-report-article" id="researchReportArticle"></article>
+          <details class="research-report-sources">
+            <summary id="researchReportSourcesSummary">Sources</summary>
+            <div id="researchReportSources"></div>
+          </details>
+        </div>
+      </section>
+
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
       <aside class="ios-install-hint hidden" id="iosInstallHint" aria-label="Install Klui">
@@ -514,7 +545,7 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260628-admin-reasoning-v1"></script>
+    <script type="module" src="/js/app.js?v=20260629-deep-research-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

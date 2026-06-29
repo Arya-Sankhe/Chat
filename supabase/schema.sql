@@ -255,6 +255,34 @@ create table if not exists public.document_jobs (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.research_runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  user_message_id uuid references public.messages(id) on delete set null,
+  assistant_message_id uuid references public.messages(id) on delete set null,
+  query text not null,
+  model text not null,
+  provider text not null default 'openrouter',
+  status text not null default 'queued' check (status in ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+  phase text not null default 'queued',
+  progress jsonb not null default '{}'::jsonb,
+  title text,
+  summary text,
+  report_markdown text,
+  sources jsonb not null default '[]'::jsonb,
+  error jsonb,
+  cancel_requested boolean not null default false,
+  worker_id text,
+  lease_until timestamptz,
+  attempt_count integer not null default 0,
+  elapsed_ms integer,
+  created_at timestamptz not null default now(),
+  started_at timestamptz,
+  finished_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.usage_api_weekly (
   user_id uuid not null references public.profiles(id) on delete cascade,
   period_start date not null,
@@ -366,14 +394,23 @@ create index if not exists document_jobs_document_file_idx on public.document_jo
 create index if not exists document_jobs_conversation_idx on public.document_jobs (conversation_id) where conversation_id is not null;
 create index if not exists document_jobs_message_idx on public.document_jobs (message_id) where message_id is not null;
 create index if not exists document_jobs_orphan_cleanup_idx on public.document_jobs (created_at) where conversation_id is null and message_id is null and document_file_id is null and status in ('succeeded', 'failed', 'expired');
+create index if not exists research_runs_claim_idx on public.research_runs (created_at asc) where status = 'queued';
+create index if not exists research_runs_lease_idx on public.research_runs (lease_until) where status = 'running';
+create index if not exists research_runs_user_status_idx on public.research_runs (user_id, status);
+create unique index if not exists research_runs_one_active_per_user_idx on public.research_runs (user_id) where status in ('queued', 'running');
+create index if not exists research_runs_conversation_idx on public.research_runs (conversation_id, created_at desc);
+create index if not exists research_runs_user_message_idx on public.research_runs (user_message_id) where user_message_id is not null;
+create index if not exists research_runs_assistant_message_idx on public.research_runs (assistant_message_id) where assistant_message_id is not null;
 create index if not exists payment_requests_user_created_idx on public.payment_requests (user_id, created_at desc);
 create index if not exists payment_requests_status_created_idx on public.payment_requests (status, created_at desc);
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
 grant select on public.profiles, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
+grant select on public.research_runs to authenticated;
 grant select on public.usage_api_weekly to authenticated;
 grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
+grant all on public.research_runs to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.app_settings enable row level security;
@@ -387,6 +424,7 @@ alter table public.document_files enable row level security;
 alter table public.document_chunks enable row level security;
 alter table public.document_pages enable row level security;
 alter table public.document_jobs enable row level security;
+alter table public.research_runs enable row level security;
 alter table public.usage_api_weekly enable row level security;
 alter table public.usage_api_events enable row level security;
 alter table public.model_cache enable row level security;
@@ -402,6 +440,7 @@ drop policy if exists "document files read own" on public.document_files;
 drop policy if exists "document chunks read own" on public.document_chunks;
 drop policy if exists "document pages read own" on public.document_pages;
 drop policy if exists "document jobs read own" on public.document_jobs;
+drop policy if exists "research runs read own" on public.research_runs;
 drop policy if exists "usage api weekly read own" on public.usage_api_weekly;
 
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);
@@ -415,6 +454,7 @@ create policy "document files read own" on public.document_files for select usin
 create policy "document chunks read own" on public.document_chunks for select using (auth.uid() = user_id);
 create policy "document pages read own" on public.document_pages for select using (auth.uid() = user_id);
 create policy "document jobs read own" on public.document_jobs for select using (auth.uid() = user_id);
+create policy "research runs read own" on public.research_runs for select to authenticated using ((select auth.uid()) = user_id);
 create policy "usage api weekly read own" on public.usage_api_weekly for select using (auth.uid() = user_id);
 
 create or replace function public.klui_check_api_budget(
@@ -708,7 +748,7 @@ begin
   with next_job as (
     select id
     from public.document_jobs
-    where status = 'queued'
+    where status = 'queued' and cancel_requested = false
        or (status = 'running' and lease_until < now())
     order by priority desc, created_at asc
     for update skip locked
@@ -729,6 +769,42 @@ end;
 $$;
 
 grant execute on function public.klui_claim_document_job(text, integer) to service_role;
+
+create or replace function public.klui_claim_research_run(
+  p_worker_id text,
+  p_lease_seconds integer default 120
+) returns setof public.research_runs
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+  with next_run as (
+    select id
+    from public.research_runs
+    where status = 'queued'
+    order by created_at asc
+    for update skip locked
+    limit 1
+  )
+  update public.research_runs r
+  set
+    status = 'running',
+    phase = 'planning',
+    worker_id = p_worker_id,
+    attempt_count = r.attempt_count + 1,
+    lease_until = now() + (greatest(coalesce(p_lease_seconds, 120), 30) || ' seconds')::interval,
+    started_at = coalesce(r.started_at, now()),
+    updated_at = now()
+  from next_run
+  where r.id = next_run.id
+  returning r.*;
+end;
+$$;
+
+revoke all on function public.klui_claim_research_run(text, integer) from public, anon, authenticated;
+grant execute on function public.klui_claim_research_run(text, integer) to service_role;
 
 create or replace function public.klui_search_document_chunks(
   p_user_id uuid,

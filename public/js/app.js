@@ -1,7 +1,9 @@
 import {
   configureApiAuth,
   approveAdminPayment,
+  cancelResearch,
   createConversation,
+  createResearch,
   createZiinaPaymentRequest,
   deleteAttachment,
   deleteConversation,
@@ -16,6 +18,8 @@ import {
   fetchMe,
   fetchModels,
   fetchPlans,
+  fetchResearchReport,
+  fetchResearchStatus,
   fetchZiinaPaymentRequests,
   listConversations,
   rejectAdminPayment,
@@ -123,6 +127,9 @@ const state = {
   pinnedChatIds: [],
   activeConversationId: "",
   temporaryChat: false,
+  researchMode: false,
+  activeResearchId: "",
+  researchReport: null,
   messages: [],
   models: [],
   settings: loadSettings(),
@@ -161,11 +168,24 @@ let lastMessagesTouchY = 0;
 let lastNativeBackAt = 0;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
+let researchPollTimer = null;
 
 const els = {
   setupView: document.querySelector("#setupView"),
   paywallView: document.querySelector("#paywallView"),
   chatView: document.querySelector("#chatView"),
+  researchReportView: document.querySelector("#researchReportView"),
+  researchReportBack: document.querySelector("#researchReportBack"),
+  researchVisualTab: document.querySelector("#researchVisualTab"),
+  researchTextTab: document.querySelector("#researchTextTab"),
+  researchCopy: document.querySelector("#researchCopy"),
+  researchPrint: document.querySelector("#researchPrint"),
+  researchReportLoading: document.querySelector("#researchReportLoading"),
+  researchReportLayout: document.querySelector("#researchReportLayout"),
+  researchReportToc: document.querySelector("#researchReportToc"),
+  researchReportArticle: document.querySelector("#researchReportArticle"),
+  researchReportSourcesSummary: document.querySelector("#researchReportSourcesSummary"),
+  researchReportSources: document.querySelector("#researchReportSources"),
   serviceList: document.querySelector("#serviceList"),
   googleButton: document.querySelector("#googleButton"),
   authNotice: document.querySelector("#authNotice"),
@@ -222,6 +242,9 @@ const els = {
   actionMenuButton: document.querySelector("#actionMenuButton"),
   composerActionMenu: document.querySelector("#composerActionMenu"),
   imageToggle: document.querySelector("#imageToggle"),
+  deepResearchToggle: document.querySelector("#deepResearchToggle"),
+  researchModeChip: document.querySelector("#researchModeChip"),
+  researchModeClose: document.querySelector("#researchModeClose"),
   sendButton: document.querySelector("#sendButton"),
   stopButton: document.querySelector("#stopButton"),
   settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
@@ -316,6 +339,11 @@ function conversationIdFromLocation() {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+function researchIdFromLocation() {
+  const match = window.location.pathname.match(/^\/research\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 function conversationUrl(id) {
   return id ? `/c/${encodeURIComponent(id)}` : "/";
 }
@@ -364,6 +392,33 @@ function renderTemporaryChatMode() {
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat;
 }
 
+function renderResearchMode() {
+  const available = Boolean(state.config?.services?.research);
+  els.deepResearchToggle?.classList.toggle("hidden", !available);
+  els.researchModeChip?.classList.toggle("hidden", !state.researchMode);
+  els.deepResearchToggle?.classList.toggle("active", state.researchMode);
+  els.deepResearchToggle?.setAttribute("aria-pressed", String(state.researchMode));
+  if (els.deepResearchToggle) els.deepResearchToggle.disabled = state.running || !available;
+  if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat || state.researchMode;
+}
+
+function setResearchMode(enabled) {
+  const next = Boolean(enabled);
+  if (next && state.temporaryChat) {
+    showToast("Deep Research is not available in temporary chat.");
+    return;
+  }
+  if (next && state.images.length) {
+    showToast("Remove attachments before starting Deep Research.");
+    return;
+  }
+  state.researchMode = next;
+  if (next && state.settings.compareEnabled) cancelCompareMode();
+  renderResearchMode();
+  closeActionMenu();
+  els.promptInput?.focus();
+}
+
 function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   const next = Boolean(enabled);
   if (state.temporaryChat === next && !resetChat) {
@@ -371,6 +426,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     return;
   }
   state.temporaryChat = next;
+  if (next) state.researchMode = false;
   if (resetChat) {
     state.activeConversationId = "";
     state.messages = [];
@@ -905,7 +961,7 @@ function openUpgradePlans() {
 /* ─── View switching ─── */
 
 function showOnly(view) {
-  [els.setupView, els.paywallView, els.chatView].forEach((el) => el?.classList.add("hidden"));
+  [els.setupView, els.paywallView, els.chatView, els.researchReportView].forEach((el) => el?.classList.add("hidden"));
   view.classList.remove("hidden");
 }
 
@@ -915,6 +971,7 @@ function renderShell() {
   els.guestLoginPanel?.classList.toggle("hidden", !guest);
   renderAuthOptions();
   renderTemporaryChatMode();
+  renderResearchMode();
   renderAdminOnlyControls();
 
   if (!servicesReady()) {
@@ -3146,6 +3203,35 @@ function renderUserEditForm(msg, rawText) {
   `;
 }
 
+function renderResearchCard(msg) {
+  const research = researchMeta(msg) || {};
+  const progress = research.progress || {};
+  const active = ["queued", "running"].includes(research.status);
+  const complete = research.status === "succeeded" || Boolean(research.partial);
+  const label = progress.label || (active ? "Preparing research" : research.status === "cancelled" ? "Research cancelled" : "Research stopped");
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || (complete ? 100 : 0))));
+  const elapsed = research.elapsedMs ? `${Math.max(1, Math.round(research.elapsedMs / 1000))}s` : "";
+  return `
+    <div class="research-card ${active ? "is-active" : ""}">
+      <div class="research-card-icon" aria-hidden="true"></div>
+      <div class="research-card-main">
+        <div class="research-card-kicker">Deep research</div>
+        <strong>${escapeHtml(research.title || label)}</strong>
+        ${research.summary ? `<p>${escapeHtml(research.summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
+        ${active ? `<div class="research-card-progress"><span style="width:${percent}%"></span></div>` : ""}
+        <div class="research-card-meta">
+          ${research.sourceCount ? `<span>${research.sourceCount} sources</span>` : ""}
+          ${elapsed ? `<span>${elapsed}</span>` : ""}
+          ${research.partial ? "<span>Partial report</span>" : ""}
+        </div>
+      </div>
+      <div class="research-card-actions">
+        ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report</button>` : ""}
+        ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
+      </div>
+    </div>`;
+}
+
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
@@ -3153,7 +3239,9 @@ function renderStandardMessage(raw) {
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
 
-  const inner = editing
+  const inner = role === "assistant" && researchMeta(msg)
+    ? renderResearchCard(msg)
+    : editing
     ? renderUserEditForm(msg, rawText)
     : `<div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
         ${renderMessageFooter(msg, role)}`;
@@ -3165,6 +3253,88 @@ function renderStandardMessage(raw) {
       </div>
     </article>
   `;
+}
+
+function reportMarkdownWithoutImages(markdown) {
+  return String(markdown || "").replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+}
+
+function reportSourceRows(sources) {
+  return (sources || []).map((source) => {
+    let href = "";
+    try {
+      const url = new URL(source.url);
+      if (["http:", "https:"].includes(url.protocol)) href = url.href;
+    } catch {}
+    if (!href) return "";
+    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(source.title || href)}</strong><span>${escapeHtml(new URL(href).hostname.replace(/^www\./, ""))}</span></a>`;
+  }).join("");
+}
+
+function buildReportToc() {
+  if (!els.researchReportArticle || !els.researchReportToc) return;
+  const headings = [...els.researchReportArticle.querySelectorAll("h2, h3")];
+  els.researchReportToc.innerHTML = headings.map((heading, index) => {
+    const id = `report-section-${index + 1}`;
+    heading.id = id;
+    return `<a class="level-${heading.tagName.toLowerCase()}" href="#${id}">${escapeHtml(heading.textContent || "Section")}</a>`;
+  }).join("");
+  els.researchReportToc.classList.toggle("hidden", !headings.length);
+}
+
+function renderResearchReport() {
+  const payload = state.researchReport;
+  if (!payload) return;
+  const markdown = reportMarkdownWithoutImages(payload.report);
+  els.researchReportArticle.innerHTML = renderContent(markdown);
+  els.researchReportArticle.querySelectorAll("img").forEach((image) => image.remove());
+  els.researchReportSources.innerHTML = reportSourceRows(payload.sources);
+  els.researchReportSourcesSummary.textContent = `Sources (${payload.sources?.length || 0})`;
+  els.researchReportLoading.classList.add("hidden");
+  els.researchReportLayout.classList.remove("hidden");
+  buildReportToc();
+}
+
+function setResearchReportView(mode) {
+  const textOnly = mode === "text";
+  els.researchReportView.classList.toggle("text-only", textOnly);
+  els.researchVisualTab.classList.toggle("active", !textOnly);
+  els.researchTextTab.classList.toggle("active", textOnly);
+  els.researchVisualTab.setAttribute("aria-selected", String(!textOnly));
+  els.researchTextTab.setAttribute("aria-selected", String(textOnly));
+}
+
+async function openResearchReport(runId, { push = true } = {}) {
+  if (!runId || !state.session) return;
+  clearTimeout(researchPollTimer);
+  state.researchReport = null;
+  showOnly(els.researchReportView);
+  setResearchReportView("visual");
+  els.researchReportLoading.textContent = "Loading report...";
+  els.researchReportLoading.classList.remove("hidden");
+  els.researchReportLayout.classList.add("hidden");
+  if (push && window.location.pathname !== `/research/${encodeURIComponent(runId)}`) {
+    window.history.pushState({ researchId: runId }, "", `/research/${encodeURIComponent(runId)}`);
+  }
+  try {
+    state.researchReport = await fetchResearchReport(state.session, runId);
+    renderResearchReport();
+  } catch (error) {
+    els.researchReportLoading.textContent = error.message;
+  }
+}
+
+async function closeResearchReport({ push = true } = {}) {
+  const conversationId = state.researchReport?.run?.conversationId || state.activeConversationId;
+  state.researchReport = null;
+  if (push) window.history.pushState({ conversationId }, "", conversationUrl(conversationId));
+  showOnly(els.chatView);
+  if (conversationId && state.activeConversationId !== conversationId) {
+    state.activeConversationId = conversationId;
+    await loadActiveConversation().catch(() => {});
+  }
+  renderShell();
+  resumeResearchPolling();
 }
 
 function renderCompareResponse(raw, index) {
@@ -3798,10 +3968,11 @@ function setRunning(running) {
   els.stopButton.classList.toggle("hidden", !running);
   els.sendButton.classList.toggle("hidden", running);
   els.promptInput.disabled = false;
-  els.imageToggle.disabled = state.temporaryChat;
+  els.imageToggle.disabled = state.temporaryChat || state.researchMode;
   els.modelButton.disabled = running;
   els.compareButton.disabled = running || state.temporaryChat;
   if (els.councilButton) els.councilButton.disabled = running || state.temporaryChat;
+  if (els.deepResearchToggle) els.deepResearchToggle.disabled = running || !state.config?.services?.research;
   updateComposerPlaceholder();
   updateSendButton();
 }
@@ -4353,6 +4524,7 @@ async function loadActiveConversation() {
   }
   const payload = await fetchConversation(state.session, state.activeConversationId);
   state.messages = payload.messages || [];
+  resumeResearchPolling();
 }
 
 async function loadChatApp() {
@@ -4476,6 +4648,10 @@ async function sendPrompt() {
   }
   let text = els.promptInput.value.trim();
   if (state.running) {
+    if (state.activeResearchId) {
+      showToast("Wait for Deep Research to finish or cancel it first.");
+      return;
+    }
     if (!requireAuth()) return;
     addFollowUpFromInput();
     return;
@@ -4493,6 +4669,14 @@ async function sendPrompt() {
   }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
+  if (state.researchMode) {
+    if (state.images.length) {
+      showToast("Deep Research currently supports text questions only.");
+      return;
+    }
+    await startDeepResearch(text);
+    return;
+  }
   const compareModels = activeCompareModelIds();
   if (state.temporaryChat && state.images.length) {
     showToast("Temporary chat is text-only for now.");
@@ -4529,6 +4713,100 @@ async function sendPrompt() {
       compareModels.length
     )
   });
+}
+
+function researchMeta(message) {
+  return message?.metadata?.research || null;
+}
+
+function updateResearchMessage(run) {
+  const message = state.messages.find((entry) => String(entry.id) === String(run.messageId));
+  if (!message) return;
+  message.metadata = {
+    ...(message.metadata || {}),
+    research: {
+      ...(message.metadata?.research || {}),
+      runId: run.id,
+      status: run.status,
+      phase: run.phase,
+      progress: run.progress || {},
+      title: run.title || "",
+      summary: run.summary || "",
+      sourceCount: run.sourceCount || 0,
+      elapsedMs: run.elapsedMs || 0,
+      partial: run.partial
+    }
+  };
+  if (run.summary) message.content = run.summary;
+  if (run.error?.message) message.error = run.error.message;
+}
+
+async function pollResearch(runId) {
+  clearTimeout(researchPollTimer);
+  if (!runId || !state.session) return;
+  try {
+    const payload = await fetchResearchStatus(state.session, runId);
+    const run = payload.run;
+    updateResearchMessage(run);
+    renderMessages();
+    if (["queued", "running"].includes(run.status)) {
+      state.activeResearchId = run.id;
+      setRunning(true);
+      researchPollTimer = setTimeout(() => pollResearch(run.id), 2000);
+      return;
+    }
+    state.activeResearchId = "";
+    setRunning(false);
+    await Promise.all([loadMe(), loadConversations()]).catch(() => {});
+    renderShell();
+  } catch (error) {
+    state.activeResearchId = "";
+    setRunning(false);
+    showToast(error.message);
+  }
+}
+
+function resumeResearchPolling() {
+  const running = state.messages.find((message) => {
+    const meta = researchMeta(message);
+    return meta?.runId && ["queued", "running"].includes(meta.status);
+  });
+  if (running) void pollResearch(running.metadata.research.runId);
+}
+
+async function startDeepResearch(query) {
+  if (state.temporaryChat || state.images.length || state.settings.compareEnabled) {
+    showToast("Deep Research requires a normal text chat.");
+    return;
+  }
+  setRunning(true);
+  try {
+    const payload = await createResearch(state.session, {
+      query,
+      conversationId: state.activeConversationId || undefined,
+      model: selectedModelMode() === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL,
+      temporary: false,
+      compare: false,
+      council: false,
+      hasAttachments: false
+    });
+    if (!state.activeConversationId) {
+      state.activeConversationId = payload.conversation.id;
+      state.conversations.unshift(payload.conversation);
+      syncConversationUrl();
+    }
+    state.messages.push(payload.userMessage, payload.assistantMessage);
+    state.activeResearchId = payload.run.id;
+    state.researchMode = false;
+    els.promptInput.value = "";
+    applyComposerHeight();
+    renderResearchMode();
+    renderShell();
+    await pollResearch(payload.run.id);
+  } catch (error) {
+    setRunning(false);
+    showToast(error.message);
+  }
 }
 
 async function waitForDocumentReady(attachmentId, fileName) {
@@ -5099,7 +5377,11 @@ async function bootstrap() {
       }
     }
     renderShell();
-    if (state.session && hasChatAccess()) await loadChatApp();
+    if (state.session && hasChatAccess()) {
+      await loadChatApp();
+      const reportId = researchIdFromLocation();
+      if (reportId) await openResearchReport(reportId, { push: false });
+    }
     focusPromptInputSoon();
     await checkAndShowAppUpdate();
   } catch (err) {
@@ -5256,6 +5538,7 @@ function bindEvents() {
     if (!isNative() || event.defaultPrevented) return;
     const link = event.target.closest("a[href]");
     if (!link) return;
+    if (String(link.getAttribute("href") || "").startsWith("#")) return;
     const href = link.href;
     if (!/^https?:\/\//i.test(href)) return;
     // Product navigation uses pushState; ordinary HTTP anchors are external resources.
@@ -5351,6 +5634,16 @@ function bindEvents() {
     closeActionMenu();
     openSettings();
   });
+  els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
+  els.researchModeClose?.addEventListener("click", () => setResearchMode(false));
+  els.researchReportBack?.addEventListener("click", () => closeResearchReport());
+  els.researchVisualTab?.addEventListener("click", () => setResearchReportView("visual"));
+  els.researchTextTab?.addEventListener("click", () => setResearchReportView("text"));
+  els.researchCopy?.addEventListener("click", () => {
+    const text = state.researchReport?.report || "";
+    copyText(text).then(() => showToast("Report copied.")).catch(() => showToast("Copy failed."));
+  });
+  els.researchPrint?.addEventListener("click", () => window.print());
   els.closeSettingsButton.addEventListener("click", closeSettings);
   els.settingsDrawer?.addEventListener("click", (event) => {
     if (!els.settingsDrawer.classList.contains("open")) return;
@@ -5425,6 +5718,7 @@ function bindEvents() {
     closeActionMenu();
     closeModelDropdown();
     closeCompareDropdown();
+    if (state.researchMode) setResearchMode(false);
     if (state.settings.compareEnabled && state.settings.compareMode !== "council") {
       cancelCompareMode();
       return;
@@ -5438,6 +5732,7 @@ function bindEvents() {
       closeActionMenu();
       closeModelDropdown();
       closeCompareDropdown();
+      if (state.researchMode) setResearchMode(false);
       if (state.settings.compareEnabled && state.settings.compareMode === "council") {
         cancelCompareMode();
         return;
@@ -5655,9 +5950,17 @@ function bindEvents() {
 
   window.addEventListener("popstate", async () => {
     if (!state.session?.access_token) return;
+    const routeResearchId = researchIdFromLocation();
     const routeConversationId = conversationIdFromLocation();
     suppressUrlSync = true;
     try {
+      if (routeResearchId) {
+        await openResearchReport(routeResearchId, { push: false });
+        return;
+      }
+      if (!els.researchReportView.classList.contains("hidden")) {
+        await closeResearchReport({ push: false });
+      }
       if (!routeConversationId) {
         state.temporaryChat = false;
         state.activeConversationId = "";
@@ -5821,6 +6124,22 @@ function bindEvents() {
   });
 
   els.messages.addEventListener("click", async (e) => {
+    const openResearch = e.target.closest("[data-open-research]");
+    if (openResearch) {
+      await openResearchReport(openResearch.dataset.openResearch);
+      return;
+    }
+    const cancelResearchButton = e.target.closest("[data-cancel-research]");
+    if (cancelResearchButton) {
+      try {
+        const payload = await cancelResearch(state.session, cancelResearchButton.dataset.cancelResearch);
+        updateResearchMessage(payload.run);
+        renderMessages();
+      } catch (error) {
+        showToast(error.message);
+      }
+      return;
+    }
     const previewImage = e.target.closest("[data-preview-src]");
     if (previewImage) {
       openLightbox(previewImage.dataset.previewSrc);
@@ -5936,7 +6255,13 @@ function bindEvents() {
   });
 
   els.sendButton.addEventListener("click", sendPrompt);
-  els.stopButton.addEventListener("click", () => state.abortController?.abort());
+  els.stopButton.addEventListener("click", () => {
+    if (state.activeResearchId) {
+      cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));
+      return;
+    }
+    state.abortController?.abort();
+  });
 
   els.promptInput.addEventListener("input", () => { els.composer?.classList.remove("compact"); applyComposerHeight(); updateSendButton(); renderContextMeter(); });
   els.promptInput.addEventListener("keydown", (e) => {
