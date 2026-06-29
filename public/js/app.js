@@ -4741,7 +4741,7 @@ function updateResearchMessage(run) {
   if (run.error?.message) message.error = run.error.message;
 }
 
-async function pollResearch(runId) {
+async function pollResearch(runId, failedAttempts = 0) {
   clearTimeout(researchPollTimer);
   if (!runId || !state.session) return;
   try {
@@ -4760,6 +4760,10 @@ async function pollResearch(runId) {
     await Promise.all([loadMe(), loadConversations()]).catch(() => {});
     renderShell();
   } catch (error) {
+    if (failedAttempts < 1 && state.session) {
+      researchPollTimer = setTimeout(() => pollResearch(runId, failedAttempts + 1), 2000);
+      return;
+    }
     state.activeResearchId = "";
     setRunning(false);
     showToast(error.message);

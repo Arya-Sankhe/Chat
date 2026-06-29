@@ -783,7 +783,7 @@ begin
   with next_run as (
     select id
     from public.research_runs
-    where status = 'queued'
+    where status = 'queued' and cancel_requested = false
     order by created_at asc
     for update skip locked
     limit 1

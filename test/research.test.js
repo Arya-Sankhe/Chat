@@ -108,3 +108,16 @@ test("research path is SearXNG-only and exposes both report modes", () => {
   assert.match(schema, /enable row level security/i);
   assert.match(schema, /auth\.uid\(\).*user_id/i);
 });
+
+test("research cancellation and lease cleanup remain durable", () => {
+  const worker = fs.readFileSync(new URL("../server/research/worker.js", import.meta.url), "utf8");
+  const app = fs.readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const schema = fs.readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8");
+  const migration = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
+
+  assert.match(worker, /const cancelled = Boolean\(current\?\.cancel_requested\)/);
+  assert.match(worker, /Date\.now\(\) - lastExpiredCleanupAt >= 60_000/);
+  assert.match(app, /failedAttempts < 1/);
+  assert.match(schema, /where status = 'queued' and cancel_requested = false/);
+  assert.match(migration, /where status = 'queued' and cancel_requested = false/);
+});

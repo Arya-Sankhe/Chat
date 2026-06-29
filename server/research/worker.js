@@ -10,6 +10,7 @@ const config = loadConfig();
 const db = new SupabaseRest(config);
 const workerId = `research-${crypto.randomUUID()}`;
 let stopping = false;
+let lastExpiredCleanupAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -127,7 +128,7 @@ async function processRun(run) {
     });
   } catch (error) {
     const current = await db.getResearchRun(run.user_id, run.id).catch(() => null);
-    const cancelled = controller.signal.aborted && current?.cancel_requested;
+    const cancelled = Boolean(current?.cancel_requested);
     const elapsedMs = Date.now() - new Date(run.started_at || run.created_at).getTime();
     const report = snapshot.findings
       ? partialReport(run.query, snapshot.findings, snapshot.sources, error?.message || "Research stopped before completion.")
@@ -162,12 +163,8 @@ async function processRun(run) {
   }
 }
 
-async function loop() {
-  if (!db.configured || !config.research.enabled) {
-    console.error("Research worker is not configured.");
-    process.exitCode = 1;
-    return;
-  }
+async function failExpiredRuns() {
+  lastExpiredCleanupAt = Date.now();
   const expired = await db.failExpiredResearchRuns().catch((error) => {
     console.error("Expired research cleanup failed", error);
     return [];
@@ -180,8 +177,18 @@ async function loop() {
       metadata: { research: { runId: run.id, status: "failed" } }
     }).catch(() => {});
   }
+}
+
+async function loop() {
+  if (!db.configured || !config.research.enabled) {
+    console.error("Research worker is not configured.");
+    process.exitCode = 1;
+    return;
+  }
+  await failExpiredRuns();
   console.log(`${workerId} started`);
   while (!stopping) {
+    if (Date.now() - lastExpiredCleanupAt >= 60_000) await failExpiredRuns();
     const runs = [];
     for (let index = 0; index < config.research.workerConcurrency; index += 1) {
       const run = await db.claimResearchRun(workerId, config.research.leaseSeconds).catch((error) => {
