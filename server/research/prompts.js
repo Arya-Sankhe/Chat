@@ -17,7 +17,8 @@ Question: ${question}
 Requirements:
 - Markdown only.
 - Start with a specific H1 title, followed by a short executive summary.
-- Organize the evidence into useful sections and end with limitations and a conclusion.
+- Produce a thorough analysis that covers the important subquestions, evidence, disagreements, and practical implications.
+- Organize the evidence into useful sections and end with limitations, remaining uncertainties, and a conclusion.
 - Cite claims inline using Markdown links whose URL exactly matches one of the allowed sources.
 - Do not include images, HTML, invented URLs, or a separate bibliography.
 - Prefer a shorter accurate report over unsupported detail.

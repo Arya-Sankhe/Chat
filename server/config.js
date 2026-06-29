@@ -191,15 +191,16 @@ export function loadConfig(env = process.env) {
       workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 1),
       leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),
       pollMs: readInt(env.RESEARCH_WORKER_POLL_MS, 2000),
-      maxRunMs: readInt(env.RESEARCH_MAX_RUN_MS, 10 * 60 * 1000),
+      maxRunMs: readInt(env.RESEARCH_MAX_RUN_MS, 20 * 60 * 1000),
       fetchTimeoutMs: readInt(env.RESEARCH_FETCH_TIMEOUT_MS, 12_000),
       fetchMaxBytes: readInt(env.RESEARCH_FETCH_MAX_BYTES, 5 * 1024 * 1024),
-      maxExtractedChars: readInt(env.RESEARCH_MAX_EXTRACTED_CHARS, 15_000),
-      maxPages: readInt(env.RESEARCH_MAX_PAGES, 12),
+      maxExtractedChars: readInt(env.RESEARCH_MAX_EXTRACTED_CHARS, 18_000),
+      maxPages: readInt(env.RESEARCH_MAX_PAGES, 18),
       fetchConcurrency: readInt(env.RESEARCH_FETCH_CONCURRENCY, 3),
-      initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 4),
-      followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 2),
-      searchResultsPerQuery: readInt(env.RESEARCH_SEARCH_RESULTS, 8),
+      initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 6),
+      followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 4),
+      searchResultsPerQuery: readInt(env.RESEARCH_SEARCH_RESULTS, 10),
+      finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 25_000),
       minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
     }
   };

@@ -11,9 +11,13 @@ test("research config uses bounded VPS-friendly defaults", () => {
   const config = loadConfig({});
   assert.equal(config.research.workerConcurrency, 1);
   assert.equal(config.research.fetchConcurrency, 3);
-  assert.equal(config.research.maxPages, 12);
-  assert.equal(config.research.maxRunMs, 600_000);
-  assert.equal(config.research.maxExtractedChars, 15_000);
+  assert.equal(config.research.maxPages, 18);
+  assert.equal(config.research.maxRunMs, 1_200_000);
+  assert.equal(config.research.maxExtractedChars, 18_000);
+  assert.equal(config.research.initialQueries, 6);
+  assert.equal(config.research.followupQueries, 4);
+  assert.equal(config.research.searchResultsPerQuery, 10);
+  assert.equal(config.research.finalMaxTokens, 25_000);
 });
 
 test("research extraction removes page chrome and scripts", () => {

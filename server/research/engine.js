@@ -97,7 +97,7 @@ export async function runDeepResearch({
 
   async function checkpoint(phase, progress) {
     if (signal?.aborted || await isCancelled()) throw new DOMException("Aborted", "AbortError");
-    if (Date.now() > deadline) throw new Error("Deep research reached its ten-minute limit.");
+    if (Date.now() > deadline) throw new Error("Deep research reached its time limit.");
     await onProgress(phase, progress);
   }
 
@@ -178,7 +178,7 @@ export async function runDeepResearch({
     model: run.model,
     system: RESEARCH_SYSTEM,
     prompt: finalReportPrompt(run.query, findings.join("\n\n"), sources),
-    maxTokens: 8000
+    maxTokens: config.research.finalMaxTokens
   });
   const report = validateReportLinks(reportRaw, sources);
   if (report.trim().length < 100) throw new Error("The research model returned an incomplete report.");
