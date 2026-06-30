@@ -3110,6 +3110,8 @@ body.temporary-chat .messages {
 
 .empty-state h1 {
 
+  width: 100%;
+
   font-size: 38px;
 
   font-weight: 600;
@@ -3119,6 +3121,8 @@ body.temporary-chat .messages {
   color: var(--text);
 
   letter-spacing: -0.02em;
+
+  text-align: center;
 
 }
 
@@ -11189,9 +11193,13 @@ body.capacitor-native.chat-empty .empty-state h1 {
 
   display: block;
 
+  width: 100%;
+
   font-size: 27px;
 
   font-weight: 430;
+
+  text-align: center;
 
 }
 

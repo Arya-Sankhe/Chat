@@ -3641,7 +3641,7 @@ function renderMessages() {
   renderTemporaryChatMode();
   if (!state.messages.length) {
     const title = state.session ? getGreeting() : "What can I help you with?";
-    els.messages.innerHTML = `<div class="empty-state"><div><h1>${escapeHtml(title)}</h1></div></div>`;
+    els.messages.innerHTML = `<div class="empty-state"><h1>${escapeHtml(title)}</h1></div>`;
     els.chatPromptNav?.classList.add("hidden");
     els.chatJumpBottom?.classList.remove("visible");
     return;
@@ -5503,6 +5503,11 @@ async function hydrateNativeSettings() {
 }
 
 async function bootstrap() {
+  // Show the keyboard immediately on launch. The composer textarea is
+  // already in the static page markup, so this doesn't need to wait on
+  // settings/session/config network calls below — waiting on those is
+  // what made the keyboard feel slow to open.
+  focusPromptInputSoon();
   await hydrateNativeSettings();
   applyChatTheme();
   try {
