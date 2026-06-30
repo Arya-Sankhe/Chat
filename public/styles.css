@@ -8231,6 +8231,17 @@ body[data-chat-theme="doodle"] .chat-panel > * {
 
 }
 
+/* The prompt navigator is shared by every desktop theme. Keep it out of each
+   theme's flex flow even when a theme positions all direct panel children. */
+body[data-chat-theme="cyber"] .chat-panel > .chat-prompt-nav,
+body[data-chat-theme="doodle"] .chat-panel > .chat-prompt-nav {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  z-index: 12;
+  transform: translateY(-50%);
+}
+
 body[data-chat-theme="doodle"] .chat-panel > .temporary-chat-bar {
 
   position: absolute;
