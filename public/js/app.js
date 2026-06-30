@@ -3228,7 +3228,7 @@ function renderResearchCard(msg) {
           <span class="research-card-kicker">Deep research</span>
         </div>
         <strong>${escapeHtml(research.title || label)}</strong>
-        ${research.summary ? `<p>${escapeHtml(research.summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
+        ${cleanReportSummary(research.summary) ? `<p>${escapeHtml(cleanReportSummary(research.summary))}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
         ${active ? `<div class="research-card-progress"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
         <div class="research-card-footer">
           <div class="research-card-meta">
@@ -3323,17 +3323,30 @@ function stripLeadingH1(markdown) {
   return String(markdown || "").replace(/^\s*#\s+.*(\r?\n)+/, "");
 }
 
+// Summaries are stored as raw markdown (e.g. "**Executive Summary:** ...").
+// The card shows them as plain text, so strip emphasis markers and the
+// redundant label instead of leaking literal asterisks.
+function cleanReportSummary(text) {
+  return String(text || "")
+    .replace(/\*\*/g, "")
+    .replace(/__/g, "")
+    .replace(/^\s*#+\s*/, "")
+    .replace(/^\s*executive summary\s*[:.\-]*\s*/i, "")
+    .trim();
+}
+
 function reportMasthead(payload, theme, meta) {
   const fallbackTitle = (String(payload?.report || "").match(/^\s*#\s+(.+)$/m)?.[1] || "Research report").trim();
   const title = (payload?.run?.title || fallbackTitle).trim();
-  const summary = (payload?.run?.summary || "").trim();
   const metaParts = [`${meta.minutes} min read`, `${meta.sources} ${meta.sources === 1 ? "source" : "sources"}`];
   if (meta.dateLabel) metaParts.push(meta.dateLabel);
+  // No standfirst: the report body already opens with its own executive
+  // summary, so a dek here just duplicates it (and the stored summary is
+  // truncated).
   return `
     <header class="report-masthead">
       <p class="report-kicker">${escapeHtml(REPORT_THEME_KICKERS[theme] || REPORT_THEME_KICKERS.editorial)}</p>
       <h1 class="report-title">${escapeHtml(title)}</h1>
-      ${summary ? `<p class="report-dek">${escapeHtml(summary)}</p>` : ""}
       <div class="report-meta">${metaParts.map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</div>
     </header>
   `;

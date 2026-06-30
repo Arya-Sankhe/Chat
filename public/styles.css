@@ -14793,7 +14793,6 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
 .report-masthead { margin: 0 0 6px; padding-bottom: 30px; border-bottom: 1px solid var(--border); }
 .report-kicker { margin: 0 0 18px; font-family: var(--report-kicker-font); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: color-mix(in srgb, var(--report-accent) 76%, var(--text)); }
 .report-title { margin: 0; font-family: var(--report-head-font); font-size: clamp(34px, 4.4vw, 52px); line-height: 1.08; letter-spacing: -0.02em; font-weight: 680; color: var(--text); }
-.report-dek { margin: 18px 0 0; max-width: 60ch; font-family: var(--report-body-font); font-size: 19px; line-height: 1.55; color: var(--text-secondary); }
 .report-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 22px; font-family: var(--report-sans); font-size: 13px; letter-spacing: 0.01em; color: var(--text-tertiary); }
 .report-meta span:not(:first-child) { padding-left: 14px; border-left: 1px solid var(--border); }
 
@@ -14820,8 +14819,7 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
 .research-report-view.text-only .report-masthead { padding-bottom: 18px; margin-bottom: 4px; }
 .research-report-view.text-only .report-kicker { font-family: inherit; font-size: 11px; letter-spacing: 0.08em; margin-bottom: 10px; color: var(--text-tertiary); }
 .research-report-view.text-only .report-title { font-family: inherit; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
-.research-report-view.text-only .report-dek { font-family: inherit; font-size: 16px; color: var(--text-secondary); }
-.research-report-view.text-only .report-meta { font-size: 12px; }
+.research-report-view.text-only .report-meta { display: none; }
 
 @media (prefers-reduced-motion: no-preference) {
   .research-report-view:not(.text-only) .report-masthead { animation: report-rise 0.5s var(--ease-out) both; }
@@ -14844,7 +14842,6 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
   .research-report-view:not(.text-only) .research-report-article { font-size: 17px; line-height: 1.72; }
   .research-report-view:not(.text-only) .research-report-article h2 { font-size: 23px; margin-top: 40px; }
   .report-title { font-size: clamp(28px, 8vw, 36px); }
-  .report-dek { font-size: 17px; }
 }
 @media print {
   .research-report-header, .research-report-toc, .research-report-sources { display: none !important; }
