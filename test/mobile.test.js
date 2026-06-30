@@ -648,9 +648,11 @@ test("desktop chat navigation stays out of mobile and tracks prompt position", a
   ]);
 
   assert.match(html, /id="chatJumpBottom"[\s\S]*?id="chatPromptNav"|id="chatPromptNav"[\s\S]*?id="chatJumpBottom"/);
+  assert.doesNotMatch(html, /chat-prompt-panel-title|Your prompts/);
   assert.match(js, /bottomDistance > 220/);
   assert.match(js, /requestAnimationFrame\([\s\S]*?updateChatScrollNavigation/);
   assert.match(js, /function scrollToChatPrompt\(messageId\)[\s\S]*?els\.messages\.scrollTo/);
   assert.match(css, /@media \(max-width: 900px\), \(hover: none\), \(pointer: coarse\)[\s\S]*?\.chat-prompt-nav \{ display: none !important; \}/);
   assert.match(css, /body\.capacitor-native \.chat-jump-bottom,[\s\S]*?body\.capacitor-native \.chat-prompt-nav \{ display: none !important; \}/);
+  assert.match(css, /\.chat-prompt-nav \{[\s\S]*?right:\s*18px/);
 });
