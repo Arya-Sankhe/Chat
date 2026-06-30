@@ -320,6 +320,22 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
   ]).catch(() => {});
 }
 
+let textZoomPlugin = null;
+
+export async function setTextZoom(percent) {
+  if (!isNative()) return;
+  try {
+    if (!textZoomPlugin) {
+      const { registerPlugin } = await import("@capacitor/core");
+      textZoomPlugin = registerPlugin("TextZoom");
+    }
+    await textZoomPlugin.setTextZoom({ percent: Math.round(percent) });
+  } catch {
+    // Older Android builds without the native TextZoom plugin simply
+    // keep the default 100% size — never block the UI on this.
+  }
+}
+
 export async function registerBackButton(handler) {
   if (!isNative()) return () => {};
   const { App } = await import("@capacitor/app");

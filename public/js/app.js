@@ -53,6 +53,7 @@ import {
   openExternal,
   preferences,
   registerBackButton,
+  setTextZoom,
   signInWithGoogle as nativeSignInWithGoogle
 } from "./platform/index.js";
 import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
@@ -114,7 +115,8 @@ const defaultSettings = {
   theme: "classic",
   appearance: "system",
   colorPreset: "default",
-  showModelReasoning: true
+  showModelReasoning: true,
+  uiTextScale: 100
 };
 
 const state = {
@@ -266,6 +268,8 @@ const els = {
   systemPromptInput: document.querySelector("#systemPromptInput"),
   showModelReasoningInput: document.querySelector("#showModelReasoningInput"),
   saveSystemPromptButton: document.querySelector("#saveSystemPromptButton"),
+  textScaleInput: document.querySelector("#textScaleInput"),
+  textScaleValue: document.querySelector("#textScaleValue"),
   themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
@@ -733,6 +737,12 @@ async function startCompareFreshChat() {
   renderShell();
 }
 
+function clampTextScale(value) {
+  const num = Math.round(Number(value));
+  if (!Number.isFinite(num)) return 100;
+  return Math.min(130, Math.max(85, num));
+}
+
 function loadSettings() {
   try {
     const loaded = { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
@@ -750,9 +760,10 @@ function loadSettings() {
     loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
-    loaded.showModelReasoning = loaded.showModelReasoning !== false;
-    loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
-    return loaded;
+  loaded.showModelReasoning = loaded.showModelReasoning !== false;
+  loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
+  loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
+  return loaded;
   } catch {
     return { ...defaultSettings };
   }
@@ -790,6 +801,10 @@ function applyChatTheme() {
   const nativeBg = (getComputedStyle(document.body).getPropertyValue("--bg") || "").trim()
     || (mode === "dark" ? "#1f1f1f" : "#ffffff");
   void configureNativeChrome({ dark: mode === "dark", background: nativeBg });
+}
+
+function applyTextScale() {
+  void setTextZoom(clampTextScale(state.settings.uiTextScale));
 }
 
 function syncAppearanceControls() {
@@ -913,6 +928,7 @@ function updateSetting(key, value) {
   state.settings[key] = value;
   saveSettings();
   if (key === "theme" || key === "appearance" || key === "colorPreset") applyChatTheme();
+  if (key === "uiTextScale") applyTextScale();
 }
 
 function getGreeting() {
@@ -4124,6 +4140,8 @@ function syncSettingsInputs() {
   if (els.showModelReasoningInput) {
     els.showModelReasoningInput.checked = state.settings.showModelReasoning !== false;
   }
+  if (els.textScaleInput) els.textScaleInput.value = String(clampTextScale(state.settings.uiTextScale));
+  if (els.textScaleValue) els.textScaleValue.textContent = `${clampTextScale(state.settings.uiTextScale)}%`;
   syncAppearanceControls();
 }
 
@@ -5510,6 +5528,7 @@ async function bootstrap() {
   focusPromptInputSoon();
   await hydrateNativeSettings();
   applyChatTheme();
+  applyTextScale();
   try {
     state.config = await fetchConfig();
     await setupNativeLifecycle();
@@ -6502,6 +6521,14 @@ function bindEvents() {
   els.showModelReasoningInput?.addEventListener("change", (e) => {
     updateSetting("showModelReasoning", e.target.checked);
     renderMessages();
+  });
+  els.textScaleInput?.addEventListener("input", (e) => {
+    const value = clampTextScale(e.target.value);
+    if (els.textScaleValue) els.textScaleValue.textContent = `${value}%`;
+    void setTextZoom(value);
+  });
+  els.textScaleInput?.addEventListener("change", (e) => {
+    updateSetting("uiTextScale", clampTextScale(e.target.value));
   });
   els.saveSystemPromptButton?.addEventListener("click", () => { void saveGlobalSystemPrompt(); });
   els.themePreviewGrid?.addEventListener("click", (e) => {

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260701-keyboard-center-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260701-textsize-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -393,6 +393,16 @@
               </div>
             </section>
 
+            <section class="settings-section hidden" id="settingsTextScaleSection">
+              <h2>Text size</h2>
+              <div class="text-scale-row">
+                <span class="text-scale-icon text-scale-icon-sm" aria-hidden="true">A</span>
+                <input type="range" id="textScaleInput" min="85" max="130" step="5" value="100" aria-label="Text size">
+                <span class="text-scale-icon text-scale-icon-lg" aria-hidden="true">A</span>
+                <span class="text-scale-value" id="textScaleValue">100%</span>
+              </div>
+            </section>
+
             <section class="settings-section hidden" id="settingsModelParamsSection">
               <h2>Model parameters</h2>
               <div class="field-grid">
@@ -557,7 +567,7 @@
       </div>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260701-keyboard-center-v1"></script>
+    <script type="module" src="/js/app.js?v=20260701-textsize-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

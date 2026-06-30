@@ -606,6 +606,35 @@ test("native composer hides model and compare chips so only plus and send remain
   assert.match(css, composerChipRule, "composer model/compare chips should be hidden on the APK");
 });
 
+test("settings has an APK-only text size slider that is hidden on the web", async () => {
+  const readFile = (await import("node:fs/promises")).readFile;
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  const js = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+
+  // Markup: a range input, hidden by default like every other APK-only control.
+  assert.match(
+    html,
+    /<section class="settings-section hidden" id="settingsTextScaleSection">[\s\S]*?<input type="range" id="textScaleInput"[^>]*min="85"[^>]*max="130"/,
+    "text size slider should exist, hidden by default, with an 85-130 range"
+  );
+
+  // CSS: only revealed on the APK, same pattern as the camera action button.
+  assert.match(
+    css,
+    /body\.capacitor-native #settingsTextScaleSection\.hidden\s*\{\s*display:\s*block\s*!important;/,
+    "text size section should only be revealed on body.capacitor-native"
+  );
+
+  // JS: the value is clamped and applied through the native WebView text
+  // zoom (font-size only, so it can't break fixed-height layout) rather
+  // than a CSS-level page zoom.
+  assert.match(js, /function clampTextScale\(value\)/);
+  assert.match(js, /Math\.min\(130, Math\.max\(85, num\)\)/);
+  assert.match(js, /function applyTextScale\(\)\s*\{\s*void setTextZoom\(clampTextScale\(state\.settings\.uiTextScale\)\)/);
+  assert.match(js, /key === "uiTextScale"\) applyTextScale\(\)/);
+});
+
 test("native top-bar mode picker activates compare and council modes", async () => {
   const js = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
