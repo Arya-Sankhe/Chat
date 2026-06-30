@@ -14770,6 +14770,64 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
 .research-report-view.text-only .research-report-toc { display: none; }
 .research-report-view.text-only .research-report-sources { grid-column: 1; }
 .research-report-view.text-only .research-report-article { font-size: 16px; line-height: 1.6; }
+
+/* Visual report: editorial article treatment + topic themes.
+   Accents adapt to light/dark and every app theme via color-mix with the
+   live --text / --bg tokens, so one accent per theme covers all modes.
+   Fonts are system stacks only (no web-font downloads = low render cost). */
+.research-report-view {
+  --report-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, Cambria, "Times New Roman", serif;
+  --report-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --report-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --report-accent: #4f6d8f;
+  --report-head-font: var(--report-serif);
+  --report-body-font: var(--report-serif);
+  --report-kicker-font: var(--report-sans);
+}
+.research-report-view[data-report-theme="commerce"] { --report-accent: #12936a; --report-head-font: var(--report-sans); --report-body-font: var(--report-serif); }
+.research-report-view[data-report-theme="science"]  { --report-accent: #0e8f8a; --report-head-font: var(--report-sans); --report-body-font: var(--report-serif); }
+.research-report-view[data-report-theme="tech"]     { --report-accent: #3068e6; --report-head-font: var(--report-sans); --report-body-font: var(--report-sans); --report-kicker-font: var(--report-mono); }
+.research-report-view[data-report-theme="finance"]  { --report-accent: #1f7a4d; --report-head-font: var(--report-sans); --report-body-font: var(--report-serif); }
+.research-report-view[data-report-theme="culture"]  { --report-accent: #b14a3c; --report-head-font: var(--report-serif); --report-body-font: var(--report-serif); }
+
+.report-masthead { margin: 0 0 6px; padding-bottom: 30px; border-bottom: 1px solid var(--border); }
+.report-kicker { margin: 0 0 18px; font-family: var(--report-kicker-font); font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: color-mix(in srgb, var(--report-accent) 76%, var(--text)); }
+.report-title { margin: 0; font-family: var(--report-head-font); font-size: clamp(34px, 4.4vw, 52px); line-height: 1.08; letter-spacing: -0.02em; font-weight: 680; color: var(--text); }
+.report-dek { margin: 18px 0 0; max-width: 60ch; font-family: var(--report-body-font); font-size: 19px; line-height: 1.55; color: var(--text-secondary); }
+.report-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 22px; font-family: var(--report-sans); font-size: 13px; letter-spacing: 0.01em; color: var(--text-tertiary); }
+.report-meta span:not(:first-child) { padding-left: 14px; border-left: 1px solid var(--border); }
+
+.research-report-view:not(.text-only) .research-report-article { font-family: var(--report-body-font); font-size: 18px; line-height: 1.75; color: color-mix(in srgb, var(--text) 92%, var(--bg)); }
+.research-report-view:not(.text-only) .research-report-article > h1 { display: none; }
+.research-report-view:not(.text-only) .research-report-article h2 { font-family: var(--report-head-font); font-size: 27px; line-height: 1.2; letter-spacing: -0.01em; font-weight: 660; margin: 52px 0 16px; padding-top: 22px; border-top: 1px solid var(--border); }
+.research-report-view:not(.text-only) .research-report-article h3 { font-family: var(--report-head-font); font-size: 20px; line-height: 1.3; margin: 32px 0 10px; }
+.research-report-view:not(.text-only) .research-report-article p { margin: 0 0 20px; }
+.research-report-view:not(.text-only) .research-report-article > p:first-of-type::first-letter { float: left; font-family: var(--report-head-font); font-size: 3.4em; line-height: 0.82; font-weight: 680; padding: 6px 10px 0 0; color: color-mix(in srgb, var(--report-accent) 72%, var(--text)); }
+.research-report-view:not(.text-only) .research-report-article a { color: color-mix(in srgb, var(--report-accent) 72%, var(--text)); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--report-accent) 42%, transparent); }
+.research-report-view:not(.text-only) .research-report-article a:hover { text-decoration-color: currentColor; }
+.research-report-view:not(.text-only) .research-report-article blockquote { margin: 28px 0; padding: 4px 0 4px 22px; border-left: 3px solid color-mix(in srgb, var(--report-accent) 58%, var(--border)); font-family: var(--report-head-font); font-size: 21px; line-height: 1.5; font-style: italic; color: var(--text); }
+.research-report-view:not(.text-only) .research-report-article ul, .research-report-view:not(.text-only) .research-report-article ol { margin: 0 0 20px; padding-left: 1.3em; }
+.research-report-view:not(.text-only) .research-report-article li { margin: 7px 0; }
+.research-report-view:not(.text-only) .research-report-article li::marker { color: color-mix(in srgb, var(--report-accent) 60%, var(--text-tertiary)); }
+.research-report-view:not(.text-only) .research-report-article hr { border: 0; border-top: 1px solid var(--border); margin: 40px 0; }
+.research-report-view:not(.text-only) .research-report-article table { width: 100%; border-collapse: collapse; margin: 26px 0; font-family: var(--report-sans); font-size: 15px; }
+.research-report-view:not(.text-only) .research-report-article th, .research-report-view:not(.text-only) .research-report-article td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.research-report-view:not(.text-only) .research-report-article thead th { border-bottom: 2px solid color-mix(in srgb, var(--report-accent) 45%, var(--border)); font-weight: 700; }
+.research-report-view:not(.text-only) .research-report-article tbody tr:nth-child(even) { background: color-mix(in srgb, var(--report-accent) 4%, var(--bg)); }
+.research-report-view:not(.text-only) .research-report-article ::selection { background: color-mix(in srgb, var(--report-accent) 22%, var(--bg)); }
+.research-report-view:not(.text-only) .research-report-toc a:hover { color: color-mix(in srgb, var(--report-accent) 70%, var(--text)); }
+
+.research-report-view.text-only .report-masthead { padding-bottom: 18px; margin-bottom: 4px; }
+.research-report-view.text-only .report-kicker { font-family: inherit; font-size: 11px; letter-spacing: 0.08em; margin-bottom: 10px; color: var(--text-tertiary); }
+.research-report-view.text-only .report-title { font-family: inherit; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+.research-report-view.text-only .report-dek { font-family: inherit; font-size: 16px; color: var(--text-secondary); }
+.research-report-view.text-only .report-meta { font-size: 12px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .research-report-view:not(.text-only) .report-masthead { animation: report-rise 0.5s var(--ease-out) both; }
+}
+@keyframes report-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
 @media (max-width: 720px) {
   .research-card { padding: 16px; }
   .research-card-footer { align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -14783,6 +14841,10 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
   .research-report-article { font-size: 16px; line-height: 1.65; }
   .research-report-article h1 { font-size: 31px; }
   .research-report-sources { margin-top: 28px; }
+  .research-report-view:not(.text-only) .research-report-article { font-size: 17px; line-height: 1.72; }
+  .research-report-view:not(.text-only) .research-report-article h2 { font-size: 23px; margin-top: 40px; }
+  .report-title { font-size: clamp(28px, 8vw, 36px); }
+  .report-dek { font-size: 17px; }
 }
 @media print {
   .research-report-header, .research-report-toc, .research-report-sources { display: none !important; }

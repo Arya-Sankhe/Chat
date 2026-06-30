@@ -3272,6 +3272,73 @@ function reportMarkdownWithoutImages(markdown) {
   return String(markdown || "").replace(/!\[[^\]]*\]\([^)]+\)/g, "");
 }
 
+// Topic -> theme. Each theme is just a CSS variable set in styles.css; this
+// keyword vote keeps the choice on the client (no server/DB cost) and still
+// gives every report a distinct, stable editorial personality.
+const REPORT_THEME_KEYWORDS = {
+  commerce: ["best", "top", "review", "buy", "buying", "price", "cheap", "budget", "worth", " vs ", "deal", "product", "gadget", "headphone", "laptop", "phone", "fragrance", "perfume", "cologne", "skincare", "shoe", "watch", "mattress", "coffee", "brand", "affordable"],
+  science: ["study", "studies", "research", "scientist", "clinical", "health", "medical", "disease", "climate", "environment", "species", "brain", "gene", "quantum", "physics", "biology", "chemistry", "nasa", "space", "vaccine", "therapy"],
+  tech: ["software", "app ", "ai ", " ai", "model", "llm", "programming", "code", "developer", "api", "framework", "startup", "crypto", "blockchain", "bitcoin", "cybersecurity", "cloud", "database", "github", "javascript", "python"],
+  finance: ["market", "stock", "economy", "economic", "inflation", "invest", "finance", "financial", "revenue", "earnings", "gdp", "interest rate", "currency", "valuation", "etf", "trading"],
+  culture: ["history", "art", "film", "movie", "music", "album", "travel", "food", "recipe", "book", "novel", "game", "sport", "football", "fashion", "culture", "festival", "museum", "photography"]
+};
+
+const REPORT_THEME_KICKERS = {
+  editorial: "Deep Research",
+  commerce: "Buying Guide",
+  science: "Research Briefing",
+  tech: "Tech Report",
+  finance: "Market Briefing",
+  culture: "Feature"
+};
+
+function pickReportTheme(payload) {
+  const haystack = `${payload?.run?.title || ""} ${payload?.run?.summary || ""} ${String(payload?.report || "").slice(0, 2500)}`.toLowerCase();
+  let best = "editorial";
+  let bestScore = 0;
+  for (const [theme, keywords] of Object.entries(REPORT_THEME_KEYWORDS)) {
+    let score = 0;
+    for (const keyword of keywords) if (haystack.includes(keyword)) score += 1;
+    if (score > bestScore) { bestScore = score; best = theme; }
+  }
+  return best;
+}
+
+function reportReadingMeta(payload) {
+  const words = String(payload?.report || "").trim().split(/\s+/).filter(Boolean).length;
+  const minutes = Math.max(1, Math.round(words / 220));
+  const sources = payload?.sources?.length || payload?.run?.sourceCount || 0;
+  const stamp = payload?.run?.finishedAt || payload?.run?.createdAt;
+  let dateLabel = "";
+  if (stamp) {
+    const date = new Date(stamp);
+    if (!Number.isNaN(date.getTime())) {
+      dateLabel = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    }
+  }
+  return { minutes, sources, dateLabel };
+}
+
+function stripLeadingH1(markdown) {
+  return String(markdown || "").replace(/^\s*#\s+.*(\r?\n)+/, "");
+}
+
+function reportMasthead(payload, theme, meta) {
+  const fallbackTitle = (String(payload?.report || "").match(/^\s*#\s+(.+)$/m)?.[1] || "Research report").trim();
+  const title = (payload?.run?.title || fallbackTitle).trim();
+  const summary = (payload?.run?.summary || "").trim();
+  const metaParts = [`${meta.minutes} min read`, `${meta.sources} ${meta.sources === 1 ? "source" : "sources"}`];
+  if (meta.dateLabel) metaParts.push(meta.dateLabel);
+  return `
+    <header class="report-masthead">
+      <p class="report-kicker">${escapeHtml(REPORT_THEME_KICKERS[theme] || REPORT_THEME_KICKERS.editorial)}</p>
+      <h1 class="report-title">${escapeHtml(title)}</h1>
+      ${summary ? `<p class="report-dek">${escapeHtml(summary)}</p>` : ""}
+      <div class="report-meta">${metaParts.map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</div>
+    </header>
+  `;
+}
+
 function reportSourceRows(sources) {
   return (sources || []).map((source) => {
     let href = "";
@@ -3298,8 +3365,11 @@ function buildReportToc() {
 function renderResearchReport() {
   const payload = state.researchReport;
   if (!payload) return;
-  const markdown = reportMarkdownWithoutImages(payload.report);
-  els.researchReportArticle.innerHTML = renderContent(markdown);
+  const theme = pickReportTheme(payload);
+  els.researchReportView.dataset.reportTheme = theme;
+  const meta = reportReadingMeta(payload);
+  const markdown = stripLeadingH1(reportMarkdownWithoutImages(payload.report));
+  els.researchReportArticle.innerHTML = reportMasthead(payload, theme, meta) + renderContent(markdown);
   els.researchReportArticle.querySelectorAll("img").forEach((image) => image.remove());
   els.researchReportSources.innerHTML = reportSourceRows(payload.sources);
   els.researchReportSourcesSummary.textContent = `Sources (${payload.sources?.length || 0})`;
