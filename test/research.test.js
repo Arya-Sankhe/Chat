@@ -113,6 +113,8 @@ test("research path is SearXNG-only and exposes both report modes", () => {
   assert.match(html, />Text only</);
   assert.match(app, /research-card-footer/);
   assert.match(app, /is-active.*is-complete.*is-stopped/);
+  assert.match(app, /flashCopySuccess\(els\.researchCopy\)/);
+  assert.match(app, /researchReportView\.scrollTo/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
   assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
   assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);

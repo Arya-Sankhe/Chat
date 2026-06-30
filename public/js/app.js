@@ -5652,7 +5652,24 @@ function bindEvents() {
   els.researchTextTab?.addEventListener("click", () => setResearchReportView("text"));
   els.researchCopy?.addEventListener("click", () => {
     const text = state.researchReport?.report || "";
-    copyText(text).then(() => showToast("Report copied.")).catch(() => showToast("Copy failed."));
+    copyText(text).then(() => flashCopySuccess(els.researchCopy)).catch(() => showToast("Copy failed."));
+  });
+  els.researchReportToc?.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href^='#']");
+    if (!link) return;
+    const heading = document.getElementById(link.getAttribute("href").slice(1));
+    if (!heading) return;
+    event.preventDefault();
+    const header = els.researchReportView.querySelector(".research-report-header");
+    const top = heading.getBoundingClientRect().top
+      - els.researchReportView.getBoundingClientRect().top
+      + els.researchReportView.scrollTop
+      - (header?.offsetHeight || 0)
+      - 20;
+    els.researchReportView.scrollTo({
+      top: Math.max(0, top),
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
   });
   els.researchPrint?.addEventListener("click", () => window.print());
   els.closeSettingsButton.addEventListener("click", closeSettings);
