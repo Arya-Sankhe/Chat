@@ -227,6 +227,12 @@ const els = {
   profileMenuSignOut: document.querySelector("#profileMenuSignOut"),
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
+  chatJumpBottom: document.querySelector("#chatJumpBottom"),
+  chatPromptNav: document.querySelector("#chatPromptNav"),
+  chatPromptRail: document.querySelector("#chatPromptRail"),
+  chatPromptMarkers: document.querySelector("#chatPromptMarkers"),
+  chatPromptPanel: document.querySelector("#chatPromptPanel"),
+  chatPromptList: document.querySelector("#chatPromptList"),
   promptInput: document.querySelector("#promptInput"),
   temporaryChatBar: document.querySelector(".temporary-chat-bar"),
   temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
@@ -3553,6 +3559,8 @@ function renderMessages() {
   if (!state.messages.length) {
     const title = state.session ? getGreeting() : "What can I help you with?";
     els.messages.innerHTML = `<div class="empty-state"><div><h1>${escapeHtml(title)}</h1></div></div>`;
+    els.chatPromptNav?.classList.add("hidden");
+    els.chatJumpBottom?.classList.remove("visible");
     return;
   }
 
@@ -3577,6 +3585,8 @@ function renderMessages() {
 
   syncPendingArtifactPolls();
   renderContextMeter();
+  renderChatPromptNavigator();
+  updateChatScrollNavigation();
 }
 
 function cssString(value) {
@@ -3603,6 +3613,70 @@ function setMessagesScrollTop(value) {
 
 function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
+}
+
+function desktopChatNavigationEnabled() {
+  return !isNative() && window.matchMedia("(min-width: 901px)").matches;
+}
+
+function userPromptItems() {
+  return (state.messages || []).filter((message) => message.role === "user" && message.id).map((message) => {
+    const text = rawTextContent(message.content).replace(/\s+/g, " ").trim();
+    return { id: String(message.id), label: text || "Uploaded files" };
+  });
+}
+
+function renderChatPromptNavigator() {
+  if (!els.chatPromptNav) return;
+  const prompts = desktopChatNavigationEnabled() ? userPromptItems() : [];
+  const visible = prompts.length > 1;
+  els.chatPromptNav.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  els.chatPromptMarkers.innerHTML = prompts.map((prompt, index) =>
+    `<span data-prompt-marker="${escapeHtml(prompt.id)}"${index === 0 ? ' class="active"' : ""}></span>`
+  ).join("");
+  els.chatPromptList.innerHTML = prompts.map((prompt, index) =>
+    `<button type="button" data-prompt-jump="${escapeHtml(prompt.id)}"${index === 0 ? ' class="active" aria-current="true"' : ""}>${escapeHtml(prompt.label)}</button>`
+  ).join("");
+}
+
+function updateChatScrollNavigation() {
+  if (!desktopChatNavigationEnabled()) return;
+  const bottomDistance = distanceFromBottom(els.messages);
+  els.chatJumpBottom?.classList.toggle("visible", bottomDistance > 220 && state.messages.length > 0);
+  if (!els.chatPromptNav || els.chatPromptNav.classList.contains("hidden")) return;
+
+  const containerTop = els.messages.getBoundingClientRect().top;
+  const promptSurfaces = [...els.messages.querySelectorAll(".message.user[data-message-id]")];
+  if (!promptSurfaces.length) return;
+  let activeId = promptSurfaces[0].dataset.messageId || "";
+  for (const surface of promptSurfaces) {
+    if (surface.getBoundingClientRect().top <= containerTop + 140) activeId = surface.dataset.messageId || activeId;
+    else break;
+  }
+  els.chatPromptMarkers.querySelectorAll("[data-prompt-marker]").forEach((marker) => {
+    marker.classList.toggle("active", marker.dataset.promptMarker === activeId);
+  });
+  els.chatPromptList.querySelectorAll("[data-prompt-jump]").forEach((button) => {
+    const active = button.dataset.promptJump === activeId;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function scrollToChatPrompt(messageId) {
+  const target = els.messages.querySelector(`.message.user[data-message-id="${cssString(messageId)}"]`);
+  if (!target) return;
+  const top = target.getBoundingClientRect().top
+    - els.messages.getBoundingClientRect().top
+    + els.messages.scrollTop
+    - 28;
+  setAutoScroll(false);
+  els.messages.scrollTo({
+    top: Math.max(0, top),
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+  });
 }
 
 function renderStreamingMessageSurface(message) {
@@ -5470,6 +5544,36 @@ function bindEvents() {
   initDocumentViewerWidth();
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
+  let chatNavigationFrame = 0;
+  const queueChatNavigationUpdate = () => {
+    if (chatNavigationFrame) return;
+    chatNavigationFrame = requestAnimationFrame(() => {
+      chatNavigationFrame = 0;
+      updateChatScrollNavigation();
+    });
+  };
+  els.messages.addEventListener("scroll", queueChatNavigationUpdate, { passive: true });
+  window.addEventListener("resize", () => {
+    renderChatPromptNavigator();
+    queueChatNavigationUpdate();
+  }, { passive: true });
+  els.chatJumpBottom?.addEventListener("click", () => {
+    setAutoScroll(true);
+    els.messages.scrollTo({
+      top: els.messages.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+  });
+  els.chatPromptNav?.addEventListener("mouseenter", () => els.chatPromptRail?.setAttribute("aria-expanded", "true"));
+  els.chatPromptNav?.addEventListener("mouseleave", () => els.chatPromptRail?.setAttribute("aria-expanded", "false"));
+  els.chatPromptNav?.addEventListener("focusin", () => els.chatPromptRail?.setAttribute("aria-expanded", "true"));
+  els.chatPromptNav?.addEventListener("focusout", (event) => {
+    if (!els.chatPromptNav.contains(event.relatedTarget)) els.chatPromptRail?.setAttribute("aria-expanded", "false");
+  });
+  els.chatPromptList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-prompt-jump]");
+    if (button) scrollToChatPrompt(button.dataset.promptJump);
+  });
   // APK polish: collapse the composer to a mini pill only when the user is
   // clearly browsing history. Use hysteresis so normal/mini state does not
   // flicker around the bottom threshold while momentum scrolling.

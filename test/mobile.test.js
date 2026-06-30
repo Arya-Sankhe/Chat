@@ -633,3 +633,24 @@ test("admin can switch between full reasoning and the simple thinking bar", asyn
   assert.match(js, /isAdminUser\(\)\s*&&\s*state\.settings\.showModelReasoning[\s\S]*?renderReasoning/);
   assert.match(js, /showModelReasoningInput\?\.addEventListener\("change"[\s\S]*?renderMessages\(\)/);
 });
+
+test("desktop chat navigation stays out of mobile and tracks prompt position", async () => {
+  const [html, js, css] = await Promise.all([
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/index.html", import.meta.url), "utf8")
+    ),
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+    ),
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/styles.css", import.meta.url), "utf8")
+    )
+  ]);
+
+  assert.match(html, /id="chatJumpBottom"[\s\S]*?id="chatPromptNav"|id="chatPromptNav"[\s\S]*?id="chatJumpBottom"/);
+  assert.match(js, /bottomDistance > 220/);
+  assert.match(js, /requestAnimationFrame\([\s\S]*?updateChatScrollNavigation/);
+  assert.match(js, /function scrollToChatPrompt\(messageId\)[\s\S]*?els\.messages\.scrollTo/);
+  assert.match(css, /@media \(max-width: 900px\), \(hover: none\), \(pointer: coarse\)[\s\S]*?\.chat-prompt-nav \{ display: none !important; \}/);
+  assert.match(css, /body\.capacitor-native \.chat-jump-bottom,[\s\S]*?body\.capacitor-native \.chat-prompt-nav \{ display: none !important; \}/);
+});

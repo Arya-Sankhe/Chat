@@ -180,6 +180,16 @@
           </header>
           <section class="messages" id="messages" aria-live="polite"></section>
 
+          <aside class="chat-prompt-nav hidden" id="chatPromptNav" aria-label="Conversation prompts">
+            <button class="chat-prompt-rail" id="chatPromptRail" type="button" aria-label="Browse conversation prompts" aria-expanded="false">
+              <span id="chatPromptMarkers" aria-hidden="true"></span>
+            </button>
+            <div class="chat-prompt-panel" id="chatPromptPanel">
+              <div class="chat-prompt-panel-title">Your prompts</div>
+              <div class="chat-prompt-list" id="chatPromptList"></div>
+            </div>
+          </aside>
+
           <div class="compare-context-banner hidden" id="compareContextBanner" role="dialog" aria-labelledby="compareContextTitle" aria-describedby="compareContextBody">
             <div class="compare-context-card">
               <div class="compare-context-copy">
@@ -199,6 +209,9 @@
 
           <section class="composer-area" aria-label="Message composer">
             <div class="composer-wrap">
+              <button class="chat-jump-bottom" id="chatJumpBottom" type="button" aria-label="Jump to latest message" title="Jump to latest message">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
               <div class="followup-queue hidden" id="followupQueue" aria-label="Queued follow-up messages"></div>
               <div class="composer">
                 <div class="composer-previews" id="imagePreviews"></div>

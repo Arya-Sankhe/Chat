@@ -4632,6 +4632,8 @@ body.temporary-chat .messages {
 
 .composer-wrap {
 
+  position: relative;
+
   width: 100%;
 
   max-width: var(--composer-max);
@@ -4640,6 +4642,167 @@ body.temporary-chat .messages {
 
   overflow: visible;
 
+}
+
+/* Desktop conversation navigation */
+.chat-jump-bottom {
+  position: absolute;
+  top: -50px;
+  left: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(8px) scale(.96);
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-medium) var(--ease-out), visibility var(--motion-fast) var(--ease-out);
+}
+
+.chat-jump-bottom.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.chat-jump-bottom:active {
+  transform: translateX(-50%) translateY(1px) scale(.95);
+}
+
+.chat-prompt-nav {
+  position: absolute;
+  top: 50%;
+  right: max(18px, calc((100vw - var(--sidebar-active-w) - var(--content-max)) / 2 - 54px));
+  z-index: 4;
+  transform: translateY(-50%);
+}
+
+.chat-prompt-nav.hidden { display: none; }
+
+.chat-prompt-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-height: 76px;
+  padding: 10px 8px;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+}
+
+.chat-prompt-rail > span {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.chat-prompt-rail [data-prompt-marker] {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  opacity: .48;
+  transform: scaleX(.62);
+  transform-origin: right center;
+  transition: transform var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.chat-prompt-rail [data-prompt-marker].active {
+  color: var(--text);
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.chat-prompt-panel {
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  width: min(320px, calc(100vw - 80px));
+  max-height: min(390px, calc(100vh - 160px));
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(8px) scale(.98);
+  transform-origin: right center;
+  transition: opacity 160ms var(--ease-out), transform 180ms var(--ease-out), visibility 160ms var(--ease-out);
+}
+
+.chat-prompt-nav:hover .chat-prompt-panel,
+.chat-prompt-nav:focus-within .chat-prompt-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(-50%) translateX(0) scale(1);
+}
+
+.chat-prompt-panel-title {
+  padding: 4px 9px 7px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.chat-prompt-list { display: grid; gap: 2px; }
+
+.chat-prompt-list button {
+  display: block;
+  width: 100%;
+  padding: 9px;
+  overflow: hidden;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.chat-prompt-list button:hover,
+.chat-prompt-list button.active {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.chat-prompt-list button:active { transform: scale(.985); }
+
+@media (max-width: 900px), (hover: none), (pointer: coarse) {
+  .chat-jump-bottom,
+  .chat-prompt-nav { display: none !important; }
+}
+
+body.capacitor-native .chat-jump-bottom,
+body.capacitor-native .chat-prompt-nav { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-jump-bottom,
+  .chat-jump-bottom.visible,
+  .chat-prompt-panel,
+  .chat-prompt-nav:hover .chat-prompt-panel,
+  .chat-prompt-nav:focus-within .chat-prompt-panel,
+  .chat-prompt-rail [data-prompt-marker] {
+    transition-duration: 0.01ms;
+  }
 }
 
 .followup-queue {
