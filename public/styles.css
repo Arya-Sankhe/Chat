@@ -13835,6 +13835,13 @@ body.capacitor-native .messages {
 
   padding-left: 18px;
 
+  /* Once a conversation is long enough to scroll, older content passes
+     up underneath the floating status bar / header. Instead of getting
+     hard-clipped there, fade it out with a plain alpha mask — no color
+     involved, so it tracks light/dark mode and every theme for free. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 12px));
+  mask-image: linear-gradient(to bottom, transparent, black calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 12px));
+
 }
 
 body.capacitor-native.chat-empty .messages {

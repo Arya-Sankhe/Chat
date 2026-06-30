@@ -112,6 +112,18 @@ test("chat shell is visible before JavaScript finishes booting", async () => {
   assert.doesNotMatch(source, /class="app-shell hidden" id="chatView"/);
 });
 
+test("mobile bundle includes the shared Deep Research controls", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  const buildScript = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../scripts/mobile/copy-static.mjs", import.meta.url), "utf8")
+  );
+  assert.match(source, /id="deepResearchToggle"/);
+  assert.match(source, /id="researchReportView"/);
+  assert.match(buildScript, /Mobile build is missing the Deep Research control/);
+});
+
 test("native auth callback parser returns only the PKCE code", () => {
   const parsed = parseAuthCallbackUrl(
     "tech.klui.app://auth/callback?code=pkce-code&access_token=must-not-leak&refresh_token=must-not-leak"
