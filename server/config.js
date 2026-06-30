@@ -197,9 +197,15 @@ export function loadConfig(env = process.env) {
       maxExtractedChars: readInt(env.RESEARCH_MAX_EXTRACTED_CHARS, 18_000),
       maxPages: readInt(env.RESEARCH_MAX_PAGES, 18),
       fetchConcurrency: readInt(env.RESEARCH_FETCH_CONCURRENCY, 3),
-      initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 6),
-      followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 4),
+      maxRounds: readInt(env.RESEARCH_MAX_ROUNDS, 5),
+      minRounds: readInt(env.RESEARCH_MIN_ROUNDS, 2),
+      maxEmptyRounds: readInt(env.RESEARCH_MAX_EMPTY_ROUNDS, 2),
+      maxUrlsPerRound: readInt(env.RESEARCH_MAX_URLS_PER_ROUND, 4),
+      initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 4),
+      followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 3),
       searchResultsPerQuery: readInt(env.RESEARCH_SEARCH_RESULTS, 10),
+      extractMaxTokens: readInt(env.RESEARCH_EXTRACT_MAX_TOKENS, 1200),
+      synthesisMaxTokens: readInt(env.RESEARCH_SYNTHESIS_MAX_TOKENS, 6000),
       finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 25_000),
       minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
     }

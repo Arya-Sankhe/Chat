@@ -237,7 +237,8 @@ export async function searxngSearch({
   baseUrl,
   engines = [],
   timeoutMs = 8000,
-  signal
+  signal,
+  raw = false
 }) {
   if (typeof query !== "string" || !query.trim()) {
     throw new WebSearchError("Search query is required.", { status: 400, provider: "searxng" });
@@ -248,7 +249,12 @@ export async function searxngSearch({
     throw new WebSearchError("SearXNG base URL is not configured.", { status: 503, provider: "searxng" });
   }
 
-  const searchQuery = buildSearchQuery(query);
+  // Deep research supplies its own LLM-written, natural-language queries and
+  // does its own relevance filtering downstream. The chat-tuned keyword
+  // tokenizer and result re-ranker below would mangle those queries and drop
+  // good sources, so raw mode passes the query through and returns the
+  // de-duplicated SERP results untouched.
+  const searchQuery = raw ? String(query).trim().slice(0, 400) : buildSearchQuery(query);
   const params = new URLSearchParams({
     q: searchQuery,
     format: "json",
@@ -336,7 +342,9 @@ export async function searxngSearch({
   return {
     provider: "searxng",
     query: params.get("q"),
-    results: selectRelevantResults(candidates, params.get("q"), limit),
+    results: raw
+      ? candidates.slice(0, limit).map((entry, index) => ({ ...entry, index: index + 1 }))
+      : selectRelevantResults(candidates, params.get("q"), limit),
     tokens: null
   };
 }

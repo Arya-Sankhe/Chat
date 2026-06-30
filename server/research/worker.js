@@ -59,7 +59,7 @@ async function processRun(run) {
       plan: entitlement.plan,
       signal: controller.signal
     });
-    const callModel = ({ model, system, prompt, maxTokens = 2500 }) => meter.chatCompletion({
+    const callModel = ({ model, system, prompt, maxTokens = 2500, temperature = 0.2 }) => meter.chatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id,
@@ -70,7 +70,7 @@ async function processRun(run) {
           { role: "system", content: system },
           { role: "user", content: prompt }
         ],
-        temperature: 0.2,
+        temperature,
         max_tokens: maxTokens
       }
     });

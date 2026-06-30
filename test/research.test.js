@@ -14,8 +14,12 @@ test("research config uses bounded VPS-friendly defaults", () => {
   assert.equal(config.research.maxPages, 18);
   assert.equal(config.research.maxRunMs, 1_200_000);
   assert.equal(config.research.maxExtractedChars, 18_000);
-  assert.equal(config.research.initialQueries, 6);
-  assert.equal(config.research.followupQueries, 4);
+  assert.equal(config.research.maxRounds, 5);
+  assert.equal(config.research.minRounds, 2);
+  assert.equal(config.research.maxEmptyRounds, 2);
+  assert.equal(config.research.maxUrlsPerRound, 4);
+  assert.equal(config.research.initialQueries, 4);
+  assert.equal(config.research.followupQueries, 3);
   assert.equal(config.research.searchResultsPerQuery, 10);
   assert.equal(config.research.finalMaxTokens, 25_000);
 });
@@ -69,7 +73,8 @@ test("research fetcher rejects private and metadata destinations", async () => {
 test("research engine uses cheap models for research and the selected model for the report", async () => {
   const config = loadConfig({
     RESEARCH_INITIAL_QUERIES: "1",
-    RESEARCH_FOLLOWUP_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "2",
+    RESEARCH_MIN_ROUNDS: "1",
     RESEARCH_MAX_PAGES: "2",
     RESEARCH_MIN_SOURCES: "1"
   });
@@ -77,28 +82,62 @@ test("research engine uses cheap models for research and the selected model for 
   const phases = [];
   const callModel = async (call) => {
     calls.push(call);
-    if (call.prompt.startsWith("Create")) return JSON.stringify([calls.length === 1 ? "initial query" : "followup query"]);
-    if (call.prompt.startsWith("Research question")) return "Evidence supported by https://example.com/source.";
+    if (call.prompt.includes("research strategist")) return JSON.stringify({ sub_questions: ["q?"], key_topics: ["t"], success_criteria: "answer it" });
+    if (call.prompt.startsWith("Classify this research question")) return "product";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["best query"]);
+    if (call.prompt.includes("Research goal:")) return JSON.stringify({ relevant: true, summary: "Evidence supported by the source.", evidence: "A useful quote." });
+    if (call.prompt.includes("updating an evolving research report")) return "Evidence supported by [source](https://example.com/source).";
+    if (call.prompt.includes("comprehensive enough")) return "YES — covered.";
     return "# Well-supported report\n\nThis report contains enough detailed evidence to be useful and cites the [source](https://example.com/source).\n\n## Findings\n\nThe evidence supports the conclusion.\n\n## Conclusion\n\nThis is the supported result.";
   };
-  let searchRound = 0;
   const result = await runDeepResearch({
     run: { query: "Research this", model: "minimax/minimax-m3" },
     config,
     callModel,
     onProgress: async (phase) => phases.push(phase),
-    searchFn: async () => {
-      searchRound += 1;
-      return [{ title: "Source", url: `https://example.com/source${searchRound === 1 ? "" : "-2"}`, snippet: "Evidence" }];
-    },
+    searchFn: async () => [{ title: "Source", url: "https://example.com/source", snippet: "Evidence" }],
     fetchPage: async (url) => ({ url, html: "<article>" + "Evidence sentence. ".repeat(30) + "</article>" }),
     extractText: (html) => ({ title: "Source", text: html.replace(/<[^>]+>/g, "") })
   });
   assert.equal(calls.at(-1).model, "minimax/minimax-m3");
   assert.ok(calls.slice(0, -1).every((call) => call.model === config.research.cheapModel));
   assert.deepEqual([...new Set(phases)], ["planning", "searching", "reading", "analyzing", "writing"]);
-  assert.equal(result.sources.length, 2);
+  assert.equal(result.sources.length, 1);
   assert.match(result.report, /Well-supported report/);
+});
+
+test("research engine drops irrelevant pages instead of citing them", async () => {
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1"
+  });
+  const callModel = async (call) => {
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("Research goal:")) {
+      return call.prompt.includes("relevant-source")
+        ? JSON.stringify({ relevant: true, summary: "Solid evidence here.", evidence: "Quote." })
+        : JSON.stringify({ relevant: false, summary: "This page is not relevant to the goal." });
+    }
+    if (call.prompt.includes("updating an evolving research report")) return "Report citing [src](https://example.com/relevant-source).";
+    return "# Report\n\nDetailed body that cites the [src](https://example.com/relevant-source) and is long enough to pass validation checks easily.";
+  };
+  const result = await runDeepResearch({
+    run: { query: "Research this", model: "user/model" },
+    config,
+    callModel,
+    searchFn: async () => [
+      { title: "Junk", url: "https://junk.example/noise", snippet: "" },
+      { title: "Good", url: "https://example.com/relevant-source", snippet: "" }
+    ],
+    fetchPage: async (url) => ({ url, html: "<article>" + "Text. ".repeat(80) + "</article>" }),
+    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+  });
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, "https://example.com/relevant-source");
 });
 
 test("research path is SearXNG-only and exposes both report modes", () => {

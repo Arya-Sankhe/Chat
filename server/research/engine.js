@@ -1,21 +1,88 @@
 import { fetchPublicPage } from "./fetcher.js";
 import { extractPageText, untrustedSourceBlock } from "./extract.js";
 import { searchResearchQueries } from "./search.js";
-import { RESEARCH_SYSTEM, finalReportPrompt, findingsPrompt, queryPrompt } from "./prompts.js";
+import {
+  RESEARCH_CATEGORIES,
+  RESEARCH_SYSTEM,
+  categoryPrompt,
+  extractPrompt,
+  finalReportPrompt,
+  planPrompt,
+  queryPrompt,
+  stopPrompt,
+  synthesizePrompt
+} from "./prompts.js";
 
-function parseStringArray(value, fallback = []) {
-  const text = String(value || "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+const LOW_QUALITY_MARKERS = [
+  "no relevant information",
+  "not relevant to",
+  "does not contain",
+  "unable to extract",
+  "completely unrelated",
+  "insufficient to",
+  "no substantive"
+];
+
+function stripCodeFence(value) {
+  return String(value || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+}
+
+function parseJsonArray(value) {
+  const text = stripCodeFence(value);
   try {
     const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed.map(String).map((item) => item.trim()).filter(Boolean) : fallback;
+    if (Array.isArray(parsed)) return parsed.map(String).map((item) => item.trim()).filter(Boolean);
   } catch {
-    return fallback;
+    // Fall back to recovering the last bracketed array in the reply (models
+    // sometimes echo the example array before their real answer).
   }
+  let last = null;
+  for (const match of text.matchAll(/\[[\s\S]*?\]/g)) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      if (Array.isArray(parsed)) last = parsed;
+    } catch { /* keep scanning */ }
+  }
+  if (last) return last.map(String).map((item) => item.trim()).filter(Boolean);
+  const quoted = [...text.matchAll(/"([^"]+)"/g)].map((match) => match[1].trim()).filter(Boolean);
+  return quoted;
+}
+
+function parseJsonObject(value) {
+  const text = stripCodeFence(value);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* ignore */ }
+    }
+  }
+  return null;
+}
+
+function isLowQuality(text) {
+  const value = String(text || "").toLowerCase();
+  if (!value.trim()) return true;
+  return LOW_QUALITY_MARKERS.some((marker) => value.includes(marker));
 }
 
 function fallbackQueries(question, count) {
-  const suffixes = ["overview evidence", "recent analysis", "limitations criticism", "best practices examples"];
+  const suffixes = ["overview", "reviews and opinions", "comparison", "recent analysis", "limitations criticism"];
   return suffixes.slice(0, count).map((suffix) => `${question} ${suffix}`);
+}
+
+function planSummary(plan) {
+  if (!plan || typeof plan !== "object") return "";
+  const parts = [];
+  if (Array.isArray(plan.sub_questions) && plan.sub_questions.length) {
+    parts.push(`Sub-questions: ${plan.sub_questions.map(String).join("; ")}`);
+  }
+  if (Array.isArray(plan.key_topics) && plan.key_topics.length) {
+    parts.push(`Key topics: ${plan.key_topics.map(String).join(", ")}`);
+  }
+  if (plan.success_criteria) parts.push(`Success: ${String(plan.success_criteria)}`);
+  return parts.join("\n");
 }
 
 function exactAllowedUrl(candidate, allowed) {
@@ -51,6 +118,13 @@ function reportMeta(markdown, question) {
   return { title, summary };
 }
 
+function formatFindings(findings) {
+  return findings.map((finding, index) => {
+    const body = finding.summary || finding.evidence || "(no content)";
+    return `**Finding ${index + 1}** — [${finding.title || finding.url}](${finding.url})\n${body}`;
+  }).join("\n\n");
+}
+
 async function mapLimit(items, limit, task) {
   const output = [];
   let index = 0;
@@ -61,18 +135,12 @@ async function mapLimit(items, limit, task) {
       if (result) output.push(result);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 0 }, worker));
   return output;
 }
 
-function chunk(items, size) {
-  const batches = [];
-  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size));
-  return batches;
-}
-
 export function partialReport(question, findings, sources, reason = "Research stopped before completion.") {
-  const body = findings.trim() || "Not enough source material was collected to produce findings.";
+  const body = String(findings || "").trim() || "Not enough source material was collected to produce findings.";
   return validateReportLinks(`# Partial research: ${question}\n\n> ${reason}\n\n${body}`, sources);
 }
 
@@ -84,16 +152,21 @@ export async function runDeepResearch({
   onSnapshot = () => {},
   isCancelled = async () => false,
   signal,
+  now = new Date(),
   searchFn = searchResearchQueries,
   fetchPage = fetchPublicPage,
   extractText = extractPageText
 }) {
+  const settings = config.research;
   const started = Date.now();
-  const deadline = started + config.research.maxRunMs;
-  const sources = [];
+  const deadline = started + settings.maxRunMs;
+  const cheapModel = settings.cheapModel || run.model;
+
   const fetchedUrls = new Set();
+  const queriesUsed = new Set();
   const findings = [];
-  const cheapModel = config.research.cheapModel || run.model;
+  const sources = [];
+  let report = "";
 
   async function checkpoint(phase, progress) {
     if (signal?.aborted || await isCancelled()) throw new DOMException("Aborted", "AbortError");
@@ -101,93 +174,163 @@ export async function runDeepResearch({
     await onProgress(phase, progress);
   }
 
+  function roundPercent(round, fraction) {
+    const step = 78 / settings.maxRounds;
+    return Math.min(88, Math.round(10 + (round - 1) * step + step * fraction));
+  }
+
+  // PLAN
   await checkpoint("planning", { label: "Planning research", percent: 5 });
-  const initialRaw = await callModel({
+  const planRaw = await callModel({
     model: cheapModel,
     system: RESEARCH_SYSTEM,
-    prompt: queryPrompt(run.query, config.research.initialQueries)
-  });
-  const initialQueries = parseStringArray(initialRaw, fallbackQueries(run.query, config.research.initialQueries))
-    .slice(0, config.research.initialQueries);
+    prompt: planPrompt(run.query, now),
+    maxTokens: 900
+  }).catch(() => "");
+  const plan = planSummary(parseJsonObject(planRaw)) || stripCodeFence(planRaw);
 
-  async function researchRound(queries, round) {
-    await checkpoint("searching", { label: "Searching the web", percent: round === 1 ? 15 : 55, round, queries });
-    const results = await searchFn(queries, { config, signal });
-    const slots = Math.max(0, config.research.maxPages - sources.length);
-    const remaining = results.filter((result) => !fetchedUrls.has(result.url))
-      .slice(0, slots * 2);
+  const categoryRaw = await callModel({
+    model: cheapModel,
+    system: RESEARCH_SYSTEM,
+    prompt: categoryPrompt(run.query),
+    maxTokens: 12,
+    temperature: 0
+  }).catch(() => "");
+  const categoryWord = String(categoryRaw || "").toLowerCase().trim().split(/\s+/)[0]?.replace(/[^a-z]/g, "") || "";
+  const category = RESEARCH_CATEGORIES.find((entry) => categoryWord === entry || categoryWord.includes(entry)) || "";
 
-    await checkpoint("reading", { label: "Reading sources", percent: round === 1 ? 30 : 65, round, found: remaining.length });
-    const pages = [];
-    for (const group of chunk(remaining, config.research.fetchConcurrency)) {
-      if (sources.length + pages.length >= config.research.maxPages) break;
-      const fetched = await mapLimit(group, config.research.fetchConcurrency, async (result) => {
-        fetchedUrls.add(result.url);
-        try {
-          const page = await fetchPage(result.url, {
-            timeoutMs: config.research.fetchTimeoutMs,
-            maxBytes: config.research.fetchMaxBytes,
-            signal
-          });
-          const extracted = extractText(page.html, { maxChars: config.research.maxExtractedChars });
-          return {
-            url: page.url,
-            title: extracted.title || result.title,
-            snippet: result.snippet || "",
-            text: extracted.text
-          };
-        } catch {
-          return null;
-        }
-      });
-      pages.push(...fetched.slice(0, config.research.maxPages - sources.length - pages.length));
-    }
-    sources.push(...pages);
-    onSnapshot({ findings: findings.join("\n\n"), sources });
+  let emptyRounds = 0;
 
-    await checkpoint("analyzing", { label: "Analyzing findings", percent: round === 1 ? 45 : 75, round, sources: sources.length });
-    for (const batch of chunk(pages, 3)) {
-      if (!batch.length) continue;
-      const material = batch.map(untrustedSourceBlock).join("\n\n");
-      findings.push(await callModel({
-        model: cheapModel,
-        system: RESEARCH_SYSTEM,
-        prompt: findingsPrompt(run.query, material)
-      }));
-      onSnapshot({ findings: findings.join("\n\n"), sources });
-    }
-  }
+  for (let round = 1; round <= settings.maxRounds; round += 1) {
+    await checkpoint("searching", {
+      label: round === 1 ? "Searching the web" : "Searching for more detail",
+      percent: roundPercent(round, 0),
+      round
+    });
+    if (sources.length >= settings.maxPages) break;
 
-  await researchRound(initialQueries, 1);
-  if (sources.length < config.research.maxPages && findings.length) {
-    const followupRaw = await callModel({
+    // THINK: generate queries
+    const count = round === 1 ? settings.initialQueries : settings.followupQueries;
+    const queryRaw = await callModel({
       model: cheapModel,
       system: RESEARCH_SYSTEM,
-      prompt: queryPrompt(run.query, config.research.followupQueries, findings.join("\n\n").slice(0, 12_000))
+      prompt: queryPrompt({ question: run.query, plan, report, round, count, now }),
+      maxTokens: 600,
+      temperature: 0.5
+    }).catch(() => "");
+    let queries = parseJsonArray(queryRaw).filter((query) => !queriesUsed.has(query)).slice(0, count);
+    if (!queries.length && round === 1) queries = fallbackQueries(run.query, count);
+    if (!queries.length) break;
+    queries.forEach((query) => queriesUsed.add(query));
+
+    // SEARCH
+    const results = await searchFn(queries, { config, signal });
+    const slots = Math.max(0, settings.maxPages - sources.length);
+    const candidates = results
+      .filter((result) => !fetchedUrls.has(result.url))
+      .slice(0, Math.min(slots, settings.maxUrlsPerRound * queries.length));
+
+    // READ + EXTRACT (goal-based; irrelevant pages are dropped, not cited)
+    await checkpoint("reading", {
+      label: "Reading sources",
+      percent: roundPercent(round, 0.4),
+      round,
+      found: candidates.length
     });
-    const followups = parseStringArray(followupRaw, []).slice(0, config.research.followupQueries);
-    if (followups.length) await researchRound(followups, 2);
+    const roundFindings = await mapLimit(candidates, settings.fetchConcurrency, async (result) => {
+      fetchedUrls.add(result.url);
+      try {
+        const page = await fetchPage(result.url, {
+          timeoutMs: settings.fetchTimeoutMs,
+          maxBytes: settings.fetchMaxBytes,
+          signal
+        });
+        const extracted = extractText(page.html, { maxChars: settings.maxExtractedChars });
+        const raw = await callModel({
+          model: cheapModel,
+          system: RESEARCH_SYSTEM,
+          prompt: `${extractPrompt(run.query)}\n\n${untrustedSourceBlock({ url: page.url, text: extracted.text })}`,
+          maxTokens: settings.extractMaxTokens
+        });
+        const parsed = parseJsonObject(raw);
+        const summary = parsed?.summary || (parsed ? "" : stripCodeFence(raw).slice(0, 800));
+        if (parsed?.relevant === false || isLowQuality(summary)) return null;
+        return {
+          url: page.url,
+          title: extracted.title || result.title || page.url,
+          snippet: result.snippet || "",
+          summary,
+          evidence: parsed?.evidence || ""
+        };
+      } catch {
+        return null;
+      }
+    });
+
+    if (roundFindings.length) {
+      emptyRounds = 0;
+      for (const finding of roundFindings) {
+        findings.push(finding);
+        sources.push({ url: finding.url, title: finding.title, snippet: finding.snippet });
+      }
+    } else {
+      emptyRounds += 1;
+    }
+
+    // SYNTHESIZE: keep an evolving report so partial saves stay coherent.
+    if (findings.length) {
+      await checkpoint("analyzing", {
+        label: "Analyzing findings",
+        percent: roundPercent(round, 0.7),
+        round,
+        sources: sources.length
+      });
+      const window = findings.slice(-12);
+      report = await callModel({
+        model: cheapModel,
+        system: RESEARCH_SYSTEM,
+        prompt: synthesizePrompt(run.query, report, formatFindings(window)),
+        maxTokens: settings.synthesisMaxTokens
+      }).catch(() => report);
+      onSnapshot({ findings: report, sources });
+    }
+
+    if (emptyRounds >= settings.maxEmptyRounds) break;
+
+    // DECIDE: let the model stop once the report is comprehensive.
+    if (round >= settings.minRounds && round < settings.maxRounds && findings.length) {
+      const decision = await callModel({
+        model: cheapModel,
+        system: RESEARCH_SYSTEM,
+        prompt: stopPrompt(run.query, report, round, settings.maxRounds),
+        maxTokens: 80,
+        temperature: 0
+      }).catch(() => "");
+      if (/^[\s*_`"'>#-]*yes/i.test(String(decision || ""))) break;
+    }
   }
 
-  if (!sources.length) throw new Error("No readable public sources were found.");
-  if (sources.length < config.research.minSources) {
-    throw new Error(`Only ${sources.length} useful source${sources.length === 1 ? " was" : "s were"} found; at least ${config.research.minSources} are required.`);
+  if (!sources.length) throw new Error("No relevant public sources were found for this question.");
+  if (sources.length < settings.minSources) {
+    throw new Error(`Only ${sources.length} relevant source${sources.length === 1 ? " was" : "s were"} found; at least ${settings.minSources} are required.`);
   }
-  await checkpoint("writing", { label: "Writing report", percent: 90, sources: sources.length });
+
+  // FINAL REPORT — written with the user's selected model.
+  await checkpoint("writing", { label: "Writing report", percent: 92, sources: sources.length });
   const reportRaw = await callModel({
     model: run.model,
     system: RESEARCH_SYSTEM,
-    prompt: finalReportPrompt(run.query, findings.join("\n\n"), sources),
-    maxTokens: config.research.finalMaxTokens
+    prompt: finalReportPrompt({ question: run.query, report, sources, category, now }),
+    maxTokens: settings.finalMaxTokens
   });
-  const report = validateReportLinks(reportRaw, sources);
-  if (report.trim().length < 100) throw new Error("The research model returned an incomplete report.");
-  const meta = reportMeta(report, run.query);
+  const finalReport = validateReportLinks(reportRaw, sources);
+  if (finalReport.trim().length < 100) throw new Error("The research model returned an incomplete report.");
+  const meta = reportMeta(finalReport, run.query);
   return {
     ...meta,
-    report,
-    findings: findings.join("\n\n"),
-    sources: sources.map(({ text, ...source }) => source),
+    report: finalReport,
+    findings: report,
+    sources,
     elapsedMs: Date.now() - started
   };
 }

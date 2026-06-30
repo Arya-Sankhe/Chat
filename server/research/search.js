@@ -20,7 +20,8 @@ export async function searchResearchQueries(queries, { config, signal }) {
     baseUrl: config.websearch.searxng.baseUrl,
     engines: config.websearch.searxng.engines,
     timeoutMs: config.websearch.fetchTimeoutMs,
-    signal
+    signal,
+    raw: true
   }).catch(() => ({ query, results: [] }))));
 
   const urls = new Set();
