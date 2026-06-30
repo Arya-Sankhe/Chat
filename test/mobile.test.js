@@ -175,6 +175,23 @@ test("native login renders the authenticated shell before loading account data",
   assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
 });
 
+test("native startup focuses the composer only after an accessible chat is visible", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const bootstrap = source.slice(
+    source.indexOf("async function bootstrap()"),
+    source.indexOf("/* ─── Event binding ─── */")
+  );
+  const focusPrompt = source.slice(
+    source.indexOf("function focusPromptInput()"),
+    source.indexOf("function focusPromptInputSoon()")
+  );
+  assert.equal((bootstrap.match(/focusPromptInputSoon\(\)/g) || []).length, 1);
+  assert.match(focusPrompt, /!state\.session \|\| !hasChatAccess\(\)/);
+  assert.match(focusPrompt, /researchReportView\?\.classList\.contains\("hidden"\)/);
+});
+
 test("Capacitor mobile styling stays isolated from the website", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/styles.css", import.meta.url), "utf8")

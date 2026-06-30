@@ -1,13 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.8",
-  "versionCode": 8,
+  "versionName": "1.0.9",
+  "versionCode": 9,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.8.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.9.apk",
   "releaseNotes": [
-    "Improved mobile mode switching, composer behavior, and responsive layout"
+    "Added Deep Research, Android text sizing, and improved native layout behavior"
   ],
-  "sizeBytes": 4449082,
-  "sha256": "bc8b3e7cc9d03dac1866bdf44bfc95246095a0cd20797b9f400801e997592d2b",
-  "releasedAt": "2026-06-28T11:32:23.179Z"
+  "sizeBytes": 4459526,
+  "sha256": "1437d8a316b100dce67985cf85f8c0d3dff79e378a53523741e62426edd5cb39",
+  "releasedAt": "2026-06-30T23:59:22.625Z"
 }

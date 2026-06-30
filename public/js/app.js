@@ -5521,11 +5521,6 @@ async function hydrateNativeSettings() {
 }
 
 async function bootstrap() {
-  // Show the keyboard immediately on launch. The composer textarea is
-  // already in the static page markup, so this doesn't need to wait on
-  // settings/session/config network calls below — waiting on those is
-  // what made the keyboard feel slow to open.
-  focusPromptInputSoon();
   await hydrateNativeSettings();
   applyChatTheme();
   applyTextScale();
@@ -5631,7 +5626,8 @@ function blurEmptyComposerForHistoryScroll() {
 }
 
 function focusPromptInput() {
-  if (!els.promptInput || !isNative()) return;
+  if (!els.promptInput || !isNative() || !state.session || !hasChatAccess()) return;
+  if (els.chatView?.classList.contains("hidden") || !els.researchReportView?.classList.contains("hidden")) return;
   els.composer?.classList.remove("compact");
   els.promptInput.focus({ preventScroll: true });
   void showNativeKeyboard();
