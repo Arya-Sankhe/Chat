@@ -5659,6 +5659,9 @@ async function bootstrap() {
     }
     renderShell();
     if (state.session && hasChatAccess()) {
+      // The chat is now visible and authorized. Start focusing before the
+      // model/conversation requests below so native startup feels immediate.
+      if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
       const reportId = researchIdFromLocation();
       if (reportId) await openResearchReport(reportId, { push: false });

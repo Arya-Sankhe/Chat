@@ -17,8 +17,8 @@ public class TextZoomPlugin extends Plugin {
   @PluginMethod
   public void setTextZoom(PluginCall call) {
     int percent = call.getInt("percent", 100);
-    if (percent < 70) percent = 70;
-    if (percent > 160) percent = 160;
+    if (percent < 85) percent = 85;
+    if (percent > 130) percent = 130;
     final int clamped = percent;
     getBridge().executeOnMainThread(() -> {
       getBridge().getWebView().getSettings().setTextZoom(clamped);

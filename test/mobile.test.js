@@ -175,7 +175,7 @@ test("native login renders the authenticated shell before loading account data",
   assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
 });
 
-test("native startup focuses the composer only after an accessible chat is visible", async () => {
+test("native startup focuses early only after an accessible chat is visible", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
@@ -187,7 +187,11 @@ test("native startup focuses the composer only after an accessible chat is visib
     source.indexOf("function focusPromptInput()"),
     source.indexOf("function focusPromptInputSoon()")
   );
-  assert.equal((bootstrap.match(/focusPromptInputSoon\(\)/g) || []).length, 1);
+  assert.equal((bootstrap.match(/focusPromptInputSoon\(\)/g) || []).length, 2);
+  assert.ok(
+    bootstrap.indexOf("if (!researchIdFromLocation()) focusPromptInputSoon();")
+      < bootstrap.indexOf("await loadChatApp();")
+  );
   assert.match(focusPrompt, /!state\.session \|\| !hasChatAccess\(\)/);
   assert.match(focusPrompt, /researchReportView\?\.classList\.contains\("hidden"\)/);
 });
@@ -628,6 +632,10 @@ test("settings has an APK-only text size slider that is hidden on the web", asyn
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
   const js = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const java = await readFile(
+    new URL("../android/app/src/main/java/tech/klui/app/TextZoomPlugin.java", import.meta.url),
+    "utf8"
+  );
 
   // Markup: a range input, hidden by default like every other APK-only control.
   assert.match(
@@ -650,6 +658,8 @@ test("settings has an APK-only text size slider that is hidden on the web", asyn
   assert.match(js, /Math\.min\(130, Math\.max\(85, num\)\)/);
   assert.match(js, /function applyTextScale\(\)\s*\{\s*void setTextZoom\(clampTextScale\(state\.settings\.uiTextScale\)\)/);
   assert.match(js, /key === "uiTextScale"\) applyTextScale\(\)/);
+  assert.match(java, /if \(percent < 85\) percent = 85;/);
+  assert.match(java, /if \(percent > 130\) percent = 130;/);
 });
 
 test("native top-bar mode picker activates compare and council modes", async () => {
