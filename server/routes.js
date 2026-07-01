@@ -31,6 +31,7 @@ import {
   hydrateMessagesForClient,
   imageCountFromContent,
   normalizeMessageSettings,
+  normalizePastedTextRange,
   pipeProviderStreamAndAccumulate,
   reasoningDurationMetadata,
   sanitizeProviderEvent,
@@ -2310,6 +2311,9 @@ async function handleConversationMessage(req, res, config, conversationId) {
     attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
     userContent = buildStoredUserContent(body.text, attachments);
   }
+  const pastedTextRange = !isRetry && !isEdit
+    ? normalizePastedTextRange(body.paste, contentText(userContent))
+    : null;
 
   const imageCount = imageCountFromContent(userContent);
   if (councilEnabled) {
@@ -2440,7 +2444,8 @@ async function handleConversationMessage(req, res, config, conversationId) {
       user_id: context.user.id,
       conversation_id: conversation.id,
       role: "user",
-      content: userContent
+      content: userContent,
+      ...(pastedTextRange ? { metadata: { paste: pastedTextRange } } : {})
     }, { signal: req.signal });
 
     for (const attachment of attachments) {

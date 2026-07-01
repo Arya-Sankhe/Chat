@@ -565,6 +565,21 @@
         </button>
         <img id="lightboxImg" src="" alt="Expanded image preview">
       </div>
+
+      <section class="pasted-text-dialog hidden" id="pastedTextDialog" role="dialog" aria-modal="true" aria-labelledby="pastedTextDialogTitle">
+        <div class="pasted-text-dialog-card">
+          <header>
+            <div>
+              <h2 id="pastedTextDialogTitle">Pasted content</h2>
+              <p id="pastedTextDialogMeta"></p>
+            </div>
+            <button id="pastedTextDialogClose" type="button" aria-label="Close pasted content">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </header>
+          <pre id="pastedTextDialogBody"></pre>
+        </div>
+      </section>
     </div>
 
     <script type="module" src="/js/app.js?v=20260701-textsize-v1"></script>

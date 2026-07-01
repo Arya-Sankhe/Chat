@@ -4,11 +4,21 @@ import test from "node:test";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
-import { buildStoredUserContent, imageCountFromContent } from "../server/saas/messages.js";
+import { buildStoredUserContent, imageCountFromContent, normalizePastedTextRange } from "../server/saas/messages.js";
 import { applyEditedUserText } from "../server/routes.js";
 import { loadPlans } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
+
+test("normalizePastedTextRange stores only a validated range marker", () => {
+  const text = "summarize this\n\nlong pasted content";
+  assert.deepEqual(normalizePastedTextRange({ start: 16, length: 19 }, text), {
+    start: 16,
+    length: 19,
+    lines: 1
+  });
+  assert.equal(normalizePastedTextRange({ start: 999, length: 4 }, text), null);
+});
 
 test("loadPlans maps Klui payment tiers from env", () => {
   const plans = loadPlans({

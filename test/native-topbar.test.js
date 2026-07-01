@@ -203,7 +203,7 @@ test("the compact pill while scrolling is small, centered, solid, and tappable",
   assert.match(appJs, /setTimeout\(\(\) => \{[\s\S]*?distanceFromBottom\(els\.messages\) <= 2[\s\S]*?\}, 120\)/, "compact state should wait for scroll to settle before auto-expanding at bottom");
   assert.match(appJs, /bottomDistance\s*>=\s*180/, "compact state should only start once clearly away from bottom");
   assert.match(appJs, /composerHasPendingContent\(\) \|\| composerHasFocus\(\)/, "pending text/attachments or focus should prevent compact mode");
-  assert.match(appJs, /state\.images\?\.length\) els\.composer\?\.classList\.remove\("compact"\)/, "attachment previews should keep the composer full-size");
+  assert.match(appJs, /state\.images\?\.length \|\| state\.pastedText\) els\.composer\?\.classList\.remove\("compact"\)/, "attachment previews should keep the composer full-size");
   assert.match(appJs, /blurEmptyComposerForHistoryScroll\(\)/, "scrolling history should blur an empty focused composer so it can compact");
   assert.match(appJs, /focusPromptInput\(\)/, "tapping the compact pill should expand and focus the composer");
   assert.match(appJs, /Keyboard\.show\(\)/, "native focus should request the Android keyboard");

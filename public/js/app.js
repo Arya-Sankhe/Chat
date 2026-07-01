@@ -93,6 +93,9 @@ const DEFAULT_COUNCIL_MODELS = [
 ];
 const DEFAULT_REASONING_EFFORT = "high";
 const CONTEXT_LIMIT_TOKENS = 256000;
+const LONG_PASTE_MIN_CHARS = 1000;
+const LONG_PASTE_MIN_LINES = 8;
+const LONG_PASTE_MAX_CHARS = 95000;
 const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
@@ -137,6 +140,7 @@ const state = {
   models: [],
   settings: loadSettings(),
   images: [],
+  pastedText: "",
   followUps: [],
   running: false,
   autoScroll: true,
@@ -242,6 +246,10 @@ const els = {
   temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
   temporaryChatLabel: document.querySelector("#temporaryChatLabel"),
   imagePreviews: document.querySelector("#imagePreviews"),
+  pastedTextDialog: document.querySelector("#pastedTextDialog"),
+  pastedTextDialogBody: document.querySelector("#pastedTextDialogBody"),
+  pastedTextDialogMeta: document.querySelector("#pastedTextDialogMeta"),
+  pastedTextDialogClose: document.querySelector("#pastedTextDialogClose"),
   composer: document.querySelector(".composer"),
   composerArea: document.querySelector(".composer-area"),
   followupQueue: document.querySelector("#followupQueue"),
@@ -443,6 +451,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     state.activeConversationId = "";
     state.messages = [];
     state.images = [];
+    state.pastedText = "";
     state.compareDescribeImages = false;
     clearFollowUps();
     closeDocumentViewer();
@@ -2580,24 +2589,45 @@ function renderAssistantContent(content, message) {
   return renderAssistantText(text, citations);
 }
 
-function renderUserContent(content) {
-  if (!Array.isArray(content)) {
-    return `<div class="user-plain-text">${renderPlainText(content || "")}</div>`;
+function pastedTextFromMessage(message) {
+  const text = rawTextContent(message?.content);
+  const paste = message?.metadata?.paste;
+  const start = Number(paste?.start);
+  const length = Number(paste?.length);
+  if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length < 1 || start + length > text.length) return null;
+  const pasted = text.slice(start, start + length);
+  if (!pasted.trim()) return null;
+  return { text: pasted, start, length };
+}
+
+function renderPastedTextCard(text, messageId) {
+  const preview = String(text || "").replace(/\s+/g, " ").trim().slice(0, 150);
+  return `<button class="pasted-text-card" type="button" data-open-pasted-text="${escapeHtml(String(messageId || ""))}">
+    <span class="pasted-text-preview">${renderPlainText(preview)}</span>
+    <span class="pasted-text-badge">Pasted</span>
+  </button>`;
+}
+
+function renderUserContent(message) {
+  const content = message?.content;
+  const paste = pastedTextFromMessage(message);
+  const attachments = Array.isArray(content)
+    ? content.filter((part) => part?.type === "image_url" || part?.type === "file").map((part) => renderContent([part])).join("")
+    : "";
+  if (!paste) {
+    const text = rawTextContent(content);
+    return `${text ? `<div class="user-plain-text">${renderPlainText(text)}</div>` : ""}${attachments}`;
   }
-  return content.map((part) => {
-    if (part?.type === "text") {
-      return `<div class="user-plain-text">${renderPlainText(part.text || "")}</div>`;
-    }
-    if (part?.type === "image_url" || part?.type === "file") return renderContent([part]);
-    return "";
-  }).join("");
+  const fullText = rawTextContent(content);
+  const visibleText = `${fullText.slice(0, paste.start)}${fullText.slice(paste.start + paste.length)}`.trim();
+  return `${renderPastedTextCard(paste.text, message?.id)}${visibleText ? `<div class="user-plain-text">${renderPlainText(visibleText)}</div>` : ""}${attachments}`;
 }
 
 function renderAssistantMessageContent(message, role = "assistant") {
   const msg = normalizeMessage(message);
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
-  if (role !== "assistant") return renderUserContent(content);
+  if (role !== "assistant") return renderUserContent(msg);
   return `${renderAssistantActivity(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
 }
 
@@ -3863,8 +3893,15 @@ function pendingDocumentLabel(item) {
 }
 
 function renderImages() {
-  if (state.images?.length) els.composer?.classList.remove("compact");
-  els.imagePreviews.innerHTML = state.images.map((img, i) => `
+  if (state.images?.length || state.pastedText) els.composer?.classList.remove("compact");
+  const pastedPreview = state.pastedText
+    ? `<div class="preview-thumb preview-pasted" data-open-composer-paste>
+        <span>${renderPlainText(state.pastedText.replace(/\s+/g, " ").trim().slice(0, 120))}</span>
+        <strong>Pasted</strong>
+        <button class="preview-remove" type="button" data-remove-paste aria-label="Remove pasted text">×</button>
+      </div>`
+    : "";
+  els.imagePreviews.innerHTML = pastedPreview + state.images.map((img, i) => `
     <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
         ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
@@ -3874,6 +3911,23 @@ function renderImages() {
   `).join("");
   updateSendButton();
   renderContextMeter();
+}
+
+function openPastedTextDialog(text) {
+  if (!els.pastedTextDialog || !els.pastedTextDialogBody) return;
+  const value = String(text || "");
+  els.pastedTextDialogBody.textContent = value;
+  if (els.pastedTextDialogMeta) {
+    const bytes = new TextEncoder().encode(value).length;
+    const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+    els.pastedTextDialogMeta.textContent = `${size} · ${Math.max(1, value.split("\n").length)} lines`;
+  }
+  els.pastedTextDialog.classList.remove("hidden");
+}
+
+function closePastedTextDialog() {
+  els.pastedTextDialog?.classList.add("hidden");
+  if (els.pastedTextDialogBody) els.pastedTextDialogBody.textContent = "";
 }
 
 function updatePendingDocument(localId, patch) {
@@ -4183,7 +4237,7 @@ function setRunning(running) {
 }
 
 function updateSendButton() {
-  const hasText = Boolean(els.promptInput.value.trim());
+  const hasText = Boolean(els.promptInput.value.trim() || state.pastedText);
   if (state.running) {
     const hasContent = hasText || state.images.some((item) => item.category === "image");
     const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 3;
@@ -4757,6 +4811,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   state.activeConversationId = "";
   state.messages = [];
   state.images = [];
+  state.pastedText = "";
   state.compareDescribeImages = false;
   clearFollowUps();
   closeDocumentViewer();
@@ -4872,6 +4927,15 @@ async function sendPrompt() {
     state.images = [...followUpBatchImages(queued), ...state.images];
     renderImages();
   }
+  const pastedText = state.pastedText.trim();
+  const paste = pastedText
+    ? { start: text ? text.length + 2 : 0, length: pastedText.length }
+    : null;
+  if (pastedText) text = text ? `${text}\n\n${pastedText}` : pastedText;
+  if (text.length > 100000) {
+    showToast("Message is too long. Shorten the typed text or pasted content.");
+    return;
+  }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
   if (state.researchMode) {
@@ -4916,7 +4980,8 @@ async function sendPrompt() {
     council: Boolean(compareModels.length && isCouncilMode()),
     describeImages: Boolean(
       compareModels.length
-    )
+    ),
+    paste
   });
 }
 
@@ -5008,7 +5073,9 @@ async function startDeepResearch(query) {
     state.activeResearchId = payload.run.id;
     state.researchMode = false;
     els.promptInput.value = "";
+    state.pastedText = "";
     applyComposerHeight();
+    renderImages();
     renderResearchMode();
     renderShell();
     await pollResearch(payload.run.id);
@@ -5206,7 +5273,7 @@ async function retryFailedAssistant(assistantMessageId) {
   }
 }
 
-async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [] }) {
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null }) {
   closeCompareContextBanner();
 
   const temporaryChat = state.temporaryChat;
@@ -5228,6 +5295,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   const localUser = {
     id: `local_${Date.now()}`,
     role: "user",
+    ...(paste ? { metadata: { paste } } : {}),
     content: (images.length || keptParts.length)
       ? [
           ...(text ? [{ type: "text", text }] : []),
@@ -5303,6 +5371,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   }
   state.messages.push(localUser, localAssistant);
   els.promptInput.value = "";
+  state.pastedText = "";
   applyComposerHeight();
   state.images = [];
   renderImages();
@@ -5355,6 +5424,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       },
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
+      ...(paste ? { paste } : {}),
       ...(describeImages ? { describeImages: true } : {}),
       ...(editMessageId ? { editUserMessageId: editMessageId } : {})
     };
@@ -5471,6 +5541,7 @@ async function signOutAndReset() {
   state.conversations = [];
   state.pinnedChatIds = [];
   state.messages = [];
+  state.pastedText = "";
   state.temporaryChat = false;
   clearFollowUps();
   state.activeConversationId = "";
@@ -5615,7 +5686,7 @@ function isNearBottom(el, threshold = 60) {
 }
 
 function composerHasPendingContent() {
-  return Boolean(els.promptInput?.value?.trim() || state.images?.length);
+  return Boolean(els.promptInput?.value?.trim() || state.pastedText || state.images?.length);
 }
 
 function composerHasFocus() {
@@ -6178,7 +6249,10 @@ function bindEvents() {
 
   // Close dropdown on Escape
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeTopBarModeDropdown();
+    if (e.key === "Escape") {
+      closeTopBarModeDropdown();
+      closePastedTextDialog();
+    }
   });
 
   // Initial render
@@ -6308,6 +6382,17 @@ function bindEvents() {
     els.providerToggle.addEventListener("click", toggleProvider);
   }
   els.imagePreviews.addEventListener("click", (e) => {
+    const removePaste = e.target.closest("[data-remove-paste]");
+    if (removePaste) {
+      e.stopPropagation();
+      state.pastedText = "";
+      renderImages();
+      return;
+    }
+    if (e.target.closest("[data-open-composer-paste]")) {
+      openPastedTextDialog(state.pastedText);
+      return;
+    }
     const removeBtn = e.target.closest("[data-remove-index]");
     if (removeBtn) {
       e.stopPropagation();
@@ -6360,6 +6445,10 @@ function bindEvents() {
 
   els.lightboxClose.addEventListener("click", (e) => { e.stopPropagation(); closeLightbox(); });
   els.lightbox.addEventListener("click", (e) => { if (e.target === els.lightbox) closeLightbox(); });
+  els.pastedTextDialogClose?.addEventListener("click", closePastedTextDialog);
+  els.pastedTextDialog?.addEventListener("click", (e) => {
+    if (e.target === els.pastedTextDialog) closePastedTextDialog();
+  });
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
   els.documentViewerDownload?.addEventListener("click", async (event) => {
@@ -6382,6 +6471,13 @@ function bindEvents() {
   });
 
   els.messages.addEventListener("click", async (e) => {
+    const pastedCard = e.target.closest("[data-open-pasted-text]");
+    if (pastedCard) {
+      const message = state.messages.find((item) => String(item.id) === pastedCard.dataset.openPastedText);
+      const paste = pastedTextFromMessage(message);
+      if (paste) openPastedTextDialog(paste.text);
+      return;
+    }
     const openResearch = e.target.closest("[data-open-research]");
     if (openResearch) {
       await openResearchReport(openResearch.dataset.openResearch);
@@ -6527,9 +6623,23 @@ function bindEvents() {
   });
   els.promptInput.addEventListener("paste", (e) => {
     const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
-    if (!files.length) return;
+    if (files.length) {
+      e.preventDefault();
+      addImages(files);
+      return;
+    }
+    const pasted = e.clipboardData?.getData("text/plain") || "";
+    const isLongPaste = pasted.length >= LONG_PASTE_MIN_CHARS || pasted.split("\n").length >= LONG_PASTE_MIN_LINES;
+    if (!isLongPaste || state.running) return;
     e.preventDefault();
-    addImages(files);
+    const combined = [state.pastedText, pasted.trim()].filter(Boolean).join("\n\n");
+    if (combined.length > LONG_PASTE_MAX_CHARS) {
+      showToast("Pasted text is too long. Keep it under 95,000 characters.");
+      return;
+    }
+    state.pastedText = combined;
+    renderImages();
+    updateSendButton();
   });
 
   els.temperatureInput.addEventListener("input", (e) => updateSetting("temperature", Number(e.target.value)));

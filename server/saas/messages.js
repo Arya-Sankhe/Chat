@@ -81,6 +81,20 @@ export function buildStoredUserContent(text, attachments = []) {
   ];
 }
 
+export function normalizePastedTextRange(value, text) {
+  if (!value || typeof value !== "object") return null;
+  const source = String(text || "");
+  const start = Number(value.start);
+  const length = Number(value.length);
+  if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length < 1) return null;
+  if (start + length > source.length || !source.slice(start, start + length).trim()) return null;
+  return {
+    start,
+    length,
+    lines: Math.max(1, source.slice(start, start + length).split("\n").length)
+  };
+}
+
 export function imageCountFromContent(content) {
   if (!Array.isArray(content)) return 0;
   return content.filter((part) => part?.type === "image_url").length;
