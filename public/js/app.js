@@ -4328,6 +4328,11 @@ function applyStreamEvent(message, event) {
     return;
   }
 
+  if (event?.type === "response:reset") {
+    message.content = "";
+    return;
+  }
+
   if (typeof event?.type === "string" && event.type.startsWith("tool:")) {
     applyToolEvent(message, event);
     return;

@@ -2891,6 +2891,9 @@ async function handleTemporaryChat(req, res, config) {
           res,
           includeReasoning
         });
+    if (!hasAssistantOutput(accumulated)) {
+      throw new HttpError(502, "Klui returned an empty response.");
+    }
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }

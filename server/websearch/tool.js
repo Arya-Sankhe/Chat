@@ -510,6 +510,7 @@ export async function runChatWithToolLoop({
   let limitEventSent = false;
   let toolFallbackLevel = 0;
   let artifactHandoffCorrectionSent = false;
+  let emptyAnswerRetrySent = false;
   const inlineImageCache = new Map();
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -576,6 +577,7 @@ export async function runChatWithToolLoop({
         && assistantLooksLikeDocumentArtifactHandoff(accumulated.content)
       ) {
         artifactHandoffCorrectionSent = true;
+        onToolEvent({ type: "response:reset" });
         messages.push({ role: "assistant", content: accumulated.content || "" });
         messages.push({
           role: "user",
@@ -587,11 +589,25 @@ export async function runChatWithToolLoop({
         });
         continue;
       }
+      if (!String(accumulated.content || "").trim() && !emptyAnswerRetrySent) {
+        emptyAnswerRetrySent = true;
+        forceFinalWithoutTools = true;
+        onToolEvent({ type: "response:reset" });
+        messages.push({
+          role: "user",
+          content: "Provide the final answer now using the conversation and any tool results above. Return a direct answer, not reasoning or another tool call."
+        });
+        continue;
+      }
       accumulated.activityStartedAt = activityStartedAt;
       accumulated.activityEndedAt = Date.now();
       return { accumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
     }
 
+    // Any prose emitted alongside a tool call is provisional. The next model
+    // iteration produces the real answer, so keep the browser and persisted
+    // message aligned instead of letting this preamble vanish on reload.
+    onToolEvent({ type: "response:reset" });
     const toolCalls = normalizedToolCallsForMessage(accumulated.toolCalls, iteration);
     const visualPages = [];
     messages.push({

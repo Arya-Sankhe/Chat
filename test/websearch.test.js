@@ -903,6 +903,83 @@ describe("tool", () => {
     assert.equal(bodies[1].tool_choice, "none");
   });
 
+  test("runChatWithToolLoop resets provisional prose before the final tool answer", async () => {
+    const toolEvents = [];
+    let calls = 0;
+    const crofai = {
+      async streamChatCompletion() {
+        calls += 1;
+        if (calls === 1) {
+          return streamResponse([{
+            choices: [{
+              delta: {
+                content: "I will search first.",
+                tool_calls: [{
+                  index: 0,
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "web_search", arguments: JSON.stringify({ query: "latest" }) }
+                }]
+              },
+              finish_reason: "tool_calls"
+            }]
+          }]);
+        }
+        return streamResponse([contentDelta("Here is the complete answer.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch: {
+        search: async () => ({ ok: true, provider: "searxng", query: "latest", results: [] })
+      },
+      onUpstreamEvent: () => {},
+      onToolEvent: (event) => toolEvents.push(event)
+    });
+
+    assert.equal(result.accumulated.content, "Here is the complete answer.");
+    assert.equal(toolEvents[0].type, "response:reset");
+  });
+
+  test("runChatWithToolLoop retries once without tools when the model returns no answer", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) return streamResponse([contentDelta("")]);
+        return streamResponse([contentDelta("Recovered answer")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "answer this" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "unused" } }) },
+      onUpstreamEvent: () => {},
+      onToolEvent: () => {}
+    });
+
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1].tool_choice, "none");
+    assert.equal(result.accumulated.content, "Recovered answer");
+  });
+
   test("isToolsUnsupportedError recognizes provider tool/tool_choice rejections", () => {
     assert.equal(isToolsUnsupportedError(new Error("No endpoints found that support the provided 'tool_choice' value.")), true);
     assert.equal(isToolsUnsupportedError(new Error("This model does not support tools.")), true);
