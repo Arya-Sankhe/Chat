@@ -86,6 +86,40 @@ const modelCacheTtlMs = 5 * 60 * 1000;
 let adminSummaryCache = null;
 const adminSummaryCacheTtlMs = 60 * 1000;
 const RESEARCH_MODELS = new Set([OPENROUTER_TEXT_MODEL, OPENROUTER_PRO_MODEL]);
+const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
+
+export async function withResearchReportContext(messages, { loadRun, maxChars = RESEARCH_CONTEXT_MAX_CHARS } = {}) {
+  if (typeof loadRun !== "function" || maxChars <= 0) return messages || [];
+
+  const hydrated = [...(messages || [])];
+  let remaining = maxChars;
+
+  // Newer reports are more likely to be the target of a follow-up. Walk
+  // backwards so older reports cannot crowd the latest one out of context.
+  for (let index = hydrated.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const message = hydrated[index];
+    const runId = message?.role === "assistant" ? message?.metadata?.research?.runId : "";
+    if (!runId) continue;
+
+    const run = await loadRun(runId).catch(() => null);
+    const report = String(run?.report_markdown || "").trim();
+    if (!report) continue;
+
+    const included = report.slice(0, remaining);
+    const truncated = included.length < report.length;
+    hydrated[index] = {
+      ...message,
+      content: [
+        "[Deep research report produced earlier in this conversation]",
+        included,
+        ...(truncated ? ["[Report truncated to fit the conversation context budget]"] : [])
+      ].join("\n\n")
+    };
+    remaining -= included.length;
+  }
+
+  return hydrated;
+}
 
 export function installStableRequestSignal(req) {
   const controller = new AbortController();
@@ -2356,6 +2390,13 @@ async function handleConversationMessage(req, res, config, conversationId) {
     userContent = persisted.userContent;
     historyMessages = [...existingMessages, { role: "user", content: userContent }];
   }
+
+  existingMessages = await withResearchReportContext(existingMessages, {
+    loadRun: (runId) => context.db.getResearchRun(context.user.id, runId, { signal: req.signal })
+  });
+  historyMessages = isRetry
+    ? [...existingMessages]
+    : [...existingMessages, { role: "user", content: userContent }];
 
   const stage1SystemPrompt = councilEnabled
     ? withCouncilSystemPrompt(settings.systemPrompt || "")

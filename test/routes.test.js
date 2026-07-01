@@ -7,8 +7,43 @@ import {
   installStableRequestSignal,
   normalizeAgentMode,
   runSharedPreSearch,
-  shouldSuppressWebSearchForDocumentTurn
+  shouldSuppressWebSearchForDocumentTurn,
+  withResearchReportContext
 } from "../server/routes.js";
+
+test("withResearchReportContext makes completed reports available to follow-up prompts", async () => {
+  const messages = [
+    { role: "user", content: "Research affordable fragrances" },
+    {
+      role: "assistant",
+      content: "A research report is available.",
+      metadata: { research: { runId: "run-1", status: "succeeded" } }
+    },
+    { role: "user", content: "Can you summarize the above?" }
+  ];
+
+  const hydrated = await withResearchReportContext(messages, {
+    loadRun: async (runId) => ({ id: runId, report_markdown: "# Fragrances\n\nA detailed report." })
+  });
+
+  assert.equal(messages[1].content, "A research report is available.");
+  assert.match(hydrated[1].content, /Deep research report produced earlier/);
+  assert.match(hydrated[1].content, /# Fragrances/);
+  assert.equal(hydrated[2].content, "Can you summarize the above?");
+});
+
+test("withResearchReportContext prioritizes newer reports within its context budget", async () => {
+  const hydrated = await withResearchReportContext([
+    { role: "assistant", content: "old", metadata: { research: { runId: "old" } } },
+    { role: "assistant", content: "new", metadata: { research: { runId: "new" } } }
+  ], {
+    maxChars: 10,
+    loadRun: async (runId) => ({ report_markdown: runId === "new" ? "new report" : "old report" })
+  });
+
+  assert.equal(hydrated[0].content, "old");
+  assert.match(hydrated[1].content, /new report/);
+});
 
 test("installStableRequestSignal shadows Node's request signal getter", () => {
   const native = new AbortController();
