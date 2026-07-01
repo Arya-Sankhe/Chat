@@ -64,6 +64,7 @@ import {
   modelBrandLogoUrl,
   modelSupportsVision,
   normalizeModelList,
+  renderPlainText,
   renderContent,
   resetCodeSourceStore
 } from "./render.js?v=20260623-image-preview-v1";
@@ -2579,11 +2580,24 @@ function renderAssistantContent(content, message) {
   return renderAssistantText(text, citations);
 }
 
+function renderUserContent(content) {
+  if (!Array.isArray(content)) {
+    return `<div class="user-plain-text">${renderPlainText(content || "")}</div>`;
+  }
+  return content.map((part) => {
+    if (part?.type === "text") {
+      return `<div class="user-plain-text">${renderPlainText(part.text || "")}</div>`;
+    }
+    if (part?.type === "image_url" || part?.type === "file") return renderContent([part]);
+    return "";
+  }).join("");
+}
+
 function renderAssistantMessageContent(message, role = "assistant") {
   const msg = normalizeMessage(message);
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
-  if (role !== "assistant") return renderContent(content || "");
+  if (role !== "assistant") return renderUserContent(content);
   return `${renderAssistantActivity(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
 }
 

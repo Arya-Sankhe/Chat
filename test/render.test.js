@@ -8,9 +8,17 @@ import {
   modelBrandLogoUrl,
   normalizeModelList,
   renderContent,
+  renderPlainText,
   resetCodeSourceStore,
   resolveDefaultCompareModels
 } from "../public/js/render.js";
+
+test("renderPlainText preserves pasted text without Markdown formatting", () => {
+  const pasted = "## Heading\n```js\nconst key = '<secret>';\n```\n**bold**";
+  const html = renderPlainText(pasted);
+  assert.equal(html, "## Heading\n```js\nconst key = &#039;&lt;secret&gt;&#039;;\n```\n**bold**");
+  assert.doesNotMatch(html, /<pre|<code|<h2|<strong/);
+});
 
 test("resolveDefaultCompareModels picks the standard compare lineup", () => {
   const models = normalizeModelList({

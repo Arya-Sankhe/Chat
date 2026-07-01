@@ -3580,6 +3580,11 @@ body.temporary-chat .messages {
 
 }
 
+.message.user .user-plain-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .code-block-wrap {
 
   margin: 12px 0;

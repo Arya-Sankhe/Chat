@@ -7,6 +7,10 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+export function renderPlainText(value) {
+  return escapeHtml(value);
+}
+
 /* Fallback renderer (when CDN libs haven't loaded) */
 
 function renderFallback(text) {
