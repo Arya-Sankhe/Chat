@@ -162,6 +162,7 @@ const state = {
 let renderQueued = false;
 let streamingRenderQueued = false;
 const streamingRenderTargets = new Map();
+let renderedChatPromptSignature = "";
 let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let councilDetailsOpenIds = new Set();
@@ -3730,12 +3731,20 @@ function renderChatPromptNavigator() {
   const prompts = desktopChatNavigationEnabled() ? userPromptItems() : [];
   const visible = prompts.length > 1;
   els.chatPromptNav.classList.toggle("hidden", !visible);
-  if (!visible) return;
-  els.chatPromptMarkers.innerHTML = prompts.map((prompt, index) =>
-    `<span data-prompt-marker="${escapeHtml(prompt.id)}"${index === 0 ? ' class="active"' : ""}></span>`
+  if (!visible) {
+    renderedChatPromptSignature = "";
+    return;
+  }
+  const signature = JSON.stringify(prompts);
+  if (signature === renderedChatPromptSignature) return;
+  const previousActiveId = els.chatPromptMarkers.querySelector("[data-prompt-marker].active")?.dataset.promptMarker;
+  const activeId = prompts.some((prompt) => prompt.id === previousActiveId) ? previousActiveId : prompts[0].id;
+  renderedChatPromptSignature = signature;
+  els.chatPromptMarkers.innerHTML = prompts.map((prompt) =>
+    `<span data-prompt-marker="${escapeHtml(prompt.id)}"${prompt.id === activeId ? ' class="active"' : ""}></span>`
   ).join("");
-  els.chatPromptList.innerHTML = prompts.map((prompt, index) =>
-    `<button type="button" data-prompt-jump="${escapeHtml(prompt.id)}"${index === 0 ? ' class="active" aria-current="true"' : ""}>${escapeHtml(prompt.label)}</button>`
+  els.chatPromptList.innerHTML = prompts.map((prompt) =>
+    `<button type="button" data-prompt-jump="${escapeHtml(prompt.id)}"${prompt.id === activeId ? ' class="active" aria-current="true"' : ""}>${escapeHtml(prompt.label)}</button>`
   ).join("");
 }
 
