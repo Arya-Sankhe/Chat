@@ -1,0 +1,3746 @@
+/* ─── Capacitor mobile app ─── */
+
+body.capacitor-native {
+
+  --native-header-h: 62px;
+
+  -webkit-tap-highlight-color: transparent;
+
+  -webkit-touch-callout: none;
+
+  overscroll-behavior: none;
+
+}
+
+body.capacitor-native *,
+
+body.capacitor-native *::before,
+
+body.capacitor-native *::after {
+
+  -webkit-tap-highlight-color: transparent;
+
+}
+
+body.capacitor-native button,
+
+body.capacitor-native a,
+
+body.capacitor-native [role="button"],
+
+body.capacitor-native input,
+
+body.capacitor-native textarea,
+
+body.capacitor-native select,
+
+body.capacitor-native summary {
+
+  -webkit-tap-highlight-color: transparent;
+
+}
+
+body.capacitor-native button,
+
+body.capacitor-native a,
+
+body.capacitor-native [role="button"],
+
+body.capacitor-native .sidebar,
+
+body.capacitor-native .native-mobile-bar,
+
+body.capacitor-native .composer-actions,
+
+body.capacitor-native .conversation-list {
+
+  -webkit-user-select: none;
+
+  user-select: none;
+
+}
+
+body.capacitor-native textarea,
+
+body.capacitor-native input,
+
+body.capacitor-native .message-content,
+
+body.capacitor-native .code-block {
+
+  -webkit-user-select: text;
+
+  user-select: text;
+
+}
+
+body.capacitor-native .native-mobile-bar {
+
+  position: absolute;
+
+  top: 0;
+
+  right: 0;
+
+  left: 0;
+
+  z-index: 8;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  height: calc(var(--native-header-h) + var(--safe-area-inset-top, env(safe-area-inset-top)));
+
+  padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 18px 0;
+
+  pointer-events: none;
+
+}
+
+body.capacitor-native .native-mobile-menu {
+
+  position: absolute;
+
+  left: 18px;
+
+  bottom: 8px;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  width: 44px;
+
+  height: 44px;
+
+  border: 1px solid var(--border);
+
+  border-radius: 50%;
+
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+
+  color: var(--text);
+
+  box-shadow: var(--shadow-sm);
+
+  pointer-events: auto;
+
+}
+
+body.capacitor-native .compact-new-chat {
+
+  display: none;
+
+}
+
+body.capacitor-native .native-mobile-brand {
+
+  color: var(--text);
+
+  font-size: 17px;
+
+  font-weight: 680;
+
+}
+
+body.capacitor-native .temporary-chat-bar {
+
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px);
+
+  right: 18px;
+
+  left: auto;
+
+}
+
+body.capacitor-native .messages {
+
+  padding-top: calc(var(--native-header-h) + var(--safe-area-inset-top, env(safe-area-inset-top)) + 24px);
+
+  padding-right: 18px;
+
+  padding-bottom: 200px;
+
+  padding-left: 18px;
+
+}
+
+body.capacitor-native.chat-empty .messages {
+
+  padding-bottom: 174px;
+
+}
+
+body.capacitor-native.chat-empty .empty-state {
+
+  justify-content: center;
+
+  min-height: 100%;
+
+  padding: 0 0 88px;
+
+}
+
+body.capacitor-native.chat-empty .empty-state h1 {
+
+  display: block;
+
+  width: 100%;
+
+  font-size: 27px;
+
+  font-weight: 430;
+
+  text-align: center;
+
+}
+
+body.capacitor-native .composer-area,
+
+body.capacitor-native.chat-empty .composer-area,
+
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer-area,
+
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer-area {
+
+  top: auto;
+
+  right: 0;
+
+  bottom: 0;
+
+  left: 0;
+
+  padding: 0 12px max(10px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+
+}
+
+body.capacitor-native .composer {
+
+  padding: 14px 14px 10px;
+
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--text));
+
+  border-radius: 25px;
+
+  background: var(--bg);
+
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+
+}
+
+body.capacitor-native .composer textarea,
+
+body.capacitor-native.chat-empty .composer textarea {
+
+  min-height: 34px;
+
+  max-height: 160px;
+
+  padding: 2px 4px;
+
+  font-size: 17px;
+
+  line-height: 1.45;
+
+}
+
+body.capacitor-native .composer-bottom,
+
+body.capacitor-native.chat-empty .composer-bottom {
+
+  min-height: 38px;
+
+  margin-top: 10px;
+
+  padding-right: 46px;
+
+}
+
+body.capacitor-native .composer-actions {
+
+  flex-wrap: nowrap;
+
+  gap: 7px;
+
+  overflow-x: auto;
+
+  scrollbar-width: none;
+
+}
+
+body.capacitor-native .composer-actions::-webkit-scrollbar {
+
+  display: none;
+
+}
+
+body.capacitor-native .composer-tool,
+
+body.capacitor-native .composer-model-btn,
+
+body.capacitor-native .compare-btn {
+
+  height: 38px;
+
+  border-color: var(--border);
+
+  background: color-mix(in srgb, var(--bg) 82%, var(--bg-secondary));
+
+}
+
+body.capacitor-native .composer-tool {
+
+  width: 38px;
+
+}
+
+body.capacitor-native .composer-model-wrap {
+
+  max-width: none;
+
+}
+
+body.capacitor-native .composer-model-btn {
+
+  min-width: 108px;
+
+  justify-content: center;
+
+}
+
+body.capacitor-native .composer-model-chevron {
+
+  display: none;
+
+}
+
+body.capacitor-native .composer-model-btn.pro-active {
+
+  background: var(--text);
+
+  color: var(--bg);
+
+}
+
+body.capacitor-native .compare-btn {
+
+  max-width: none;
+
+  padding-inline: 12px;
+
+}
+
+body.capacitor-native .send-btn,
+
+body.capacitor-native .stop-btn {
+
+  width: 38px;
+
+  height: 38px;
+
+}
+
+body.capacitor-native .composer-send {
+
+  right: 14px;
+
+  bottom: 10px;
+
+}
+
+body.capacitor-native .composer-action-menu {
+
+  position: fixed;
+
+  top: auto;
+
+  left: 14px;
+
+  bottom: calc(100px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+
+  max-height: calc(60dvh);
+
+  overflow-y: auto;
+
+}
+
+/* Text size lives in Settings only on the APK — the web app already has
+   the browser/OS zoom for this, so there's no need to duplicate it there. */
+body.capacitor-native #settingsTextScaleSection.hidden {
+  display: block !important;
+}
+
+body.capacitor-native .mobile-camera-action.hidden {
+
+  display: flex !important;
+
+}
+
+body.capacitor-native .app-footer {
+
+  display: none;
+
+}
+
+body.capacitor-native .sidebar {
+
+  z-index: 80;
+
+  width: min(88vw, 360px);
+
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+
+  border-right: 1px solid var(--border);
+
+  border-radius: 0 24px 24px 0;
+
+  background: var(--bg);
+
+  transform: translateX(-102%);
+
+  box-shadow: var(--shadow-lg);
+
+}
+
+body.capacitor-native.sidebar-open .sidebar {
+
+  width: min(88vw, 360px);
+
+  transform: translateX(0);
+
+}
+
+body.capacitor-native .native-nav-backdrop {
+
+  position: fixed;
+
+  inset: 0;
+
+  z-index: 70;
+
+  display: block;
+
+  border: 0;
+
+  background: rgba(0, 0, 0, 0.42);
+
+  opacity: 0;
+
+  pointer-events: none;
+
+  transition: opacity 180ms ease;
+
+}
+
+body.capacitor-native.sidebar-open .native-nav-backdrop {
+
+  opacity: 1;
+
+  pointer-events: auto;
+
+}
+
+body.capacitor-native .sidebar-header {
+
+  justify-content: space-between;
+
+  height: 62px;
+
+  padding: 0 18px;
+
+}
+
+body.capacitor-native .sidebar-brand,
+
+body.capacitor-native .sidebar-nav-label,
+
+body.capacitor-native .sidebar-section-label,
+
+body.capacitor-native .sidebar-profile-meta {
+
+  display: flex;
+
+  opacity: 1;
+
+  visibility: visible;
+
+}
+
+body.capacitor-native .sidebar-brand {
+
+  font-size: 22px;
+
+  font-weight: 700;
+
+}
+
+body.capacitor-native .sidebar-nav {
+
+  gap: 5px;
+
+  padding: 8px 12px;
+
+}
+
+body.capacitor-native .sidebar-nav-item {
+
+  justify-content: flex-start;
+
+  width: 100%;
+
+  min-height: 48px;
+
+  padding: 0 14px;
+
+  border-radius: 15px;
+
+  gap: 13px;
+
+}
+
+body.capacitor-native .sidebar-nav-item:hover,
+
+body.capacitor-native .sidebar-nav-item:active {
+
+  background: var(--bg-secondary);
+
+}
+
+body.capacitor-native .sidebar-mid {
+
+  padding: 8px 12px 18px;
+
+}
+
+body.capacitor-native .sidebar-section-label {
+
+  padding: 10px 12px 6px;
+
+  color: var(--text-tertiary);
+
+}
+
+body.capacitor-native .conversation-row {
+
+  min-height: 43px;
+
+  border-radius: 12px;
+
+}
+
+body.capacitor-native .conversation-menu-btn {
+
+  opacity: 1;
+
+}
+
+body.capacitor-native .sidebar-bottom {
+
+  padding: 12px 14px max(12px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+
+}
+
+body.capacitor-native .sidebar-profile-btn {
+
+  justify-content: flex-start;
+
+  width: 100%;
+
+  min-height: 54px;
+
+  padding: 7px 9px;
+
+  gap: 11px;
+
+  border-radius: 15px;
+
+}
+
+body.capacitor-native .profile-menu {
+
+  right: 14px;
+
+  bottom: calc(74px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+
+  left: 14px;
+
+  width: auto;
+
+}
+
+body.capacitor-native .auth-dialog {
+
+  top: auto;
+
+  bottom: 0;
+
+  left: 0;
+
+  width: 100%;
+
+  padding: 34px 24px max(28px, calc(20px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom))));
+
+  border-width: 1px 0 0;
+
+  border-radius: 26px 26px 0 0;
+
+  transform: translateY(24px);
+
+}
+
+body.capacitor-native .auth-dialog.open {
+
+  transform: translateY(0);
+
+}
+
+body.capacitor-native .native-google-button {
+
+  min-height: 52px;
+
+  border-radius: 15px;
+
+  background: var(--text);
+
+  color: var(--bg);
+
+}
+
+.app-update-dialog {
+
+  position: fixed;
+
+  z-index: 110;
+
+  inset: 50% auto auto 50%;
+
+  width: min(390px, calc(100% - 32px));
+
+  transform: translate(-50%, -50%);
+
+  padding: 22px;
+
+  border: 1px solid var(--border);
+
+  border-radius: 12px;
+
+  background: var(--surface);
+
+  color: var(--text);
+
+  box-shadow: var(--shadow-lg);
+
+}
+
+.app-update-dialog.hidden {
+
+  display: none;
+
+}
+
+.app-update-dialog h2 {
+
+  margin: 0 0 8px;
+
+  font-size: 19px;
+
+}
+
+.app-update-dialog p {
+
+  margin: 0;
+
+  color: var(--text-secondary);
+
+  line-height: 1.5;
+
+}
+
+.app-update-actions {
+
+  display: flex;
+
+  justify-content: flex-end;
+
+  gap: 9px;
+
+  margin-top: 20px;
+
+}
+
+.app-update-actions button {
+
+  min-height: 38px;
+
+  padding: 0 14px;
+
+  border-radius: 8px;
+
+}
+
+.app-update-download {
+
+  background: var(--accent);
+
+  color: var(--accent-contrast);
+
+}
+
+body.capacitor-native .topbar {
+
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+
+}
+
+body.capacitor-native .composer-area {
+
+  padding-bottom: max(8px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom)));
+
+}
+
+body.chat-empty .messages {
+
+  padding-bottom: 240px;
+
+}
+
+body.chat-empty .empty-state {
+
+  justify-content: flex-start;
+
+  height: auto;
+
+  min-height: 100%;
+
+  padding-top: calc(50dvh - 214px);
+
+  padding-bottom: 0;
+
+}
+
+body.chat-empty .empty-state h1 {
+
+  font-size: clamp(24px, 2.2vw, 30px);
+
+  font-weight: 400;
+
+  line-height: 1.25;
+
+  letter-spacing: 0;
+
+}
+
+body.chat-empty .composer-wrap {
+
+  max-width: min(820px, calc(100vw - 48px));
+
+}
+
+body.chat-empty .composer {
+
+  padding: 12px 14px 10px;
+
+  border-radius: 28px;
+
+}
+
+body.chat-empty .composer textarea {
+
+  min-height: 26px;
+
+  font-size: 15px;
+
+  line-height: 1.45;
+
+}
+
+body.chat-empty .composer-bottom {
+
+  margin-top: 8px;
+
+}
+
+body.chat-empty .composer-area {
+
+  top: max(142px, calc(50dvh - 72px));
+
+  bottom: auto;
+
+  padding: 0 24px;
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
+
+  display: none;
+
+}
+
+body.chat-empty[data-chat-theme="cyber"] .composer-area,
+
+body.chat-empty[data-chat-theme="doodle"] .composer-area {
+
+  top: max(142px, calc(50dvh - 72px));
+
+  bottom: auto;
+
+  padding-inline: 24px;
+
+}
+
+/* ─── Responsive ─── */
+
+@media (max-width: 1180px) {
+
+  :root {
+
+    --content-max: 860px;
+
+    --composer-max: 860px;
+
+    --document-viewer-w: min(520px, 44vw);
+
+  }
+
+  body.sidebar-expanded:not(.guest-mode) {
+
+    --sidebar-active-w: 220px;
+
+  }
+
+  .message,
+
+  .composer-wrap {
+
+    max-width: min(var(--content-max), calc(100vw - var(--sidebar-active-w) - 32px));
+
+  }
+
+  .compare-message,
+
+  .council-message {
+
+    max-width: calc(100vw - var(--sidebar-active-w) - 56px);
+
+  }
+
+  .composer-actions {
+
+    gap: 6px;
+
+  }
+
+}
+
+@media (max-width: 980px) {
+
+  :root {
+
+    --content-max: 760px;
+
+    --composer-max: 760px;
+
+  }
+
+  body.document-viewer-open .app-shell {
+
+    grid-template-columns: var(--sidebar-active-w) minmax(0, 1fr);
+
+  }
+
+  body.document-viewer-open .document-viewer {
+
+    position: fixed;
+
+    inset: 0 0 0 var(--sidebar-active-w);
+
+    z-index: 55;
+
+    width: auto;
+
+    max-width: none;
+
+    box-shadow: var(--shadow-lg);
+
+  }
+
+  body.document-viewer-open .document-viewer-resizer {
+
+    display: none;
+
+  }
+
+  .compare-grid,
+
+  .council-panel-grid {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  .council-stages {
+
+    align-items: flex-start;
+
+    flex-wrap: wrap;
+
+  }
+
+  .council-stage-sep {
+
+    display: none;
+
+  }
+
+}
+
+@media (max-width: 860px) {
+
+  .app-shell,
+
+  body.guest-mode .app-shell,
+
+  body.document-viewer-open .app-shell {
+
+    grid-template-columns: minmax(0, 1fr);
+
+  }
+
+  .native-mobile-bar {
+
+    position: absolute;
+
+    top: 0;
+
+    right: 0;
+
+    left: 0;
+
+    z-index: 18;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    height: 56px;
+
+    padding: 0 14px;
+
+    border-bottom: 1px solid var(--border-light);
+
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+
+    backdrop-filter: blur(12px);
+
+    pointer-events: none;
+
+  }
+
+  .native-mobile-menu,
+
+  .compact-new-chat {
+
+    position: absolute;
+
+    top: 10px;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    width: 36px;
+
+    height: 36px;
+
+    border-radius: 10px;
+
+    color: var(--text);
+
+    pointer-events: auto;
+
+  }
+
+  .native-mobile-menu {
+
+    left: 12px;
+
+  }
+
+  .compact-new-chat {
+
+    right: 12px;
+
+  }
+
+  /* Responsive web: keep the slim header minimal — mode switching stays in the
+     composer; new chat stays in the sidebar. These APK controls collide here. */
+  body:not(.capacitor-native) .native-mobile-mode-wrap,
+  body:not(.capacitor-native) .compact-new-chat {
+    display: none !important;
+  }
+
+  body:not(.capacitor-native) .temporary-chat-toggle {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+  }
+
+  body:not(.capacitor-native) .temporary-chat-label {
+    top: 12px;
+    right: 60px;
+    max-width: min(220px, calc(100vw - 132px));
+  }
+
+  .native-mobile-brand {
+
+    color: var(--text);
+
+    font-size: 15px;
+
+    font-weight: 650;
+
+  }
+
+  body.capacitor-native .compact-new-chat {
+
+    display: none;
+
+  }
+
+  .sidebar,
+
+  body.guest-mode .sidebar {
+
+    position: fixed;
+
+    inset: 0 auto 0 0;
+
+    z-index: 30;
+
+    width: min(320px, 86vw);
+
+    height: 100dvh;
+
+    margin: 0;
+
+    visibility: hidden;
+
+    pointer-events: none;
+
+    transform: translateX(-102%);
+
+    transition: transform 220ms ease, visibility 220ms ease;
+
+    box-shadow: var(--shadow-lg);
+
+  }
+
+  body.sidebar-open .sidebar-header,
+
+  body.guest-mode.sidebar-open .sidebar-header {
+
+    justify-content: space-between;
+
+    padding: 0 12px;
+
+  }
+
+  body.sidebar-open .sidebar-brand,
+
+  body.guest-mode.sidebar-open .sidebar-brand {
+
+    display: block;
+
+  }
+
+  body.sidebar-open .sidebar-nav,
+
+  body.guest-mode.sidebar-open .sidebar-nav {
+
+    padding: 8px 12px 4px;
+
+  }
+
+  body.sidebar-open .sidebar-nav-item,
+
+  body.guest-mode.sidebar-open .sidebar-nav-item {
+
+    justify-content: flex-start;
+
+    width: 100%;
+
+    padding-right: 10px;
+
+  }
+
+  body.sidebar-open .sidebar-nav-label,
+
+  body.guest-mode.sidebar-open .sidebar-nav-label {
+
+    opacity: 1;
+
+    width: auto;
+
+  }
+
+  body.sidebar-open .sidebar-section-label,
+
+  body.guest-mode.sidebar-open .sidebar-section-label {
+
+    display: block;
+
+  }
+
+  body.sidebar-open .conversation-row,
+
+  body.guest-mode.sidebar-open .conversation-row {
+
+    opacity: 1;
+
+    pointer-events: auto;
+
+    transition-delay: 70ms;
+
+  }
+
+  body.sidebar-open .sidebar-profile-btn,
+
+  body.guest-mode.sidebar-open .sidebar-profile-btn {
+
+    justify-content: flex-start;
+
+    width: 100%;
+
+    border-radius: 10px;
+
+    padding: 2px 0;
+
+  }
+
+  body.sidebar-open .sidebar-profile-meta,
+
+  body.guest-mode.sidebar-open .sidebar-profile-meta {
+
+    display: flex;
+
+  }
+
+  body.sidebar-open .sidebar,
+
+  body.guest-mode.sidebar-open .sidebar {
+
+    width: min(320px, 86vw);
+
+    visibility: visible;
+
+    pointer-events: auto;
+
+    transform: translateX(0);
+
+  }
+
+  body.sidebar-open .native-nav-backdrop {
+
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 29;
+
+    display: block;
+
+    border: 0;
+
+    background: rgba(0, 0, 0, 0.28);
+
+  }
+
+  .messages {
+
+    padding-top: 76px;
+
+  }
+
+  body.temporary-chat .messages {
+
+    padding-top: 112px;
+
+  }
+
+  .temporary-chat-bar {
+
+    top: 64px;
+
+    right: 14px;
+
+    left: 64px;
+
+    gap: 10px;
+
+  }
+
+  .temporary-chat-label {
+
+    min-height: 32px;
+
+    max-width: min(220px, calc(100vw - 152px));
+
+    padding: 0 11px;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+  }
+
+  .temporary-chat-toggle {
+
+    width: 38px;
+
+    height: 38px;
+
+    flex: 0 0 auto;
+
+  }
+
+  .composer-actions {
+
+    overflow: visible;
+
+  }
+
+  .composer-model-dropdown {
+
+    width: min(280px, calc(100vw - 24px));
+
+    max-width: calc(100vw - 24px);
+
+  }
+
+  .compare-message,
+
+  .council-message {
+
+    max-width: calc(100vw - 32px);
+
+    padding-left: 0;
+
+  }
+
+  body[data-chat-theme="doodle"] .sidebar {
+
+    margin: 0;
+
+    height: 100dvh;
+
+    border-radius: 0 28px 28px 0;
+
+  }
+
+  body.sidebar-expanded:not(.guest-mode) {
+
+    --sidebar-active-w: var(--sidebar-w);
+
+  }
+
+  .composer-bottom {
+
+    align-items: flex-end;
+
+    gap: 8px;
+
+  }
+
+  .composer-actions {
+
+    flex-wrap: wrap;
+
+  }
+
+  .composer-model-wrap {
+
+    max-width: min(220px, 58vw);
+
+  }
+
+}
+
+@media (max-width: 768px) {
+
+  :root {
+
+    --sidebar-w-expanded: 211px;
+
+    --content-max: 680px;
+
+    --composer-max: 680px;
+
+  }
+
+  .app-shell {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  body.guest-mode .app-shell {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  body.document-viewer-open .app-shell {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  .document-viewer {
+
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 60;
+
+    width: 100vw;
+
+    height: 100dvh;
+
+    border-left: 0;
+
+  }
+
+  body.document-viewer-open .document-viewer {
+
+    inset: 0;
+
+  }
+
+  .document-viewer-resizer {
+
+    display: none;
+
+  }
+
+  .document-viewer-header {
+
+    height: 52px;
+
+    padding: 0 12px;
+
+  }
+
+  .document-viewer-body {
+
+    padding: 10px;
+
+  }
+
+  .pdf-pages {
+
+    gap: 10px;
+
+  }
+
+  .pdf-page {
+
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+
+  }
+
+  .sidebar {
+
+    position: fixed;
+
+    inset: 0 auto 0 0;
+
+    width: min(320px, 86vw);
+
+    transform: translateX(-100%);
+
+    border-right: none;
+
+    box-shadow: var(--shadow-lg);
+
+    transition: transform 220ms ease, width 220ms ease;
+
+  }
+
+  body.sidebar-open .sidebar {
+
+    width: min(320px, 86vw);
+
+    transform: translateX(0);
+
+  }
+
+  body.guest-mode .sidebar {
+
+    width: min(320px, 86vw);
+
+    transform: translateX(-100%);
+
+  }
+
+  body.guest-mode.sidebar-open .sidebar {
+
+    width: min(320px, 86vw);
+
+    transform: translateX(0);
+
+  }
+
+  body.guest-mode:not(.sidebar-open) .guest-login-panel {
+
+    display: none;
+
+  }
+
+  .topbar {
+
+    height: 48px;
+
+    padding: 0 12px;
+
+  }
+
+  .messages {
+
+    padding: 76px 12px 140px;
+
+  }
+
+  body.temporary-chat .messages {
+
+    padding-top: 112px;
+
+  }
+
+  .message,
+
+  .composer-wrap {
+
+    max-width: 100%;
+
+  }
+
+  body.chat-empty .messages {
+
+    padding-bottom: 220px;
+
+  }
+
+  body.chat-empty .empty-state {
+
+    padding-top: calc(50dvh - 198px);
+
+  }
+
+  .empty-state h1 {
+
+    font-size: 28px;
+
+  }
+
+  body.chat-empty .empty-state h1 {
+
+    font-size: 24px;
+
+    font-weight: 400;
+
+    line-height: 1.25;
+
+  }
+
+  .composer-area {
+
+    padding: 0 12px 8px;
+
+  }
+
+  body.chat-empty .composer-area {
+
+    top: max(126px, calc(50dvh - 72px));
+
+    padding: 0 12px;
+
+  }
+
+  .compare-context-banner {
+
+    padding: 0 12px;
+
+    margin-bottom: 8px;
+
+  }
+
+  .compare-context-card {
+
+    flex-direction: column;
+
+    align-items: stretch;
+
+  }
+
+  .compare-context-actions {
+
+    justify-content: stretch;
+
+  }
+
+  .compare-context-primary,
+
+  .compare-context-secondary,
+
+  .compare-context-cancel {
+
+    width: 100%;
+
+  }
+
+  .composer {
+
+    width: 100%;
+
+    max-width: 100%;
+
+    padding: 12px 16px 8px;
+
+  }
+
+  .composer textarea {
+
+    min-height: 24px;
+
+    max-height: 200px;
+
+    font-size: 15px;
+
+  }
+
+  .composer-bottom {
+
+    position: static;
+
+    margin-top: 8px;
+
+    gap: 8px;
+
+    min-height: 32px;
+
+    padding-right: 46px;
+
+  }
+
+  .composer-actions {
+
+    flex: 1;
+
+    overflow: visible;
+
+    max-width: 100%;
+
+  }
+
+  .composer-model-wrap {
+
+    max-width: min(150px, 38vw);
+
+  }
+
+  .compare-btn {
+
+    height: 32px;
+
+    max-width: 116px;
+
+    padding: 0 10px;
+
+  }
+
+  .compare-btn span {
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+  }
+
+  .compare-grid {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  .compare-message {
+
+    max-width: 100%;
+
+  }
+
+  .composer-tool,
+
+  .composer-model-btn {
+
+    height: 32px;
+
+  }
+
+  .composer-tool {
+
+    width: 32px;
+
+  }
+
+  .send-btn,
+
+  .stop-btn {
+
+    width: 32px;
+
+    height: 32px;
+
+  }
+
+  .composer-send {
+
+    position: absolute;
+
+    right: 16px;
+
+    bottom: 8px;
+
+    margin-left: 0;
+
+    z-index: 2;
+
+  }
+
+  .message {
+
+    gap: 10px;
+
+    margin-bottom: 24px;
+
+  }
+
+  .message-avatar {
+
+    width: 28px;
+
+    height: 28px;
+
+    font-size: 11px;
+
+  }
+
+  .message-content {
+
+    font-size: 15px;
+
+  }
+
+  .field-grid {
+
+    grid-template-columns: 1fr;
+
+  }
+
+  .auth-panel h1 {
+
+    font-size: 22px;
+
+  }
+
+  body[data-chat-theme="cyber"] .sidebar-top,
+
+  body[data-chat-theme="cyber"] .sidebar-bottom {
+
+    padding: 4px 8px;
+
+    align-items: flex-start;
+
+  }
+
+  body[data-chat-theme="cyber"] .sidebar {
+
+    margin: 0;
+
+    height: 100dvh;
+
+    box-shadow: var(--cyber-drop-md);
+
+  }
+
+  body[data-chat-theme="cyber"] .chat-panel {
+
+    margin: 0;
+
+    height: 100dvh;
+
+    border-width: 0;
+
+    box-shadow: none;
+
+  }
+
+  body[data-chat-theme="cyber"] .chat-panel::before {
+
+    height: 0;
+
+    border-bottom-width: 1px;
+
+  }
+
+  body[data-chat-theme="cyber"] .topbar {
+
+    height: 48px;
+
+    padding: 0 12px;
+
+  }
+
+  body[data-chat-theme="cyber"] .topbar::before {
+
+    content: "BUFFER: READY";
+
+    font-size: 10px;
+
+  }
+
+  body[data-chat-theme="cyber"] .messages {
+
+    margin: 0;
+
+    padding: 76px 16px 140px;
+
+  }
+
+  body[data-chat-theme="cyber"] .compare-message,
+
+  body[data-chat-theme="cyber"] .council-message {
+
+    max-width: calc(100vw - 40px);
+
+  }
+
+  body[data-chat-theme="cyber"] .message:not(.compare-message):not(.council-message) .message-content {
+
+    max-width: 100%;
+
+  }
+
+  body[data-chat-theme="cyber"] .composer-area {
+
+    padding: 24px 12px 6px;
+
+  }
+
+  body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
+
+    bottom: 108px;
+
+    padding: 0 12px;
+
+  }
+
+  body[data-chat-theme="cyber"] .composer {
+
+    box-shadow: var(--cyber-drop-md);
+
+  }
+
+  body[data-chat-theme="doodle"] .sidebar-top,
+
+  body[data-chat-theme="doodle"] .sidebar-bottom {
+
+    padding: 4px 8px;
+
+    align-items: flex-start;
+
+  }
+
+  body[data-chat-theme="doodle"] .sidebar {
+
+    margin: 0;
+
+    height: 100dvh;
+
+    border-radius: 0 28px 28px 0;
+
+  }
+
+  body[data-chat-theme="doodle"] .messages {
+
+    padding: 76px 16px 140px;
+
+  }
+
+  body[data-chat-theme="doodle"] .compare-message,
+
+  body[data-chat-theme="doodle"] .council-message {
+
+    max-width: calc(100vw - 40px);
+
+  }
+
+  body[data-chat-theme="doodle"] .empty-state h1 {
+
+    font-size: 28px;
+
+  }
+
+  body[data-chat-theme="doodle"] .message:not(.compare-message):not(.council-message) .message-content {
+
+    max-width: 100%;
+
+  }
+
+  body[data-chat-theme="doodle"] .composer-area {
+
+    padding: 0 12px 12px;
+
+    background: transparent !important;
+
+    backdrop-filter: none;
+
+  }
+
+  body[data-chat-theme="doodle"] .composer {
+
+    border-radius: 24px;
+
+    padding: 16px 16px 12px;
+
+  }
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .app-shell,
+
+body.chat-empty[data-chat-theme="doodle"] .chat-panel {
+
+  background: var(--paper);
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .app-shell::before,
+
+body.chat-empty[data-chat-theme="doodle"] .chat-panel::before,
+
+body.chat-empty[data-chat-theme="doodle"] .chat-panel::after {
+
+  display: none;
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer-area {
+
+  position: absolute;
+
+  top: max(120px, calc(50dvh - 94px));
+
+  right: 0;
+
+  bottom: auto;
+
+  left: 0;
+
+  z-index: 8;
+
+  display: block;
+
+  visibility: visible;
+
+  opacity: 1;
+
+  padding: 0 24px;
+
+  pointer-events: none;
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer-wrap {
+
+  pointer-events: auto;
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer {
+
+  background: var(--glass);
+
+  backdrop-filter: blur(16px);
+
+  -webkit-backdrop-filter: blur(16px);
+
+  border-color: var(--border);
+
+  box-shadow: var(--shadow-md);
+
+}
+
+body.chat-empty[data-chat-theme="cyber"] .empty-state h1,
+
+body.chat-empty[data-chat-theme="doodle"] .empty-state h1 {
+
+  font-family: var(--font-sans);
+
+  font-size: clamp(24px, 2.2vw, 30px);
+
+  font-weight: 400;
+
+  line-height: 1.25;
+
+  letter-spacing: 0;
+
+  text-transform: none;
+
+}
+
+body.chat-empty[data-chat-theme="doodle"] .composer {
+
+  border-radius: 28px;
+
+  padding: 12px 14px 10px;
+
+}
+
+@media (max-width: 768px) {
+
+  body[data-chat-theme="doodle"] .chat-panel > .temporary-chat-bar {
+
+    top: 64px;
+
+    right: 14px;
+
+    left: 64px;
+
+    gap: 10px;
+
+  }
+
+  body.chat-empty[data-chat-theme="doodle"] .composer-area {
+
+    top: max(108px, calc(50dvh - 90px));
+
+    padding: 0 12px;
+
+  }
+
+}
+
+/* Keep native app rules authoritative after the website breakpoints above. */
+
+body.capacitor-native.guest-mode .sidebar,
+
+body.capacitor-native .sidebar {
+
+  width: min(88vw, 360px);
+
+  overflow: hidden;
+
+  z-index: 80;
+
+  visibility: hidden;
+
+  pointer-events: none;
+
+  transform: translateX(-102%);
+
+}
+
+body.capacitor-native.guest-mode.sidebar-open .sidebar,
+
+body.capacitor-native.sidebar-open .sidebar {
+
+  width: min(88vw, 360px);
+
+  overflow: visible;
+
+  visibility: visible;
+
+  pointer-events: auto;
+
+  transform: translateX(0);
+
+}
+
+body.capacitor-native .chat-panel > .temporary-chat-bar {
+
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px);
+
+  right: 18px;
+
+  left: auto;
+
+}
+
+body.capacitor-native.sidebar-open .pinned-popup {
+
+  left: 0;
+
+  right: auto;
+
+  top: calc(100% + 6px);
+
+  width: 100%;
+
+  max-width: 100%;
+
+}
+
+body.capacitor-native .composer-model-wrap {
+
+  flex: 0 0 auto;
+
+  min-width: 108px;
+
+  max-width: none;
+
+}
+
+body.capacitor-native .composer-actions {
+
+  padding-right: 2px;
+
+}
+
+body.capacitor-native.chat-empty .composer,
+
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer,
+
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer {
+
+  padding: 14px 14px 10px;
+
+  border-radius: 25px;
+
+}
+
+/* Keep the native backdrop behind the sidebar but above the chat content.
+
+   Must win over the website media-query rule that sets z-index: 29 on
+
+   body.sidebar-open .native-nav-backdrop (same specificity, appears later
+
+   in source order). */
+
+body.capacitor-native.sidebar-open .native-nav-backdrop {
+
+  z-index: 79;
+
+}
+
+body.capacitor-native.sidebar-open .sidebar {
+
+  z-index: 80;
+
+}
+
+/* ────────────────────────────────────────────────────────────
+
+   Native-only polish (Klui APK, scope guarded by .capacitor-native)
+
+   ──────────────────────────────────────────────────────────── */
+
+/* Smooth motion baseline for native (prefers-reduced-motion respected below). */
+
+body.capacitor-native,
+
+body.capacitor-native * {
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --motion-fast: 180ms;
+
+  --motion-med:  240ms;
+
+}
+
+/* ── Item 1: status bar / notification panel blends into the top bar.
+
+   The Capacitor StatusBar is configured to the same background as the chat
+
+   surface, so on Android the system bar visually merges into the header.
+
+   Web fallback below matches when the meta theme-color is set. */
+
+body.capacitor-native {
+
+  --native-bar-h: 52px;
+
+  background-color: var(--bg);
+
+}
+
+body.capacitor-native .chat-panel {
+
+  --header-clearance: var(--native-bar-h);
+
+  padding-top: 0;
+
+}
+
+body.capacitor-native .messages {
+
+  padding-top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 6px);
+
+}
+
+body.capacitor-native .compare-context-banner {
+
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 6px);
+
+}
+
+/* ── Item 2: the top bar controls float over a transparent band.
+
+   Order: hamburger, mode chip (left side) | temp-chat icon, new-chat (right side). */
+
+body.capacitor-native .native-mobile-bar {
+
+  position: absolute;
+
+  top: 0;
+
+  right: 0;
+
+  left: 0;
+
+  z-index: 8;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: flex-start;
+
+  gap: 6px;
+
+  height: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h));
+
+  padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 12px 0;
+
+  background: transparent !important;
+
+  border: 0;
+
+  backdrop-filter: none;
+
+  pointer-events: none;
+
+}
+
+body.capacitor-native .native-mobile-icon-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent !important;
+  color: var(--text);
+  box-shadow: none !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: none;
+}
+body.capacitor-native .native-mobile-icon-btn:hover,
+body.capacitor-native .native-mobile-icon-btn:active {
+  background: transparent !important;
+}
+
+body.capacitor-native .native-mobile-icon-btn:active {
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  transform: scale(0.96);
+
+}
+
+body.capacitor-native .native-mobile-icon-btn.pressed,
+
+body.capacitor-native .native-mobile-icon-btn:focus-visible {
+
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+
+  outline: none;
+
+}
+
+body.capacitor-native .native-mobile-menu {
+  position: static;
+  left: auto;
+  bottom: auto;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+  margin-left: 4px;
+}
+
+body.capacitor-native .temporary-chat-toggle {
+  width: 38px;
+  height: 38px;
+  border: 0 !important;
+  border-radius: 12px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text);
+  opacity: 1;
+  pointer-events: auto;
+  margin-left: auto;
+  transition: none !important;
+}
+body.capacitor-native .temporary-chat-toggle:hover {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--text) !important;
+}
+
+body.capacitor-native .temporary-chat-toggle { margin-left: auto; }
+
+body.capacitor-native .compact-new-chat { margin-right: 4px; }
+
+body.capacitor-native .temporary-chat-toggle.active {
+
+  color: var(--text);
+
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-brand { display: none; }
+
+/* Mode chip + dropdown — transparent bg by default, subtle tint on interaction. */
+
+body.capacitor-native .native-mobile-mode-wrap {
+
+  position: relative;
+
+  pointer-events: auto;
+
+  margin: 0 0 0 2px;
+
+}
+
+body.capacitor-native .native-mobile-mode-btn {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 4px;
+
+  height: 36px;
+
+  padding: 0 10px 0 12px;
+
+  border-radius: 999px;
+
+  color: var(--text);
+  opacity: 1;
+
+  background: transparent;
+
+  border: 1px solid transparent;
+
+  font: inherit;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
+  letter-spacing: 0.01em;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn:active {
+
+  transform: scale(0.97);
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn[aria-expanded="true"] {
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn svg {
+
+  opacity: 1;
+
+  transition: transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn[aria-expanded="true"] svg {
+
+  transform: rotate(180deg);
+
+}
+
+body.capacitor-native .native-mobile-mode-dropdown {
+
+  position: absolute;
+
+  top: calc(100% + 6px);
+
+  left: 0;
+
+  z-index: 60;
+
+  min-width: 200px;
+
+  padding: 6px;
+
+  background: var(--bg);
+
+  border: 1px solid var(--border-light);
+
+  border-radius: 14px;
+
+  box-shadow: var(--shadow-lg);
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 2px;
+
+  transform-origin: top left;
+
+  animation: native-mode-pop var(--motion-med) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-dropdown[hidden],
+
+body.capacitor-native .native-mobile-mode-dropdown.hidden { display: none; }
+
+body.capacitor-native .native-mobile-mode-item {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 10px;
+
+  height: 38px;
+
+  padding: 0 10px;
+
+  border-radius: 10px;
+
+  color: var(--text);
+
+  background: transparent;
+
+  border: 0;
+
+  font: inherit;
+
+  font-size: 14px;
+
+  text-align: left;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition: background var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-item:hover {
+
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-mode-item:active {
+
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-mode-item.is-active {
+
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+
+  font-weight: 600;
+
+}
+
+body.capacitor-native .native-mobile-mode-item svg,
+
+body.capacitor-native .native-mobile-mode-item .mode-dot {
+
+  color: var(--text-secondary);
+
+}
+
+body.capacitor-native .native-mobile-mode-item .mode-dot {
+
+  width: 8px;
+
+  height: 8px;
+
+  border-radius: 50%;
+
+  background: var(--text);
+
+}
+
+body.capacitor-native .native-mobile-mode-item .mode-dot-thinking { background: #4f8cff; }
+
+body.capacitor-native .native-mobile-mode-item .mode-dot-pro     { background: #b58bff; }
+
+@keyframes native-mode-pop {
+
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+
+}
+
+/* Temporary-chat label chip floats below the bar; not in the bar. */
+
+body.capacitor-native .temporary-chat-label {
+
+  position: absolute;
+
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 6px);
+
+  left: 50%;
+
+  transform: translateX(-50%);
+
+  padding: 4px 12px;
+
+  border-radius: 999px;
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  color: var(--text);
+
+  font-size: 12px;
+
+  font-weight: 600;
+
+  letter-spacing: 0.01em;
+
+  animation: native-mode-pop var(--motion-med) var(--ease-out);
+
+}
+
+/* ── Composer simplifies to a clean pill — only the "+" and send.
+
+   Mode/compare/council chips now live in the top-bar dropdown. */
+
+body.capacitor-native .composer-bottom .composer-actions > .composer-model-wrap,
+
+body.capacitor-native .composer-bottom .composer-actions > .composer-compare-wrap {
+
+  display: none !important;
+
+}
+
+body.capacitor-native .composer {
+
+  border-radius: 28px;
+
+  padding: 10px 10px 8px;
+
+  border: 1px solid var(--border-light);
+
+  background: color-mix(in srgb, var(--bg) 96%, var(--surface));
+
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .composer:focus-within {
+
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border-light));
+
+  box-shadow: var(--shadow-md);
+
+}
+
+body.capacitor-native .composer-bottom {
+
+  margin-top: 6px;
+
+  gap: 6px;
+
+}
+
+body.capacitor-native .composer-tool,
+
+body.capacitor-native .send-btn {
+
+  width: 36px;
+
+  height: 36px;
+
+  border-radius: 999px;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .composer-tool:hover,
+
+body.capacitor-native .send-btn:hover {
+
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+
+}
+
+body.capacitor-native .composer-tool:active,
+
+body.capacitor-native .send-btn:active {
+
+  transform: scale(0.94);
+
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+
+}
+
+/* ── Smaller attachment previews and a clearly visible remove (X) button. */
+
+body.capacitor-native .preview-thumb {
+
+  width: 44px;
+
+  height: 44px;
+
+  border-radius: 10px;
+
+}
+
+body.capacitor-native .preview-file {
+
+  width: 160px;
+
+  height: 44px;
+
+  padding: 6px 30px 6px 10px;
+
+  border-radius: 10px;
+
+}
+
+body.capacitor-native .preview-file .preview-file-icon svg {
+
+  width: 16px;
+
+  height: 16px;
+
+}
+
+body.capacitor-native .preview-remove {
+
+  width: 20px;
+
+  height: 20px;
+
+  top: 4px;
+
+  right: 4px;
+
+  background: rgba(0, 0, 0, 0.65);
+
+  opacity: 1;
+
+  pointer-events: auto;
+
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .preview-remove:active {
+
+  transform: scale(0.88);
+
+  background: rgba(0, 0, 0, 0.85);
+
+}
+
+body.capacitor-native .preview-thumb:hover .preview-remove {
+
+  opacity: 1;
+
+}
+
+/* ── Composer compacts to a mini pill while scrolling (~50% height).
+
+   Fully opaque solid background, centered. */
+
+body.capacitor-native .composer-area {
+
+  transition: transform var(--motion-med) var(--ease-out);
+
+  will-change: transform;
+
+}
+
+body.capacitor-native .composer.compact {
+
+  padding: 6px 10px;
+
+  border-radius: 999px;
+
+  transform: none;
+
+  background: var(--bg);
+
+  border: 1px solid var(--border-light);
+
+  box-shadow: var(--shadow-sm);
+
+}
+
+body.capacitor-native .composer.compact .composer-previews,
+
+body.capacitor-native .composer.compact .composer-bottom {
+
+  display: none;
+
+}
+
+body.capacitor-native .composer.compact::after {
+
+  content: "Tap to expand";
+
+  position: absolute;
+
+  top: 50%;
+
+  right: 14px;
+
+  transform: translateY(-50%);
+
+  font-size: 11px;
+
+  color: var(--text-tertiary);
+
+  pointer-events: none;
+
+  opacity: 0;
+
+  transition: opacity var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .composer.compact:active::after { opacity: 1; }
+
+/* ── Native: respect reduced-motion by skipping transforms. */
+
+@media (prefers-reduced-motion: reduce) {
+
+  body.capacitor-native,
+
+  body.capacitor-native * {
+
+    --motion-fast: 0ms;
+
+    --motion-med: 0ms;
+
+  }
+
+  body.capacitor-native .native-mobile-mode-dropdown,
+
+  body.capacitor-native .composer.compact,
+
+  body.capacitor-native .composer-area {
+
+    animation: none;
+
+    transform: none;
+
+  }
+
+  body.capacitor-native .native-mobile-icon-btn:active,
+
+  body.capacitor-native .native-mobile-mode-btn:active,
+
+  body.capacitor-native .composer-tool:active,
+
+  body.capacitor-native .send-btn:active {
+
+    transform: none;
+
+  }
+
+}
+
+/* ── Native: hover only fires on devices with a real pointer. Touch users
+
+   shouldn't see hover-state background flashes after a tap. */
+
+@media (hover: none) {
+
+  body.capacitor-native .native-mobile-icon-btn:hover,
+
+  body.capacitor-native .native-mobile-mode-btn:hover,
+
+  body.capacitor-native .composer-tool:hover,
+
+  body.capacitor-native .send-btn:hover,
+
+  body.capacitor-native .native-mobile-mode-item:hover {
+
+    background: transparent;
+
+  }
+
+}
+
+/* ── Native: hover gated by (hover: hover) and (pointer: fine).
+
+   Mode chip gets subtle 8% tint on hover. */
+
+@media (hover: hover) and (pointer: fine) {
+
+  body.capacitor-native .native-mobile-mode-btn:hover {
+
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  }
+
+}
+
+/* ────────────────────────────────────────────────────────────
+
+   Klui APK — authoritative native-only block.
+
+   Single source of truth for everything that differs from the website
+
+   on the Capacitor Android app. All rules live here, all use
+
+   `body.capacitor-native` for scope, and all are written to win over
+
+   any earlier native rule by source order + specificity.
+
+   ──────────────────────────────────────────────────────────── */
+
+body.capacitor-native {
+  /* Motion tokens (emil-design-eng / review-animations). */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-fast: 180ms;
+  --motion-med: 240ms;
+  /* Top-bar height (icon row) — separate from the full element height
+     because the bar includes the safe-area inset. */
+  --native-bar-h: 52px;
+}
+
+/* Status bar / notification panel visually blends into the top bar.
+
+   The Capacitor StatusBar background is set to var(--bg) (already wired
+
+   in app.js → configureNativeChrome). On the web side this is invisible,
+
+   on the APK it means the system status bar and the app top bar are the
+
+   same color with no seam between them. */
+
+body.capacitor-native {
+
+  background-color: var(--bg);
+
+}
+
+/* The top bar itself: solid background = the same --bg as the status
+
+   bar. NO border, NO shadow at the bottom, NO backdrop-filter — those
+
+   are the visual seams the user is reporting. The bar IS the surface;
+
+   the messages start right under it. */
+
+body.capacitor-native .native-mobile-bar {
+
+  position: absolute;
+
+  top: 0;
+
+  right: 0;
+
+  left: 0;
+
+  z-index: 8;
+
+  display: flex;
+
+  align-items: flex-end;
+
+  justify-content: flex-start;
+
+  gap: 4px;
+
+  height: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h));
+
+  padding: var(--safe-area-inset-top, env(safe-area-inset-top)) 12px 6px;
+
+  background: var(--bg);
+
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  border-bottom: 0;
+
+  box-shadow: none;
+
+  backdrop-filter: none;
+
+  -webkit-backdrop-filter: none;
+
+  pointer-events: none;
+
+  transition: background var(--motion-med) var(--ease-out);
+
+}
+
+/* Messages: NO +24px gap. Start immediately below the bar. */
+
+body.capacitor-native .messages {
+
+  padding-top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 4px);
+
+  padding-right: 18px;
+
+  padding-bottom: 200px;
+
+  padding-left: 18px;
+
+  /* Once a conversation is long enough to scroll, older content passes
+     up underneath the floating status bar / header. Instead of getting
+     hard-clipped there, fade it out with a plain alpha mask — no color
+     involved, so it tracks light/dark mode and every theme for free. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 12px));
+  mask-image: linear-gradient(to bottom, transparent, black calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 12px));
+
+}
+
+body.capacitor-native.chat-empty .messages {
+
+  padding-bottom: 174px;
+
+}
+
+/* Header icon buttons: full color, no background by default. */
+
+body.capacitor-native .native-mobile-icon-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent !important;
+  color: var(--text);
+  opacity: 1;
+  box-shadow: none !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: none;
+}
+body.capacitor-native .native-mobile-icon-btn:hover,
+body.capacitor-native .native-mobile-icon-btn:active {
+  background: transparent !important;
+  opacity: 1;
+}
+
+body.capacitor-native .native-mobile-icon-btn:active {
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  transform: scale(0.96);
+
+}
+
+body.capacitor-native .native-mobile-icon-btn.pressed,
+
+body.capacitor-native .native-mobile-icon-btn:focus-visible {
+
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+
+  outline: none;
+
+}
+
+/* Right group: temp-chat + new-chat, pushed right with auto margin. */
+
+body.capacitor-native .temporary-chat-toggle { margin-left: auto; }
+
+body.capacitor-native .compact-new-chat { margin-left: 0; }
+
+/* Hide the old Klui wordmark (it lived in the header before). */
+
+body.capacitor-native .native-mobile-brand { display: none; }
+
+/* Hide the old .temporary-chat-bar wrapper — temp-chat is now a direct
+
+   child of the header. */
+
+body.capacitor-native .temporary-chat-bar { display: none; }
+
+/* Active temp-chat label lives in the native top bar, between the mode chip and temp-chat icon. */
+
+body.capacitor-native .temporary-chat-label {
+
+  position: static;
+
+  flex: 0 0 auto;
+
+  transform: none;
+
+  min-height: 30px;
+
+  padding: 0 12px;
+
+  border-radius: 999px;
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  color: var(--text);
+
+  font-size: 12px;
+
+  font-weight: 600;
+
+  letter-spacing: 0.01em;
+
+  animation: native-mode-pop var(--motion-med) var(--ease-out);
+
+}
+
+/* Temp-chat active ring is fine to keep. */
+
+body.capacitor-native .temporary-chat-toggle.active {
+
+  color: var(--text);
+
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+
+}
+
+/* Mode chip + dropdown. */
+
+body.capacitor-native .native-mobile-mode-wrap {
+
+  position: relative;
+
+  pointer-events: auto;
+
+}
+
+body.capacitor-native .native-mobile-mode-btn {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 4px;
+
+  height: 36px;
+
+  padding: 0 8px 0 10px;
+
+  border-radius: 999px;
+
+  color: var(--text);
+
+  background: transparent;            /* No highlight by default. */
+
+  border: 0;
+
+  font: inherit;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
+  letter-spacing: 0.01em;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+}
+
+/* Only on hover (real pointer) OR while dropdown is open. */
+
+body.capacitor-native .native-mobile-mode-btn[aria-expanded="true"] {
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn:active {
+
+  transform: scale(0.97);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn svg {
+
+  opacity: 1;                        /* Full color chevron. */
+
+  transition: transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-btn[aria-expanded="true"] svg {
+
+  transform: rotate(180deg);
+
+}
+
+body.capacitor-native .native-mobile-mode-dropdown {
+
+  position: absolute;
+
+  top: calc(100% + 6px);
+
+  left: 0;
+
+  z-index: 60;
+
+  min-width: 200px;
+
+  padding: 6px;
+
+  background: var(--bg);
+
+  border: 1px solid var(--border-light);
+
+  border-radius: 14px;
+
+  box-shadow: var(--shadow-lg);
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 2px;
+
+  transform-origin: top left;
+
+  animation: native-mode-pop var(--motion-med) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-dropdown[hidden],
+
+body.capacitor-native .native-mobile-mode-dropdown.hidden { display: none; }
+
+body.capacitor-native .native-mobile-mode-item {
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 10px;
+
+  height: 38px;
+
+  padding: 0 10px;
+
+  border-radius: 10px;
+
+  color: var(--text);
+
+  background: transparent;
+
+  border: 0;
+
+  font: inherit;
+
+  font-size: 14px;
+
+  text-align: left;
+
+  -webkit-tap-highlight-color: transparent;
+
+  transition: background var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .native-mobile-mode-item.is-active {
+
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+
+  font-weight: 600;
+
+}
+
+body.capacitor-native .native-mobile-mode-item .mode-dot {
+
+  width: 8px;
+
+  height: 8px;
+
+  border-radius: 50%;
+
+  background: var(--text);
+
+}
+
+body.capacitor-native .native-mobile-mode-item .mode-dot-thinking { background: #4f8cff; }
+
+body.capacitor-native .native-mobile-mode-item .mode-dot-pro     { background: #b58bff; }
+
+@keyframes native-mode-pop {
+
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+
+}
+
+/* Compare-context banner stays clear of the floating bar. */
+
+body.capacitor-native .compare-context-banner {
+
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h) + 6px);
+
+}
+
+/* Composer: clean Gemini-style pill. + on left, send on right, textarea in middle;
+   the model/compare/council chips live in the top-bar dropdown now. */
+
+body.capacitor-native .composer-bottom .composer-actions > .composer-model-wrap,
+body.capacitor-native .composer-bottom .composer-actions > .composer-compare-wrap {
+  display: none !important;
+}
+
+body.capacitor-native .composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 28px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border-light);
+  background: var(--bg) !important;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+  min-height: 44px;
+}
+
+body.capacitor-native .composer:focus-within {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border-light));
+  box-shadow: var(--shadow-md);
+}
+
+/* Textarea takes remaining space */
+body.capacitor-native .composer textarea {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 20px;
+  max-height: 160px;
+  padding: 2px 4px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+/* Bottom row: hide it entirely — actions are inline */
+body.capacitor-native .composer-bottom {
+  display: none !important;
+}
+
+/* Hide model/compare/council — mode is in top bar */
+body.capacitor-native .composer-model-wrap,
+body.capacitor-native .composer-compare-wrap {
+  display: none !important;
+}
+
+/* + button: inline at start (left side) */
+body.capacitor-native .composer .composer-action-menu-wrap {
+  position: static;
+  flex-shrink: 0;
+}
+
+body.capacitor-native .composer-tool {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+body.capacitor-native .composer-tool:active {
+  transform: scale(0.94);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+/* Send button: flex child at end (right side) */
+body.capacitor-native .composer-send {
+  position: static;
+  flex-shrink: 0;
+  margin-left: 0;
+}
+
+body.capacitor-native .send-btn,
+body.capacitor-native .stop-btn {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 999px;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+body.capacitor-native .send-btn:active,
+body.capacitor-native .stop-btn:active {
+  transform: scale(0.94);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+/* Make new chat (chat-empty) composer match normal chat composer — no extra padding */
+body.capacitor-native.chat-empty .composer {
+  padding: 6px 8px 6px 10px;
+  min-height: 44px;
+}
+
+body.capacitor-native.chat-empty .composer textarea {
+  min-height: 20px;
+  font-size: 16px;
+}
+/* Previews: ~50% smaller, and the X is always visible (no hover-only). */
+
+body.capacitor-native .preview-thumb {
+
+  width: 44px;
+
+  height: 44px;
+
+  border-radius: 10px;
+
+}
+
+body.capacitor-native .preview-file {
+
+  width: 160px;
+
+  height: 44px;
+
+  padding: 6px 30px 6px 10px;
+
+  border-radius: 10px;
+
+}
+
+body.capacitor-native .preview-file .preview-file-icon svg {
+
+  width: 16px;
+
+  height: 16px;
+
+}
+
+body.capacitor-native .preview-remove {
+
+  width: 20px;
+
+  height: 20px;
+
+  top: 4px;
+
+  right: 4px;
+
+  background: rgba(0, 0, 0, 0.65);
+
+  opacity: 1;
+
+  pointer-events: auto;
+
+  transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .preview-remove:active {
+
+  transform: scale(0.88);
+
+  background: rgba(0, 0, 0, 0.85);
+
+}
+
+/* Compact pill: ~50% the normal height (use padding + textarea height —
+
+   no scale transform that fights the centering), centered, fully OPAQUE. */
+
+body.capacitor-native .composer.compact {
+  width: 40px;
+  height: 10px;
+  min-height: 10px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--text-secondary);
+  border: 0;
+  transform: none;
+  box-shadow: none;
+  overflow: hidden;
+  opacity: 0.5;
+  pointer-events: auto;
+  cursor: pointer;
+  display: block;
+  margin: 0 auto;
+}
+
+body.capacitor-native .composer.compact .composer-previews,
+body.capacitor-native .composer.compact .composer-bottom,
+body.capacitor-native .composer.compact textarea,
+body.capacitor-native .composer.compact .composer-action-menu-wrap,
+body.capacitor-native .composer.compact .composer-send {
+  display: none !important;
+}
+
+body.capacitor-native .composer.compact .composer-previews,
+body.capacitor-native .composer.compact .composer-bottom,
+body.capacitor-native .composer.compact textarea,
+body.capacitor-native .composer.compact .composer-action-menu-wrap,
+body.capacitor-native .composer.compact .composer-send {
+  display: none !important;
+}
+
+body.capacitor-native .composer.compact .composer-previews,
+body.capacitor-native .composer.compact .composer-bottom {
+  display: none;
+}
+
+body.capacitor-native .composer.compact #promptInput {
+  height: 18px;
+  min-height: 18px;
+  max-height: 18px;
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+body.capacitor-native .composer.compact .composer-send {
+  display: none;
+}
+
+body.capacitor-native .composer.compact .composer-previews,
+
+body.capacitor-native .composer.compact .composer-bottom {
+
+  display: none;
+
+}
+
+body.capacitor-native .composer.compact::after {
+
+  content: "Tap to expand";
+
+  position: absolute;
+
+  top: 50%;
+
+  right: 14px;
+
+  transform: translateY(-50%);
+
+  font-size: 11px;
+
+  color: var(--text-tertiary);
+
+  pointer-events: none;
+
+  opacity: 0;
+
+  transition: opacity var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .composer.compact:active::after { opacity: 1; }
+
+/* Document viewer on the APK: fullscreen overlay (was offset by the
+
+   collapsed sidebar at <=860px, hiding the left edge). */
+
+body.capacitor-native.document-viewer-open .document-viewer {
+
+  inset: 0;
+
+}
+
+body.capacitor-native.document-viewer-open .document-viewer-resizer {
+
+  display: none;
+
+}
+
+/* Reduced motion: keep colors, drop transforms/animations. */
+
+@media (prefers-reduced-motion: reduce) {
+
+  body.capacitor-native,
+
+  body.capacitor-native * {
+
+    --motion-fast: 0ms;
+
+    --motion-med: 0ms;
+
+  }
+
+  body.capacitor-native .native-mobile-mode-dropdown,
+
+  body.capacitor-native .composer.compact,
+
+  body.capacitor-native .composer-area,
+
+  body.capacitor-native .temporary-chat-label {
+
+    animation: none;
+
+    transform: none;
+
+  }
+
+  body.capacitor-native .native-mobile-icon-btn:active,
+
+  body.capacitor-native .composer-tool:active,
+
+  body.capacitor-native .send-btn:active,
+
+  body.capacitor-native .native-mobile-mode-btn:active {
+
+    transform: none;
+
+  }
+
+}
+
+/* Hover only fires on devices with a real pointer. */
+
+@media (hover: hover) and (pointer: fine) {
+
+  body.capacitor-native .native-mobile-mode-btn:hover {
+
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  }
+
+  body.capacitor-native .composer-tool:hover,
+
+  body.capacitor-native .send-btn:hover {
+
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+
+  }
+
+}
+
+/* ── APK visual polish pass: authoritative final overrides ────────────────
+   Scope: capacitor-native only; keeps web UI untouched. */
+body.capacitor-native {
+  --apk-press-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --apk-move-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --apk-chip-bg: color-mix(in srgb, var(--bg) 82%, transparent);
+  --apk-chip-bg-active: color-mix(in srgb, var(--bg) 90%, var(--text) 10%);
+}
+
+/* 1) New-chat icon must never stack over temp-chat in the APK top bar. */
+body.capacitor-native .compact-new-chat,
+body.capacitor-native #compactNewChatButton {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Temp-chat is only an affordance for a fresh/new chat. Once a normal chat
+   exists, the top-right button disappears so it doesn't become persistent noise. */
+body.capacitor-native:not(.chat-empty) .temporary-chat-toggle {
+  display: none !important;
+}
+
+/* 2) Transparent bar, but the actual controls get a slightly more legible
+   translucent surface. No full-width toolbar plate. */
+body.capacitor-native .native-mobile-bar {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border: 0 !important;
+}
+body.capacitor-native .native-mobile-icon-btn,
+body.capacitor-native .native-mobile-mode-btn,
+body.capacitor-native .temporary-chat-toggle {
+  opacity: 1 !important;
+  color: var(--text) !important;
+  background: var(--apk-chip-bg) !important;
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--text) 9%, transparent) !important;
+  transition:
+    background 150ms var(--apk-press-ease),
+    transform 140ms var(--apk-press-ease),
+    box-shadow 150ms var(--apk-press-ease) !important;
+}
+body.capacitor-native .native-mobile-icon-btn:active,
+body.capacitor-native .native-mobile-mode-btn:active,
+body.capacitor-native .temporary-chat-toggle:active {
+  transform: scale(0.96);
+  background: var(--apk-chip-bg-active) !important;
+}
+body.capacitor-native .native-mobile-mode-btn {
+  border-color: color-mix(in srgb, var(--text) 10%, transparent) !important;
+}
+body.capacitor-native .native-mobile-mode-btn[aria-expanded="true"] {
+  background: var(--apk-chip-bg-active) !important;
+}
+body.capacitor-native .native-mobile-mode-dropdown {
+  transform-origin: top left;
+  transition: opacity 170ms var(--apk-press-ease), transform 170ms var(--apk-press-ease);
+  will-change: opacity, transform;
+}
+body.capacitor-native .native-mobile-mode-dropdown:not(.hidden) {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+body.capacitor-native .native-mobile-mode-dropdown.hidden {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+/* 3/4) Composer: + left, text center, send right. One clean row in both
+   normal and new-chat states. Use display:contents so the existing markup can
+   visually become a single row without changing web markup. */
+body.capacitor-native .composer,
+body.capacitor-native.chat-empty .composer {
+  display: grid !important;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 48px;
+  padding: 6px 8px !important;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--bg) 96%, var(--surface)) !important;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--text) 12%, transparent);
+  transition:
+    transform 220ms var(--apk-move-ease),
+    width 220ms var(--apk-move-ease),
+    min-height 220ms var(--apk-move-ease),
+    padding 220ms var(--apk-move-ease),
+    border-radius 220ms var(--apk-move-ease),
+    box-shadow 180ms var(--apk-press-ease),
+    background 180ms var(--apk-press-ease);
+}
+body.capacitor-native .composer:focus-within {
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--text) 16%, transparent);
+}
+body.capacitor-native .composer-previews {
+  grid-column: 1 / -1;
+}
+body.capacitor-native .composer textarea,
+body.capacitor-native.chat-empty .composer textarea {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  width: 100%;
+  min-height: 22px !important;
+  max-height: 160px;
+  padding: 0 2px !important;
+  font-size: 16px !important;
+  line-height: 1.45;
+}
+body.capacitor-native .composer-bottom {
+  display: contents !important;
+}
+body.capacitor-native .composer-actions {
+  display: contents !important;
+}
+body.capacitor-native .composer-action-menu-wrap {
+  grid-column: 1;
+  grid-row: 2;
+  position: static !important;
+  justify-self: start;
+  align-self: center;
+}
+body.capacitor-native .composer-model-wrap,
+body.capacitor-native .composer-compare-wrap {
+  display: none !important;
+}
+body.capacitor-native .composer-send {
+  grid-column: 3;
+  grid-row: 2;
+  position: static !important;
+  justify-self: end;
+  align-self: center;
+  margin: 0 !important;
+}
+body.capacitor-native .composer-tool,
+body.capacitor-native .send-btn,
+body.capacitor-native .stop-btn {
+  width: 34px !important;
+  height: 34px !important;
+  flex: 0 0 34px;
+  transition: transform 140ms var(--apk-press-ease), background 150ms var(--apk-press-ease), opacity 150ms var(--apk-press-ease) !important;
+}
+body.capacitor-native .composer-tool:active,
+body.capacitor-native .send-btn:active,
+body.capacitor-native .stop-btn:active {
+  transform: scale(0.94);
+}
+
+/* Scrolling mini composer: a small, solid centered pill. No text/buttons, no
+   transparent glass. Tapping it expands back into the real composer. */
+body.capacitor-native .composer.compact {
+  display: block !important;
+  width: 56px !important;
+  height: 14px !important;
+  min-height: 14px !important;
+  padding: 0 !important;
+  margin: 0 auto;
+  border: 0 !important;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 78%, var(--bg)) !important;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 16%, transparent) !important;
+  opacity: 1 !important;
+  transform: translateY(0) scale(1);
+  overflow: hidden;
+  cursor: pointer;
+}
+body.capacitor-native .composer.compact .composer-previews,
+body.capacitor-native .composer.compact .composer-bottom,
+body.capacitor-native .composer.compact textarea,
+body.capacitor-native .composer.compact .composer-action-menu-wrap,
+body.capacitor-native .composer.compact .composer-send {
+  display: none !important;
+}
+
+/* Respect reduced motion: keep state changes, remove movement. */
+@media (prefers-reduced-motion: reduce) {
+  body.capacitor-native .composer,
+  body.capacitor-native .native-mobile-icon-btn,
+  body.capacitor-native .native-mobile-mode-btn,
+  body.capacitor-native .temporary-chat-toggle,
+  body.capacitor-native .native-mobile-mode-dropdown {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── APK composer alignment/tap behavior refinement ────────────────────────
+   No-preview composer controls belong on the first grid row. The previous
+   preview-ready row-2 placement left invisible vertical space above the icons,
+   making the + button look closer to the bottom edge. */
+body.capacitor-native .composer .composer-previews:empty {
+  display: none !important;
+}
+body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) textarea,
+body.capacitor-native.chat-empty .composer:not(:has(.composer-previews:not(:empty))) textarea,
+body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-action-menu-wrap,
+body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-send {
+  grid-row: 1 !important;
+}
+body.capacitor-native .composer,
+body.capacitor-native.chat-empty .composer {
+  padding-top: 4px !important;
+  padding-bottom: 6px !important;
+}
+body.capacitor-native .composer.compact {
+  width: 56px !important;
+  height: 14px !important;
+  min-height: 14px !important;
+  padding: 0 !important;
+  margin: 0 auto;
+  background: color-mix(in srgb, var(--text-secondary) 78%, var(--bg)) !important;
+  opacity: 1 !important;
+}
+
+/* ── APK: keep the typing composer fully opaque on every theme. The doodle and
+   cyber themes use a translucent "glass" composer on the web, which makes typed
+   text hard to read inside the app. The mini pill keeps its own styling. */
+body.capacitor-native .composer:not(.compact),
+body.capacitor-native.chat-empty .composer:not(.compact),
+body.capacitor-native[data-chat-theme="doodle"] .composer:not(.compact),
+body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer:not(.compact),
+body.capacitor-native[data-chat-theme="cyber"] .composer:not(.compact),
+body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact) {
+  background: var(--bg) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Motion polish: frequent controls only get immediate press feedback. */
+.composer-tool,
+.send-btn,
+.stop-btn,
+.composer-model-btn,
+.compare-btn,
+.sidebar-icon,
+.temporary-chat-toggle,
+.drawer-close,
+.profile-menu-item,
+.composer-action-menu-item,
+.model-option,
+.research-card-actions button,
+.research-report-header button,
+.confirm-actions button,
+.rename-actions button,
+.auth-dialog-close,
+.search-dialog-close {
+  transition-property: transform, background-color, border-color, color, opacity, box-shadow;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-out);
+}
+
+.composer-tool:active,
+.send-btn:active,
+.stop-btn:active,
+.composer-model-btn:active,
+.compare-btn:active,
+.sidebar-icon:active,
+.temporary-chat-toggle:active,
+.drawer-close:active,
+.profile-menu-item:active,
+.composer-action-menu-item:active,
+.model-option:active,
+.research-card-actions button:active,
+.research-report-header button:active,
+.confirm-actions button:active,
+.rename-actions button:active,
+.auth-dialog-close:active,
+.search-dialog-close:active {
+  transform: scale(.97);
+}
+
+.confirm-dialog,
+.rename-dialog,
+.auth-dialog,
+.search-dialog {
+  transition: opacity var(--motion-medium) var(--ease-out), transform var(--motion-medium) var(--ease-out);
+}
+

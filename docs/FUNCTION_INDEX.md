@@ -130,7 +130,7 @@ regex substitutions) are deliberately not listed.
   whitelist, content-type whitelist (text/image_url), image
   data-URL validator, numeric range checks, stop/seed/tools
   validation.
-- **Callers**: `server/routes.js` (every chat-issuing handler).
+- **Callers**: `server/chat/pipeline.js` (every chat-issuing handler).
 - **Major dependencies**: `server/http/responses.js`.
 
 ---
@@ -138,14 +138,14 @@ regex substitutions) are deliberately not listed.
 ## D. Persistence (PostgREST client)
 
 ### `class SupabaseRest` ← mixed
-- **Path**: `server/db/supabaseRest.js`
+- **Path**: `server/db/supabaseRest.js` (methods delegate to `server/db/rest/{profiles,subscriptions,payments,chat,attachments,documents,research,billing,caches,admin,helpers}.js`)
 - **Responsibility**: PostgREST client for the `service_role` key.
-  One method per table operation plus the `klui_*` RPCs this Node
-  client actually calls (`klui_claim_research_run`,
-  `klui_check_api_budget`, `klui_record_api_usage`,
-  `klui_search_document_pages`, `klui_search_document_chunks`) and the
-  `klui_cleanup_storage_and_cache` maintenance routine. Note:
-  `klui_claim_document_job` is **not** a `SupabaseRest` method — it is
+  The public class surface is unchanged; each method forwards to the
+  matching `server/db/rest/*` module. RPCs this Node client actually
+  calls include `klui_claim_research_run`, `klui_check_api_budget`,
+  `klui_record_api_usage`, `klui_search_document_pages`,
+  `klui_search_document_chunks`, and `klui_cleanup_storage_and_cache`.
+  Note: `klui_claim_document_job` is **not** a `SupabaseRest` method — it is
   called only by the Python worker (`worker/worker.py`,
   `Supabase.claim_job`; see § P). Methods include:
   - **Profiles / app settings**: `upsertProfile`, `updateProfile`,
@@ -177,9 +177,9 @@ regex substitutions) are deliberately not listed.
   - **Billing**: `checkApiBudget`, `recordApiUsageCost`,
     `getApiWeeklyUsage`.
   - **Admin**: `adminSummary`.
-- **Callers**: `server/routes.js`, `server/research/worker.js`,
+- **Callers**: `server/routes/*`, `server/chat/*`, `server/research/worker.js`,
   `server/websearch/index.js` (via the orchestrator's `persistentCache`).
-- **Major dependencies**: `server/http/responses.js`.
+- **Major dependencies**: `server/http/responses.js`, `server/db/rest/*.js`.
 
 ---
 
@@ -197,7 +197,7 @@ regex substitutions) are deliberately not listed.
   `uploadHeaders`, `presign`, `uploadUrl`, `putObject`, `readUrl`,
   `deleteUrl`, `headUrl`, `headObject`, `deleteObject`,
   `deleteObjects`. Pure-JS AWS Sig-V4 signing.
-- **Callers**: `server/routes.js` (presign upload, upload relay,
+- **Callers**: `server/routes/uploads.js` (presign upload, upload relay,
   complete upload, attachment download/view/delete,
   conversation delete cascade).
 - **Major dependencies**: `node:crypto`, `server/http/responses.js`.
@@ -219,7 +219,7 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: Resolve the current active subscription +
   plan for a user, or short-circuit to the testing plan in
   `ACCESS_MODE=testing`.
-- **Callers**: `server/routes.js`, `server/research/worker.js`.
+- **Callers**: `server/routes/*`, `server/chat/*`, `server/research/worker.js`.
 - **Major dependencies**: `server/http/responses.js`, `server/saas/plans.js`.
 
 ### `billingPeriodForSubscription`, `apiUsageWindow`, `usageCostCredits`, `estimateOpenRouterCostCredits`, `fetchOpenRouterGenerationCost`, `assertApiBudgetAvailable` ← mixed
@@ -241,14 +241,14 @@ regex substitutions) are deliberately not listed.
   record the actual cost afterwards. Parses the streaming SSE for
   `usage` and `id` so the meter can attribute the cost to the
   generation.
-- **Callers**: `server/routes.js`, `server/research/worker.js`.
+- **Callers**: `server/routes/*`, `server/chat/*`, `server/research/worker.js`.
 - **Major dependencies**: `server/crofai/client.js`, `server/saas/billing.js`.
 
 ### `SYSTEM_PROMPT_SETTING_KEY`, `DEFAULT_GLOBAL_SYSTEM_PROMPT`, `normalizeGlobalSystemPrompt`, `systemPromptSettingValue`, `loadGlobalSystemPrompt`
 - **Path**: `server/saas/systemPrompt.js`
 - **Responsibility**: The default and admin-overridable global
   system prompt (stored in `app_settings`).
-- **Callers**: `server/routes.js`.
+- **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: none.
 
 ### `modelSupportsVision`, `resolveVisionDescribeModel`
@@ -257,7 +257,7 @@ regex substitutions) are deliberately not listed.
   descriptors (`input_modalities` plus a name regex), and resolution
   of the vision describe model (config override → kimi/moonshot
   scan → `kimi-k2.6`).
-- **Callers**: `server/saas/images.js`, `server/routes.js`.
+- **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: none.
 
 ### `extractReasoningDelta`
@@ -279,7 +279,7 @@ regex substitutions) are deliberately not listed.
   `{descriptions, model}`. The other helpers collect ids, cache
   descriptions, and substitute images with text descriptions for
   text-only models.
-- **Callers**: `server/routes.js`.
+- **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/crofai/client.js`, `server/saas/messages.js`,
   `server/saas/models.js`, `server/http/responses.js`.
 
@@ -287,16 +287,30 @@ regex substitutions) are deliberately not listed.
 
 ## H. Messages, streaming, content shape
 
-### `titleFromText`, `normalizeMessageSettings`, `buildStoredUserContent`, `normalizePastedTextRange`, `imageCountFromContent`, `contentText`, `hydrateMessagesForClient`, `filterCouncilHistory`, `buildProviderMessages`, `resolveReasoningDurationMs`, `reasoningDurationMetadata`, `normalizeUsage`, `stripLeakedToolMarkup`, `applyStreamEvent`, `sanitizeProviderEvent`, `writeProviderEvent`, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate` ← mixed
+### `server/saas/messages.js` (barrel)
 - **Path**: `server/saas/messages.js`
-- **Responsibility**: Content shape, history filtering, the SSE
-  stream reducer, tool-call delta accumulation, and the two
-  long-running stream readers (`pipeProviderStreamAndAccumulate`
-  for 1:1 relay, `streamProviderAndAccumulate` for the tool loop).
+- **Responsibility**: Re-exports everything from `messages/content.js`
+  and `messages/stream.js` so static and dynamic importers keep the
+  same path.
+
+### `titleFromText`, `normalizeMessageSettings`, `buildStoredUserContent`, `normalizePastedTextRange`, `imageCountFromContent`, `contentText`, `hydrateMessagesForClient`, `filterCouncilHistory`, `buildProviderMessages`, `resolveReasoningDurationMs`, `reasoningDurationMetadata`, `normalizeUsage`, `stripLeakedToolMarkup` ← mixed
+- **Path**: `server/saas/messages/content.js`
+- **Responsibility**: Content shape, history filtering, R2 URL hydration
+  (client vs provider), and leaked-tool-markup stripping.
+- **Callers**: `server/chat/*`, `server/saas/council.js`,
+  `server/saas/images.js`.
+- **Major dependencies**: `server/http/responses.js`.
+
+### `applyStreamEvent`, `sanitizeProviderEvent`, `writeProviderEvent`, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate` ← mixed
+- **Path**: `server/saas/messages/stream.js`
+- **Responsibility**: The SSE stream reducer, tool-call delta
+  accumulation, and the two long-running stream readers
+  (`pipeProviderStreamAndAccumulate` for 1:1 relay,
+  `streamProviderAndAccumulate` for the tool loop).
   `applyStreamEvent` is the central reducer; it captures usage
   from the trailing chunk and strips leaked DSML tool markup.
-- **Callers**: `server/routes.js`, `server/saas/council.js` (dynamic
-  import from the tool loop), `server/saas/images.js`.
+- **Callers**: `server/chat/*`, `server/saas/council.js` (dynamic
+  import from `websearch/tool/loop.js`), `test/usage.test.js`.
 - **Major dependencies**: `server/saas/reasoning.js`,
   `server/http/responses.js`.
 
@@ -314,7 +328,7 @@ regex substitutions) are deliberately not listed.
   override → Borda winner → user-selected → first panelist.
   `runPeerReview` runs Stage 2 with up to 3 attempts per reviewer.
   `runChairmanSynthesis` streams Stage 3.
-- **Callers**: `server/routes.js` (`handleCouncilConversationMessage`).
+- **Callers**: `server/chat/council.js` (`handleCouncilConversationMessage`).
 - **Major dependencies**: `node:crypto`, `server/crofai/client.js`,
   `server/saas/messages.js`, `server/http/responses.js`.
 
@@ -338,7 +352,7 @@ regex substitutions) are deliberately not listed.
   user prompt. Returns `{enabled, skills, toolNames, ready}`.
   Always attaches visual read tools and the `pdf-read` skill when
   a ready PDF is in the chat.
-- **Callers**: `server/routes.js`.
+- **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/documents/skillRegistry.js`.
 
 ### `buildDocumentTools`, `isDocumentToolName`, `executeDocumentToolCall` ← mixed
@@ -349,10 +363,27 @@ regex substitutions) are deliberately not listed.
   `executeDocumentToolCall` executor. Emits "pending artifact card"
   output so the UI can show a "Generating…" card while the worker
   is still processing.
-- **Callers**: `server/websearch/tool.js` (when the model calls a
+- **Callers**: `server/websearch/tool/loop.js` (when the model calls a
   document tool).
 - **Major dependencies**: `server/documents/index.js` (the
   DocumentService) via the orchestrator.
+
+### `inferCreateFormat`
+- **Path**: `server/documents/inferFormat.js`
+- **Responsibility**: Regex/heuristic inference of create format
+  (`pdf` / `docx` / `xlsx` / `pptx`) from explicit format plus
+  prompt hints.
+- **Callers**: `server/documents/index.js` (`DocumentService.createDocument`).
+- **Major dependencies**: none.
+
+### `contentToText`, `createIntentMentionsPriorContent`, `createIntentLooksLikeOnlyInstructions`, `assistantTextLooksLikeArtifactHandoff`
+- **Path**: `server/documents/resolveContent.js`
+- **Responsibility**: Pure helpers for resolving create/edit body text
+  and detecting artifact-handoff phrasing. `DocumentService` methods
+  `latestAssistantText` and `resolveCreateContent` remain on the class
+  in `index.js` and call these helpers.
+- **Callers**: `server/documents/index.js` (`DocumentService`).
+- **Major dependencies**: none.
 
 ### `class DocumentService` ← mixed, `buildUntrustedDocumentContext`
 - **Path**: `server/documents/index.js`
@@ -366,9 +397,9 @@ regex substitutions) are deliberately not listed.
   `createDocument`, `editDocument`, `exportDocument`.
   `buildUntrustedDocumentContext` is a pure helper for the
   Council/Compare shared pre-document-search path.
-- **Callers**: `server/routes.js` (single chat), `server/routes.js`
-  (shared pre-document-search for Compare/Council),
-  `server/websearch/tool.js` (tool loop).
+- **Callers**: `server/chat/pipeline.js` (single chat and shared
+  pre-document-search for Compare/Council),
+  `server/websearch/tool/loop.js` (tool loop).
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/http/responses.js`.
 
 ---
@@ -382,8 +413,8 @@ regex substitutions) are deliberately not listed.
   via `SearchCache`, and `readUrl` for direct page reads. Exposes
   a normalized `{ok, results, citations, cached}` shape regardless
   of provider.
-- **Callers**: `server/routes.js` (single chat), `server/routes.js`
-  (shared pre-search for Compare/Council).
+- **Callers**: `server/chat/pipeline.js` (single chat and shared
+  pre-search for Compare/Council).
 - **Major dependencies**: `server/websearch/brave.js`,
   `server/websearch/cache.js`, `server/websearch/jina.js`,
   `server/websearch/searxng.js`.
@@ -429,27 +460,43 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: Cheap heuristic detector that decides whether
   to nudge the model toward `web_search` or `read_url`. The model
   still makes the final decision via tool-calling.
-- **Callers**: `server/routes.js` (`runSharedPreSearch`).
+- **Callers**: `server/chat/pipeline.js` (`runSharedPreSearch`).
 - **Major dependencies**: none.
 
-### `isToolsUnsupportedError`, `buildWebSearchTools`, `runChatWithToolLoop`, `executeToolCall`, `prepareVisualPagesForModel`, `visualDocumentMessage`, `visualImageInputLimit` ← mixed
+### `server/websearch/tool.js` (barrel)
 - **Path**: `server/websearch/tool.js`
+- **Responsibility**: Re-exports from `tool/loop.js`, `tool/visual.js`,
+  and `tool/unsupported.js`.
+
+### `isToolsUnsupportedError`
+- **Path**: `server/websearch/tool/unsupported.js`
+- **Responsibility**: Heuristics for providers that reject `tools` /
+  `tool_choice`; drives graceful degradation (drop `tool_choice`, then
+  `tools`).
+- **Callers**: `server/websearch/tool/loop.js`.
+- **Major dependencies**: none.
+
+### `prepareVisualPagesForModel`, `visualDocumentMessage`, `visualImageInputLimit`
+- **Path**: `server/websearch/tool/visual.js`
+- **Responsibility**: Visual PDF page inline images for vision-capable
+  models in the tool loop.
+- **Callers**: `server/websearch/tool/loop.js`.
+- **Major dependencies**: `server/documents/index.js`.
+
+### `buildWebSearchTools`, `runChatWithToolLoop`, `executeToolCall` ← mixed
+- **Path**: `server/websearch/tool/loop.js`
 - **Responsibility**: The tool-calling run loop.
   `runChatWithToolLoop` is the core engine: it streams the model,
   intercepts `tool_calls`, executes them (web_search / read_url /
   document_*), reinjects the results as `role: "tool"` messages,
-  then re-invokes the model. Handles provider graceful degradation
-  (drop `tool_choice`, then `tools`), the artifact-handoff guard
-  (when the model claims it created a document but no tool call
-  returned a real artifact card), the empty-answer retry, and the
-  per-turn iteration cap. Also handles visual PDF page inline
-  images for vision models (`prepareVisualPagesForModel`,
-  `visualDocumentMessage`).
-- **Callers**: `server/routes.js` (single chat), `server/routes.js`
-  (temporary chat).
+  then re-invokes the model. Handles the artifact-handoff guard,
+  empty-answer retry, and per-turn iteration cap. Dynamically imports
+  `server/saas/messages.js` for `streamProviderAndAccumulate`.
+- **Callers**: `server/chat/pipeline.js` (single chat),
+  `server/chat/temporary.js` (temporary chat).
 - **Major dependencies**: `server/websearch/index.js`,
   `server/documents/tool.js`, `server/saas/messages.js` (dynamic
-  import).
+  import from `loop.js`).
 
 ---
 
@@ -519,141 +566,119 @@ regex substitutions) are deliberately not listed.
 
 ---
 
-## M. Routes — chat/compare/council/temporary/research/admin
+## M. Routes — dispatch, resources, and chat orchestration
 
-### `withResearchReportContext`, `installStableRequestSignal`, `applyEditedUserText` ← mixed
+### `installStableRequestSignal`
 - **Path**: `server/routes.js`
-- **Responsibility**: `withResearchReportContext` hydrates past
-  research reports into the conversation messages array so
-  follow-up turns have them in context. `installStableRequestSignal`
-  shadows `req.signal` so the SSE stream can be aborted. `applyEditedUserText`
-  rewrites the text of a stored user message while keeping its
-  attachments.
-- **Callers**: `handleApiRequest` (top-level), other handlers.
-- **Major dependencies**: `server/db/supabaseRest.js`,
-  `server/http/responses.js`.
+- **Responsibility**: Shadows `req.signal` so the SSE stream can be
+  aborted independently of the raw Node request.
+- **Callers**: `handleApiRequest`.
+- **Major dependencies**: none.
+
+### `apiDependencies`, `bearerContext`, `authContext`, `requireChatContext`, `requireAdminContext`
+- **Path**: `server/routes/context.js`
+- **Responsibility**: Phase-0 dependency seam. Builds per-request DB/R2
+  clients and auth contexts; `requireChatContext` / `requireAdminContext`
+  gate chat and admin routes.
+- **Callers**: `server/routes/*`, `server/chat/*`.
+- **Major dependencies**: `server/auth/supabase.js`, `server/db/supabaseRest.js`,
+  `server/storage/r2.js`, `server/saas/entitlements.js`.
+
+### `handleHealth`, `handleConfig`, `handlePlans`, `handleMe`, `handleModels`
+- **Path**: `server/routes/meta.js`
+- **Responsibility**: Health, public config, plan list, `GET /api/me`,
+  and model catalog (L1+L2 cache).
+- **Callers**: `handleApiRequest`.
+- **Major dependencies**: `server/db/supabaseRest.js`, `server/crofai/client.js`,
+  `server/saas/entitlements.js`, `server/saas/billing.js`,
+  `server/saas/systemPrompt.js`.
 
 ### `handleCreateZiinaPaymentRequest`, `handleListPaymentRequests`
-- **Path**: `server/routes.js`
-- **Responsibility**: `POST /api/payments/ziina` creates a pending
-  payment request with a Klui reference code. `GET /api/payments/ziina`
-  lists the current user's recent payment requests.
+- **Path**: `server/routes/payments.js`
+- **Responsibility**: `POST /api/payments/ziina` and
+  `GET /api/payments/ziina`.
 - **Callers**: `handleApiRequest`.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/plans.js`.
 
-### `handleMe`
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET /api/me` returns the public user, profile,
-  subscription, plan, weekly API usage, and the global system prompt
-  (admin only).
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/entitlements.js`,
-  `server/saas/billing.js`, `server/saas/systemPrompt.js`, `server/config.js`.
-
 ### `handleAdminSettings`, `handleAdminSummary`, `handleAdminPaymentRequests`, `handleAdminUpdatePaymentRequest` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET/PATCH /api/admin/settings` reads/updates
-  the global system prompt in `app_settings`. `GET /api/admin/summary`
-  returns the dashboard (with a 60s in-process cache). `GET /api/admin/payments`
-  lists pending Ziina requests. `POST /api/admin/payments/:id/{approve,reject}`
-  approves a payment (creating an active subscription) or rejects it.
+- **Path**: `server/routes/admin.js` (payments approve/reject in
+  `server/routes/payments.js`)
+- **Responsibility**: Admin dashboard summary (60 s in-process cache),
+  global system prompt settings, and Ziina payment approval.
 - **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/systemPrompt.js`,
-  `server/config.js`.
+- **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/systemPrompt.js`.
 
 ### `handleCreateResearch`, `handleResearchStatus`, `handleCancelResearch`, `handleResearchReport` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: `POST /api/research` enqueues a deep research
-  run. `GET /api/research/:runId/status` polls progress.
-  `POST /api/research/:runId/cancel` cancels a queued/running run.
-  `GET /api/research/:runId/report` returns the cached final report
-  with ETag-conditional caching.
+- **Path**: `server/routes/research.js`
+- **Responsibility**: Deep research enqueue, status poll, cancel, and
+  ETag-conditional report fetch.
 - **Callers**: `handleApiRequest`.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/usageMeter.js`,
-  `server/providers.js`, `node:crypto`.
+  `server/providers.js`.
 
-### `handleModels`
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET /api/models` returns the model list for
-  the requested base URL, with a 5-minute L1 in-memory cache +
-  5-minute L2 Supabase cache.
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/crofai/client.js`, `server/db/supabaseRest.js`.
-
-### `handlePresignUpload`, `handleUploadContent`, `handleCompleteUpload` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: The three-step upload pipeline. `presign` returns
-  a presigned PUT URL and creates an `attachments` row in `pending`
-  status. `uploadContent` is the same-origin relay for browsers that
-  can't PUT directly to R2. `complete` HEADs the R2 object, marks the
-  attachment `uploaded`, and queues a `document.extract.*` job for
-  document uploads.
+### `handlePresignUpload`, `handleUploadContent`, `handleCompleteUpload`, `handleAttachmentDownload`, `handleAttachmentView`, `handleAttachmentDelete`, `handleDocumentStatus`, `handleDocumentJobStatus` ← mixed
+- **Path**: `server/routes/uploads.js`
+- **Responsibility**: Upload presign/relay/complete, attachment
+  download/view/delete, and document/job status polling.
 - **Callers**: `handleApiRequest`.
 - **Major dependencies**: `server/storage/r2.js`, `server/db/supabaseRest.js`,
   `server/config.js`.
 
-### `handleAttachmentDownload`, `handleAttachmentView`, `handleAttachmentDelete` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET /api/attachments/:id/download` 302s to a
-  presigned R2 GET URL (or returns a JSON `{url, fileName, contentType}`
-  for the mobile app). `GET /api/attachments/:id/view` returns an
-  inline PDF preview, kicking off a DOCX/XLSX/PPTX→PDF export job
-  if needed. `DELETE /api/attachments/:id` deletes an unattached
-  attachment.
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/storage/r2.js`, `server/db/supabaseRest.js`,
-  `server/config.js`.
-
-### `handleDocumentStatus`, `handleDocumentJobStatus`
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET /api/documents/:attachmentId/status` polls
-  the per-upload document processing status. `GET /api/documents/jobs/:jobId/status`
-  polls a single document job and returns the artifact (if ready).
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/db/supabaseRest.js`.
-
-### `handleConversations`, `handleConversationById` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: `GET/POST /api/conversations` lists/creates
-  conversations. `GET/PATCH/DELETE /api/conversations/:id` reads
-  (with messages and admin-only reasoning), renames, or hard-deletes
-  (purging attachments, document files, and R2 keys).
+### `handleConversations`, `handleConversationById`, `handleMessageById` ← mixed
+- **Path**: `server/routes/conversations.js`
+- **Responsibility**: Conversation CRUD, message delete with R2 purge.
 - **Callers**: `handleApiRequest`.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
-  `server/config.js`, `server/saas/messages.js`.
+  `server/saas/messages.js`.
 
-### `handleMessageById`
-- **Path**: `server/routes.js`
-- **Responsibility**: `DELETE /api/messages/:messageId` deletes a
-  message and purges its attachments (R2 + DB).
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
-  `server/config.js`.
+### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `handleConversationMessage` ← mixed
+- **Path**: `server/chat/pipeline.js` (several helpers re-exported from
+  `server/routes.js` for tests)
+- **Responsibility**: Chat dispatcher (single vs compare vs council,
+  retry and edit modes), shared pre-search, PDF visual context, tool
+  wiring, and image-description persistence. Single-chat flow uses
+  `runChatWithToolLoop` here; `streamSingleChat` in `single.js` is the
+  legacy no-tools fast path only.
+- **Callers**: `handleApiRequest` (`POST …/messages`).
+- **Major dependencies**: `server/chat/compare.js`, `server/chat/council.js`,
+  `server/websearch/tool/loop.js`, `server/documents/*`, `server/saas/*`.
 
-### `handleCouncilConversationMessage`, `handleCompareConversationMessage`, `streamSingleChat`, `handleTemporaryChat` ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: `handleCouncilConversationMessage` runs the
-  full three-stage Council flow. `handleCompareConversationMessage`
-  runs N parallel `streamChatCompletion` requests. `streamSingleChat`
-  is the legacy fast path (no tools). `handleTemporaryChat` is the
-  ephemeral, no-persistence chat.
-- **Callers**: `handleApiRequest`.
-- **Major dependencies**: every other module.
+### `buildUntrustedWebContext`, `injectWebContextMessage`, `sharedWebsearchMetadata`, `sharedDocumentMetadata`, `writeSse`, `hasAssistantOutput`
+- **Path**: `server/chat/shared.js`
+- **Responsibility**: Shared Compare/Council web and document context
+  injection helpers and SSE write utility.
+- **Callers**: `server/chat/pipeline.js`, `server/chat/compare.js`,
+  `server/chat/council.js`.
+- **Major dependencies**: none.
 
-### `runSharedPreSearch`, `runSharedPreDocumentSearch`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `withAvailableTools`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `buildDirectPdfVisualContext`, `describeVisualPdfContextForTextModel`, `injectDocumentVisualContextForCompare`, `injectImageEvidenceForVisionCompare`, `persistImageDescriptions`, `injectWebContextMessage`, `buildUntrustedWebContext`, `sharedWebsearchMetadata`, `sharedDocumentMetadata`, `handleConversationMessage` (the dispatcher) ← mixed
-- **Path**: `server/routes.js`
-- **Responsibility**: The chat pipeline. `runSharedPreSearch` runs
-  a single search/read up front and shares the result with all
-  Council/Compare models as untrusted user-context. `runSharedPreDocumentSearch`
-  does the same for document excerpts. `withAvailableTools` injects
-  web search and document tool schemas + system-prompt hints.
-  `buildDirectPdfVisualContext` builds the `image_url` content
-  for PDF page images. `describeVisualPdfContextForTextModel` runs
-  a single vision-describe call for text-only models in Compare
-  mode. `handleConversationMessage` is the chat dispatcher (single
-  vs Compare vs Council, with retry and edit modes).
+### `streamSingleChat`
+- **Path**: `server/chat/single.js`
+- **Responsibility**: Legacy fast path streaming a single model response
+  without tools (not used by the main agent-mode flow in `pipeline.js`).
+- **Callers**: `server/chat/pipeline.js` (single-chat branch when tools
+  are disabled).
+- **Major dependencies**: `server/saas/messages/stream.js`.
+
+### `handleCompareConversationMessage`
+- **Path**: `server/chat/compare.js`
+- **Responsibility**: N parallel `streamChatCompletion` requests for
+  Compare mode.
+- **Callers**: `server/chat/pipeline.js`.
+- **Major dependencies**: `server/saas/messages/stream.js`, `server/saas/images.js`.
+
+### `handleCouncilConversationMessage`
+- **Path**: `server/chat/council.js`
+- **Responsibility**: Full three-stage Council flow (panel → peer review
+  → chairman synthesis).
+- **Callers**: `server/chat/pipeline.js`.
+- **Major dependencies**: `server/saas/council.js`, `server/saas/messages/*`.
+
+### `handleTemporaryChat`
+- **Path**: `server/chat/temporary.js`
+- **Responsibility**: Ephemeral chat with no persistence and no
+  attachments.
 - **Callers**: `handleApiRequest`.
-- **Major dependencies**: every other module.
+- **Major dependencies**: `server/websearch/tool/loop.js`, `server/crofai/client.js`.
 
 ---
 
@@ -726,79 +751,88 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `public/js/app.js`.
 - **Major dependencies**: none.
 
-### `bootstrap`, `loadChatApp`, `bindEvents`, and the rest of `app.js`
+### `createStreamReducer`
+- **Path**: `public/js/streaming.js`
+- **Responsibility**: Factory returning `applyStreamEvent`, `applyToolEvent`,
+  `applyCompareStreamEvent`, `applyCouncilStreamEvent`, `ensureToolState`.
+  Receives explicit capabilities from `app.js` (admin check, artifact merge,
+  activity/reasoning markers, usage normalization, markup stripping).
+- **Callers**: `public/js/app.js`; `test/app-reducers.test.js` (fixture replay).
+- **Major dependencies**: `public/js/reasoning.js`.
+
+### `createDocumentViewer`
+- **Path**: `public/js/documentViewer.js`
+- **Responsibility**: PDF.js viewer, artifact cards, preview-job and
+  pending-artifact polling. Exposes `stopDocumentPreviewPoll` /
+  `isDocumentPreviewPollActive` and `stopPendingArtifactPolls` /
+  `isPendingArtifactPollsActive`.
+- **Callers**: `public/js/app.js` (`stopExtractedModulePollers` calls
+  `stopPendingArtifactPolls`).
+- **Major dependencies**: `public/js/api.js`, `public/js/render.js`.
+
+### `createResearchController`
+- **Path**: `public/js/research.js`
+- **Responsibility**: Research card/report rendering and status polling.
+  Exposes `stopResearchPolling` / `isResearchPollingActive` and
+  `applyResearchRunUpdate` (public API for run progress; fixes the
+  Phase-5 reach-in where callers used internal `updateResearchMessage`).
+- **Callers**: `public/js/app.js`.
+- **Major dependencies**: `public/js/api.js`, `public/js/render.js`.
+
+### `createCompareController`
+- **Path**: `public/js/compare.js`
+- **Responsibility**: Compare mode UI, model picker seeding,
+  `renderCompareMessage`, and compare dropdown controls.
+- **Callers**: `public/js/app.js`.
+- **Major dependencies**: `public/js/render.js`.
+
+### `createCouncilController`
+- **Path**: `public/js/council.js`
+- **Responsibility**: Council mode activation and `renderCouncilMessage`.
+- **Callers**: `public/js/app.js`.
+- **Major dependencies**: `public/js/render.js`.
+
+### `createAdminPanel`
+- **Path**: `public/js/adminPanel.js`
+- **Responsibility**: Admin dashboard load/render, global system prompt
+  save, and payment approve/reject actions.
+- **Callers**: `public/js/app.js`.
+- **Major dependencies**: `public/js/api.js`.
+
+### `bootstrap`, `loadChatApp`, `bindEvents`, `stopExtractedModulePollers`, and the rest of `app.js`
 - **Path**: `public/js/app.js`
-- **Responsibility**: The 6,704-line UI controller. High-level
-  responsibilities are documented in `ARCHITECTURE.md` § 3 ("Browser")
-  and § 5 ("Feature map"). The file's noteworthy exports are:
-  - State + helpers: `state`, `loadSettings`, `saveSettings`,
-    `updateSetting`, `defaultSettings`, `defaultSettings` constants.
-  - Auth/lifecycle: `bootstrap`, `loadChatApp`, `handleAuthenticatedSession`,
-    `signOutAndReset`, `loadMe`, `loadModels`, `loadConversations`,
-    `loadActiveConversation`.
-  - Composer / follow-ups: `addFollowUpFromInput`,
-    `editFollowUp`, `saveFollowUp`, `deleteFollowUp`,
-    `clearFollowUps`, `drainFollowUps`, `followUpBatchText`,
-    `followUpBatchImages`, `resolveRoutedModel`,
-    `sendPrompt`, `executeSend`.
-  - Single chat reducer: `applyStreamEvent`, `applyToolEvent`,
-    `applyCompareStreamEvent`, `applyCouncilStreamEvent`,
-    `ensureToolState`.
-  - Compare / council: `activateCompareMode`, `activateCouncilMode`,
-    `startCompareFreshChat`, `cancelCompareMode`, `renderCompareMessage`,
-    `renderCouncilMessage`, `renderCouncilProgress`,
-    `renderCouncilPanelist`, `renderCouncilSynthesis`,
-    `renderCompareControls`, `seedCompareModelsForDropdown`.
-  - Web search: `webSearchAvailable`, `renderWebSearchToggle`,
-    `toggleWebSearchMode`, `shouldSuppressWebSearchForDocumentTurn`.
-  - Research: `startDeepResearch`, `pollResearch`, `resumeResearchPolling`,
-    `openResearchReport`, `closeResearchReport`, `renderResearchCard`,
-    `renderResearchReport`, `setResearchMode`, `setResearchMode`,
-    `researchMeta`, `updateResearchMessage`, `withResearchReportContext`.
-  - Document viewer: `loadDocumentViewerUrl`, `openDocumentViewer`,
-    `closeDocumentViewer`, `loadPdfJs`, `renderPdfPages`,
-    `pollDocumentPreviewJob`, `findPendingArtifacts`,
-    `pollPendingArtifact`, `applyJobStatusToPendingArtifact`,
-    `syncPendingArtifactPolls`.
-  - Images: `addImages`, `openLightbox`, `closeLightbox`.
-  - Sidebar: `renderConversations`, `sortedConversations`,
-    `loadPinnedChatIds`, `savePinnedChatIds`, `togglePinChat`,
-    `openSearchDialog`, `closeSearchDialog`,
-    `openConfirmDialog`, `closeConfirmDialog`,
-    `openRenameDialog`, `closeRenameDialog`, `saveRenameDialog`.
-  - Settings / theme: `openSettings`, `closeSettings`, `openAccount`,
-    `closeAccount`, `applyChatTheme`, `applyAppearance`, `applyTextScale`,
-    `applyCodeHighlightTheme`, `syncSettingsInputs`.
-  - Admin: `openAdminDrawer`, `renderAdminDashboard`,
-    `loadAdminDashboard`, `saveGlobalSystemPrompt`,
-    `updateAdminPayment`.
-  - Message rendering: `renderMessages`, `queueRenderMessages`,
-    `renderUserContent`, `renderAssistantContent`,
-    `renderReasoning`, `renderAssistantActivity`,
-    `renderToolStatuses`, `renderCitations`, `renderArtifacts`,
-    `renderPastedTextCard`, `renderUserMessageFooter`,
-    `renderMessageFooter`, `renderMessageRetry`,
-    `renderResearchCard`, `renderStandardMessage`.
-  - Navigation: `openNewChat`, `openConversation`, `addConversation`,
-    `removeConversation`, `editUserMessage`, `beginEditMessage`,
-    `cancelEditMessage`, `retryFailedAssistant`,
-    `waitForDocumentReady`, `startDocumentUpload`,
-    `pollUploadedDocument`, `addImages`.
-  - Native bridge: `setupNativeLifecycle`, `configureNativeChrome`,
-    `checkAndShowAppUpdate`, `closeAppUpdate`, `hydrateNativeSettings`,
-    `focusPromptInput`, `focusPromptInputSoon`,
-    `showNativeKeyboard`, `hideNativeKeyboard`, `exitApp`.
-  - Misc: `showToast`, `withTimeout`, `getGreeting`, `profileInitials`,
-    `profileDisplayName`, `renderProfileMenu`, `closeAllDrawers`,
-    `setRunning`, `updateSendButton`, `applyComposerHeight`,
-    `composerPlaceholder`, `updateComposerPlaceholder`,
-    `pinMessagesToBottom`, `distanceFromBottom`, `isNearBottom`,
-    `composerHasPendingContent`, `composerHasFocus`,
-    `blurEmptyComposerForHistoryScroll`, `setAutoScroll`.
+- **Responsibility**: Composition root (~5,331 lines). Owns `state`, `els`,
+  bootstrap, composer, follow-ups, model catalog, upload pipeline, message
+  rendering shell, sidebar, settings, theme, account, dialogs, and navigation.
+  Constructs the feature factories above at boot and calls
+  `stopExtractedModulePollers()` on sign-out and navigation (stops research
+  polling and document/artifact pollers). High-level surface documented in
+  `ARCHITECTURE.md` § 3 ("Browser") and § 5 ("Feature map"). Notable areas
+  still in `app.js`:
+  - State + helpers: `state`, `loadSettings`, `saveSettings`, composer,
+    follow-ups, `sendPrompt`, `executeSend`.
+  - Web search toggle: `webSearchAvailable`, `renderWebSearchToggle`,
+    `toggleWebSearchMode`.
+  - Message rendering shell: `renderMessages`, `renderUserContent`,
+    `renderAssistantContent`, citations, artifacts wrapper, footers.
+  - Sidebar, settings, theme, native bridge, navigation, images/lightbox.
+  Extracted to factories (see above): stream reducers, document viewer,
+  research view, compare/council renderers, admin panel.
 - **Callers**: HTML (event handlers in `bindEvents`).
 - **Major dependencies**: `public/js/api.js`, `public/js/auth.js`,
-  `public/js/platform/index.js`, `public/js/platform/updates.js`,
-  `public/js/render.js`, `public/js/reasoning.js`.
+  `public/js/streaming.js`, `public/js/documentViewer.js`,
+  `public/js/research.js`, `public/js/compare.js`, `public/js/council.js`,
+  `public/js/adminPanel.js`, `public/js/platform/index.js`,
+  `public/js/platform/updates.js`, `public/js/render.js`, `public/js/reasoning.js`.
+
+### `readStylesheet`
+- **Path**: `test/helpers/styles.js`
+- **Responsibility**: Reads `public/styles.css` and inlines each
+  `@import` from `public/styles/*.css` for tests that assert against
+  the full stylesheet (byte-identical to the pre-split file).
+- **Callers**: `test/mobile.test.js`, `test/native-topbar.test.js`,
+  `test/research.test.js`.
+- **Major dependencies**: `node:fs`, `node:path`.
 
 ---
 

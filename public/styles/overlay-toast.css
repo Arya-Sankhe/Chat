@@ -1,0 +1,242 @@
+/* ─── Overlay & Toast ─── */
+
+.overlay {
+
+  position: fixed;
+
+  inset: 0;
+
+  background: rgba(0,0,0,0.24);
+
+  z-index: 35;
+
+  backdrop-filter: blur(2px);
+
+}
+
+.toast {
+
+  position: fixed;
+
+  bottom: 20px;
+
+  right: 20px;
+
+  max-width: min(360px, calc(100vw - 40px));
+
+  padding: 12px 16px;
+
+  border-radius: var(--radius);
+
+  color: var(--accent-contrast);
+
+  background: var(--accent);
+
+  box-shadow: var(--shadow-md);
+
+  font-size: 13px;
+
+  font-weight: 500;
+
+  transform: translateY(12px);
+
+  opacity: 0;
+
+  pointer-events: none;
+
+  transition: opacity 140ms ease, transform 140ms ease;
+
+  z-index: 70;
+
+}
+
+.toast.visible {
+
+  opacity: 1;
+
+  transform: translateY(0);
+
+}
+
+.ios-install-hint {
+
+  position: fixed;
+
+  z-index: 90;
+
+  left: max(14px, env(safe-area-inset-left));
+
+  right: max(14px, env(safe-area-inset-right));
+
+  bottom: max(14px, env(safe-area-inset-bottom));
+
+  display: flex;
+
+  align-items: center;
+
+  gap: 12px;
+
+  max-width: 420px;
+
+  margin: 0 auto;
+
+  padding: 12px 42px 12px 12px;
+
+  border: 1px solid var(--border);
+
+  border-radius: 12px;
+
+  background: var(--surface);
+
+  color: var(--text);
+
+  box-shadow: var(--shadow-lg);
+
+}
+
+.ios-install-hint.hidden {
+
+  display: none;
+
+}
+
+.ios-install-hint img {
+
+  flex: 0 0 auto;
+
+  border-radius: 11px;
+
+}
+
+.ios-install-hint strong,
+
+.ios-install-hint p {
+
+  display: block;
+
+  margin: 0;
+
+}
+
+.ios-install-hint p {
+
+  margin-top: 2px;
+
+  color: var(--text-secondary);
+
+  font-size: 13px;
+
+}
+
+.ios-install-close {
+
+  position: absolute;
+
+  top: 8px;
+
+  right: 10px;
+
+  width: 28px;
+
+  height: 28px;
+
+  color: var(--text-secondary);
+
+}
+
+.native-google-button {
+
+  width: min(100%, 400px);
+
+  min-height: 44px;
+
+  border: 1px solid var(--border);
+
+  border-radius: 8px;
+
+  background: var(--bg);
+
+  color: var(--text);
+
+  font: inherit;
+
+  font-weight: 600;
+
+}
+
+.native-mobile-bar,
+
+.native-nav-backdrop,
+
+.compact-new-chat {
+
+  display: none;
+
+}
+
+body:not(.capacitor-native) .native-mobile-bar {
+
+  position: absolute;
+
+  top: 0;
+
+  right: 0;
+
+  left: 0;
+
+  z-index: 9;
+
+  display: block;
+
+  height: 0;
+
+  pointer-events: none;
+
+}
+
+body:not(.capacitor-native) .native-mobile-menu,
+
+body:not(.capacitor-native) .native-mobile-mode-wrap,
+
+body:not(.capacitor-native) .compact-new-chat {
+
+  display: none !important;
+
+}
+
+body:not(.capacitor-native) .temporary-chat-toggle {
+
+  position: absolute;
+
+  top: 18px;
+
+  right: 18px;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  pointer-events: auto;
+
+}
+
+body:not(.capacitor-native) .temporary-chat-label {
+
+  position: absolute;
+
+  top: 21px;
+
+  right: 68px;
+
+  max-width: min(240px, calc(100vw - 120px));
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+

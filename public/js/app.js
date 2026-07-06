@@ -69,6 +69,12 @@ import {
   resetCodeSourceStore
 } from "./render.js?v=20260623-image-preview-v1";
 import { extractReasoningDelta } from "./reasoning.js";
+import { createStreamReducer } from "./streaming.js";
+import { createDocumentViewer } from "./documentViewer.js";
+import { createResearchController } from "./research.js";
+import { createCompareController } from "./compare.js";
+import { createCouncilController } from "./council.js";
+import { createAdminPanel } from "./adminPanel.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -170,13 +176,15 @@ const streamingRenderTargets = new Map();
 let renderedChatPromptSignature = "";
 let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
-let councilDetailsOpenIds = new Set();
 let suppressUrlSync = false;
 let lastMessagesTouchY = 0;
 let lastNativeBackAt = 0;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
-let researchPollTimer = null;
+let researchController;
+let compareController;
+let councilController;
+let adminPanel;
 
 const els = {
   setupView: document.querySelector("#setupView"),
@@ -433,7 +441,7 @@ function setResearchMode(enabled) {
     return;
   }
   state.researchMode = next;
-  if (next && state.settings.compareEnabled) cancelCompareMode();
+  if (next && state.settings.compareEnabled) compareController.cancelCompareMode();
   renderResearchMode();
   closeActionMenu();
   els.promptInput?.focus();
@@ -453,9 +461,10 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     state.images = [];
     state.pastedText = "";
     state.compareDescribeImages = false;
+    stopExtractedModulePollers();
     clearFollowUps();
     closeDocumentViewer();
-    closeCompareContextBanner();
+    compareController.closeCompareContextBanner();
     closeSearchDialog();
     closePinnedPopup();
     closeConversationMenus();
@@ -463,7 +472,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     syncConversationUrl({ replace: true });
   }
   if (next && state.settings.compareEnabled) {
-    cancelCompareMode();
+    compareController.cancelCompareMode();
   }
   renderTemporaryChatMode();
   renderShell();
@@ -676,41 +685,8 @@ function openCompareContextBanner() {
   els.compareContextBanner.classList.remove("hidden");
 }
 
-function closeCompareContextBanner() {
-  els.compareContextBanner.classList.add("hidden");
-}
-
-function syncCompareContextBanner(modelIds = selectedCompareModelIds()) {
-  closeCompareContextBanner();
-}
-
-function cancelCompareMode() {
-  state.compareDescribeImages = false;
-  updateSetting("compareEnabled", false);
-  updateSetting("compareModels", []);
-  closeCompareDropdown();
-  closeCompareContextBanner();
-  renderCompareControls();
-}
-
-function seedCompareModels() {
-  return state.settings.compareMode === "council" ? DEFAULT_COUNCIL_MODELS : DEFAULT_COMPARE_MODELS;
-}
-
-async function activateCompareMode() {
-  updateSetting("compareMode", "compare");
-  updateSetting("compareModels", DEFAULT_COMPARE_MODELS);
-  updateSetting("compareEnabled", true);
-  state.compareDescribeImages = false;
-  renderCompareControls();
-}
-
-async function activateCouncilMode() {
-  updateSetting("compareMode", "council");
-  updateSetting("compareModels", DEFAULT_COUNCIL_MODELS);
-  updateSetting("compareEnabled", true);
-  state.compareDescribeImages = false;
-  renderCompareControls();
+function syncCompareContextBanner(modelIds = compareController.selectedCompareModelIds()) {
+  compareController.closeCompareContextBanner();
 }
 
 function currentNativeTopBarMode() {
@@ -721,31 +697,20 @@ function currentNativeTopBarMode() {
 
 function applyNativeTopBarMode(mode) {
   if (mode === "compare") {
-    activateCompareMode();
+    compareController.activateCompareMode();
     return;
   }
   if (mode === "council") {
-    activateCouncilMode();
+    councilController.activateCouncilMode();
     return;
   }
-  if (state.settings.compareEnabled) cancelCompareMode();
+  if (state.settings.compareEnabled) compareController.cancelCompareMode();
   const modelMode = mode === "pro" ? "pro" : "thinking";
   updateSetting("modelMode", modelMode);
   updateSetting("provider", "openrouter");
   updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
   updateSetting("model", modelMode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
   renderModelOptions();
-}
-
-async function startCompareFreshChat() {
-  const compareModels = selectedCompareModelIds();
-  const shouldDescribePendingImages = pendingPromptHasImages() && compareIncludesTextOnlyModels(compareModels);
-  openNewChat({ replaceUrl: false });
-  updateSetting("compareModels", compareModels);
-  updateSetting("compareEnabled", compareModels.length >= 2);
-  state.messages = [];
-  state.compareDescribeImages = shouldDescribePendingImages;
-  renderShell();
 }
 
 function clampTextScale(value) {
@@ -905,7 +870,7 @@ function toggleProvider() {
     if (state.settings.compareEnabled) {
       updateSetting("compareEnabled", false);
       updateSetting("compareModels", []);
-      closeCompareDropdown();
+      compareController.closeCompareDropdown();
     }
   } else {
     updateSetting("provider", "klui");
@@ -916,7 +881,7 @@ function toggleProvider() {
   }
   renderProviderToggle();
   renderModelOptions();
-  renderCompareControls();
+  compareController.renderCompareControls();
 }
 
 function toggleWebSearchMode() {
@@ -1045,7 +1010,7 @@ function renderShell() {
   renderMessages();
   renderDocumentViewer();
   renderProfileMenu();
-  syncCompareContextBanner();
+  compareController.syncCompareContextBanner();
 }
 
 function renderServices() {
@@ -1414,91 +1379,6 @@ function renderAccount() {
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
 }
 
-function formatAdminCredits(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return "0";
-  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
-  if (n >= 10) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
-}
-
-function formatAdminDate(value) {
-  if (!value) return "Never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Never";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function activeSubscriptionStatus(status) {
-  return ["active", "trialing", "testing"].includes(String(status || "").toLowerCase());
-}
-
-function renderAdminDashboard(summary) {
-  const totals = summary?.totals || {};
-  const plans = Array.isArray(summary?.plans) ? summary.plans : [];
-  const pendingPayments = Array.isArray(summary?.pendingPayments) ? summary.pendingPayments : [];
-  const users = Array.isArray(summary?.users) ? summary.users : [];
-  const generated = summary?.generatedAt ? new Date(summary.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  els.adminOutput.innerHTML = `
-    <p class="admin-meta">${summary?.cached ? "Cached" : "Fresh"} overview${generated ? ` · ${escapeHtml(generated)}` : ""}</p>
-    <div class="admin-stats">
-      <div class="admin-stat">
-        <div class="admin-stat-value">${Number(totals.users || 0).toLocaleString()}</div>
-        <div class="admin-stat-label">users</div>
-      </div>
-      <div class="admin-stat">
-        <div class="admin-stat-value">${Number(totals.subscribedUsers || 0).toLocaleString()}</div>
-        <div class="admin-stat-label">subscribed</div>
-      </div>
-      <div class="admin-stat">
-        <div class="admin-stat-value">${formatAdminCredits(totals.currentWeekCreditsUsed)}</div>
-        <div class="admin-stat-label">week credits</div>
-      </div>
-      <div class="admin-stat">
-        <div class="admin-stat-value">${formatAdminCredits(totals.totalCreditsUsed)}</div>
-        <div class="admin-stat-label">tracked credits</div>
-      </div>
-    </div>
-    <div class="admin-subtitle">Plans</div>
-    ${plans.length ? plans.map((plan) => `
-      <div class="admin-plan-row">
-        <div>
-          <div class="admin-row-title">${escapeHtml(plan.name || plan.id || "Plan")}</div>
-          <div class="admin-row-sub">${Number(plan.activeUsers || 0).toLocaleString()} active · ${Number(plan.users || 0).toLocaleString()} total</div>
-        </div>
-        <div class="admin-row-metric">${formatAdminCredits(plan.creditsUsed)} cr</div>
-      </div>
-    `).join("") : `<div class="admin-row-sub">No plan data yet.</div>`}
-    <div class="admin-subtitle">Pending Ziina Payments</div>
-    ${pendingPayments.length ? pendingPayments.map((payment) => `
-      <div class="admin-payment-row">
-        <div>
-          <div class="admin-row-title" title="${escapeHtml(payment.email || "")}">${escapeHtml(payment.email || "Unknown")}</div>
-          <div class="admin-row-sub">${escapeHtml(payment.planName || payment.planId || "Plan")} · ${escapeHtml(payment.referenceCode || "")}</div>
-        </div>
-        <div class="admin-payment-actions">
-          <div class="admin-row-metric">${Number(payment.amountAed || 0).toLocaleString()} AED</div>
-          <button class="admin-small-btn" type="button" data-approve-payment="${escapeHtml(payment.id)}">Approve</button>
-          <button class="admin-small-btn danger" type="button" data-reject-payment="${escapeHtml(payment.id)}">Reject</button>
-        </div>
-      </div>
-    `).join("") : `<div class="admin-row-sub">No pending Ziina payments.</div>`}
-    <div class="admin-subtitle">Top Users</div>
-    ${users.length ? users.map((user) => `
-      <div class="admin-user-row">
-        <div>
-          <div class="admin-row-title" title="${escapeHtml(user.email || "")}">${escapeHtml(user.email || "Unknown")}</div>
-          <div class="admin-row-sub">${escapeHtml(user.planName || "No plan")} · last use ${escapeHtml(formatAdminDate(user.lastUsageAt))}</div>
-        </div>
-        <div>
-          <div class="admin-row-metric">${formatAdminCredits(user.totalCreditsUsed)} cr</div>
-          <div class="admin-status ${activeSubscriptionStatus(user.subscriptionStatus) ? "active" : ""}">${escapeHtml(user.subscriptionStatus || "none")}</div>
-        </div>
-      </div>
-    `).join("") : `<div class="admin-row-sub">No users yet.</div>`}
-  `;
-}
-
 /* ─── Conversations ─── */
 
 function pinnedStorageKey() {
@@ -1756,7 +1636,7 @@ async function openConversation(conversationId) {
   document.body.classList.remove("sidebar-open");
   state.compareDescribeImages = false;
   closeDocumentViewer();
-  closeCompareContextBanner();
+  compareController.closeCompareContextBanner();
   closeSearchDialog();
   closePinnedPopup();
   closeConversationMenus();
@@ -1822,39 +1702,6 @@ function modelDisplayName(id) {
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }
 
-function compareModelAlias(index) {
-  return `Model ${String.fromCharCode(65 + index)}`;
-}
-
-function councilModelAlias(modelId, fallbackIndex = -1) {
-  const index = DEFAULT_COUNCIL_MODELS.indexOf(modelId);
-  if (index >= 0) return compareModelAlias(index);
-  return compareModelAlias(fallbackIndex >= 0 ? fallbackIndex : 0);
-}
-
-function isPlaceholderPeerReason(value) {
-  return /^<?\s*reason\s*>?$/i.test(String(value || "").trim());
-}
-
-function selectedCompareModelIds() {
-  const fixedIds = state.settings.compareMode === "council" ? DEFAULT_COUNCIL_MODELS : DEFAULT_COMPARE_MODELS;
-  const ids = state.settings.compareEnabled ? fixedIds : (Array.isArray(state.settings.compareModels) ? state.settings.compareModels : []);
-  const unique = ids.filter((id, index) => id && ids.indexOf(id) === index);
-  return unique.slice(0, state.settings.compareMode === "council" ? 4 : 2);
-}
-
-function activeCompareModelIds() {
-  const ids = selectedCompareModelIds();
-  return state.settings.compareEnabled && ids.length >= 2 ? ids : [];
-}
-
-function seedCompareModelsForDropdown() {
-  if (selectedCompareModelIds().length) return;
-  const seeded = seedCompareModels();
-  updateSetting("compareModels", seeded);
-  updateSetting("compareEnabled", seeded.length >= 2);
-}
-
 function toggleModelDropdown() {
   const isOpen = !els.modelDropdown.classList.contains("hidden");
   els.modelDropdown.classList.toggle("hidden", isOpen);
@@ -1864,27 +1711,6 @@ function toggleModelDropdown() {
   if (!isOpen) {
     renderModelCatalog();
   }
-}
-
-function toggleCompareDropdown() {
-  const isOpen = !els.compareDropdown.classList.contains("hidden");
-  els.compareDropdown.classList.toggle("hidden", isOpen);
-  const nowOpen = !els.compareDropdown.classList.contains("hidden");
-  els.compareButton.setAttribute("aria-expanded", String(nowOpen));
-  els.compareWrap.classList.toggle("is-open", nowOpen);
-  if (!isOpen) {
-    seedCompareModelsForDropdown();
-    els.compareInput.value = "";
-    renderCompareCatalog();
-    renderCompareControls();
-    els.compareInput.focus();
-  }
-}
-
-function closeCompareDropdown() {
-  els.compareDropdown.classList.add("hidden");
-  els.compareButton.setAttribute("aria-expanded", "false");
-  els.compareWrap.classList.remove("is-open");
 }
 
 function closeModelDropdown() {
@@ -1941,72 +1767,6 @@ function renderModelCatalog() {
   `;
 }
 
-function renderCompareModelOption(model, selected, disabled) {
-  const logoUrl = modelBrandLogoUrl(model);
-  return `
-    <button class="model-option compare-option ${selected ? "active" : ""} ${disabled ? "disabled" : ""}" type="button" data-compare-model-id="${escapeHtml(model.id)}" aria-selected="${selected}" ${disabled ? "aria-disabled=\"true\"" : ""}>
-      <span class="model-option-main">
-        ${logoUrl
-          ? `<img class="model-option-logo" src="${escapeHtml(logoUrl)}" alt="" width="24" height="24" decoding="async">`
-          : `<span class="model-option-logo-placeholder"></span>`}
-        <span class="model-option-name">${escapeHtml(compactModelDisplayName(model.name || model.id))}</span>
-      </span>
-      <span class="model-option-check">${selected ? "✓" : ""}</span>
-    </button>
-  `;
-}
-
-function renderCompareCatalog() {
-  const query = els.compareInput.value.trim().toLowerCase();
-  const selectedIds = selectedCompareModelIds();
-  const visible = state.models
-    .filter((m) => {
-      const h = `${m.id} ${m.name || ""}`.toLowerCase();
-      return !query || h.includes(query);
-    })
-    .slice(0, 80);
-
-  if (!state.models.length) {
-    els.compareCatalog.innerHTML = `<div class="model-empty">Loading models…</div>`;
-    return;
-  }
-
-  if (!visible.length) {
-    els.compareCatalog.innerHTML = `<div class="model-empty">No matches.</div>`;
-    return;
-  }
-
-  els.compareCatalog.innerHTML = visible
-    .map((m) => renderCompareModelOption(m, selectedIds.includes(m.id), selectedIds.length >= 4 && !selectedIds.includes(m.id)))
-    .join("");
-}
-
-function renderCompareControls() {
-  if (!els.compareWrap) return;
-  els.compareWrap.classList.remove("hidden");
-  els.councilWrap?.classList.remove("hidden");
-  closeCompareContextBanner();
-  closeCompareDropdown();
-  const compareActive = Boolean(!state.temporaryChat && state.settings.compareEnabled && state.settings.compareMode !== "council");
-  const councilActive = Boolean(!state.temporaryChat && state.settings.compareEnabled && state.settings.compareMode === "council");
-  els.compareButton.classList.toggle("active", compareActive);
-  els.compareButton.classList.remove("council-active");
-  els.compareButton.setAttribute("aria-pressed", String(compareActive));
-  els.compareButton.setAttribute("aria-expanded", "false");
-  els.compareButton.disabled = state.running || state.temporaryChat;
-  els.compareButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (compareActive ? "Compare mode on" : "Compare two answers"));
-  els.compareLabel.textContent = compareActive ? "Compare on" : "Compare";
-  if (els.councilButton) {
-    els.councilButton.classList.toggle("active", councilActive);
-    els.councilButton.classList.toggle("council-active", councilActive);
-    els.councilButton.setAttribute("aria-pressed", String(councilActive));
-    els.councilButton.disabled = state.running || state.temporaryChat;
-    els.councilButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (councilActive ? "Council mode on" : "Council mode"));
-  }
-  if (els.councilLabel) els.councilLabel.textContent = councilActive ? "Council on" : "Council";
-  updateComposerPlaceholder();
-}
-
 function renderModelOptions() {
   const mode = selectedModelMode();
   const displayName = modelModeLabel(mode);
@@ -2019,7 +1779,7 @@ function renderModelOptions() {
 
   els.modelLabel.textContent = displayName;
   renderModelCatalog();
-  renderCompareControls();
+  compareController.renderCompareControls();
 }
 
 /* ─── Messages ─── */
@@ -2114,10 +1874,7 @@ function captureReasoningOpenState() {
   for (const el of els.messages.querySelectorAll("details.reasoning[open][data-message-id]")) {
     reasoningOpenIds.add(el.dataset.messageId);
   }
-  councilDetailsOpenIds = new Set();
-  for (const el of els.messages.querySelectorAll("details.council-details[open][data-council-id]")) {
-    councilDetailsOpenIds.add(el.dataset.councilId);
-  }
+  councilController.captureCouncilDetailsOpenState();
 }
 
 function isAssistantMessageStreaming(message) {
@@ -2375,6 +2132,33 @@ function replacePendingArtifact(message, jobId, resolved) {
   return mutated;
 }
 
+const {
+  openDocumentViewer,
+  closeDocumentViewer,
+  renderDocumentViewer,
+  syncPendingArtifactPolls,
+  stopPendingArtifactPolls,
+  initDocumentViewerWidth,
+  beginDocumentViewerResize
+} = createDocumentViewer({
+  elements: {
+    documentViewer: els.documentViewer,
+    documentViewerResizer: els.documentViewerResizer,
+    documentViewerTitle: els.documentViewerTitle,
+    documentViewerMeta: els.documentViewerMeta,
+    documentViewerDownload: els.documentViewerDownload,
+    documentViewerClose: els.documentViewerClose,
+    documentViewerBody: els.documentViewerBody
+  },
+  state,
+  fetchDocumentJobStatus,
+  fetchAttachmentView,
+  queueRenderMessages,
+  escapeHtml,
+  artifactListFromMessage,
+  replacePendingArtifact
+});
+
 function citationHost(url) {
   try {
     return new URL(url).hostname.replace(/^www\./i, "");
@@ -2516,6 +2300,25 @@ function stripLeakedToolMarkup(value) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+const {
+  applyStreamEvent,
+  applyToolEvent,
+  applyCompareStreamEvent,
+  applyCouncilStreamEvent,
+  ensureToolState
+} = createStreamReducer({
+  isAdminUser,
+  mergeArtifacts,
+  markActivityStarted,
+  markActivityEnded,
+  markReasoningStarted,
+  markReasoningEnded,
+  normalizeClientUsage,
+  stripLeakedToolMarkup,
+  isFinalFinishReason,
+  isPlaceholderPeerReason
+});
 
 function prepareCitationPlaceholders(text, citations) {
   const slots = [];
@@ -2695,107 +2498,6 @@ function artifactFormat(artifact) {
   return ext ? ext.toUpperCase() : "FILE";
 }
 
-const pendingArtifactPolls = new Map();
-const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
-const PENDING_ARTIFACT_POLL_MAX_ATTEMPTS = 60;
-const VIEWER_WIDTH_KEY = "klui.documentViewer.width.v1";
-let documentViewerPoll = null;
-let pdfJsPromise = null;
-let pdfRenderToken = 0;
-
-function findPendingArtifacts() {
-  const out = [];
-  for (const message of state.messages || []) {
-    const artifacts = artifactListFromMessage(message);
-    for (const artifact of artifacts) {
-      if (artifact?.pending && artifact?.job_id) {
-        const failed = ["failed", "expired"].includes(String(artifact.status || "").toLowerCase());
-        if (failed) continue;
-        out.push({ messageId: message.id, jobId: artifact.job_id });
-      }
-    }
-  }
-  return out;
-}
-
-function applyJobStatusToPendingArtifact(jobId, payload) {
-  if (!payload || !payload.job) return false;
-  const job = payload.job;
-  const messages = state.messages || [];
-  let mutated = false;
-
-  if (job.status === "succeeded" && payload.artifact) {
-    for (const message of messages) {
-      if (replacePendingArtifact(message, jobId, payload.artifact)) mutated = true;
-    }
-  } else if (job.status === "failed" || job.status === "expired") {
-    for (const message of messages) {
-      const lists = [];
-      if (Array.isArray(message.artifacts)) lists.push(message.artifacts);
-      const metaArtifacts = message.metadata?.documents?.artifacts;
-      if (Array.isArray(metaArtifacts)) lists.push(metaArtifacts);
-      for (const list of lists) {
-        for (const entry of list) {
-          if (entry?.pending && entry?.job_id === jobId) {
-            entry.status = job.status;
-            mutated = true;
-          }
-        }
-      }
-    }
-  }
-  return mutated;
-}
-
-async function pollPendingArtifact(jobId) {
-  if (!jobId || !state.session?.access_token) return;
-  let attempts = 0;
-  const tick = async () => {
-    if (!pendingArtifactPolls.has(jobId)) return;
-    attempts += 1;
-    let payload;
-    try {
-      payload = await fetchDocumentJobStatus(state.session, jobId);
-    } catch {
-      payload = null;
-    }
-    if (!pendingArtifactPolls.has(jobId)) return;
-
-    if (payload?.job) {
-      const mutated = applyJobStatusToPendingArtifact(jobId, payload);
-      if (mutated) queueRenderMessages();
-      const finished = ["succeeded", "failed", "expired"].includes(payload.job.status);
-      if (finished) {
-        pendingArtifactPolls.delete(jobId);
-        return;
-      }
-    }
-    if (attempts >= PENDING_ARTIFACT_POLL_MAX_ATTEMPTS) {
-      pendingArtifactPolls.delete(jobId);
-      return;
-    }
-    const handle = setTimeout(tick, PENDING_ARTIFACT_POLL_INTERVAL_MS);
-    pendingArtifactPolls.set(jobId, handle);
-  };
-  const initial = setTimeout(tick, PENDING_ARTIFACT_POLL_INTERVAL_MS);
-  pendingArtifactPolls.set(jobId, initial);
-}
-
-function syncPendingArtifactPolls() {
-  const live = new Set();
-  for (const { jobId } of findPendingArtifacts()) live.add(jobId);
-  for (const jobId of Array.from(pendingArtifactPolls.keys())) {
-    if (!live.has(jobId)) {
-      const handle = pendingArtifactPolls.get(jobId);
-      if (handle) clearTimeout(handle);
-      pendingArtifactPolls.delete(jobId);
-    }
-  }
-  for (const jobId of live) {
-    if (!pendingArtifactPolls.has(jobId)) pollPendingArtifact(jobId);
-  }
-}
-
 function artifactAttachmentId(artifact) {
   return String(artifact?.attachment_id || artifact?.id || "").trim();
 }
@@ -2803,330 +2505,6 @@ function artifactAttachmentId(artifact) {
 function artifactCanView(artifact) {
   const format = artifactFormat(artifact).toLowerCase();
   return Boolean(artifactAttachmentId(artifact) && ["pdf", "docx", "xlsx", "pptx"].includes(format));
-}
-
-function attachmentDownloadHref(attachmentId) {
-  return `/api/attachments/${encodeURIComponent(attachmentId)}/download`;
-}
-
-function stopDocumentViewerPoll() {
-  if (documentViewerPoll) clearTimeout(documentViewerPoll);
-  documentViewerPoll = null;
-}
-
-function setDocumentViewerState(patch = {}) {
-  state.viewer = { ...state.viewer, ...patch };
-  renderDocumentViewer();
-}
-
-function viewerMetaLabel() {
-  const format = String(state.viewer.sourceKind || state.viewer.kind || "").toUpperCase();
-  if (state.viewer.loading && state.viewer.jobId) return `${format || "DOCUMENT"} preview is being prepared`;
-  if (state.viewer.loading) return "Loading preview";
-  if (state.viewer.error) return "Preview unavailable";
-  return format ? `${format} preview` : "Preview";
-}
-
-function renderDocumentViewer() {
-  if (!els.documentViewer) return;
-  const viewer = state.viewer;
-  document.body.classList.toggle("document-viewer-open", Boolean(viewer.open));
-  els.documentViewer.classList.toggle("hidden", !viewer.open);
-  els.documentViewerTitle.textContent = viewer.fileName || "Document";
-  els.documentViewerMeta.textContent = viewerMetaLabel();
-
-  const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
-  const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
-  els.documentViewerDownload.classList.toggle("hidden", !downloadHref);
-  els.documentViewerDownload.toggleAttribute("hidden", !downloadHref);
-  if (downloadHref) {
-    // Anchor attrs no longer apply (the element is now a <button> so the
-    // WebView does not open the Android share sheet). Click handler reads
-    // these dataset values and routes through the Capacitor-aware download.
-    els.documentViewerDownload.dataset.attachmentId = downloadAttachmentId || "";
-    els.documentViewerDownload.dataset.fileName = viewer.fileName || "download";
-  } else {
-    delete els.documentViewerDownload.dataset.attachmentId;
-    delete els.documentViewerDownload.dataset.fileName;
-  }
-
-  if (!viewer.open) {
-    delete els.documentViewerBody.dataset.pdfUrl;
-    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
-    return;
-  }
-  if (viewer.error) {
-    delete els.documentViewerBody.dataset.pdfUrl;
-    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">${escapeHtml(viewer.error)}</div>`;
-    return;
-  }
-  if (viewer.loading) {
-    delete els.documentViewerBody.dataset.pdfUrl;
-    const label = viewer.jobId ? "Preparing preview…" : "Loading preview…";
-    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
-    return;
-  }
-  if (viewer.url) {
-    renderCleanPdfViewer(viewer.url);
-    return;
-  }
-  els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Preview is not available for this document.</div>`;
-}
-
-async function loadPdfJs() {
-  if (!pdfJsPromise) {
-    pdfJsPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.mjs").then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.worker.mjs";
-      return pdfjs;
-    });
-  }
-  return pdfJsPromise;
-}
-
-function pdfPlaceholderHeight(width) {
-  return Math.max(420, Math.round(width * 1.294));
-}
-
-function renderCleanPdfViewer(url) {
-  if (els.documentViewerBody.dataset.pdfUrl === url) return;
-  const token = ++pdfRenderToken;
-  els.documentViewerBody.dataset.pdfUrl = url;
-  els.documentViewerBody.innerHTML = `
-    <div class="pdf-pages" data-pdf-pages>
-      <div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>Loading pages…</div>
-    </div>
-  `;
-  loadPdfJs()
-    .then((pdfjs) => renderPdfPages(pdfjs, url, token))
-    .catch(() => {
-      if (token !== pdfRenderToken) return;
-      els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Could not load the clean preview.</div>`;
-    });
-}
-
-async function renderPdfPages(pdfjs, url, token) {
-  const container = els.documentViewerBody.querySelector("[data-pdf-pages]");
-  if (!container || token !== pdfRenderToken) return;
-
-  let pdf;
-  try {
-    pdf = await pdfjs.getDocument({ url }).promise;
-  } catch {
-    if (token !== pdfRenderToken) return;
-    els.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Could not open this PDF preview.</div>`;
-    return;
-  }
-  if (token !== pdfRenderToken) return;
-
-  const bodyWidth = Math.max(320, els.documentViewerBody.clientWidth - 28);
-  container.innerHTML = "";
-  const placeholders = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const pageEl = document.createElement("div");
-    pageEl.className = "pdf-page";
-    pageEl.dataset.page = String(pageNumber);
-    pageEl.style.minHeight = `${pdfPlaceholderHeight(bodyWidth)}px`;
-    pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
-    container.appendChild(pageEl);
-    placeholders.push(pageEl);
-  }
-
-  const renderPage = async (pageEl) => {
-    if (pageEl.dataset.rendered || token !== pdfRenderToken) return;
-    pageEl.dataset.rendered = "1";
-    const pageNumber = Number(pageEl.dataset.page);
-    const page = await pdf.getPage(pageNumber);
-    if (token !== pdfRenderToken) return;
-    const base = page.getViewport({ scale: 1 });
-    const scale = Math.min(1.8, Math.max(0.6, bodyWidth / base.width));
-    const viewport = page.getViewport({ scale });
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.floor(viewport.width * dpr);
-    canvas.height = Math.floor(viewport.height * dpr);
-    canvas.style.width = `${Math.floor(viewport.width)}px`;
-    canvas.style.height = `${Math.floor(viewport.height)}px`;
-    canvas.setAttribute("aria-label", `Page ${pageNumber}`);
-    const context = canvas.getContext("2d", { alpha: false });
-    await page.render({
-      canvasContext: context,
-      viewport,
-      transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null
-    }).promise;
-    if (token !== pdfRenderToken) return;
-    pageEl.style.minHeight = "";
-    pageEl.replaceChildren(canvas);
-  };
-
-  if ("IntersectionObserver" in window) {
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        observer.unobserve(entry.target);
-        renderPage(entry.target).catch(() => {
-          entry.target.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
-        });
-      }
-    }, { root: els.documentViewerBody, rootMargin: "900px 0px" });
-    placeholders.forEach((pageEl) => observer.observe(pageEl));
-  } else {
-    for (const pageEl of placeholders.slice(0, 3)) {
-      renderPage(pageEl).catch(() => {
-        pageEl.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
-      });
-    }
-  }
-}
-
-async function pollDocumentPreviewJob(jobId) {
-  stopDocumentViewerPoll();
-  let attempts = 0;
-  const tick = async () => {
-    if (!state.viewer.open || state.viewer.jobId !== jobId) return;
-    attempts += 1;
-    try {
-      const payload = await fetchDocumentJobStatus(state.session, jobId);
-      if (!state.viewer.open || state.viewer.jobId !== jobId) return;
-      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) {
-        await loadDocumentViewerUrl(payload.artifact.attachment_id, {
-          downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
-          fileName: state.viewer.fileName || payload.artifact.file_name,
-          sourceKind: state.viewer.sourceKind
-        });
-        return;
-      }
-      if (["failed", "expired"].includes(payload?.job?.status)) {
-        setDocumentViewerState({ loading: false, error: "The preview could not be generated." });
-        return;
-      }
-    } catch (err) {
-      if (attempts >= 2) setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
-      return;
-    }
-    if (attempts >= 60) {
-      setDocumentViewerState({ loading: false, error: "Preview generation timed out." });
-      return;
-    }
-    documentViewerPoll = setTimeout(tick, 1500);
-  };
-  documentViewerPoll = setTimeout(tick, 1200);
-}
-
-async function loadDocumentViewerUrl(attachmentId, { downloadAttachmentId = "", fileName = "", sourceKind = "" } = {}) {
-  if (!state.session?.access_token) {
-    setDocumentViewerState({ loading: false, error: "Sign in to view files." });
-    return;
-  }
-  const payload = await fetchAttachmentView(state.session, attachmentId);
-  if (payload.status === "processing" && payload.jobId) {
-    setDocumentViewerState({
-      open: true,
-      attachmentId,
-      downloadAttachmentId: downloadAttachmentId || state.viewer.downloadAttachmentId || attachmentId,
-      jobId: payload.jobId,
-      fileName: fileName || payload.fileName || "Document",
-      kind: payload.kind || "pdf",
-      sourceKind: payload.sourceKind || sourceKind,
-      url: "",
-      loading: true,
-      error: ""
-    });
-    pollDocumentPreviewJob(payload.jobId);
-    return;
-  }
-  if (!payload.url) throw new Error("Preview URL was not returned.");
-  stopDocumentViewerPoll();
-  setDocumentViewerState({
-    open: true,
-    attachmentId,
-    downloadAttachmentId: downloadAttachmentId || state.viewer.downloadAttachmentId || attachmentId,
-    jobId: "",
-    fileName: payload.fileName || fileName || "Document",
-    kind: payload.kind || "pdf",
-    sourceKind: sourceKind || payload.sourceKind || payload.kind || "pdf",
-    url: payload.url,
-    loading: false,
-    error: ""
-  });
-}
-
-async function openDocumentViewer({ attachmentId, fileName = "", format = "" }) {
-  stopDocumentViewerPoll();
-  setDocumentViewerState({
-    open: true,
-    attachmentId,
-    downloadAttachmentId: attachmentId,
-    jobId: "",
-    fileName: fileName || "Document",
-    kind: "pdf",
-    sourceKind: format.toLowerCase(),
-    url: "",
-    loading: true,
-    error: ""
-  });
-  try {
-    await loadDocumentViewerUrl(attachmentId, { fileName, sourceKind: format.toLowerCase() });
-  } catch (err) {
-    setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
-  }
-}
-
-function closeDocumentViewer() {
-  stopDocumentViewerPoll();
-  pdfRenderToken += 1;
-  if (els.documentViewerBody) delete els.documentViewerBody.dataset.pdfUrl;
-  setDocumentViewerState({
-    open: false,
-    attachmentId: "",
-    downloadAttachmentId: "",
-    jobId: "",
-    fileName: "",
-    kind: "",
-    sourceKind: "",
-    url: "",
-    loading: false,
-    error: ""
-  });
-}
-
-function setDocumentViewerWidth(width) {
-  const min = 360;
-  const max = Math.max(min, Math.min(window.innerWidth - 460, Math.floor(window.innerWidth * 0.72)));
-  const next = Math.max(min, Math.min(max, Math.round(width)));
-  document.documentElement.style.setProperty("--document-viewer-w", `${next}px`);
-  try {
-    localStorage.setItem(VIEWER_WIDTH_KEY, String(next));
-  } catch {
-    /* Ignore storage failures. */
-  }
-}
-
-function initDocumentViewerWidth() {
-  let saved = 0;
-  try {
-    saved = Number(localStorage.getItem(VIEWER_WIDTH_KEY) || 0);
-  } catch {
-    saved = 0;
-  }
-  setDocumentViewerWidth(saved || Math.round(window.innerWidth * 0.45));
-}
-
-function beginDocumentViewerResize(event) {
-  if (!state.viewer.open || window.matchMedia("(max-width: 900px)").matches) return;
-  event.preventDefault();
-  document.body.classList.add("document-viewer-resizing");
-  const move = (moveEvent) => {
-    setDocumentViewerWidth(window.innerWidth - moveEvent.clientX);
-  };
-  const stop = () => {
-    document.body.classList.remove("document-viewer-resizing");
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", stop, { once: true });
-  window.addEventListener("pointercancel", stop, { once: true });
 }
 
 function pendingArtifactStatusLabel(artifact) {
@@ -3270,42 +2648,6 @@ function renderUserEditForm(msg, rawText) {
   `;
 }
 
-function renderResearchCard(msg) {
-  const research = researchMeta(msg) || {};
-  const progress = research.progress || {};
-  const active = ["queued", "running"].includes(research.status);
-  const complete = research.status === "succeeded" || Boolean(research.partial);
-  const label = progress.label || (active ? "Preparing research" : research.status === "cancelled" ? "Research cancelled" : "Research stopped");
-  const percent = Math.max(0, Math.min(100, Number(progress.percent || (complete ? 100 : 0))));
-  const elapsed = research.elapsedMs ? `${Math.max(1, Math.round(research.elapsedMs / 1000))}s` : "";
-  const icon = complete
-    ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>`
-    : "";
-  return `
-    <div class="research-card ${active ? "is-active" : complete ? "is-complete" : "is-stopped"}">
-      <div class="research-card-main">
-        <div class="research-card-heading">
-          <span class="research-card-icon" aria-hidden="true">${icon}</span>
-          <span class="research-card-kicker">Deep research</span>
-        </div>
-        <strong>${escapeHtml(research.title || label)}</strong>
-        ${cleanReportSummary(research.summary) ? `<p>${escapeHtml(cleanReportSummary(research.summary))}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
-        ${active ? `<div class="research-card-progress"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
-        <div class="research-card-footer">
-          <div class="research-card-meta">
-            ${research.sourceCount ? `<span>${research.sourceCount} sources</span>` : ""}
-            ${elapsed ? `<span>${elapsed}</span>` : ""}
-            ${research.partial ? "<span>Partial report</span>" : ""}
-          </div>
-          <div class="research-card-actions">
-            ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report <span aria-hidden="true">→</span></button>` : ""}
-            ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
-          </div>
-        </div>
-      </div>
-    </div>`;
-}
-
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
@@ -3313,8 +2655,8 @@ function renderStandardMessage(raw) {
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
 
-  const inner = role === "assistant" && researchMeta(msg)
-    ? renderResearchCard(msg)
+  const inner = role === "assistant" && researchController.researchMeta(msg)
+    ? researchController.renderResearchCard(msg)
     : editing
     ? renderUserEditForm(msg, rawText)
     : `<div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
@@ -3324,373 +2666,6 @@ function renderStandardMessage(raw) {
     <article class="message ${role}${editing ? " editing" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-body">
         ${inner}
-      </div>
-    </article>
-  `;
-}
-
-function reportMarkdownWithoutImages(markdown) {
-  return String(markdown || "").replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-}
-
-// Topic -> theme. Each theme is just a CSS variable set in styles.css; this
-// keyword vote keeps the choice on the client (no server/DB cost) and still
-// gives every report a distinct, stable editorial personality.
-const REPORT_THEME_KEYWORDS = {
-  commerce: ["best", "top", "review", "buy", "buying", "price", "cheap", "budget", "worth", " vs ", "deal", "product", "gadget", "headphone", "laptop", "phone", "fragrance", "perfume", "cologne", "skincare", "shoe", "watch", "mattress", "coffee", "brand", "affordable"],
-  science: ["study", "studies", "research", "scientist", "clinical", "health", "medical", "disease", "climate", "environment", "species", "brain", "gene", "quantum", "physics", "biology", "chemistry", "nasa", "space", "vaccine", "therapy"],
-  tech: ["software", "app ", "ai ", " ai", "model", "llm", "programming", "code", "developer", "api", "framework", "startup", "crypto", "blockchain", "bitcoin", "cybersecurity", "cloud", "database", "github", "javascript", "python"],
-  finance: ["market", "stock", "economy", "economic", "inflation", "invest", "finance", "financial", "revenue", "earnings", "gdp", "interest rate", "currency", "valuation", "etf", "trading"],
-  culture: ["history", "art", "film", "movie", "music", "album", "travel", "food", "recipe", "book", "novel", "game", "sport", "football", "fashion", "culture", "festival", "museum", "photography"]
-};
-
-const REPORT_THEME_KICKERS = {
-  editorial: "Deep Research",
-  commerce: "Buying Guide",
-  science: "Research Briefing",
-  tech: "Tech Report",
-  finance: "Market Briefing",
-  culture: "Feature"
-};
-
-function pickReportTheme(payload) {
-  const haystack = `${payload?.run?.title || ""} ${payload?.run?.summary || ""} ${String(payload?.report || "").slice(0, 2500)}`.toLowerCase();
-  let best = "editorial";
-  let bestScore = 0;
-  for (const [theme, keywords] of Object.entries(REPORT_THEME_KEYWORDS)) {
-    let score = 0;
-    for (const keyword of keywords) if (haystack.includes(keyword)) score += 1;
-    if (score > bestScore) { bestScore = score; best = theme; }
-  }
-  return best;
-}
-
-function reportReadingMeta(payload) {
-  const words = String(payload?.report || "").trim().split(/\s+/).filter(Boolean).length;
-  const minutes = Math.max(1, Math.round(words / 220));
-  const sources = payload?.sources?.length || payload?.run?.sourceCount || 0;
-  const stamp = payload?.run?.finishedAt || payload?.run?.createdAt;
-  let dateLabel = "";
-  if (stamp) {
-    const date = new Date(stamp);
-    if (!Number.isNaN(date.getTime())) {
-      dateLabel = date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-    }
-  }
-  return { minutes, sources, dateLabel };
-}
-
-function stripLeadingH1(markdown) {
-  return String(markdown || "").replace(/^\s*#\s+.*(\r?\n)+/, "");
-}
-
-// Summaries are stored as raw markdown (e.g. "**Executive Summary:** ...").
-// The card shows them as plain text, so strip emphasis markers and the
-// redundant label instead of leaking literal asterisks.
-function cleanReportSummary(text) {
-  return String(text || "")
-    .replace(/\*\*/g, "")
-    .replace(/__/g, "")
-    .replace(/^\s*#+\s*/, "")
-    .replace(/^\s*executive summary\s*[:.\-]*\s*/i, "")
-    .trim();
-}
-
-function reportMasthead(payload, theme, meta) {
-  const fallbackTitle = (String(payload?.report || "").match(/^\s*#\s+(.+)$/m)?.[1] || "Research report").trim();
-  const title = (payload?.run?.title || fallbackTitle).trim();
-  const metaParts = [`${meta.minutes} min read`, `${meta.sources} ${meta.sources === 1 ? "source" : "sources"}`];
-  if (meta.dateLabel) metaParts.push(meta.dateLabel);
-  // No standfirst: the report body already opens with its own executive
-  // summary, so a dek here just duplicates it (and the stored summary is
-  // truncated).
-  return `
-    <header class="report-masthead">
-      <p class="report-kicker">${escapeHtml(REPORT_THEME_KICKERS[theme] || REPORT_THEME_KICKERS.editorial)}</p>
-      <h1 class="report-title">${escapeHtml(title)}</h1>
-      <div class="report-meta">${metaParts.map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</div>
-    </header>
-  `;
-}
-
-function reportSourceRows(sources) {
-  return (sources || []).map((source) => {
-    let href = "";
-    try {
-      const url = new URL(source.url);
-      if (["http:", "https:"].includes(url.protocol)) href = url.href;
-    } catch {}
-    if (!href) return "";
-    return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"><strong>${escapeHtml(source.title || href)}</strong><span>${escapeHtml(new URL(href).hostname.replace(/^www\./, ""))}</span></a>`;
-  }).join("");
-}
-
-function buildReportToc() {
-  if (!els.researchReportArticle || !els.researchReportToc) return;
-  const headings = [...els.researchReportArticle.querySelectorAll("h2, h3")];
-  els.researchReportToc.innerHTML = headings.map((heading, index) => {
-    const id = `report-section-${index + 1}`;
-    heading.id = id;
-    return `<a class="level-${heading.tagName.toLowerCase()}" href="#${id}">${escapeHtml(heading.textContent || "Section")}</a>`;
-  }).join("");
-  els.researchReportToc.classList.toggle("hidden", !headings.length);
-}
-
-function renderResearchReport() {
-  const payload = state.researchReport;
-  if (!payload) return;
-  const theme = pickReportTheme(payload);
-  els.researchReportView.dataset.reportTheme = theme;
-  const meta = reportReadingMeta(payload);
-  const markdown = stripLeadingH1(reportMarkdownWithoutImages(payload.report));
-  els.researchReportArticle.innerHTML = reportMasthead(payload, theme, meta) + renderContent(markdown);
-  els.researchReportArticle.querySelectorAll("img").forEach((image) => image.remove());
-  els.researchReportSources.innerHTML = reportSourceRows(payload.sources);
-  els.researchReportSourcesSummary.textContent = `Sources (${payload.sources?.length || 0})`;
-  els.researchReportLoading.classList.add("hidden");
-  els.researchReportLayout.classList.remove("hidden");
-  buildReportToc();
-}
-
-function setResearchReportView(mode) {
-  const textOnly = mode === "text";
-  els.researchReportView.classList.toggle("text-only", textOnly);
-  els.researchVisualTab.classList.toggle("active", !textOnly);
-  els.researchTextTab.classList.toggle("active", textOnly);
-  els.researchVisualTab.setAttribute("aria-selected", String(!textOnly));
-  els.researchTextTab.setAttribute("aria-selected", String(textOnly));
-}
-
-async function openResearchReport(runId, { push = true } = {}) {
-  if (!runId || !state.session) return;
-  clearTimeout(researchPollTimer);
-  state.researchReport = null;
-  showOnly(els.researchReportView);
-  setResearchReportView("visual");
-  els.researchReportLoading.textContent = "Loading report...";
-  els.researchReportLoading.classList.remove("hidden");
-  els.researchReportLayout.classList.add("hidden");
-  if (push && window.location.pathname !== `/research/${encodeURIComponent(runId)}`) {
-    window.history.pushState({ researchId: runId }, "", `/research/${encodeURIComponent(runId)}`);
-  }
-  try {
-    state.researchReport = await fetchResearchReport(state.session, runId);
-    renderResearchReport();
-  } catch (error) {
-    els.researchReportLoading.textContent = error.message;
-  }
-}
-
-async function closeResearchReport({ push = true } = {}) {
-  const conversationId = state.researchReport?.run?.conversationId || state.activeConversationId;
-  state.researchReport = null;
-  if (push) window.history.pushState({ conversationId }, "", conversationUrl(conversationId));
-  showOnly(els.chatView);
-  if (conversationId && state.activeConversationId !== conversationId) {
-    state.activeConversationId = conversationId;
-    await loadActiveConversation().catch(() => {});
-  }
-  renderShell();
-  resumeResearchPolling();
-}
-
-function renderCompareResponse(raw, index) {
-  const msg = normalizeMessage(raw);
-  const rawText = rawTextContent(msg.content);
-  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
-
-  return `
-    <section class="compare-response"${idAttr} data-raw-text="${escapeHtml(rawText)}">
-      <header class="compare-response-head">
-        <strong>${escapeHtml(compareModelAlias(index))}</strong>
-        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
-      </header>
-      <div class="compare-response-body message-content">${renderAssistantMessageContent(msg)}</div>
-    </section>
-  `;
-}
-
-function renderCompareMessage(messages) {
-  const sharedCitations = (messages || []).map((m) => renderCitations(m)).find((html) => html);
-  return `
-    <article class="message assistant compare-message">
-      <div class="message-body">
-        <div class="compare-message-label">Klui Compare</div>
-        <div class="compare-grid">
-          ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
-        </div>
-        ${sharedCitations ? `<div class="message-footer-sources">${sharedCitations}</div>` : ""}
-      </div>
-    </article>
-  `;
-}
-
-function renderCouncilStages(council) {
-  const stages = [
-    { key: "stage1", label: "Panel", status: council.stage1Status || "active" },
-    { key: "stage2", label: "Peer review", status: council.stage2Status || "pending" },
-    { key: "stage3", label: "Chairman", status: council.stage3Status || "pending" }
-  ];
-  return `<div class="council-stages">${stages.map((stage, index) => `
-    <span class="council-stage ${stage.status}">
-      <span class="council-stage-dot"></span>
-      <span>${escapeHtml(stage.label)}</span>
-    </span>${index < stages.length - 1 ? '<span class="council-stage-sep"></span>' : ""}
-  `).join("")}</div>`;
-}
-
-function councilProgressState(council) {
-  const panelists = council.panelists || [];
-  const total = Math.max(1, panelists.length || DEFAULT_COUNCIL_MODELS.length);
-  const completePanelists = panelists.filter((p) => p.finishReason || p.error).length;
-  const stage1 = council.stage1Status || "active";
-  const stage2 = council.stage2Status || "pending";
-  const stage3 = council.stage3Status || "pending";
-  let label = "Individual models are answering";
-  let percent = Math.max(8, Math.round((completePanelists / total) * 48));
-
-  if (stage3 === "done") {
-    label = "Council complete";
-    percent = 100;
-  } else if (stage3 === "active") {
-    label = "Final answer is being written";
-    percent = 88;
-  } else if (stage2 === "active" || stage2 === "done" || stage2 === "skipped") {
-    label = "Answers are being gathered and ranked";
-    percent = stage2 === "active" ? 68 : 78;
-  } else if (stage1 === "done") {
-    label = "Answers are being gathered and ranked";
-    percent = 58;
-  }
-
-  if (stage1 === "error" || stage2 === "error" || stage3 === "error") {
-    label = "Council hit an error";
-    percent = Math.max(percent, 50);
-  }
-
-  const sub = stage1 === "active"
-    ? `${Math.min(completePanelists, total)}/${total} model${total === 1 ? "" : "s"} answered`
-    : (stage3 === "done" ? "Final answer ready" : "Reviewing panel answers");
-  return { label, sub, percent: Math.max(0, Math.min(100, percent)) };
-}
-
-function renderCouncilProgress(council) {
-  const progress = councilProgressState(council);
-  return `
-    <div class="council-progress" role="status" aria-live="polite">
-      <div class="council-progress-copy">
-        <span>${escapeHtml(progress.label)}</span>
-        <small>${escapeHtml(progress.sub)}</small>
-      </div>
-      <div class="council-progress-track" aria-hidden="true">
-        <span style="width: ${progress.percent}%"></span>
-      </div>
-    </div>
-  `;
-}
-
-function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false) {
-  const msg = normalizeMessage(panelist);
-  const modelId = msg.model || "";
-  const modelAlias = councilModelAlias(modelId, index);
-  const rawText = rawTextContent(msg.content);
-  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
-  const rank = msg.metadata?.council?.peerRank;
-  const ballotCount = Number(msg.metadata?.council?.ballotCount || 0);
-  const justifications = msg.metadata?.council?.peerJustifications || {};
-  const showRank = rank != null && totalRanked > 0 && ballotCount > 0;
-  const rankBadge = showRank
-    ? `<span class="council-rank-badge rank-${rank}">#${rank}${rank === 1 ? " · Top" : ""}</span>`
-    : (peerReviewActive && msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
-  const justKeys = Object.keys(justifications).filter((reviewerId) => !isPlaceholderPeerReason(justifications[reviewerId]));
-  const justBlock = justKeys.length ? `
-    <div class="council-justifications">
-      <div class="council-justifications-title">Peer notes</div>
-      ${justKeys.map((reviewerId) => {
-        const reviewer = councilModelAlias(reviewerId);
-        return `<div class="council-justification"><strong>${escapeHtml(reviewer)}:</strong> ${escapeHtml(justifications[reviewerId] || "")}</div>`;
-      }).join("")}
-    </div>` : "";
-
-  return `
-    <section class="council-panelist ${showRank && rank === 1 ? "rank-1" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
-      <header class="council-panelist-head">
-        <span class="compare-model-mark">
-          <span>${escapeHtml(modelAlias.replace("Model ", ""))}</span>
-        </span>
-        <strong>${escapeHtml(modelAlias)}</strong>
-        ${rankBadge}
-        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
-      </header>
-      <div class="council-panelist-body message-content">${renderAssistantMessageContent(msg)}</div>
-      ${justBlock}
-    </section>
-  `;
-}
-
-function renderCouncilSynthesis(chairman) {
-  if (!chairman) {
-    return `<div class="council-synthesis">
-      <div class="council-synthesis-head">
-        <span>Council Synthesis</span>
-      </div>
-      <div class="council-synthesis-pending">Waiting for the chairman to synthesize the final answer…</div>
-    </div>`;
-  }
-
-  const msg = normalizeMessage(chairman);
-  const modelId = msg.model || "";
-  const rawText = rawTextContent(msg.content);
-  const modelName = councilModelAlias(modelId);
-  const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
-
-  return `
-    <div class="council-synthesis"${idAttr} data-raw-text="${escapeHtml(rawText)}">
-      <div class="council-synthesis-head">
-        <span>Council Synthesis</span>
-        <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
-        ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
-      </div>
-      <div class="council-synthesis-body message-content">${renderAssistantMessageContent(msg)}</div>
-    </div>
-  `;
-}
-
-function renderCouncilMessage(council) {
-  const panelists = council.panelists || [];
-  const chairman = council.chairman || null;
-  const hasAnyRank = panelists.some((p) => p.metadata?.council?.peerRank != null && Number(p.metadata?.council?.ballotCount || 0) > 0);
-  const peerReviewActive = council.stage2Status === "active";
-  const peerStatusText = council.peerStatus || "";
-  const councilId = String(council.sessionId || council.id || "current-council");
-  const detailsOpen = councilDetailsOpenIds.has(councilId) ? " open" : "";
-
-  return `
-    <article class="message assistant council-message">
-      <div class="council-shell">
-        <header class="council-header">
-          <span class="council-header-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
-          </span>
-          <span class="council-header-title">Model Council</span>
-          <span class="council-header-sub">${panelists.length} panelists${chairman ? " · 1 chairman" : ""}</span>
-        </header>
-        ${renderCouncilProgress(council)}
-        ${renderCouncilSynthesis(chairman)}
-        <details class="council-details"${detailsOpen} data-council-id="${escapeHtml(councilId)}">
-          <summary>
-            <span>How the council worked</span>
-            <small>${hasAnyRank ? "Rankings and individual answers" : "Individual answers and review progress"}</small>
-          </summary>
-          <div class="council-details-body">
-            ${renderCouncilStages(council)}
-            ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
-            <div class="council-section-label">Individual answers</div>
-            <div class="council-panel-grid">
-              ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive)).join("")}
-            </div>
-          </div>
-        </details>
       </div>
     </article>
   `;
@@ -3715,8 +2690,8 @@ function renderMessages() {
 
   els.messages.innerHTML = messageViews(state.messages)
     .map((view) => {
-      if (view.type === "council") return renderCouncilMessage(view.council);
-      if (view.type === "compare") return renderCompareMessage(view.messages);
+      if (view.type === "council") return councilController.renderCouncilMessage(view.council);
+      if (view.type === "compare") return compareController.renderCompareMessage(view.messages);
       return renderStandardMessage(view.message);
     })
     .join("");
@@ -4051,7 +3026,7 @@ function addImages(files) {
   renderImages();
   els.promptInput.value = draft;
   applyComposerHeight();
-  syncCompareContextBanner();
+  compareController.syncCompareContextBanner();
 }
 
 function openLightbox(src) {
@@ -4236,6 +3211,115 @@ function setRunning(running) {
   updateSendButton();
 }
 
+researchController = createResearchController({
+  elements: {
+    researchReportView: els.researchReportView,
+    researchReportBack: els.researchReportBack,
+    researchVisualTab: els.researchVisualTab,
+    researchTextTab: els.researchTextTab,
+    researchCopy: els.researchCopy,
+    researchPrint: els.researchPrint,
+    researchReportLoading: els.researchReportLoading,
+    researchReportLayout: els.researchReportLayout,
+    researchReportToc: els.researchReportToc,
+    researchReportArticle: els.researchReportArticle,
+    researchReportSources: els.researchReportSources,
+    researchReportSourcesSummary: els.researchReportSourcesSummary,
+    chatView: els.chatView,
+    promptInput: els.promptInput
+  },
+  state,
+  createResearch,
+  fetchResearchStatus,
+  fetchResearchReport,
+  escapeHtml,
+  renderContent,
+  renderMessages,
+  renderShell,
+  renderResearchMode,
+  setRunning,
+  showToast,
+  showOnly,
+  loadMe,
+  loadConversations,
+  loadActiveConversation,
+  conversationUrl,
+  syncConversationUrl,
+  selectedModelMode,
+  applyComposerHeight,
+  renderImages,
+  OPENROUTER_PRO_MODEL,
+  OPENROUTER_TEXT_MODEL
+});
+
+function stopExtractedModulePollers() {
+  researchController.stopResearchPolling();
+  stopPendingArtifactPolls();
+}
+
+compareController = createCompareController({
+  elements: {
+    compareContextBanner: els.compareContextBanner,
+    compareDropdown: els.compareDropdown,
+    compareButton: els.compareButton,
+    compareWrap: els.compareWrap,
+    compareInput: els.compareInput,
+    compareCatalog: els.compareCatalog,
+    compareLabel: els.compareLabel,
+    councilWrap: els.councilWrap,
+    councilButton: els.councilButton,
+    councilLabel: els.councilLabel
+  },
+  state,
+  DEFAULT_COMPARE_MODELS,
+  DEFAULT_COUNCIL_MODELS,
+  updateSetting,
+  escapeHtml,
+  compactModelDisplayName,
+  modelBrandLogoUrl,
+  renderAssistantMessageContent,
+  renderCitations,
+  normalizeMessage,
+  rawTextContent,
+  openNewChat,
+  renderShell,
+  pendingPromptHasImages,
+  compareIncludesTextOnlyModels
+});
+
+councilController = createCouncilController({
+  elements: { messages: els.messages },
+  state,
+  DEFAULT_COUNCIL_MODELS,
+  updateSetting,
+  escapeHtml,
+  normalizeMessage,
+  rawTextContent,
+  renderAssistantMessageContent,
+  isPlaceholderPeerReason,
+  compareModelAlias: (...args) => compareController.compareModelAlias(...args),
+  renderCompareControls: () => compareController.renderCompareControls()
+});
+
+adminPanel = createAdminPanel({
+  elements: {
+    adminOutput: els.adminOutput,
+    loadAdminButton: els.loadAdminButton,
+    saveSystemPromptButton: els.saveSystemPromptButton,
+    systemPromptInput: els.systemPromptInput
+  },
+  state,
+  fetchAdminSummary,
+  updateAdminSettings,
+  approveAdminPayment,
+  rejectAdminPayment,
+  escapeHtml,
+  isAdminUser,
+  showToast,
+  saveSettings,
+  syncSettingsInputs
+});
+
 function updateSendButton() {
   const hasText = Boolean(els.promptInput.value.trim() || state.pastedText);
   if (state.running) {
@@ -4256,130 +3340,6 @@ function applyComposerHeight() {
   els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
 }
 
-/* ─── Stream event handling ─── */
-
-function ensureToolState(message) {
-  if (!message.toolEvents) message.toolEvents = [];
-  if (!message.citations) message.citations = [];
-}
-
-function applyToolEvent(message, event) {
-  ensureToolState(message);
-  if (event.type === "tool:start") {
-    markActivityStarted(message);
-    let parsedArgs = {};
-    try { parsedArgs = JSON.parse(event.arguments || "{}"); } catch {}
-    message.toolEvents.push({
-      id: event.toolCallId,
-      name: event.name,
-      query: parsedArgs.query || parsedArgs.url || "",
-      status: "running"
-    });
-    return;
-  }
-  if (event.type === "tool:result") {
-    const entry = message.toolEvents.find((row) => row.id === event.toolCallId);
-    if (entry) {
-      entry.status = "done";
-      entry.cached = Boolean(event.cached);
-      entry.provider = event.provider || "";
-      entry.resultCount = (event.citations || []).length;
-    }
-    const offset = message.citations.length;
-    for (const citation of event.citations || []) {
-      message.citations.push({ ...citation, index: offset + citation.index });
-    }
-    mergeArtifacts(message, event.artifacts || []);
-    return;
-  }
-  if (event.type === "tool:error") {
-    const entry = message.toolEvents.find((row) => row.id === event.toolCallId);
-    if (entry) {
-      entry.status = "error";
-      entry.error = event.error?.message || "Tool failed.";
-    } else {
-      message.toolEvents.push({ id: event.toolCallId, name: event.name, status: "error", error: event.error?.message || "Tool failed." });
-    }
-    return;
-  }
-  if (event.type === "tool:limit") {
-    message.toolEvents.push({ id: `limit_${Date.now()}`, name: "limit", status: "limit", limit: event.limit });
-  }
-}
-
-function applyStreamEvent(message, event) {
-  if (event?.type === "error") {
-    message.error = event.error || "Model request failed.";
-    message.finishReason = "error";
-    markActivityEnded(message);
-    markReasoningEnded(message);
-    return;
-  }
-
-  if (event?.type === "done") {
-    message.finishReason ||= "stop";
-    markActivityEnded(message);
-    markReasoningEnded(message);
-    return;
-  }
-
-  if (event?.type === "usage") {
-    if (event.usage) message.usage = event.usage;
-    return;
-  }
-
-  if (event?.type === "response:reset") {
-    message.content = "";
-    return;
-  }
-
-  if (typeof event?.type === "string" && event.type.startsWith("tool:")) {
-    applyToolEvent(message, event);
-    return;
-  }
-
-  markActivityStarted(message);
-
-  /* Providers stream a trailing usage chunk (usually with empty choices)
-     when usage reporting is enabled — record it for the context meter. */
-  if (event?.usage) {
-    const usage = normalizeClientUsage(event.usage);
-    if (usage) message.usage = usage;
-  }
-
-  const choice = event?.choices?.[0];
-  const delta = choice?.delta || {};
-
-  const reasoningDelta = extractReasoningDelta(delta);
-  if (reasoningDelta) {
-    markReasoningStarted(message);
-    if (isAdminUser()) message.reasoning += reasoningDelta;
-  }
-  if (typeof delta.content === "string" && delta.content) {
-    markReasoningEnded(message);
-    message.content += delta.content;
-  }
-
-  if (Array.isArray(delta.tool_calls)) {
-    for (const callDelta of delta.tool_calls) {
-      const index = Number.isInteger(callDelta.index) ? callDelta.index : message.toolCalls.length;
-      const existing = message.toolCalls[index] || { id: "", type: "function", function: { name: "", arguments: "" } };
-      existing.id = callDelta.id || existing.id;
-      existing.type = callDelta.type || existing.type;
-      existing.function.name = callDelta.function?.name || existing.function.name;
-      existing.function.arguments += callDelta.function?.arguments || "";
-      message.toolCalls[index] = existing;
-    }
-  }
-
-  if (choice?.finish_reason) {
-    message.finishReason = choice.finish_reason;
-    if (isFinalFinishReason(choice.finish_reason)) markActivityEnded(message);
-    markReasoningEnded(message);
-    message.content = stripLeakedToolMarkup(message.content);
-  }
-}
-
 function isStreamDeltaEvent(event) {
   if (event?.type === "delta") return isStreamDeltaEvent(event.event);
   if (event?.type === "council:chairman:delta") return isStreamDeltaEvent(event.event);
@@ -4393,195 +3353,6 @@ function isStreamDeltaEvent(event) {
 function queueStreamRenderForEvent(message, event) {
   if (isStreamDeltaEvent(event)) queueStreamingMessageRender(message);
   else queueRenderMessages();
-}
-
-function applyCompareStreamEvent(compareMessage, event) {
-  const index = Number(event?.index);
-  if (!Number.isInteger(index) || !compareMessage.compareResponses?.[index]) return null;
-  const target = compareMessage.compareResponses[index];
-
-  if (event.type === "start") {
-    target.id = event.assistantMessageId || target.id;
-    if (event.metadata && !target.metadata) target.metadata = event.metadata;
-    markActivityStarted(target);
-    return target;
-  }
-
-  if (event.type === "delta") {
-    applyStreamEvent(target, event.event);
-    return target;
-  }
-
-  if (event.type === "error") {
-    target.error = event.error || "Model request failed.";
-    target.finishReason = "error";
-    markActivityEnded(target);
-    return target;
-  }
-
-  if (event.type === "done") {
-    target.finishReason ||= "stop";
-    markActivityEnded(target);
-    return target;
-  }
-  return target;
-}
-
-function applyCouncilStreamEvent(council, event) {
-  const type = event?.type;
-
-  if (type === "council:start") {
-    council.sessionId = event.sessionId || council.sessionId;
-    return null;
-  }
-
-  /* Stage 1 events reuse compare-style envelope */
-  if (type === "start" || type === "delta" || type === "done" || type === "error") {
-    const index = Number(event.index);
-    const target = council.panelists?.[index];
-    if (!target) return null;
-    if (type === "start") {
-      target.id = event.assistantMessageId || target.id;
-      markActivityStarted(target);
-      if (!target.metadata) target.metadata = { council: { sessionId: council.sessionId, role: "panelist", stage: 1 } };
-    } else if (type === "delta") {
-      applyStreamEvent(target, event.event);
-    } else if (type === "error") {
-      target.error = event.error || "Model request failed.";
-      target.finishReason = "error";
-      markActivityEnded(target);
-    } else if (type === "done") {
-      target.finishReason ||= "stop";
-      markActivityEnded(target);
-    }
-    return target;
-  }
-
-  if (type === "council:peer:start") {
-    council.stage1Status = "done";
-    council.stage2Status = "active";
-    council.peerStatus = "Peers are evaluating each response…";
-    return null;
-  }
-
-  if (type === "council:peer:ballot") {
-    if (!council.ballots) council.ballots = [];
-    council.ballots.push({
-      reviewer: event.reviewerModel,
-      valid: event.valid,
-      ranking: event.ranking || [],
-      justifications: event.justifications || {},
-      error: event.error || null
-    });
-    /* Stream justifications onto panelist metadata so UI updates progressively */
-    for (const [modelId, reason] of Object.entries(event.justifications || {})) {
-      if (isPlaceholderPeerReason(reason)) continue;
-      const target = council.panelists.find((p) => p.model === modelId);
-      if (!target) continue;
-      if (!target.metadata) target.metadata = { council: {} };
-      if (!target.metadata.council) target.metadata.council = {};
-      if (!target.metadata.council.peerJustifications) target.metadata.council.peerJustifications = {};
-      target.metadata.council.peerJustifications[event.reviewerModel] = reason;
-    }
-    return null;
-  }
-
-  if (type === "council:peer:done") {
-    council.stage2Status = "done";
-    council.peerStatus = "";
-    for (const row of event.borda || []) {
-      const target = council.panelists.find((p) => p.model === row.modelId);
-      if (!target) continue;
-      if (!target.metadata) target.metadata = { council: {} };
-      if (!target.metadata.council) target.metadata.council = {};
-      target.metadata.council.peerRank = row.rank;
-      target.metadata.council.bordaScore = row.bordaScore;
-      target.metadata.council.ballotCount = row.ballotCount;
-    }
-    return null;
-  }
-
-  if (type === "council:peer:error") {
-    council.stage2Status = "error";
-    council.peerStatus = `Peer review failed: ${event.error || "Unknown error."}`;
-    for (const panelist of council.panelists || []) {
-      if (!panelist.metadata) panelist.metadata = { council: {} };
-      if (!panelist.metadata.council) panelist.metadata.council = {};
-      panelist.metadata.council.peerReviewStatus = "error";
-      panelist.metadata.council.peerReviewReason = event.error || "Peer review failed.";
-    }
-    return null;
-  }
-
-  if (type === "council:peer:skipped") {
-    council.stage2Status = "done";
-    council.peerStatus = event.reason || "Peer review skipped.";
-    for (const panelist of council.panelists || []) {
-      if (!panelist.metadata) panelist.metadata = { council: {} };
-      if (!panelist.metadata.council) panelist.metadata.council = {};
-      panelist.metadata.council.peerReviewStatus = "skipped";
-      panelist.metadata.council.peerReviewReason = event.reason || "Peer review skipped.";
-    }
-    return null;
-  }
-
-  if (type === "council:chairman:start") {
-    council.stage3Status = "active";
-    if (!council.chairman) {
-      council.chairman = {
-        id: event.assistantMessageId || `local_chair_${Date.now()}`,
-        role: "assistant",
-        model: event.chairmanModel || "",
-        content: "",
-        reasoning: "",
-        toolCalls: [],
-        metadata: {
-          council: {
-            sessionId: council.sessionId,
-            role: "chairman",
-            stage: 3,
-            chairmanModel: event.chairmanModel || ""
-          }
-        }
-      };
-    } else {
-      council.chairman.model = event.chairmanModel || council.chairman.model;
-      council.chairman.id = event.assistantMessageId || council.chairman.id;
-    }
-    markActivityStarted(council.chairman);
-    return council.chairman;
-  }
-
-  if (type === "council:chairman:delta") {
-    if (!council.chairman) return null;
-    applyStreamEvent(council.chairman, event.event);
-    return council.chairman;
-  }
-
-  if (type === "council:chairman:done") {
-    council.stage3Status = "done";
-    if (council.chairman) {
-      council.chairman.finishReason ||= "stop";
-      markActivityEnded(council.chairman);
-    }
-    return council.chairman || null;
-  }
-
-  if (type === "council:chairman:error") {
-    council.stage3Status = "error";
-    if (council.chairman) {
-      council.chairman.error = event.error || "Chairman synthesis failed.";
-      council.chairman.finishReason = "error";
-      markActivityEnded(council.chairman);
-    }
-    return council.chairman || null;
-  }
-
-  if (type === "council:chairman:skipped") {
-    council.stage3Status = "skipped";
-    return null;
-  }
-  return null;
 }
 
 /* ─── API data loading ─── */
@@ -4777,18 +3548,22 @@ async function loadConversations() {
   }
   if (!routeConversationId) state.activeConversationId = "";
   if (state.activeConversationId) await loadActiveConversation();
-  else state.messages = [];
+  else {
+    state.messages = [];
+    stopExtractedModulePollers();
+  }
   if (routeConversationId && !state.activeConversationId) syncConversationUrl({ replace: true });
 }
 
 async function loadActiveConversation() {
   if (!state.activeConversationId) {
     state.messages = [];
+    stopExtractedModulePollers();
     return;
   }
   const payload = await fetchConversation(state.session, state.activeConversationId);
   state.messages = payload.messages || [];
-  resumeResearchPolling();
+  researchController.resumeResearchPolling();
 }
 
 async function loadChatApp() {
@@ -4818,9 +3593,10 @@ function openNewChat({ replaceUrl = false } = {}) {
   state.images = [];
   state.pastedText = "";
   state.compareDescribeImages = false;
+  stopExtractedModulePollers();
   clearFollowUps();
   closeDocumentViewer();
-  closeCompareContextBanner();
+  compareController.closeCompareContextBanner();
   closeSearchDialog();
   closePinnedPopup();
   closeConversationMenus();
@@ -4876,9 +3652,10 @@ async function removeConversation(id) {
   if (wasActive) {
     state.activeConversationId = "";
     state.messages = [];
+    stopExtractedModulePollers();
     clearFollowUps();
     closeDocumentViewer();
-    closeCompareContextBanner();
+    compareController.closeCompareContextBanner();
     syncConversationUrl({ replace: true });
   }
 
@@ -4948,10 +3725,10 @@ async function sendPrompt() {
       showToast("Deep Research currently supports text questions only.");
       return;
     }
-    await startDeepResearch(text);
+    await researchController.startDeepResearch(text);
     return;
   }
-  const compareModels = activeCompareModelIds();
+  const compareModels = compareController.activeCompareModelIds();
   if (state.temporaryChat && state.images.length) {
     showToast("Temporary chat is text-only for now.");
     return;
@@ -4966,11 +3743,11 @@ async function sendPrompt() {
     showToast(failed ? `Remove or retry ${failed.file.name}.` : "Wait for document processing to finish.");
     return;
   }
-  if (state.settings.compareEnabled && selectedCompareModelIds().length < (isCouncilMode() ? 4 : 2)) {
+  if (state.settings.compareEnabled && compareController.selectedCompareModelIds().length < (isCouncilMode() ? 4 : 2)) {
     showToast(isCouncilMode() ? "Council needs its four fixed models." : "Compare needs its two fixed models.");
     return;
   }
-  closeCompareContextBanner();
+  compareController.closeCompareContextBanner();
 
   await executeSend({
     text,
@@ -4988,106 +3765,6 @@ async function sendPrompt() {
     ),
     paste
   });
-}
-
-function researchMeta(message) {
-  return message?.metadata?.research || null;
-}
-
-function updateResearchMessage(run) {
-  const message = state.messages.find((entry) => String(entry.id) === String(run.messageId));
-  if (!message) return;
-  message.metadata = {
-    ...(message.metadata || {}),
-    research: {
-      ...(message.metadata?.research || {}),
-      runId: run.id,
-      status: run.status,
-      phase: run.phase,
-      progress: run.progress || {},
-      title: run.title || "",
-      summary: run.summary || "",
-      sourceCount: run.sourceCount || 0,
-      elapsedMs: run.elapsedMs || 0,
-      partial: run.partial
-    }
-  };
-  if (run.summary) message.content = run.summary;
-  if (run.error?.message) message.error = run.error.message;
-}
-
-async function pollResearch(runId, failedAttempts = 0) {
-  clearTimeout(researchPollTimer);
-  if (!runId || !state.session) return;
-  try {
-    const payload = await fetchResearchStatus(state.session, runId);
-    const run = payload.run;
-    updateResearchMessage(run);
-    renderMessages();
-    if (["queued", "running"].includes(run.status)) {
-      state.activeResearchId = run.id;
-      setRunning(true);
-      researchPollTimer = setTimeout(() => pollResearch(run.id), 2000);
-      return;
-    }
-    state.activeResearchId = "";
-    setRunning(false);
-    await Promise.all([loadMe(), loadConversations()]).catch(() => {});
-    renderShell();
-  } catch (error) {
-    if (failedAttempts < 1 && state.session) {
-      researchPollTimer = setTimeout(() => pollResearch(runId, failedAttempts + 1), 2000);
-      return;
-    }
-    state.activeResearchId = "";
-    setRunning(false);
-    showToast(error.message);
-  }
-}
-
-function resumeResearchPolling() {
-  const running = state.messages.find((message) => {
-    const meta = researchMeta(message);
-    return meta?.runId && ["queued", "running"].includes(meta.status);
-  });
-  if (running) void pollResearch(running.metadata.research.runId);
-}
-
-async function startDeepResearch(query) {
-  if (state.temporaryChat || state.images.length || state.settings.compareEnabled) {
-    showToast("Deep Research requires a normal text chat.");
-    return;
-  }
-  setRunning(true);
-  try {
-    const payload = await createResearch(state.session, {
-      query,
-      conversationId: state.activeConversationId || undefined,
-      model: selectedModelMode() === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL,
-      temporary: false,
-      compare: false,
-      council: false,
-      hasAttachments: false
-    });
-    if (!state.activeConversationId) {
-      state.activeConversationId = payload.conversation.id;
-      state.conversations.unshift(payload.conversation);
-      syncConversationUrl();
-    }
-    state.messages.push(payload.userMessage, payload.assistantMessage);
-    state.activeResearchId = payload.run.id;
-    state.researchMode = false;
-    els.promptInput.value = "";
-    state.pastedText = "";
-    applyComposerHeight();
-    renderImages();
-    renderResearchMode();
-    renderShell();
-    await pollResearch(payload.run.id);
-  } catch (error) {
-    setRunning(false);
-    showToast(error.message);
-  }
 }
 
 async function waitForDocumentReady(attachmentId, fileName) {
@@ -5182,7 +3859,7 @@ async function editUserMessage(id) {
   state.messages = state.messages.slice(0, index);
   renderMessages();
 
-  const compareModels = activeCompareModelIds();
+  const compareModels = compareController.activeCompareModelIds();
   await executeSend({
     text,
     images: [],
@@ -5270,16 +3947,16 @@ async function retryFailedAssistant(assistantMessageId) {
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
         images: followUpBatchImages(queuedFollowUps),
-        compareModels: activeCompareModelIds(),
-        council: Boolean(activeCompareModelIds().length && isCouncilMode()),
-        describeImages: Boolean(activeCompareModelIds().length)
+        compareModels: compareController.activeCompareModelIds(),
+        council: Boolean(compareController.activeCompareModelIds().length && isCouncilMode()),
+        describeImages: Boolean(compareController.activeCompareModelIds().length)
       });
     }
   }
 }
 
 async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null }) {
-  closeCompareContextBanner();
+  compareController.closeCompareContextBanner();
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
@@ -5530,9 +4207,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
         images: followUpBatchImages(queuedFollowUps),
-        compareModels: activeCompareModelIds(),
-        council: Boolean(activeCompareModelIds().length && isCouncilMode()),
-        describeImages: Boolean(activeCompareModelIds().length)
+        compareModels: compareController.activeCompareModelIds(),
+        council: Boolean(compareController.activeCompareModelIds().length && isCouncilMode()),
+        describeImages: Boolean(compareController.activeCompareModelIds().length)
       });
     }
   }
@@ -5540,6 +4217,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
 async function signOutAndReset() {
   await signOut(state.config, state.session);
+  stopExtractedModulePollers();
   state.session = null;
   state.me = null;
   state.paymentRequests = [];
@@ -5550,63 +4228,10 @@ async function signOutAndReset() {
   state.temporaryChat = false;
   clearFollowUps();
   state.activeConversationId = "";
+  closeDocumentViewer();
   syncConversationUrl({ replace: true });
   closeAllDrawers();
   renderShell();
-}
-
-async function loadAdminDashboard() {
-  els.loadAdminButton.disabled = true;
-  els.loadAdminButton.textContent = "Loading...";
-  try {
-    renderAdminDashboard(await fetchAdminSummary(state.session));
-  } catch (err) {
-    els.adminOutput.textContent = err.message;
-  } finally {
-    els.loadAdminButton.disabled = false;
-    els.loadAdminButton.textContent = "Refresh dashboard";
-  }
-}
-
-async function saveGlobalSystemPrompt() {
-  if (!isAdminUser() || !els.saveSystemPromptButton) return;
-  const systemPrompt = els.systemPromptInput.value.trim();
-  if (!systemPrompt) {
-    showToast("System prompt cannot be empty.");
-    return;
-  }
-
-  els.saveSystemPromptButton.disabled = true;
-  els.saveSystemPromptButton.textContent = "Saving...";
-  try {
-    const payload = await updateAdminSettings(state.session, { systemPrompt });
-    state.settings.systemPrompt = payload.settings?.systemPrompt || systemPrompt;
-    if (state.me) {
-      state.me.settings = {
-        ...(state.me.settings || {}),
-        systemPrompt: state.settings.systemPrompt
-      };
-    }
-    saveSettings();
-    syncSettingsInputs();
-    showToast("Global system prompt saved.");
-  } catch (err) {
-    showToast(err.message);
-  } finally {
-    els.saveSystemPromptButton.disabled = false;
-    els.saveSystemPromptButton.textContent = "Save global prompt";
-  }
-}
-
-async function updateAdminPayment(id, action) {
-  if (!id) return;
-  try {
-    if (action === "approve") await approveAdminPayment(state.session, id);
-    else await rejectAdminPayment(state.session, id);
-    await loadAdminDashboard();
-  } catch (err) {
-    showToast(err.message);
-  }
 }
 
 /* ─── Bootstrap ─── */
@@ -5635,6 +4260,7 @@ async function bootstrap() {
       },
       onExpired: () => {
         void clearSession();
+        stopExtractedModulePollers();
         state.session = null;
         state.me = null;
       }
@@ -5669,7 +4295,7 @@ async function bootstrap() {
       if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
       const reportId = researchIdFromLocation();
-      if (reportId) await openResearchReport(reportId, { push: false });
+      if (reportId) await researchController.openResearchReport(reportId, { push: false });
     }
     focusPromptInputSoon();
     await checkAndShowAppUpdate();
@@ -5956,9 +4582,9 @@ function bindEvents() {
   });
   els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
   els.researchModeClose?.addEventListener("click", () => setResearchMode(false));
-  els.researchReportBack?.addEventListener("click", () => closeResearchReport());
-  els.researchVisualTab?.addEventListener("click", () => setResearchReportView("visual"));
-  els.researchTextTab?.addEventListener("click", () => setResearchReportView("text"));
+  els.researchReportBack?.addEventListener("click", () => researchController.closeResearchReport());
+  els.researchVisualTab?.addEventListener("click", () => researchController.setResearchReportView("visual"));
+  els.researchTextTab?.addEventListener("click", () => researchController.setResearchReportView("text"));
   els.researchCopy?.addEventListener("click", () => {
     const text = state.researchReport?.report || "";
     copyText(text).then(() => flashCopySuccess(els.researchCopy)).catch(() => showToast("Copy failed."));
@@ -6025,7 +4651,7 @@ function bindEvents() {
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
     if (!els.composerActionMenu.classList.contains("hidden")) { closeActionMenu(); return; }
-    if (!els.compareDropdown.classList.contains("hidden")) { closeCompareDropdown(); return; }
+    if (!els.compareDropdown.classList.contains("hidden")) { compareController.closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
     if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
@@ -6035,7 +4661,7 @@ function bindEvents() {
   els.modelButton.addEventListener("click", (e) => {
     e.stopPropagation();
     closeActionMenu();
-    closeCompareDropdown();
+    compareController.closeCompareDropdown();
     if (document.body.classList.contains("capacitor-native")) {
       const mode = selectedModelMode() === "pro" ? "thinking" : "pro";
       updateSetting("modelMode", mode);
@@ -6054,13 +4680,13 @@ function bindEvents() {
     e.stopPropagation();
     closeActionMenu();
     closeModelDropdown();
-    closeCompareDropdown();
+    compareController.closeCompareDropdown();
     if (state.researchMode) setResearchMode(false);
     if (state.settings.compareEnabled && state.settings.compareMode !== "council") {
-      cancelCompareMode();
+      compareController.cancelCompareMode();
       return;
     }
-    activateCompareMode();
+    compareController.activateCompareMode();
   });
 
   if (els.councilButton) {
@@ -6068,13 +4694,13 @@ function bindEvents() {
       e.stopPropagation();
       closeActionMenu();
       closeModelDropdown();
-      closeCompareDropdown();
+      compareController.closeCompareDropdown();
       if (state.researchMode) setResearchMode(false);
       if (state.settings.compareEnabled && state.settings.compareMode === "council") {
-        cancelCompareMode();
+        compareController.cancelCompareMode();
         return;
       }
-      activateCouncilMode();
+      councilController.activateCouncilMode();
     });
   }
 
@@ -6086,7 +4712,7 @@ function bindEvents() {
       closeActionMenu();
     }
     if (!els.compareDropdown.contains(e.target) && !els.compareWrap.contains(e.target)) {
-      closeCompareDropdown();
+      compareController.closeCompareDropdown();
     }
   });
 
@@ -6123,7 +4749,7 @@ function bindEvents() {
     const item = e.target.closest("[data-compare-model-id]");
     if (!item) return;
     const id = item.dataset.compareModelId;
-    const selected = selectedCompareModelIds();
+    const selected = compareController.selectedCompareModelIds();
     const exists = selected.includes(id);
     if (!exists && selected.length >= 4) {
       showToast("Compare uses the fixed two-model pair.");
@@ -6136,13 +4762,13 @@ function bindEvents() {
     if (state.compareDescribeImages && !compareIncludesTextOnlyModels(next)) {
       state.compareDescribeImages = false;
     }
-    renderCompareControls();
+    compareController.renderCompareControls();
     syncCompareContextBanner(next);
     els.promptInput.focus();
   });
 
   els.compareClearButton.addEventListener("click", () => {
-    cancelCompareMode();
+    compareController.cancelCompareMode();
     els.promptInput.focus();
   });
 
@@ -6153,20 +4779,20 @@ function bindEvents() {
       const mode = seg.dataset.compareMode === "council" ? "council" : "compare";
       if (state.settings.compareMode === mode) return;
       updateSetting("compareMode", mode);
-      renderCompareControls();
+      compareController.renderCompareControls();
     });
   }
 
   els.compareContextYes.addEventListener("click", () => {
     state.compareDescribeImages = true;
-    closeCompareContextBanner();
+    compareController.closeCompareContextBanner();
     els.promptInput.focus();
   });
 
   els.compareContextNo.addEventListener("click", async () => {
-    closeCompareContextBanner();
+    compareController.closeCompareContextBanner();
     try {
-      await startCompareFreshChat();
+      await compareController.startCompareFreshChat();
       els.promptInput.focus();
     } catch (err) {
       showToast(err.message);
@@ -6174,11 +4800,11 @@ function bindEvents() {
   });
 
   els.compareContextCancel.addEventListener("click", () => {
-    cancelCompareMode();
+    compareController.cancelCompareMode();
     els.promptInput.focus();
   });
 
-  els.compareInput.addEventListener("input", renderCompareCatalog);
+  els.compareInput.addEventListener("input", () => compareController.renderCompareCatalog());
   els.temporaryChatToggle?.addEventListener("click", () => {
     if (!requireAuth()) return;
     setTemporaryChatMode(!state.temporaryChat);
@@ -6295,18 +4921,19 @@ function bindEvents() {
     suppressUrlSync = true;
     try {
       if (routeResearchId) {
-        await openResearchReport(routeResearchId, { push: false });
+        await researchController.openResearchReport(routeResearchId, { push: false });
         return;
       }
       if (!els.researchReportView.classList.contains("hidden")) {
-        await closeResearchReport({ push: false });
+        await researchController.closeResearchReport({ push: false });
       }
       if (!routeConversationId) {
         state.temporaryChat = false;
         state.activeConversationId = "";
         state.messages = [];
+        stopExtractedModulePollers();
         closeDocumentViewer();
-        closeCompareContextBanner();
+        compareController.closeCompareContextBanner();
         renderShell();
         return;
       }
@@ -6316,6 +4943,7 @@ function bindEvents() {
       if (!state.conversations.some((conversation) => conversation.id === routeConversationId)) {
         state.activeConversationId = "";
         state.messages = [];
+        stopExtractedModulePollers();
         window.history.replaceState({ conversationId: "" }, "", "/");
         renderShell();
         return;
@@ -6323,7 +4951,7 @@ function bindEvents() {
       state.activeConversationId = routeConversationId;
       state.temporaryChat = false;
       closeDocumentViewer();
-      closeCompareContextBanner();
+      compareController.closeCompareContextBanner();
       await loadActiveConversation();
       renderShell();
     } catch (err) {
@@ -6349,7 +4977,7 @@ function bindEvents() {
   els.actionMenuButton.addEventListener("click", (e) => {
     e.stopPropagation();
     closeModelDropdown();
-    closeCompareDropdown();
+    compareController.closeCompareDropdown();
     toggleActionMenu();
   });
 
@@ -6414,7 +5042,7 @@ function bindEvents() {
         });
       }
       renderImages();
-      syncCompareContextBanner();
+      compareController.syncCompareContextBanner();
       return;
     }
     const thumb = e.target.closest("[data-preview-src]");
@@ -6488,15 +5116,14 @@ function bindEvents() {
     }
     const openResearch = e.target.closest("[data-open-research]");
     if (openResearch) {
-      await openResearchReport(openResearch.dataset.openResearch);
+      await researchController.openResearchReport(openResearch.dataset.openResearch);
       return;
     }
     const cancelResearchButton = e.target.closest("[data-cancel-research]");
     if (cancelResearchButton) {
       try {
         const payload = await cancelResearch(state.session, cancelResearchButton.dataset.cancelResearch);
-        updateResearchMessage(payload.run);
-        renderMessages();
+        researchController.applyResearchRunUpdate(payload.run);
       } catch (error) {
         showToast(error.message);
       }
@@ -6667,7 +5294,7 @@ function bindEvents() {
   els.textScaleInput?.addEventListener("change", (e) => {
     updateSetting("uiTextScale", clampTextScale(e.target.value));
   });
-  els.saveSystemPromptButton?.addEventListener("click", () => { void saveGlobalSystemPrompt(); });
+  els.saveSystemPromptButton?.addEventListener("click", () => { void adminPanel.saveGlobalSystemPrompt(); });
   els.themePreviewGrid?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-theme]");
     if (!btn) return;
@@ -6687,15 +5314,15 @@ function bindEvents() {
     if (state.settings.appearance === "system") applyChatTheme();
   });
 
-  els.loadAdminButton.addEventListener("click", loadAdminDashboard);
+  els.loadAdminButton.addEventListener("click", () => { void adminPanel.loadAdminDashboard(); });
   els.adminOutput.addEventListener("click", (e) => {
     const approve = e.target.closest("[data-approve-payment]");
     if (approve) {
-      updateAdminPayment(approve.dataset.approvePayment, "approve");
+      adminPanel.updateAdminPayment(approve.dataset.approvePayment, "approve");
       return;
     }
     const reject = e.target.closest("[data-reject-payment]");
-    if (reject) updateAdminPayment(reject.dataset.rejectPayment, "reject");
+    if (reject) adminPanel.updateAdminPayment(reject.dataset.rejectPayment, "reject");
   });
 }
 

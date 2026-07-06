@@ -1,4 +1,14 @@
 import { HttpError } from "../http/responses.js";
+import * as admin from "./rest/admin.js";
+import * as attachments from "./rest/attachments.js";
+import * as billing from "./rest/billing.js";
+import * as caches from "./rest/caches.js";
+import * as chat from "./rest/chat.js";
+import * as documents from "./rest/documents.js";
+import * as payments from "./rest/payments.js";
+import * as profiles from "./rest/profiles.js";
+import * as research from "./rest/research.js";
+import * as subscriptions from "./rest/subscriptions.js";
 
 function queryString(params = {}) {
   const query = new URLSearchParams();
@@ -7,10 +17,6 @@ function queryString(params = {}) {
   }
   const serialized = query.toString();
   return serialized ? `?${serialized}` : "";
-}
-
-function single(rows) {
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
 export class SupabaseRest {
@@ -61,775 +67,231 @@ export class SupabaseRest {
     return this.request(`rpc/${name}`, { method: "POST", body, signal });
   }
 
-  async upsertProfile(user, { signal } = {}) {
-    const payload = {
-      id: user.id,
-      email: user.email || null,
-      updated_at: new Date().toISOString()
-    };
-
-    const rows = await this.request("profiles", {
-      method: "POST",
-      query: { on_conflict: "id" },
-      body: payload,
-      prefer: "resolution=merge-duplicates,return=representation",
-      signal
-    });
-
-    return single(rows);
+  async upsertProfile(user, options) {
+    return profiles.upsertProfile(this, user, options);
   }
 
-  async updateProfile(userId, patch, { signal } = {}) {
-    const rows = await this.request("profiles", {
-      method: "PATCH",
-      query: { id: `eq.${userId}` },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-
-    return single(rows);
+  async updateProfile(userId, patch, options) {
+    return profiles.updateProfile(this, userId, patch, options);
   }
 
-  async getAppSetting(key, { signal } = {}) {
-    const rows = await this.request("app_settings", {
-      query: {
-        key: `eq.${key}`,
-        select: "*",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getAppSetting(key, options) {
+    return admin.getAppSetting(this, key, options);
   }
 
-  async upsertAppSetting(key, value, updatedBy, { signal } = {}) {
-    const rows = await this.request("app_settings", {
-      method: "POST",
-      query: { on_conflict: "key" },
-      body: {
-        key,
-        value,
-        updated_by: updatedBy || null,
-        updated_at: new Date().toISOString()
-      },
-      prefer: "resolution=merge-duplicates,return=representation",
-      signal
-    });
-    return single(rows);
+  async upsertAppSetting(key, value, updatedBy, options) {
+    return admin.upsertAppSetting(this, key, value, updatedBy, options);
   }
 
-  async getProfile(userId, { signal } = {}) {
-    const rows = await this.request("profiles", {
-      query: { id: `eq.${userId}`, select: "*" },
-      signal
-    });
-    return single(rows);
+  async getProfile(userId, options) {
+    return profiles.getProfile(this, userId, options);
   }
 
-  async getLatestSubscription(userId, { signal } = {}) {
-    const rows = await this.request("subscriptions", {
-      query: {
-        user_id: `eq.${userId}`,
-        select: "*",
-        order: "updated_at.desc",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getLatestSubscription(userId, options) {
+    return subscriptions.getLatestSubscription(this, userId, options);
   }
 
-  async upsertSubscription(subscription, { signal } = {}) {
-    const rows = await this.request("subscriptions", {
-      method: "POST",
-      query: { on_conflict: "provider_subscription_id" },
-      body: subscription,
-      prefer: "resolution=merge-duplicates,return=representation",
-      signal
-    });
-    return single(rows);
+  async upsertSubscription(subscription, options) {
+    return subscriptions.upsertSubscription(this, subscription, options);
   }
 
-  async createPaymentRequest(row, { signal } = {}) {
-    const rows = await this.request("payment_requests", {
-      method: "POST",
-      body: row,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createPaymentRequest(row, options) {
+    return payments.createPaymentRequest(this, row, options);
   }
 
-  async listPaymentRequests(userId, { signal } = {}) {
-    return this.request("payment_requests", {
-      query: {
-        user_id: `eq.${userId}`,
-        select: "*",
-        order: "created_at.desc",
-        limit: "10"
-      },
-      signal
-    });
+  async listPaymentRequests(userId, options) {
+    return payments.listPaymentRequests(this, userId, options);
   }
 
-  async listPendingPaymentRequests({ signal } = {}) {
-    return this.request("payment_requests", {
-      query: {
-        status: "eq.pending",
-        select: "*",
-        order: "created_at.asc",
-        limit: "100"
-      },
-      signal
-    });
+  async listPendingPaymentRequests(options) {
+    return payments.listPendingPaymentRequests(this, options);
   }
 
-  async getPaymentRequest(id, { signal } = {}) {
-    const rows = await this.request("payment_requests", {
-      query: {
-        id: `eq.${id}`,
-        select: "*",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getPaymentRequest(id, options) {
+    return payments.getPaymentRequest(this, id, options);
   }
 
-  async updatePaymentRequest(id, patch, { signal } = {}) {
-    const rows = await this.request("payment_requests", {
-      method: "PATCH",
-      query: { id: `eq.${id}` },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updatePaymentRequest(id, patch, options) {
+    return payments.updatePaymentRequest(this, id, patch, options);
   }
 
-  async listConversations(userId, { signal } = {}) {
-    return this.request("conversations", {
-      query: {
-        user_id: `eq.${userId}`,
-        deleted_at: "is.null",
-        select: "id,title,model,created_at,updated_at",
-        order: "updated_at.desc"
-      },
-      signal
-    });
+  async listConversations(userId, options) {
+    return chat.listConversations(this, userId, options);
   }
 
-  async createConversation(userId, { title = "New chat", model = "" } = {}, { signal } = {}) {
-    const rows = await this.request("conversations", {
-      method: "POST",
-      body: { user_id: userId, title, model: model || null },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createConversation(userId, conversation, options) {
+    return chat.createConversation(this, userId, conversation, options);
   }
 
-  async getConversation(userId, conversationId, { signal } = {}) {
-    const rows = await this.request("conversations", {
-      query: {
-        id: `eq.${conversationId}`,
-        user_id: `eq.${userId}`,
-        deleted_at: "is.null",
-        select: "*",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getConversation(userId, conversationId, options) {
+    return chat.getConversation(this, userId, conversationId, options);
   }
 
-  async updateConversation(userId, conversationId, patch, { signal } = {}) {
-    const rows = await this.request("conversations", {
-      method: "PATCH",
-      query: { id: `eq.${conversationId}`, user_id: `eq.${userId}` },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateConversation(userId, conversationId, patch, options) {
+    return chat.updateConversation(this, userId, conversationId, patch, options);
   }
 
-  async deleteConversation(userId, conversationId, { signal } = {}) {
-    const attachments = await this.listConversationAttachments(userId, conversationId, { signal });
-
-    if (attachments.length) {
-      await this.request("attachments", {
-        method: "DELETE",
-        query: {
-          user_id: `eq.${userId}`,
-          conversation_id: `eq.${conversationId}`
-        },
-        prefer: "return=minimal",
-        signal
-      });
-    }
-
-    const rows = await this.request("conversations", {
-      method: "DELETE",
-      query: {
-        id: `eq.${conversationId}`,
-        user_id: `eq.${userId}`,
-        deleted_at: "is.null"
-      },
-      prefer: "return=representation",
-      signal
-    });
-
-    return single(rows);
+  async deleteConversation(userId, conversationId, options) {
+    return chat.deleteConversation(this, userId, conversationId, options);
   }
 
-  async listConversationAttachments(userId, conversationId, { signal } = {}) {
-    return this.request("attachments", {
-      query: {
-        user_id: `eq.${userId}`,
-        conversation_id: `eq.${conversationId}`,
-        select: "id,object_key,category,file_name,content_type,size_bytes,etag"
-      },
-      signal
-    });
+  async listConversationAttachments(userId, conversationId, options) {
+    return chat.listConversationAttachments(this, userId, conversationId, options);
   }
 
-  async deleteMessage(userId, messageId, { signal } = {}) {
-    const attachments = await this.listMessageAttachments(userId, messageId, { signal });
-
-    if (attachments.length) {
-      await this.request("attachments", {
-        method: "DELETE",
-        query: {
-          user_id: `eq.${userId}`,
-          message_id: `eq.${messageId}`
-        },
-        prefer: "return=minimal",
-        signal
-      });
-    }
-
-    const rows = await this.request("messages", {
-      method: "DELETE",
-      query: {
-        id: `eq.${messageId}`,
-        user_id: `eq.${userId}`
-      },
-      prefer: "return=representation",
-      signal
-    });
-
-    return single(rows);
+  async deleteMessage(userId, messageId, options) {
+    return chat.deleteMessage(this, userId, messageId, options);
   }
 
-  async listMessageAttachments(userId, messageId, { signal } = {}) {
-    return this.request("attachments", {
-      query: {
-        user_id: `eq.${userId}`,
-        message_id: `eq.${messageId}`,
-        select: "id,object_key,category,file_name,content_type,size_bytes,etag"
-      },
-      signal
-    });
+  async listMessageAttachments(userId, messageId, options) {
+    return chat.listMessageAttachments(this, userId, messageId, options);
   }
 
-  async listMessages(userId, conversationId, { signal } = {}) {
-    return this.request("messages", {
-      query: {
-        user_id: `eq.${userId}`,
-        conversation_id: `eq.${conversationId}`,
-        select: "*",
-        order: "created_at.asc"
-      },
-      signal
-    });
+  async listMessages(userId, conversationId, options) {
+    return chat.listMessages(this, userId, conversationId, options);
   }
 
-  async insertMessage(message, { signal } = {}) {
-    const rows = await this.request("messages", {
-      method: "POST",
-      body: message,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async insertMessage(message, options) {
+    return chat.insertMessage(this, message, options);
   }
 
-  async updateMessage(userId, messageId, patch, { signal } = {}) {
-    const rows = await this.request("messages", {
-      method: "PATCH",
-      query: { id: `eq.${messageId}`, user_id: `eq.${userId}` },
-      body: patch,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateMessage(userId, messageId, patch, options) {
+    return chat.updateMessage(this, userId, messageId, patch, options);
   }
 
-  async createAttachment(attachment, { signal } = {}) {
-    const rows = await this.request("attachments", {
-      method: "POST",
-      body: attachment,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createAttachment(attachment, options) {
+    return attachments.createAttachment(this, attachment, options);
   }
 
-  async completeAttachment(userId, attachmentId, patch, { signal } = {}) {
-    const rows = await this.request("attachments", {
-      method: "PATCH",
-      query: { id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
-      body: { ...patch, status: "uploaded", uploaded_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async completeAttachment(userId, attachmentId, patch, options) {
+    return attachments.completeAttachment(this, userId, attachmentId, patch, options);
   }
 
-  async updateAttachment(userId, attachmentId, patch, { signal } = {}) {
-    const rows = await this.request("attachments", {
-      method: "PATCH",
-      query: { id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
-      body: patch,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateAttachment(userId, attachmentId, patch, options) {
+    return attachments.updateAttachment(this, userId, attachmentId, patch, options);
   }
 
-  async getAttachment(userId, attachmentId, { signal } = {}) {
-    const rows = await this.request("attachments", {
-      query: {
-        id: `eq.${attachmentId}`,
-        user_id: `eq.${userId}`,
-        select: "*",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getAttachment(userId, attachmentId, options) {
+    return attachments.getAttachment(this, userId, attachmentId, options);
   }
 
-  async createDocumentFile(documentFile, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      method: "POST",
-      body: documentFile,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createDocumentFile(documentFile, options) {
+    return documents.createDocumentFile(this, documentFile, options);
   }
 
-  async getDocumentFile(userId, documentFileId, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      query: {
-        id: `eq.${documentFileId}`,
-        user_id: `eq.${userId}`,
-        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getDocumentFile(userId, documentFileId, options) {
+    return documents.getDocumentFile(this, userId, documentFileId, options);
   }
 
-  async getDocumentFileByAttachment(userId, attachmentId, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      query: {
-        attachment_id: `eq.${attachmentId}`,
-        user_id: `eq.${userId}`,
-        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getDocumentFileByAttachment(userId, attachmentId, options) {
+    return documents.getDocumentFileByAttachment(this, userId, attachmentId, options);
   }
 
-  async getReadyPdfPreviewForDocument(userId, documentFileId, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      query: {
-        parent_document_id: `eq.${documentFileId}`,
-        user_id: `eq.${userId}`,
-        kind: "eq.pdf",
-        processing_status: "eq.ready",
-        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag,status)",
-        order: "created_at.desc",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getReadyPdfPreviewForDocument(userId, documentFileId, options) {
+    return documents.getReadyPdfPreviewForDocument(this, userId, documentFileId, options);
   }
 
-  async getActivePdfPreviewJob(userId, documentFileId, { signal } = {}) {
-    const rows = await this.request("document_jobs", {
-      query: {
-        user_id: `eq.${userId}`,
-        document_file_id: `eq.${documentFileId}`,
-        status: "in.(queued,running)",
-        job_type: "in.(document.export.docx_to_pdf,document.export.xlsx_to_pdf,document.export.pptx_to_pdf)",
-        select: "*",
-        order: "created_at.desc",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getActivePdfPreviewJob(userId, documentFileId, options) {
+    return documents.getActivePdfPreviewJob(this, userId, documentFileId, options);
   }
 
-  async listReadyDocumentFiles(userId, conversationId, { signal } = {}) {
-    return this.request("document_files", {
-      query: {
-        user_id: `eq.${userId}`,
-        conversation_id: `eq.${conversationId}`,
-        processing_status: "eq.ready",
-        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
-        order: "created_at.asc"
-      },
-      signal
-    });
+  async listReadyDocumentFiles(userId, conversationId, options) {
+    return documents.listReadyDocumentFiles(this, userId, conversationId, options);
   }
 
-  async listDocumentFilesByAttachments(userId, attachmentIds = [], { signal } = {}) {
-    const ids = [...new Set(attachmentIds.filter(Boolean))];
-    if (!ids.length) return [];
-    return this.request("document_files", {
-      query: {
-        user_id: `eq.${userId}`,
-        attachment_id: `in.(${ids.join(",")})`,
-        select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)"
-      },
-      signal
-    });
+  async listDocumentFilesByAttachments(userId, attachmentIds, options) {
+    return documents.listDocumentFilesByAttachments(this, userId, attachmentIds, options);
   }
 
-  async updateDocumentFile(userId, documentFileId, patch, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      method: "PATCH",
-      query: { id: `eq.${documentFileId}`, user_id: `eq.${userId}` },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateDocumentFile(userId, documentFileId, patch, options) {
+    return documents.updateDocumentFile(this, userId, documentFileId, patch, options);
   }
 
-  async updateDocumentFileByAttachment(userId, attachmentId, patch, { signal } = {}) {
-    const rows = await this.request("document_files", {
-      method: "PATCH",
-      query: { attachment_id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateDocumentFileByAttachment(userId, attachmentId, patch, options) {
+    return documents.updateDocumentFileByAttachment(this, userId, attachmentId, patch, options);
   }
 
-  async createDocumentJob(job, { signal } = {}) {
-    const rows = await this.request("document_jobs", {
-      method: "POST",
-      body: job,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createDocumentJob(job, options) {
+    return documents.createDocumentJob(this, job, options);
   }
 
-  async getDocumentJob(userId, jobId, { signal } = {}) {
-    const rows = await this.request("document_jobs", {
-      query: { id: `eq.${jobId}`, user_id: `eq.${userId}`, select: "*", limit: "1" },
-      signal
-    });
-    return single(rows);
+  async getDocumentJob(userId, jobId, options) {
+    return documents.getDocumentJob(this, userId, jobId, options);
   }
 
-  async createResearchRun(run, { signal } = {}) {
-    const rows = await this.request("research_runs", {
-      method: "POST",
-      body: run,
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async createResearchRun(run, options) {
+    return research.createResearchRun(this, run, options);
   }
 
-  async getResearchRun(userId, runId, { signal } = {}) {
-    const rows = await this.request("research_runs", {
-      query: { id: `eq.${runId}`, user_id: `eq.${userId}`, select: "*", limit: "1" },
-      signal
-    });
-    return single(rows);
+  async getResearchRun(userId, runId, options) {
+    return research.getResearchRun(this, userId, runId, options);
   }
 
-  async listActiveResearchRuns(userId, { signal } = {}) {
-    return this.request("research_runs", {
-      query: {
-        user_id: `eq.${userId}`,
-        status: "in.(queued,running)",
-        select: "*",
-        order: "created_at.desc",
-        limit: "2"
-      },
-      signal
-    });
+  async listActiveResearchRuns(userId, options) {
+    return research.listActiveResearchRuns(this, userId, options);
   }
 
-  async updateResearchRun(runId, patch, { userId = "", workerId = "", status = "", signal } = {}) {
-    const rows = await this.request("research_runs", {
-      method: "PATCH",
-      query: {
-        id: `eq.${runId}`,
-        ...(userId ? { user_id: `eq.${userId}` } : {}),
-        ...(workerId ? { worker_id: `eq.${workerId}` } : {}),
-        ...(status ? { status: `eq.${status}` } : {})
-      },
-      body: { ...patch, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-      signal
-    });
-    return single(rows);
+  async updateResearchRun(runId, patch, options) {
+    return research.updateResearchRun(this, runId, patch, options);
   }
 
-  async claimResearchRun(workerId, leaseSeconds = 120, { signal } = {}) {
-    const rows = await this.rpc("klui_claim_research_run", {
-      p_worker_id: workerId,
-      p_lease_seconds: leaseSeconds
-    }, { signal });
-    return single(rows);
+  async claimResearchRun(workerId, leaseSeconds, options) {
+    return research.claimResearchRun(this, workerId, leaseSeconds, options);
   }
 
-  async failExpiredResearchRuns({ signal } = {}) {
-    return this.request("research_runs", {
-      method: "PATCH",
-      query: {
-        status: "eq.running",
-        lease_until: `lt.${new Date().toISOString()}`
-      },
-      body: {
-        status: "failed",
-        phase: "failed",
-        error: { reason: "worker_stopped", message: "Research stopped before it could finish." },
-        finished_at: new Date().toISOString(),
-        lease_until: null,
-        updated_at: new Date().toISOString()
-      },
-      prefer: "return=representation",
-      signal
-    });
+  async failExpiredResearchRuns(options) {
+    return research.failExpiredResearchRuns(this, options);
   }
 
-  async listDocumentChunks(userId, documentFileId, { limit = 20, sourceType = "", signal } = {}) {
-    return this.request("document_chunks", {
-      query: {
-        user_id: `eq.${userId}`,
-        document_file_id: `eq.${documentFileId}`,
-        ...(sourceType ? { source_type: `eq.${sourceType}` } : {}),
-        select: "id,document_file_id,chunk_index,source_type,source_label,text,metadata",
-        order: "chunk_index.asc",
-        limit: String(limit)
-      },
-      signal
-    });
+  async listDocumentChunks(userId, documentFileId, options) {
+    return documents.listDocumentChunks(this, userId, documentFileId, options);
   }
 
-  async listDocumentPages(userId, documentFileId, { limit = 40, pageStart = null, pageEnd = null, signal } = {}) {
-    return this.request("document_pages", {
-      query: {
-        user_id: `eq.${userId}`,
-        document_file_id: `eq.${documentFileId}`,
-        ...(pageStart ? { page_number: `gte.${pageStart}` } : {}),
-        ...(pageEnd ? { and: `(page_number.lte.${pageEnd})` } : {}),
-        select: "id,document_file_id,page_number,source_label,image_key,image_content_type,width_px,height_px,text,metadata",
-        order: "page_number.asc",
-        limit: String(limit)
-      },
-      signal
-    });
+  async listDocumentPages(userId, documentFileId, options) {
+    return documents.listDocumentPages(this, userId, documentFileId, options);
   }
 
-  async searchDocumentPages({ userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
-    return this.rpc("klui_search_document_pages", {
-      p_user_id: userId,
-      p_document_ids: documentFileIds,
-      p_query_embedding: queryEmbedding,
-      p_limit: limit
-    }, { signal });
+  async searchDocumentPages(params, options) {
+    return documents.searchDocumentPages(this, params, options);
   }
 
-  async deleteAttachment(userId, attachmentId, { signal } = {}) {
-    return this.request("attachments", {
-      method: "DELETE",
-      query: { id: `eq.${attachmentId}`, user_id: `eq.${userId}` },
-      prefer: "return=minimal",
-      signal
-    });
+  async deleteAttachment(userId, attachmentId, options) {
+    return attachments.deleteAttachment(this, userId, attachmentId, options);
   }
 
-  async searchDocumentChunks({ userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
-    return this.rpc("klui_search_document_chunks", {
-      p_user_id: userId,
-      p_document_ids: documentFileIds,
-      p_query: query,
-      p_limit: limit
-    }, { signal });
+  async searchDocumentChunks(params, options) {
+    return documents.searchDocumentChunks(this, params, options);
   }
 
-  async checkApiBudget({
-    userId,
-    planId,
-    periodStart,
-    periodEnd,
-    weekStart,
-    weekEnd,
-    weekIndex,
-    weeklyLimit
-  }, { signal } = {}) {
-    return this.rpc("klui_check_api_budget", {
-      p_user_id: userId,
-      p_plan_id: planId,
-      p_period_start: periodStart,
-      p_period_end: periodEnd,
-      p_week_start: weekStart,
-      p_week_end: weekEnd,
-      p_week_index: weekIndex,
-      p_weekly_credit_limit: weeklyLimit
-    }, { signal });
+  async checkApiBudget(params, options) {
+    return billing.checkApiBudget(this, params, options);
   }
 
-  async recordApiUsageCost({
-    userId,
-    subscriptionId,
-    planId,
-    model,
-    provider,
-    generationId,
-    periodStart,
-    periodEnd,
-    weekStart,
-    weekEnd,
-    weekIndex,
-    weeklyLimit,
-    costCredits,
-    costSource,
-    usage,
-    status = "completed"
-  }, { signal } = {}) {
-    return this.rpc("klui_record_api_usage", {
-      p_user_id: userId,
-      p_subscription_id: subscriptionId,
-      p_plan_id: planId,
-      p_model: model || null,
-      p_provider: provider || null,
-      p_generation_id: generationId || null,
-      p_period_start: periodStart,
-      p_period_end: periodEnd,
-      p_week_start: weekStart,
-      p_week_end: weekEnd,
-      p_week_index: weekIndex,
-      p_weekly_credit_limit: weeklyLimit,
-      p_cost_credits: costCredits,
-      p_cost_source: costSource || "unknown",
-      p_usage: usage || {},
-      p_status: status
-    }, { signal });
+  async recordApiUsageCost(params, options) {
+    return billing.recordApiUsageCost(this, params, options);
   }
 
-  async getApiWeeklyUsage(userId, { periodStart, weekIndex, signal } = {}) {
-    const rows = await this.request("usage_api_weekly", {
-      query: {
-        user_id: `eq.${userId}`,
-        period_start: `eq.${periodStart}`,
-        week_index: `eq.${weekIndex}`,
-        select: "*",
-        limit: "1"
-      },
-      signal
-    });
-    return single(rows);
+  async getApiWeeklyUsage(userId, options) {
+    return billing.getApiWeeklyUsage(this, userId, options);
   }
 
-  async adminSummary({ signal } = {}) {
-    const [profiles, subscriptions, usageRows, paymentRequests] = await Promise.all([
-      this.request("profiles", {
-        query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "500" },
-        signal
-      }),
-      this.request("subscriptions", {
-        query: {
-          select: "id,user_id,plan_id,status,cancel_at_period_end,current_period_end,updated_at",
-          order: "updated_at.desc",
-          limit: "1000"
-        },
-        signal
-      }),
-      this.request("usage_api_weekly", {
-        query: {
-          select: "user_id,plan_id,period_start,period_end,week_index,week_start,week_end,api_credit_used,api_credit_limit,updated_at",
-          order: "updated_at.desc",
-          limit: "2000"
-        },
-        signal
-      }),
-      this.request("payment_requests", {
-        query: {
-          select: "id,user_id,plan_id,amount_aed,currency,provider,reference_code,status,created_at,updated_at,approved_at",
-          order: "created_at.desc",
-          limit: "100"
-        },
-        signal
-      })
-    ]);
-
-    return { profiles, subscriptions, usage: usageRows, paymentRequests };
+  async adminSummary(options) {
+    return admin.adminSummary(this, options);
   }
 
-  async getSearchCache(queryHash, { signal } = {}) {
-    if (!this.configured) return null;
-    try {
-      const rows = await this.request("search_cache", {
-        query: { query_hash: `eq.${queryHash}`, select: "*", limit: "1" },
-        signal
-      });
-      return single(rows);
-    } catch {
-      return null;
-    }
+  async getSearchCache(queryHash, options) {
+    return caches.getSearchCache(this, queryHash, options);
   }
 
-  async upsertSearchCache(row, { signal } = {}) {
-    if (!this.configured) return null;
-    return this.request("search_cache", {
-      method: "POST",
-      query: { on_conflict: "query_hash" },
-      body: row,
-      prefer: "resolution=merge-duplicates,return=minimal",
-      signal
-    });
+  async upsertSearchCache(row, options) {
+    return caches.upsertSearchCache(this, row, options);
   }
 
-  async getModelCache(id, { signal } = {}) {
-    const rows = await this.request("model_cache", {
-      query: { id: `eq.${id}`, select: "*", limit: "1" },
-      signal
-    });
-    return single(rows);
+  async getModelCache(id, options) {
+    return caches.getModelCache(this, id, options);
   }
 
-  async upsertModelCache(id, payload, { signal } = {}) {
-    const rows = await this.request("model_cache", {
-      method: "POST",
-      query: { on_conflict: "id" },
-      body: {
-        id,
-        payload,
-        fetched_at: new Date().toISOString()
-      },
-      prefer: "resolution=merge-duplicates,return=representation",
-      signal
-    });
-    return single(rows);
+  async upsertModelCache(id, payload, options) {
+    return caches.upsertModelCache(this, id, payload, options);
   }
 }

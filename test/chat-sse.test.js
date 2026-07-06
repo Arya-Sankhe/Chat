@@ -261,14 +261,29 @@ function searchCacheRow() {
   };
 }
 
-function makeDb({ conversation, cachedSearch = null } = {}) {
+function makeDb({ conversation, cachedSearch = null, messages: seedMessages = null } = {}) {
   const calls = [];
   let counter = 0;
+  const messages = seedMessages ? seedMessages.map((message) => ({ ...message })) : null;
   const db = {
     calls,
     async upsertProfile(user) { return { id: user.id, role: "user" }; },
     async getConversation() { return conversation; },
-    async listMessages() { return []; },
+    async listMessages() {
+      return messages ? messages.map((message) => ({ ...message })) : [];
+    },
+    async deleteMessage(userId, id, { signal } = {}) {
+      calls.push({ op: "deleteMessage", userId, id, signal });
+      if (messages) {
+        const index = messages.findIndex((message) => message.id === id);
+        if (index >= 0) {
+          const [removed] = messages.splice(index, 1);
+          return removed;
+        }
+      }
+      return { id };
+    },
+    async listMessageAttachments() { return []; },
     async getAppSetting() { return null; },
     async getResearchRun() { return null; },
     async getModelCache() { return null; },
@@ -597,6 +612,101 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
     db.calls.map((call) => call.op),
     ["checkApiBudget", "recordApiUsageCost"]
   );
+});
+
+/* ── retry and edit modes ── */
+
+test("retry: deletes failed assistant, reuses user message, streams fresh assistant", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: () => [contentDelta("Retried answer."), usageChunk()]
+  });
+
+  const history = [
+    { id: "user-1", role: "user", content: "Original question?" },
+    {
+      id: "asst-2",
+      role: "assistant",
+      content: "",
+      error: "Model request failed.",
+      finish_reason: "error"
+    }
+  ];
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { retryAssistantMessageId: "asst-2", model: TEXT_MODEL }
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers["x-klui-user-message-id"], "user-1");
+  assert.equal(res.headers["x-klui-assistant-message-id"], "msg-1");
+
+  assert.deepEqual(transcript(res), [
+    { kind: "chunk", content: "Retried answer.", finishReason: "stop" },
+    { kind: "chunk", content: "", usage: "<usage>" },
+    { type: "usage", usage: "<usage>" }
+  ]);
+
+  const deletes = db.calls.filter((call) => call.op === "deleteMessage");
+  assert.deepEqual(deletes.map((call) => call.id), ["asst-2"]);
+
+  const inserts = db.calls.filter((call) => call.op === "insertMessage");
+  assert.deepEqual(inserts.map((call) => call.message.role), ["assistant"]);
+  assert.equal(inserts[0].message.model, TEXT_MODEL);
+
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
+  assert.equal(finalUpdate.id, "msg-1");
+  assert.equal(finalUpdate.patch.content, "Retried answer.");
+  assert.equal(finalUpdate.patch.finish_reason, "stop");
+});
+
+test("edit: rewrites user text, purges downstream messages, streams new assistant", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: () => [contentDelta("Answer to edited prompt."), usageChunk()]
+  });
+
+  const history = [
+    { id: "user-1", role: "user", content: "First question" },
+    { id: "asst-2", role: "assistant", content: "First answer", finish_reason: "stop" },
+    { id: "user-3", role: "user", content: "Follow up question" },
+    { id: "asst-4", role: "assistant", content: "Follow up answer", finish_reason: "stop" }
+  ];
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { editUserMessageId: "user-3", text: "Edited follow up?", model: TEXT_MODEL }
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers["x-klui-user-message-id"], "user-3");
+  assert.equal(res.headers["x-klui-assistant-message-id"], "msg-1");
+
+  assert.deepEqual(transcript(res), [
+    { kind: "chunk", content: "Answer to edited prompt.", finishReason: "stop" },
+    { kind: "chunk", content: "", usage: "<usage>" },
+    { type: "usage", usage: "<usage>" }
+  ]);
+
+  const deletes = db.calls.filter((call) => call.op === "deleteMessage");
+  assert.deepEqual(deletes.map((call) => call.id), ["asst-4"]);
+
+  const userUpdates = db.calls.filter((call) => call.op === "updateMessage" && call.id === "user-3");
+  assert.equal(userUpdates.length, 1);
+  assert.equal(userUpdates[0].patch.content, "Edited follow up?");
+
+  const inserts = db.calls.filter((call) => call.op === "insertMessage");
+  assert.deepEqual(inserts.map((call) => call.message.role), ["assistant"]);
+
+  const assistantUpdate = db.calls.filter((call) =>
+    call.op === "updateMessage" && call.patch.content === "Answer to edited prompt.");
+  assert.equal(assistantUpdate.length, 1);
+  assert.equal(assistantUpdate[0].id, "msg-1");
 });
 
 /* ── (e) errors, aborts, usage/cost ── */

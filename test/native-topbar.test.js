@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
+import { readStylesheet } from "./helpers/styles.js";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(here, "..", "public");
 
@@ -58,7 +60,7 @@ test("the top bar markup order: hamburger → mode chip → temp-chat label → 
 });
 
 test("the APK temporary-chat label is in the top bar, not floated into the chat content", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   const blocks = [...css.matchAll(/body\.capacitor-native \.temporary-chat-label \{[^}]*\}/g)].map((m) => m[0]);
   const block = blocks.find((candidate) => candidate.includes("position: static"));
   assert.ok(block, "native temporary-chat label layout block not found");
@@ -78,8 +80,9 @@ test("the document viewer Download control is a <button> (not an <a>) so the And
 
 test("the renderer wires the viewer's Download dataset to the same attachment id used by the Capacitor-aware download path", () => {
   const appJs = readPublic("js/app.js");
+  const documentViewerJs = readPublic("js/documentViewer.js");
   assert.match(
-    appJs,
+    documentViewerJs,
     /documentViewerDownload\.dataset\.attachmentId\s*=\s*downloadAttachmentId/,
     "viewer download dataset.attachmentId assignment missing"
   );
@@ -119,7 +122,7 @@ test("the temporary chat toggle clears the press highlight synchronously when to
 });
 
 test("the mode chip has a subtle translucent surface while the top bar remains transparent", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   assert.match(
     css,
     /body\.capacitor-native \.native-mobile-mode-btn[\s\S]*?background:\s*var\(--apk-chip-bg\)\s*!important/,
@@ -136,7 +139,7 @@ test("the mode chip has a subtle translucent surface while the top bar remains t
 });
 
 test("the status bar / notification panel visually blends into the top bar (no seam)", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   // The top bar itself has a solid background = --bg, not transparent.
   const bar = findLastNativeRule(css, ".native-mobile-bar {");
   assert.ok(bar, ".native-mobile-bar block not found");
@@ -178,7 +181,7 @@ test("the status bar / notification panel visually blends into the top bar (no s
 });
 
 test("the compact pill while scrolling is small, centered, solid, and tappable", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   assert.match(
     css,
     /body\.capacitor-native \.composer \{[\s\S]*?background:\s*var\(--bg\)\s*!important/,
@@ -210,7 +213,7 @@ test("the compact pill while scrolling is small, centered, solid, and tappable",
 });
 
 test("the composer is hidden model/compare chips on the APK (Gemini-style clean pill)", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   assert.match(
     css,
     /body\.capacitor-native \.composer-bottom \.composer-actions > \.composer-model-wrap[\s\S]*?display:\s*none\s*!important/
@@ -222,7 +225,7 @@ test("the composer is hidden model/compare chips on the APK (Gemini-style clean 
 });
 
 test("the attachment preview remove (X) button is always visible on the APK (no hover-only opacity)", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   const block = findLastNativeRule(css, ".preview-remove {");
   assert.ok(block, "preview-remove block not found");
   assert.match(block, /opacity:\s*1/, "preview-remove should be opacity:1 on native");
@@ -230,7 +233,7 @@ test("the attachment preview remove (X) button is always visible on the APK (no 
 });
 
 test("the document viewer overlays the whole screen on the APK (sidebar offset is the bug being fixed)", () => {
-  const css = readPublic("styles.css");
+  const css = readStylesheet();
   assert.match(
     css,
     /body\.capacitor-native\.document-viewer-open \.document-viewer\s*\{[\s\S]*?inset:\s*0/

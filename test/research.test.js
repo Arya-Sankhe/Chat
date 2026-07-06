@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
+import { readStylesheet } from "./helpers/styles.js";
+
 import { loadConfig } from "../server/config.js";
 import { extractPageText, untrustedSourceBlock } from "../server/research/extract.js";
 import { resolvePublicUrl } from "../server/research/fetcher.js";
@@ -143,15 +145,16 @@ test("research engine drops irrelevant pages instead of citing them", async () =
 test("research path is SearXNG-only and exposes both report modes", () => {
   const search = fs.readFileSync(new URL("../server/research/search.js", import.meta.url), "utf8");
   const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const researchJs = fs.readFileSync(new URL("../public/js/research.js", import.meta.url), "utf8");
   const app = fs.readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
-  const styles = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  const styles = readStylesheet();
   const schema = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
   assert.match(search, /searxngSearch/);
   assert.doesNotMatch(search, /jina|brave|read_url/i);
   assert.match(html, />Visual report</);
   assert.match(html, />Text only</);
-  assert.match(app, /research-card-footer/);
-  assert.match(app, /is-active.*is-complete.*is-stopped/);
+  assert.match(researchJs, /research-card-footer/);
+  assert.match(researchJs, /is-active.*is-complete.*is-stopped/);
   assert.match(app, /flashCopySuccess\(els\.researchCopy\)/);
   assert.match(app, /researchReportView\.scrollTo/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
@@ -164,13 +167,13 @@ test("research path is SearXNG-only and exposes both report modes", () => {
 
 test("research cancellation and lease cleanup remain durable", () => {
   const worker = fs.readFileSync(new URL("../server/research/worker.js", import.meta.url), "utf8");
-  const app = fs.readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const researchJs = fs.readFileSync(new URL("../public/js/research.js", import.meta.url), "utf8");
   const schema = fs.readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8");
   const migration = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
 
   assert.match(worker, /const cancelled = Boolean\(current\?\.cancel_requested\)/);
   assert.match(worker, /Date\.now\(\) - lastExpiredCleanupAt >= 60_000/);
-  assert.match(app, /failedAttempts < 1/);
+  assert.match(researchJs, /failedAttempts < 1/);
   assert.match(schema, /where status = 'queued' and cancel_requested = false/);
   assert.match(migration, /where status = 'queued' and cancel_requested = false/);
 });

@@ -1,4 +1,11 @@
 import { HttpError } from "../http/responses.js";
+import { inferCreateFormat } from "./inferFormat.js";
+import {
+  assistantTextLooksLikeArtifactHandoff,
+  contentToText,
+  createIntentLooksLikeOnlyInstructions,
+  createIntentMentionsPriorContent
+} from "./resolveContent.js";
 
 const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -16,53 +23,6 @@ function truncate(value, maxChars) {
   const text = String(value || "");
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 24))}\n...[truncated]`;
-}
-
-function contentToText(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part) => part?.type === "text")
-    .map((part) => part.text || "")
-    .join("\n\n");
-}
-
-function createIntentMentionsPriorContent(text) {
-  const value = String(text || "");
-  return /\b(above|previous|earlier|last|same|that|this|provided)\b/i.test(value)
-    || /\b(the|this|that)\s+(concise\s+)?summary\b/i.test(value);
-}
-
-function createIntentLooksLikeOnlyInstructions(text) {
-  const cleanText = clean(text);
-  if (!cleanText) return true;
-  const words = cleanText.split(/\s+/).filter(Boolean).length;
-  return words <= 80
-    && /\b(create|make|generate|draft|write|build|put|turn|convert)\b/i.test(cleanText)
-    && /\b(pdf|docx|word|document|file|summary|pptx|powerpoint|slides?|deck|presentation)\b/i.test(cleanText);
-}
-
-function inferCreateFormat(format, ...hints) {
-  const normalized = clean(format).toLowerCase();
-  const text = hints.map((hint) => String(hint || "")).join(" ").toLowerCase();
-  const asksWord = /\b(word\s+(doc|document|file)|docx\s+(file|document)|as\s+a\s+docx|\.docx\b)/.test(text);
-  const asksPdf = /\b(pdf\s+(file|document)|as\s+a\s+pdf|create\s+a\s+pdf|make\s+a\s+pdf|generate\s+a\s+pdf|\.pdf\b)/.test(text);
-  const asksSheet = /\b(xlsx\s+(file|document)|excel\s+(file|sheet|workbook)|spreadsheet|workbook|\.xlsx\b)/.test(text);
-  const asksSlides = /\b(pptx\s+(file|deck|presentation)|powerpoint|slides?|deck|presentation|\.pptx\b)/.test(text);
-  if (asksWord) return "docx";
-  if (asksSheet) return "xlsx";
-  if (asksSlides) return "pptx";
-  if (asksPdf) return "pdf";
-  return normalized;
-}
-
-function assistantTextLooksLikeArtifactHandoff(text) {
-  const value = clean(text);
-  if (!value) return false;
-  const words = value.split(/\s+/).filter(Boolean).length;
-  return words <= 140
-    && /\b(download|created|generated|attached|document|pdf|docx|xlsx|pptx|slides?|deck|presentation)\b/i.test(value)
-    && /(\]\(|\/api\/attachments\/|download\s+)/i.test(value);
 }
 
 function documentTitle(documentFile) {

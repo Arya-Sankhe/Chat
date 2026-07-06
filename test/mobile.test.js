@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+import { readStylesheet } from "./helpers/styles.js";
+
 import { loadConfig } from "../server/config.js";
 import { applyApiCors, handleApiPreflight } from "../server/http/cors.js";
 import { apiUrl, parseAuthCallbackUrl } from "../public/js/platform/index.js";
@@ -197,9 +199,7 @@ test("native startup focuses early only after an accessible chat is visible", as
 });
 
 test("Capacitor mobile styling stays isolated from the website", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body\.capacitor-native \.native-mobile-bar/);
   assert.match(source, /body\.capacitor-native \.composer/);
   assert.match(source, /\.native-mobile-bar,\s*\n\.native-nav-backdrop,\s*\n\.compact-new-chat \{\s*\n\s*display: none;/);
@@ -248,9 +248,7 @@ test("sent images can open in the existing lightbox", async () => {
 });
 
 test("narrow browser layout uses a drawer header and unclipped model menu", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /@media \(max-width: 860px\)/);
   assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
   assert.match(source, /body\.sidebar-open \.sidebar-nav-label/);
@@ -259,26 +257,20 @@ test("narrow browser layout uses a drawer header and unclipped model menu", asyn
 });
 
 test("narrow browser temporary chat controls avoid the mobile header controls", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /\.temporary-chat-bar \{\s*\n\s*top: 64px;\s*\n\s*right: 14px;\s*\n\s*left: 64px;/);
   assert.match(source, /\.temporary-chat-label \{[\s\S]*max-width: min\(220px, calc\(100vw - 152px\)\)/);
 });
 
 test("desktop browser shows the temporary chat icon without mobile controls", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-bar \{[\s\S]*display: block;[\s\S]*height: 0;/);
   assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-mode-wrap,[\s\S]*body:not\(\.capacitor-native\) \.compact-new-chat \{[\s\S]*display: none !important;/);
   assert.match(source, /body:not\(\.capacitor-native\) \.temporary-chat-toggle \{[\s\S]*display: inline-flex;[\s\S]*pointer-events: auto;/);
 });
 
 test("Doodle composer chrome stays transparent around the input", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-area \{[\s\S]*background: transparent !important;[\s\S]*backdrop-filter: none;[\s\S]*box-shadow: none;/);
   assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-wrap \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none;/);
 });
@@ -360,9 +352,7 @@ test("service worker excludes APIs and only caches the public shell", async () =
 });
 
 test("capacitor composer has an opaque background using defined CSS variables", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The composer must use a defined variable (--bg, --bg-secondary, --surface etc.)
   // and must NOT use var(--surface) which is never defined in the stylesheet.
   const match = source.match(/body\.capacitor-native \.composer\s*\{[\s\S]*?background:\s*([^;}]+)/);
@@ -376,9 +366,7 @@ test("capacitor composer has an opaque background using defined CSS variables", 
 });
 
 test("capacitor empty-state has no logo icon above the heading", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The ::before pseudo-element that showed the Klui icon must be removed.
   assert.doesNotMatch(
     source,
@@ -396,9 +384,7 @@ test("capacitor empty-state has no logo icon above the heading", async () => {
 });
 
 test("capacitor + action menu uses position fixed to avoid overflow clipping", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The action menu inside capacitor-native must use position: fixed
   // so it isn't clipped by .chat-panel's overflow: hidden.
   assert.match(
@@ -425,9 +411,7 @@ test("camera action button exists in the + menu", async () => {
 });
 
 test("camera action is only shown inside the Capacitor mobile app", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body\.capacitor-native \.mobile-camera-action\.hidden\s*\{[\s\S]*?display:\s*flex\s*!important/);
 });
 
@@ -452,9 +436,7 @@ test("camera button and input are wired in app.js", async () => {
 });
 
 test("capacitor messages have enough bottom padding to clear the composer", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(
     source,
     /body\.capacitor-native \.messages\s*\{[\s\S]*?padding-bottom:\s*200px/,
@@ -463,9 +445,7 @@ test("capacitor messages have enough bottom padding to clear the composer", asyn
 });
 
 test("capacitor native backdrop z-index sits below the sidebar when sidebar is open", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // Sidebar in capacitor-native is at z-index: 80.
   // The backdrop uses z-index: 79 so it stays behind the sidebar.
   assert.match(source, /body\.capacitor-native\.sidebar-open \.native-nav-backdrop\s*\{[\s\S]*z-index:\s*79/);
@@ -485,9 +465,7 @@ test("profile menu handlers close the mobile sidebar before opening drawers", as
 });
 
 test("capacitor native sidebar overflow does not clip conversation menus when open", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The closed sidebar keeps overflow: hidden to prevent content leak during
   // slide-out animation; the open sidebar must use overflow: visible so
   // absolutely-positioned conversation menus are not clipped.
@@ -495,9 +473,7 @@ test("capacitor native sidebar overflow does not clip conversation menus when op
 });
 
 test("capacitor conversation menu z-index sits above the native nav backdrop", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The sidebar (z-index: 80) wraps the menu (z-index: 40 in its own stacking
   // context), so the menu renders above the backdrop (z-index: 79). Verify the
   // sidebar itself is always above the backdrop.
@@ -533,9 +509,7 @@ test("native sidebar login starts Google OAuth instead of opening auth behind th
 });
 
 test("capacitor doodle theme keeps temporary chat toggle aligned to native header", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   // The mobile website doodle breakpoint moves the temporary chat bar below
   // the topbar. Native rules appear later and must win so the icon stays in
   // the same header position as every other theme.
@@ -543,16 +517,12 @@ test("capacitor doodle theme keeps temporary chat toggle aligned to native heade
 });
 
 test("capacitor pinned popup is clamped inside the open sidebar", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body\.capacitor-native\.sidebar-open \.pinned-popup\s*\{[\s\S]*?left:\s*0;[\s\S]*?top:\s*calc\(100% \+ 6px\);[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*100%/);
 });
 
 test("capacitor native suppresses web tap highlight while preserving text entry selection", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(source, /body\.capacitor-native\s*\{[\s\S]*?-webkit-tap-highlight-color:\s*transparent;[\s\S]*?-webkit-touch-callout:\s*none/);
   assert.match(source, /body\.capacitor-native \*,\s*body\.capacitor-native \*::before,\s*body\.capacitor-native \*::after\s*\{[\s\S]*?-webkit-tap-highlight-color:\s*transparent/);
   assert.match(source, /body\.capacitor-native button,[\s\S]*?body\.capacitor-native \[role="button"\],[\s\S]*?user-select:\s*none/);
@@ -578,9 +548,7 @@ test("native sidebar rename and delete actions close drawer before opening dialo
 
 
 test("native top bar blends with system bars and has no bottom border", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const source = readStylesheet();
   assert.match(
     source,
     /body\.capacitor-native \.native-mobile-bar\s*\{[\s\S]*?background:\s*var\(--bg\);[\s\S]*?border-bottom:\s*0;[\s\S]*?box-shadow:\s*none;/
@@ -591,9 +559,7 @@ test("native top bar inlines the temporary-chat toggle and hides the standalone 
   const html = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   );
-  const css = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const css = readStylesheet();
   // The toggle button is now a child of .native-mobile-bar on native.
   assert.match(
     html,
@@ -616,9 +582,7 @@ test("native temporary-chat toggle clears its own pressed highlight on press", a
 });
 
 test("native composer hides model and compare chips so only plus and send remain", async () => {
-  const css = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const css = readStylesheet();
   // The composer model + compare chips must be hidden on the APK so only
   // the + and send buttons remain. The rule uses a compound selector
   // (.composer-bottom .composer-actions > ...) and a combined form
@@ -630,7 +594,7 @@ test("native composer hides model and compare chips so only plus and send remain
 test("settings has an APK-only text size slider that is hidden on the web", async () => {
   const readFile = (await import("node:fs/promises")).readFile;
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const css = await readFile(new URL("../public/styles.css", import.meta.url), "utf8");
+  const css = readStylesheet();
   const js = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
   const java = await readFile(
     new URL("../android/app/src/main/java/tech/klui/app/TextZoomPlugin.java", import.meta.url),
@@ -663,20 +627,28 @@ test("settings has an APK-only text size slider that is hidden on the web", asyn
 });
 
 test("native top-bar mode picker activates compare and council modes", async () => {
-  const js = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
-  );
-  assert.match(js, /function applyNativeTopBarMode\(mode\)/);
-  assert.match(js, /mode === "compare"[\s\S]*?activateCompareMode\(\)/);
-  assert.match(js, /mode === "council"[\s\S]*?activateCouncilMode\(\)/);
-  assert.match(js, /function currentNativeTopBarMode\(\)[\s\S]*?compareEnabled[\s\S]*?compareMode/);
-  assert.match(js, /applyNativeTopBarMode\(mode\)/);
+  const [appJs, compareJs, councilJs] = await Promise.all([
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+    ),
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/js/compare.js", import.meta.url), "utf8")
+    ),
+    import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("../public/js/council.js", import.meta.url), "utf8")
+    )
+  ]);
+  assert.match(appJs, /function applyNativeTopBarMode\(mode\)/);
+  assert.match(appJs, /mode === "compare"[\s\S]*?compareController\.activateCompareMode\(\)/);
+  assert.match(appJs, /mode === "council"[\s\S]*?councilController\.activateCouncilMode\(\)/);
+  assert.match(compareJs, /function activateCompareMode\(/);
+  assert.match(councilJs, /function activateCouncilMode\(/);
+  assert.match(appJs, /function currentNativeTopBarMode\(\)[\s\S]*?compareEnabled[\s\S]*?compareMode/);
+  assert.match(appJs, /applyNativeTopBarMode\(mode\)/);
 });
 
 test("responsive web header hides APK-only controls that collide in narrow layouts", async () => {
-  const css = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-  );
+  const css = readStylesheet();
   assert.match(
     css,
     /body:not\(\.capacitor-native\) \.native-mobile-mode-wrap[\s\S]*?display:\s*none\s*!important/
@@ -710,9 +682,7 @@ test("desktop chat navigation stays out of mobile and tracks prompt position", a
     import("node:fs/promises").then(({ readFile }) =>
       readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
     ),
-    import("node:fs/promises").then(({ readFile }) =>
-      readFile(new URL("../public/styles.css", import.meta.url), "utf8")
-    )
+    readStylesheet()
   ]);
 
   assert.match(html, /id="chatJumpBottom"[\s\S]*?id="chatPromptNav"|id="chatPromptNav"[\s\S]*?id="chatJumpBottom"/);

@@ -1,0 +1,278 @@
+/* ─────────────────────────────────────────────────────────────────────────
+
+   DARK MODE
+
+   Each chat theme keeps its structural identity (radius, shadows, fonts,
+
+   background patterns). Only the neutral palette flips. Placed AFTER the
+
+   theme blocks so these overrides win on equal specificity.
+
+   ───────────────────────────────────────────────────────────────────────── */
+
+body[data-mode="dark"] {
+
+  color-scheme: dark;
+
+  --bg: #1f1f1f;
+
+  --bg-secondary: #2b2b2b;
+
+  --text: #ececec;
+
+  --text-secondary: #b4b4b4;
+
+  --text-tertiary: #8a8a8a;
+
+  --border: #3a3a3a;
+
+  --border-light: #2e2e2e;
+
+  --accent: #ececec;
+
+  --accent-hover: #ffffff;
+
+  --accent-contrast: #1a1a1a;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.6);
+
+  --code-bg: #161616;
+
+  --code-header-bg: #232323;
+
+  --code-border: #333333;
+
+  --code-text: #e6e6e6;
+
+  --code-inline-bg: #3a2a30;
+
+  --code-inline-text: #ff9bb3;
+
+  background: #1f1f1f;
+
+}
+
+body[data-mode="dark"][data-chat-theme="cyber"] {
+
+  --ink: #f4ecdd;
+
+  --paper: #14120f;
+
+  --paper-2: #211d17;
+
+  --panel: #1b1813;
+
+  --hi: #4a2f2c;
+
+  --text: var(--ink);
+
+  --text-secondary: #b8b1a3;
+
+  --text-tertiary: #8a8478;
+
+  --border: var(--ink);
+
+  --border-light: #3a352c;
+
+  --accent: var(--ink);
+
+  --accent-hover: #ffffff;
+
+  --accent-contrast: #14120f;
+
+  --code-bg: #1b1813;
+
+  --code-header-bg: #262118;
+
+  --code-border: var(--ink);
+
+  --code-text: var(--ink);
+
+  --code-inline-bg: #3a2a22;
+
+  --code-inline-text: #ffc9a8;
+
+  background:
+
+    radial-gradient(#3a352c 0.7px, transparent 0.8px) 0 0 / 8px 8px,
+
+    var(--paper);
+
+}
+
+body[data-mode="dark"][data-chat-theme="doodle"] {
+
+  --paper: #16161a;
+
+  --paper-2: #20202a;
+
+  --ink: #ece9f1;
+
+  --hi: #2e2838;
+
+  --plum: #cbb8d4;
+
+  --plum-d: #e0d2e8;
+
+  --bdr: #2a2734;
+
+  --dot: #3a3548;
+
+  --glass: rgba(36, 34, 46, 0.72);
+
+  --glass-2: rgba(36, 34, 46, 0.6);
+
+  --text: var(--ink);
+
+  --text-secondary: #b6b2c2;
+
+  --text-tertiary: #837e92;
+
+  --border: #3a3548;
+
+  --accent: var(--plum);
+
+  --accent-contrast: #1f1a24;
+
+  --shadow-sm: 0 8px 22px rgba(0, 0, 0, 0.45);
+
+  --shadow-md: 0 14px 34px rgba(0, 0, 0, 0.55);
+
+  --shadow-lg: 0 22px 52px rgba(0, 0, 0, 0.65);
+
+  --code-bg: #1c1a22;
+
+  --code-header-bg: #262232;
+
+  --code-border: #3a3548;
+
+  --code-text: var(--ink);
+
+  --code-inline-text: #d8c2e2;
+
+  --doodle-dot-color: rgba(110, 100, 125, 0.22);
+
+  --doodle-dot-size: 64px;
+
+  background: var(--paper);
+
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+
+   ACCENT COLOR PRESETS
+
+   Independent of theme + mode. "default" emits no override so each theme keeps
+
+   its native accent. Saturated presets always pair with white text. Placed
+
+   AFTER theme + dark blocks so the chosen preset wins.
+
+   ───────────────────────────────────────────────────────────────────────── */
+
+body[data-accent="indigo"] { --accent: #4f46e5; --accent-hover: #4338ca; --accent-contrast: #ffffff; }
+
+body[data-accent="emerald"] { --accent: #059669; --accent-hover: #047857; --accent-contrast: #ffffff; }
+
+body[data-accent="rose"] { --accent: #e11d48; --accent-hover: #be123c; --accent-contrast: #ffffff; }
+
+body[data-accent="ocean"] { --accent: #0284c7; --accent-hover: #036aa0; --accent-contrast: #ffffff; }
+
+/* Slightly brighter accents in dark mode for contrast against dark surfaces.
+
+   --accent-contrast is restated so it wins over theme-specific dark blocks
+
+   (which share specificity) and keeps text on colored accents legible. */
+
+body[data-mode="dark"][data-accent="indigo"] { --accent: #6366f1; --accent-hover: #818cf8; --accent-contrast: #ffffff; }
+
+body[data-mode="dark"][data-accent="emerald"] { --accent: #10b981; --accent-hover: #34d399; --accent-contrast: #ffffff; }
+
+body[data-mode="dark"][data-accent="rose"] { --accent: #f43f5e; --accent-hover: #fb7185; --accent-contrast: #ffffff; }
+
+body[data-mode="dark"][data-accent="ocean"] { --accent: #0ea5e9; --accent-hover: #38bdf8; --accent-contrast: #ffffff; }
+
+/* Color preset swatches (settings) */
+
+.color-preset-row {
+
+  display: flex;
+
+  gap: 10px;
+
+  align-items: center;
+
+}
+
+.color-swatch {
+
+  width: 30px;
+
+  height: 30px;
+
+  border-radius: var(--radius-full);
+
+  border: 1px solid var(--border);
+
+  background: var(--bg);
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  padding: 0;
+
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+
+}
+
+.color-swatch:hover { transform: translateY(-1px); }
+
+.color-swatch.active {
+
+  border-color: var(--text);
+
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+
+}
+
+.color-swatch-dot {
+
+  width: 18px;
+
+  height: 18px;
+
+  border-radius: var(--radius-full);
+
+  display: block;
+
+}
+
+.color-swatch-dot[data-swatch="default"] {
+
+  background: linear-gradient(135deg, #0d0d0d 0 50%, #c9c9c9 50% 100%);
+
+}
+
+.color-swatch-dot[data-swatch="indigo"] { background: #4f46e5; }
+
+.color-swatch-dot[data-swatch="emerald"] { background: #059669; }
+
+.color-swatch-dot[data-swatch="rose"] { background: #e11d48; }
+
+.color-swatch-dot[data-swatch="ocean"] { background: #0284c7; }
+
+button, input, textarea, select { font: inherit; }
+
+button { cursor: pointer; border: none; background: none; }
+
+.hidden { display: none !important; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+

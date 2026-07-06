@@ -1,9 +1,9 @@
 # RFC: Phased Structural Refactoring of Klui Chat
 
-- **Status**: Revised for Phase 0 implementation (rev 2)
+- **Status**: Phases 0–6 implemented (working tree)
 - **Baseline**: HEAD = `dc8b5d6 Add ARCHITECTURE and docs files` (274 commits;
   the architecture pack was written against its parent `c55223a`)
-- **Test baseline**: `npm test` → 278/278 passing, 16 files, ~3.3 s
+- **Test baseline**: `npm test` → 329/329 passing, 20 files, ~3.4 s
 - **Hard constraints**: preserve all user-visible behavior and API contracts;
   no ground-up rewrite; one vertical subsystem at a time; characterization
   tests land before each extraction; every phase is independently deployable.
@@ -28,9 +28,9 @@ architecture pack).
 
 The foundations are genuinely good: dependency direction on the server is
 strictly inward (verified — nothing imports `routes.js` except `index.js`;
-the only cycle is the deliberate dynamic import `websearch/tool.js` →
+the only cycle is the deliberate dynamic import `websearch/tool/loop.js` →
 `saas/messages.js`), the client module graph is acyclic with `app.js` as the
-sole orchestrator, workers are decoupled through DB claim RPCs, and 278
+sole composition root, workers are decoupled through DB claim RPCs, and 329
 tests pass. This is feature accretion, not rot. The refactor is therefore
 **extraction along existing seams**, never redesign.
 
@@ -482,6 +482,36 @@ regression risk with weak tooling here. If undertaken:
 | Admin summary cache semantics change when moving to `routes/admin.js` | Cache stays a module-local singleton with identical TTL; a test pins the 60 s caching behavior before the move. |
 | Server phases interfere (1, 2, 4) | Implemented strictly sequentially; each phase's tests and doc updates land before the next begins. |
 | The Phase-0 seam itself changes behavior | Seam ships as its own commit; defaults are byte-identical constructor/auth calls; a dedicated test asserts default wiring equals pre-seam behavior; full suite green before and after. |
+
+## 16. Implementation notes (Phases 1–6, working tree)
+
+Recorded deviations from the plan above when the refactor landed:
+
+1. **Phase 1 — `server/chat/single.js` is minimal (~15 lines).** It exports
+   only `streamSingleChat` (legacy no-tools fast path). The main single-chat
+   agent flow remains in `server/chat/pipeline.js` `handleConversationMessage`
+   via `runChatWithToolLoop`; `streamSingleChat` is called from `pipeline.js`
+   when tools are disabled.
+2. **Phase 4 — `usageMeter.js` and `research/engine.js` untouched** per § 10
+   (no evidence-based churn pressure).
+3. **Phase 5 — poller lifecycle + one reach-in fix.** Research and
+   document-viewer factories own their timers and expose
+   `stop*()` / `is*Active()`; `app.js` calls `stopExtractedModulePollers()`
+   on sign-out/navigation. External callers now use
+   `applyResearchRunUpdate` instead of reaching into
+   `updateResearchMessage`.
+4. **Phase 6 — byte-identical CSS split.** `public/styles.css` is 13
+   `@import` lines over `public/styles/*.css`; verified by
+   `scripts/verify-css-split.mjs`. Tests concatenate via
+   `test/helpers/styles.js` `readStylesheet()`.
+5. **Post-refactor sizes (verified):** `server/routes.js` 233 lines;
+   `server/db/supabaseRest.js` 297 lines; `public/js/app.js` 5,331 lines;
+   `server/chat/pipeline.js` 1,186 lines (largest remaining server
+   orchestrator).
+6. **Tests added:** `test/supabase-rest.test.js` (one stubbed-`fetch` case per
+   `server/db/rest/*` domain); retry and edit-mode cases in
+   `test/chat-sse.test.js`; `test/app-reducers.test.js` replays fixtures
+   through `createStreamReducer` from `public/js/streaming.js`.
 
 ## 15. What success looks like
 

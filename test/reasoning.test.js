@@ -326,11 +326,11 @@ test("applyStreamEvent strips leaked DSML markup before finalizing content", () 
 
 test("client clears provisional tool-loop prose before rendering the final answer", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+    readFile(new URL("../public/js/streaming.js", import.meta.url), "utf8")
   );
   const applyStreamEventSource = source.slice(
     source.indexOf("function applyStreamEvent(message, event)"),
-    source.indexOf("function isStreamDeltaEvent(event)")
+    source.indexOf("function applyCompareStreamEvent(compareMessage, event)")
   );
   assert.match(
     applyStreamEventSource,

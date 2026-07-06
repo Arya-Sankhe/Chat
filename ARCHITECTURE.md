@@ -1,9 +1,9 @@
 # Klui Chat Architecture (verified against current HEAD)
 
-This document is verified against the working tree on this branch
-(`main`, HEAD = `c55223a Reset provisional tool prose and retry`).
-Git history explains intent but never overrides current behavior —
-every claim here was checked against the current source.
+This document is verified against the working tree after the Phase 1–6
+structural refactor (`docs/REFACTORING_RFC.md`). Git history explains
+intent but never overrides current behavior — every claim here was
+checked against the current source.
 
 ## 1. Product and runtime overview
 
@@ -131,7 +131,7 @@ extras.
 | `server/crofai/constants.js` | Whitelisted Klui base URLs and `normalizeBaseUrl` validator. | `./http/responses.js` |
 | `server/crofai/normalize.js` | Validates incoming chat requests: role whitelist, content-type whitelist (text/image_url), image data-URL validator, numeric range checks for `temperature`/`top_p`/`max_tokens`/`seed`, stop and tools validation. | `./http/responses.js` |
 | `server/auth/supabase.js` | Bearer-token auth via Supabase `auth/v1/user`, plus `requireSupabaseConfig` and `extractBearerToken`. | `./http/responses.js` |
-| `server/db/supabaseRest.js` | PostgREST client for `service_role`. One method per table operation plus the four `klui_*` RPCs (`check_api_budget`, `record_api_usage`, `claim_document_job`, `claim_research_run`, `search_document_chunks`, `search_document_pages`) and the `klui_cleanup_storage_and_cache` maintenance routine. **High complexity file (≈835 lines).** | `./http/responses.js` |
+| `server/db/supabaseRest.js` | PostgREST client for `service_role`. The `SupabaseRest` class keeps the unchanged public surface (`configured`, `request()`, `rpc()`, and every table/RPC method); implementations delegate to `server/db/rest/{profiles,subscriptions,payments,chat,attachments,documents,research,billing,caches,admin,helpers}.js`. **≈297 lines.** | `./http/responses.js`, `./db/rest/*.js` |
 | `server/storage/r2.js` | Pure-JS AWS Sig-V4 presigned URL signing for Cloudflare R2, content-type validation, helpers, and the `R2Client` (`presign`, `putObject`, `headObject`, `deleteObject`, `deleteObjects`, `readUrl`). | `node:crypto`, `./http/responses.js` |
 | `server/saas/plans.js` | Hard-coded three-tier plan catalog (lite/essential/pro) with env overrides. Pure data. | — |
 | `server/saas/entitlements.js` | Resolves the active subscription + plan for a user, short-circuits to the testing plan in `ACCESS_MODE=testing`. | `./http/responses.js`, `./plans.js` |
@@ -141,9 +141,9 @@ extras.
 | `server/saas/models.js` | Vision detection from OpenRouter model descriptors (`input_modalities` plus a name hint regex), and `resolveVisionDescribeModel` (config override → kimi/moonshot scan → `kimi-k2.6`). | — |
 | `server/saas/reasoning.js` | Normalizes reasoning deltas from `delta.reasoning_content` (Klui/DeepSeek) and `delta.reasoning` / `delta.reasoning_details[]` (OpenRouter). | — |
 | `server/saas/images.js` | Image context for text-only models: collects image attachment ids, substitutes images with text descriptions, calls a vision model once to describe every attached image and returns `{descriptions, model}`. | `./crofai/client.js`, `./http/responses.js`, `./messages.js`, `./models.js` |
-| `server/saas/messages.js` | Streaming, accumulation, and storage helpers. **High complexity file (≈481 lines, mixed responsibilities).** Owns: title generation, message content normalization, R2 URL signing for client/provider hydration, council history filtering, `applyStreamEvent` reducer, tool-call delta accumulation, SSE serialization, `pipeProviderStreamAndAccumulate` and `streamProviderAndAccumulate`. `stripLeakedToolMarkup` mirrors the client copy. | `./http/responses.js`, `./reasoning.js` |
+| `server/saas/messages.js` | Re-export barrel over `server/saas/messages/{content,stream}.js` (preserves all import paths). `content.js` (~291 lines): title generation, message content normalization, R2 URL hydration, council history filtering, `stripLeakedToolMarkup`. `stream.js` (~191 lines): `applyStreamEvent`, tool-call delta accumulation, SSE serialization, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate`. | `./messages/content.js`, `./messages/stream.js` |
 | `server/saas/council.js` | Three-stage council orchestration. `withCouncilSystemPrompt`, `generateNonce`, `buildReviewerAssignments` (shuffled letter labels with nonces to defeat prompt injection), `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview` (Stage 2), `buildChairmanPrompt`, `runChairmanSynthesis` (Stage 3). | `node:crypto`, `./crofai/client.js`, `./http/responses.js`, `./messages.js` |
-| `server/documents/index.js` | The `DocumentService` orchestrator. Loads ready documents, embeds queries with Jina (`embedQuery`), runs similarity search via the `klui_search_document_pages` / `klui_search_document_chunks` RPCs, and implements `search` / `read` / `extractTables` / `createDocument` / `editDocument` / `exportDocument`. **High complexity file (≈696 lines).** | `./http/responses.js` |
+| `server/documents/index.js` | The `DocumentService` orchestrator (~656 lines). Loads ready documents, embeds queries with Jina (`embedQuery`), runs similarity search via the `klui_search_document_pages` / `klui_search_document_chunks` RPCs, and implements `search` / `read` / `extractTables` / `createDocument` / `editDocument` / `exportDocument`. Pure helpers live in `server/documents/{inferFormat,resolveContent}.js`. | `./http/responses.js`, `./inferFormat.js`, `./resolveContent.js` |
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
 | `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `extract_tables`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
@@ -153,42 +153,42 @@ extras.
 | `server/websearch/brave.js` | Brave LLM Context API (`https://api.search.brave.com/res/v1/llm/context`) fallback. | `./jina.js` |
 | `server/websearch/cache.js` | Two-tier cache: in-process LRU Map + persistent Supabase `search_cache`. | `node:crypto` |
 | `server/websearch/detect.js` | Cheap heuristic detector (`detectSearchNeed`) that decides whether to nudge the model toward `web_search` or `read_url`. | — |
-| `server/websearch/tool.js` | The tool-calling run-loop. `runChatWithToolLoop` is the core engine: it streams the model, intercepts `tool_calls`, executes them, reinjects the results as `role: "tool"` messages, then re-invokes the model. Has fallback for providers that don't support `tools`/`tool_choice`, an artifact-handoff guard, an empty-answer retry, and a per-turn iteration cap. **Highest complexity file in the server (≈712 lines).** | `./index.js`, `../documents/tool.js`, `../saas/messages.js` (dynamic import) |
+| `server/websearch/tool.js` | Re-export barrel over `server/websearch/tool/{loop,visual,unsupported}.js`. `loop.js` (~530 lines) owns `runChatWithToolLoop` (streams the model, intercepts `tool_calls`, reinjects `role: "tool"` results, artifact-handoff guard, empty-answer retry, per-turn iteration cap) and dynamically imports `saas/messages.js` for `streamProviderAndAccumulate`. `visual.js` and `unsupported.js` own the PDF-page pipeline and tools-unsupported degradation. | `./tool/loop.js`, `./tool/visual.js`, `./tool/unsupported.js`, `../documents/tool.js` |
 | `server/research/worker.js` | Long-running Node process. Polls `klui_claim_research_run` RPC, runs `runDeepResearch`, writes progress every ~2s via `updateResearchRun`, finalizes the run + the linked assistant message on success/cancel/failure. Heartbeats every `leaseSeconds/2` to keep the lease alive and honour `cancel_requested`. | `node:crypto`, `../config.js`, `../db/supabaseRest.js`, `../saas/entitlements.js`, `../saas/usageMeter.js`, `../providers.js`, `./engine.js` |
 | `server/research/engine.js` | The actual research loop. Plan → category classify → for each round: generate queries (cheap model) → SearXNG search → fetch + extract pages (pinned DNS, SSRF guard) → relevance filter → synthesize evolving report → stop-decision (model says YES/NO). Final stage writes the report with the user's selected model. `validateReportLinks` strips/redirects any link not in the allowed sources list. | `./fetcher.js`, `./extract.js`, `./search.js`, `./prompts.js` |
 | `server/research/search.js` | Calls `searxngSearch` once per query, normalizes URLs (strip utm, trailing slash), dedupes across queries, caps each domain at 2 results. | `../websearch/searxng.js` |
 | `server/research/fetcher.js` | SSRF-safe HTTP fetcher for research. Resolves DNS, rejects private/loopback addresses, blocks `.local`/`.internal`/metadata hosts, throttles per-host to 350 ms, follows up to 5 redirects, retries 429/503, enforces `maxBytes`. Pure node `http`/`https`, pinned to the resolved address. | `node:dns/promises`, `node:http`, `node:https`, `ipaddr.js` |
 | `server/research/extract.js` | Cheerio-based HTML → text extraction. | `cheerio` |
 | `server/research/prompts.js` | All research prompts: `planPrompt`, `queryPrompt`, `extractPrompt`, `synthesizePrompt`, `stopPrompt`, `finalReportPrompt` with category-specific guidance (`product` / `comparison` / `howto` / `factcheck`). | — |
-| `server/routes.js` | The single dispatch file for all HTTP routes plus the bulk of the chat/Council/Compare/temporary/admin/research orchestration. **Highest-complexity file (≈3204 lines).** | (effectively everything else) |
+| `server/routes.js` | Thin HTTP dispatcher (~233 lines): `handleApiRequest`, `createApiHandler`, CORS preflight, `installStableRequestSignal`, error-to-problem-JSON, and re-exports of chat helpers used by tests. Per-resource handlers live in `server/routes/{context,meta,payments,admin,uploads,research,conversations}.js`. Chat orchestration lives in `server/chat/{pipeline,single,compare,council,temporary,shared}.js`. | `./routes/*.js`, `./chat/*.js`, (handlers pull from the rest of `server/`) |
 | `server/http/cors.js` | CORS primitives for the mobile webview. | — |
 | `server/http/responses.js` | `class HttpError`, `sendJson`, `sendProblem`, `parseJsonBody`, `readRawBody`. | — |
 
 #### Dependency direction
 
-The arrow of dependency is "inward": `routes.js` pulls from
-`saas/`, `websearch/`, `documents/`, `storage/`, `db/`, `auth/`,
-`providers/`, and `crofai/`. None of those modules import
+The arrow of dependency is "inward": `routes.js` and `server/chat/*`
+pull from `saas/`, `websearch/`, `documents/`, `storage/`, `db/`,
+`auth/`, `providers/`, and `crofai/`. None of those modules import
 `routes.js`. The web-search tool loop dynamically imports
-`saas/messages.js` to break a cycle (`messages.js` does not import
-the tool loop). `websearch/tool.js` and `websearch/index.js` are
-logically layered: `index.js` exports the orchestrator, `tool.js`
-exports the loop. `documents/tool.js` is the document half of the
-loop; it is the only module that knows the OpenAI tool schema for
-documents and the only one that calls `DocumentService` methods from
-inside the tool run-loop.
+`saas/messages.js` from `websearch/tool/loop.js` to break a cycle
+(`messages.js` does not import the tool loop). `websearch/tool.js` is
+a barrel; `websearch/index.js` exports the orchestrator. `documents/tool.js`
+is the document half of the loop; it is the only module that knows the
+OpenAI tool schema for documents and the only one that calls
+`DocumentService` methods from inside the tool run-loop.
 
-`db/supabaseRest.js` does not depend on any other server module except
-`http/responses.js`. `crofai/client.js` and `storage/r2.js` are also
-near-leaf modules. The only cross-cutting shared utilities are
-`http/responses.js` (errors, JSON, body parsing) and
-`config.js` (env loading).
+`db/supabaseRest.js` delegates to `db/rest/*` and depends only on
+`http/responses.js` plus those modules. `crofai/client.js` and
+`storage/r2.js` are also near-leaf modules. The only cross-cutting
+shared utilities are `http/responses.js` (errors, JSON, body parsing)
+and `config.js` (env loading).
 
 ### Browser (`public/js/`)
 
 | Path | Owns |
 |---|---|
 | `public/index.html` | The whole single-page shell: setup / paywall / chat / research report views, top bar, sidebar, composer, settings, model selector, dialogs. |
+| `public/styles.css` | Root stylesheet: 13 `@import` lines over `public/styles/*.css` (byte-identical split; verified by `scripts/verify-css-split.mjs`). Tests read the concatenated CSS via `test/helpers/styles.js` `readStylesheet()`. |
 | `public/service-worker.js` | Minimal SW for klui.tech PWA only. |
 | `public/js/platform/index.js` | The platform abstraction. Detects `Capacitor.isNativePlatform()`. Exposes `apiOrigin()`, `apiUrl()`, `storage`, `preferences`, `signInWithGoogle`, `parseAuthCallbackUrl`, `listenForAuthCallback`, `listenForDeepLinks`, `openExternal`, `download`, `copyText`, `appVersion`, `onResume`, `configureNativeChrome`, `setTextZoom`, `registerBackButton`, `exitApp`. All Capacitor plugins are lazy-loaded so the web build never imports them. |
 | `public/js/platform/updates.js` | OTA APK update check: throttled `fetch` to `/downloads/android/latest.json`, versionCode comparison, opens external APK URL. |
@@ -197,7 +197,13 @@ near-leaf modules. The only cross-cutting shared utilities are
 | `public/js/pwa.js` | Service worker registration (web only), iOS "Add to Home Screen" hint. |
 | `public/js/render.js` | The renderer pipeline. `escapeHtml`, `renderContent` (the public content renderer that walks content parts and produces HTML), `renderRichText` (marked + KaTeX + hljs + DOMPurify), `protectCodeSpans`/`extractMath`/`restoreCodeSpans` (LaTeX isolation that keeps prices like `$1,600` out of math), `highlightCodeBlocks` (per-code-block source storage for the copy button), `getCodeSource`/`resetCodeSourceStore`, `safeImageUrl`, `compactModelDisplayName`, `modelBrandLogoUrl`, `normalizeModelList`, `resolveDefaultCompareModels`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`/`renderModelDetails`, `formatModelMeta`. |
 | `public/js/reasoning.js` | Client mirror of `server/saas/reasoning.js`. Identical signature: `extractReasoningDelta(delta)`. |
-| `public/js/app.js` | The 6,704-line single-file UI controller. Owns: composer state, follow-ups, model catalog, image/document upload pipeline, message streaming reducer, council/compare renderers, document viewer (PDF.js), research card + report view, settings drawer, theme/appearance, admin dashboard, account, conversation sidebar (pinned, search, menu), dialogs, and bootstrap. State in `state` plus module-level mutable singletons (pollers, queues, scroll position). |
+| `public/js/app.js` | Composition root (~5,331 lines). Owns `state`, `els`, bootstrap, composer, follow-ups, model catalog, image/document upload pipeline, message rendering shell, settings drawer, theme/appearance, account, conversation sidebar (pinned, search, menu), dialogs, and navigation. Constructs feature factories at boot and calls `stopExtractedModulePollers()` on sign-out/navigation. |
+| `public/js/streaming.js` | `createStreamReducer(...)` — client stream reducers (`applyStreamEvent`, `applyToolEvent`, `applyCompareStreamEvent`, `applyCouncilStreamEvent`, `ensureToolState`). Unit-tested via `test/app-reducers.test.js`. |
+| `public/js/documentViewer.js` | `createDocumentViewer(...)` — PDF.js viewer, preview-job polling, pending-artifact polling; exposes `stopDocumentPreviewPoll` / `isDocumentPreviewPollActive` and `stopPendingArtifactPolls` / `isPendingArtifactPollsActive`. |
+| `public/js/research.js` | `createResearchController(...)` — research card/report rendering and polling; exposes `stopResearchPolling` / `isResearchPollingActive` and `applyResearchRunUpdate`. |
+| `public/js/compare.js` | `createCompareController(...)` — compare mode UI, model picker seeding, `renderCompareMessage`. |
+| `public/js/council.js` | `createCouncilController(...)` — council mode UI, `renderCouncilMessage` and progress helpers. |
+| `public/js/adminPanel.js` | `createAdminPanel(...)` — admin dashboard load/render/save (admin-only). |
 
 #### Client module dependency direction
 
@@ -214,12 +220,15 @@ near-leaf modules. The only cross-cutting shared utilities are
        /api/* on Node server
 ```
 
-`app.js` is the single orchestrator and never the other way around.
-`render.js` is fully self-contained and only depends on global CDN
-libraries (`marked`, `katex`, `hljs`, `DOMPurify`). `platform/index.js`
-is a leaf module; everything else can import it but it never imports
-back. `api.js` does not import `app.js`. `auth.js` is a pure auth
-module that can be reused independently.
+`app.js` is the single composition root and never the other way around.
+Extracted feature modules (`streaming.js`, `documentViewer.js`,
+`research.js`, `compare.js`, `council.js`, `adminPanel.js`) receive
+explicit capabilities from `app.js` at construction and do not import
+back into it. `render.js` is fully self-contained and only depends on
+global CDN libraries (`marked`, `katex`, `hljs`, `DOMPurify`).
+`platform/index.js` is a leaf module; everything else can import it
+but it never imports back. `api.js` does not import `app.js`.
+`auth.js` is a pure auth module that can be reused independently.
 
 ### Mobile (`android/`, `scripts/mobile/`, `dist-mobile/`)
 
@@ -368,18 +377,18 @@ The features and the modules that implement them:
 | Feature | Browser | Server | Persistence / worker |
 |---|---|---|---|
 | Sign-in (Supabase Auth) | `public/js/auth.js`, `public/js/platform/index.js` (native PKCE) | `server/auth/supabase.js` | Supabase `auth.users`, `profiles` |
-| Single chat | `public/js/app.js` `executeSend` → `streamConversationMessage` | `server/routes.js` `handleConversationMessage` (single-chat branch) | `conversations`, `messages`, `attachments` |
-| Compare (2–4 models in parallel) | `app.js` `executeSend` with `compareModels`, `renderCompareMessage` | `routes.js` `handleCompareConversationMessage` (parallel `streamChatCompletion`) | same tables, one assistant message per model |
-| Council (panel → peer review → chairman) | `app.js` `renderCouncilMessage` | `routes.js` `handleCouncilConversationMessage` + `server/saas/council.js` | `messages.metadata.council` carries session/role/peer-rank metadata |
-| Image upload | `app.js` `addImages` → `uploadImage` in `api.js` | `routes.js` `handlePresignUpload` / `handleUploadContent` / `handleCompleteUpload` | `attachments` (category=`image`), R2 |
+| Single chat | `public/js/app.js` `executeSend` → `streamConversationMessage`; reducers in `public/js/streaming.js` | `server/chat/pipeline.js` `handleConversationMessage` (single-chat branch) | `conversations`, `messages`, `attachments` |
+| Compare (2–4 models in parallel) | `app.js` + `public/js/compare.js` `renderCompareMessage` | `server/chat/compare.js` `handleCompareConversationMessage` (parallel `streamChatCompletion`) | same tables, one assistant message per model |
+| Council (panel → peer review → chairman) | `app.js` + `public/js/council.js` `renderCouncilMessage` | `server/chat/council.js` `handleCouncilConversationMessage` + `server/saas/council.js` | `messages.metadata.council` carries session/role/peer-rank metadata |
+| Image upload | `app.js` `addImages` → `uploadImage` in `api.js` | `server/routes/uploads.js` `handlePresignUpload` / `handleUploadContent` / `handleCompleteUpload` | `attachments` (category=`image`), R2 |
 | Image description for text-only models | n/a | `server/saas/images.js` `describeConversationImages` | `messages.content[].image_url.description` |
-| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js` | `routes.js` `handleCompleteUpload` → `queueDocumentExtraction` (inserts `document_files` + `document_jobs`) | `attachments` (category=`document`), `document_files`, `document_jobs`, document worker |
-| Document read/search/extract/create/edit/export | `app.js` `renderArtifacts`, `renderMessageError` etc. (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
-| Web search (auto/on/off) | `app.js` `toggleWebSearchMode`, `renderWebSearchToggle`, `webSearchAvailable` | `server/websearch/index.js` `WebSearchOrchestrator`, `server/websearch/tool.js` `runChatWithToolLoop`, `server/routes.js` `runSharedPreSearch` | `search_cache`, `usage_api_events` (via tool loop) |
-| Deep Research | `app.js` `startDeepResearch`, `pollResearch`, `renderResearchCard`, `renderResearchReport` | `server/routes.js` `handleCreateResearch` / `handleResearchStatus` / `handleCancelResearch` / `handleResearchReport`; `server/research/worker.js`; `server/research/engine.js` | `research_runs`, `messages` (assistant message updated by worker) |
-| Temporary chat | `app.js` `setTemporaryChatMode`, `executeSend` `newChat: true` → `streamTemporaryChat` | `routes.js` `handleTemporaryChat` (in-memory only, no persistence, no attachments) | none |
-| Plans + payment | `app.js` `renderPlans`, `startZiinaPayment`, `loadPaymentRequests` | `routes.js` `handleCreateZiinaPaymentRequest` / `handleListPaymentRequests` / `handleAdminPaymentRequests` / `handleAdminUpdatePaymentRequest` | `payment_requests`, `subscriptions`, `plans` |
-| Admin dashboard | `app.js` `loadAdminDashboard`, `openAdminDrawer`, `saveGlobalSystemPrompt` | `routes.js` `handleAdminSummary` (60s in-process cache) / `handleAdminSettings` | `profiles`, `subscriptions`, `usage_api_weekly`, `payment_requests`, `app_settings` |
+| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js` | `server/routes/uploads.js` `handleCompleteUpload` → `queueDocumentExtraction` (inserts `document_files` + `document_jobs`) | `attachments` (category=`document`), `document_files`, `document_jobs`, document worker |
+| Document read/search/extract/create/edit/export | `app.js` + `public/js/documentViewer.js` (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool/loop.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
+| Web search (auto/on/off) | `app.js` `toggleWebSearchMode`, `renderWebSearchToggle`, `webSearchAvailable` | `server/websearch/index.js` `WebSearchOrchestrator`, `server/websearch/tool/loop.js` `runChatWithToolLoop`, `server/chat/pipeline.js` `runSharedPreSearch` | `search_cache`, `usage_api_events` (via tool loop) |
+| Deep Research | `app.js` + `public/js/research.js` (`startDeepResearch`, polling, `renderResearchCard`, `renderResearchReport`) | `server/routes/research.js` `handleCreateResearch` / `handleResearchStatus` / `handleCancelResearch` / `handleResearchReport`; `server/research/worker.js`; `server/research/engine.js` | `research_runs`, `messages` (assistant message updated by worker) |
+| Temporary chat | `app.js` `setTemporaryChatMode`, `executeSend` `newChat: true` → `streamTemporaryChat` | `server/chat/temporary.js` `handleTemporaryChat` (in-memory only, no persistence, no attachments) | none |
+| Plans + payment | `app.js` `renderPlans`, `startZiinaPayment`, `loadPaymentRequests` | `server/routes/payments.js` `handleCreateZiinaPaymentRequest` / `handleListPaymentRequests`; `server/routes/admin.js` `handleAdminPaymentRequests` / `handleAdminUpdatePaymentRequest` | `payment_requests`, `subscriptions`, `plans` |
+| Admin dashboard | `app.js` + `public/js/adminPanel.js` | `server/routes/admin.js` `handleAdminSummary` (60s in-process cache) / `handleAdminSettings` | `profiles`, `subscriptions`, `usage_api_weekly`, `payment_requests`, `app_settings` |
 | Settings drawer | `app.js` `openSettings` / `closeSettings` / `saveSettings` | n/a (persisted in `localStorage` / `@capacitor/preferences`) | `klui.chat.controls.v1` |
 | Update check (native) | `public/js/platform/updates.js` `checkForAppUpdate` | `server/static.js` (serves `public/downloads/android/latest.json` with CORS) | `public/downloads/android/` |
 | PWA install | `public/js/pwa.js` | `server/static.js` (serves `manifest.webmanifest`, `service-worker.js`) | n/a |
@@ -663,7 +672,7 @@ glyphs only (no layout reflow).
   the request — bypassing the tool loop for visual-capable models,
   and going through a single vision-describe call for text-only
   models in the Compare path.
-- **Tool-loop graceful degradation.** `server/websearch/tool.js`
+- **Tool-loop graceful degradation.** `server/websearch/tool/loop.js`
   `runChatWithToolLoop` negotiates providers that don't support
   tools in three steps: keep the request, drop `tool_choice`, drop
   `tools` entirely. The model is always given a chance to produce
@@ -696,18 +705,17 @@ glyphs only (no layout reflow).
 ## 8. Test strategy
 
 - **Framework**: `node --test` (the `npm test` script). The suite
-  collects 19 test files under `test/`.
-- **Coverage** (278 tests as of `c55223a`; 305 after the Phase-0
-  characterization suites below):
-  - `test/app-reducers.test.js` — structural validation of the Phase-0
-    stream-reducer fixtures (`test/fixtures/stream-reducer-fixtures.json`);
-    explicitly not behavioral coverage until Phase 3 makes the reducers
-    importable.
+  collects 20 test files under `test/`.
+- **Coverage** (329 tests in the working tree):
+  - `test/app-reducers.test.js` — replays `test/fixtures/stream-reducer-fixtures.json`
+    through the real reducers imported from `public/js/streaming.js`
+    (`createStreamReducer`).
   - `test/artifact-generator.test.js` — artifact generation helpers.
   - `test/chat-sse.test.js` — canonical semantic SSE transcripts for
     single chat with a web-search tool call, compare, council through
-    chairman synthesis, temporary chat, error/abort surfacing, and the
-    billing gate (budget check before / cost record after each call).
+    chairman synthesis, temporary chat, error/abort surfacing, retry and
+    edit modes, and the billing gate (budget check before / cost record
+    after each call).
   - `test/routes-dispatch.test.js` — table-driven `handleApiRequest`
     dispatch: full route inventory, method enforcement, auth boundary
     (503 unconfigured / 401 no token), 404/405/410, problem JSON, CORS
@@ -716,20 +724,20 @@ glyphs only (no layout reflow).
   - `test/council.test.js` — `buildPeerReviewPrompt`, `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview`, `buildChairmanPrompt`.
   - `test/documents.test.js` — `DocumentService` extraction, search, create, edit, export; R2 upload validation; document skill selection.
   - `test/images.test.js` — image description aggregation, normalization, vision describe.
-  - `test/mobile.test.js` — Android native chrome, text zoom, secure storage, deep links, OTA updates, Google sign-in.
-  - `test/native-topbar.test.js` — native top-bar mode selection.
+  - `test/mobile.test.js` — Android native chrome, text zoom, secure storage, deep links, OTA updates, Google sign-in (stylesheet assertions via `test/helpers/styles.js`).
+  - `test/native-topbar.test.js` — native top-bar mode selection (stylesheet via `readStylesheet()`).
   - `test/normalize.test.js` — provider reasoning effort mapping.
   - `test/providers.test.js` — provider availability, adaptation, model catalog normalization.
   - `test/reasoning.test.js` — `extractReasoningDelta` for both Klui and OpenRouter shapes; reasoning duration metadata.
   - `test/render.test.js` — renderer math/code/math-protection tests; `renderContent` and `modelSupportsVision` and `inferModelBadges`.
   - `test/research.test.js` — research engine budget bounds, source validation, SSRF guard, partial reports, cancel, claim RPC.
-  - `test/routes.test.js` — exported helper functions from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
+  - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
   - `test/saas.test.js` — entitlements, billing, usage meter (open and closed budget), R2 helpers, image counts.
+  - `test/supabase-rest.test.js` — stubbed-`fetch` request-shape tests for one representative `SupabaseRest` method per `server/db/rest/*` domain group.
   - `test/usage.test.js` — `normalizeUsage` and `applyStreamEvent` final usage capture.
   - `test/websearch.test.js` — `WebSearchOrchestrator` provider chain, circuit breaker, cache, tool loop, document tool loop integration.
-- **Run result on HEAD** (`c55223a`): 278 tests, 4 suites, **278 pass,
-  0 fail, 0 cancelled, 0 skipped**, 3.3 s wall time. See
-  `docs/ARCHITECTURE_HISTORY.md` for the exact `npm test` evidence.
+- **Run result** (working tree): 329 tests, 4 suites, **329 pass,
+  0 fail, 0 cancelled, 0 skipped**, ~3.4 s wall time.
 - **What is NOT covered by tests**: the Python document worker
   (`worker/worker.py`); the Capacitor Android project; the
   supabase schema migrations (they are SQL files, not tests); the
@@ -745,23 +753,22 @@ glyphs only (no layout reflow).
 
 ## 9. Architectural hotspots
 
-These are the files that have accumulated the most responsibility.
-Each one mixes layers and would benefit from extraction; the boundary
-is called out without being implemented here. None of these
-recommendations modify production code — they are guidance for
-future refactors.
+Phases 1–6 of `docs/REFACTORING_RFC.md` landed the extractions below.
+Remaining large files are called out with their pre-refactor
+recommendations where still applicable.
 
-| File | Lines | What it owns | Mixed responsibilities | Recommended extraction |
-|---|---|---|---|---|
-| `server/routes.js` | 3,204 | All HTTP dispatch and the bulk of chat/Council/Compare/temporary/admin/research orchestration. | Dispatch, single-chat, compare, council, temporary chat, research create/status/cancel/report, admin summary/settings/payments, payment request lifecycle, shared pre-search, direct PDF visual context, image description persistence, retry/edit resolution. | Split into `server/routes/*.js` (one file per resource). The chat/compare/council/temporary orchestrators are large enough to become their own modules (`server/chat/handlers.js`, `server/council/runner.js`, etc.) so that `routes.js` only does the if-ladder. |
-| `server/saas/messages.js` | 481 | Message content normalization, R2 URL hydration (client vs provider), history filtering (council), stream reducer, tool-call delta accumulation, SSE serialization, plain-text rendering for the assistant, leaked-tool-markup stripping. | Storage shape, streaming reducer, and SSE encoding in one file. | Split: `messages/content.js` (build/hydrate/filter/normalize), `messages/stream.js` (`applyStreamEvent`, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate`, `sanitizeProviderEvent`, `writeProviderEvent`). |
-| `server/saas/usageMeter.js` | 175 | Wraps both `chatCompletion` and `streamChatCompletion`; parses SSE for usage + generation id; calls `klui_check_api_budget` + `klui_record_api_usage`; resolves cost from `usage.cost` → `generation` endpoint → fallback pricing. | A single meter that crosses HTTP, billing RPC, OpenRouter generation endpoint, and SSE parsing. | Extract cost resolution to `server/saas/costResolver.js`; extract the SSE usage-scanner to `server/saas/usageScanner.js` so the meter itself becomes a thin wrapper. |
-| `server/saas/council.js` | 388 | Three-stage orchestration (Stage 1 implicit, Stage 2 peer review with nonces, Stage 3 chairman synthesis), Borda count, ranking parsing, chairman selection. | Mostly self-contained; the only "mixed" piece is the streaming chairman call which lives in the same module as the Borda/parse helpers. | Extract `parseRanking` and `aggregateBordaCount` to `server/saas/council/scoring.js`; leave `runPeerReview` and `runChairmanSynthesis` in `council.js`. |
-| `server/websearch/tool.js` | 712 | Tool-calling run loop with graceful degradation, artifact-handoff guard, empty-answer retry, visual page image pipeline, image dedup, byte budget, and a `runChatWithToolLoop` whose body itself is hundreds of lines. | Loop dispatch, document/visual concerns, and provider compatibility are all here. | Split: `server/websearch/tool/loop.js` (the engine), `server/websearch/tool/visual.js` (visual pages), `server/websearch/tool/detectUnsupported.js` (the `isToolsUnsupportedError` heuristics). |
-| `server/documents/index.js` | 696 | `DocumentService` (search, read, extract, create, edit, export, enqueueAndWait, latestAssistantText, resolveCreateContent), plus a battery of pure helpers and regex-based format inference. | Format inference regexes, content-source resolution, and the service itself are mixed. | Extract `server/documents/inferFormat.js` (the regex) and `server/documents/resolveContent.js` (`resolveCreateContent`, `latestAssistantText`); keep the service class as a thin orchestrator. |
-| `server/db/supabaseRest.js` | 835 | Every PostgREST operation as a hand-rolled method. The interface mirrors the database, not the domain. | The class mixes schema-level operations with billing RPCs and the `klui_*` claim/clean/record calls. | Split by table group: `db/rest/profiles.js`, `db/rest/chat.js`, `db/rest/documents.js`, `db/rest/research.js`, `db/rest/billing.js`, `db/rest/caches.js`. `SupabaseRest` becomes a thin base class with `request()` and `rpc()`. |
-| `public/js/app.js` | 6,704 | Every UI surface in one file: composer, sidebar, settings, account, model picker, council, compare, documents, research, image upload, follow-ups, dialogs, navigation, and the streaming reducer. | The file mixes state, view, and event glue for every feature. The streaming reducer (`applyStreamEvent`/`applyCompareStreamEvent`/`applyCouncilStreamEvent`) and the document viewer (`renderDocumentViewer`/`loadPdfJs`/`renderPdfPages`) are large enough to be self-contained modules. | Extract `public/js/streaming.js` (the per-mode reducers and `applyStreamEvent`), `public/js/documentViewer.js` (PDF.js, viewport, polling, the artifact viewer UI), `public/js/research.js` (`renderResearchCard`/`renderResearchReport`/polling), `public/js/council.js` (`renderCouncilMessage`/parsing helpers), `public/js/compare.js` (`renderCompareMessage`). `app.js` keeps the bootstrap, model catalog, navigation, settings, and message rendering shell. |
-| `server/research/engine.js` | 337 | `runDeepResearch` is the only public function; it owns plan → categorize → query → search → fetch → extract → synthesize → stop-decide → final report. Plus `parseJsonArray`/`parseJsonObject`/`planSummary`/`validateReportLinks`/`partialReport`/`mapLimit` and `formatFindings`. | A research loop is a deep function by nature. The internal JSON parsers and helpers are pure but live inside. | Move the pure parsers to `server/research/parseJson.js`; move `mapLimit` and `validateReportLinks` to `server/research/util.js`; keep `runDeepResearch` as a single function but with the helpers split out for testability. |
+| File | Lines | What it owns | Status |
+|---|---|---|---|
+| `server/routes.js` | 233 | HTTP dispatch, CORS, stable request signal, test re-exports. | **Done (Phase 1).** Handlers in `server/routes/*`; chat in `server/chat/*`. |
+| `server/chat/pipeline.js` | 1,186 | `handleConversationMessage` dispatch (single/compare/council, retry/edit), shared pre-search, PDF visual context, tool wiring. | Largest remaining server orchestrator after Phase 1. |
+| `server/saas/messages.js` | 2 (barrel) | Re-exports `messages/content.js` (~291) and `messages/stream.js` (~191). | **Done (Phase 4).** |
+| `server/websearch/tool.js` | 3 (barrel) | Re-exports `tool/loop.js` (~530), `tool/visual.js`, `tool/unsupported.js`. | **Done (Phase 4).** Dynamic `saas/messages.js` import lives in `loop.js`. |
+| `server/documents/index.js` | 656 | `DocumentService` orchestrator; helpers in `inferFormat.js` / `resolveContent.js`. | **Done (Phase 4).** |
+| `server/db/supabaseRest.js` | 297 | Thin `SupabaseRest` class delegating to `server/db/rest/*`. | **Done (Phase 2).** |
+| `public/js/app.js` | 5,331 | Composition root (bootstrap, composer, sidebar, settings, shell renderers). | **Partial (Phase 3).** Streaming, document viewer, research, compare, council, and admin panel extracted; still the largest client file. |
+| `public/styles.css` | 13 | `@import` root over `public/styles/*.css`. | **Done (Phase 6).** Byte-identical split. |
+| `server/saas/usageMeter.js` | 174 | Wraps `chatCompletion` / `streamChatCompletion`; budget gate + cost record. | Unchanged per RFC § 10. Optional future split: `costResolver.js` + `usageScanner.js`. |
+| `server/research/engine.js` | 336 | `runDeepResearch` loop and private helpers. | Unchanged per RFC § 10. Optional future split: `parseJson.js` + `util.js`. |
 
 ### Files that have accumulated high churn
 
@@ -790,41 +797,25 @@ and explains the timeline.
   authoritative description of the document skills is the
   `server/documents/` modules plus `docs/ARCHITECTURE_HISTORY.md`.
 
-## 10. Recommended extraction boundaries (without implementing them)
+## 10. Recommended extraction boundaries
 
-These are the same extraction boundaries as the table above, listed
-in priority order. Each boundary is sized so it can be landed in a
-focused PR without changing the external surface:
+Phases 1–6 of `docs/REFACTORING_RFC.md` implemented items 1–6 and 8
+below. What remains is optional follow-up (not scheduled):
 
-1. **`public/js/app.js` → `streaming.js`, `documentViewer.js`,
-   `research.js`, `council.js`, `compare.js`**. The largest file
-   in the repo. Splitting it removes the single biggest "everything
-   lives here" hotspot. The streaming reducer and the document
-   viewer are the most isolated and the easiest to land first.
-2. **`server/routes.js` → one file per resource**. Every
-   `handleXxx` becomes its own module that exports the handler;
-   `routes.js` becomes a thin if-ladder. This is the only way to
-   keep the dispatch file under ~500 lines long-term.
-3. **`server/db/supabaseRest.js` → one file per table group**. The
-   class becomes a thin `request()`/`rpc()` base. The five
-   `klui_*_claim_*` and `klui_*_record_*` RPCs move to
-   `db/rest/billing.js` and `db/rest/workers.js`.
-4. **`server/websearch/tool.js` → `tool/loop.js` + `tool/visual.js`
-   + `tool/detectUnsupported.js`**. The loop is already isolated by
-   design; visual-page logic is the only thing in the file that
-   doesn't need to live with the loop.
-5. **`server/saas/messages.js` → `content.js` + `stream.js`**. The
-   storage shape and the streaming reducer are independent concerns.
-6. **`server/saas/usageMeter.js` → `costResolver.js` +
-   `usageScanner.js` + a thin meter wrapper**. The cost resolution
-   has three sources (provider usage, generation endpoint, fallback
-   pricing) and that complexity deserves its own file.
-7. **`server/research/engine.js` → pure helpers in `util.js` and
-   `parseJson.js`**. The loop stays as one function.
-8. **`server/documents/index.js` → `inferFormat.js` +
-   `resolveContent.js`**. Move the regexes and content resolution
-   out of the service.
+1. **`public/js/app.js` further shrink** — Phase 3 extracted streaming,
+   document viewer, research, compare, council, and admin panel; the
+   composition root is still ~5,331 lines.
+2. **`server/chat/pipeline.js`** — the largest post-Phase-1 server file
+   (~1,186 lines); could be split along single/compare/council helper
+   boundaries if churn increases.
+3. **`server/db/supabaseRest.js`** — **done** (delegates to `server/db/rest/*`).
+4. **`server/websearch/tool.js`** — **done** (barrel over `tool/*`).
+5. **`server/saas/messages.js`** — **done** (barrel over `messages/*`).
+6. **`public/styles.css`** — **done** (`@import` split under `public/styles/`).
+7. **`server/saas/usageMeter.js`** — deliberately left whole per RFC § 10.
+8. **`server/documents/index.js`** — **done** (`inferFormat.js` +
+   `resolveContent.js` extracted).
+9. **`server/research/engine.js`** — deliberately left whole per RFC § 10.
 
-None of these extractions change the public API or the HTTP routes;
-they are pure refactors that split files along existing internal
-boundaries.
+None of the completed extractions changed the public API or HTTP routes;
+they split files along existing internal boundaries.
