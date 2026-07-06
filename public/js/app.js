@@ -2301,6 +2301,10 @@ function stripLeakedToolMarkup(value) {
     .trim();
 }
 
+function isPlaceholderPeerReason(value) {
+  return /^<?\s*reason\s*>?$/i.test(String(value || "").trim());
+}
+
 const {
   applyStreamEvent,
   applyToolEvent,
