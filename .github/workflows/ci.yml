@@ -14,8 +14,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Install dependencies
+          cache-dependency-path: |
+            package-lock.json
+            worker/package-lock.json
+      - name: Install app dependencies
         run: npm ci
+      - name: Install document worker dependencies
+        run: npm ci --prefix worker
       - name: Syntax check (server, client, scripts, tests)
         run: npm run check:syntax
       - name: Run test suite
