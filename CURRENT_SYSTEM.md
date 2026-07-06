@@ -1,5 +1,13 @@
 # Klui Chat Current System
 
+> **HISTORICAL DOCUMENT — do not rely on this file.** This is the
+> May 28 2026 post-Stripe-removal snapshot, kept for history only. It
+> is stale in several places: web search is now SearXNG-primary (this
+> file still says Jina-primary / Brave-fallback), and it predates
+> `server/research/`, `server/documents/`, and `server/providers.js`.
+> For current architecture see `ARCHITECTURE.md` and
+> `docs/FUNCTION_INDEX.md`.
+
 This document describes the app after removing Stripe and switching the MVP to payment-free testing access.
 
 ## Current Access Model

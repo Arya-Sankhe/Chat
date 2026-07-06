@@ -1,6 +1,6 @@
 # RFC: Phased Structural Refactoring of Klui Chat
 
-- **Status**: Proposed (no code changed by this RFC)
+- **Status**: Revised for Phase 0 implementation (rev 2)
 - **Baseline**: HEAD = `dc8b5d6 Add ARCHITECTURE and docs files` (274 commits;
   the architecture pack was written against its parent `c55223a`)
 - **Test baseline**: `npm test` → 278/278 passing, 16 files, ~3.3 s
@@ -75,14 +75,25 @@ listed here:
 8. **`apiFetch` and `readSseStream` are private** to `public/js/api.js`, not
    exported as `FUNCTION_INDEX.md` § N implies. The public surface is the
    ~33 per-route wrappers plus `configureApiAuth`.
-9. **No web bundler**: the browser loads `public/js/*` raw with manual `?v=`
-   cache-busting query strings; Vite is used only for the mobile
-   `dist-mobile/` build. Any file split must update the `?v=` import
-   specifiers and keeps working under both raw serving and Vite.
+9. **No web bundler**: the browser loads `public/js/*` raw; Vite is used only
+   for the mobile `dist-mobile/` build. Some imports carry `?v=` query
+   strings as a historical convention, but they are **not required for
+   correctness**: `server/static.js:55-57` serves HTML, JS, and CSS with
+   `Cache-Control: no-cache`, so browsers revalidate on every load. New
+   modules do not need `?v=`. What every client split must actually verify
+   is both delivery paths: the raw module graph loads in a browser, and
+   `npm run mobile:build` succeeds.
+10. **`handleApiRequest` has no injectable context.** Its signature is
+   `(req, res, url, config)`; the DB and R2 clients are constructed inside
+   each handler via `bearerContext(config)` (`server/routes.js:147-152`),
+   and auth calls `fetch` directly (`server/auth/supabase.js:27`). A stubbed
+   context **cannot** currently be passed in. Deterministic route tests
+   therefore require a minimal dependency seam first (see Phase 0 § 6.3).
 
 None of these change the refactoring priorities; items 1–2 change what
-Phase 0 must contain (docs fix + real dispatch tests), and item 9 constrains
-how the client split ships.
+Phase 0 must contain (docs fix + real dispatch tests), item 9 constrains
+how the client split ships, and item 10 adds a small, behavior-preserving
+seam to Phase 0's scope.
 
 ## 3. Non-goals
 
@@ -92,7 +103,8 @@ how the client split ships.
 - No behavior changes: SSE event envelope, `/api/*` shapes, R2 key formats,
   localStorage keys (`klui.chat.controls.v1`, pinned chats), tool-loop
   invariants (provisional-prose reset, artifact-handoff guard, empty-answer
-  retry, graceful tool degradation) all stay byte-identical.
+  retry, graceful tool degradation) all stay unchanged (verified via the
+  canonical semantic transcripts of § 4).
 - No CSS rewrite. CSS is deliberately last and optional (Phase 6).
 - No changes to the Python worker or Android project in any phase.
 
@@ -105,11 +117,17 @@ moves. A phase may not ship if any of these change:
    (`server/routes.js:3036-3200`), including method enforcement inside
    handlers, the 410 on `/api/chat`, and problem-JSON error shapes from
    `HttpError`.
-2. **SSE envelope** — event types and payload shapes for single chat
-   (`delta`, tool events, `done`), compare, and council
-   (`council:start`, `council:peer:ballot`, `council:chairman:start`, …),
-   including `sanitizeProviderEvent` filtering and usage capture from the
-   trailing chunk.
+2. **SSE envelope** — frozen as a **canonical semantic transcript**, not a
+   byte-level snapshot: the ordered sequence of event types and their
+   required fields for single chat (sanitized provider chunks, `tool:*`
+   events, `usage`, `error`), compare (`start`/`delta`/`done`/`error` per
+   index), council (`council:start`, panel events,
+   `council:peer:start|ballot|done|skipped|error`,
+   `council:chairman:start|delta|done|skipped|error`), and temporary chat
+   (`usage`, `done { temporary: true }`). Generated IDs, timestamps, costs,
+   and JSON key ordering are normalized before comparison; event order,
+   event types, required fields, error surfacing, persistence writes, and
+   billing calls are frozen exactly.
 3. **Persistence shapes** — `messages.content` (string or parts array),
    `messages.metadata` (council/websearch/documents/research),
    attachment/document/research row lifecycles.
@@ -137,45 +155,78 @@ the plan degrades gracefully if interrupted.
 | 5 | State-ownership hardening on the client (store boundary for pollers/queues) | medium | 3 |
 | 6 (optional) | `public/styles.css` decomposition | medium (visual) | 3 |
 
-Phases 1, 2, and 4 touch disjoint files and could be parallelized; 3 → 5 → 6
-are sequential on the client.
+All phases are implemented **sequentially** in the order above. Phases 1, 2,
+and 4 touch mostly disjoint production files, but their tests, import paths,
+and architecture-doc updates overlap, so they are not run concurrently.
 
 ---
 
 ## 6. Phase 0 — Safety net (additive only, no production code moves)
 
 **Goal**: make every later phase verifiable. Nothing in this phase changes
-runtime behavior.
+runtime behavior. The only production-code change is the minimal dependency
+seam in item 3, which ships as its own commit with tests proving equivalence.
 
-1. **CI**: add a GitHub Actions workflow running `npm ci`, `npm test`, and
-   `node --check` over `server/**/*.js` and `public/js/**/*.js` on every
-   push/PR. (There is currently no CI at all.)
-2. **Route-dispatch characterization tests** (`test/routes-dispatch.test.js`):
-   drive `handleApiRequest` directly with stubbed `req`/`res` and a stubbed
-   context (`db`, `r2`, auth fetch). Pin per route: status codes, method
-   enforcement, auth-required behavior (401/503 paths), problem-JSON shape,
-   and the `/api/chat` 410. This is table-driven off the § 4 route
-   inventory so Phase 1 diffs against a frozen table.
-3. **SSE golden transcripts** (`test/chat-sse.test.js`): with a fake
-   provider stream, capture the full event sequence for (a) single chat
-   with a tool call, (b) compare with 2 models, (c) council through
-   chairman synthesis, (d) temporary chat. Assert the serialized SSE lines
-   byte-for-byte. These transcripts are the contract Phases 1 and 4 must
-   not disturb.
-4. **Client reducer characterization** (`test/app-reducers.test.js`): the
-   `applyStreamEvent` / `applyCompareStreamEvent` / `applyCouncilStreamEvent`
-   reducers in `app.js` cannot be imported today (the module has DOM side
-   effects at top level). Pin their behavior the way existing tests already
-   do — source-level assertions — plus record input→state fixtures now, to
-   be replayed as real unit tests the moment Phase 3 makes them importable.
-5. **Doc corrections** (from § 2): fix README's web-search section
+1. **CI**: add a GitHub Actions workflow running `npm ci`, `npm test`,
+   syntax checks, and `npm run mobile:build` on every push/PR. (There is
+   currently no CI at all.) Syntax checking uses a repository script
+   (`scripts/check-syntax.mjs` or equivalent `find … | xargs node --check`)
+   that enumerates files explicitly — **not** a `**` shell glob, whose
+   expansion is shell-dependent and silently incomplete.
+2. **Doc corrections** (from § 2): fix README's web-search section
    (SearXNG-primary), fix `ARCHITECTURE.md` § 8/§ 9 overstatements, fix
    `FUNCTION_INDEX.md` § D (`claimDocumentJob`) and § N (`apiFetch` not
    exported), and mark `CURRENT_SYSTEM.md` as historical at the top of the
    file.
+3. **Minimal injectable seam — `createApiHandler(dependencies)`**: because
+   `handleApiRequest(req, res, url, config)` constructs its own
+   `SupabaseRest`/`R2Client` and calls the Supabase auth endpoint via
+   global `fetch` (§ 2 item 10), deterministic route tests need one seam.
+   `server/routes.js` gains a factory:
 
-**Exit criteria**: CI green on main; dispatch + SSE tests passing against
-unmodified code; docs no longer contradict source.
+   - `createApiHandler(config, overrides = {})` returns an
+     `async (req, res, url)` handler. `overrides` may supply
+     `createDb(config)`, `createR2(config)`, and `verifyUser(req, config)`;
+     when omitted, the defaults are exactly today's `new SupabaseRest(config)`,
+     `new R2Client(config)`, and `requireUser(req, config)`.
+   - The existing export `handleApiRequest(req, res, url, config)` remains
+     and delegates to `createApiHandler(config)` with no overrides, so
+     `server/index.js` is unchanged (or changes only trivially).
+   - **No handler signature changes.** Handlers keep `(req, res, config, …)`;
+     the seam is threaded through the two internal context builders
+     (`bearerContext`, `authContext`) only.
+   - Ships as its own commit, before any tests that use it, with a test
+     asserting the default path constructs the same dependencies as before.
+4. **Route-dispatch characterization tests** (`test/routes-dispatch.test.js`):
+   drive the handler produced by `createApiHandler` with stubbed `req`/`res`
+   and stubbed `createDb`/`verifyUser`. Table-driven over the full route
+   inventory: status codes, method enforcement, auth boundary (401 without
+   a token, 503 when Supabase is unconfigured), 404 for unknown paths, 405
+   where handlers enforce methods, the `/api/chat` 410, and the
+   problem-JSON shape `{ error, details? }`. Phase 1 diffs against this
+   frozen table.
+5. **Canonical SSE characterization tests** (`test/chat-sse.test.js`): with
+   a fake provider stream and fake DB, capture the event sequence for
+   (a) single chat including a web-search tool call, (b) two-model compare,
+   (c) council through chairman synthesis, (d) temporary chat, and
+   (e) error/abort surfacing plus the `usage` event. Assert **canonical
+   semantic transcripts** (§ 4 item 2): parse the SSE `data:` lines,
+   normalize generated IDs, timestamps, costs, and key order, then compare
+   the ordered list of event types and required fields. Also assert the
+   persistence writes (message insert/update payloads) and billing calls
+   (`checkApiBudget` before, `recordApiUsageCost` after) observed by the
+   fake DB.
+6. **Client reducer fixtures** (`test/fixtures/`): record input→state
+   fixtures for `applyStreamEvent` / `applyCompareStreamEvent` /
+   `applyCouncilStreamEvent` now. The reducers cannot be imported today
+   (`app.js` has DOM side effects at top level), so until Phase 3 the
+   fixtures are validated only structurally; source-grep assertions are
+   **not** counted as behavioral coverage. Real replay tests arrive when
+   Phase 3 extracts the reducers.
+
+**Exit criteria**: CI green; seam commit proves behavioral equivalence;
+dispatch + SSE tests passing against unmodified handlers; docs no longer
+contradict source.
 
 ## 7. Phase 1 — `server/routes.js` decomposition
 
@@ -211,8 +262,11 @@ because every chat feature currently lands in this one file (61 commits).
      `installStableRequestSignal`, and the error-to-problem-JSON conversion.
 
 **Rules**:
-- Handlers keep their exact names and signatures `(context, req, res, url, …)`;
-  modules receive the same `context` object — no new DI framework.
+- **Pure moves change nothing but the file a function lives in.** Handlers
+  keep their exact current names and signatures `(req, res, config, …)`.
+  Any dependency-injection change or signature change (for example,
+  threading the Phase-0 seam deeper) is a **separate commit**, never mixed
+  into a move commit. No DI framework.
 - Existing exports used by tests (`runSharedPreSearch`,
   `withResearchReportContext`, `buildDirectPdfVisualContext`,
   `installStableRequestSignal`, `normalizeAgentMode`,
@@ -226,8 +280,9 @@ because every chat feature currently lands in this one file (61 commits).
 are the safety net; step 7 additionally pins retry-mode and edit-mode
 request handling (currently untested) before the chat pipeline moves.
 
-**Exit criteria**: `routes.js` ≤ ~500 lines; route inventory byte-identical;
-SSE transcripts byte-identical; 278 + new tests green.
+**Exit criteria**: `routes.js` contains only dispatch, CORS, signal, and
+error conversion; route inventory unchanged against the Phase-0 dispatch
+table; canonical SSE transcripts unchanged; full suite green.
 
 ## 8. Phase 2 — `server/db/supabaseRest.js` split by domain
 
@@ -259,39 +314,57 @@ generator.
 
 **The state problem, solved minimally**: functions in `app.js` close over
 `state` (~116 refs), `els` (~113 refs), and ~15 module-level mutable
-singletons. Rather than threading parameters everywhere (huge diff) or a
-store framework (rewrite-shaped), extract the shared mutable core into one
-leaf module:
+singletons. Rather than threading parameters everywhere (huge diff), a
+store framework (rewrite-shaped), or a shared context module that every
+subsystem imports (a global service locator by another name), each
+extracted subsystem is a **narrow feature factory** that receives exactly
+the capabilities it needs, explicitly, at construction:
 
-- `public/js/appContext.js` — exports the `state` object, the `els` DOM
-  cache (initialized by `app.js` at boot exactly as today), and the small
-  shared helpers the subsystems need (`showToast`, `queueRenderMessages`
-  handle, settings accessors). It is a leaf: imports nothing project-side.
+```js
+// app.js remains the composition root and owns state/els as today.
+const streamReducer = createStreamReducer({ isAdmin, mergeArtifacts });
+const documentViewer = createDocumentViewer({ elements, api, notify });
+const research = createResearchController({ state, api, render });
+```
 
-Then extract, in dependency order (leaf-most first, one step = one deploy):
+- Each factory lists its dependencies in its signature; nothing reaches
+  back into `app.js` internals, and no module exports a grab-bag of shared
+  mutable state.
+- `app.js` stays the single composition root: it constructs the factories
+  at boot and wires them to DOM events.
+- Where a subsystem genuinely needs a slice of shared state, it receives
+  that slice (or accessor functions), not the whole `state` object, unless
+  the slice **is** effectively the whole state (research controller).
 
-1. `public/js/streaming.js` — `applyStreamEvent`, `applyToolEvent`,
-   `applyCompareStreamEvent`, `applyCouncilStreamEvent`, `ensureToolState`.
-   These mutate `state` but touch no DOM directly → easiest extraction and
-   immediately unit-testable (replay the Phase-0 fixtures as real tests).
-2. `public/js/documentViewer.js` — PDF.js loading, page rendering, viewer
-   open/close, preview-job polling, pending-artifact polling
-   (`pendingArtifactPolls`, `documentViewerPoll`, `pdfJsPromise`,
-   `pdfRenderToken` move in as module-local state — they are already
-   viewer-owned).
-3. `public/js/research.js` — research card/report rendering, polling
-   (`researchPollTimer` moves in), start/cancel/resume.
+Extraction order (leaf-most first, one step = one deploy):
+
+1. `public/js/streaming.js` — `createStreamReducer(...)` wrapping
+   `applyStreamEvent`, `applyToolEvent`, `applyCompareStreamEvent`,
+   `applyCouncilStreamEvent`, `ensureToolState`. These mutate stream state
+   but touch no DOM directly → easiest extraction and immediately
+   unit-testable (replay the Phase-0 fixtures as real tests).
+2. `public/js/documentViewer.js` — `createDocumentViewer({ elements, api, notify })`:
+   PDF.js loading, page rendering, viewer open/close, preview-job polling,
+   pending-artifact polling (`pendingArtifactPolls`, `documentViewerPoll`,
+   `pdfJsPromise`, `pdfRenderToken` become factory-local state — they are
+   already viewer-owned).
+3. `public/js/research.js` — `createResearchController({ state, api, render })`:
+   research card/report rendering, polling (`researchPollTimer` moves in),
+   start/cancel/resume.
 4. `public/js/council.js` + `public/js/compare.js` — the mode renderers
-   and mode activation/model-picker seeding.
+   and mode activation/model-picker seeding, same factory pattern.
 5. `public/js/adminPanel.js` — admin dashboard load/render/save (small,
    isolated, admin-only blast radius).
 
 **Constraints (verified against how the client ships)**:
-- No bundler for web: every new file is imported from `app.js` with an
-  explicit `?v=` version query (matching the existing convention), and
-  `index.html` continues to load only `/js/app.js`. The Vite mobile build
-  follows the import graph automatically; run `npm run mobile:build` in CI
-  from this phase on.
+- No bundler for web: new files are plain ES modules imported from
+  `app.js`, and `index.html` continues to load only `/js/app.js`. `?v=`
+  query strings are **not required** — `server/static.js` serves JS/CSS/HTML
+  with `Cache-Control: no-cache`, so browsers revalidate every load. Each
+  extraction verifies both delivery paths: load the raw module graph in a
+  browser (or an import-resolution smoke test) and run
+  `npm run mobile:build`; the Vite mobile build follows the import graph
+  automatically and runs in CI from Phase 0 on.
 - `test/mobile.test.js`, `test/native-topbar.test.js`,
   `test/reasoning.test.js`, and `test/research.test.js` grep `app.js`
   source for specific strings; each extraction step updates those tests to
@@ -309,33 +382,39 @@ viewer, research view, council/compare renderers, or admin panel; web app
 and `npm run mobile:build` both work; all source-grep tests updated; new
 unit tests exist for the streaming reducers.
 
-## 10. Phase 4 — server-internal splits (independent of Phases 1–3)
+## 10. Phase 4 — server-internal splits (after Phases 1–3)
 
-Small, mechanical, low-risk splits along boundaries the architecture pack
-already identified and verification confirmed:
+Small, mechanical, low-risk splits — but **only where responsibility,
+dependency, or churn evidence justifies them**. Line count alone is not a
+reason to split; coherent modules stay whole.
 
 1. `server/saas/messages.js` (481) → `server/saas/messages/content.js`
    (build/hydrate/filter/normalize/`stripLeakedToolMarkup`) +
    `server/saas/messages/stream.js` (`applyStreamEvent`,
    `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate`,
-   `sanitizeProviderEvent`, `writeProviderEvent`). `messages.js` becomes a
-   re-export barrel so the dynamic import in `websearch/tool.js:494` and all
-   static importers keep working unchanged.
+   `sanitizeProviderEvent`, `writeProviderEvent`). Justified: two genuinely
+   different responsibilities (storage shape vs. stream encoding) with
+   different change drivers. `messages.js` becomes a re-export barrel so
+   the dynamic import in `websearch/tool.js:494` and all static importers
+   keep working unchanged.
 2. `server/websearch/tool.js` (712) → `tool/loop.js` (run loop),
    `tool/visual.js` (`prepareVisualPagesForModel`, `visualDocumentMessage`,
    `visualImageInputLimit`), `tool/unsupported.js`
-   (`isToolsUnsupportedError`, fallback-level logic). `tool.js` re-exports.
-   The tool-loop invariants (provisional-prose reset, dedupe of inline
-   image fetches) already have tests; the SSE transcripts from Phase 0
-   guard the rest.
-3. `server/saas/usageMeter.js` (174) → extract `costResolver.js`
-   (usage.cost → generation endpoint → estimate chain) and keep the meter
-   as the wrapper. `test/saas.test.js` meter tests pass unchanged.
-4. `server/documents/index.js` (696) → extract `inferFormat.js` and
+   (`isToolsUnsupportedError`, fallback-level logic). Justified: the visual
+   PDF pipeline and the tools-unsupported degradation change independently
+   of the run loop. `tool.js` re-exports. The tool-loop invariants
+   (provisional-prose reset, dedupe of inline image fetches) already have
+   tests; the SSE transcripts from Phase 0 guard the rest.
+3. `server/documents/index.js` (696) → extract `inferFormat.js` and
    `resolveContent.js` (pure helpers); `DocumentService` stays.
-5. `server/research/engine.js` (336) → move `parseJsonArray`/
-   `parseJsonObject`, `mapLimit`, `validateReportLinks` to
-   `research/util.js`; `runDeepResearch` stays a single function.
+
+**Explicitly not split** (removed from earlier drafts of this RFC):
+`server/saas/usageMeter.js` (174 lines — a single coherent metering
+responsibility; splitting out a cost resolver fragments a frozen billing
+invariant for no evidence-based gain) and `server/research/engine.js`
+(336 lines — one research loop with its own private helpers; no churn or
+dependency pressure). Either may be revisited if future churn data says
+otherwise.
 
 Each item is a separate commit/deploy. Rule: barrels preserve every current
 import path for at least one release; importers migrate opportunistically.
@@ -351,7 +430,9 @@ reaching into module internals:
   navigation/sign-out instead of clearing shared timer variables.
 - The follow-up queue and upload pipeline become owned by the composer
   section with an explicit interface.
-- `appContext.js` shrinks toward `state` + `els` only.
+- Feature factories' dependency lists shrink as capabilities consolidate;
+  any factory that ended up taking the whole `state` object narrows to the
+  slice it actually uses.
 
 This phase is deliberately open-ended and cheap to stop at any point; every
 step is behavior-preserving and individually shippable.
@@ -363,8 +444,11 @@ maintenance cost but not a correctness risk, and CSS splits carry visual
 regression risk with weak tooling here. If undertaken:
 
 - Split by surface into `public/styles/{base,composer,sidebar,messages,viewer,research,council,settings,themes-*.css}`
-  loaded via `@import` from a root `styles.css` (no HTML changes; keeps the
-  single `?v=` cache-bust point).
+  loaded via `@import` from a root `styles.css` (no HTML changes). Note:
+  a `?v=` query on the root stylesheet does **not** version the child
+  `@import` URLs — child files are fetched by their own URLs. Freshness
+  relies on the `Cache-Control: no-cache` header the static server already
+  sends for CSS, which applies to every imported file individually.
 - Before/after screenshot comparison across the three themes × light/dark ×
   desktop/mobile widths, plus the existing Maestro flows for the APK.
 - No selector or specificity changes in the split itself; `!important`
@@ -378,8 +462,9 @@ regression risk with weak tooling here. If undertaken:
   re-exports. Any behavioral fix discovered along the way ships as its own
   commit before or after, never inside, a move.
 - **Deploy gate per step**: `npm test` (grows from 278), the Phase-0
-  dispatch table, the SSE golden transcripts, `node --check` over all JS,
-  and (from Phase 3 on) `npm run mobile:build`.
+  dispatch table, the canonical SSE transcripts, syntax checks via the
+  repository check script (explicit file enumeration, not `**` globs), and
+  `npm run mobile:build`.
 - **Rollback**: every step is a small revertable commit; barrels/re-exports
   mean a revert never breaks importers.
 - **Docs**: `ARCHITECTURE.md` § 3 module tables and `docs/FUNCTION_INDEX.md`
@@ -390,17 +475,26 @@ regression risk with weak tooling here. If undertaken:
 
 | Risk | Mitigation |
 |---|---|
-| SSE stream shape drifts during chat-pipeline move (Phase 1.7) | Byte-level golden transcripts from Phase 0; chat pipeline moves last, after six lower-risk resources prove the pattern. |
-| `app.js` closure untangling introduces subtle state bugs | `appContext.js` keeps the exact same shared-mutation semantics; extractions are leaf-most-first; streaming reducers gain real unit tests immediately. |
-| Raw-served client + `?v=` cache-busting breaks on module split | Convention already exists (`render.js?v=…` import in `app.js`); CI adds a check that every `public/js` import carries a version query; mobile Vite build in CI catches graph breaks. |
-| Source-grep tests silently pass against moved code | Each move updates the grep target in the same commit; Phase 0 converts the most important ones (reducers) to real imports as soon as possible. |
+| SSE stream shape drifts during chat-pipeline move (Phase 1.7) | Canonical semantic transcripts from Phase 0 (event order, types, required fields, persistence, billing frozen; volatile IDs/timestamps/costs normalized); chat pipeline moves last, after six lower-risk resources prove the pattern. |
+| `app.js` closure untangling introduces subtle state bugs | Feature factories receive explicit capabilities; extractions are leaf-most-first; streaming reducers gain real unit tests immediately. |
+| Raw-served client module graph breaks on split | Static server sends `Cache-Control: no-cache` for JS, so no cache-busting is needed for correctness; each extraction verifies the raw module graph loads and `npm run mobile:build` passes in CI. |
+| Source-grep tests silently pass against moved code | Each move updates the grep target in the same commit; Phase 0 records reducer fixtures so grep assertions convert to real imports in Phase 3. |
 | Admin summary cache semantics change when moving to `routes/admin.js` | Cache stays a module-local singleton with identical TTL; a test pins the 60 s caching behavior before the move. |
-| Parallel phases collide (1, 2, 4 touch server) | They touch disjoint files; if run concurrently, merge order is 2 → 4 → 1 (smallest blast radius first). |
+| Server phases interfere (1, 2, 4) | Implemented strictly sequentially; each phase's tests and doc updates land before the next begins. |
+| The Phase-0 seam itself changes behavior | Seam ships as its own commit; defaults are byte-identical constructor/auth calls; a dedicated test asserts default wiring equals pre-seam behavior; full suite green before and after. |
 
 ## 15. What success looks like
 
-- No file in the repo over ~1,500 lines except `styles.css` (until/unless
-  Phase 6), `worker/worker.py` (out of scope), and `schema.sql`.
+Success is measured by ownership, dependency direction, testability, and
+change isolation — **not** by file size. (An earlier draft's "no file over
+1,500 lines" criterion is removed: size is a symptom, not the disease, and
+optimizing for it invites fragmentation.)
+
+- Every subsystem has one owning module with an explicit public surface;
+  no handler or renderer lives in a file whose other contents it never
+  touches.
+- Dependency direction stays strictly inward on the server and acyclic on
+  the client; new cross-module reach-ins fail review.
 - `routes.js` is a dispatcher; chat orchestration lives in `server/chat/`.
 - The streaming reducers, document viewer, research view, and council/
   compare renderers are importable, unit-tested modules.

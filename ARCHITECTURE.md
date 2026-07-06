@@ -696,9 +696,22 @@ glyphs only (no layout reflow).
 ## 8. Test strategy
 
 - **Framework**: `node --test` (the `npm test` script). The suite
-  collects 16 test files under `test/`.
-- **Coverage** (278 tests as of `c55223a`):
+  collects 19 test files under `test/`.
+- **Coverage** (278 tests as of `c55223a`; 305 after the Phase-0
+  characterization suites below):
+  - `test/app-reducers.test.js` — structural validation of the Phase-0
+    stream-reducer fixtures (`test/fixtures/stream-reducer-fixtures.json`);
+    explicitly not behavioral coverage until Phase 3 makes the reducers
+    importable.
   - `test/artifact-generator.test.js` — artifact generation helpers.
+  - `test/chat-sse.test.js` — canonical semantic SSE transcripts for
+    single chat with a web-search tool call, compare, council through
+    chairman synthesis, temporary chat, error/abort surfacing, and the
+    billing gate (budget check before / cost record after each call).
+  - `test/routes-dispatch.test.js` — table-driven `handleApiRequest`
+    dispatch: full route inventory, method enforcement, auth boundary
+    (503 unconfigured / 401 no token), 404/405/410, problem JSON, CORS
+    preflight, and `createApiHandler` seam equivalence.
   - `test/client-auth.test.js` — Supabase auth round-trips.
   - `test/council.test.js` — `buildPeerReviewPrompt`, `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview`, `buildChairmanPrompt`.
   - `test/documents.test.js` — `DocumentService` extraction, search, create, edit, export; R2 upload validation; document skill selection.
@@ -710,7 +723,7 @@ glyphs only (no layout reflow).
   - `test/reasoning.test.js` — `extractReasoningDelta` for both Klui and OpenRouter shapes; reasoning duration metadata.
   - `test/render.test.js` — renderer math/code/math-protection tests; `renderContent` and `modelSupportsVision` and `inferModelBadges`.
   - `test/research.test.js` — research engine budget bounds, source validation, SSRF guard, partial reports, cancel, claim RPC.
-  - `test/routes.test.js` — route dispatch for health, config, plans, payments, research, uploads, conversations.
+  - `test/routes.test.js` — exported helper functions from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
   - `test/saas.test.js` — entitlements, billing, usage meter (open and closed budget), R2 helpers, image counts.
   - `test/usage.test.js` — `normalizeUsage` and `applyStreamEvent` final usage capture.
   - `test/websearch.test.js` — `WebSearchOrchestrator` provider chain, circuit breaker, cache, tool loop, document tool loop integration.
@@ -757,15 +770,19 @@ and explains the timeline.
 
 ### Stale or contradictory documentation in the repo
 
-- `README.md` mentions the in-house product name and feature list —
-  it is authoritative and matches the code.
+- `README.md` mentions the in-house product name and feature list.
+  Its web-search section was stale (Jina-primary / Brave-fallback)
+  until the Phase-0 docs pass corrected it to SearXNG-primary; treat
+  `server/config.js` and `server/websearch/index.js` as the source of
+  truth for provider order.
 - `CURRENT_SYSTEM.md` is from May 28 2026 (the post-Stripe-removal
-  snapshot). It is now stale on web search — it still describes
-  Jina-primary / Brave-fallback, while the current code defaults to
-  SearXNG-primary / Jina-fallback / Brave-fallback. The current
-  authoritative description of web search is the "Web Search" section
-  of `README.md` plus `server/websearch/index.js` and
-  `server/research/search.js`.
+  snapshot) and is marked historical at the top of the file. It is
+  stale on web search — it still describes Jina-primary /
+  Brave-fallback, while the current code defaults to SearXNG-primary /
+  Jina-fallback / Brave-fallback — and it omits `server/research/`,
+  `server/documents/`, and `server/providers.js` entirely. The current
+  authoritative description of web search is `server/websearch/index.js`
+  and `server/research/search.js`.
 - `MOBILE.md` is up to date and accurate against the current mobile
   build flow.
 - `DOCUMENT_SKILLS_IMPLEMENTATION_PLAN.md` is a planning document;

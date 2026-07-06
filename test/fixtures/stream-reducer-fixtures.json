@@ -1,0 +1,191 @@
+{
+  "description": "Phase-0 input→state fixtures for the client streaming reducers in public/js/app.js (applyStreamEvent, applyToolEvent, applyCompareStreamEvent, applyCouncilStreamEvent, ensureToolState). The reducers cannot be imported today because app.js runs DOM side effects at module top level, so these fixtures are validated only structurally until Phase 3 extracts the reducers into an importable module; then each fixture is replayed as a real unit test: build `initial`, apply `events` in order through the named reducer, and deep-compare against `expected` while ignoring `ignoreFields` (volatile Date.now() timestamps) at every nesting depth.",
+  "assumptions": {
+    "isAdminUser": false,
+    "note": "Reasoning deltas are dropped for non-admin users, so fixtures do not accumulate `reasoning`."
+  },
+  "ignoreFields": [
+    "activityStartedAt",
+    "activityEndedAt",
+    "reasoningStartedAt",
+    "reasoningEndedAt"
+  ],
+  "fixtures": [
+    {
+      "name": "single: content deltas accumulate and finish_reason stop finalizes",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "choices": [{ "delta": { "content": "Hel" } }] },
+        { "choices": [{ "delta": { "content": "lo" }, "finish_reason": "stop" }] }
+      ],
+      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "Hello", "reasoning": "", "toolCalls": [], "finishReason": "stop" }
+    },
+    {
+      "name": "single: chunk-embedded usage is normalized (snake_case to camelCase, total derived)",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "choices": [], "usage": { "prompt_tokens": 10, "completion_tokens": 5 } }
+      ],
+      "expected": {
+        "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
+        "usage": { "promptTokens": 10, "completionTokens": 5, "totalTokens": 15 }
+      }
+    },
+    {
+      "name": "single: typed usage event is stored verbatim",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "type": "usage", "usage": { "promptTokens": 12, "completionTokens": 4, "totalTokens": 16, "costCredits": 0.001 } }
+      ],
+      "expected": {
+        "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
+        "usage": { "promptTokens": 12, "completionTokens": 4, "totalTokens": 16, "costCredits": 0.001 }
+      }
+    },
+    {
+      "name": "single: error event sets error and finishReason=error",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "partial", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "type": "error", "error": "Stopped by user." }
+      ],
+      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "partial", "reasoning": "", "toolCalls": [], "error": "Stopped by user.", "finishReason": "error" }
+    },
+    {
+      "name": "single: done event defaults finishReason to stop",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "Answer", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "type": "done", "temporary": true }
+      ],
+      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "Answer", "reasoning": "", "toolCalls": [], "finishReason": "stop" }
+    },
+    {
+      "name": "single: response:reset clears provisional prose only",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "provisional prose", "reasoning": "", "toolCalls": [], "finishReason": "tool_calls" },
+      "events": [
+        { "type": "response:reset" }
+      ],
+      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [], "finishReason": "tool_calls" }
+    },
+    {
+      "name": "single: split tool_calls deltas merge by index into one call",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "type": "function", "function": { "name": "web_search", "arguments": "{\"qu" } }] } }] },
+        { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "ery\":\"x\"}" } }] } }] }
+      ],
+      "expected": {
+        "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "",
+        "toolCalls": [{ "id": "call_1", "type": "function", "function": { "name": "web_search", "arguments": "{\"query\":\"x\"}" } }]
+      }
+    },
+    {
+      "name": "tool lifecycle: start → result records status, citations with offset, artifacts merge",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "type": "tool:start", "toolCallId": "call_1", "name": "web_search", "arguments": "{\"query\":\"x\"}" },
+        {
+          "type": "tool:result", "toolCallId": "call_1", "name": "web_search",
+          "query": "x", "provider": "searxng", "cached": true,
+          "citations": [{ "index": 1, "title": "T", "url": "https://example.com", "snippet": "S" }],
+          "artifacts": [], "error": null
+        }
+      ],
+      "expected": {
+        "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
+        "toolEvents": [{ "id": "call_1", "name": "web_search", "query": "x", "status": "done", "cached": true, "provider": "searxng", "resultCount": 1 }],
+        "citations": [{ "index": 1, "title": "T", "url": "https://example.com", "snippet": "S" }]
+      }
+    },
+    {
+      "name": "tool lifecycle: error for an unknown call id appends an error entry",
+      "reducer": "applyStreamEvent",
+      "initial": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [] },
+      "events": [
+        { "type": "tool:error", "toolCallId": "call_9", "name": "web_search", "query": "x", "provider": null, "cached": false, "citations": [], "artifacts": [], "error": { "message": "boom" } }
+      ],
+      "expected": {
+        "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
+        "toolEvents": [{ "id": "call_9", "name": "web_search", "status": "error", "error": "boom" }],
+        "citations": []
+      }
+    },
+    {
+      "name": "compare: per-index start/delta/done and independent error lanes",
+      "reducer": "applyCompareStreamEvent",
+      "initial": {
+        "id": "local_compare_1", "role": "assistant", "compareGroup": true,
+        "compareResponses": [
+          { "id": "local_compare_m1_1", "role": "assistant", "model": "m1", "content": "", "reasoning": "", "toolCalls": [] },
+          { "id": "local_compare_m2_1", "role": "assistant", "model": "m2", "content": "", "reasoning": "", "toolCalls": [] }
+        ]
+      },
+      "events": [
+        { "type": "start", "index": 0, "model": "m1", "assistantMessageId": "srv-1", "metadata": {} },
+        { "type": "delta", "index": 0, "model": "m1", "event": { "choices": [{ "delta": { "content": "Hi" }, "finish_reason": "stop" }] } },
+        { "type": "done", "index": 0, "model": "m1" },
+        { "type": "error", "index": 1, "model": "m2", "error": "Model request failed." }
+      ],
+      "expected": {
+        "id": "local_compare_1", "role": "assistant", "compareGroup": true,
+        "compareResponses": [
+          { "id": "srv-1", "role": "assistant", "model": "m1", "content": "Hi", "reasoning": "", "toolCalls": [], "metadata": {}, "finishReason": "stop" },
+          { "id": "local_compare_m2_1", "role": "assistant", "model": "m2", "content": "", "reasoning": "", "toolCalls": [], "error": "Model request failed.", "finishReason": "error" }
+        ]
+      }
+    },
+    {
+      "name": "council: full session — panel lane, peer ballot justifications, borda, chairman synthesis",
+      "reducer": "applyCouncilStreamEvent",
+      "initial": {
+        "id": "local_council_1", "role": "assistant", "councilGroup": true,
+        "sessionId": "", "stage1Status": "active", "stage2Status": "pending", "stage3Status": "pending", "peerStatus": "",
+        "panelists": [
+          { "id": "local_panel_m1_1", "role": "assistant", "model": "m1", "content": "", "reasoning": "", "toolCalls": [] },
+          { "id": "local_panel_m2_1", "role": "assistant", "model": "m2", "content": "", "reasoning": "", "toolCalls": [] }
+        ],
+        "chairman": null,
+        "ballots": []
+      },
+      "events": [
+        { "type": "council:start", "sessionId": "cnc_x", "panel": ["m1", "m2"], "assistantMessageIds": ["srv-1", "srv-2"] },
+        { "type": "start", "index": 0, "model": "m1", "assistantMessageId": "srv-1", "metadata": null },
+        { "type": "delta", "index": 0, "model": "m1", "event": { "choices": [{ "delta": { "content": "Panel answer" }, "finish_reason": "stop" }] } },
+        { "type": "done", "index": 0, "model": "m1" },
+        { "type": "council:peer:start", "reviewers": ["m1", "m2"] },
+        { "type": "council:peer:ballot", "reviewerModel": "m2", "valid": true, "ranking": ["m1"], "justifications": { "m1": "good" }, "error": null },
+        { "type": "council:peer:done", "borda": [{ "modelId": "m1", "bordaScore": 1, "ballotCount": 1, "rank": 1 }] },
+        { "type": "council:chairman:start", "chairmanModel": "m1", "assistantMessageId": "srv-3", "sessionId": "cnc_x" },
+        { "type": "council:chairman:delta", "event": { "choices": [{ "delta": { "content": "Synthesis." }, "finish_reason": "stop" }] } },
+        { "type": "council:chairman:done", "chairmanModel": "m1" }
+      ],
+      "expected": {
+        "id": "local_council_1", "role": "assistant", "councilGroup": true,
+        "sessionId": "cnc_x", "stage1Status": "done", "stage2Status": "done", "stage3Status": "done", "peerStatus": "",
+        "panelists": [
+          {
+            "id": "srv-1", "role": "assistant", "model": "m1", "content": "Panel answer", "reasoning": "", "toolCalls": [],
+            "finishReason": "stop",
+            "metadata": { "council": { "sessionId": "cnc_x", "role": "panelist", "stage": 1, "peerJustifications": { "m2": "good" }, "peerRank": 1, "bordaScore": 1, "ballotCount": 1 } }
+          },
+          { "id": "local_panel_m2_1", "role": "assistant", "model": "m2", "content": "", "reasoning": "", "toolCalls": [] }
+        ],
+        "chairman": {
+          "id": "srv-3", "role": "assistant", "model": "m1", "content": "Synthesis.", "reasoning": "", "toolCalls": [],
+          "finishReason": "stop",
+          "metadata": { "council": { "sessionId": "cnc_x", "role": "chairman", "stage": 3, "chairmanModel": "m1" } }
+        },
+        "ballots": [
+          { "reviewer": "m2", "valid": true, "ranking": ["m1"], "justifications": { "m1": "good" }, "error": null }
+        ]
+      }
+    }
+  ]
+}

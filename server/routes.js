@@ -144,16 +144,55 @@ function pathParts(url) {
   return url.pathname.split("/").filter(Boolean);
 }
 
+/**
+ * Dependency seam for deterministic tests. Production always uses these
+ * defaults; `createApiHandler` lets tests substitute the DB/R2 clients and
+ * the Supabase auth call without touching any handler signature.
+ */
+const API_DEPENDENCIES = Symbol("klui.apiDependencies");
+
+const defaultApiDependencies = Object.freeze({
+  createDb: (config) => new SupabaseRest(config),
+  createR2: (config) => new R2Client(config),
+  verifyUser: (req, config) => requireUser(req, config)
+});
+
+function apiDependencies(config) {
+  return config?.[API_DEPENDENCIES] || defaultApiDependencies;
+}
+
+/**
+ * Returns an `async (req, res, url)` API handler bound to `config`.
+ * `overrides` may supply `createDb(config)`, `createR2(config)`, and
+ * `verifyUser(req, config)`; omitted entries fall back to the exact
+ * production defaults, so `createApiHandler(config)` behaves identically
+ * to `handleApiRequest`.
+ */
+export function createApiHandler(config, overrides = {}) {
+  const validOverrides = Object.fromEntries(
+    ["createDb", "createR2", "verifyUser"]
+      .filter((key) => typeof overrides[key] === "function")
+      .map((key) => [key, overrides[key]])
+  );
+  const scopedConfig = Object.keys(validOverrides).length
+    ? Object.assign({}, config, {
+        [API_DEPENDENCIES]: Object.freeze({ ...defaultApiDependencies, ...validOverrides })
+      })
+    : config;
+  return (req, res, url) => handleApiRequest(req, res, url, scopedConfig);
+}
+
 function bearerContext(config) {
+  const dependencies = apiDependencies(config);
   return {
-    db: new SupabaseRest(config),
-    r2: new R2Client(config)
+    db: dependencies.createDb(config),
+    r2: dependencies.createR2(config)
   };
 }
 
 async function authContext(req, config) {
   const services = bearerContext(config);
-  const user = await requireUser(req, config);
+  const user = await apiDependencies(config).verifyUser(req, config);
   const profile = await services.db.upsertProfile(user, { signal: req.signal });
   return { ...services, user, profile };
 }

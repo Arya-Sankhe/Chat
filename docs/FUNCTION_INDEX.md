@@ -27,8 +27,22 @@ regex substitutions) are deliberately not listed.
   `/api/*` path + method combination to its handler, runs CORS
   preflight, installs the stable request signal, and converts thrown
   `HttpError` instances into JSON problem responses.
-- **Callers**: `server/index.js`.
+- **Callers**: `server/index.js`, `test/routes-dispatch.test.js`.
 - **Major dependencies**: every other module under `server/`.
+
+### `createApiHandler`
+- **Path**: `server/routes.js`
+- **Responsibility**: Phase-0 dependency seam. Returns an
+  `async (req, res, url)` handler bound to `config`; optional
+  `overrides` may replace `createDb(config)`, `createR2(config)`, and
+  `verifyUser(req, config)` for deterministic tests. Without overrides
+  it is behaviorally identical to `handleApiRequest` (the defaults are
+  `new SupabaseRest(config)`, `new R2Client(config)`, and
+  `requireUser`). Overrides are scoped to the returned handler via a
+  symbol-keyed shallow config copy and never leak into the shared
+  config object. Handler signatures are unchanged.
+- **Callers**: `test/routes-dispatch.test.js`, `test/chat-sse.test.js`.
+- **Major dependencies**: same as `handleApiRequest`.
 
 ### `serveStatic`
 - **Path**: `server/static.js`
@@ -126,9 +140,14 @@ regex substitutions) are deliberately not listed.
 ### `class SupabaseRest` ← mixed
 - **Path**: `server/db/supabaseRest.js`
 - **Responsibility**: PostgREST client for the `service_role` key.
-  One method per table operation plus the `klui_*` RPCs and the
-  `klui_cleanup_storage_and_cache` maintenance routine. Methods
-  include:
+  One method per table operation plus the `klui_*` RPCs this Node
+  client actually calls (`klui_claim_research_run`,
+  `klui_check_api_budget`, `klui_record_api_usage`,
+  `klui_search_document_pages`, `klui_search_document_chunks`) and the
+  `klui_cleanup_storage_and_cache` maintenance routine. Note:
+  `klui_claim_document_job` is **not** a `SupabaseRest` method — it is
+  called only by the Python worker (`worker/worker.py`,
+  `Supabase.claim_job`; see § P). Methods include:
   - **Profiles / app settings**: `upsertProfile`, `updateProfile`,
     `getProfile`, `getAppSetting`, `upsertAppSetting`.
   - **Subscriptions / payments**: `getLatestSubscription`,
@@ -640,12 +659,14 @@ regex substitutions) are deliberately not listed.
 
 ## N. Browser — public/js/
 
-### `configureApiAuth`, `resolveSession`, `apiFetch`, `readSseStream` (private), `readProblem` (private)
+### `configureApiAuth` (exported); `resolveSession`, `apiFetch`, `readSseStream`, `readProblem` (all module-private)
 - **Path**: `public/js/api.js`
 - **Responsibility**: The `apiFetch` wrapper with auto-refresh on
   401. The auth runtime is configured via `configureApiAuth({getSession,
   refresh, onSession, onExpired})` from `app.js`. `readSseStream` is
-  the shared SSE parser.
+  the shared SSE parser. Only `configureApiAuth` and the per-route
+  wrappers below are exported; `apiFetch`, `resolveSession`,
+  `readSseStream`, and `readProblem` are internal.
 - **Callers**: every other browser module.
 - **Major dependencies**: `public/js/platform/index.js`.
 
