@@ -137,6 +137,22 @@ test("model metadata helpers expose useful /models fields", () => {
   assert.deepEqual(inferModelBadges(model), ["vision", "reasoning", "turbo"]);
 });
 
+test("renderContent wraps markdown tables in a horizontal scroll container", () => {
+  globalThis.marked = {
+    parse() {
+      return `<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>`;
+    },
+    use() {}
+  };
+  delete globalThis.DOMPurify;
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  const html = renderContent("| A | B |\n| - | - |\n| 1 | 2 |");
+  assert.match(html, /<div class="table-scroll"><table>/);
+  assert.match(html, /<\/table><\/div>/);
+});
+
 test("renderContent strips unsafe HTML from marked output", () => {
   globalThis.marked = {
     parse(src) {

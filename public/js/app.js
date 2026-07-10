@@ -67,7 +67,7 @@ import {
   renderPlainText,
   renderContent,
   resetCodeSourceStore
-} from "./render.js?v=20260623-image-preview-v1";
+} from "./render.js?v=20260710-msg-ux-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
@@ -1994,10 +1994,8 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
   const runningTool = [...tools].reverse().find((tool) => tool.status === "running");
   if (streaming && runningTool) return toolStatusLabel(runningTool);
 
-  const hasAnswer = rawTextContent(message?.content).trim().length > 0;
-  const ms = resolveReasoningDurationMs(message);
-  if (hasAnswer || isFinalFinishReason(message?.finishReason)) {
-    if (streaming && hasAnswer && !isFinalFinishReason(message?.finishReason)) return "Answering";
+  if (isFinalFinishReason(message?.finishReason)) {
+    const ms = resolveReasoningDurationMs(message);
     if (ms != null) return reasoningSummaryLabel(message, { streaming: false });
     return "Worked";
   }
@@ -2011,9 +2009,10 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
 }
 
 function renderThinkingStatus(message, { streaming = false } = {}) {
+  if (rawTextContent(message?.content).trim()) return "";
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
-  const active = streaming && !isFinalFinishReason(message?.finishReason) && !rawTextContent(message?.content).trim();
+  const active = streaming && !isFinalFinishReason(message?.finishReason);
   return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span data-label="${escapeHtml(label)}">${escapeHtml(label)}</span></div>`;
 }
 
@@ -2591,10 +2590,21 @@ function flashCopySuccess(btn) {
   const label = btn.querySelector("span");
   const prevLabel = label?.textContent || "";
   if (label) label.textContent = "Copied!";
+  const icon = btn.querySelector("svg");
+  if (icon) {
+    btn._copyIconHtml ||= icon.outerHTML;
+    const w = icon.getAttribute("width") || "16";
+    const h = icon.getAttribute("height") || "16";
+    icon.outerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+  }
   clearTimeout(btn._copyFlashTimer);
   btn._copyFlashTimer = setTimeout(() => {
     btn.classList.remove("copy-flash");
     if (label) label.textContent = prevLabel || "Copy";
+    if (btn._copyIconHtml) {
+      const current = btn.querySelector("svg");
+      if (current) current.outerHTML = btn._copyIconHtml;
+    }
   }, 1200);
 }
 
@@ -2629,9 +2639,11 @@ function canEditUserMessage(msg) {
 }
 
 function renderUserMessageFooter(msg) {
-  if (!canEditUserMessage(msg)) return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
-  const edit = `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`;
+  const edit = canEditUserMessage(msg)
+    ? `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`
+    : "";
+  if (!copy && !edit) return "";
   return `
     <div class="message-footer message-footer--user">
       <div class="message-footer-actions">${copy}${edit}</div>
@@ -2821,7 +2833,30 @@ function renderStreamingMessageSurface(message) {
   preserveMessageScroll(() => {
     const rawText = rawTextContent(message.content);
     surface.dataset.rawText = rawText;
-    contentEl.innerHTML = renderAssistantMessageContent(message);
+    const statusEl = contentEl.querySelector(".thinking-status");
+    const hasContent = rawText.trim().length > 0;
+
+    if (statusEl && hasContent) {
+      // Keep the live status node so opacity can fade out while answer HTML updates.
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderAssistantMessageContent(message);
+      tmp.querySelector(".thinking-status")?.remove();
+      for (const node of [...contentEl.childNodes]) {
+        if (node !== statusEl) node.remove();
+      }
+      while (tmp.firstChild) contentEl.appendChild(tmp.firstChild);
+      if (!statusEl.classList.contains("is-leaving")) {
+        void statusEl.offsetWidth;
+        statusEl.classList.add("is-leaving");
+        const removeStatus = () => {
+          if (statusEl.isConnected) statusEl.remove();
+        };
+        statusEl.addEventListener("transitionend", removeStatus, { once: true });
+        setTimeout(removeStatus, 200);
+      }
+    } else {
+      contentEl.innerHTML = renderAssistantMessageContent(message);
+    }
   });
   syncPendingArtifactPolls();
   renderContextMeter();

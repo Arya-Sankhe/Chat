@@ -244,6 +244,10 @@ function ensureMarkedConfig() {
   }
 }
 
+function wrapMessageTables(html) {
+  return String(html).replace(/<table\b[\s\S]*?<\/table>/gi, (table) => `<div class="table-scroll">${table}</div>`);
+}
+
 function renderRichText(raw) {
   const text = String(raw ?? "");
   if (!text) return "";
@@ -258,6 +262,7 @@ function renderRichText(raw) {
   html = restoreMath(html, slots);
   html = highlightCodeBlocks(html);
   html = sanitizeRenderedHtml(html);
+  html = wrapMessageTables(html);
 
   return html;
 }

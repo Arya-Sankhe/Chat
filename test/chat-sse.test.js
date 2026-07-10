@@ -768,4 +768,42 @@ test("client disconnect aborts the stream and persists 'Stopped by user.'", asyn
   const errorUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
   assert.equal(errorUpdate.patch.error, "Stopped by user.");
   assert.equal(errorUpdate.patch.finish_reason, "error");
+  assert.equal(errorUpdate.patch.content, "partial");
+  assert.equal(errorUpdate.patch.reasoning, "");
+});
+
+test("compare: provider requests include prior conversation history", async (t) => {
+  t.after(restoreFetch);
+  const providerBodies = [];
+  installProviderFetch({
+    streamFor: (body) => {
+      providerBodies.push(body);
+      return [contentDelta(`Answer from ${body.model}`), usageChunk()];
+    }
+  });
+
+  const prior = [
+    { id: "msg-prior-user", role: "user", content: "Earlier question", conversation_id: "conv-1" },
+    { id: "msg-prior-asst", role: "assistant", content: "Earlier answer", conversation_id: "conv-1", model: TEXT_MODEL }
+  ];
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: prior });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Compare follow-up.", models: ["model-a", "model-b"] }
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(providerBodies.length, DEFAULT_COMPARE_MODELS.length);
+  for (const body of providerBodies) {
+    const roles = body.messages.map((message) => message.role);
+    assert.ok(roles.includes("user"), "compare request includes user turns");
+    assert.ok(roles.includes("assistant"), "compare request includes prior assistant turns");
+    const texts = body.messages.map((message) =>
+      typeof message.content === "string" ? message.content : JSON.stringify(message.content)
+    );
+    assert.ok(texts.some((text) => text.includes("Earlier question")), "prior user message is in context");
+    assert.ok(texts.some((text) => text.includes("Earlier answer")), "prior assistant message is in context");
+    assert.ok(texts.some((text) => text.includes("Compare follow-up.")), "new user turn is in context");
+  }
 });

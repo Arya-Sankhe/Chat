@@ -1181,11 +1181,20 @@ export async function handleConversationMessage(req, res, config, conversationId
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
     res.end();
   } catch (error) {
-    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+    const aborted = error?.name === "AbortError";
+    const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
+    const partial = aborted ? error.partial : null;
+    /* Drop req.signal on abort: installStableRequestSignal aborts it on
+       client disconnect, and updateMessage would otherwise reject before
+       the partial row can be written. */
     await context.db.updateMessage(context.user.id, assistantMessage.id, {
+      ...(aborted ? {
+        content: partial?.content || "",
+        reasoning: partial?.reasoning || ""
+      } : {}),
       error: message,
       finish_reason: "error"
-    }, { signal: req.signal }).catch(() => {});
+    }, aborted ? {} : { signal: req.signal }).catch(() => {});
     if (res.headersSent) {
       writeSse(res, { type: "error", error: message });
       res.end();

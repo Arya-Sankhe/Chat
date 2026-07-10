@@ -133,6 +133,12 @@ function parseSseEvents(buffer, onEvent) {
   return remaining;
 }
 
+function attachPartialOnAbort(error, assistant) {
+  if (error?.name !== "AbortError") return;
+  finalizeAccumulatedAssistant(assistant);
+  error.partial = assistant;
+}
+
 export async function pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning = false } = {}) {
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
@@ -146,16 +152,21 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
   };
   let buffer = "";
 
-  while (!res.destroyed) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (!res.destroyed) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    if (includeReasoning) res.write(Buffer.from(value));
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    buffer = parseSseEvents(buffer, (event) => {
-      applyStreamEvent(assistant, event);
-      if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
-    });
+      if (includeReasoning) res.write(Buffer.from(value));
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = parseSseEvents(buffer, (event) => {
+        applyStreamEvent(assistant, event);
+        if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
+      });
+    }
+  } catch (error) {
+    attachPartialOnAbort(error, assistant);
+    throw error;
   }
 
   finalizeAccumulatedAssistant(assistant);
@@ -175,15 +186,20 @@ export async function streamProviderAndAccumulate(upstream, onEvent) {
   };
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    buffer = parseSseEvents(buffer, (event) => {
-      applyStreamEvent(assistant, event);
-      onEvent(event);
-    });
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = parseSseEvents(buffer, (event) => {
+        applyStreamEvent(assistant, event);
+        onEvent(event);
+      });
+    }
+  } catch (error) {
+    attachPartialOnAbort(error, assistant);
+    throw error;
   }
 
   finalizeAccumulatedAssistant(assistant);

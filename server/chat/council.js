@@ -155,12 +155,19 @@ export async function handleCouncilConversationMessage({
 
       writeSse(res, { type: "done", index, model: entry.chatRequest.model });
     } catch (error) {
-      const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Model request failed.";
+      const aborted = error?.name === "AbortError";
+      const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
+      const partial = aborted ? error.partial : null;
       entry.error = message;
+      if (aborted && partial) entry.accumulated = partial;
       await context.db.updateMessage(context.user.id, entry.message.id, {
+        ...(aborted ? {
+          content: partial?.content || "",
+          reasoning: partial?.reasoning || ""
+        } : {}),
         error: message,
         finish_reason: "error"
-      }, { signal: req.signal }).catch(() => {});
+      }, aborted ? {} : { signal: req.signal }).catch(() => {});
       writeSse(res, { type: "error", index, model: entry.chatRequest.model, error: message });
     }
   }));
@@ -376,11 +383,17 @@ export async function handleCouncilConversationMessage({
 
     writeSse(res, { type: "council:chairman:done", chairmanModel });
   } catch (error) {
-    const message = error?.name === "AbortError" ? "Stopped by user." : error?.message || "Chairman synthesis failed.";
+    const aborted = error?.name === "AbortError";
+    const message = aborted ? "Stopped by user." : error?.message || "Chairman synthesis failed.";
+    const partial = aborted ? error.partial : null;
     await context.db.updateMessage(context.user.id, chairmanMessage.id, {
+      ...(aborted ? {
+        content: partial?.content || "",
+        reasoning: partial?.reasoning || ""
+      } : {}),
       error: message,
       finish_reason: "error"
-    }, { signal: req.signal }).catch(() => {});
+    }, aborted ? {} : { signal: req.signal }).catch(() => {});
     writeSse(res, { type: "council:chairman:error", error: message });
   }
 
