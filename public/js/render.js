@@ -181,7 +181,7 @@ function highlightCodeBlocks(html) {
       const label = detectedLang ? escapeHtml(detectedLang) : "";
       const codeId = `c${++codeSourceCounter}`;
       codeSourceStore.set(codeId, decoded);
-      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-block-lang">${label}</span><button class="code-copy-btn" type="button" data-code-id="${codeId}" aria-label="Copy code" title="Copy code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code class="hljs${cls}">${highlighted}</code></pre></div>`;
+      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-block-lang">${label}</span><button class="code-copy-btn" type="button" data-code-id="${codeId}" aria-label="Copy code" title="Copy code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code class="hljs${cls}">${highlighted}</code></pre></div>`;
     }
   );
 }
@@ -199,6 +199,9 @@ function sanitizeRenderedHtml(html) {
   if (purifier && typeof purifier.sanitize === "function") {
     return purifier.sanitize(html, {
       ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+      // Keep inline SVG icons (code-copy, file chips). Without the SVG profile,
+      // DOMPurify drops <path> and the copy glyph collapses to a single square.
+      USE_PROFILES: { html: true, svg: true },
       ADD_ATTR: ["target", "rel"]
     });
   }

@@ -81,11 +81,21 @@ test("code block copy button is icon-only like message copy", () => {
   const markup = renderJs.match(/class="code-copy-btn"[\s\S]*?<\/button>/);
   assert.ok(markup, "code-copy-btn markup not found");
   assert.doesNotMatch(markup[0], /<span>Copy<\/span>/, "code copy must not show Copy text");
-  assert.match(markup[0], /width="16"/);
+  assert.match(markup[0], /width="13"/);
+  assert.match(markup[0], /<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"\/>/);
   assert.match(
     css,
     /\.code-copy-btn\s*\{[^}]*width:\s*32px/,
     "code copy should match the 32px icon action button"
+  );
+});
+
+test("DOMPurify keeps the SVG path so code-copy stays a dual-sheet icon", () => {
+  const renderJs = readPublic("js/render.js");
+  assert.match(
+    renderJs,
+    /USE_PROFILES:\s*\{\s*html:\s*true,\s*svg:\s*true\s*\}/,
+    "sanitize must allow SVG or the copy path is stripped to a single square"
   );
 });
 
