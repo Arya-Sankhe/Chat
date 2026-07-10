@@ -23,6 +23,8 @@ jobs:
         run: npm ci --prefix worker
       - name: Syntax check (server, client, scripts, tests)
         run: npm run check:syntax
+      - name: Verify CSS split against baseline
+        run: npm run check:css-split
       - name: Run test suite
         run: npm test
       - name: Verify mobile bundle builds

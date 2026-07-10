@@ -188,7 +188,7 @@ and `config.js` (env loading).
 | Path | Owns |
 |---|---|
 | `public/index.html` | The whole single-page shell: setup / paywall / chat / research report views, top bar, sidebar, composer, settings, model selector, dialogs. |
-| `public/styles.css` | Root stylesheet: 13 `@import` lines over `public/styles/*.css` (byte-identical split; verified by `scripts/verify-css-split.mjs`). Tests read the concatenated CSS via `test/helpers/styles.js` `readStylesheet()`. |
+| `public/styles.css` | Root stylesheet: 13 `@import` lines over `public/styles/*.css` (byte-identical to the pre-split baseline; verified by `npm run check:css-split` / `scripts/verify-css-split.mjs` against `scripts/css-split-baseline.json`). Tests read the concatenated CSS via `test/helpers/styles.js` `readStylesheet()`. |
 | `public/service-worker.js` | Minimal SW for klui.tech PWA only. |
 | `public/js/platform/index.js` | The platform abstraction. Detects `Capacitor.isNativePlatform()`. Exposes `apiOrigin()`, `apiUrl()`, `storage`, `preferences`, `signInWithGoogle`, `parseAuthCallbackUrl`, `listenForAuthCallback`, `listenForDeepLinks`, `openExternal`, `download`, `copyText`, `appVersion`, `onResume`, `configureNativeChrome`, `setTextZoom`, `registerBackButton`, `exitApp`. All Capacitor plugins are lazy-loaded so the web build never imports them. |
 | `public/js/platform/updates.js` | OTA APK update check: throttled `fetch` to `/downloads/android/latest.json`, versionCode comparison, opens external APK URL. |
@@ -200,7 +200,7 @@ and `config.js` (env loading).
 | `public/js/app.js` | Composition root (~5,331 lines). Owns `state`, `els`, bootstrap, composer, follow-ups, model catalog, image/document upload pipeline, message rendering shell, settings drawer, theme/appearance, account, conversation sidebar (pinned, search, menu), dialogs, and navigation. Constructs feature factories at boot and calls `stopExtractedModulePollers()` on sign-out/navigation. |
 | `public/js/streaming.js` | `createStreamReducer(...)` — client stream reducers (`applyStreamEvent`, `applyToolEvent`, `applyCompareStreamEvent`, `applyCouncilStreamEvent`, `ensureToolState`). Unit-tested via `test/app-reducers.test.js`. |
 | `public/js/documentViewer.js` | `createDocumentViewer(...)` — PDF.js viewer, preview-job polling, pending-artifact polling; exposes `stopDocumentPreviewPoll` / `isDocumentPreviewPollActive` and `stopPendingArtifactPolls` / `isPendingArtifactPollsActive`. |
-| `public/js/research.js` | `createResearchController(...)` — research card/report rendering and polling; exposes `stopResearchPolling` / `isResearchPollingActive` and `applyResearchRunUpdate`. |
+| `public/js/research.js` | `createResearchController(...)` — research card/report rendering and polling; exposes pause, abandon, activity, resume, and update methods including `stopResearchPolling`, `abandonResearchPolling`, and `applyResearchRunUpdate`. |
 | `public/js/compare.js` | `createCompareController(...)` — compare mode UI, model picker seeding, `renderCompareMessage`. |
 | `public/js/council.js` | `createCouncilController(...)` — council mode UI, `renderCouncilMessage` and progress helpers. |
 | `public/js/adminPanel.js` | `createAdminPanel(...)` — admin dashboard load/render/save (admin-only). |

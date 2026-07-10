@@ -174,6 +174,289 @@ test("research cancellation and lease cleanup remain durable", () => {
   assert.match(worker, /const cancelled = Boolean\(current\?\.cancel_requested\)/);
   assert.match(worker, /Date\.now\(\) - lastExpiredCleanupAt >= 60_000/);
   assert.match(researchJs, /failedAttempts < 1/);
+  assert.match(researchJs, /researchPollGeneration/);
   assert.match(schema, /where status = 'queued' and cancel_requested = false/);
   assert.match(migration, /where status = 'queued' and cancel_requested = false/);
+});
+
+test("stopped research poll ignores in-flight status and queued timer continuations", async () => {
+  const scheduled = [];
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => {
+    scheduled.push({ fn, ms });
+    return scheduled.length;
+  };
+  // Leave queued callbacks capturable even after stop clears the timer id.
+  globalThis.clearTimeout = () => {};
+
+  function makeState() {
+    return {
+      session: { access_token: "token" },
+      activeResearchId: "run_1",
+      messages: [{
+        id: "msg_1",
+        content: "Working",
+        metadata: {
+          research: {
+            runId: "run_1",
+            status: "running",
+            progress: { percent: 5, label: "Searching" },
+            title: "Topic",
+            summary: "",
+            sourceCount: 0,
+            elapsedMs: 1000
+          }
+        }
+      }]
+    };
+  }
+
+  function makeEffects() {
+    return {
+      renderMessages: 0,
+      setRunning: [],
+      showToast: [],
+      loadMe: 0,
+      loadConversations: 0,
+      renderShell: 0
+    };
+  }
+
+  async function makeController(state, effects, fetchResearchStatus) {
+    const { createResearchController } = await import("../public/js/research.js");
+    return createResearchController({
+      elements: {},
+      state,
+      createResearch: async () => {
+        throw new Error("createResearch should not run");
+      },
+      fetchResearchStatus,
+      fetchResearchReport: async () => {
+        throw new Error("fetchResearchReport should not run");
+      },
+      escapeHtml: (value) => String(value ?? ""),
+      renderContent: () => "",
+      renderMessages: () => {
+        effects.renderMessages += 1;
+      },
+      renderShell: () => {
+        effects.renderShell += 1;
+      },
+      renderResearchMode: () => {},
+      setRunning: (value) => {
+        effects.setRunning.push(value);
+      },
+      showToast: (message) => {
+        effects.showToast.push(message);
+      },
+      showOnly: () => {},
+      loadMe: async () => {
+        effects.loadMe += 1;
+      },
+      loadConversations: async () => {
+        effects.loadConversations += 1;
+      },
+      loadActiveConversation: async () => {},
+      conversationUrl: (id) => `/c/${id || ""}`,
+      syncConversationUrl: () => {},
+      selectedModelMode: () => "text",
+      applyComposerHeight: () => {},
+      renderImages: () => {},
+      OPENROUTER_PRO_MODEL: "pro",
+      OPENROUTER_TEXT_MODEL: "text"
+    });
+  }
+
+  const runningStatus = {
+    run: {
+      id: "run_1",
+      messageId: "msg_1",
+      status: "running",
+      phase: "searching",
+      progress: { percent: 40, label: "Reading sources" },
+      title: "Updated title",
+      summary: "Should not apply",
+      sourceCount: 3,
+      elapsedMs: 5000
+    }
+  };
+
+  try {
+    // (a) Stop while a status request is in flight — late response must not apply or reschedule.
+    {
+      let resolveStatus;
+      const statusPromise = new Promise((resolve) => {
+        resolveStatus = resolve;
+      });
+      const state = makeState();
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => statusPromise);
+
+      controller.resumeResearchPolling();
+      await Promise.resolve();
+
+      assert.equal(scheduled.length, 0, "poll should be awaiting fetch, not a timer");
+      controller.stopResearchPolling();
+      assert.equal(controller.isResearchPollingActive(), false);
+
+      resolveStatus(runningStatus);
+      await statusPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(effects.renderMessages, 0);
+      assert.deepEqual(effects.setRunning, []);
+      assert.deepEqual(effects.showToast, []);
+      assert.equal(effects.loadMe, 0);
+      assert.equal(effects.loadConversations, 0);
+      assert.equal(effects.renderShell, 0);
+      assert.equal(scheduled.length, 0);
+      assert.equal(controller.isResearchPollingActive(), false);
+      assert.equal(state.activeResearchId, "run_1");
+      assert.equal(state.messages[0].metadata.research.progress.percent, 5);
+      assert.equal(state.messages[0].metadata.research.title, "Topic");
+      assert.equal(state.messages[0].content, "Working");
+    }
+
+    // (b) Stop after a continuation timer was queued — invoking it must not fetch or mutate.
+    {
+      scheduled.length = 0;
+      let statusCalls = 0;
+      const state = makeState();
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => {
+        statusCalls += 1;
+        return {
+          run: {
+            id: "run_1",
+            messageId: "msg_1",
+            status: "running",
+            phase: "searching",
+            progress: { percent: 25, label: "Gathering" },
+            title: "Live title",
+            summary: "Live summary",
+            sourceCount: 2,
+            elapsedMs: 3000
+          }
+        };
+      });
+
+      controller.resumeResearchPolling();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(statusCalls, 1);
+      assert.equal(scheduled.length, 1, "running status should schedule the next poll");
+      assert.equal(scheduled[0].ms, 2000);
+      assert.equal(effects.renderMessages, 1);
+      assert.deepEqual(effects.setRunning, [true]);
+      assert.equal(state.messages[0].metadata.research.progress.percent, 25);
+
+      const queued = scheduled[0].fn;
+      controller.stopResearchPolling();
+      assert.equal(controller.isResearchPollingActive(), false);
+
+      queued();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(statusCalls, 1, "queued callback must not start another status fetch");
+      assert.equal(scheduled.length, 1, "queued callback must not reschedule");
+      assert.equal(effects.renderMessages, 1);
+      assert.deepEqual(effects.setRunning, [true]);
+      assert.deepEqual(effects.showToast, []);
+      assert.equal(effects.loadMe, 0);
+      assert.equal(effects.loadConversations, 0);
+      assert.equal(effects.renderShell, 0);
+      assert.equal(controller.isResearchPollingActive(), false);
+      assert.equal(state.activeResearchId, "run_1");
+      assert.equal(state.messages[0].metadata.research.progress.percent, 25);
+      assert.equal(state.messages[0].metadata.research.title, "Live title");
+      assert.equal(state.messages[0].content, "Live summary");
+    }
+
+    // (c) Resume into a conversation with no running research — invalidate prior chain first.
+    {
+      scheduled.length = 0;
+      let resolveStatus;
+      const statusPromise = new Promise((resolve) => {
+        resolveStatus = resolve;
+      });
+      const state = makeState();
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => statusPromise);
+
+      controller.resumeResearchPolling();
+      await Promise.resolve();
+      assert.equal(scheduled.length, 0, "poll should be awaiting fetch, not a timer");
+
+      // Switch to a chat with no active research before the prior status resolves.
+      state.messages = [{ id: "msg_other", content: "Hello", metadata: {} }];
+      controller.resumeResearchPolling();
+
+      resolveStatus(runningStatus);
+      await statusPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(effects.renderMessages, 0, "stale in-flight status must not update the new chat");
+      assert.equal(scheduled.length, 0, "stale in-flight status must not reschedule");
+      assert.equal(controller.isResearchPollingActive(), false);
+      assert.equal(state.activeResearchId, "");
+      assert.deepEqual(effects.setRunning, [false]);
+      assert.equal(state.messages[0].content, "Hello");
+      assert.equal(state.messages[0].metadata.research, undefined);
+    }
+
+    // (d) Abandon clears activeResearchId and research-owned running state.
+    {
+      scheduled.length = 0;
+      let resolveStatus;
+      const statusPromise = new Promise((resolve) => {
+        resolveStatus = resolve;
+      });
+      const state = makeState();
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => statusPromise);
+
+      controller.resumeResearchPolling();
+      await Promise.resolve();
+      assert.equal(state.activeResearchId, "run_1");
+
+      controller.abandonResearchPolling();
+      assert.equal(controller.isResearchPollingActive(), false);
+      assert.equal(state.activeResearchId, "");
+      assert.deepEqual(effects.setRunning, [false]);
+
+      resolveStatus(runningStatus);
+      await statusPromise;
+      await Promise.resolve();
+      await Promise.resolve();
+
+      assert.equal(effects.renderMessages, 0);
+      assert.equal(scheduled.length, 0);
+      assert.equal(state.activeResearchId, "");
+      assert.deepEqual(effects.setRunning, [false]);
+    }
+
+    // (e) Research cleanup must not clear a running state owned by normal chat.
+    {
+      const state = makeState();
+      state.activeResearchId = "";
+      state.messages = [{ id: "msg_other", content: "Hello", metadata: {} }];
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => {
+        throw new Error("status fetch should not run");
+      });
+
+      controller.resumeResearchPolling();
+      controller.abandonResearchPolling();
+
+      assert.deepEqual(effects.setRunning, []);
+    }
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+  }
 });

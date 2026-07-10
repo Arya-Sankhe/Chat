@@ -24,6 +24,7 @@ export function createResearchController({
   OPENROUTER_TEXT_MODEL
 }) {
   let researchPollTimer = null;
+  let researchPollGeneration = 0;
 
   const REPORT_THEME_KEYWORDS = {
     commerce: ["best", "top", "review", "buy", "buying", "price", "cheap", "budget", "worth", " vs ", "deal", "product", "gadget", "headphone", "laptop", "phone", "fragrance", "perfume", "cologne", "skincare", "shoe", "watch", "mattress", "coffee", "brand", "affordable"],
@@ -210,27 +211,37 @@ export function createResearchController({
     if (run.error?.message) message.error = run.error.message;
   }
 
-  async function pollResearch(runId, failedAttempts = 0) {
-    stopResearchPolling();
+  async function pollResearch(runId, failedAttempts = 0, generation = null) {
+    // Fresh starts mint a generation; scheduled continuations reuse theirs.
+    if (generation == null) {
+      generation = ++researchPollGeneration;
+    } else if (generation !== researchPollGeneration) {
+      return;
+    }
+    clearTimeout(researchPollTimer);
+    researchPollTimer = null;
     if (!runId || !state.session) return;
     try {
       const payload = await fetchResearchStatus(state.session, runId);
+      if (generation !== researchPollGeneration) return;
       const run = payload.run;
       updateResearchMessage(run);
       renderMessages();
       if (["queued", "running"].includes(run.status)) {
         state.activeResearchId = run.id;
         setRunning(true);
-        researchPollTimer = setTimeout(() => pollResearch(run.id), 2000);
+        researchPollTimer = setTimeout(() => pollResearch(run.id, 0, generation), 2000);
         return;
       }
       state.activeResearchId = "";
       setRunning(false);
       await Promise.all([loadMe(), loadConversations()]).catch(() => {});
+      if (generation !== researchPollGeneration) return;
       renderShell();
     } catch (error) {
+      if (generation !== researchPollGeneration) return;
       if (failedAttempts < 1 && state.session) {
-        researchPollTimer = setTimeout(() => pollResearch(runId, failedAttempts + 1), 2000);
+        researchPollTimer = setTimeout(() => pollResearch(runId, failedAttempts + 1, generation), 2000);
         return;
       }
       state.activeResearchId = "";
@@ -242,6 +253,14 @@ export function createResearchController({
   function stopResearchPolling() {
     clearTimeout(researchPollTimer);
     researchPollTimer = null;
+    researchPollGeneration += 1;
+  }
+
+  function abandonResearchPolling() {
+    const hadActiveResearch = Boolean(state.activeResearchId);
+    stopResearchPolling();
+    state.activeResearchId = "";
+    if (hadActiveResearch) setRunning(false);
   }
 
   function isResearchPollingActive() {
@@ -249,11 +268,20 @@ export function createResearchController({
   }
 
   function resumeResearchPolling() {
+    // Always invalidate any prior chain before inspecting the newly loaded messages.
+    stopResearchPolling();
     const running = state.messages.find((message) => {
       const meta = researchMeta(message);
       return meta?.runId && ["queued", "running"].includes(meta.status);
     });
-    if (running) void pollResearch(running.metadata.research.runId);
+    if (running) {
+      void pollResearch(running.metadata.research.runId);
+      return;
+    }
+    // Conversation switch / resume with no active run: drop stale research UI lock.
+    const hadActiveResearch = Boolean(state.activeResearchId);
+    state.activeResearchId = "";
+    if (hadActiveResearch) setRunning(false);
   }
 
   function applyResearchRunUpdate(run) {
@@ -339,6 +367,7 @@ export function createResearchController({
     openResearchReport,
     closeResearchReport,
     stopResearchPolling,
+    abandonResearchPolling,
     isResearchPollingActive,
     resumeResearchPolling,
     startDeepResearch,

@@ -502,7 +502,8 @@ Recorded deviations from the plan above when the refactor landed:
    `updateResearchMessage`.
 4. **Phase 6 — byte-identical CSS split.** `public/styles.css` is 13
    `@import` lines over `public/styles/*.css`; verified by
-   `scripts/verify-css-split.mjs`. Tests concatenate via
+   `npm run check:css-split` / `scripts/verify-css-split.mjs` against
+   `scripts/css-split-baseline.json`. Tests concatenate via
    `test/helpers/styles.js` `readStylesheet()`.
 5. **Post-refactor sizes (verified):** `server/routes.js` 233 lines;
    `server/db/supabaseRest.js` 297 lines; `public/js/app.js` 5,331 lines;

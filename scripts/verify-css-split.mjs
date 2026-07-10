@@ -1,40 +1,36 @@
 #!/usr/bin/env node
 /**
- * Verifies public/styles.css @import split is byte-identical to the effective
- * stylesheet at HEAD. Before the split is committed, HEAD is the old monolithic
- * file; after it is committed, HEAD is expanded from its own imports.
+ * Verifies public/styles.css @import split concatenates to the committed
+ * pre-split baseline checksum (scripts/css-split-baseline.json).
+ *
+ * Does not read historical Git objects — works in shallow CI checkouts.
+ * To refresh the baseline after intentional CSS changes, see the fixture's
+ * updateInstructions.
+ *
+ * Usage: node scripts/verify-css-split.mjs
  */
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stylesRoot = path.join(repoRoot, "public", "styles.css");
 const publicDir = path.join(repoRoot, "public");
+const baselinePath = path.join(repoRoot, "scripts", "css-split-baseline.json");
 
-function readOriginalFromGit() {
-  return readGitFile("public/styles.css");
-}
-
-function readGitFile(filePath) {
-  return execFileSync("git", ["show", `HEAD:${filePath}`], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024
-  });
-}
-
-function isImportOnlyStylesheet(content) {
-  try {
-    parseImports(content);
-    return true;
-  } catch {
-    return false;
+export function loadBaseline(filePath = baselinePath) {
+  const baseline = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (!Number.isInteger(baseline.utf8ByteLength) || baseline.utf8ByteLength <= 0) {
+    throw new Error("css-split-baseline.json: utf8ByteLength must be a positive integer");
   }
+  if (!/^[a-f0-9]{64}$/.test(String(baseline.sha256 || ""))) {
+    throw new Error("css-split-baseline.json: sha256 must be a 64-char hex digest");
+  }
+  return baseline;
 }
 
-function parseImports(stylesRootContent) {
+export function parseImports(stylesRootContent) {
   const imports = [];
   for (const line of stylesRootContent.split("\n")) {
     const trimmed = line.trim();
@@ -51,59 +47,76 @@ function parseImports(stylesRootContent) {
   return imports;
 }
 
-function concatenateImports(imports) {
+export function concatenateImports(imports, { publicDirectory = publicDir, readFile = fs.readFileSync } = {}) {
   let out = "";
   for (const rel of imports) {
-    const filePath = path.join(publicDir, rel.replace(/^\.\//, ""));
+    const filePath = path.join(publicDirectory, rel.replace(/^\.\//, ""));
     if (!fs.existsSync(filePath)) {
       throw new Error(`Missing imported file: ${rel} (${filePath})`);
     }
-    out += fs.readFileSync(filePath, "utf8");
+    out += readFile(filePath, "utf8");
   }
   return out;
 }
 
-function concatenateGitImports(imports) {
-  let out = "";
-  for (const rel of imports) {
-    out += readGitFile(path.posix.join("public", rel.replace(/^\.\//, "")));
-  }
-  return out;
+export function checksumUtf8(content) {
+  const bytes = Buffer.byteLength(content, "utf8");
+  const sha256 = createHash("sha256").update(content, "utf8").digest("hex");
+  return { utf8ByteLength: bytes, sha256 };
+}
+
+export function verifyCssSplit({
+  rootContent,
+  publicDirectory = publicDir,
+  baseline = loadBaseline(),
+  readFile = fs.readFileSync
+} = {}) {
+  const imports = parseImports(rootContent);
+  const concatenated = concatenateImports(imports, { publicDirectory, readFile });
+  const actual = checksumUtf8(concatenated);
+  const byteMatch = actual.utf8ByteLength === baseline.utf8ByteLength;
+  const hashMatch = actual.sha256 === baseline.sha256;
+  return {
+    imports,
+    concatenated,
+    actual,
+    baseline,
+    ok: byteMatch && hashMatch,
+    byteMatch,
+    hashMatch
+  };
 }
 
 function main() {
-  const originalRoot = readOriginalFromGit();
-  const original = isImportOnlyStylesheet(originalRoot)
-    ? concatenateGitImports(parseImports(originalRoot))
-    : originalRoot;
   const root = fs.readFileSync(stylesRoot, "utf8");
-  const imports = parseImports(root);
-  const concatenated = concatenateImports(imports);
-  const identical = concatenated === original;
+  const result = verifyCssSplit({ rootContent: root });
 
-  console.log(`Imported files (${imports.length}):`);
-  for (const rel of imports) {
+  console.log(`Imported files (${result.imports.length}):`);
+  for (const rel of result.imports) {
     console.log(`  ${rel}`);
   }
-  console.log(`Original bytes:     ${Buffer.byteLength(original, "utf8")}`);
-  console.log(`Concatenated bytes: ${Buffer.byteLength(concatenated, "utf8")}`);
-  console.log(`Byte-identical: ${identical ? "yes" : "no"}`);
+  console.log(`Baseline source:    ${result.baseline.source || "(unspecified)"}`);
+  console.log(`Baseline bytes:     ${result.baseline.utf8ByteLength}`);
+  console.log(`Concatenated bytes: ${result.actual.utf8ByteLength}`);
+  console.log(`Baseline sha256:    ${result.baseline.sha256}`);
+  console.log(`Concatenated sha256:${result.actual.sha256}`);
+  console.log(`Checksum match: ${result.ok ? "yes" : "no"}`);
 
-  if (!identical) {
-    const max = Math.max(original.length, concatenated.length);
-    for (let i = 0; i < max; i++) {
-      if (original[i] !== concatenated[i]) {
-        console.error(`First difference at byte offset ${i}`);
-        console.error(`  original:     ${JSON.stringify(original.slice(i, i + 60))}`);
-        console.error(`  concatenated: ${JSON.stringify(concatenated.slice(i, i + 60))}`);
-        process.exit(1);
-      }
+  if (!result.ok) {
+    if (!result.byteMatch) {
+      console.error(
+        `Byte-length mismatch: baseline=${result.baseline.utf8ByteLength}, concatenated=${result.actual.utf8ByteLength}`
+      );
     }
-    console.error(`Length mismatch: original=${original.length}, concatenated=${concatenated.length}`);
+    if (!result.hashMatch) {
+      console.error("SHA-256 mismatch against scripts/css-split-baseline.json");
+      console.error("If this CSS change is intentional, update the baseline fixture (see updateInstructions).");
+    }
     process.exit(1);
   }
 
   process.exit(0);
 }
 
-main();
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMain) main();

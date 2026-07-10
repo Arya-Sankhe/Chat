@@ -3257,7 +3257,7 @@ researchController = createResearchController({
 });
 
 function stopExtractedModulePollers() {
-  researchController.stopResearchPolling();
+  researchController.abandonResearchPolling();
   stopPendingArtifactPolls();
 }
 

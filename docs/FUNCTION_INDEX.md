@@ -773,7 +773,8 @@ regex substitutions) are deliberately not listed.
 ### `createResearchController`
 - **Path**: `public/js/research.js`
 - **Responsibility**: Research card/report rendering and status polling.
-  Exposes `stopResearchPolling` / `isResearchPollingActive` and
+  Exposes `stopResearchPolling`, `abandonResearchPolling`,
+  `isResearchPollingActive`, and
   `applyResearchRunUpdate` (public API for run progress; fixes the
   Phase-5 reach-in where callers used internal `updateResearchMessage`).
 - **Callers**: `public/js/app.js`.
@@ -829,7 +830,9 @@ regex substitutions) are deliberately not listed.
 - **Path**: `test/helpers/styles.js`
 - **Responsibility**: Reads `public/styles.css` and inlines each
   `@import` from `public/styles/*.css` for tests that assert against
-  the full stylesheet (byte-identical to the pre-split file).
+  the full stylesheet (byte-identical to the pre-split baseline; also
+  verified by `npm run check:css-split` / `scripts/verify-css-split.mjs`
+  against `scripts/css-split-baseline.json`).
 - **Callers**: `test/mobile.test.js`, `test/native-topbar.test.js`,
   `test/research.test.js`.
 - **Major dependencies**: `node:fs`, `node:path`.
