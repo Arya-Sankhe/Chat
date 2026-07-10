@@ -199,8 +199,8 @@ function sanitizeRenderedHtml(html) {
   if (purifier && typeof purifier.sanitize === "function") {
     return purifier.sanitize(html, {
       ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
-      // Keep inline SVG icons (code-copy, file chips). Without the SVG profile,
-      // DOMPurify drops <path> and the copy glyph collapses to a single square.
+      // Retain the safe SVG profile for renderer-generated rich content.
+      // Code-block controls are added only after this sanitization step.
       USE_PROFILES: { html: true, svg: true },
       ADD_ATTR: ["target", "rel"]
     });
@@ -263,8 +263,10 @@ function renderRichText(raw) {
   const { text: processed, slots } = extractMath(text);
   let html = m.parse(processed);
   html = restoreMath(html, slots);
-  html = highlightCodeBlocks(html);
   html = sanitizeRenderedHtml(html);
+  // The copy control is trusted UI generated here. Add it after sanitizing
+  // model content so DOMPurify cannot remove a layer of its SVG icon.
+  html = highlightCodeBlocks(html);
   html = wrapMessageTables(html);
 
   return html;

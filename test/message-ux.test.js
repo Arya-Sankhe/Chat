@@ -84,7 +84,7 @@ test("code block copy button reuses the message compare copy control", () => {
   assert.match(markup[0], /<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"\/>/);
 });
 
-test("DOMPurify keeps the SVG path so code-copy stays a dual-sheet icon", () => {
+test("renderer keeps DOMPurify's SVG-safe profile enabled", () => {
   const renderJs = readPublic("js/render.js");
   assert.match(
     renderJs,

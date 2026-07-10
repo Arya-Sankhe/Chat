@@ -271,6 +271,25 @@ test("renderContent stores large code blocks by id instead of data attributes", 
   assert.equal(getCodeSource(id), source);
 });
 
+test("renderContent adds the code copy SVG after sanitizing model content", () => {
+  globalThis.marked = {
+    parse() {
+      return '<pre><code class="language-js">console.log(&quot;ok&quot;);</code></pre>';
+    },
+    use() {}
+  };
+  globalThis.DOMPurify = {
+    sanitize(html) {
+      return html.replace(/<path\b[^>]*\/>/g, "");
+    }
+  };
+  delete globalThis.katex;
+  delete globalThis.hljs;
+
+  const html = renderContent("```js\nconsole.log('ok');\n```");
+  assert.match(html, /<path d="M5 15H4/);
+});
+
 test("renderContent ignores malformed code fence language headers", () => {
   globalThis.marked = {
     parse() {
