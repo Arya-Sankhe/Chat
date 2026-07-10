@@ -7,6 +7,7 @@
 
 import { citationsFromResults } from "../index.js";
 import { executeDocumentToolCall, isDocumentToolName } from "../../documents/tool.js";
+import { estimateContextTokens } from "../../saas/messages.js";
 import { applyToolFallback, isToolsUnsupportedError } from "./unsupported.js";
 import { prepareVisualPagesForModel, visualDocumentMessage, visualImageInputLimit } from "./visual.js";
 
@@ -25,6 +26,54 @@ function latestUserText(messages = []) {
     if (messages[index]?.role === "user") return textFromContent(messages[index].content);
   }
   return "";
+}
+
+const OMITTED_TOOL_RESULT = JSON.stringify({
+  notice: "Earlier tool result omitted to keep this turn within the context limit."
+});
+
+function configuredContextLimit(config, reserveTokens = 0) {
+  const maxTokens = Number(config?.context?.maxTokens);
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) return Infinity;
+  return Math.max(64, Math.floor(maxTokens - reserveTokens));
+}
+
+function fitToolResultToContext(messages, content, config) {
+  const limit = configuredContextLimit(config, 1024);
+  if (!Number.isFinite(limit)) return content;
+
+  for (const message of messages) {
+    if (estimateContextTokens([...messages, { role: "tool", content }]) <= limit) break;
+    if (message?.role === "tool" && message.content !== OMITTED_TOOL_RESULT) {
+      message.content = OMITTED_TOOL_RESULT;
+    }
+  }
+
+  const availableTokens = Math.max(0, limit - estimateContextTokens(messages) - 8);
+  const maxChars = availableTokens * 4;
+  const text = String(content || "");
+  if (text.length <= maxChars) return text;
+  const marker = "[Tool result truncated to fit the context limit.]\n";
+  if (maxChars <= marker.length) return marker.slice(0, maxChars);
+  return `${marker}${text.slice(0, maxChars - marker.length)}`;
+}
+
+function fitVisualMessageToContext(messages, message, config) {
+  const limit = configuredContextLimit(config, 2048);
+  if (!message || !Number.isFinite(limit)) return message;
+  if (estimateContextTokens([...messages, message]) <= limit) return message;
+  if (!Array.isArray(message.content)) return null;
+
+  const content = [...message.content];
+  while (content.some((part) => part?.type === "image_url")) {
+    const index = content.findLastIndex((part) => part?.type === "image_url");
+    content.splice(index, 1);
+    const next = { ...message, content };
+    if (estimateContextTokens([...messages, next]) <= limit) {
+      return content.some((part) => part?.type === "image_url") ? next : null;
+    }
+  }
+  return null;
 }
 
 function hasDocumentArtifactTool(chatRequest) {
@@ -318,7 +367,9 @@ export async function runChatWithToolLoop({
     Number(config.documents?.maxToolCallsPerTurn || 0)
   );
   const maxToolCalls = Number.isFinite(configuredMax) ? Math.max(0, Math.floor(configuredMax)) : 0;
-  const maxIterations = Math.max(2, maxToolCalls + 2);
+  // One model turn per tool round, plus bounded room for the artifact
+  // correction, a forced final answer, and the empty-answer recovery.
+  const maxIterations = Math.max(4, maxToolCalls + 4);
   const messages = [...chatRequest.messages];
   const citations = [];
   const artifacts = [];
@@ -331,6 +382,8 @@ export async function runChatWithToolLoop({
   let toolFallbackLevel = 0;
   let artifactHandoffCorrectionSent = false;
   let emptyAnswerRetrySent = false;
+  let forcedToolRetrySent = false;
+  let finalInstructionSent = false;
   const inlineImageCache = new Map();
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -338,17 +391,14 @@ export async function runChatWithToolLoop({
 
     let upstream;
     for (;;) {
+      const requestMessages = [...messages];
       let body;
       if (forceFinalWithoutTools) {
-        /* Stop further tool calls. Normally `tool_choice: "none"` does
-           this, but if the provider already rejected `tool_choice` we
-           drop the tools entirely (level 2) so the same rejection can't
-           recur on the final turn. */
-        body = toolFallbackLevel >= 1
-          ? applyToolFallback({ ...chatRequest, messages }, 2)
-          : { ...chatRequest, messages, tool_choice: "none" };
+        // Removing the schemas is more reliable than asking inconsistent
+        // providers to honor `tool_choice: "none"` on the final turn.
+        body = applyToolFallback({ ...chatRequest, messages: requestMessages }, 2);
       } else {
-        body = applyToolFallback({ ...chatRequest, messages }, toolFallbackLevel);
+        body = applyToolFallback({ ...chatRequest, messages: requestMessages }, toolFallbackLevel);
       }
       try {
         upstream = await crofai.streamChatCompletion({
@@ -385,6 +435,20 @@ export async function runChatWithToolLoop({
     const hasToolCalls = Array.isArray(accumulated.toolCalls) && accumulated.toolCalls.length > 0;
     const finishedForTools = accumulated.finishReason === "tool_calls";
 
+    if (forceFinalWithoutTools && hasToolCalls && finishedForTools) {
+      if (!forcedToolRetrySent) {
+        forcedToolRetrySent = true;
+        toolFallbackLevel = 2;
+        onToolEvent({ type: "response:reset" });
+        messages.push({
+          role: "user",
+          content: "Do not call or describe another tool. Using the conversation and tool results already available, provide the complete final answer now."
+        });
+        continue;
+      }
+      throw new Error("The model did not provide a final answer after tool use.");
+    }
+
     if (!hasToolCalls || !finishedForTools) {
       if (
         documents
@@ -412,6 +476,7 @@ export async function runChatWithToolLoop({
       if (!String(accumulated.content || "").trim() && !emptyAnswerRetrySent) {
         emptyAnswerRetrySent = true;
         forceFinalWithoutTools = true;
+        finalInstructionSent = true;
         onToolEvent({ type: "response:reset" });
         messages.push({
           role: "user",
@@ -504,7 +569,7 @@ export async function runChatWithToolLoop({
       messages.push({
         role: "tool",
         tool_call_id: call.id,
-        content: result.toolResultJson
+        content: fitToolResultToContext(messages, result.toolResultJson, config)
       });
     }
 
@@ -514,10 +579,18 @@ export async function runChatWithToolLoop({
     const visualMessage = visualDocuments
       ? visualDocumentMessage(preparedVisualPages, { maxPages: visualImageInputLimit(config) })
       : null;
-    if (visualMessage) messages.push(visualMessage);
+    const boundedVisualMessage = fitVisualMessageToContext(messages, visualMessage, config);
+    if (boundedVisualMessage) messages.push(boundedVisualMessage);
 
     if (toolCallCount >= maxToolCalls) {
       forceFinalWithoutTools = true;
+      if (!finalInstructionSent) {
+        finalInstructionSent = true;
+        messages.push({
+          role: "user",
+          content: "The tool-call budget is complete. Use the tool results above and provide the complete final answer now without calling or describing another tool."
+        });
+      }
     }
   }
 

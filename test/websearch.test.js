@@ -17,6 +17,7 @@ import { searxngSearch } from "../server/websearch/searxng.js";
 import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
+import { estimateContextTokens } from "../server/saas/messages.js";
 
 const realFetch = globalThis.fetch;
 
@@ -1199,7 +1200,8 @@ describe("tool", () => {
     assert.equal(result.accumulated.content, "Final answer");
     assert.equal(result.toolCallCount, 1);
     assert.deepEqual(result.providers, ["jina"]);
-    assert.equal(bodies[1].tool_choice, "none");
+    assert.equal("tool_choice" in bodies[1], false);
+    assert.equal("tools" in bodies[1], false);
   });
 
   test("runChatWithToolLoop resets provisional prose before the final tool answer", async () => {
@@ -1275,7 +1277,8 @@ describe("tool", () => {
     });
 
     assert.equal(bodies.length, 2);
-    assert.equal(bodies[1].tool_choice, "none");
+    assert.equal("tool_choice" in bodies[1], false);
+    assert.equal("tools" in bodies[1], false);
     assert.equal(result.accumulated.content, "Recovered answer");
   });
 
@@ -1375,7 +1378,7 @@ describe("tool", () => {
     const toolEvents = [];
     const crofai = {
       async streamChatCompletion({ body }) {
-        if (body.tool_choice === "none") return streamResponse([contentDelta("Done")]);
+        if (!body.tools) return streamResponse([contentDelta("Done")]);
         return streamResponse([{
           choices: [{
             delta: {
@@ -1423,6 +1426,90 @@ describe("tool", () => {
     assert.equal(searchCalls, 1);
     assert.equal(result.toolCallCount, 1);
     assert.equal(toolEvents.some((event) => event.type === "tool:limit"), true);
+  });
+
+  test("runChatWithToolLoop retries once then errors if force-final still returns tool calls", async () => {
+    let searchCalls = 0;
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        return streamResponse([toolCallDelta()]);
+      }
+    };
+
+    await assert.rejects(runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch: {
+        search: async () => {
+          searchCalls += 1;
+          return { ok: true, provider: "searxng", query: "latest", results: [] };
+        }
+      },
+      onUpstreamEvent: () => {}
+    }), /did not provide a final answer/);
+
+    assert.equal(searchCalls, 1);
+    assert.equal(bodies.length, 3);
+    assert.equal("tools" in bodies[1], false);
+    assert.equal("tools" in bodies[2], false);
+  });
+
+  test("runChatWithToolLoop bounds large tool results before the next provider call", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) return streamResponse([toolCallDelta()]);
+        return streamResponse([contentDelta("Bounded answer")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "search" }],
+        tools: buildWebSearchTools(),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        context: { maxTokens: 2000 },
+        websearch: { maxToolCallsPerTurn: 1 }
+      },
+      signal: new AbortController().signal,
+      websearch: {
+        search: async () => ({
+          ok: true,
+          provider: "searxng",
+          query: "latest",
+          results: [{
+            index: 1,
+            title: "Large result",
+            url: "https://example.com/large",
+            snippet: "s",
+            content: "evidence ".repeat(3000),
+            publishedAt: null
+          }]
+        })
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(result.accumulated.content, "Bounded answer");
+    assert.ok(estimateContextTokens(bodies[1].messages) <= 2000);
+    const toolMessage = bodies[1].messages.find((message) => message.role === "tool");
+    assert.match(toolMessage.content, /truncated to fit the context limit/);
   });
 
   test("runChatWithToolLoop injects PDF page images after visual document tool calls", async () => {

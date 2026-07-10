@@ -5,6 +5,7 @@ import {
   buildProviderMessages,
   buildStoredUserContent,
   contentText,
+  createConversationSummarizer,
   normalizeMessageSettings,
   sanitizeProviderEvent
 } from "../saas/messages.js";
@@ -64,15 +65,6 @@ export async function handleTemporaryChat(req, res, config) {
     { role: "user", content: userContent }
   ];
   const provider = resolveProvider(body.provider, config);
-  const baseChatRequest = normalizeChatRequest({
-    model: body.model || OPENROUTER_TEXT_MODEL,
-    messages: await buildProviderMessages({
-      messages: historyMessages,
-      systemPrompt: settings.systemPrompt || "",
-      r2: context.r2
-    }),
-    ...settings
-  });
   const crofai = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,
@@ -80,6 +72,22 @@ export async function handleTemporaryChat(req, res, config) {
     plan: context.plan,
     imageCount: 0,
     signal: req.signal
+  });
+  const summarizeHistory = createConversationSummarizer({
+    crofai,
+    config,
+    signal: req.signal
+  });
+  const baseChatRequest = normalizeChatRequest({
+    model: body.model || OPENROUTER_TEXT_MODEL,
+    messages: await buildProviderMessages({
+      messages: historyMessages,
+      systemPrompt: settings.systemPrompt || "",
+      r2: context.r2,
+      contextConfig: config.context,
+      summarizeHistory
+    }),
+    ...settings
   });
   const agentMode = normalizeAgentMode(body.agentMode);
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });

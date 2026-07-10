@@ -80,6 +80,11 @@ export function loadConfig(env = process.env) {
   const plans = loadPlans(env);
   const accessMode = readAccessMode(env.ACCESS_MODE);
   const r2AccountId = clean(env.R2_ACCOUNT_ID);
+  const contextMaxTokens = readInt(env.CONTEXT_MAX_TOKENS, 256_000);
+  const contextCompactAtTokens = Math.min(
+    readInt(env.CONTEXT_COMPACT_AT_TOKENS, 140_000),
+    contextMaxTokens
+  );
   const mobileAllowedOrigins = normalizeAllowedOrigins([
     "https://klui.tech",
     "https://www.klui.tech",
@@ -126,7 +131,21 @@ export function loadConfig(env = process.env) {
       endpoint: cleanUrl(env.R2_ENDPOINT) || (r2AccountId ? `https://${r2AccountId}.r2.cloudflarestorage.com` : ""),
       uploadExpiresSeconds: readInt(env.R2_UPLOAD_EXPIRES_SECONDS, 300),
       readExpiresSeconds: readInt(env.R2_READ_EXPIRES_SECONDS, 900),
-      maxImageBytes: readInt(env.R2_MAX_IMAGE_BYTES, 6 * 1024 * 1024)
+      maxImageBytes: readInt(env.R2_MAX_IMAGE_BYTES, 10 * 1024 * 1024)
+    },
+    context: {
+      maxTokens: contextMaxTokens,
+      compactAtTokens: contextCompactAtTokens,
+      keepRecentTokens: Math.min(
+        readInt(env.CONTEXT_KEEP_RECENT_TOKENS, 80_000),
+        contextCompactAtTokens
+      ),
+      reserveTokens: Math.min(
+        readInt(env.CONTEXT_RESERVE_TOKENS, 32_000),
+        Math.max(1, contextMaxTokens - 1)
+      ),
+      summaryModel: clean(env.CONTEXT_SUMMARY_MODEL) || "deepseek/deepseek-v4-flash",
+      summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 2000)
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
@@ -155,7 +174,7 @@ export function loadConfig(env = process.env) {
       uploadExpiresSeconds: readInt(env.DOCUMENT_UPLOAD_EXPIRES_SECONDS, 900),
       previewMaxPages: readInt(env.DOCUMENT_PREVIEW_MAX_PAGES, 2),
       previewTtlDays: readInt(env.DOCUMENT_PREVIEW_TTL_DAYS, 30),
-      maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 5),
+      maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 75),
       jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000)
     },
     websearch: {
@@ -167,7 +186,7 @@ export function loadConfig(env = process.env) {
       cacheTtlSeconds: readInt(env.WEBSEARCH_CACHE_TTL_SECONDS, 900),
       cacheMaxEntries: readInt(env.WEBSEARCH_CACHE_MAX_ENTRIES, 500),
       fetchTimeoutMs: readInt(env.WEBSEARCH_FETCH_TIMEOUT_MS, 8000),
-      maxToolCallsPerTurn: readInt(env.WEBSEARCH_MAX_TOOL_CALLS_PER_TURN, 3),
+      maxToolCallsPerTurn: readInt(env.WEBSEARCH_MAX_TOOL_CALLS_PER_TURN, 75),
       denyDomains: clean(env.WEBSEARCH_DENY_DOMAINS)
         .split(",")
         .map((entry) => entry.trim().toLowerCase())

@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { loadConfig } from "../server/config.js";
+import { withAvailableTools } from "../server/chat/pipeline.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
 import {
   buildDirectPdfVisualContext,
@@ -123,6 +124,24 @@ test("normalizeAgentMode only enables tools for explicit opt-in values", () => {
   assert.equal(normalizeAgentMode(false), false);
   assert.equal(normalizeAgentMode(undefined), false);
   assert.equal(normalizeAgentMode("off"), false);
+});
+
+test("withAvailableTools gives MiniMax M3 strict native tool-call instructions", () => {
+  const config = loadConfig({});
+  const result = withAvailableTools({
+    model: "minimax/minimax-m3",
+    messages: [{ role: "system", content: "base" }, { role: "user", content: "search" }]
+  }, {
+    config,
+    webMode: "auto",
+    webHint: "",
+    readyDocuments: []
+  });
+
+  assert.equal(result.augmented, true);
+  assert.match(result.request.messages[0].content, /native tool calls only/);
+  assert.match(result.request.messages[0].content, /valid JSON object/);
+  assert.match(result.request.messages[0].content, /complete final answer/);
 });
 
 test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups cheap", () => {

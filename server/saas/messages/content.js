@@ -201,13 +201,263 @@ export function filterCouncilHistory(messages) {
   });
 }
 
-export async function buildProviderMessages({ messages, systemPrompt, r2, imageDescriptions = null }) {
+const CONTEXT_CHARS_PER_TOKEN = 4;
+const CONTEXT_MESSAGE_OVERHEAD_TOKENS = 8;
+const CONTEXT_IMAGE_TOKENS = 1200;
+
+function estimateContentTokens(content) {
+  if (typeof content === "string") {
+    return Math.ceil(content.length / CONTEXT_CHARS_PER_TOKEN);
+  }
+  if (!Array.isArray(content)) return 0;
+
+  let total = 0;
+  for (const part of content) {
+    if (typeof part === "string") {
+      total += Math.ceil(part.length / CONTEXT_CHARS_PER_TOKEN);
+    } else if (part?.type === "text") {
+      total += Math.ceil(String(part.text || "").length / CONTEXT_CHARS_PER_TOKEN);
+    } else if (part?.type === "image_url") {
+      total += CONTEXT_IMAGE_TOKENS;
+    } else if (part?.type === "file") {
+      total += 64;
+    }
+  }
+  return total;
+}
+
+export function estimateContextTokens(messages = []) {
+  return (messages || []).reduce((total, message) => {
+    const toolCalls = Array.isArray(message?.tool_calls)
+      ? Math.ceil(JSON.stringify(message.tool_calls).length / CONTEXT_CHARS_PER_TOKEN)
+      : 0;
+    return total + CONTEXT_MESSAGE_OVERHEAD_TOKENS + estimateContentTokens(message?.content) + toolCalls;
+  }, 0);
+}
+
+function groupConversationTurns(messages = []) {
+  const turns = [];
+  let current = [];
+  for (const message of messages) {
+    if (message?.role === "user" && current.length) {
+      turns.push(current);
+      current = [];
+    }
+    current.push(message);
+  }
+  if (current.length) turns.push(current);
+  return turns;
+}
+
+function partitionRecentTurns(messages, tokenBudget) {
+  const turns = groupConversationTurns(messages);
+  const recent = [];
+  let tokens = 0;
+
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    const turnTokens = estimateContextTokens(turn);
+    if (recent.length && tokens + turnTokens > tokenBudget) break;
+    recent.unshift(...turn);
+    tokens += turnTokens;
+  }
+
+  return {
+    older: messages.slice(0, Math.max(0, messages.length - recent.length)),
+    recent
+  };
+}
+
+function summaryTextFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => {
+    if (typeof part === "string") return part;
+    if (part?.type === "text") return String(part.text || "");
+    if (part?.type === "image_url") {
+      const image = part.image_url || {};
+      const name = image.file_name || "image";
+      const description = String(image.description || image.alt_text || "").trim();
+      return description ? `[Image (${name}): ${description}]` : `[Image (${name}) omitted]`;
+    }
+    if (part?.type === "file") return `[Document (${part.file?.file_name || "file"})]`;
+    return "";
+  }).filter(Boolean).join("\n");
+}
+
+function buildSummaryTranscript(messages, maxTokens) {
+  const maxChars = Math.max(1000, maxTokens * CONTEXT_CHARS_PER_TOKEN);
+  const rows = messages.map((message) => {
+    const text = summaryTextFromContent(message?.content).trim();
+    return text ? `${String(message.role || "message").toUpperCase()}:\n${text}` : "";
+  }).filter(Boolean);
+
+  const selected = [];
+  let used = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    const remaining = maxChars - used;
+    if (remaining <= 0) break;
+    selected.unshift(row.length <= remaining ? row : row.slice(row.length - remaining));
+    used += Math.min(row.length, remaining);
+  }
+  return selected.join("\n\n");
+}
+
+function truncateTextContent(content, maxChars) {
+  const limit = Math.max(0, Math.floor(maxChars));
+  const marker = "\n[Earlier content omitted to fit the context limit.]\n";
+  if (typeof content === "string") {
+    if (content.length <= limit) return content;
+    if (limit <= marker.length) return marker.slice(0, limit);
+    const available = limit - marker.length;
+    const head = Math.ceil(available / 2);
+    const tail = Math.floor(available / 2);
+    return `${content.slice(0, head)}${marker}${tail ? content.slice(-tail) : ""}`;
+  }
+  return content;
+}
+
+function truncateContentToTokenBudget(content, tokenBudget) {
+  const budget = Math.max(0, Math.floor(tokenBudget));
+  if (typeof content === "string") {
+    return truncateTextContent(content, budget * CONTEXT_CHARS_PER_TOKEN);
+  }
+  if (!Array.isArray(content)) return content;
+
+  let remaining = budget;
+  const keptNonText = new Set();
+  for (const part of content) {
+    if (part?.type === "text" || typeof part === "string") continue;
+    const partTokens = estimateContentTokens([part]);
+    if (partTokens <= remaining) {
+      keptNonText.add(part);
+      remaining -= partTokens;
+    }
+  }
+
+  return content.flatMap((part) => {
+    if (part?.type !== "text" && typeof part !== "string") {
+      return keptNonText.has(part) ? [part] : [];
+    }
+    const text = typeof part === "string" ? part : String(part.text || "");
+    if (!remaining || !text) return [];
+    const next = truncateTextContent(text, remaining * CONTEXT_CHARS_PER_TOKEN);
+    remaining = Math.max(0, remaining - estimateContentTokens(next));
+    return typeof part === "string" ? [next] : [{ ...part, text: next }];
+  });
+}
+
+export function trimProviderMessagesToBudget(messages, maxTokens) {
+  const budget = Math.max(1, Math.floor(Number(maxTokens) || 1));
+  if (estimateContextTokens(messages) <= budget) return messages;
+
+  const systemMessages = messages.filter((message) => message?.role === "system");
+  let turns = groupConversationTurns(messages.filter((message) => message?.role !== "system"));
+  while (turns.length > 1 && estimateContextTokens([...systemMessages, ...turns.flat()]) > budget) {
+    turns.shift();
+  }
+
+  let conversation = turns.flat();
+  while (conversation.length > 1 && estimateContextTokens([...systemMessages, ...conversation]) > budget) {
+    conversation.shift();
+  }
+
+  let result = [...systemMessages, ...conversation];
+  if (estimateContextTokens(result) > budget && conversation.length) {
+    const fixedTokens = estimateContextTokens([...systemMessages, { ...conversation[0], content: "" }]);
+    const allowedTokens = Math.max(0, budget - fixedTokens);
+    conversation = [{
+      ...conversation[0],
+      content: truncateContentToTokenBudget(conversation[0].content, allowedTokens)
+    }];
+    result = [...systemMessages, ...conversation];
+  }
+  return result;
+}
+
+export function createConversationSummarizer({ crofai, config, signal }) {
+  const provider = config?.providers?.openrouter;
+  if (!crofai?.chatCompletion || !provider?.apiKey) return null;
+
+  let summaryPromise = null;
+  return (transcript) => {
+    if (!summaryPromise) {
+      summaryPromise = crofai.chatCompletion({
+        apiKey: provider.apiKey,
+        baseUrl: provider.baseUrl,
+        providerId: "openrouter",
+        signal,
+        body: {
+          model: config.context.summaryModel,
+          messages: [
+            {
+              role: "system",
+              content: "Summarize the earlier conversation for continuity. Preserve user goals, decisions, constraints, facts, exact identifiers, files, and unresolved work. Do not answer the newest request and do not add new facts. Return only the concise summary."
+            },
+            { role: "user", content: transcript }
+          ],
+          temperature: 0.1,
+          reasoning_effort: "low",
+          max_tokens: config.context.summaryMaxTokens
+        }
+      });
+    }
+    return summaryPromise;
+  };
+}
+
+export async function buildProviderMessages({
+  messages,
+  systemPrompt,
+  r2,
+  imageDescriptions = null,
+  contextConfig = null,
+  summarizeHistory = null
+}) {
   const providerMessages = [];
   if (systemPrompt) providerMessages.push({ role: "system", content: systemPrompt });
 
-  const trimmed = filterCouncilHistory(messages);
-  for (const message of trimmed) {
-    if (message.role !== "user" && message.role !== "assistant" && message.role !== "tool") continue;
+  const eligible = filterCouncilHistory(messages).filter((message) => {
+    // Persisted tool rows do not retain the complete assistant tool-call
+    // envelope, so only replay normal conversation roles here. The live
+    // tool loop appends its own correctly paired tool messages later.
+    if (message.role !== "user" && message.role !== "assistant") return false;
+    return message.role !== "assistant" || String(message.content || "").trim();
+  });
+  let selected = eligible;
+  let summary = "";
+
+  if (contextConfig) {
+    const totalTokens = estimateContextTokens([
+      ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+      ...eligible
+    ]);
+    if (totalTokens >= contextConfig.compactAtTokens) {
+      const partition = partitionRecentTurns(eligible, contextConfig.keepRecentTokens);
+      if (partition.older.length && summarizeHistory) {
+        const transcript = buildSummaryTranscript(partition.older, contextConfig.compactAtTokens);
+        if (transcript) {
+          try {
+            summary = String(await summarizeHistory(transcript) || "").trim();
+          } catch (error) {
+            if (error?.name === "AbortError") throw error;
+          }
+        }
+      }
+      if (summary) selected = partition.recent;
+    }
+  }
+
+  if (summary) {
+    providerMessages.push({
+      role: "system",
+      content: `Conversation summary of earlier turns:\n${summary}`
+    });
+  }
+
+  for (const message of selected) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
     if (message.role === "assistant" && !String(message.content || "").trim()) continue;
     providerMessages.push({
       role: message.role,
@@ -215,7 +465,9 @@ export async function buildProviderMessages({ messages, systemPrompt, r2, imageD
     });
   }
 
-  return providerMessages;
+  if (!contextConfig) return providerMessages;
+  const historyBudget = Math.max(1, contextConfig.maxTokens - contextConfig.reserveTokens);
+  return trimProviderMessagesToBudget(providerMessages, historyBudget);
 }
 
 export function resolveReasoningDurationMs(message) {

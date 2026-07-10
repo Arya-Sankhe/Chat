@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { loadConfig } from "../server/config.js";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
@@ -246,6 +247,21 @@ test("R2 upload helpers validate images and sanitize names", () => {
   assert.doesNotThrow(() => assertImageUpload({ contentType: "image/png", sizeBytes: 1024 }, 2048));
   assert.throws(() => assertImageUpload({ contentType: "text/plain", sizeBytes: 1024 }, 2048), /png, jpeg, webp, or gif/);
   assert.throws(() => assertImageUpload({ contentType: "image/png", sizeBytes: 4096 }, 2048), /smaller/);
+});
+
+test("default upload and tool-call limits match Wave 2", () => {
+  const config = loadConfig({});
+  assert.equal(config.r2.maxImageBytes, 10 * 1024 * 1024);
+  assert.equal(config.websearch.maxToolCallsPerTurn, 75);
+  assert.equal(config.documents.maxToolCallsPerTurn, 75);
+  assert.doesNotThrow(() => assertImageUpload({
+    contentType: "image/png",
+    sizeBytes: 10 * 1024 * 1024
+  }, config.r2.maxImageBytes));
+  assert.throws(() => assertImageUpload({
+    contentType: "image/png",
+    sizeBytes: 10 * 1024 * 1024 + 1
+  }, config.r2.maxImageBytes), /10MB or smaller/);
 });
 
 test("R2 upload helpers validate document files by MIME type and extension", () => {

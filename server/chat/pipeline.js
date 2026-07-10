@@ -14,6 +14,7 @@ import {
   buildProviderMessages,
   buildStoredUserContent,
   contentText,
+  createConversationSummarizer,
   imageCountFromContent,
   normalizeMessageSettings,
   normalizePastedTextRange,
@@ -41,6 +42,7 @@ import { sanitizeResearchPublicView } from "../research/public.js";
 import {
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
   OPENROUTER_VISION_PRO_MODEL,
   resolveProvider
@@ -367,6 +369,13 @@ export function withAvailableTools(chatRequest, { config, webMode, webHint, read
     tools.push(...buildDocumentTools({ toolNames: documentSkills.toolNames || [] }));
     hints.push(buildDocumentSystemHint({ readyDocuments, selection: documentSkills }));
     enabled.documents = true;
+  }
+  if (tools.length && String(chatRequest?.model || "").trim().toLowerCase() === OPENROUTER_PRO_MODEL) {
+    hints.push([
+      "Use native tool calls only; never write tool calls as text, XML, or DSML.",
+      "Tool arguments must be one valid JSON object matching the provided schema.",
+      "After tool results arrive, provide a complete final answer. Call another tool only when the available results are genuinely insufficient, and never return an empty response."
+    ].join(" "));
   }
   if (!tools.length && !hints.length) return { request: chatRequest, augmented: false, enabled };
   let messages = [...chatRequest.messages];
@@ -752,6 +761,11 @@ export async function handleConversationMessage(req, res, config, conversationId
     imageCount,
     signal: req.signal
   });
+  const summarizeHistory = createConversationSummarizer({
+    crofai,
+    config,
+    signal: req.signal
+  });
   let historyMessages = isRetry
     ? [...existingMessages]
     : [...existingMessages, { role: "user", content: userContent }];
@@ -830,7 +844,9 @@ export async function handleConversationMessage(req, res, config, conversationId
       messages: historyMessages,
       systemPrompt: stage1SystemPrompt,
       r2: context.r2,
-      imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null
+      imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null,
+      contextConfig: config.context,
+      summarizeHistory
     });
   }
 
