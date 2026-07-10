@@ -181,7 +181,7 @@ function highlightCodeBlocks(html) {
       const label = detectedLang ? escapeHtml(detectedLang) : "";
       const codeId = `c${++codeSourceCounter}`;
       codeSourceStore.set(codeId, decoded);
-      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-block-lang">${label}</span><button class="code-copy-btn" type="button" data-code-id="${codeId}" aria-label="Copy code" title="Copy code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button></div><pre><code class="hljs${cls}">${highlighted}</code></pre></div>`;
+      return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-block-lang">${label}</span><button class="code-copy-btn" type="button" data-code-id="${codeId}" aria-label="Copy code" title="Copy code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div><pre><code class="hljs${cls}">${highlighted}</code></pre></div>`;
     }
   );
 }

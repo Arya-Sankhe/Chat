@@ -3483,9 +3483,10 @@ body.capacitor-native #compactNewChatButton {
   pointer-events: none !important;
 }
 
-/* Temp-chat is only an affordance for a fresh/new chat. Once a normal chat
-   exists, the top-right button disappears so it doesn't become persistent noise. */
-body.capacitor-native:not(.chat-empty) .temporary-chat-toggle {
+/* Temp-chat is only an affordance for a fresh/new chat or an active temp
+   session. Once a normal chat has messages, the top-right button disappears.
+   (JS also toggles .hidden; this keeps the APK rule in sync.) */
+body.capacitor-native:not(.chat-empty):not(.temporary-chat) .temporary-chat-toggle {
   display: none !important;
 }
 

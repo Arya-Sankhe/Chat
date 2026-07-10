@@ -66,4 +66,39 @@ test("message tables are wrapped for horizontal scroll", () => {
     /\.message-content\s+\.table-scroll\s*\{[^}]*overflow-x:\s*auto/,
     "table-scroll must allow horizontal overflow"
   );
+  assert.match(
+    css,
+    /\.message-content\s+table\s*\{[^}]*width:\s*max-content/,
+    "tables should size to content so wide ones scroll"
+  );
+  assert.match(css, /white-space:\s*nowrap/, "cells must not wrap mid-word");
+  assert.match(css, /overflow-wrap:\s*normal/, "cells override message overflow-wrap");
+});
+
+test("code block copy button is icon-only like message copy", () => {
+  const renderJs = readPublic("js/render.js");
+  const css = readStylesheet();
+  const markup = renderJs.match(/class="code-copy-btn"[\s\S]*?<\/button>/);
+  assert.ok(markup, "code-copy-btn markup not found");
+  assert.doesNotMatch(markup[0], /<span>Copy<\/span>/, "code copy must not show Copy text");
+  assert.match(markup[0], /width="16"/);
+  assert.match(
+    css,
+    /\.code-copy-btn\s*\{[^}]*width:\s*32px/,
+    "code copy should match the 32px icon action button"
+  );
+});
+
+test("temporary chat toggle only shows on empty home or active temp chat", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  const fn = appJs.match(/function renderTemporaryChatMode\(\)\s*\{[\s\S]*?\n\}/);
+  assert.ok(fn, "renderTemporaryChatMode not found");
+  assert.match(fn[0], /showTempToggle\s*=\s*onEmptyChat\s*\|\|\s*state\.temporaryChat/);
+  assert.match(fn[0], /temporaryChatToggle\?\.classList\.toggle\(\s*"hidden",\s*!showTempToggle\s*\)/);
+  assert.match(
+    css,
+    /body\.capacitor-native:not\(\.chat-empty\):not\(\.temporary-chat\)\s+\.temporary-chat-toggle/,
+    "APK rule must keep the toggle visible during an active temp chat"
+  );
 });

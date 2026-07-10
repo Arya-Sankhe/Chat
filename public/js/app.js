@@ -67,7 +67,7 @@ import {
   renderPlainText,
   renderContent,
   resetCodeSourceStore
-} from "./render.js?v=20260710-msg-ux-v1";
+} from "./render.js?v=20260710-table-copy-v1";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
@@ -410,7 +410,11 @@ function temporaryHistoryForRequest() {
 function renderTemporaryChatMode() {
   document.body.classList.toggle("temporary-chat", state.temporaryChat);
   const onEmptyChat = !state.messages.length;
-  els.temporaryChatBar?.classList.toggle("hidden", !onEmptyChat && !state.temporaryChat);
+  // Incognito affordance only on the home/empty screen or while a temp chat
+  // is active — hide it once a normal conversation has messages.
+  const showTempToggle = onEmptyChat || state.temporaryChat;
+  els.temporaryChatBar?.classList.toggle("hidden", !showTempToggle);
+  els.temporaryChatToggle?.classList.toggle("hidden", !showTempToggle);
   els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);

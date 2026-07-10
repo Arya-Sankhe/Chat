@@ -17,7 +17,7 @@ const baselinePath = path.join(repoRoot, "scripts", "css-split-baseline.json");
 
 test("css-split baseline fixture matches the approved snapshot size and digest shape", () => {
   const baseline = loadBaseline(baselinePath);
-  assert.equal(baseline.utf8ByteLength, 220323);
+  assert.equal(baseline.utf8ByteLength, 220783);
   assert.match(baseline.sha256, /^[a-f0-9]{64}$/);
   assert.match(String(baseline.source || ""), /approved-concatenated-css-snapshot/);
 });
@@ -36,8 +36,8 @@ test("verifyCssSplit passes current public stylesheet against the committed base
   const result = verifyCssSplit({ rootContent: root });
   assert.equal(result.imports.length, 13);
   assert.equal(result.ok, true);
-  assert.equal(result.actual.utf8ByteLength, 220323);
-  assert.equal(result.actual.sha256, "f523b8d8f1acb44397e116479c56c4a4dd018c4ece49bfa60ee9a514168ec8ea");
+  assert.equal(result.actual.utf8ByteLength, 220783);
+  assert.equal(result.actual.sha256, "6b8ab4df4b17ab612cb129ea657d388c2b4073bf40f6a6cb9cc383910bf06d12");
 });
 
 test("verifyCssSplit fails when concatenated CSS diverges from the baseline", () => {

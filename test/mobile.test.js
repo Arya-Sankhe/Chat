@@ -209,7 +209,8 @@ test("temporary chat label remains visible after messages exist", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
-  assert.match(source, /temporaryChatBar\?\.classList\.toggle\("hidden", !onEmptyChat && !state\.temporaryChat\)/);
+  assert.match(source, /showTempToggle\s*=\s*onEmptyChat\s*\|\|\s*state\.temporaryChat/);
+  assert.match(source, /temporaryChatToggle\?\.classList\.toggle\(\s*"hidden",\s*!showTempToggle\s*\)/);
   assert.match(source, /temporaryChatLabel\?\.classList\.toggle\("hidden", !state\.temporaryChat\)/);
 });
 
