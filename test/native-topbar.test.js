@@ -232,6 +232,17 @@ test("the attachment preview remove (X) button is always visible on the APK (no 
   assert.match(block, /pointer-events:\s*auto/);
 });
 
+test("non-empty composer previews keep a polished gap above the textarea", () => {
+  const css = readStylesheet();
+  // `~` (not `+`): the hidden research-mode chip sits between the previews
+  // and the textarea, so an adjacent-sibling selector never matches.
+  assert.match(
+    css,
+    /\.composer-previews:not\(:empty\)\s*~\s*textarea\s*\{[^}]*margin-top:\s*14px/,
+    "preview-to-textarea gap should be 14px"
+  );
+});
+
 test("the document viewer overlays the whole screen on the APK (sidebar offset is the bug being fixed)", () => {
   const css = readStylesheet();
   assert.match(

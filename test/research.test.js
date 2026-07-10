@@ -6,8 +6,11 @@ import { readStylesheet } from "./helpers/styles.js";
 
 import { loadConfig } from "../server/config.js";
 import { extractPageText, untrustedSourceBlock } from "../server/research/extract.js";
-import { resolvePublicUrl } from "../server/research/fetcher.js";
+import { fetchPublicPage, resolvePublicUrl } from "../server/research/fetcher.js";
 import { partialReport, runDeepResearch, validateReportLinks } from "../server/research/engine.js";
+import { searchResearchQueries } from "../server/research/search.js";
+import { sanitizeResearchPublicView } from "../server/research/public.js";
+import { filterDeniedDomains, mergeDenyDomains } from "../server/websearch/deny-domains.js";
 
 test("research config uses bounded VPS-friendly defaults", () => {
   const config = loadConfig({});
@@ -70,6 +73,235 @@ test("research fetcher rejects private and metadata destinations", async () => {
   await assert.rejects(() => resolvePublicUrl("http://127.0.0.1/private"), /non-public/i);
   await assert.rejects(() => resolvePublicUrl("http://metadata.google.internal/"), /not allowed/i);
   await assert.rejects(() => resolvePublicUrl("file:///etc/passwd"), /Only public HTTP/i);
+});
+
+test("Deep Research discovery deny list includes observed adult hosts and configured extras", () => {
+  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test" });
+  const deny = mergeDenyDomains(config.websearch.denyDomains);
+  assert.ok(deny.includes("xvideos.tube"));
+  assert.ok(deny.includes("inxxx.com"));
+  assert.ok(deny.includes("blocked.test"));
+
+  const allowed = filterDeniedDomains([
+    { title: "Adult", url: "https://xvideos.tube/v/1", snippet: "" },
+    { title: "Adult sub", url: "https://mirror.inxxx.com/v/2", snippet: "" },
+    { title: "Blocked", url: "https://blocked.test/page", snippet: "" },
+    { title: "PubMed", url: "https://pubmed.ncbi.nlm.nih.gov/1", snippet: "" }
+  ], deny);
+  assert.deepEqual(allowed.map((entry) => entry.title), ["PubMed"]);
+});
+
+test("Deep Research never fetches denied discovery candidates", async () => {
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1",
+    WEBSEARCH_DENY_DOMAINS: "blocked.test"
+  });
+  const fetched = [];
+  const callModel = async (call) => {
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("Research goal:")) {
+      return JSON.stringify({ relevant: true, summary: "Solid medical evidence.", evidence: "Quote." });
+    }
+    if (call.prompt.includes("updating an evolving research report")) {
+      return "Report citing [src](https://pubmed.ncbi.nlm.nih.gov/1).";
+    }
+    return "# Report\n\nDetailed body that cites the [src](https://pubmed.ncbi.nlm.nih.gov/1) and is long enough to pass validation checks easily.";
+  };
+  const result = await runDeepResearch({
+    run: { query: "Research this", model: "user/model" },
+    config,
+    callModel,
+    searchFn: async () => [
+      { title: "Adult", url: "https://xvideos.tube/v/1", snippet: "" },
+      { title: "Blocked", url: "https://blocked.test/page", snippet: "" },
+      { title: "Good", url: "https://pubmed.ncbi.nlm.nih.gov/1", snippet: "" }
+    ],
+    fetchPage: async (url) => {
+      fetched.push(url);
+      return { url, html: "<article>" + "Text. ".repeat(80) + "</article>" };
+    },
+    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+  });
+  assert.deepEqual(fetched, ["https://pubmed.ncbi.nlm.nih.gov/1"]);
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, "https://pubmed.ncbi.nlm.nih.gov/1");
+});
+
+test("Deep Research excludes pages that redirect onto a denied final URL", async () => {
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1"
+  });
+  const callModel = async (call) => {
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("Research goal:")) {
+      return JSON.stringify({ relevant: true, summary: "Would be cited if allowed.", evidence: "Quote." });
+    }
+    if (call.prompt.includes("updating an evolving research report")) {
+      return "Report citing [src](https://example.com/safe).";
+    }
+    return "# Report\n\nDetailed body that cites the [src](https://example.com/safe) and is long enough to pass validation checks easily.";
+  };
+  const result = await runDeepResearch({
+    run: { query: "Research this", model: "user/model" },
+    config,
+    callModel,
+    searchFn: async () => [
+      { title: "Redirect bait", url: "https://example.com/bounce", snippet: "" },
+      { title: "Safe", url: "https://example.com/safe", snippet: "" }
+    ],
+    fetchPage: async (url) => {
+      if (url === "https://example.com/bounce") {
+        return {
+          url: "https://xvideos.tube/landed",
+          html: "<article>" + "Adult text. ".repeat(80) + "</article>"
+        };
+      }
+      return { url, html: "<article>" + "Safe text. ".repeat(80) + "</article>" };
+    },
+    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+  });
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].url, "https://example.com/safe");
+  assert.doesNotMatch(result.report, /xvideos/);
+});
+
+test("fetchPublicPage hard-blocks denied URLs before DNS or network work", async () => {
+  const deny = mergeDenyDomains([]);
+  await assert.rejects(
+    () => fetchPublicPage("https://xvideos.tube/video/1", { denyDomains: deny }),
+    /deny-domain policy/i
+  );
+  await assert.rejects(
+    () => fetchPublicPage("https://cdn.inxxx.com/clip", { denyDomains: deny }),
+    /deny-domain policy/i
+  );
+});
+
+test("runDeepResearch passes the merged deny list into fetchPage options", async () => {
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1",
+    WEBSEARCH_DENY_DOMAINS: "blocked.test"
+  });
+  const fetchOptions = [];
+  const callModel = async (call) => {
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("Research goal:")) {
+      return JSON.stringify({ relevant: true, summary: "Solid evidence.", evidence: "Quote." });
+    }
+    if (call.prompt.includes("updating an evolving research report")) {
+      return "Report citing [src](https://pubmed.ncbi.nlm.nih.gov/1).";
+    }
+    return "# Report\n\nDetailed body that cites the [src](https://pubmed.ncbi.nlm.nih.gov/1) and is long enough to pass validation checks easily.";
+  };
+  await runDeepResearch({
+    run: { query: "Research this", model: "user/model" },
+    config,
+    callModel,
+    searchFn: async () => [
+      { title: "Good", url: "https://pubmed.ncbi.nlm.nih.gov/1", snippet: "" }
+    ],
+    fetchPage: async (url, options = {}) => {
+      fetchOptions.push(options);
+      assert.ok(Array.isArray(options.denyDomains));
+      assert.ok(options.denyDomains.includes("xvideos.tube"));
+      assert.ok(options.denyDomains.includes("blocked.test"));
+      return { url, html: "<article>" + "Text. ".repeat(80) + "</article>" };
+    },
+    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+  });
+  assert.equal(fetchOptions.length, 1);
+});
+
+test("searchResearchQueries applies shared deny filtering before returning candidates", async () => {
+  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    results: [
+      { title: "Adult", url: "https://www.xvideos.tube/a", content: "a" },
+      { title: "Blocked", url: "https://blocked.test/b", content: "b" },
+      { title: "WHO", url: "https://www.who.int/news", content: "c" }
+    ]
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const results = await searchResearchQueries(["q"], { config });
+    assert.deepEqual(results.map((entry) => entry.title), ["WHO"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sanitizeResearchPublicView filters legacy denied sources and strips denied citation links", () => {
+  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test" });
+  const legacyRun = {
+    title: "Adult https://xvideos.tube/v/1 and [PubMed](https://pubmed.ncbi.nlm.nih.gov/1)",
+    summary: "See https://blocked.test/page and safe [PubMed](https://pubmed.ncbi.nlm.nih.gov/1) notes.",
+    sources: [
+      { url: "https://xvideos.tube/v/1", title: "Adult" },
+      { url: "https://blocked.test/page", title: "Blocked" },
+      { url: "https://pubmed.ncbi.nlm.nih.gov/1", title: "PubMed" },
+      { url: "://broken", title: "Malformed" }
+    ],
+    report_markdown: [
+      "# Report",
+      "",
+      "Safe cite [PubMed](https://pubmed.ncbi.nlm.nih.gov/1) stays linked.",
+      "Denied cite [Adult](https://xvideos.tube/v/1) becomes plain text.",
+      "Blocked cite [Extra](https://blocked.test/page) becomes plain text.",
+      "Bare denied https://xvideos.tube/v/1 is removed.",
+      "Bare safe https://pubmed.ncbi.nlm.nih.gov/1 remains."
+    ].join("\n")
+  };
+
+  const view = sanitizeResearchPublicView(legacyRun, config);
+  assert.equal(view.sourceCount, 1);
+  assert.deepEqual(view.sources.map((entry) => entry.title), ["PubMed"]);
+  assert.match(view.report, /\[PubMed\]\(https:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/1\)/);
+  assert.match(view.report, /Denied cite Adult becomes plain text/);
+  assert.match(view.report, /Blocked cite Extra becomes plain text/);
+  assert.doesNotMatch(view.report, /\]\(https:\/\/xvideos\.tube/);
+  assert.doesNotMatch(view.report, /\]\(https:\/\/blocked\.test/);
+  assert.doesNotMatch(view.report, /https:\/\/xvideos\.tube\/v\/1/);
+  assert.match(view.report, /https:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/1 remains/);
+  assert.match(view.title, /Adult/);
+  assert.match(view.title, /\[PubMed\]\(https:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/1\)/);
+  assert.doesNotMatch(view.title, /xvideos\.tube/);
+  assert.match(view.summary, /See/);
+  assert.match(view.summary, /\[PubMed\]\(https:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/1\)/);
+  assert.doesNotMatch(view.summary, /blocked\.test/);
+  // Stored row is not mutated.
+  assert.equal(legacyRun.sources.length, 4);
+  assert.match(legacyRun.report_markdown, /xvideos\.tube/);
+  assert.match(legacyRun.title, /xvideos\.tube/);
+  assert.match(legacyRun.summary, /blocked\.test/);
+});
+
+test("sanitizeResearchPublicView keeps safe text when report has no denied links", () => {
+  const config = loadConfig({});
+  const view = sanitizeResearchPublicView({
+    title: "WHO update",
+    summary: "Findings look solid.",
+    sources: [{ url: "https://www.who.int/news", title: "WHO" }],
+    report_markdown: "Findings from [WHO](https://www.who.int/news) look solid."
+  }, config);
+  assert.equal(view.sourceCount, 1);
+  assert.equal(view.title, "WHO update");
+  assert.equal(view.summary, "Findings look solid.");
+  assert.match(view.report, /\[WHO\]\(https:\/\/www\.who\.int\/news\)/);
 });
 
 test("research engine uses cheap models for research and the selected model for the report", async () => {

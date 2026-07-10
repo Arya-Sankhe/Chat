@@ -718,9 +718,11 @@
 
 }
 
-.composer-previews:not(:empty) + textarea {
+/* `~` not `+`: the (usually hidden) research-mode chip sits between the
+   previews and the textarea, so an adjacent-sibling rule never matches. */
+.composer-previews:not(:empty) ~ textarea {
 
-  margin-top: 8px;
+  margin-top: 14px;
 
 }
 
@@ -898,6 +900,17 @@
   padding: 8px 30px 8px 10px;
 
   background: var(--bg-secondary);
+
+}
+
+/* While the progress ring is visible (any non-ready status) it occupies the
+   right 24-42px — reserve room so the filename ellipsis never runs under it. */
+.preview-file.preview-queued,
+.preview-file.preview-uploading,
+.preview-file.preview-processing,
+.preview-file.preview-failed {
+
+  padding-right: 48px;
 
 }
 

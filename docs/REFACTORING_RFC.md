@@ -500,10 +500,11 @@ Recorded deviations from the plan above when the refactor landed:
    on sign-out/navigation. External callers now use
    `applyResearchRunUpdate` instead of reaching into
    `updateResearchMessage`.
-4. **Phase 6 — byte-identical CSS split.** `public/styles.css` is 13
+4. **Phase 6 — CSS split with approved checksum baseline.** `public/styles.css` is 13
    `@import` lines over `public/styles/*.css`; verified by
    `npm run check:css-split` / `scripts/verify-css-split.mjs` against
-   `scripts/css-split-baseline.json`. Tests concatenate via
+   `scripts/css-split-baseline.json` (approved concatenated snapshot; refresh
+   explicitly on intentional CSS edits). Tests concatenate via
    `test/helpers/styles.js` `readStylesheet()`.
 5. **Post-refactor sizes (verified):** `server/routes.js` 233 lines;
    `server/db/supabaseRest.js` 297 lines; `public/js/app.js` 5,331 lines;

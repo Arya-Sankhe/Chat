@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { sanitizeResearchPublicView } from "../research/public.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { titleFromText } from "../saas/messages.js";
 import {
@@ -12,7 +13,10 @@ import { requireChatContext } from "./context.js";
 
 const RESEARCH_MODELS = new Set([OPENROUTER_TEXT_MODEL, OPENROUTER_PRO_MODEL]);
 
-function publicResearchRun(run) {
+export { sanitizeResearchPublicView };
+
+function publicResearchRun(run, config) {
+  const { sourceCount, title, summary } = sanitizeResearchPublicView(run, config);
   return {
     id: run.id,
     conversationId: run.conversation_id,
@@ -20,9 +24,9 @@ function publicResearchRun(run) {
     status: run.status,
     phase: run.phase,
     progress: run.progress || {},
-    title: run.title || "",
-    summary: run.summary || "",
-    sourceCount: Array.isArray(run.sources) ? run.sources.length : 0,
+    title,
+    summary,
+    sourceCount,
     elapsedMs: Number(run.elapsed_ms || 0),
     partial: Boolean(run.report_markdown && run.status !== "succeeded"),
     error: run.error || null,
@@ -116,7 +120,7 @@ export async function handleCreateResearch(req, res, config) {
   }, { signal: req.signal });
 
   sendJson(res, 202, {
-    run: publicResearchRun(run),
+    run: publicResearchRun(run, config),
     conversation,
     userMessage,
     assistantMessage: {
@@ -131,7 +135,7 @@ export async function handleResearchStatus(req, res, config, runId) {
   const context = await requireChatContext(req, config);
   const run = await context.db.getResearchRun(context.user.id, runId, { signal: req.signal });
   if (!run) throw new HttpError(404, "Research run not found.");
-  sendJson(res, 200, { run: publicResearchRun(run) });
+  sendJson(res, 200, { run: publicResearchRun(run, config) });
 }
 
 export async function handleCancelResearch(req, res, config, runId) {
@@ -140,7 +144,7 @@ export async function handleCancelResearch(req, res, config, runId) {
   const run = await context.db.getResearchRun(context.user.id, runId, { signal: req.signal });
   if (!run) throw new HttpError(404, "Research run not found.");
   if (!["queued", "running"].includes(run.status)) {
-    sendJson(res, 200, { run: publicResearchRun(run) });
+    sendJson(res, 200, { run: publicResearchRun(run, config) });
     return;
   }
   const patch = run.status === "queued"
@@ -164,7 +168,7 @@ export async function handleCancelResearch(req, res, config, runId) {
       metadata: { research: { runId: run.id, status: "cancelled" } }
     }, { signal: req.signal });
   }
-  sendJson(res, 200, { run: publicResearchRun(updated) });
+  sendJson(res, 200, { run: publicResearchRun(updated, config) });
 }
 
 export async function handleResearchReport(req, res, config, runId) {
@@ -173,10 +177,11 @@ export async function handleResearchReport(req, res, config, runId) {
   const run = await context.db.getResearchRun(context.user.id, runId, { signal: req.signal });
   if (!run) throw new HttpError(404, "Research run not found.");
   if (!run.report_markdown) throw new HttpError(409, "Research report is not ready.");
+  const { sources, report } = sanitizeResearchPublicView(run, config);
   const payload = {
-    run: publicResearchRun(run),
-    report: run.report_markdown,
-    sources: Array.isArray(run.sources) ? run.sources : []
+    run: publicResearchRun(run, config),
+    report,
+    sources
   };
   const json = JSON.stringify(payload);
   const etag = `"${crypto.createHash("sha256").update(json).digest("base64url")}"`;

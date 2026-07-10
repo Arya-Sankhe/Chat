@@ -15,11 +15,11 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const baselinePath = path.join(repoRoot, "scripts", "css-split-baseline.json");
 
-test("css-split baseline fixture matches the known pre-split size and digest shape", () => {
+test("css-split baseline fixture matches the approved snapshot size and digest shape", () => {
   const baseline = loadBaseline(baselinePath);
-  assert.equal(baseline.utf8ByteLength, 219258);
+  assert.equal(baseline.utf8ByteLength, 219724);
   assert.match(baseline.sha256, /^[a-f0-9]{64}$/);
-  assert.match(String(baseline.source || ""), /fa45fb2/);
+  assert.match(String(baseline.source || ""), /approved-concatenated-css-snapshot/);
 });
 
 test("parseImports accepts only @import-only roots", () => {
@@ -36,7 +36,8 @@ test("verifyCssSplit passes current public stylesheet against the committed base
   const result = verifyCssSplit({ rootContent: root });
   assert.equal(result.imports.length, 13);
   assert.equal(result.ok, true);
-  assert.equal(result.actual.utf8ByteLength, 219258);
+  assert.equal(result.actual.utf8ByteLength, 219724);
+  assert.equal(result.actual.sha256, "439d5ee50e25ff3ee5b17b5f7d9b2dcf9388ac40b3593f952a1be72724f1ef7c");
 });
 
 test("verifyCssSplit fails when concatenated CSS diverges from the baseline", () => {

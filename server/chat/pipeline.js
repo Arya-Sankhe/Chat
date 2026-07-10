@@ -37,6 +37,7 @@ import {
   visualImageInputLimit
 } from "../websearch/tool.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
+import { sanitizeResearchPublicView } from "../research/public.js";
 import {
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_TEXT_PRO_MODEL,
@@ -66,7 +67,10 @@ const DEFAULT_COUNCIL_MODELS = [
 
 const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
 
-export async function withResearchReportContext(messages, { loadRun, maxChars = RESEARCH_CONTEXT_MAX_CHARS } = {}) {
+export async function withResearchReportContext(
+  messages,
+  { loadRun, sanitizeRun, maxChars = RESEARCH_CONTEXT_MAX_CHARS } = {}
+) {
   if (typeof loadRun !== "function" || maxChars <= 0) return messages || [];
 
   const hydrated = [...(messages || [])];
@@ -80,7 +84,12 @@ export async function withResearchReportContext(messages, { loadRun, maxChars = 
     if (!runId) continue;
 
     const run = await loadRun(runId).catch(() => null);
-    const report = String(run?.report_markdown || "").trim();
+    if (!run) continue;
+
+    const view = typeof sanitizeRun === "function"
+      ? sanitizeRun(run)
+      : { report: run.report_markdown };
+    const report = String(view?.report || "").trim();
     if (!report) continue;
 
     const included = report.slice(0, remaining);
@@ -805,7 +814,8 @@ export async function handleConversationMessage(req, res, config, conversationId
   }
 
   existingMessages = await withResearchReportContext(existingMessages, {
-    loadRun: (runId) => context.db.getResearchRun(context.user.id, runId, { signal: req.signal })
+    loadRun: (runId) => context.db.getResearchRun(context.user.id, runId, { signal: req.signal }),
+    sanitizeRun: (run) => sanitizeResearchPublicView(run, config)
   });
   historyMessages = isRetry
     ? [...existingMessages]

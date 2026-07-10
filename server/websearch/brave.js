@@ -135,7 +135,9 @@ export async function braveSearch({
     maximum_number_of_urls: String(Math.max(1, Math.min(20, Number(numResults) || 5))),
     maximum_number_of_tokens: "4096",
     maximum_number_of_tokens_per_url: "2048",
-    context_threshold_mode: "balanced"
+    context_threshold_mode: "balanced",
+    // Engine-level adult filtering — first layer of defense.
+    safesearch: "strict"
   });
   if (freshness && freshness !== "any") {
     const map = { day: "pd", week: "pw", month: "pm", year: "py" };

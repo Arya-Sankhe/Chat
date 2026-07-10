@@ -1,6 +1,7 @@
 import { fetchPublicPage } from "./fetcher.js";
 import { extractPageText, untrustedSourceBlock } from "./extract.js";
 import { searchResearchQueries } from "./search.js";
+import { isDeniedUrl, mergeDenyDomains } from "../websearch/deny-domains.js";
 import {
   RESEARCH_CATEGORIES,
   RESEARCH_SYSTEM,
@@ -158,6 +159,7 @@ export async function runDeepResearch({
   extractText = extractPageText
 }) {
   const settings = config.research;
+  const denyDomains = mergeDenyDomains(config.websearch?.denyDomains);
   const started = Date.now();
   const deadline = started + settings.maxRunMs;
   const cheapModel = settings.cheapModel || run.model;
@@ -228,6 +230,7 @@ export async function runDeepResearch({
     const slots = Math.max(0, settings.maxPages - sources.length);
     const candidates = results
       .filter((result) => !fetchedUrls.has(result.url))
+      .filter((result) => !isDeniedUrl(result.url, denyDomains))
       .slice(0, Math.min(slots, settings.maxUrlsPerRound * queries.length));
 
     // READ + EXTRACT (goal-based; irrelevant pages are dropped, not cited)
@@ -243,8 +246,11 @@ export async function runDeepResearch({
         const page = await fetchPage(result.url, {
           timeoutMs: settings.fetchTimeoutMs,
           maxBytes: settings.fetchMaxBytes,
-          signal
+          signal,
+          denyDomains
         });
+        // Defense in depth for injected/custom fetchers that skip the boundary check.
+        if (isDeniedUrl(page.url, denyDomains)) return null;
         const extracted = extractText(page.html, { maxChars: settings.maxExtractedChars });
         const raw = await callModel({
           model: cheapModel,

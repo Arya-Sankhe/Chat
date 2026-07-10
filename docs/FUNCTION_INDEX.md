@@ -412,12 +412,24 @@ regex substitutions) are deliberately not listed.
   with per-provider circuit breaker, two-tier LRU+Supabase cache
   via `SearchCache`, and `readUrl` for direct page reads. Exposes
   a normalized `{ok, results, citations, cached}` shape regardless
-  of provider.
+  of provider. Applies the shared deny-domain filter on search and
+  read paths.
 - **Callers**: `server/chat/pipeline.js` (single chat and shared
   pre-search for Compare/Council).
 - **Major dependencies**: `server/websearch/brave.js`,
-  `server/websearch/cache.js`, `server/websearch/jina.js`,
-  `server/websearch/searxng.js`.
+  `server/websearch/cache.js`, `server/websearch/deny-domains.js`,
+  `server/websearch/jina.js`, `server/websearch/searxng.js`.
+
+### `BUILTIN_ADULT_DENY_DOMAINS`, `mergeDenyDomains`, `filterDeniedDomains`, `isDeniedUrl`, `hostnameMatchesDenied`, `normalizeDenyDomain` ← pure
+- **Path**: `server/websearch/deny-domains.js`
+- **Responsibility**: Shared hostname deny list for web search and
+  Deep Research. Built-in adult domains are always enforced;
+  `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive
+  via `mergeDenyDomains` — never a replacement.
+- **Callers**: `server/websearch/index.js`, `server/research/search.js`,
+  `server/research/engine.js`, `server/research/fetcher.js`,
+  `server/research/public.js`.
+- **Major dependencies**: none.
 
 ### `class WebSearchError`, `jinaSearch`, `jinaRead`
 - **Path**: `server/websearch/jina.js`
@@ -564,6 +576,18 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `server/research/engine.js`.
 - **Major dependencies**: none.
 
+### `sanitizeResearchPublicView` ← pure
+- **Path**: `server/research/public.js`
+- **Responsibility**: Read-time public view for stored research runs.
+  Filters denied sources via `mergeDenyDomains` /
+  `filterDeniedDomains`, then re-validates `report_markdown`,
+  `title`, and `summary` with `validateReportLinks` against the
+  filtered source registry. Does not mutate DB rows. Shared by the
+  research HTTP route and chat follow-up context hydration.
+- **Callers**: `server/routes/research.js`, `server/chat/pipeline.js`.
+- **Major dependencies**: `server/research/engine.js`,
+  `server/websearch/deny-domains.js`.
+
 ---
 
 ## M. Routes — dispatch, resources, and chat orchestration
@@ -611,10 +635,12 @@ regex substitutions) are deliberately not listed.
 ### `handleCreateResearch`, `handleResearchStatus`, `handleCancelResearch`, `handleResearchReport` ← mixed
 - **Path**: `server/routes/research.js`
 - **Responsibility**: Deep research enqueue, status poll, cancel, and
-  ETag-conditional report fetch.
+  ETag-conditional report fetch. Public payloads use
+  `sanitizeResearchPublicView` so legacy denied sources/URLs are
+  stripped from title, summary, report, and sources at read time.
 - **Callers**: `handleApiRequest`.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/saas/usageMeter.js`,
-  `server/providers.js`.
+  `server/providers.js`, `server/research/public.js`.
 
 ### `handlePresignUpload`, `handleUploadContent`, `handleCompleteUpload`, `handleAttachmentDownload`, `handleAttachmentView`, `handleAttachmentDelete`, `handleDocumentStatus`, `handleDocumentJobStatus` ← mixed
 - **Path**: `server/routes/uploads.js`
@@ -636,12 +662,16 @@ regex substitutions) are deliberately not listed.
   `server/routes.js` for tests)
 - **Responsibility**: Chat dispatcher (single vs compare vs council,
   retry and edit modes), shared pre-search, PDF visual context, tool
-  wiring, and image-description persistence. Single-chat flow uses
-  `runChatWithToolLoop` here; `streamSingleChat` in `single.js` is the
-  legacy no-tools fast path only.
+  wiring, and image-description persistence. `withResearchReportContext`
+  hydrates prior Deep Research reports into follow-up history; the
+  production call site passes `sanitizeRun` using
+  `sanitizeResearchPublicView` so denied legacy URLs never reach later
+  model calls. Single-chat flow uses `runChatWithToolLoop` here;
+  `streamSingleChat` in `single.js` is the legacy no-tools fast path only.
 - **Callers**: `handleApiRequest` (`POST …/messages`).
 - **Major dependencies**: `server/chat/compare.js`, `server/chat/council.js`,
-  `server/websearch/tool/loop.js`, `server/documents/*`, `server/saas/*`.
+  `server/websearch/tool/loop.js`, `server/documents/*`, `server/saas/*`,
+  `server/research/public.js`.
 
 ### `buildUntrustedWebContext`, `injectWebContextMessage`, `sharedWebsearchMetadata`, `sharedDocumentMetadata`, `writeSse`, `hasAssistantOutput`
 - **Path**: `server/chat/shared.js`
@@ -830,7 +860,7 @@ regex substitutions) are deliberately not listed.
 - **Path**: `test/helpers/styles.js`
 - **Responsibility**: Reads `public/styles.css` and inlines each
   `@import` from `public/styles/*.css` for tests that assert against
-  the full stylesheet (byte-identical to the pre-split baseline; also
+  the full stylesheet (must match the approved checksum baseline; also
   verified by `npm run check:css-split` / `scripts/verify-css-split.mjs`
   against `scripts/css-split-baseline.json`).
 - **Callers**: `test/mobile.test.js`, `test/native-topbar.test.js`,

@@ -2,6 +2,7 @@ import dns from "node:dns/promises";
 import http from "node:http";
 import https from "node:https";
 import ipaddr from "ipaddr.js";
+import { isDeniedUrl } from "../websearch/deny-domains.js";
 
 const BLOCKED_HOSTS = new Set(["localhost", "metadata", "metadata.google.internal"]);
 const BLOCKED_SUFFIXES = [".local", ".internal", ".lan", ".intranet"];
@@ -126,10 +127,15 @@ export async function fetchPublicPage(value, {
   timeoutMs = 12_000,
   maxBytes = 5 * 1024 * 1024,
   maxRedirects = 5,
-  signal
+  signal,
+  denyDomains = []
 } = {}) {
   let current = String(value || "");
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+    // Request-boundary hard block: deny before DNS, throttle, or network I/O.
+    if (isDeniedUrl(current, denyDomains)) {
+      throw new Error("Source URL is blocked by deny-domain policy.");
+    }
     const { url, address } = await resolvePublicUrl(current);
     await throttle(url.hostname, signal);
 

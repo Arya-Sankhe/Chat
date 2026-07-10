@@ -267,7 +267,7 @@ export async function jinaRead({
   const data = payload?.data || payload || {};
   return {
     provider: "jina",
-    url: parsed.toString(),
+    url: String(data.url || parsed.toString()),
     title: String(data.title || parsed.hostname).slice(0, 300),
     content: clampContent(data.content || data.text || "", pageContentChars),
     publishedAt: data.publishedTime || data.published_at || data.date || null

@@ -3,7 +3,17 @@ import test, { describe, before, after } from "node:test";
 
 import { SearchCache, hashKey } from "../server/websearch/cache.js";
 import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
-import { WebSearchOrchestrator, formatResultsForModel } from "../server/websearch/index.js";
+import {
+  BUILTIN_ADULT_DENY_DOMAINS,
+  filterDeniedDomains,
+  isHeuristicallyDeniedHostname,
+  mergeDenyDomains
+} from "../server/websearch/deny-domains.js";
+import {
+  WebSearchOrchestrator,
+  formatResultsForModel
+} from "../server/websearch/index.js";
+import { searxngSearch } from "../server/websearch/searxng.js";
 import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
@@ -120,6 +130,273 @@ describe("detect", () => {
   });
 });
 
+describe("deny domains", () => {
+  const sampleResults = [
+    { title: "Adult exact", url: "https://xvideos.tube/video/1" },
+    { title: "Adult subdomain", url: "https://cdn.inxxx.com/clip" },
+    { title: "Adult alias", url: "https://www.pornhub.com/view" },
+    { title: "PubMed", url: "https://pubmed.ncbi.nlm.nih.gov/123" },
+    { title: "WHO", url: "https://www.who.int/news" },
+    { title: "Custom tracker", url: "https://ads.tracker.test/pixel" },
+    { title: "Malformed", url: "not a url" }
+  ];
+
+  test("built-in adult list removes exact domains and subdomains", () => {
+    const deny = mergeDenyDomains([]);
+    assert.ok(BUILTIN_ADULT_DENY_DOMAINS.includes("xvideos.tube"));
+    assert.ok(BUILTIN_ADULT_DENY_DOMAINS.includes("inxxx.com"));
+    const kept = filterDeniedDomains(sampleResults, deny);
+    assert.deepEqual(
+      kept.map((entry) => entry.title),
+      ["PubMed", "WHO", "Custom tracker"]
+    );
+  });
+
+  test("WEBSEARCH_DENY_DOMAINS remains additive on top of built-ins", () => {
+    const deny = mergeDenyDomains(["tracker.test", "evil.example"]);
+    const kept = filterDeniedDomains(sampleResults, deny);
+    assert.deepEqual(
+      kept.map((entry) => entry.title),
+      ["PubMed", "WHO"]
+    );
+    assert.ok(deny.includes("xvideos.com"));
+    assert.ok(deny.includes("tracker.test"));
+  });
+
+  test("medical and academic hosts are retained", () => {
+    const deny = mergeDenyDomains([]);
+    const kept = filterDeniedDomains([
+      { title: "NEJM", url: "https://www.nejm.org/doi/full/10.1056/NEJMoa000001" },
+      { title: "Nature", url: "https://www.nature.com/articles/s41586-020-0001" },
+      { title: "CDC", url: "https://www.cdc.gov/flu" }
+    ], deny);
+    assert.equal(kept.length, 3);
+  });
+
+  test("heuristic blocks adult hostnames by TLD, substring, and boundary tokens", () => {
+    const blocked = [
+      "hqporner.com",
+      "eporner.com",
+      "bestpornsites.net",
+      "free-xxx-videos.com",
+      "hentaihaven.xxx",
+      "example.porn",
+      "sexcams.example.com",
+      "onlyfans.com",
+      "rule34.paheal.net"
+    ];
+    for (const host of blocked) {
+      assert.equal(isHeuristicallyDeniedHostname(host), true, `expected block: ${host}`);
+      assert.equal(
+        filterDeniedDomains([{ title: host, url: `https://${host}/` }], []).length,
+        0,
+        `filterDeniedDomains should drop ${host}`
+      );
+    }
+  });
+
+  test("heuristic does not block legitimate academic, retail, or analytics hosts", () => {
+    const allowed = [
+      "essex.ac.uk",
+      "sussex.edu",
+      "middlesex.edu",
+      "dickssportinggoods.com",
+      "analytics.google.com",
+      "scunthorpe.gov.uk",
+      "adultlearning.org",
+      "cambridge.org",
+      "nih.gov",
+      "who.int"
+    ];
+    for (const host of allowed) {
+      assert.equal(isHeuristicallyDeniedHostname(host), false, `expected allow: ${host}`);
+    }
+    const deny = mergeDenyDomains([]);
+    const kept = filterDeniedDomains(
+      allowed.map((host) => ({ title: host, url: `https://${host}/` })),
+      deny
+    );
+    assert.equal(kept.length, allowed.length);
+  });
+
+  test("malformed URLs fail closed and do not bypass filtering", () => {
+    const deny = mergeDenyDomains([]);
+    assert.deepEqual(filterDeniedDomains([{ title: "Bad", url: "://broken" }], deny), []);
+    assert.deepEqual(filterDeniedDomains([{ title: "Missing" }], deny), []);
+  });
+
+  test("empty deny list still fails closed for malformed result URLs", () => {
+    assert.deepEqual(filterDeniedDomains([{ title: "Bad", url: "://broken" }], []), []);
+    assert.deepEqual(filterDeniedDomains([{ title: "Missing" }], []), []);
+    assert.deepEqual(
+      filterDeniedDomains([{ title: "Ok", url: "https://example.com/ok" }], []),
+      [{ title: "Ok", url: "https://example.com/ok" }]
+    );
+  });
+
+  test("orchestrator always applies the shared deny filter", async () => {
+    const orch = new WebSearchOrchestrator({
+      config: { ...baseConfig, primaryProvider: "jina", denyDomains: ["blocked.test"] }
+    });
+    installFetch(async () => jsonResponse({
+      data: [
+        { title: "Adult", url: "https://xvideos.tube/a", description: "x", content: "x" },
+        { title: "Blocked", url: "https://blocked.test/page", description: "b", content: "b" },
+        { title: "Ok", url: "https://example.com/ok", description: "ok", content: "ok" }
+      ]
+    }));
+    try {
+      const result = await orch.search({ query: "test query" });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.results.map((entry) => entry.title), ["Ok"]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("readUrl rejects denied input URLs before cache, quota, or network", async () => {
+    let fetchCalled = false;
+    let quotaCalled = false;
+    let cacheGets = 0;
+    installFetch(async () => {
+      fetchCalled = true;
+      throw new Error("network should not run");
+    });
+    const orch = new WebSearchOrchestrator({ config: baseConfig });
+    orch.cache = {
+      async get() {
+        cacheGets += 1;
+        return null;
+      },
+      async set() {
+        throw new Error("cache set should not run");
+      }
+    };
+    orch.beforeNetwork = async () => {
+      quotaCalled = true;
+      throw new Error("quota should not run");
+    };
+    try {
+      const result = await orch.readUrl({ url: "https://www.xvideos.tube/video/1" });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.provider, "policy");
+      assert.equal(result.error.status, 403);
+      assert.match(result.error.message, /deny-domain policy/i);
+      assert.equal(fetchCalled, false);
+      assert.equal(quotaCalled, false);
+      assert.equal(cacheGets, 0);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("readUrl rejects a denied final URL from Jina before caching", async () => {
+    let cacheSets = 0;
+    installFetch(async (url) => {
+      assert.match(String(url), /^https:\/\/r\.jina\.ai\//);
+      return jsonResponse({
+        data: {
+          title: "Redirected",
+          url: "https://xvideos.tube/landed",
+          content: "should not be cached"
+        }
+      });
+    });
+    const orch = new WebSearchOrchestrator({ config: baseConfig });
+    orch.cache = {
+      async get() {
+        return null;
+      },
+      async set() {
+        cacheSets += 1;
+      }
+    };
+    try {
+      const result = await orch.readUrl({ url: "https://example.com/bounce" });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.provider, "policy");
+      assert.equal(result.error.status, 403);
+      assert.match(result.error.message, /Final URL blocked/i);
+      assert.equal(cacheSets, 0);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("search re-filters cached results with the current deny list", async () => {
+    let fetchCalls = 0;
+    installFetch(async () => {
+      fetchCalls += 1;
+      throw new Error("network should not run on cache hit");
+    });
+    const orch = new WebSearchOrchestrator({
+      config: { ...baseConfig, denyDomains: ["blocked.test"] }
+    });
+    orch.cache = {
+      async get() {
+        return {
+          query: "legacy query",
+          provider: "jina",
+          results: [
+            { title: "Adult", url: "https://xvideos.tube/a", snippet: "x" },
+            { title: "Blocked", url: "https://blocked.test/page", snippet: "b" },
+            { title: "Malformed", url: "://broken" },
+            { title: "Ok", url: "https://example.com/ok", snippet: "ok" }
+          ],
+          tokens: null,
+          fetchedAt: "2026-01-01T00:00:00.000Z"
+        };
+      },
+      async set() {
+        throw new Error("cache set should not run");
+      }
+    };
+    try {
+      const result = await orch.search({ query: "legacy query" });
+      assert.equal(result.ok, true);
+      assert.equal(result.cached, true);
+      assert.equal(fetchCalls, 0);
+      assert.deepEqual(result.results.map((entry) => entry.title), ["Ok"]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("readUrl rejects a cached payload whose final URL is now denied", async () => {
+    let fetchCalled = false;
+    installFetch(async () => {
+      fetchCalled = true;
+      throw new Error("network should not run");
+    });
+    const orch = new WebSearchOrchestrator({ config: baseConfig });
+    orch.cache = {
+      async get() {
+        return {
+          provider: "jina",
+          url: "https://xvideos.tube/landed",
+          title: "Cached redirect",
+          content: "legacy adult content",
+          publishedAt: null,
+          fetchedAt: "2026-01-01T00:00:00.000Z"
+        };
+      },
+      async set() {
+        throw new Error("cache set should not run");
+      }
+    };
+    try {
+      const result = await orch.readUrl({ url: "https://example.com/bounce" });
+      assert.equal(result.ok, false);
+      assert.equal(result.error.provider, "policy");
+      assert.equal(result.error.status, 403);
+      assert.match(result.error.message, /Final URL blocked/i);
+      assert.equal(fetchCalled, false);
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
 describe("cache", () => {
   test("LRU returns null on miss and value on hit", async () => {
     const cache = new SearchCache({ maxEntries: 2, ttlMs: 5000 });
@@ -224,8 +501,30 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(capturedUrl.searchParams.get("format"), "json");
     assert.equal(capturedUrl.searchParams.get("engines"), "duckduckgo,bing");
     assert.equal(capturedUrl.searchParams.get("time_range"), "week");
+    assert.equal(capturedUrl.searchParams.get("safesearch"), "2");
     assert.equal(capturedOptions.headers["x-forwarded-for"], "127.0.0.1");
     assert.equal(capturedOptions.headers["x-real-ip"], "127.0.0.1");
+  });
+
+  test("SearXNG raw mode also sends safesearch=2", async () => {
+    let capturedUrl;
+    installFetch(async (input) => {
+      capturedUrl = new URL(String(input));
+      return jsonResponse({ results: [] });
+    });
+    try {
+      await searxngSearch({
+        query: "deep research query about climate",
+        baseUrl: "http://searxng:8080",
+        engines: ["duckduckgo"],
+        raw: true
+      });
+      assert.equal(capturedUrl.searchParams.get("safesearch"), "2");
+      assert.equal(capturedUrl.searchParams.get("format"), "json");
+      assert.equal(capturedUrl.searchParams.get("q"), "deep research query about climate");
+    } finally {
+      restoreFetch();
+    }
   });
 
   test("SearXNG filters generic retail and dictionary noise from local intent searches", async () => {

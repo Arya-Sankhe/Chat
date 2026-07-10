@@ -14,8 +14,31 @@
 
 import { braveSearch } from "./brave.js";
 import { hashKey, SearchCache } from "./cache.js";
+import {
+  filterDeniedDomains as applyDenyDomainFilter,
+  isDeniedUrl,
+  mergeDenyDomains
+} from "./deny-domains.js";
 import { jinaRead, jinaSearch, WebSearchError } from "./jina.js";
 import { searxngSearch } from "./searxng.js";
+
+export {
+  BUILTIN_ADULT_DENY_DOMAINS,
+  filterDeniedDomains,
+  isDeniedUrl,
+  mergeDenyDomains
+} from "./deny-domains.js";
+
+function denyPolicyError(message = "URL blocked by deny-domain policy.") {
+  return {
+    ok: false,
+    error: {
+      message,
+      provider: "policy",
+      status: 403
+    }
+  };
+}
 
 const CIRCUIT_BREAKER_THRESHOLD = 3;
 const CIRCUIT_BREAKER_WINDOW_MS = 60_000;
@@ -83,17 +106,12 @@ export class WebSearchOrchestrator {
     return ["searxng", "jina", "brave"];
   }
 
+  effectiveDenyDomains() {
+    return mergeDenyDomains(this.config.denyDomains);
+  }
+
   filterDeniedDomains(results) {
-    const deny = this.config.denyDomains || [];
-    if (!deny.length) return results;
-    return results.filter((entry) => {
-      try {
-        const host = new URL(entry.url).hostname.toLowerCase();
-        return !deny.some((domain) => host === domain || host.endsWith(`.${domain}`));
-      } catch {
-        return true;
-      }
-    });
+    return applyDenyDomainFilter(results, this.effectiveDenyDomains());
   }
 
   /**
@@ -119,7 +137,7 @@ export class WebSearchOrchestrator {
 
     const cacheKey = hashKey({
       kind: "search",
-      qualityVersion: 3,
+      qualityVersion: 4,
       providers: this.resolveChain().filter((provider) => this.providerAvailable(provider)).join(",") || "none",
       query: normalizedQuery.toLowerCase(),
       numResults: numResults || this.config.maxResults,
@@ -130,7 +148,14 @@ export class WebSearchOrchestrator {
 
     const cached = await this.cache.get(cacheKey);
     if (cached) {
-      return { ok: true, cached: true, ...cached };
+      /* Re-filter on every cache hit so deny-list changes and pre-policy
+         cache entries cannot leak denied or malformed URLs. */
+      return {
+        ok: true,
+        cached: true,
+        ...cached,
+        results: this.filterDeniedDomains(cached.results || [])
+      };
     }
 
     /* `beforeNetwork` is invoked exactly once before any provider call.
@@ -213,11 +238,25 @@ export class WebSearchOrchestrator {
   /**
    * Direct URL read via r.jina.ai. Falls back to nothing — Brave doesn't
    * expose a generic URL reader. If Jina is unavailable, return an error.
+   * Denied hosts are rejected at the request boundary before cache/quota/network,
+   * and again on the final URL Jina returns before caching.
    */
   async readUrl({ url, signal }) {
+    const denyDomains = this.effectiveDenyDomains();
+    if (isDeniedUrl(url, denyDomains)) {
+      return denyPolicyError("URL blocked by deny-domain policy.");
+    }
+
     const cacheKey = hashKey({ kind: "read", url });
     const cached = await this.cache.get(cacheKey);
-    if (cached) return { ok: true, cached: true, ...cached };
+    if (cached) {
+      /* A previously allowed input may have cached a denied final URL
+         (redirect). Enforce policy on the cached final URL before return. */
+      if (isDeniedUrl(cached.url, denyDomains)) {
+        return denyPolicyError("Final URL blocked by deny-domain policy.");
+      }
+      return { ok: true, cached: true, ...cached };
+    }
 
     if (typeof this.beforeNetwork === "function") {
       try {
@@ -242,6 +281,9 @@ export class WebSearchOrchestrator {
         timeoutMs: this.config.fetchTimeoutMs,
         signal
       });
+      if (isDeniedUrl(data.url, denyDomains)) {
+        return denyPolicyError("Final URL blocked by deny-domain policy.");
+      }
       const payload = {
         provider: "jina",
         url: data.url,

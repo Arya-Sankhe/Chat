@@ -1,7 +1,7 @@
 {
-  "description": "Immutable checksum of the pre-split monolithic public/styles.css (fa45fb2^). verify-css-split.mjs compares the concatenated @import tree against this fixture so shallow CI checkouts do not need historical Git objects.",
-  "source": "fa45fb2^:public/styles.css",
-  "utf8ByteLength": 219258,
-  "sha256": "309b3e1222a405e7542b144a34e1448e2ae9288c139daca8463cfd839d052546",
+  "description": "Approved checksum of the concatenated public/styles.css @import tree. verify-css-split.mjs compares the live concatenation against this fixture so intentional CSS edits must refresh the snapshot explicitly. Shallow CI checkouts do not need historical Git objects.",
+  "source": "approved-concatenated-css-snapshot",
+  "utf8ByteLength": 219724,
+  "sha256": "439d5ee50e25ff3ee5b17b5f7d9b2dcf9388ac40b3593f952a1be72724f1ef7c",
   "updateInstructions": "When intentionally changing CSS content, concatenate public/styles.css imports, recompute utf8ByteLength and sha256, then update this fixture in the same commit."
 }

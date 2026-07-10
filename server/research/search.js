@@ -1,3 +1,4 @@
+import { filterDeniedDomains, mergeDenyDomains } from "../websearch/deny-domains.js";
 import { searxngSearch } from "../websearch/searxng.js";
 
 function normalizedUrl(value) {
@@ -14,6 +15,7 @@ function normalizedUrl(value) {
 }
 
 export async function searchResearchQueries(queries, { config, signal }) {
+  const denyDomains = mergeDenyDomains(config.websearch?.denyDomains);
   const searches = await Promise.all(queries.map((query) => searxngSearch({
     query,
     numResults: config.research.searchResultsPerQuery,
@@ -28,7 +30,8 @@ export async function searchResearchQueries(queries, { config, signal }) {
   const domains = new Map();
   const results = [];
   for (const search of searches) {
-    for (const result of search.results || []) {
+    const allowed = filterDeniedDomains(search.results || [], denyDomains);
+    for (const result of allowed) {
       const url = normalizedUrl(result.url);
       if (!url || urls.has(url)) continue;
       const host = new URL(url).hostname.replace(/^www\./, "");

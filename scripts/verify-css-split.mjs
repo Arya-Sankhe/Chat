@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Verifies public/styles.css @import split concatenates to the committed
- * pre-split baseline checksum (scripts/css-split-baseline.json).
+ * approved checksum baseline (scripts/css-split-baseline.json).
  *
  * Does not read historical Git objects — works in shallow CI checkouts.
  * To refresh the baseline after intentional CSS changes, see the fixture's

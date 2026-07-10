@@ -6,7 +6,7 @@ const publicDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 
 // public/styles.css is an @import-only root (see docs/REFACTORING_RFC.md § 12).
 // Tests that assert against the stylesheet read the concatenated content, which
-// must match the committed pre-split baseline (npm run check:css-split).
+// must match the approved checksum baseline (npm run check:css-split).
 export function readStylesheet() {
   const root = readFileSync(resolve(publicDir, "styles.css"), "utf8");
   return root.replace(/^@import url\("\.\/(.+?)"\);\n?/gm, (_, relativePath) =>

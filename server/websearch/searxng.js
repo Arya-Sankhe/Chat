@@ -259,7 +259,9 @@ export async function searxngSearch({
     q: searchQuery,
     format: "json",
     categories: "general",
-    language: lang || "en"
+    language: lang || "en",
+    // Engine-level adult filtering (strict) — first layer of defense.
+    safesearch: "2"
   });
 
   const selectedEngines = normalizeEngines(engines);

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
+import { loadConfig } from "../server/config.js";
+import { sanitizeResearchPublicView } from "../server/research/public.js";
 import {
   buildDirectPdfVisualContext,
   installStableRequestSignal,
@@ -30,6 +32,47 @@ test("withResearchReportContext makes completed reports available to follow-up p
   assert.match(hydrated[1].content, /Deep research report produced earlier/);
   assert.match(hydrated[1].content, /# Fragrances/);
   assert.equal(hydrated[2].content, "Can you summarize the above?");
+});
+
+test("withResearchReportContext uses sanitizeRun so denied legacy URLs never reach follow-up context", async () => {
+  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test" });
+  const messages = [
+    {
+      role: "assistant",
+      content: "A research report is available.",
+      metadata: { research: { runId: "legacy-run", status: "succeeded" } }
+    },
+    { role: "user", content: "Summarize that report" }
+  ];
+  const legacyRun = {
+    id: "legacy-run",
+    report_markdown: [
+      "# Legacy report",
+      "",
+      "Safe cite [PubMed](https://pubmed.ncbi.nlm.nih.gov/1) stays.",
+      "Denied cite [Adult](https://xvideos.tube/v/1) becomes plain text.",
+      "Blocked cite [Extra](https://blocked.test/page) becomes plain text.",
+      "Bare denied https://xvideos.tube/v/1 is removed."
+    ].join("\n"),
+    sources: [
+      { url: "https://xvideos.tube/v/1", title: "Adult" },
+      { url: "https://blocked.test/page", title: "Blocked" },
+      { url: "https://pubmed.ncbi.nlm.nih.gov/1", title: "PubMed" }
+    ]
+  };
+
+  const hydrated = await withResearchReportContext(messages, {
+    loadRun: async () => legacyRun,
+    sanitizeRun: (run) => sanitizeResearchPublicView(run, config)
+  });
+
+  assert.match(hydrated[0].content, /\[PubMed\]\(https:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/1\)/);
+  assert.match(hydrated[0].content, /Denied cite Adult becomes plain text/);
+  assert.match(hydrated[0].content, /Blocked cite Extra becomes plain text/);
+  assert.doesNotMatch(hydrated[0].content, /xvideos\.tube/);
+  assert.doesNotMatch(hydrated[0].content, /blocked\.test/);
+  assert.match(legacyRun.report_markdown, /xvideos\.tube/);
+  assert.equal(messages[0].content, "A research report is available.");
 });
 
 test("withResearchReportContext prioritizes newer reports within its context budget", async () => {
