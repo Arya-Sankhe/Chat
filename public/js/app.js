@@ -67,7 +67,7 @@ import {
   renderPlainText,
   renderContent,
   resetCodeSourceStore
-} from "./render.js?v=20260710-code-copy-icon-v1";
+} from "./render.js?v=20260710-code-copy-shared-v2";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";

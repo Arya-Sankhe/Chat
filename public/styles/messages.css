@@ -589,40 +589,6 @@ body.temporary-chat .messages {
 
 }
 
-.code-copy-btn {
-
-  display: inline-flex;
-
-  align-items: center;
-
-  justify-content: center;
-
-  width: 32px;
-
-  height: 32px;
-
-  padding: 0;
-
-  border: none;
-
-  border-radius: 8px;
-
-  color: var(--text-secondary);
-
-  background: transparent;
-
-  transition: background var(--transition), color var(--transition);
-
-}
-
-.code-copy-btn:hover {
-
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-
-  color: var(--text);
-
-}
-
 .message-content pre {
 
   overflow-x: auto;
@@ -1425,4 +1391,3 @@ body.temporary-chat .messages {
   border: 1px solid #fde68a;
 
 }
-
