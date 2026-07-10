@@ -424,9 +424,8 @@ export async function runChatWithToolLoop({
       return { accumulated, citations, artifacts, providers: Array.from(providers), toolCallCount };
     }
 
-    // Any prose emitted alongside a tool call is provisional. The next model
-    // iteration produces the real answer, so keep the browser and persisted
-    // message aligned instead of letting this preamble vanish on reload.
+    // Any prose emitted alongside a tool call is provisional. The browser
+    // keeps it visible during tool work and replaces it when answer text starts.
     onToolEvent({ type: "response:reset" });
     const toolCalls = normalizedToolCallsForMessage(accumulated.toolCalls, iteration);
     const visualPages = [];

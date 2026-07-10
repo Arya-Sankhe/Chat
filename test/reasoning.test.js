@@ -324,7 +324,7 @@ test("applyStreamEvent strips leaked DSML markup before finalizing content", () 
   assert.equal(message.finishReason, "stop");
 });
 
-test("client clears provisional tool-loop prose before rendering the final answer", async () => {
+test("client defers clearing provisional tool-loop prose until the final answer starts", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/streaming.js", import.meta.url), "utf8")
   );
@@ -334,6 +334,10 @@ test("client clears provisional tool-loop prose before rendering the final answe
   );
   assert.match(
     applyStreamEventSource,
-    /event\?\.type === "response:reset"[\s\S]*?message\.content = "";[\s\S]*?return;/
+    /event\?\.type === "response:reset"[\s\S]*?message\.resetContentOnNextTextDelta = true;[\s\S]*?return;/
+  );
+  assert.match(
+    applyStreamEventSource,
+    /if \(message\.resetContentOnNextTextDelta\)[\s\S]*?message\.content = "";[\s\S]*?delete message\.resetContentOnNextTextDelta;/
   );
 });

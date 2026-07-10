@@ -179,3 +179,42 @@ for (const fixture of fixtureDoc.fixtures) {
     );
   });
 }
+
+test("response:reset keeps every mini-reasoning chunk through tool work and clears them at final-answer start", () => {
+  const message = {
+    id: "local_assistant_1",
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
+
+  reducers.applyStreamEvent(message, { choices: [{ delta: { content: "I will search first.\n" } }] });
+  reducers.applyStreamEvent(message, { choices: [{ delta: { content: "I found one lead.\n" } }] });
+  reducers.applyStreamEvent(message, {
+    choices: [{
+      delta: {
+        content: "I will check one more source.",
+        tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"latest"}' } }]
+      },
+      finish_reason: "tool_calls"
+    }]
+  });
+  reducers.applyStreamEvent(message, { type: "response:reset" });
+  reducers.applyStreamEvent(message, {
+    type: "tool:start",
+    toolCallId: "call_1",
+    name: "web_search",
+    arguments: '{"query":"latest"}'
+  });
+
+  assert.equal(message.content, "I will search first.\nI found one lead.\nI will check one more source.");
+  assert.equal(message.resetContentOnNextTextDelta, true);
+
+  reducers.applyStreamEvent(message, {
+    choices: [{ delta: { content: "Here is what I found." } }]
+  });
+
+  assert.equal(message.content, "Here is what I found.");
+  assert.equal(message.resetContentOnNextTextDelta, undefined);
+});

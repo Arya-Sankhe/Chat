@@ -83,7 +83,9 @@ export function createStreamReducer({
     }
 
     if (event?.type === "response:reset") {
-      message.content = "";
+      // Tool-loop prose is useful while the tool is running. Replace it only
+      // when the next answer actually begins, not when the tool call starts.
+      message.resetContentOnNextTextDelta = true;
       return;
     }
 
@@ -110,6 +112,10 @@ export function createStreamReducer({
       if (isAdminUser()) message.reasoning += reasoningDelta;
     }
     if (typeof delta.content === "string" && delta.content) {
+      if (message.resetContentOnNextTextDelta) {
+        message.content = "";
+        delete message.resetContentOnNextTextDelta;
+      }
       markReasoningEnded(message);
       message.content += delta.content;
     }

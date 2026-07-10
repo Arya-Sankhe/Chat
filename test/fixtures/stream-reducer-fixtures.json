@@ -64,13 +64,13 @@
       "expected": { "id": "local_assistant_1", "role": "assistant", "content": "Answer", "reasoning": "", "toolCalls": [], "finishReason": "stop" }
     },
     {
-      "name": "single: response:reset clears provisional prose only",
+      "name": "single: response:reset defers clearing provisional prose until answer text",
       "reducer": "applyStreamEvent",
       "initial": { "id": "local_assistant_1", "role": "assistant", "content": "provisional prose", "reasoning": "", "toolCalls": [], "finishReason": "tool_calls" },
       "events": [
         { "type": "response:reset" }
       ],
-      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [], "finishReason": "tool_calls" }
+      "expected": { "id": "local_assistant_1", "role": "assistant", "content": "provisional prose", "reasoning": "", "toolCalls": [], "finishReason": "tool_calls", "resetContentOnNextTextDelta": true }
     },
     {
       "name": "single: split tool_calls deltas merge by index into one call",
