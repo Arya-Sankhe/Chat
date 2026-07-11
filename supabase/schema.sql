@@ -249,11 +249,15 @@ create table if not exists public.document_jobs (
   input jsonb not null default '{}'::jsonb,
   output jsonb not null default '{}'::jsonb,
   error jsonb,
+  cancel_requested boolean not null default false,
   created_at timestamptz not null default now(),
   started_at timestamptz,
   finished_at timestamptz,
   updated_at timestamptz not null default now()
 );
+
+alter table public.document_jobs
+  add column if not exists cancel_requested boolean not null default false;
 
 create table if not exists public.research_runs (
   id uuid primary key default gen_random_uuid(),
@@ -394,6 +398,7 @@ create index if not exists document_jobs_document_file_idx on public.document_jo
 create index if not exists document_jobs_conversation_idx on public.document_jobs (conversation_id) where conversation_id is not null;
 create index if not exists document_jobs_message_idx on public.document_jobs (message_id) where message_id is not null;
 create index if not exists document_jobs_orphan_cleanup_idx on public.document_jobs (created_at) where conversation_id is null and message_id is null and document_file_id is null and status in ('succeeded', 'failed', 'expired');
+create unique index if not exists document_jobs_extract_once_idx on public.document_jobs (document_file_id, job_type) where document_file_id is not null and job_type like 'document.extract.%';
 create index if not exists research_runs_claim_idx on public.research_runs (created_at asc) where status = 'queued';
 create index if not exists research_runs_lease_idx on public.research_runs (lease_until) where status = 'running';
 create index if not exists research_runs_user_status_idx on public.research_runs (user_id, status);
@@ -744,12 +749,31 @@ security definer
 set search_path = public
 as $$
 begin
+  with exhausted as (
+    update public.document_jobs
+    set status = 'failed',
+        error = jsonb_build_object('code', 'worker_retries_exhausted', 'message', 'Document processing stopped after repeated worker failures.'),
+        finished_at = now(),
+        lease_until = null,
+        updated_at = now()
+    where status = 'running'
+      and lease_until < now()
+      and attempt_count >= 3
+    returning document_file_id, error
+  )
+  update public.document_files d
+  set processing_status = 'failed',
+      error = exhausted.error,
+      updated_at = now()
+  from exhausted
+  where d.id = exhausted.document_file_id;
+
   return query
   with next_job as (
     select id
     from public.document_jobs
-    where status = 'queued' and cancel_requested = false
-       or (status = 'running' and lease_until < now())
+    where (status = 'queued' and cancel_requested = false)
+       or (status = 'running' and lease_until < now() and attempt_count < 3)
     order by priority desc, created_at asc
     for update skip locked
     limit 1
@@ -769,6 +793,102 @@ end;
 $$;
 
 grant execute on function public.klui_claim_document_job(text, integer) to service_role;
+
+create or replace function public.klui_complete_document_upload(
+  p_user_id uuid,
+  p_attachment_id uuid,
+  p_size_bytes integer,
+  p_etag text,
+  p_kind text,
+  p_limits jsonb default '{}'::jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_attachment public.attachments;
+  v_document public.document_files;
+  v_job public.document_jobs;
+begin
+  if p_kind not in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv') then
+    raise exception 'unsupported_document_kind';
+  end if;
+
+  select * into v_attachment
+  from public.attachments
+  where id = p_attachment_id and user_id = p_user_id
+  for update;
+
+  if not found then
+    raise exception 'attachment_not_found';
+  end if;
+  if v_attachment.category <> 'document' then
+    raise exception 'attachment_is_not_document';
+  end if;
+
+  update public.attachments
+  set status = 'uploaded',
+      uploaded_at = coalesce(uploaded_at, now()),
+      size_bytes = coalesce(p_size_bytes, size_bytes),
+      etag = coalesce(p_etag, etag)
+  where id = v_attachment.id
+  returning * into v_attachment;
+
+  insert into public.document_files (
+    attachment_id, user_id, conversation_id, message_id, kind, source,
+    source_etag, processing_status, metadata
+  ) values (
+    v_attachment.id, v_attachment.user_id, v_attachment.conversation_id,
+    v_attachment.message_id, p_kind, 'upload', v_attachment.etag, 'pending',
+    jsonb_build_object(
+      'file_name', v_attachment.file_name,
+      'content_type', v_attachment.content_type,
+      'size_bytes', v_attachment.size_bytes
+    )
+  )
+  on conflict (attachment_id) do update
+    set source_etag = coalesce(excluded.source_etag, public.document_files.source_etag),
+        updated_at = now()
+  returning * into v_document;
+
+  insert into public.document_jobs (
+    user_id, document_file_id, conversation_id, message_id, job_type, input
+  ) values (
+    v_attachment.user_id, v_document.id, v_attachment.conversation_id,
+    v_attachment.message_id, 'document.extract.' || p_kind,
+    jsonb_build_object(
+      'attachment_id', v_attachment.id,
+      'object_key', v_attachment.object_key,
+      'file_name', v_attachment.file_name,
+      'content_type', v_attachment.content_type,
+      'size_bytes', v_attachment.size_bytes,
+      'etag', v_attachment.etag,
+      'limits', coalesce(p_limits, '{}'::jsonb)
+    )
+  )
+  on conflict do nothing
+  returning * into v_job;
+
+  if v_job.id is null then
+    select * into v_job
+    from public.document_jobs
+    where document_file_id = v_document.id
+      and job_type = 'document.extract.' || p_kind
+    order by created_at asc
+    limit 1;
+  end if;
+
+  return jsonb_build_object(
+    'attachment', to_jsonb(v_attachment),
+    'document_file', to_jsonb(v_document),
+    'job', to_jsonb(v_job)
+  );
+end;
+$$;
+
+revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb) from public, anon, authenticated;
+grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb) to service_role;
 
 create or replace function public.klui_claim_research_run(
   p_worker_id text,

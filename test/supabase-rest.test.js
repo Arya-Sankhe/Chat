@@ -165,6 +165,42 @@ test("createDocumentFile POSTs document_files rows with return=representation", 
   });
 });
 
+test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_complete_document_upload");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_attachment_id: "att_1",
+      p_size_bytes: 1234,
+      p_etag: "etag-1",
+      p_kind: "pdf",
+      p_limits: { max_pdf_pages: 100 }
+    });
+
+    return new Response(JSON.stringify({
+      attachment: { id: "att_1", status: "uploaded" },
+      document_file: { id: "doc_1", processing_status: "pending" },
+      job: { id: "job_1", status: "queued" }
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.completeDocumentUpload({
+      userId: "user_1",
+      attachmentId: "att_1",
+      sizeBytes: 1234,
+      etag: "etag-1",
+      kind: "pdf",
+      limits: { max_pdf_pages: 100 }
+    });
+    assert.equal(result.job.id, "job_1");
+  });
+});
+
 test("createResearchRun POSTs research_runs rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");

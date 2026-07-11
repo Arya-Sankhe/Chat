@@ -88,6 +88,14 @@ const SUPABASE_ENV = {
 const bareConfig = loadConfig({});
 /* Supabase + model keys configured, so requests fail on the token check. */
 const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key" });
+const documentReadyConfig = loadConfig({
+  ...SUPABASE_ENV,
+  CROFAI_API_KEY: "crof-key",
+  R2_ACCOUNT_ID: "account-1",
+  R2_ACCESS_KEY_ID: "r2-key",
+  R2_SECRET_ACCESS_KEY: "r2-secret",
+  R2_BUCKET: "uploads"
+});
 
 function stubbedDeps({ role = "user", db = {} } = {}) {
   const user = { id: "user-1", email: "user@example.com", raw: {} };
@@ -253,6 +261,50 @@ test("authenticated happy path works through stubbed dependencies", async () => 
   const res = await dispatch(authReadyConfig, { path: "/api/conversations", overrides });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { conversations: [{ id: "conv-1", title: "Hello" }] });
+});
+
+test("document upload completion queues extraction through one atomic RPC", async () => {
+  const calls = [];
+  const attachment = {
+    id: "upload-1",
+    user_id: "user-1",
+    category: "document",
+    object_key: "users/user-1/file.pdf",
+    file_name: "file.pdf",
+    content_type: "application/pdf",
+    size_bytes: 1234,
+    status: "uploaded",
+    etag: "old-etag"
+  };
+  const overrides = stubbedDeps({
+    db: {
+      async getAttachment() { return attachment; },
+      async completeDocumentUpload(params) {
+        calls.push(params);
+        return {
+          attachment: { ...attachment, etag: "new-etag" },
+          document_file: { id: "doc-1", kind: "pdf", processing_status: "pending" },
+          job: { id: "job-1", status: "queued" }
+        };
+      }
+    }
+  });
+  overrides.createR2 = () => ({
+    async headObject() { return { sizeBytes: 1234, etag: "new-etag" }; }
+  });
+
+  const res = await dispatch(documentReadyConfig, {
+    method: "POST",
+    path: "/api/uploads/complete",
+    body: { uploadId: "upload-1" },
+    overrides
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].kind, "pdf");
+  assert.equal(calls[0].attachmentId, "upload-1");
+  assert.equal(res.json().document.id, "doc-1");
 });
 
 test("authenticated routes dispatch to their resource-specific handlers", async () => {

@@ -266,7 +266,7 @@ between `localStorage` and `@capacitor/preferences`/`@capacitor/secure-storage`)
 | `worker/artifact_generator.mjs` | JS fallback for `create_docx`/`create_xlsx`/`create_pptx` (the `docx`, `ExcelJS`, `PptxGenJS` libraries). Called via `node` from the Python worker when `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default). |
 | `worker/Dockerfile` | Multi-stage build: `node:24-bookworm-slim` for the JS deps, `python:3.12-slim` with `libreoffice`, `poppler-utils`, `qpdf`, and the Python deps. Healthcheck runs `python -m worker.healthcheck`. |
 | `worker/requirements.txt` | `boto3`, `charset-normalizer`, `openpyxl`, `pdfplumber`, `pypdf`, `python-pptx`, `python-docx`, `reportlab`, `requests`. OCR/Tesseract is intentionally absent. |
-| `worker/healthcheck.py` | Verifies `soffice`, `pdftotext`, `qpdf` are present. |
+| `worker/healthcheck.py` | Verifies `soffice`, `pdftotext`, `pdftoppm`, and `qpdf` are present. |
 
 ## 4. Data model and external services
 
@@ -384,7 +384,7 @@ The features and the modules that implement them:
 | Council (panel → peer review → chairman) | `app.js` + `public/js/council.js` `renderCouncilMessage` | `server/chat/council.js` `handleCouncilConversationMessage` + `server/saas/council.js` | `messages.metadata.council` carries session/role/peer-rank metadata |
 | Image upload | `app.js` `addImages` → `uploadImage` in `api.js` | `server/routes/uploads.js` `handlePresignUpload` / `handleUploadContent` / `handleCompleteUpload` | `attachments` (category=`image`), R2 |
 | Image description for text-only models | n/a | `server/saas/images.js` `describeConversationImages` | `messages.content[].image_url.description` |
-| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js` | `server/routes/uploads.js` `handleCompleteUpload` → `queueDocumentExtraction` (inserts `document_files` + `document_jobs`) | `attachments` (category=`document`), `document_files`, `document_jobs`, document worker |
+| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js`; pending polling is restored from local storage after reload | `server/routes/uploads.js` `handleCompleteUpload` → `klui_complete_document_upload` (atomically completes the attachment and creates one document/job) | `attachments` (category=`document`), `document_files`, `document_jobs`, document worker |
 | Document read/search/extract/create/edit/export | `app.js` + `public/js/documentViewer.js` (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool/loop.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
 | Web search (auto/on/off) | `app.js` `toggleWebSearchMode`, `renderWebSearchToggle`, `webSearchAvailable` | `server/websearch/index.js` `WebSearchOrchestrator`, `server/websearch/tool/loop.js` `runChatWithToolLoop`, `server/chat/pipeline.js` `runSharedPreSearch` | `search_cache`, `usage_api_events` (via tool loop) |
 | Deep Research | `app.js` + `public/js/research.js` (`startDeepResearch`, polling, `renderResearchCard`, `renderResearchReport`) | `server/routes/research.js` `handleCreateResearch` / `handleResearchStatus` / `handleCancelResearch` / `handleResearchReport`; `server/research/worker.js`; `server/research/engine.js` | `research_runs`, `messages` (assistant message updated by worker) |
@@ -738,10 +738,14 @@ glyphs only (no layout reflow).
   - `test/supabase-rest.test.js` — stubbed-`fetch` request-shape tests for one representative `SupabaseRest` method per `server/db/rest/*` domain group.
   - `test/usage.test.js` — `normalizeUsage` and `applyStreamEvent` final usage capture.
   - `test/websearch.test.js` — `WebSearchOrchestrator` provider chain, circuit breaker, cache, tool loop, document tool loop integration.
-- **Run result** (working tree): 329 tests, 4 suites, **329 pass,
+- **Run result** (working tree): 383 tests, 5 suites, **383 pass,
   0 fail, 0 cancelled, 0 skipped**, ~3.4 s wall time.
-- **What is NOT covered by tests**: the Python document worker
-  (`worker/worker.py`); the Capacitor Android project; the
+- **Additional worker tests**: `worker/tests/test_worker_helpers.py` covers
+  retry safety, lease renewal filters, bounded concurrency helpers, Jina
+  ordering, R2 ETag behavior, and the worker healthcheck. Run with
+  `python -m unittest worker.tests.test_worker_helpers` in the worker environment.
+- **What is NOT covered by tests**: live Python worker integrations with
+  Supabase/R2/Jina/Poppler; the Capacitor Android project; the
   supabase schema migrations (they are SQL files, not tests); the
   Capacitor web build (`scripts/mobile/copy-static.mjs`).
 - **End-to-end Android smoke tests**: `.maestro/` holds the Maestro

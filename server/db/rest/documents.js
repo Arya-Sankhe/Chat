@@ -126,6 +126,24 @@ export async function createDocumentJob(client, job, { signal } = {}) {
   return single(rows);
 }
 
+export async function completeDocumentUpload(client, {
+  userId,
+  attachmentId,
+  sizeBytes,
+  etag = null,
+  kind,
+  limits = {}
+}, { signal } = {}) {
+  return client.rpc("klui_complete_document_upload", {
+    p_user_id: userId,
+    p_attachment_id: attachmentId,
+    p_size_bytes: sizeBytes,
+    p_etag: etag,
+    p_kind: kind,
+    p_limits: limits
+  }, { signal });
+}
+
 export async function getDocumentJob(client, userId, jobId, { signal } = {}) {
   const rows = await client.request("document_jobs", {
     query: { id: `eq.${jobId}`, user_id: `eq.${userId}`, select: "*", limit: "1" },

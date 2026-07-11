@@ -215,6 +215,10 @@ export class SupabaseRest {
     return documents.createDocumentJob(this, job, options);
   }
 
+  async completeDocumentUpload(params, options) {
+    return documents.completeDocumentUpload(this, params, options);
+  }
+
   async getDocumentJob(userId, jobId, options) {
     return documents.getDocumentJob(this, userId, jobId, options);
   }

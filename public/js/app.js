@@ -170,6 +170,8 @@ const state = {
   }
 };
 
+const PENDING_DOCUMENTS_STORAGE_PREFIX = "klui_pending_documents_v1";
+
 let renderQueued = false;
 let streamingRenderQueued = false;
 const streamingRenderTargets = new Map();
@@ -462,6 +464,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   if (resetChat) {
     state.activeConversationId = "";
     state.messages = [];
+    for (const item of state.images) forgetPendingDocument(item);
     state.images = [];
     state.pastedText = "";
     state.compareDescribeImages = false;
@@ -2952,14 +2955,113 @@ function updatePendingDocument(localId, patch) {
   const item = state.images.find((entry) => entry.localId === localId);
   if (!item) return null;
   Object.assign(item, patch);
+  rememberPendingDocument(item);
   renderImages();
   return item;
 }
 
+function pendingDocumentsStorageKey() {
+  const userId = state.me?.user?.id;
+  return userId ? `${PENDING_DOCUMENTS_STORAGE_PREFIX}:${userId}` : "";
+}
+
+function readPendingDocuments() {
+  const key = pendingDocumentsStorageKey();
+  if (!key) return [];
+  try {
+    const records = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingDocuments(records) {
+  const key = pendingDocumentsStorageKey();
+  if (!key) return;
+  if (records.length) localStorage.setItem(key, JSON.stringify(records));
+  else localStorage.removeItem(key);
+}
+
+function rememberPendingDocument(item) {
+  if (item?.category !== "document" || !item.attachmentId || item.status === "failed") return;
+  const records = readPendingDocuments().filter((record) => record.attachmentId !== item.attachmentId);
+  records.push({
+    attachmentId: item.attachmentId,
+    documentId: item.documentId || "",
+    fileName: item.file?.name || item.uploaded?.fileName || "Document",
+    contentType: item.file?.type || item.uploaded?.contentType || "application/octet-stream",
+    sizeBytes: Number(item.file?.size || item.uploaded?.sizeBytes || 0),
+    status: item.status || "processing",
+    progress: Number(item.progress || 0),
+    conversationId: state.activeConversationId || "",
+    savedAt: Date.now()
+  });
+  writePendingDocuments(records.slice(-10));
+}
+
+function forgetPendingDocument(item) {
+  const attachmentId = typeof item === "string" ? item : item?.attachmentId;
+  if (!attachmentId) return;
+  writePendingDocuments(readPendingDocuments().filter((record) => record.attachmentId !== attachmentId));
+}
+
+async function restorePendingDocuments() {
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+  const records = readPendingDocuments();
+  const currentConversationId = state.activeConversationId || "";
+  const keep = records.filter((record) => Number(record.savedAt || 0) >= cutoff);
+  writePendingDocuments(keep);
+  for (const record of keep.filter((entry) => (entry.conversationId || "") === currentConversationId)) {
+    if (state.images.some((item) => item.attachmentId === record.attachmentId)) continue;
+    const item = {
+      localId: `restored_${record.attachmentId}`,
+      file: {
+        name: record.fileName || "Document",
+        type: record.contentType || "application/octet-stream",
+        size: Number(record.sizeBytes || 0)
+      },
+      category: "document",
+      previewUrl: "",
+      status: record.status === "ready" ? "ready" : "processing",
+      progress: Number(record.progress || 8),
+      attachmentId: record.attachmentId,
+      documentId: record.documentId || "",
+      uploaded: {
+        id: record.attachmentId,
+        fileName: record.fileName || "Document",
+        contentType: record.contentType || "application/octet-stream",
+        sizeBytes: Number(record.sizeBytes || 0),
+        category: "document"
+      },
+      error: ""
+    };
+    state.images.push(item);
+    void pollUploadedDocument(item.localId, item.attachmentId).catch((error) => {
+      updatePendingDocument(item.localId, {
+        status: "failed",
+        progress: 0,
+        error: error?.message || "Document status could not be restored."
+      });
+      forgetPendingDocument(item);
+    });
+  }
+  renderImages();
+}
+
 async function pollUploadedDocument(localId, attachmentId) {
-  const deadline = Date.now() + 120000;
-  while (Date.now() < deadline) {
-    const payload = await fetchDocumentStatus(state.session, attachmentId);
+  let failedAttempts = 0;
+  while (state.session && state.images.some((entry) => entry.localId === localId)) {
+    let payload;
+    try {
+      payload = await fetchDocumentStatus(state.session, attachmentId);
+      failedAttempts = 0;
+    } catch (error) {
+      failedAttempts += 1;
+      if (failedAttempts >= 8) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(10000, 1000 * (2 ** failedAttempts))));
+      continue;
+    }
     const doc = payload.document || {};
     if (!state.images.some((entry) => entry.localId === localId)) return;
     updatePendingDocument(localId, {
@@ -2974,7 +3076,6 @@ async function pollUploadedDocument(localId, attachmentId) {
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
-  throw new Error("Document is still processing. Try again in a moment.");
 }
 
 async function startDocumentUpload(item) {
@@ -2987,6 +3088,7 @@ async function startDocumentUpload(item) {
     await putUploadContent(state.session, presigned, item.file, "document", { signal: controller.signal });
     const uploaded = await completeUpload(state.session, presigned.uploadId, { signal: controller.signal });
     if (!state.images.some((entry) => entry.localId === item.localId)) {
+      forgetPendingDocument(uploaded.id);
       await deleteAttachment(state.session, uploaded.id).catch(() => {});
       return;
     }
@@ -3008,6 +3110,7 @@ async function startDocumentUpload(item) {
       error: err.message || "Upload failed.",
       abortController: null
     });
+    forgetPendingDocument(item);
   }
 }
 
@@ -3541,7 +3644,10 @@ async function handleAuthenticatedSession(session) {
     await withTimeout(loadMe(), 8000, "Account load");
     await loadPaymentRequests();
     renderShell();
-    if (hasChatAccess()) await loadChatApp();
+    if (hasChatAccess()) {
+      await loadChatApp();
+      await restorePendingDocuments();
+    }
   } catch (err) {
     els.authNotice.textContent = err?.message || "Signed in, but your account could not be loaded.";
     showToast(els.authNotice.textContent);
@@ -3633,6 +3739,7 @@ function requireAuth() {
 function openNewChat({ replaceUrl = false } = {}) {
   state.activeConversationId = "";
   state.messages = [];
+  for (const item of state.images) forgetPendingDocument(item);
   state.images = [];
   state.pastedText = "";
   state.compareDescribeImages = false;
@@ -3811,19 +3918,16 @@ async function sendPrompt() {
 }
 
 async function waitForDocumentReady(attachmentId, fileName) {
-  const deadline = Date.now() + 120000;
-  let lastStatus = "";
-  while (Date.now() < deadline) {
+  while (state.session) {
     const payload = await fetchDocumentStatus(state.session, attachmentId);
     const doc = payload.document || {};
-    lastStatus = doc.status || "";
     if (doc.status === "ready") return doc;
     if (doc.status === "failed") {
       throw new Error(doc.error?.message || `${fileName || "Document"} could not be processed.`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
-  throw new Error(`${fileName || "Document"} is still processing. Try again in a moment.`);
+  throw new Error(`${fileName || "Document"} processing stopped because the session ended.`);
 }
 
 function autoSizeEditInput(input) {
@@ -4098,6 +4202,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   els.promptInput.value = "";
   state.pastedText = "";
   applyComposerHeight();
+  for (const item of images) forgetPendingDocument(item);
   state.images = [];
   renderImages();
 
@@ -4337,6 +4442,7 @@ async function bootstrap() {
       // model/conversation requests below so native startup feels immediate.
       if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
+      await restorePendingDocuments();
       const reportId = researchIdFromLocation();
       if (reportId) await researchController.openResearchReport(reportId, { push: false });
     }
@@ -5076,6 +5182,7 @@ function bindEvents() {
     if (removeBtn) {
       e.stopPropagation();
       const [removed] = state.images.splice(Number(removeBtn.dataset.removeIndex), 1);
+      forgetPendingDocument(removed);
       if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
       if (removed?.abortController) removed.abortController.abort();
       const deleteId = removed?.attachmentId || removed?.uploadId || "";

@@ -2,13 +2,16 @@ import base64
 import csv
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
@@ -16,6 +19,7 @@ import boto3
 import pdfplumber
 import requests
 import reportlab
+from botocore.config import Config as BotoConfig
 from charset_normalizer import from_path
 from docx import Document
 from docx.shared import Inches as DocxInches
@@ -38,13 +42,115 @@ def env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
+def env_int(name, default, minimum=None, maximum=None):
+    raw = env(name, str(default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = int(default)
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def env_float(name, default, minimum=None, maximum=None):
+    raw = env(name, str(default))
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = float(default)
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+def default_lease_heartbeat_seconds(lease_seconds):
+    lease = max(1, int(lease_seconds or 1))
+    return max(5.0, min(float(lease) / 3.0, 30.0))
+
+
+def is_retryable_http_status(status_code):
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return False
+    return code == 429 or code >= 500
+
+
+def retry_sleep_seconds(attempt, base=0.5, cap=20.0):
+    delay = min(cap, base * (2 ** max(0, attempt)))
+    return delay * (0.5 + random.random())
+
+
+def request_with_retries(method, url, *, max_attempts=3, timeout=30, retry_statuses=True, **kwargs):
+    attempts = max(1, int(max_attempts))
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            response = requests.request(method, url, timeout=timeout, **kwargs)
+            if (
+                retry_statuses
+                and not response.ok
+                and is_retryable_http_status(response.status_code)
+                and attempt + 1 < attempts
+            ):
+                time.sleep(retry_sleep_seconds(attempt))
+                continue
+            return response
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(retry_sleep_seconds(attempt))
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"request failed without response: {method} {url}")
+
+
+def split_page_ranges(page_count, worker_count):
+    total = max(0, int(page_count or 0))
+    workers = max(1, int(worker_count or 1))
+    if total <= 0:
+        return []
+    if workers <= 1 or total < workers * 2:
+        return [(1, total)]
+    workers = min(workers, total)
+    base, rem = divmod(total, workers)
+    ranges = []
+    start = 1
+    for index in range(workers):
+        size = base + (1 if index < rem else 0)
+        end = start + size - 1
+        ranges.append((start, end))
+        start = end + 1
+    return ranges
+
+
 NODE_ARTIFACT_GENERATOR = env("DOCUMENT_ARTIFACT_GENERATOR", str(Path(__file__).resolve().parent / "artifact_generator.mjs"))
 NODE_BIN = env("DOCUMENT_NODE_BIN", "node")
 USE_JS_ARTIFACT_GENERATOR = env("DOCUMENT_USE_JS_ARTIFACT_GENERATOR", "1").lower() not in ("0", "false", "no")
+HTTP_MAX_ATTEMPTS = env_int("DOCUMENT_HTTP_MAX_ATTEMPTS", 3, minimum=1, maximum=8)
+WORKER_CONCURRENCY_CAP = 8
+PDF_RENDER_WORKERS_CAP = 4
+JINA_BATCH_SIZE_CAP = 16
+JINA_BATCH_CONCURRENCY_CAP = 4
+PAGE_UPLOAD_WORKERS_CAP = 8
+
+
+class LeaseLostError(RuntimeError):
+    pass
 
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def lease_until_iso(lease_seconds):
+    return (datetime.now(timezone.utc) + timedelta(seconds=max(30, int(lease_seconds or 30)))).isoformat()
 
 
 def safe_name(value, fallback="document"):
@@ -261,6 +367,7 @@ class Supabase:
     def __init__(self):
         self.url = env("SUPABASE_URL").rstrip("/")
         self.key = env("SUPABASE_SERVICE_ROLE_KEY")
+        self.max_attempts = HTTP_MAX_ATTEMPTS
         if not self.url or not self.key:
             raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
 
@@ -274,14 +381,16 @@ class Supabase:
             headers["prefer"] = prefer
         return headers
 
-    def request(self, path, method="GET", params=None, body=None, prefer=None):
-        response = requests.request(
+    def request(self, path, method="GET", params=None, body=None, prefer=None, retryable=None):
+        can_retry = method.upper() in ("GET", "PATCH", "PUT", "DELETE") if retryable is None else bool(retryable)
+        response = request_with_retries(
             method,
             f"{self.url}/rest/v1/{path}",
+            max_attempts=self.max_attempts if can_retry else 1,
+            timeout=30,
             headers=self._headers(prefer),
             params={k: v for k, v in (params or {}).items() if v is not None and v != ""},
             data=json.dumps(body) if body is not None else None,
-            timeout=30,
         )
         if not response.ok:
             raise RuntimeError(f"Supabase {method} {path} failed: {response.status_code} {response.text}")
@@ -345,13 +454,25 @@ class Supabase:
         if not chunks:
             return
         for i in range(0, len(chunks), 250):
-            self.request("document_chunks", method="POST", body=chunks[i:i + 250], prefer="return=minimal")
+            self.request(
+                "document_chunks",
+                method="POST",
+                body=chunks[i:i + 250],
+                prefer="resolution=merge-duplicates,return=minimal",
+                retryable=True,
+            )
 
     def insert_pages(self, pages):
         if not pages:
             return
         for i in range(0, len(pages), 100):
-            self.request("document_pages", method="POST", body=pages[i:i + 100], prefer="return=minimal")
+            self.request(
+                "document_pages",
+                method="POST",
+                body=pages[i:i + 100],
+                prefer="resolution=merge-duplicates,return=minimal",
+                retryable=True,
+            )
 
     def update_job(self, job_id, patch, worker_id=None):
         params = {"id": f"eq.{job_id}"}
@@ -366,6 +487,24 @@ class Supabase:
         )
         return rows[0] if rows else None
 
+    def renew_job_lease(self, job_id, worker_id, lease_seconds):
+        """Extend lease_until only while the job is still running for this worker."""
+        rows = self.request(
+            "document_jobs",
+            method="PATCH",
+            params={
+                "id": f"eq.{job_id}",
+                "worker_id": f"eq.{worker_id}",
+                "status": "eq.running",
+            },
+            body={
+                "lease_until": lease_until_iso(lease_seconds),
+                "updated_at": now_iso(),
+            },
+            prefer="return=representation",
+        )
+        return rows[0] if rows else None
+
 
 class JinaEmbeddings:
     def __init__(self):
@@ -373,6 +512,11 @@ class JinaEmbeddings:
         self.model = env("DOCUMENT_VISUAL_EMBED_MODEL", "jina-embeddings-v5-omni-nano")
         self.dimensions = 768
         self.endpoint = env("JINA_EMBEDDINGS_URL", "https://api.jina.ai/v1/embeddings")
+        self.batch_size = env_int("DOCUMENT_JINA_BATCH_SIZE", 8, minimum=1, maximum=JINA_BATCH_SIZE_CAP)
+        self.batch_concurrency = env_int(
+            "DOCUMENT_JINA_BATCH_CONCURRENCY", 1, minimum=1, maximum=JINA_BATCH_CONCURRENCY_CAP
+        )
+        self.max_attempts = HTTP_MAX_ATTEMPTS
 
     @property
     def enabled(self):
@@ -386,48 +530,71 @@ class JinaEmbeddings:
             raise RuntimeError(f"unexpected_embedding_dimensions: got {len(floats)}, expected 768")
         return "[" + ",".join(f"{value:.8g}" for value in floats) + "]"
 
-    def embed_images(self, image_paths, batch_size=4):
+    def _embed_batch(self, batch):
+        inputs = []
+        for _, path in batch:
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            inputs.append({"bytes": encoded})
+
+        body = {
+            "model": self.model,
+            "normalized": True,
+            "embedding_type": "float",
+            "dimensions": self.dimensions,
+            "input": inputs,
+        }
+        response = request_with_retries(
+            "POST",
+            self.endpoint,
+            max_attempts=self.max_attempts,
+            timeout=120,
+            headers={
+                "authorization": f"Bearer {self.api_key}",
+                "content-type": "application/json",
+            },
+            data=json.dumps(body),
+        )
+        if not response.ok:
+            raise RuntimeError(f"Jina embeddings failed: {response.status_code} {response.text[:500]}")
+
+        data = response.json().get("data") or []
+        by_index = {int(item.get("index", index)): item.get("embedding") for index, item in enumerate(data)}
+        results = []
+        for index in range(len(batch)):
+            original_index = batch[index][0]
+            results.append((original_index, self._embedding_literal(by_index.get(index))))
+        return results
+
+    def embed_images(self, image_paths, batch_size=None, batch_concurrency=None):
         if not self.enabled or not image_paths:
             return [None for _ in image_paths]
 
+        size = max(1, min(int(batch_size or self.batch_size), JINA_BATCH_SIZE_CAP))
+        concurrency = max(1, min(int(batch_concurrency or self.batch_concurrency), JINA_BATCH_CONCURRENCY_CAP))
         embeddings = [None for _ in image_paths]
         indexed_paths = [
             (index, Path(path))
             for index, path in enumerate(image_paths)
             if Path(path).stat().st_size <= 5 * 1024 * 1024
         ]
-        for start in range(0, len(indexed_paths), batch_size):
-            batch = indexed_paths[start:start + batch_size]
-            inputs = []
-            for _, path in batch:
-                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-                inputs.append({"bytes": encoded})
+        batches = [
+            indexed_paths[start:start + size]
+            for start in range(0, len(indexed_paths), size)
+        ]
+        if not batches:
+            return embeddings
 
-            body = {
-                "model": self.model,
-                "normalized": True,
-                "embedding_type": "float",
-                "dimensions": self.dimensions,
-                "input": inputs,
-            }
-            response = requests.post(
-                self.endpoint,
-                headers={
-                    "authorization": f"Bearer {self.api_key}",
-                    "content-type": "application/json",
-                },
-                data=json.dumps(body),
-                timeout=120,
-            )
-            if not response.ok:
-                raise RuntimeError(f"Jina embeddings failed: {response.status_code} {response.text[:500]}")
+        if concurrency <= 1 or len(batches) == 1:
+            for batch in batches:
+                for original_index, literal in self._embed_batch(batch):
+                    embeddings[original_index] = literal
+            return embeddings
 
-            data = response.json().get("data") or []
-            by_index = {int(item.get("index", index)): item.get("embedding") for index, item in enumerate(data)}
-            for index in range(len(batch)):
-                original_index = batch[index][0]
-                embeddings[original_index] = self._embedding_literal(by_index.get(index))
-
+        with ThreadPoolExecutor(max_workers=min(concurrency, len(batches))) as pool:
+            futures = [pool.submit(self._embed_batch, batch) for batch in batches]
+            for future in as_completed(futures):
+                for original_index, literal in future.result():
+                    embeddings[original_index] = literal
         return embeddings
 
 
@@ -444,20 +611,23 @@ class R2:
             aws_access_key_id=env("R2_ACCESS_KEY_ID"),
             aws_secret_access_key=env("R2_SECRET_ACCESS_KEY"),
             region_name="auto",
+            config=BotoConfig(
+                retries={"mode": "adaptive", "max_attempts": max(3, HTTP_MAX_ATTEMPTS)},
+            ),
         )
 
     def download(self, key, path):
         self.client.download_file(self.bucket, key, str(path))
 
     def upload(self, key, path, content_type):
-        self.client.upload_file(
-            str(path),
-            self.bucket,
-            key,
-            ExtraArgs={"ContentType": content_type},
-        )
-        head = self.client.head_object(Bucket=self.bucket, Key=key)
-        return str(head.get("ETag", "")).strip('"')
+        with open(path, "rb") as handle:
+            response = self.client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=handle,
+                ContentType=content_type,
+            )
+        return str((response or {}).get("ETag", "")).strip('"')
 
 
 class Processor:
@@ -466,11 +636,24 @@ class Processor:
         self.r2 = R2()
         self.embeddings = JinaEmbeddings()
         self.worker_id = f"document-worker-{uuid.uuid4()}"
-        self.lease_seconds = int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000
+        self.lease_seconds = max(30, int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000)
         self.poll_seconds = float(env("DOCUMENT_WORKER_POLL_SECONDS", "1.5"))
         self.max_backoff_seconds = float(env("DOCUMENT_WORKER_MAX_BACKOFF_SECONDS", "30"))
+        self.heartbeat_seconds = env_float(
+            "DOCUMENT_LEASE_HEARTBEAT_SECONDS",
+            default_lease_heartbeat_seconds(self.lease_seconds),
+            minimum=1.0,
+        )
+        self.heartbeat_seconds = min(self.heartbeat_seconds, max(1.0, self.lease_seconds / 2.0))
+        self._lease_lost = None
         self.max_extracted_chars = int(env("DOCUMENT_MAX_EXTRACTED_CHARS", "500000"))
         self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "144"))
+        self.pdf_render_workers = env_int(
+            "DOCUMENT_PDF_RENDER_WORKERS", 2, minimum=1, maximum=PDF_RENDER_WORKERS_CAP
+        )
+        self.page_upload_workers = env_int(
+            "DOCUMENT_PAGE_UPLOAD_WORKERS", 4, minimum=1, maximum=PAGE_UPLOAD_WORKERS_CAP
+        )
         self.default_limits = {
             "max_pdf_pages": int(env("DOCUMENT_MAX_PDF_PAGES", "100")),
             "max_docx_words": int(env("DOCUMENT_MAX_DOCX_WORDS", "80000")),
@@ -507,34 +690,74 @@ class Processor:
                 print(f"worker loop error: {exc}", flush=True)
                 time.sleep(self.poll_seconds)
 
+    def _lease_heartbeat_loop(self, job_id, stop_event, lost_event):
+        last_renewed = time.monotonic()
+        while not stop_event.wait(self.heartbeat_seconds):
+            try:
+                renewed = self.db.renew_job_lease(job_id, self.worker_id, self.lease_seconds)
+                if not renewed:
+                    print(f"job {job_id} lease heartbeat skipped (not running for {self.worker_id})", flush=True)
+                    lost_event.set()
+                    return
+                last_renewed = time.monotonic()
+            except Exception as exc:
+                print(f"job {job_id} lease heartbeat failed: {exc}", flush=True)
+                safe_window = max(1.0, self.lease_seconds - self.heartbeat_seconds)
+                if time.monotonic() - last_renewed >= safe_window:
+                    print(f"job {job_id} stopped before its unrenewed lease could expire", flush=True)
+                    lost_event.set()
+                    return
+
     def handle_job(self, job):
         job_id = job["id"]
         tmp = Path(tempfile.mkdtemp(prefix=f"doc-job-{job_id}-"))
+        stop_heartbeat = threading.Event()
+        lease_lost = threading.Event()
+        self._lease_lost = lease_lost
+        heartbeat = threading.Thread(
+            target=self._lease_heartbeat_loop,
+            args=(job_id, stop_heartbeat, lease_lost),
+            name=f"lease-heartbeat-{job_id}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             output = self.dispatch(job, tmp)
-            self.db.update_job(job_id, {
+            self.assert_job_lease()
+            updated = self.db.update_job(job_id, {
                 "status": "succeeded",
                 "output": output,
                 "finished_at": now_iso(),
                 "lease_until": None,
             }, self.worker_id)
+            if not updated:
+                raise LeaseLostError("job_lease_lost")
+        except LeaseLostError as exc:
+            print(f"job {job_id} stopped after losing its lease: {exc}", flush=True)
         except Exception as exc:
             error = {"message": str(exc), "code": getattr(exc, "code", "worker_error")}
-            self.db.update_job(job_id, {
+            failed_job = self.db.update_job(job_id, {
                 "status": "failed",
                 "error": error,
                 "finished_at": now_iso(),
                 "lease_until": None,
             }, self.worker_id)
             doc_id = job.get("document_file_id")
-            if doc_id:
+            if failed_job and doc_id:
                 self.db.update_document_file(doc_id, {
                     "processing_status": "failed",
                     "error": error,
                 })
             print(f"job {job_id} failed: {exc}", flush=True)
         finally:
+            stop_heartbeat.set()
+            heartbeat.join(timeout=max(1.0, min(self.heartbeat_seconds, 5.0)))
+            self._lease_lost = None
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def assert_job_lease(self):
+        if self._lease_lost is not None and self._lease_lost.is_set():
+            raise LeaseLostError("job_lease_lost")
 
     def dispatch(self, job, tmp):
         job_type = job["job_type"]
@@ -553,6 +776,7 @@ class Processor:
         attachment = self.db.get_attachment(doc["attachment_id"])
         source = tmp / safe_name(attachment["file_name"])
         self.r2.download(attachment["object_key"], source)
+        self.assert_job_lease()
         limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
         if doc["kind"] == "pdf":
             return self.extract_pdf_visual_job(job, tmp, doc, attachment, source, limits)
@@ -566,9 +790,11 @@ class Processor:
         extraction_path.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
         extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
         self.r2.upload(extraction_key, extraction_path, "application/json")
+        self.assert_job_lease()
         self.db.delete_chunks(doc["id"])
         self.db.delete_pages(doc["id"])
         self.db.insert_chunks(chunks)
+        self.assert_job_lease()
         self.db.update_document_file(doc["id"], {
             "processing_status": "ready",
             "page_count": meta.get("page_count"),
@@ -583,6 +809,7 @@ class Processor:
         return {"document_file_id": doc["id"], "status": "ready", **meta}
 
     def extract_pdf_visual_job(self, job, tmp, doc, attachment, source, limits):
+        job_started = time.monotonic()
         self.db.update_document_file(doc["id"], {
             "processing_status": "processing",
             "metadata": {
@@ -603,10 +830,16 @@ class Processor:
         if page_count > max_pages:
             raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
 
-        text_by_page = self.extract_pdf_page_text(source, page_count)
         render_dir = tmp / "pages"
         render_dir.mkdir(parents=True, exist_ok=True)
-        image_paths = self.render_pdf_pages(source, render_dir, self.limit(limits, "visual_page_dpi", self.visual_page_dpi))
+        render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
+        extract_started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            text_future = pool.submit(self.extract_pdf_page_text, source, page_count)
+            render_future = pool.submit(self.render_pdf_pages, source, render_dir, render_dpi, page_count)
+            text_by_page = text_future.result()
+            image_paths = render_future.result()
+        extract_seconds = time.monotonic() - extract_started
         if len(image_paths) < page_count:
             raise RuntimeError(f"pdf_render_failed: expected {page_count} pages, rendered {len(image_paths)}")
 
@@ -621,56 +854,89 @@ class Processor:
         })
 
         warnings = []
+        embedding_started = time.monotonic()
         try:
             embeddings = self.embeddings.embed_images(image_paths[:page_count]) if self.embeddings.enabled else [None] * page_count
         except Exception as exc:
             warnings.append({"code": "embedding_failed", "message": str(exc)})
             embeddings = [None] * page_count
+        embedding_seconds = time.monotonic() - embedding_started
 
-        pages = []
+        if not self.db.get_document_file(doc["id"]):
+            raise RuntimeError("document_deleted")
+        self.assert_job_lease()
+
+        page_specs = []
         total_words = 0
         for index, image_path in enumerate(image_paths[:page_count], start=1):
-            if not self.db.get_document_file(doc["id"]):
-                raise RuntimeError("document_deleted")
             page = reader.pages[index - 1]
             text = text_by_page.get(index, "")
             total_words += len(text.split())
             key = f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{index:04d}.jpg"
-            self.r2.upload(key, image_path, "image/jpeg")
             width_px, height_px = self.estimated_page_pixels(page)
+            page_specs.append({
+                "index": index,
+                "image_path": image_path,
+                "key": key,
+                "text": text,
+                "width_px": width_px,
+                "height_px": height_px,
+                "embedding": embeddings[index - 1],
+            })
+
+        def upload_page(spec):
+            self.r2.upload(spec["key"], spec["image_path"], "image/jpeg")
+            return spec["index"]
+
+        upload_started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=min(self.page_upload_workers, max(1, page_count))) as pool:
+            futures = [pool.submit(upload_page, spec) for spec in page_specs]
+            done_indexes = set()
+            for future in as_completed(futures):
+                index = future.result()
+                done_indexes.add(index)
+                completed = len(done_indexes)
+                if completed == page_count or completed % 5 == 0:
+                    self.assert_job_lease()
+                    if not self.db.get_document_file(doc["id"]):
+                        raise RuntimeError("document_deleted")
+                    progress = 35 + int((completed / max(1, page_count)) * 55)
+                    self.db.update_document_file(doc["id"], {
+                        "metadata": {
+                            "mode": "visual_pages",
+                            "progress": min(progress, 95),
+                            "stage": "uploading_pages",
+                            "page_count": page_count,
+                            "pages_uploaded": completed,
+                            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+                            "warnings": warnings,
+                        },
+                    })
+        upload_seconds = time.monotonic() - upload_started
+
+        pages = []
+        for spec in page_specs:
+            text = spec["text"]
             pages.append({
                 "user_id": doc["user_id"],
                 "document_file_id": doc["id"],
-                "page_number": index,
-                "source_label": f"Page {index}",
-                "image_key": key,
+                "page_number": spec["index"],
+                "source_label": f"Page {spec['index']}",
+                "image_key": spec["key"],
                 "image_content_type": "image/jpeg",
-                "width_px": width_px,
-                "height_px": height_px,
+                "width_px": spec["width_px"],
+                "height_px": spec["height_px"],
                 "text": truncate(text, 12000),
                 "char_count": len(text),
                 "token_estimate": max(1, len(text) // 4) if text else 0,
-                "embedding": embeddings[index - 1],
-                "embedding_model": self.embeddings.model if embeddings[index - 1] else None,
-                "embedding_dimensions": 768 if embeddings[index - 1] else None,
+                "embedding": spec["embedding"],
+                "embedding_model": self.embeddings.model if spec["embedding"] else None,
+                "embedding_dimensions": 768 if spec["embedding"] else None,
                 "metadata": {
-                    "page": index,
+                    "page": spec["index"],
                     "source_etag": attachment.get("etag"),
                 },
             })
-            if index == page_count or index % 5 == 0:
-                progress = 35 + int((index / max(1, page_count)) * 55)
-                self.db.update_document_file(doc["id"], {
-                    "metadata": {
-                        "mode": "visual_pages",
-                        "progress": min(progress, 95),
-                        "stage": "uploading_pages",
-                        "page_count": page_count,
-                        "pages_uploaded": index,
-                        "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-                        "warnings": warnings,
-                    },
-                })
 
         manifest = {
             "metadata": {
@@ -698,9 +964,11 @@ class Processor:
         extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.visual-pages.json")
         self.r2.upload(extraction_key, extraction_path, "application/json")
 
+        self.assert_job_lease()
         self.db.delete_chunks(doc["id"])
         self.db.delete_pages(doc["id"])
         self.db.insert_pages(pages)
+        self.assert_job_lease()
 
         meta = {
             "mode": "visual_pages",
@@ -721,6 +989,12 @@ class Processor:
             "metadata": meta,
             "error": None,
         })
+        print(
+            f"job {job['id']} PDF timings pages={page_count} "
+            f"extract_render={extract_seconds:.2f}s embeddings={embedding_seconds:.2f}s "
+            f"page_uploads={upload_seconds:.2f}s total={time.monotonic() - job_started:.2f}s",
+            flush=True,
+        )
         return {"document_file_id": doc["id"], "status": "ready", **meta}
 
     def limit(self, limits, key, fallback):
@@ -790,24 +1064,40 @@ class Processor:
             print(f"pdf text layer extraction failed: {exc}", flush=True)
         return text_by_page
 
-    def render_pdf_pages(self, path, output_dir, dpi=None):
+    def render_pdf_pages(self, path, output_dir, dpi=None, page_count=None):
         prefix = output_dir / "page"
         render_dpi = max(72, min(int(dpi or self.visual_page_dpi), 180))
-        subprocess.run(
-            [
+        ranges = split_page_ranges(page_count, self.pdf_render_workers) if page_count else []
+
+        def run_pdftoppm(first=None, last=None):
+            cmd = [
                 "pdftoppm",
                 "-jpeg",
                 "-jpegopt",
                 "quality=85",
                 "-r",
                 str(render_dpi),
-                str(path),
-                str(prefix),
-            ],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+            ]
+            if first is not None and last is not None:
+                cmd.extend(["-f", str(first), "-l", str(last)])
+            cmd.extend([str(path), str(prefix)])
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        if len(ranges) <= 1:
+            if ranges:
+                run_pdftoppm(ranges[0][0], ranges[0][1])
+            else:
+                run_pdftoppm()
+        else:
+            with ThreadPoolExecutor(max_workers=len(ranges)) as pool:
+                futures = [pool.submit(run_pdftoppm, first, last) for first, last in ranges]
+                for future in as_completed(futures):
+                    future.result()
 
         def page_number(file_path):
             match = re.search(r"-(\d+)\.jpe?g$", file_path.name, re.I)
@@ -1673,5 +1963,26 @@ class Processor:
         }
 
 
+def worker_concurrency():
+    return env_int("DOCUMENT_WORKER_CONCURRENCY", 1, minimum=1, maximum=WORKER_CONCURRENCY_CAP)
+
+
+def main():
+    concurrency = worker_concurrency()
+    if concurrency <= 1:
+        Processor().run()
+        return
+
+    print(f"starting {concurrency} document worker loops", flush=True)
+    threads = []
+    for _ in range(concurrency):
+        processor = Processor()
+        thread = threading.Thread(target=processor.run, name=processor.worker_id, daemon=True)
+        thread.start()
+        threads.append(thread)
+    for thread in threads:
+        thread.join()
+
+
 if __name__ == "__main__":
-    Processor().run()
+    main()

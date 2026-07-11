@@ -906,8 +906,8 @@ through the database.
 
 ### `if __name__ == "__main__": main()` (entry)
 - **Path**: `worker/worker.py`
-- **Responsibility**: `python -m worker.worker` boots a single
-  `Processor` and calls `Processor.run` in a forever loop.
+- **Responsibility**: `python -m worker.worker` boots one or more independent
+  `Processor` loops, bounded by `DOCUMENT_WORKER_CONCURRENCY`.
 - **Callers**: `Dockerfile` `CMD`.
 - **Major dependencies**: `Processor`.
 
@@ -918,14 +918,15 @@ through the database.
     (`JinaEmbeddings`); reads `DOCUMENT_JOB_TIMEOUT_MS` (divided by
     1000 to set `lease_seconds`), `DOCUMENT_WORKER_POLL_SECONDS`,
     `DOCUMENT_WORKER_MAX_BACKOFF_SECONDS`, `DOCUMENT_MAX_EXTRACTED_CHARS`,
-    `DOCUMENT_VISUAL_PAGE_DPI`, plus the per-kind `DOCUMENT_MAX_*`
-    limits.
+    `DOCUMENT_VISUAL_PAGE_DPI`, heartbeat, render, Jina batch, and page-upload
+    concurrency knobs, plus the per-kind `DOCUMENT_MAX_*` limits.
   - `object_key(user_id, file_name)` — `users/{user_id}/{uuid}/{safe_name}`.
   - `run` — claims jobs in a forever loop. On
     `requests.exceptions.RequestException` it backs off with
     exponential delay up to `max_backoff_seconds` (the
     `claim_failures` counter resets on success).
-  - `handle_job(job)` — creates a temp dir, dispatches, then
+  - `handle_job(job)` — creates a temp dir, renews the owned job lease in a
+    heartbeat thread, dispatches, then
     updates the job to `succeeded` (with `output`) or `failed` (with
     `error`) and updates the document file to `failed` on
     exception. Cleans up the temp dir in `finally`.
@@ -938,10 +939,10 @@ through the database.
     "ready"` (with `page_count`, `word_count`, etc.).
   - `extract_pdf_visual_job(job, tmp, doc, attachment, source, limits)`
     — the PDF path. Decrypts via `pypdf`, renders each page with
-    `pdfplumber` + a renderer to JPEG at `visual_page_dpi`, uploads
-    each page image to R2, embeds via `JinaEmbeddings` (when
-    enabled), and writes a `document_pages` row per page. Updates
-    `document_files.metadata.progress` every 5 pages.
+    `pdfplumber` + bounded parallel Poppler ranges to JPEG at
+    `visual_page_dpi`, uploads page images through a bounded R2 pool,
+    embeds via `JinaEmbeddings` (when enabled), and writes a
+    `document_pages` row per page. Updates progress every 5 completed pages.
   - `limit(limits, key, fallback)` / `cap_chunks(chunks, limits)` —
     apply the per-job limits object (set from
     `job.input.limits` plus `default_limits`).
@@ -950,8 +951,8 @@ through the database.
     `extract_csv` — kind-specific extraction. Returns `(chunks,
     meta)` where chunks are per-document record rows and `meta`
     is the document manifest.
-  - `extract_pdf_page_text`, `render_pdf_pages` — page-text via
-    `pdfplumber`, page images via `pdf2image` / `poppler`.
+  - `extract_pdf_page_text`, `render_pdf_pages` — page text via
+    `pdfplumber`, page images via bounded `pdftoppm` subprocesses.
   - `estimated_page_pixels(page)` — derives `width_px` /
     `height_px` for the page image.
   - `chunk(user_id, document_file_id, index, source_type, label, text, metadata)` —
@@ -989,7 +990,7 @@ through the database.
   `klui_claim_document_job`), `get_attachment`, `get_document_file`,
   `update_document_file`, `create_attachment`, `create_document_file`,
   `delete_chunks`, `delete_pages`, `insert_chunks`, `insert_pages`,
-  `update_job`.
+  `update_job`, `renew_job_lease`.
 - **Callers**: `Processor`.
 - **Major dependencies**: `requests`.
 
@@ -1000,7 +1001,8 @@ through the database.
   `jina-embeddings-v5-omni-nano`, 768 dimensions, normalised,
   `embedding_type: "float"`). `enabled` is false when
   `JINA_API_KEY` is not set, in which case the worker still
-  produces the page rows but with `embedding = NULL`.
+  produces the page rows but with `embedding = NULL`. Inputs are grouped into
+  configurable bounded batches while preserving page order.
 - **Callers**: `Processor.extract_pdf_visual_job`.
 - **Major dependencies**: `requests`.
 
@@ -1008,7 +1010,9 @@ through the database.
 - **Path**: `worker/worker.py`
 - **Responsibility**: Thin `boto3` client wrapper. Methods:
   `__init__` (creates the boto3 S3 client with the Cloudflare R2
-  endpoint), `download(key, path)`, `upload(key, path, content_type)`.
+  endpoint and adaptive retries), `download(key, path)`,
+  `upload(key, path, content_type)`. Upload returns the PUT response ETag
+  without a follow-up HEAD request.
 - **Callers**: `Processor`.
 - **Major dependencies**: `boto3`.
 

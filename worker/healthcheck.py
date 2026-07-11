@@ -3,7 +3,7 @@ import sys
 
 
 def main():
-    for binary in ("soffice", "pdftotext", "qpdf"):
+    for binary in ("soffice", "pdftotext", "pdftoppm", "qpdf"):
         if shutil.which(binary) is None:
             return 1
     return 0

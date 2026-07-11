@@ -16,58 +16,18 @@ export function documentKindFromUpload({ fileName, contentType }) {
   return "";
 }
 
-async function queueDocumentExtraction({ context, attachment, config, signal }) {
-  if (!configuredServices(config).documents) return null;
-  const kind = documentKindFromUpload({
-    fileName: attachment.file_name,
-    contentType: attachment.content_type
-  });
-  if (!kind) return null;
-
-  const documentFile = await context.db.createDocumentFile({
-    attachment_id: attachment.id,
-    user_id: context.user.id,
-    conversation_id: attachment.conversation_id || null,
-    message_id: attachment.message_id || null,
-    kind,
-    source: "upload",
-    source_etag: attachment.etag || null,
-    processing_status: "pending",
-    metadata: {
-      file_name: attachment.file_name,
-      content_type: attachment.content_type,
-      size_bytes: attachment.size_bytes
-    }
-  }, { signal });
-
-  await context.db.createDocumentJob({
-    user_id: context.user.id,
-    document_file_id: documentFile.id,
-    conversation_id: attachment.conversation_id || null,
-    message_id: attachment.message_id || null,
-    job_type: `document.extract.${kind}`,
-    input: {
-      attachment_id: attachment.id,
-      object_key: attachment.object_key,
-      file_name: attachment.file_name,
-      content_type: attachment.content_type,
-      size_bytes: attachment.size_bytes,
-      etag: attachment.etag || null,
-      limits: {
-        max_file_bytes: config.documents.maxFileBytes,
-        max_pdf_pages: config.documents.maxPdfPages,
-        max_docx_words: config.documents.maxDocxWords,
-        max_xlsx_sheets: config.documents.maxXlsxSheets,
-        max_xlsx_cells: config.documents.maxXlsxCells,
-        max_csv_rows: config.documents.maxCsvRows,
-        max_csv_columns: config.documents.maxCsvColumns,
-        max_extracted_chars: config.documents.maxExtractedChars,
-        visual_page_dpi: config.documents.visualPageDpi
-      }
-    }
-  }, { signal });
-
-  return documentFile;
+function documentExtractionLimits(config) {
+  return {
+    max_file_bytes: config.documents.maxFileBytes,
+    max_pdf_pages: config.documents.maxPdfPages,
+    max_docx_words: config.documents.maxDocxWords,
+    max_xlsx_sheets: config.documents.maxXlsxSheets,
+    max_xlsx_cells: config.documents.maxXlsxCells,
+    max_csv_rows: config.documents.maxCsvRows,
+    max_csv_columns: config.documents.maxCsvColumns,
+    max_extracted_chars: config.documents.maxExtractedChars,
+    visual_page_dpi: config.documents.visualPageDpi
+  };
 }
 
 export async function handlePresignUpload(req, res, config) {
@@ -159,7 +119,7 @@ export async function handleCompleteUpload(req, res, config) {
   const body = await parseJsonBody(req);
   const attachment = await context.db.getAttachment(context.user.id, body.uploadId, { signal: req.signal });
   if (!attachment) throw new HttpError(404, "Upload not found.");
-  if (attachment.status !== "pending") throw new HttpError(400, "Upload was already completed.");
+  if (!["pending", "uploaded"].includes(attachment.status)) throw new HttpError(400, "Upload cannot be completed.");
 
   const head = await context.r2.headObject(attachment.object_key, { signal: req.signal });
   const category = attachment.category || "image";
@@ -173,14 +133,31 @@ export async function handleCompleteUpload(req, res, config) {
     maxDocumentBytes: config.documents.maxFileBytes
   });
 
-  const completed = await context.db.completeAttachment(context.user.id, attachment.id, {
-    size_bytes: head.sizeBytes || attachment.size_bytes,
-    etag: head.etag || null
-  }, { signal: req.signal });
-
-  const documentFile = category === "document"
-    ? await queueDocumentExtraction({ context, attachment: completed, config, signal: req.signal })
-    : null;
+  let completed = attachment;
+  let documentFile = null;
+  if (category === "document") {
+    const kind = documentKindFromUpload({
+      fileName: attachment.file_name,
+      contentType: attachment.content_type
+    });
+    if (!kind) throw new HttpError(400, "Unsupported document type.");
+    const result = await context.db.completeDocumentUpload({
+      userId: context.user.id,
+      attachmentId: attachment.id,
+      sizeBytes: head.sizeBytes || attachment.size_bytes,
+      etag: head.etag || attachment.etag || null,
+      kind,
+      limits: documentExtractionLimits(config)
+    }, { signal: req.signal });
+    completed = result?.attachment;
+    documentFile = result?.document_file;
+    if (!completed || !documentFile) throw new HttpError(500, "Document upload could not be queued.");
+  } else if (attachment.status === "pending") {
+    completed = await context.db.completeAttachment(context.user.id, attachment.id, {
+      size_bytes: head.sizeBytes || attachment.size_bytes,
+      etag: head.etag || null
+    }, { signal: req.signal });
+  }
 
   sendJson(res, 200, {
     id: completed.id,
