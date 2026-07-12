@@ -251,6 +251,17 @@ test("adding uploads preserves an existing composer draft", async () => {
   assert.match(source, /renderImages\(\);\s*els\.promptInput\.value = draft;\s*applyComposerHeight\(\)/);
 });
 
+test("document enrichment cannot reactivate the composer progress ring", async () => {
+  const appJs = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+
+  assert.match(appJs, /status: doc\.usable \? "ready" : "processing"/);
+  assert.match(appJs, /progress: doc\.usable \? 100/);
+  assert.match(appJs, /if \(doc\.usable\) \{[\s\S]*?forgetPendingDocument\(attachmentId\);[\s\S]*?return;/);
+  assert.doesNotMatch(appJs, /img\.status !== "ready" \|\| img\.enriching/);
+});
+
 test("sent images can open in the existing lightbox", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/render.js", import.meta.url), "utf8")

@@ -2926,7 +2926,6 @@ function pendingDocumentLabel(item) {
   if (item.status === "failed") return item.error || "Failed";
   if (item.status === "uploading") return "Uploading";
   if (item.status === "processing") return `${Math.max(1, Math.min(99, Math.round(item.progress || 10)))}%`;
-  if (item.enriching) return item.stage || "Preparing page images";
   return "Queued";
 }
 
@@ -2943,7 +2942,7 @@ function renderImages() {
     <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
         ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
-        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" || img.enriching ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
+        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
       <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
     </div>
   `).join("");
@@ -3054,6 +3053,7 @@ async function restorePendingDocuments() {
       error: ""
     };
     state.images.push(item);
+    if (item.status === "ready") continue;
     void pollUploadedDocument(item.localId, item.attachmentId).catch((error) => {
       updatePendingDocument(item.localId, {
         status: "failed",
@@ -3083,8 +3083,7 @@ async function pollUploadedDocument(localId, attachmentId) {
     if (!state.images.some((entry) => entry.localId === localId)) return;
     updatePendingDocument(localId, {
       status: doc.usable ? "ready" : "processing",
-      enriching: Boolean(doc.usable && doc.status !== "ready"),
-      progress: doc.status === "ready" ? 100 : Math.max(8, Number(doc.progress || 15)),
+      progress: doc.usable ? 100 : Math.max(8, Number(doc.progress || 15)),
       stage: doc.stage || "",
       textReadyAt: doc.textReadyAt || null,
       visualReadyAt: doc.visualReadyAt || null,
@@ -3092,7 +3091,10 @@ async function pollUploadedDocument(localId, attachmentId) {
       documentId: doc.id || "",
       error: doc.error?.message || ""
     });
-    if (doc.status === "ready") return;
+    if (doc.usable) {
+      forgetPendingDocument(attachmentId);
+      return;
+    }
     if (doc.status === "failed" && !doc.usable) {
       throw new Error(doc.error?.message || "Document could not be processed.");
     }
