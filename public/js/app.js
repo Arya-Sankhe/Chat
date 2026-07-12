@@ -1653,6 +1653,11 @@ function toggleConversationMenu(conversationId, button) {
 async function openConversation(conversationId) {
   if (!conversationId) return;
   if (blockChatNavigationWhileRunning()) return;
+  if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+    showToast("Wait for the document upload to finish before switching chats.");
+    return;
+  }
+  state.images = state.images.filter((item) => item.category !== "document");
   state.temporaryChat = false;
   state.activeConversationId = conversationId;
   clearFollowUps();
@@ -1665,7 +1670,9 @@ async function openConversation(conversationId) {
   closeConversationMenus();
   try {
     await loadActiveConversation();
+    await restorePendingDocuments();
     syncConversationUrl();
+    renderImages();
     renderShell();
   } catch (err) {
     showToast(err.message);
@@ -3092,7 +3099,6 @@ async function pollUploadedDocument(localId, attachmentId) {
       error: doc.error?.message || ""
     });
     if (doc.usable) {
-      forgetPendingDocument(attachmentId);
       return;
     }
     if (doc.status === "failed" && !doc.usable) {
@@ -3898,9 +3904,12 @@ function requireAuth() {
 
 function openNewChat({ replaceUrl = false } = {}) {
   if (blockChatNavigationWhileRunning()) return;
+  if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+    showToast("Wait for the document upload to finish before switching chats.");
+    return;
+  }
   state.activeConversationId = "";
   state.messages = [];
-  for (const item of state.images) forgetPendingDocument(item);
   state.images = [];
   state.pastedText = "";
   state.compareDescribeImages = false;
@@ -3912,6 +3921,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   closePinnedPopup();
   closeConversationMenus();
   renderImages();
+  void restorePendingDocuments();
   syncConversationUrl({ replace: replaceUrl });
   renderShell();
   els.promptInput?.focus();

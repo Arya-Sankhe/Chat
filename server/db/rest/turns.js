@@ -146,3 +146,19 @@ export async function upsertTurnOutputMessage(client, message, { signal } = {}) 
   });
   return single(existing);
 }
+
+export async function updatePendingTurnOutput(client, {
+  userId,
+  turnId,
+  claimToken,
+  messageId,
+  patch
+}, { signal } = {}) {
+  return client.rpc("klui_update_pending_turn_output", {
+    p_user_id: userId,
+    p_turn_id: turnId,
+    p_claim_token: claimToken,
+    p_message_id: messageId,
+    p_patch: patch
+  }, { signal });
+}

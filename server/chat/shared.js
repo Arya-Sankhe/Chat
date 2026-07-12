@@ -59,6 +59,7 @@ export function startSse(res, headers = {}) {
     "x-accel-buffering": "no",
     ...headers
   });
+  res.flushHeaders?.();
 }
 
 export function createAssistantOutputMessage(context, row, { signal, turnRun = null, outputSlot = "" } = {}) {
@@ -68,6 +69,24 @@ export function createAssistantOutputMessage(context, row, { signal, turnRun = n
     turn_run_id: turnRun.id,
     output_slot: outputSlot
   }, { signal });
+}
+
+export async function updateAssistantOutputMessage(
+  context,
+  messageId,
+  patch,
+  { signal, turnRun = null } = {}
+) {
+  if (!turnRun?.id) return context.db.updateMessage(context.user.id, messageId, patch, { signal });
+  const updated = await context.db.updatePendingTurnOutput({
+    userId: context.user.id,
+    turnId: turnRun.id,
+    claimToken: turnRun.claim_token,
+    messageId,
+    patch
+  }, { signal });
+  if (!updated) throw new Error("The pending turn lease expired before its output could be saved.");
+  return updated;
 }
 
 export function hasAssistantOutput(accumulated, artifacts = []) {

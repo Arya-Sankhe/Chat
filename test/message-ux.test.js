@@ -106,3 +106,14 @@ test("temporary chat toggle only shows on empty home or active temp chat", () =>
     "APK rule must keep the toggle visible during an active temp chat"
   );
 });
+
+test("conversation switches restore only that chat's pending documents", () => {
+  const appJs = readPublic("js/app.js");
+  const open = appJs.match(/async function openConversation\(conversationId\)\s*\{[\s\S]*?\n\}/);
+  const poll = appJs.match(/async function pollUploadedDocument\(localId, attachmentId\)\s*\{[\s\S]*?\n\}/);
+  assert.ok(open, "openConversation not found");
+  assert.ok(poll, "pollUploadedDocument not found");
+  assert.match(open[0], /state\.images = state\.images\.filter\(\(item\) => item\.category !== "document"\)/);
+  assert.match(open[0], /await restorePendingDocuments\(\)/);
+  assert.doesNotMatch(poll[0], /if \(doc\.usable\) \{\s*forgetPendingDocument/);
+});

@@ -13,6 +13,7 @@ import {
   sharedWebsearchMetadata,
   createAssistantOutputMessage,
   startSse,
+  updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
 
@@ -118,14 +119,14 @@ export async function handleCompareConversationMessage({
       }
 
       const compareDurationMeta = reasoningDurationMetadata(assistantMessage.metadata, accumulated);
-      await context.db.updateMessage(context.user.id, assistantMessage.id, {
+      await updateAssistantOutputMessage(context, assistantMessage.id, {
         content: accumulated.content,
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
         error: null,
         ...(compareDurationMeta ? { metadata: compareDurationMeta } : {})
-      }, { signal: req.signal });
+      }, { signal: req.signal, turnRun });
 
       writeSse(res, { type: "done", index, model: chatRequest.model });
     } catch (error) {
@@ -134,14 +135,14 @@ export async function handleCompareConversationMessage({
       const partial = aborted ? error.partial : null;
       /* Drop req.signal on abort so the partial write is not cancelled by
          the already-aborted client request signal. */
-      await context.db.updateMessage(context.user.id, assistantMessage.id, {
+      await updateAssistantOutputMessage(context, assistantMessage.id, {
         ...(aborted ? {
           content: partial?.content || "",
           reasoning: partial?.reasoning || ""
         } : {}),
         error: message,
         finish_reason: "error"
-      }, aborted ? {} : { signal: req.signal }).catch(() => {});
+      }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
       writeSse(res, { type: "error", index, model: chatRequest.model, error: message });
     }
   }));

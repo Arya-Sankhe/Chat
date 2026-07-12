@@ -281,6 +281,32 @@ test("submitDocumentTurn sends one atomic pending-turn RPC payload", async () =>
   });
 });
 
+test("updatePendingTurnOutput sends the active claim fence with its patch", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_update_pending_turn_output");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_turn_id: "turn_1",
+      p_claim_token: "claim_1",
+      p_message_id: "message_1",
+      p_patch: { content: "Done", error: null }
+    });
+    return jsonResponse({ id: "message_1", content: "Done" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.updatePendingTurnOutput({
+      userId: "user_1",
+      turnId: "turn_1",
+      claimToken: "claim_1",
+      messageId: "message_1",
+      patch: { content: "Done", error: null }
+    });
+    assert.equal(result.content, "Done");
+  });
+});
+
 test("upsertTurnOutputMessage creates an output slot without overwriting an existing row", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     const parsed = new URL(url);

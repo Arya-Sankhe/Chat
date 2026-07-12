@@ -60,6 +60,7 @@ import {
   createAssistantOutputMessage,
   hasAssistantOutput,
   startSse,
+  updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
 import { streamSingleChat } from "./single.js";
@@ -1216,14 +1217,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
     };
 
     const finalMetadata = reasoningDurationMetadata(metadataPatch, accumulated);
-    await context.db.updateMessage(context.user.id, assistantMessage.id, {
+    await updateAssistantOutputMessage(context, assistantMessage.id, {
       content: accumulated.content,
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
       error: null,
       ...(finalMetadata ? { metadata: finalMetadata } : {})
-    }, { signal: req.signal });
+    }, { signal: req.signal, turnRun });
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }
@@ -1237,14 +1238,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
     /* Drop req.signal on abort: installStableRequestSignal aborts it on
        client disconnect, and updateMessage would otherwise reject before
        the partial row can be written. */
-    await context.db.updateMessage(context.user.id, assistantMessage.id, {
+    await updateAssistantOutputMessage(context, assistantMessage.id, {
       ...(aborted ? {
         content: partial?.content || "",
         reasoning: partial?.reasoning || ""
       } : {}),
       error: message,
       finish_reason: "error"
-    }, aborted ? {} : { signal: req.signal }).catch(() => {});
+    }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
     if (res.headersSent) {
       writeSse(res, { type: "error", error: message });
       if (!turnRun?.id) res.end();
@@ -1439,6 +1440,11 @@ async function settleInterruptedTurn(context, run, error, { failed = false } = {
 }
 
 async function streamPersistedDocumentTurn({ req, res, config, context, conversation, run, userMessage }) {
+  startSse(res, {
+    "x-klui-user-message-id": userMessage.id,
+    "x-klui-turn-run-id": run.id
+  });
+
   const requestPayload = run.request_payload || {};
   const attachments = await loadUploadedAttachments(
     context,
@@ -1458,10 +1464,6 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
       attachmentIds: documentAttachmentIds,
       signal: req.signal,
       onProgress: (documents) => {
-        startSse(res, {
-          "x-klui-user-message-id": userMessage.id,
-          "x-klui-turn-run-id": run.id
-        });
         writeSse(res, { type: "turn:waiting", turnRunId: run.id, documents });
       }
     });

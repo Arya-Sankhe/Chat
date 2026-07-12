@@ -4,6 +4,7 @@ import test from "node:test";
 
 const migrationPath = new URL("../supabase/migrations/2026_07_11_rev3_document_pipeline.sql", import.meta.url);
 const officeVisualMigrationPath = new URL("../supabase/migrations/20260712215913_add_office_visual_enrichment.sql", import.meta.url);
+const outputFenceMigrationPath = new URL("../supabase/migrations/20260712231330_fence_pending_turn_output_writes.sql", import.meta.url);
 const schemaPath = new URL("../supabase/schema.sql", import.meta.url);
 
 function functionBlock(sql, name) {
@@ -12,6 +13,16 @@ function functionBlock(sql, name) {
   const end = sql.indexOf("\nrevoke all on function", start);
   assert.notEqual(end, -1, `${name} must have a grant boundary`);
   return sql.slice(start, end);
+}
+
+for (const [label, path] of [["output fence migration", outputFenceMigrationPath], ["schema", schemaPath]]) {
+  test(`${label} fences assistant output writes to the active turn lease`, () => {
+    const sql = readFileSync(path, "utf8");
+    const update = latestFunctionBlock(sql, "klui_update_pending_turn_output");
+    assert.match(update, /m\.turn_run_id = p_turn_id/);
+    assert.match(update, /t\.claim_token = p_claim_token/);
+    assert.match(update, /t\.lease_until >= now\(\)/);
+  });
 }
 
 function latestFunctionBlock(sql, name) {

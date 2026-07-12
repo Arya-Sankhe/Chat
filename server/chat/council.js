@@ -20,6 +20,7 @@ import {
   sharedWebsearchMetadata,
   createAssistantOutputMessage,
   startSse,
+  updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
 
@@ -143,14 +144,14 @@ export async function handleCouncilConversationMessage({
       entry.accumulated = accumulated;
 
       const durationMeta = reasoningDurationMetadata(entry.message.metadata, accumulated);
-      await context.db.updateMessage(context.user.id, entry.message.id, {
+      await updateAssistantOutputMessage(context, entry.message.id, {
         content: accumulated.content,
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
         error: null,
         ...(durationMeta ? { metadata: durationMeta } : {})
-      }, { signal: req.signal });
+      }, { signal: req.signal, turnRun });
 
       writeSse(res, { type: "done", index, model: entry.chatRequest.model });
     } catch (error) {
@@ -159,14 +160,14 @@ export async function handleCouncilConversationMessage({
       const partial = aborted ? error.partial : null;
       entry.error = message;
       if (aborted && partial) entry.accumulated = partial;
-      await context.db.updateMessage(context.user.id, entry.message.id, {
+      await updateAssistantOutputMessage(context, entry.message.id, {
         ...(aborted ? {
           content: partial?.content || "",
           reasoning: partial?.reasoning || ""
         } : {}),
         error: message,
         finish_reason: "error"
-      }, aborted ? {} : { signal: req.signal }).catch(() => {});
+      }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
       writeSse(res, { type: "error", index, model: entry.chatRequest.model, error: message });
     }
   }));
@@ -218,9 +219,9 @@ export async function handleCouncilConversationMessage({
           peerJustifications: justificationsByModel[panelist.modelId] || {}
         }
       };
-      await context.db.updateMessage(context.user.id, panelist.assistantMessageId, {
+      await updateAssistantOutputMessage(context, panelist.assistantMessageId, {
         metadata: meta
-      }, { signal: req.signal }).catch(() => {});
+      }, { signal: req.signal, turnRun }).catch(() => {});
     }));
   }
 
@@ -372,28 +373,28 @@ export async function handleCouncilConversationMessage({
     }
 
     const chairmanDurationMeta = reasoningDurationMetadata(chairmanMessage.metadata, accumulated);
-    await context.db.updateMessage(context.user.id, chairmanMessage.id, {
+    await updateAssistantOutputMessage(context, chairmanMessage.id, {
       content: accumulated.content,
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
       error: null,
       ...(chairmanDurationMeta ? { metadata: chairmanDurationMeta } : {})
-    }, { signal: req.signal });
+    }, { signal: req.signal, turnRun });
 
     writeSse(res, { type: "council:chairman:done", chairmanModel });
   } catch (error) {
     const aborted = error?.name === "AbortError";
     const message = aborted ? "Stopped by user." : error?.message || "Chairman synthesis failed.";
     const partial = aborted ? error.partial : null;
-    await context.db.updateMessage(context.user.id, chairmanMessage.id, {
+    await updateAssistantOutputMessage(context, chairmanMessage.id, {
       ...(aborted ? {
         content: partial?.content || "",
         reasoning: partial?.reasoning || ""
       } : {}),
       error: message,
       finish_reason: "error"
-    }, aborted ? {} : { signal: req.signal }).catch(() => {});
+    }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
     writeSse(res, { type: "council:chairman:error", error: message });
   }
 

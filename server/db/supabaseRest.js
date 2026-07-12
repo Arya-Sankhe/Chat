@@ -200,6 +200,10 @@ export class SupabaseRest {
     return turns.upsertTurnOutputMessage(this, message, options);
   }
 
+  async updatePendingTurnOutput(params, options) {
+    return turns.updatePendingTurnOutput(this, params, options);
+  }
+
   async createAttachment(attachment, options) {
     return attachments.createAttachment(this, attachment, options);
   }

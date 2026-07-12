@@ -167,7 +167,8 @@ regex substitutions) are deliberately not listed.
     `claimPendingDocumentTurn`, `heartbeatPendingDocumentTurn`,
     `releasePendingDocumentTurn`, `markPendingTurnProviderStarted`,
     `finishPendingDocumentTurn`, `cancelPendingDocumentTurn`,
-    `upsertTurnOutputMessage` (non-destructive get-or-create by output slot).
+    `upsertTurnOutputMessage` (non-destructive get-or-create by output slot),
+    `updatePendingTurnOutput` (claim- and lease-fenced output update).
   - **Documents**: `createDocumentFile`, `getDocumentFile`,
     `getDocumentFileByAttachment`, `getReadyPdfPreviewForDocument`,
     `getActivePdfPreviewJob`, `listReadyDocumentFiles` (legacy terminal-ready

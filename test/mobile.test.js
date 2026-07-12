@@ -258,7 +258,7 @@ test("document enrichment cannot reactivate the composer progress ring", async (
 
   assert.match(appJs, /status: doc\.usable \? "ready" : "processing"/);
   assert.match(appJs, /progress: doc\.usable \? 100/);
-  assert.match(appJs, /if \(doc\.usable\) \{[\s\S]*?forgetPendingDocument\(attachmentId\);[\s\S]*?return;/);
+  assert.match(appJs, /if \(doc\.usable\) \{\s*return;\s*\}/);
   assert.doesNotMatch(appJs, /img\.status !== "ready" \|\| img\.enriching/);
 });
 

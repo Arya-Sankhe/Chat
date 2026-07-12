@@ -63,6 +63,7 @@ function makeRes(calls = null) {
         this.headers[String(name).toLowerCase()] = value;
       }
       this.headersSent = true;
+      if (headers["x-klui-turn-run-id"]) calls?.push({ op: "responseStart" });
       return this;
     },
     write(chunk) {
@@ -310,6 +311,10 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
     async updateMessage(userId, id, patch) {
       calls.push({ op: "updateMessage", id, patch });
       return { id, ...patch };
+    },
+    async updatePendingTurnOutput({ messageId, patch }) {
+      calls.push({ op: "updatePendingTurnOutput", id: messageId, patch });
+      return { id: messageId, ...patch };
     },
     async updateConversation(userId, id, patch) {
       calls.push({ op: "updateConversation", id, patch });
@@ -929,7 +934,7 @@ test("document send persists one durable turn and fences the first provider call
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(res.headers["x-klui-turn-run-id"], turnId);
   assert.equal(res.headers["x-klui-user-message-id"], "msg-document-user");
-  assert.equal(res.headers["x-klui-assistant-message-id"], "msg-document-assistant");
+  assert.equal(res.headers["x-klui-assistant-message-id"], undefined);
   assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1);
   assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);
   assert.ok(
@@ -938,7 +943,13 @@ test("document send persists one durable turn and fences the first provider call
     "auth and entitlement are refreshed after the durable turn is claimed"
   );
   assert.equal(calls.filter((call) => call.op === "upsertTurnOutputMessage").length, 1);
+  assert.equal(calls.filter((call) => call.op === "updatePendingTurnOutput").length, 1);
   assert.equal(calls.some((call) => call.op === "insertMessage"), false);
+  assert.ok(
+    calls.findIndex((call) => call.op === "responseStart")
+      < calls.findIndex((call) => call.op === "claimPendingDocumentTurn"),
+    "the durable turn ID is returned before document wait/claim work"
+  );
   assert.ok(
     calls.findIndex((call) => call.op === "checkApiBudget")
       < calls.findIndex((call) => call.op === "markPendingTurnProviderStarted"),
