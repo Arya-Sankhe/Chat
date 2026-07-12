@@ -4,7 +4,7 @@ import test from "node:test";
 
 const migrationPath = new URL("../supabase/migrations/2026_07_11_rev3_document_pipeline.sql", import.meta.url);
 const officeVisualMigrationPath = new URL("../supabase/migrations/20260712215913_add_office_visual_enrichment.sql", import.meta.url);
-const outputFenceMigrationPath = new URL("../supabase/migrations/20260712231330_fence_pending_turn_output_writes.sql", import.meta.url);
+const outputFenceMigrationPath = new URL("../supabase/migrations/20260712232232_fence_pending_turn_output_writes.sql", import.meta.url);
 const schemaPath = new URL("../supabase/schema.sql", import.meta.url);
 
 function functionBlock(sql, name) {
