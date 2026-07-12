@@ -461,6 +461,66 @@ class StageAwareCompletionPayloadTest(unittest.TestCase):
         self.assertEqual(processor.db.publish_document_visual_ready.call_args.args[3], 1)
         processor.embeddings.embed_images.assert_called_once()
 
+    def test_office_enrich_uses_temporary_pdf_without_persisting_it(self):
+        processor = self._enrich_processor(embeddings_enabled=False)
+        processor.db.get_document_file.side_effect = lambda *_a, **_k: {
+            "id": "doc-1",
+            "user_id": "user-1",
+            "attachment_id": "att-1",
+            "kind": "pptx",
+        }
+        processor.db.get_attachment.return_value = {
+            "id": "att-1",
+            "file_name": "deck.pptx",
+            "object_key": "raw/deck.pptx",
+            "content_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "size_bytes": 1,
+            "etag": "e",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            temporary_pdf = tmp_path / "out" / "deck.pdf"
+            temporary_pdf.parent.mkdir()
+            temporary_pdf.write_bytes(b"pdf")
+            image = tmp_path / "page-1.jpg"
+            image.write_bytes(b"jpg")
+            processor.libreoffice_convert = mock.Mock(return_value=temporary_pdf)
+            processor.render_pdf_pages = mock.Mock(return_value=[image])
+            with mock.patch("worker.worker.PdfReader") as reader_cls:
+                reader = reader_cls.return_value
+                reader.is_encrypted = False
+                reader.pages = [mock.Mock()]
+                result = processor.enrich_pdf_job(
+                    {"id": "job-2", "document_file_id": "doc-1", "input": {}},
+                    tmp_path,
+                )
+
+        processor.libreoffice_convert.assert_called_once_with(tmp_path / "deck.pptx", tmp_path, "pdf")
+        self.assertEqual(processor.render_pdf_pages.call_args.args[0], temporary_pdf)
+        uploaded_keys = [call.args[0] for call in processor.r2.upload.call_args_list]
+        self.assertEqual(uploaded_keys, ["users/user-1/documents/doc-1/pages/page-0001.jpg"])
+        self.assertEqual(result["_document_patch"]["metadata"]["source_kind"], "pptx")
+
+    def test_pdf_enrich_does_not_call_libreoffice(self):
+        processor = self._enrich_processor(embeddings_enabled=False)
+        processor.libreoffice_convert = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "page-1.jpg"
+            image.write_bytes(b"jpg")
+            processor.render_pdf_pages = mock.Mock(return_value=[image])
+            with mock.patch("worker.worker.PdfReader") as reader_cls:
+                reader = reader_cls.return_value
+                reader.is_encrypted = False
+                reader.pages = [mock.Mock()]
+                processor.enrich_pdf_job(
+                    {"id": "job-2", "document_file_id": "doc-1", "input": {}},
+                    Path(tmp),
+                )
+
+        processor.libreoffice_convert.assert_not_called()
+
     def test_enrich_publishes_visual_ready_before_jina(self):
         order = []
         processor = self._enrich_processor(embed_return=[[0.1] * 8])
@@ -534,6 +594,28 @@ class StageAwareCompletionPayloadTest(unittest.TestCase):
         self.assertEqual(result["pages_uploaded"], 4)
         self.assertEqual(processor.db.insert_pages.call_count, 4)
         self.assertCountEqual(rendered_ranges, [(1, 2), (3, 4)])
+
+    def test_enrich_removes_uploaded_page_when_manifest_publish_fails(self):
+        processor = self._enrich_processor(embeddings_enabled=False)
+        processor.db.insert_pages.side_effect = RuntimeError("document deleted")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "page-1.jpg"
+            image.write_bytes(b"jpg")
+            processor.render_pdf_pages = mock.Mock(return_value=[image])
+            with mock.patch("worker.worker.PdfReader") as reader_cls:
+                reader = reader_cls.return_value
+                reader.is_encrypted = False
+                reader.pages = [mock.Mock()]
+                with self.assertRaisesRegex(RuntimeError, "document deleted"):
+                    processor.enrich_pdf_job(
+                        {"id": "job-2", "document_file_id": "doc-1", "input": {}},
+                        Path(tmp),
+                    )
+
+        processor.r2.delete.assert_called_once_with(
+            "users/user-1/documents/doc-1/pages/page-0001.jpg"
+        )
 
     def test_enrich_incomplete_embeddings_skip_enriched_at(self):
         processor = self._enrich_processor(embed_return=[[0.1] * 8, None])
@@ -663,6 +745,52 @@ class InsertPagesConflictTest(unittest.TestCase):
 
         kwargs = processor.db.insert_pages.call_args.kwargs
         self.assertNotIn("on_conflict", kwargs)
+
+    def test_render_page_converts_office_source_to_temporary_pdf(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.default_limits = {"max_pdf_pages": 100}
+        processor.visual_page_dpi = 144
+        processor.pdf_render_workers = 1
+        processor.db = mock.Mock()
+        processor.db.get_document_file.return_value = {
+            "id": "doc-1",
+            "user_id": "user-1",
+            "attachment_id": "att-1",
+            "kind": "docx",
+        }
+        processor.db.get_attachment.return_value = {
+            "id": "att-1",
+            "file_name": "report.docx",
+            "object_key": "raw/report.docx",
+            "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size_bytes": 1,
+            "etag": "e",
+        }
+        processor.r2 = mock.Mock()
+        processor.assert_job_active = mock.Mock()
+        processor.estimated_page_pixels = mock.Mock(return_value=(10, 20))
+        processor.limit = w.Processor.limit.__get__(processor, w.Processor)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            temporary_pdf = tmp_path / "out" / "report.pdf"
+            temporary_pdf.parent.mkdir()
+            temporary_pdf.write_bytes(b"pdf")
+            image = tmp_path / "page-1.jpg"
+            image.write_bytes(b"jpg")
+            processor.libreoffice_convert = mock.Mock(return_value=temporary_pdf)
+            processor.render_pdf_pages = mock.Mock(return_value=[image])
+            with mock.patch("worker.worker.PdfReader") as reader_cls:
+                reader = reader_cls.return_value
+                reader.is_encrypted = False
+                reader.pages = [mock.Mock()]
+                processor.render_page_job(
+                    {"id": "job-r", "document_file_id": "doc-1", "input": {"page_number": 1}},
+                    tmp_path,
+                )
+
+        processor.libreoffice_convert.assert_called_once_with(tmp_path / "report.docx", tmp_path, "pdf")
+        self.assertEqual(processor.render_pdf_pages.call_args.args[0], temporary_pdf)
 
 
 class PublishVisualReadyRpcTest(unittest.TestCase):
@@ -918,6 +1046,18 @@ class R2UploadEtagTest(unittest.TestCase):
         client.put_object.assert_called_once()
         client.head_object.assert_not_called()
         client.upload_file.assert_not_called()
+
+    def test_delete_removes_the_exact_r2_object(self):
+        r2 = w.R2.__new__(w.R2)
+        r2.bucket = "bucket"
+        r2.client = mock.Mock()
+
+        r2.delete("users/user-1/page.jpg")
+
+        r2.client.delete_object.assert_called_once_with(
+            Bucket="bucket",
+            Key="users/user-1/page.jpg",
+        )
 
 
 class JinaBatchOrderingTest(unittest.TestCase):

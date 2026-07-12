@@ -497,7 +497,7 @@ regex substitutions) are deliberately not listed.
 
 ### `prepareVisualPagesForModel`, `visualDocumentMessage`, `visualImageInputLimit`
 - **Path**: `server/websearch/tool/visual.js`
-- **Responsibility**: Visual PDF page inline images for vision-capable
+- **Responsibility**: Visual PDF and Office page inline images for vision-capable
   models in the tool loop.
 - **Callers**: `server/websearch/tool/loop.js`.
 - **Major dependencies**: `server/documents/index.js`.
@@ -961,8 +961,10 @@ through the database.
     structure only; no OCR or OCR fallback exists. A usable result sets
     `text_ready_at`; an empty/failed parse records a soft text-stage outcome
     so visual enrichment can continue independently.
-  - `enrich_pdf_job` — validates with `pypdf`, renders bounded Poppler ranges
-    concurrently, and uploads/upserts each completed range immediately.
+  - `enrich_pdf_job` — converts DOCX/XLSX/PPTX to a job-local temporary PDF
+    when needed, validates with `pypdf`, renders bounded Poppler ranges
+    concurrently, and uploads/upserts each completed range immediately. The
+    temporary PDF is never uploaded or stored.
     It publishes `visual_ready_at` once the full image manifest exists, then
     attempts Jina embeddings and sets `enriched_at` only when every page embeds.
   - `render_page_job` — renders one specifically requested missing page into
@@ -1019,7 +1021,7 @@ through the database.
 
 ### `class JinaEmbeddings`
 - **Path**: `worker/worker.py`
-- **Responsibility**: Embeds PDF page images via
+- **Responsibility**: Embeds visual PDF and Office page images via
   `https://api.jina.ai/v1/embeddings` (model
   `jina-embeddings-v5-omni-nano`, 768 dimensions, normalised,
   `embedding_type: "float"`). `enabled` is false when

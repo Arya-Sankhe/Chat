@@ -145,6 +145,28 @@ test("createAttachment POSTs attachment rows with return=representation", async 
   });
 });
 
+test("listOrphanAttachments selects only detached rows older than the cutoff", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.pathname, "/rest/v1/attachments");
+    assert.equal(parsed.searchParams.get("conversation_id"), "is.null");
+    assert.equal(parsed.searchParams.get("message_id"), "is.null");
+    assert.equal(parsed.searchParams.get("created_at"), "lt.2026-07-06T00:00:00.000Z");
+    assert.equal(parsed.searchParams.get("order"), "created_at.asc");
+    assert.equal(parsed.searchParams.get("limit"), "25");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([{ id: "att_orphan", user_id: "user_1" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const rows = await db.listOrphanAttachments({
+      before: "2026-07-06T00:00:00.000Z",
+      limit: 25
+    });
+    assert.equal(rows[0].id, "att_orphan");
+  });
+});
+
 test("createDocumentFile POSTs document_files rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");

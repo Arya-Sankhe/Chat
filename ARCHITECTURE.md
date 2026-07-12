@@ -37,7 +37,7 @@ in-house feature set:
 - Deep Research: long-running Node worker that plans, searches, fetches,
   extracts, and synthesizes a long-form report with citation validation.
 - Document skills: PDF/DOCX/XLSX/PPTX/CSV/TSV upload, read, search,
-  table extraction, create, edit, export, visual PDF page inline images
+  table extraction, create, edit, export, and visual PDF/Office page images
   for vision-capable models, with a Python document worker
   (`worker/worker.py`) doing the heavy lifting.
 - Admin dashboard: plan subscription, system prompt, usage, and Ziina
@@ -262,7 +262,7 @@ between `localStorage` and `@capacitor/preferences`/`@capacitor/secure-storage`)
 
 | Path | Owns |
 |---|---|
-| `worker/worker.py` | The Python worker entry point. `Processor` polls `klui_claim_document_job`, downloads from R2, and dispatches text extraction, PDF enrichment, on-demand page rendering, create, edit, and export jobs. The `Supabase`/`R2`/`JinaEmbeddings` helper classes live inside this file. |
+| `worker/worker.py` | The Python worker entry point. `Processor` polls `klui_claim_document_job`, downloads from R2, and dispatches text extraction, visual enrichment, on-demand page rendering, create, edit, and export jobs. Office visual enrichment converts to a job-local temporary PDF before reusing the PDF renderer; only page JPEGs persist. The `Supabase`/`R2`/`JinaEmbeddings` helper classes live inside this file. |
 | `worker/artifact_generator.mjs` | JS fallback for `create_docx`/`create_xlsx`/`create_pptx` (the `docx`, `ExcelJS`, `PptxGenJS` libraries). Called via `node` from the Python worker when `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default). |
 | `worker/Dockerfile` | Multi-stage build: `node:24-bookworm-slim` for the JS deps, `python:3.12-slim` with `libreoffice`, `poppler-utils`, `qpdf`, and the Python deps. Healthcheck runs `python -m worker.healthcheck`. |
 | `worker/requirements.txt` | `boto3`, `charset-normalizer`, `edgeparse`, `openpyxl`, `pypdf`, `python-pptx`, `python-docx`, `reportlab`, `requests`. OCR/Tesseract is intentionally absent. |
@@ -292,7 +292,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `document_files` | Existing identity/version fields plus `processing_status`, capability timestamps (`text_ready_at`, `visual_ready_at`, `enriched_at`), `stage_errors`, counts, extraction/preview keys, metadata, and terminal error. | `text_ready_at` or `visual_ready_at` makes a document usable; legacy `ready` means all core jobs are terminal, possibly with warnings. |
 | `document_chunks` | `id`, `document_file_id`, `user_id`, `chunk_index`, `source_type`, `source_label`, `text`, `char_count`, `token_estimate`, `metadata`, generated `tsv tsvector`. | Unique on `(document_file_id, chunk_index)`. |
 | `document_pages` | `id`, `document_file_id`, `user_id`, `page_number`, `source_label`, `image_key`, `image_content_type`, `width_px`, `height_px`, `text`, `char_count`, `token_estimate`, `embedding vector(768)` (`extensions.vector_cosine_ops` HNSW index). | Unique on `(document_file_id, page_number)`. |
-| `document_jobs` | `id`, ownership links, `job_type`, status/priority/attempt fields, `worker_id`, `lease_until`, `cancel_requested`, input/output/error, timestamps. | PDFs queue independent `document.extract.pdf` and `document.enrich.pdf` jobs; missing requested pages use idempotent priority-100 `document.render_page` jobs. |
+| `document_jobs` | `id`, ownership links, `job_type`, status/priority/attempt fields, `worker_id`, `lease_until`, `cancel_requested`, input/output/error, timestamps. | PDF/DOCX/XLSX/PPTX queue independent extract and visual-enrichment jobs; missing requested pages use idempotent priority-100 `document.render_page` jobs. |
 | `pending_document_turns` | Durable user turn, normalized request payload, mode, claim token/owner/lease, provider-start fence, cancellation/error/terminal fields. | Reconnect-safe wait and conservative at-most-once provider execution for turns blocked on document capability. |
 | `research_runs` | `id`, `user_id`, `conversation_id`, `user_message_id`, `assistant_message_id`, `query`, `model`, `provider` (`openrouter`), `status` (`queued`/`running`/`succeeded`/`failed`/`cancelled`), `phase`, `progress jsonb`, `title`, `summary`, `report_markdown`, `sources jsonb`, `error`, `cancel_requested`, `worker_id`, `lease_until`, `attempt_count`, `elapsed_ms`, timestamps. | Unique partial index on `(user_id) where status in ('queued','running')` — only one active run per user. |
 | `usage_api_weekly` | `(user_id, period_start date, week_index 1–4)` PK, `period_end`, `week_start`, `week_end`, `plan_id`, `api_credit_limit numeric(18,8)`, `api_credit_used numeric(18,8)`, `updated_at`. | One row per user per week. |
@@ -306,10 +306,10 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 |---|---|
 | `public.klui_check_api_budget(p_user_id, p_plan_id, p_period_start, p_period_end, p_week_start, p_week_end, p_week_index, p_weekly_credit_limit)` | Upserts the current `usage_api_weekly` row and returns `{allowed, api_credit_used, api_credit_limit, …}`. `security definer`. |
 | `public.klui_record_api_usage(...)` | Adds the new cost to `usage_api_weekly.api_credit_used` and appends to `usage_api_events`. Returns `{allowed, api_credit_used, api_credit_limit, cost_credits, cost_source, week_index}`. |
-| `public.klui_cleanup_storage_and_cache(p_limit, p_grace)` | Batched cleanup of orphan `document_jobs`, orphan `attachments`, orphan `document_files`, expired `search_cache`, stale `model_cache`. |
+| `public.klui_cleanup_storage_and_cache(p_limit, p_grace)` | Batched cleanup of detached terminal `document_jobs`, expired `search_cache`, and stale `model_cache`. R2-backed attachment cleanup runs on the VPS so object keys remain available until storage deletion succeeds. |
 | `public.klui_cleanup_orphan_documents(p_limit, p_grace)` | Wrapper for the above (kept for backward compatibility with existing cron callers). |
 | `public.klui_claim_document_job(p_worker_id, p_lease_seconds)` | Atomic claim of the next queued or lease-expired job. |
-| `public.klui_complete_document_upload(...)` | Atomically completes an upload and queues independent PDF text/enrichment jobs (one extract job for other formats). |
+| `public.klui_complete_document_upload(...)` | Atomically completes an upload and queues independent text/visual jobs for PDF and Office formats; CSV/TSV remain text-only. |
 | `public.klui_complete_document_job(...)` / `public.klui_fail_document_job(...)` | Lease-fenced, stage-aware worker finalization that preserves any established capability. |
 | `public.klui_publish_document_visual_ready(...)` | Publishes visual capability only after the complete page-image manifest exists, before optional Jina completion. |
 | `public.klui_queue_document_page_render(...)` | Returns an existing page or creates/requeues one idempotent priority-100 render job. |
@@ -372,6 +372,10 @@ All migrations are listed in `supabase/migrations/`:
   research-message partial indexes.
 - `2026_06_29_add_research_runs.sql` — adds the `research_runs`
   table and the `klui_claim_research_run` RPC.
+- `20260712215913_add_office_visual_enrichment.sql` — queues visual
+  enrichment for DOCX, XLSX, and PPTX through the existing PDF page path.
+- `20260712222116_move_orphan_storage_cleanup_to_vps.sql` — keeps
+  R2-backed orphan metadata intact for the idempotent VPS cleanup task.
 
 The current `supabase/schema.sql` is the merged snapshot and
 contains the same tables and RPCs as the migration files. The
@@ -390,7 +394,7 @@ The features and the modules that implement them:
 | Council (panel → peer review → chairman) | `app.js` + `public/js/council.js` `renderCouncilMessage` | `server/chat/council.js` `handleCouncilConversationMessage` + `server/saas/council.js` | `messages.metadata.council` carries session/role/peer-rank metadata |
 | Image upload | `app.js` `addImages` → `uploadImage` in `api.js` | `server/routes/uploads.js` `handlePresignUpload` / `handleUploadContent` / `handleCompleteUpload` | `attachments` (category=`image`), R2 |
 | Image description for text-only models | n/a | `server/saas/images.js` `describeConversationImages` | `messages.content[].image_url.description` |
-| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js`; Send unlocks on text or visual capability while enrichment progress continues | `server/routes/uploads.js` `handleCompleteUpload` → `klui_complete_document_upload` (atomic dual job for PDFs) | `attachments`, capability-aware `document_files`, `document_jobs`, document worker |
+| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js`; Send unlocks on text or visual capability while enrichment continues silently | `server/routes/uploads.js` `handleCompleteUpload` → `klui_complete_document_upload` (atomic text + visual jobs for PDF/Office) | `attachments`, capability-aware `document_files`, `document_jobs`, document worker |
 | Document-gated chat turn | `app.js` persists a client turn key, reconciles existing output slots when resuming after reload, and restores the draft on pre-provider cancel | `server/chat/pipeline.js` submits/claims/heartbeats/executes the persisted turn, fences the first CrofAI call, releases pre-provider disconnects, and finalizes the run before closing SSE | `pending_document_turns`, run-linked message output slots |
 | Document read/search/extract/create/edit/export | `app.js` + `public/js/documentViewer.js` (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool/loop.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
 | Web search (auto/on/off) | `app.js` `toggleWebSearchMode`, `renderWebSearchToggle`, `webSearchAvailable` | `server/websearch/index.js` `WebSearchOrchestrator`, `server/websearch/tool/loop.js` `runChatWithToolLoop`, `server/chat/pipeline.js` `runSharedPreSearch` | `search_cache`, `usage_api_events` (via tool loop) |
@@ -676,7 +680,7 @@ glyphs only (no layout reflow).
   using the presigned URL; when CORS blocks it, the API falls back
   to a same-origin relay at `PUT /api/uploads/:uploadId/content`
   (this is what `public/js/api.js` `putUploadContent` does).
-- **Direct-context PDFs.** When a user uploads a PDF, `buildDirectPdfVisualContext`
+- **Direct-context visual documents.** When a user uploads a PDF or a visually enriched Office document, `buildDirectPdfVisualContext`
   embeds the rendered page images directly as `image_url` parts in
   the request — bypassing the tool loop for visual-capable models,
   and going through a single vision-describe call for text-only

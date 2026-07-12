@@ -1,0 +1,82 @@
+-- R2 object deletion requires application credentials, so attachment metadata must
+-- remain available until the VPS cleanup has deleted every corresponding object.
+-- Supabase keeps ownership of database-only cache and detached-job cleanup.
+create or replace function public.klui_cleanup_storage_and_cache(
+  p_limit integer default 500,
+  p_grace interval default interval '7 days'
+) returns jsonb
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_limit integer := least(greatest(coalesce(p_limit, 500), 1), 5000);
+  v_grace interval := coalesce(p_grace, interval '7 days');
+  v_jobs_deleted integer := 0;
+  v_search_cache_deleted integer := 0;
+  v_model_cache_deleted integer := 0;
+begin
+  if v_grace < interval '1 day' then
+    v_grace := interval '1 day';
+  end if;
+
+  with doomed as (
+    select id
+    from public.document_jobs
+    where conversation_id is null
+      and message_id is null
+      and document_file_id is null
+      and status in ('succeeded', 'failed', 'expired')
+      and created_at < now() - v_grace
+    order by created_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.document_jobs j
+    using doomed d
+    where j.id = d.id
+    returning j.id
+  )
+  select count(*) into v_jobs_deleted from deleted;
+
+  with doomed as (
+    select query_hash
+    from public.search_cache
+    where expires_at < now()
+    order by expires_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.search_cache sc
+    using doomed d
+    where sc.query_hash = d.query_hash
+    returning sc.query_hash
+  )
+  select count(*) into v_search_cache_deleted from deleted;
+
+  with doomed as (
+    select id
+    from public.model_cache
+    where fetched_at < now() - v_grace
+    order by fetched_at asc
+    limit v_limit
+  ),
+  deleted as (
+    delete from public.model_cache mc
+    using doomed d
+    where mc.id = d.id
+    returning mc.id
+  )
+  select count(*) into v_model_cache_deleted from deleted;
+
+  return jsonb_build_object(
+    'document_jobs_deleted', v_jobs_deleted,
+    'attachments_deleted', 0,
+    'document_files_deleted', 0,
+    'search_cache_deleted', v_search_cache_deleted,
+    'model_cache_deleted', v_model_cache_deleted
+  );
+end;
+$$;
+
+revoke all on function public.klui_cleanup_storage_and_cache(integer, interval) from public, anon, authenticated;
+grant execute on function public.klui_cleanup_storage_and_cache(integer, interval) to service_role;

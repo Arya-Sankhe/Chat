@@ -42,7 +42,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "search_document",
-        description: "Search the user's ready uploaded documents in this chat. For PDFs this is only a page locator: do not rely on PDF search snippets alone for final answers, summaries, homework, tables, formulas, charts, or scanned/layout-sensitive content. Follow relevant PDF hits with read_document so the next model turn receives the actual page images.",
+        description: "Search the user's ready uploaded documents in this chat. For visually enriched PDF, DOCX, XLSX, and PPTX files this is only a page locator: follow relevant hits with read_document so the next model turn receives the actual page or slide images.",
         parameters: {
           type: "object",
           properties: {
@@ -62,14 +62,14 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Directly inspect a specific ready uploaded document. For PDFs this returns visual page images plus any extracted text; use it before answering summaries, solve-all/homework, scans, screenshots, tables, formulas, charts, or page-layout-sensitive requests. Read PDFs in focused visual batches of at most 12 pages per call; for longer PDFs, call this tool multiple times in the same turn with consecutive page_start/page_end ranges (1-12, then 13-24, etc.) until every page range the user's request needs has been inspected.",
+        description: "Directly inspect a specific ready uploaded document. Visually enriched PDF, DOCX, XLSX, and PPTX files return page or slide images plus extracted text. Use focused batches of at most 12 pages per call and inspect all ranges needed for summaries, tables, formulas, charts, images, or layout-sensitive requests.",
         parameters: {
           type: "object",
           properties: {
             attachment_id: { type: "string", description: "Document attachment id." },
             query: { type: "string", description: "Optional query to focus the read." },
-            page_start: { type: "integer", minimum: 1, description: "Optional first PDF page to read." },
-            page_end: { type: "integer", minimum: 1, description: "Optional last PDF page to read." },
+            page_start: { type: "integer", minimum: 1, description: "Optional first document page or slide to read." },
+            page_end: { type: "integer", minimum: 1, description: "Optional last document page or slide to read." },
             max_chars: { type: "integer", minimum: 500, maximum: 6000, default: 2500 }
           },
           required: ["attachment_id"]
@@ -80,7 +80,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "extract_tables",
-        description: "Extract table-like data from a ready uploaded PDF, spreadsheet, CSV, or TSV.",
+        description: "Extract table-like data from a ready uploaded PDF, DOCX, XLSX, PPTX, CSV, or TSV, using visual pages when available.",
         parameters: {
           type: "object",
           properties: {

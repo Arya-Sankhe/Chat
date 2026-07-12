@@ -303,6 +303,7 @@ export async function handleAttachmentDelete(req, res, config, attachmentId) {
   const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
   await context.r2.deleteObjects(keys, { signal: req.signal });
   await context.db.deleteAttachment(context.user.id, attachment.id, { signal: req.signal });
+  await context.r2.deleteObjects(keys, { signal: req.signal });
   sendJson(res, 200, { deleted: true });
 }
 
@@ -375,7 +376,7 @@ export async function handleDocumentJobStatus(req, res, config, jobId) {
 export async function attachmentStorageKeys(context, attachment, config, signal) {
   const keys = [attachment.object_key];
   const doc = attachment.category === "document"
-    ? await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal }).catch(() => null)
+    ? await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal })
     : null;
   if (!doc) return keys;
   if (doc.extraction_key) keys.push(doc.extraction_key);
@@ -383,9 +384,9 @@ export async function attachmentStorageKeys(context, attachment, config, signal)
   const pages = await context.db.listDocumentPages(context.user.id, doc.id, {
     limit: config.documents.maxPdfPages,
     signal
-  }).catch(() => []);
+  });
   keys.push(...pages.map((page) => page.image_key));
-  if (doc.kind === "pdf") {
+  if (["pdf", "docx", "xlsx", "pptx"].includes(doc.kind)) {
     const maxPages = Number(doc.page_count || doc.metadata?.page_count || config.documents.maxPdfPages || 100);
     for (let page = 1; page <= Math.min(Math.max(maxPages, 0), config.documents.maxPdfPages); page += 1) {
       keys.push(`users/${context.user.id}/documents/${doc.id}/pages/page-${String(page).padStart(4, "0")}.jpg`);

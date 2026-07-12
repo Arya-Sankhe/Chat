@@ -45,6 +45,20 @@ export async function getAttachment(client, userId, attachmentId, { signal } = {
   return single(rows);
 }
 
+export async function listOrphanAttachments(client, { before, limit = 100, signal } = {}) {
+  return client.request("attachments", {
+    query: {
+      conversation_id: "is.null",
+      message_id: "is.null",
+      created_at: `lt.${before}`,
+      select: "id,user_id,object_key,category,file_name,content_type,size_bytes,etag,created_at",
+      order: "created_at.asc",
+      limit: String(limit)
+    },
+    signal
+  });
+}
+
 export async function deleteAttachment(client, userId, attachmentId, { signal } = {}) {
   return client.request("attachments", {
     method: "DELETE",

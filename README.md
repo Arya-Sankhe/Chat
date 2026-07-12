@@ -75,12 +75,12 @@ Optional for document tools:
 - `DOCUMENT_MAX_FILE_BYTES` defaults to 30MB per uploaded document.
 - `DOCUMENT_MAX_PDF_PAGES` defaults to 100 pages.
 - `DOCUMENT_UPLOAD_EXPIRES_SECONDS` defaults to 900 seconds for slower 30MB uploads.
-- `DOCUMENT_VISUAL_INLINE_IMAGES=true` sends bounded PDF page image bytes to vision models directly as base64 data URLs (fetched concurrently with a per-image and per-turn byte budget, deduplicated across iterations). `DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN` (default 24), `DOCUMENT_VISUAL_INLINE_MAX_BYTES` (per-image), and `DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES` (per-turn) cap request size.
-- Agent mode gates web/document tool calls in chat. With Agent off, PDFs with published visual pages are attached as hidden, bounded page context for vision-capable models instead of using `read_document`.
+- `DOCUMENT_VISUAL_INLINE_IMAGES=true` sends bounded visual document page bytes to vision models directly as base64 data URLs (fetched concurrently with a per-image and per-turn byte budget, deduplicated across iterations). `DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN` (default 24), `DOCUMENT_VISUAL_INLINE_MAX_BYTES` (per-image), and `DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES` (per-turn) cap request size.
+- Agent mode gates web/document tool calls in chat. With Agent off, PDF and visually enriched Office pages are attached as hidden, bounded context for vision-capable models instead of using `read_document`.
 - For large PDFs, the model reads in focused batches (≤12 pages per `read_document` call) across multiple tool calls in the same user turn; `DOCUMENT_MAX_TOOL_CALLS_PER_TURN` (default 75) controls how many such batches fit in one turn.
 - `PLAN_*_MAX_DOCUMENTS_PER_MESSAGE` and `PLAN_*_MAX_DOCUMENT_BYTES_PER_MESSAGE` control hard document upload safety limits. Document tool usage is billed through the unified API-credit bar, not separate counters.
 
-The document worker uses open-source local libraries. Uploaded PDFs are handled by two independent jobs: EdgeParse extracts existing digital text and structure, while Poppler renders page images that are uploaded incrementally and optionally embedded by Jina. There is no OCR engine or OCR fallback. Generated Office artifacts are JS-first through `docx`, `PptxGenJS`, and `ExcelJS`, with the existing Python generators kept as fallbacks; other formats use `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, ReportLab, and CSV streaming.
+The document worker uses open-source local libraries. Uploaded PDF and Office files use independent text and visual jobs. PDFs render directly; DOCX/XLSX/PPTX are converted to a temporary local PDF and then reuse the same Poppler page-image and optional Jina pipeline. The temporary PDF is never uploaded or stored. There is no OCR engine or OCR fallback. Generated Office artifacts are JS-first through `docx`, `PptxGenJS`, and `ExcelJS`, with the existing Python generators kept as fallbacks; other formats use `pypdf`, `python-docx`, `python-pptx`, `openpyxl`, LibreOffice, ReportLab, and CSV streaming.
 
 Optional for web search:
 

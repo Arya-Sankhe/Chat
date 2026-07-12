@@ -294,3 +294,39 @@ test("buildDirectPdfVisualContext attaches only relevant ready PDF pages", async
   const imagePart = result.message.content.find((part) => part.type === "image_url");
   assert.equal(imagePart.image_url.url, "https://signed.example/page-1.jpg");
 });
+
+test("buildDirectPdfVisualContext includes visually enriched Office documents", async () => {
+  const attachmentId = "00000000-0000-4000-8000-000000000009";
+  const seenDocs = [];
+  const result = await buildDirectPdfVisualContext({
+    documents: {
+      async pageResultsForDocs(docs) {
+        seenDocs.push(...docs.map((doc) => doc.id));
+        return {
+          citations: [],
+          visualPages: [{
+            index: 1,
+            title: "Deck.pptx - Page 1",
+            page_number: 1,
+            url: "https://signed.example/slide-1.jpg",
+            text: ""
+          }]
+        };
+      }
+    },
+    readyDocuments: [{
+      id: "doc-pptx",
+      kind: "pptx",
+      attachment_id: attachmentId,
+      visual_ready_at: "2026-07-12T00:00:00.000Z"
+    }],
+    attachments: [{ id: attachmentId, category: "document" }],
+    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 2 } },
+    supportsVision: true,
+    signal: new AbortController().signal
+  });
+
+  assert.deepEqual(seenDocs, ["doc-pptx"]);
+  assert.equal(result.pageCount, 1);
+  assert.match(result.message.content[0].text, /uploaded document pages/);
+});

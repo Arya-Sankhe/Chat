@@ -11,6 +11,7 @@ export async function purgeMessageStorage(context, messageId, config, signal) {
   }
   if (keys.length) await context.r2.deleteObjects(keys, { signal });
   const message = await context.db.deleteMessage(context.user.id, messageId, { signal });
+  if (keys.length) await context.r2.deleteObjects(keys, { signal });
   return { message, attachmentCount: attachments.length };
 }
 
@@ -73,6 +74,7 @@ export async function handleConversationById(req, res, config, conversationId) {
     }
     await context.r2.deleteObjects(keys, { signal: req.signal });
     await context.db.deleteConversation(context.user.id, conversation.id, { signal: req.signal });
+    await context.r2.deleteObjects(keys, { signal: req.signal });
     sendJson(res, 200, { deleted: true, deletedImages: attachments.length });
     return;
   }

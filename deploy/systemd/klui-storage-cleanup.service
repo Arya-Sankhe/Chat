@@ -1,0 +1,13 @@
+[Unit]
+Description=Klui orphan R2 storage cleanup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/klui/storage-cleanup.env
+ExecStart=/bin/bash -lc 'cd "$KLUI_ROOT" && exec /usr/bin/docker compose --profile maintenance run --rm --no-deps storage-cleanup'
+TimeoutStartSec=30min
+Nice=10
+

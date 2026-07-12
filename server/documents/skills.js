@@ -24,7 +24,8 @@ function readyDocumentList(readyDocuments) {
     .slice(0, 10)
     .map((doc) => {
       const pageCount = Number(doc.page_count || doc.metadata?.page_count || 0);
-      const pageText = doc.kind === "pdf" && pageCount ? `, ${pageCount} pages` : "";
+      const hasVisualPages = doc.kind === "pdf" || Boolean(doc.visual_ready_at);
+      const pageText = hasVisualPages && pageCount ? `, ${pageCount} pages` : "";
       return `- ${doc.attachments?.file_name || "Document"} (${doc.kind}${pageText}, attachment_id: ${doc.attachment_id}, version: ${doc.version_no || 1})`;
     })
     .join("\n");
@@ -51,7 +52,10 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksExcel = /\b(excel|xlsx|spreadsheet|workbook|worksheet|csv|tsv|\.xlsx|\.csv|\.tsv)\b/i.test(prompt);
   const asksPpt = /\b(powerpoint|ppt|pptx|slides?|deck|presentation)\b/i.test(prompt);
   const asksGenericDocument = /\b(document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
-  const hasReadyPdf = (readyDocuments || []).some((doc) => doc?.kind === "pdf");
+  const hasReadyVisualDocument = (readyDocuments || []).some((doc) => (
+    doc?.kind === "pdf"
+    || (["docx", "xlsx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
+  ));
   const wordOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?(word|docx)\b/i.test(prompt)
     || (fileDeliveryAction && /\b(word\s+(doc|document|file)|docx\s+(file|document)|\.docx)\b/i.test(prompt));
   const pdfOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?pdf\b/i.test(prompt)
@@ -71,10 +75,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const createFromExistingDocument = wantsArtifactOutput
     && /\b(from|based\s+on|using)\b[\s\S]{0,60}\b(this|that|it|attached|uploaded|document|file|pdf|docx|spreadsheet|attachment|upload)\b/i.test(prompt);
 
-  /* Any ready PDF in this chat always gets visual read tools and the
-     pdf-read skill so the model knows to call read_document and inspect
-     page images instead of guessing from the placeholder text. */
-  if (hasReadyPdf) {
+  /* Any visual document in this chat gets the established visual-reading
+     skill so the model inspects page images instead of guessing from text. */
+  if (hasReadyVisualDocument) {
     skills.add("document-read");
     skills.add("pdf-read");
     addAll(tools, READ_TOOLS);

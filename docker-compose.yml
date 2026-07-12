@@ -73,3 +73,12 @@ services:
     healthcheck:
       disable: true
     restart: unless-stopped
+
+  storage-cleanup:
+    build: .
+    command: ["node", "scripts/cleanup-orphan-storage.mjs"]
+    env_file:
+      - path: .env
+        required: false
+    profiles: ["maintenance"]
+    restart: "no"

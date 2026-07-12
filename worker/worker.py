@@ -943,6 +943,9 @@ class R2:
             )
         return str((response or {}).get("ETag", "")).strip('"')
 
+    def delete(self, key):
+        self.client.delete_object(Bucket=self.bucket, Key=key)
+
 
 class Processor:
     def __init__(self):
@@ -1148,7 +1151,6 @@ class Processor:
             **meta,
             "_document_patch": {
                 "text_ready_at": ready_at,
-                "page_count": meta.get("page_count"),
                 "word_count": meta.get("word_count"),
                 "extraction_key": extraction_key,
                 "metadata": meta_out,
@@ -1274,7 +1276,23 @@ class Processor:
             },
         })
 
-        reader = PdfReader(str(source))
+        source_kind = str(doc.get("kind") or "").lower()
+        visual_source = source
+        if source_kind in ("docx", "xlsx", "pptx"):
+            self.db.update_document_file(doc["id"], {
+                "metadata": {
+                    "mode": "visual_pages",
+                    "progress": 5,
+                    "stage": "converting_to_pdf",
+                    "source_kind": source_kind,
+                },
+            })
+            visual_source = self.libreoffice_convert(source, tmp, "pdf")
+            self.assert_job_active(job["id"])
+        elif source_kind != "pdf":
+            raise RuntimeError(f"unsupported_visual_document_kind: {source_kind}")
+
+        reader = PdfReader(str(visual_source))
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
         page_count = len(reader.pages)
@@ -1291,6 +1309,7 @@ class Processor:
                 "progress": 10,
                 "stage": "rendering_pages",
                 "page_count": page_count,
+                "source_kind": source_kind,
                 "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
             },
         })
@@ -1321,10 +1340,15 @@ class Processor:
                 "embedding_dimensions": None,
                 "metadata": {
                     "page": spec["index"],
+                    "source_kind": source_kind,
                     "source_etag": attachment.get("etag"),
                 },
             }
-            self.db.insert_pages([page_row])
+            try:
+                self.db.insert_pages([page_row])
+            except Exception:
+                self.r2.delete(spec["key"])
+                raise
             return spec["index"]
 
         def render_range(range_index, first_page, last_page):
@@ -1332,7 +1356,7 @@ class Processor:
             range_dir.mkdir(parents=True, exist_ok=True)
             started = time.monotonic()
             paths = self.render_pdf_pages(
-                source,
+                visual_source,
                 range_dir,
                 render_dpi,
                 page_count=(last_page - first_page) + 1,
@@ -1390,6 +1414,7 @@ class Processor:
                         "progress": min(progress, 75),
                         "stage": "uploading_pages" if completed < page_count else "publishing_visual_manifest",
                         "page_count": page_count,
+                        "source_kind": source_kind,
                         "pages_rendered": rendered_count,
                         "pages_uploaded": completed,
                         "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
@@ -1405,6 +1430,7 @@ class Processor:
             "progress": 75,
             "stage": "visual_ready",
             "page_count": page_count,
+            "source_kind": source_kind,
             "pages_uploaded": page_count,
             "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
             "file_name": attachment["file_name"],
@@ -1435,6 +1461,7 @@ class Processor:
                     "progress": 80,
                     "stage": "embedding",
                     "page_count": page_count,
+                    "source_kind": source_kind,
                     "pages_uploaded": page_count,
                     "embedding_model": self.embeddings.model,
                 },
@@ -1491,6 +1518,7 @@ class Processor:
             "progress": 100,
             "stage": "visual_ready" if enriched else "visual_ready_embeddings_degraded",
             "page_count": page_count,
+            "source_kind": source_kind,
             "pages_uploaded": page_count,
             "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
             "embedding_dimensions": 768 if any(embeddings) else None,
@@ -1511,7 +1539,7 @@ class Processor:
             document_patch["stage_errors"] = stage_errors
 
         print(
-            f"job {job['id']} PDF enrich timings pages={page_count} "
+            f"job {job['id']} visual enrich timings kind={source_kind} pages={page_count} "
             f"render={render_seconds:.2f}s embeddings={embedding_seconds:.2f}s "
             f"page_uploads={upload_seconds:.2f}s total={time.monotonic() - job_started:.2f}s "
             f"enriched={enriched}",
@@ -1536,6 +1564,15 @@ class Processor:
         self.r2.download(attachment["object_key"], source)
         self.assert_job_active(job["id"])
 
+        source_kind = str(doc.get("kind") or "").lower()
+        if source_kind in ("docx", "xlsx", "pptx"):
+            visual_source = self.libreoffice_convert(source, tmp, "pdf")
+            self.assert_job_active(job["id"])
+        elif source_kind == "pdf":
+            visual_source = source
+        else:
+            raise RuntimeError(f"unsupported_visual_document_kind: {source_kind}")
+
         input_data = job.get("input") or {}
         try:
             page_number = int(input_data.get("page_number"))
@@ -1544,7 +1581,7 @@ class Processor:
         if page_number < 1:
             raise RuntimeError("invalid_page_number")
 
-        reader = PdfReader(str(source))
+        reader = PdfReader(str(visual_source))
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
         page_count = len(reader.pages)
@@ -1557,7 +1594,7 @@ class Processor:
         render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
         self.assert_job_active(job["id"])
         image_paths = self.render_pdf_pages(
-            source,
+            visual_source,
             render_dir,
             render_dpi,
             page_count=1,
@@ -1590,6 +1627,7 @@ class Processor:
             "embedding_dimensions": None,
             "metadata": {
                 "page": page_number,
+                "source_kind": source_kind,
                 "source_etag": attachment.get("etag"),
                 "on_demand": True,
             },

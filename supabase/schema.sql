@@ -616,8 +616,6 @@ declare
   v_limit integer := least(greatest(coalesce(p_limit, 500), 1), 5000);
   v_grace interval := coalesce(p_grace, interval '7 days');
   v_jobs_deleted integer := 0;
-  v_attachments_deleted integer := 0;
-  v_document_files_deleted integer := 0;
   v_search_cache_deleted integer := 0;
   v_model_cache_deleted integer := 0;
 begin
@@ -643,45 +641,6 @@ begin
     returning j.id
   )
   select count(*) into v_jobs_deleted from deleted;
-
-  with doomed as (
-    select id
-    from public.attachments
-    where conversation_id is null
-      and message_id is null
-      and created_at < now() - v_grace
-    order by created_at asc
-    limit v_limit
-  ),
-  deleted as (
-    delete from public.attachments a
-    using doomed d
-    where a.id = d.id
-    returning a.id
-  )
-  select count(*) into v_attachments_deleted from deleted;
-
-  with doomed as (
-    select df.id
-    from public.document_files df
-    where df.conversation_id is null
-      and df.message_id is null
-      and df.created_at < now() - v_grace
-      and not exists (
-        select 1
-        from public.attachments a
-        where a.id = df.attachment_id
-      )
-    order by df.created_at asc
-    limit v_limit
-  ),
-  deleted as (
-    delete from public.document_files df
-    using doomed d
-    where df.id = d.id
-    returning df.id
-  )
-  select count(*) into v_document_files_deleted from deleted;
 
   with doomed as (
     select query_hash
@@ -715,8 +674,8 @@ begin
 
   return jsonb_build_object(
     'document_jobs_deleted', v_jobs_deleted,
-    'attachments_deleted', v_attachments_deleted,
-    'document_files_deleted', v_document_files_deleted,
+    'attachments_deleted', 0,
+    'document_files_deleted', 0,
     'search_cache_deleted', v_search_cache_deleted,
     'model_cache_deleted', v_model_cache_deleted
   );
@@ -1259,7 +1218,7 @@ begin
     select 'document.extract.' || p_kind as job_type, 10 as priority
     union all
     select 'document.enrich.pdf', 0
-    where p_kind = 'pdf'
+    where p_kind in ('pdf', 'docx', 'xlsx', 'pptx')
   ) queued
   on conflict do nothing;
 
@@ -1268,7 +1227,7 @@ begin
   from public.document_jobs j
   where j.document_file_id = v_document.id
     and (j.job_type = 'document.extract.' || p_kind
-      or (p_kind = 'pdf' and j.job_type = 'document.enrich.pdf'));
+      or (p_kind in ('pdf', 'docx', 'xlsx', 'pptx') and j.job_type = 'document.enrich.pdf'));
 
   return jsonb_build_object(
     'attachment', to_jsonb(v_attachment),
@@ -1622,7 +1581,9 @@ begin
 
   select * into v_document
   from public.document_files
-  where id = p_document_file_id and user_id = p_user_id and kind = 'pdf'
+  where id = p_document_file_id
+    and user_id = p_user_id
+    and kind in ('pdf', 'docx', 'xlsx', 'pptx')
   for update;
   if not found then raise exception 'document_not_found'; end if;
   if v_document.page_count is not null and p_page_number > v_document.page_count then

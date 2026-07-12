@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migrationPath = new URL("../supabase/migrations/2026_07_11_rev3_document_pipeline.sql", import.meta.url);
+const officeVisualMigrationPath = new URL("../supabase/migrations/20260712215913_add_office_visual_enrichment.sql", import.meta.url);
 const schemaPath = new URL("../supabase/schema.sql", import.meta.url);
 
 function functionBlock(sql, name) {
@@ -11,6 +12,26 @@ function functionBlock(sql, name) {
   const end = sql.indexOf("\nrevoke all on function", start);
   assert.notEqual(end, -1, `${name} must have a grant boundary`);
   return sql.slice(start, end);
+}
+
+function latestFunctionBlock(sql, name) {
+  const start = sql.lastIndexOf(`create or replace function public.${name}(`);
+  assert.notEqual(start, -1, `${name} must exist`);
+  const end = sql.indexOf("\nrevoke all on function", start);
+  assert.notEqual(end, -1, `${name} must have a grant boundary`);
+  return sql.slice(start, end);
+}
+
+for (const [label, path] of [["office visual migration", officeVisualMigrationPath], ["schema", schemaPath]]) {
+  test(`${label} queues and repairs visual pages for Office documents`, () => {
+    const sql = readFileSync(path, "utf8");
+    const upload = latestFunctionBlock(sql, "klui_complete_document_upload");
+    const queue = latestFunctionBlock(sql, "klui_queue_document_page_render");
+
+    assert.match(upload, /p_kind in \('pdf', 'docx', 'xlsx', 'pptx'\)[\s\S]*?'document\.enrich\.pdf'/);
+    assert.match(queue, /kind in \('pdf', 'docx', 'xlsx', 'pptx'\)/);
+    assert.doesNotMatch(upload, /where p_kind in \('pdf', 'docx', 'xlsx', 'pptx', 'csv'/);
+  });
 }
 
 for (const [label, path] of [["migration", migrationPath], ["schema", schemaPath]]) {

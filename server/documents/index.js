@@ -97,7 +97,7 @@ function resultFromPage({ index, documentFile, page, maxChars, imageUrl = "" }) 
   const extractedText = clean(page.text);
   const content = extractedText
     ? truncate(extractedText, maxChars)
-    : "This PDF page is available as a visual page image. Inspect the attached page image for text, tables, charts, formulas, and layout.";
+    : "This document page is available as a visual page image. Inspect the attached page image for text, tables, charts, formulas, and layout.";
   return {
     index,
     title: pageTitle(documentFile, page),
@@ -147,6 +147,12 @@ function sleep(ms, signal) {
 
 function documentIsUsable(documentFile) {
   return Boolean(documentFile?.text_ready_at || documentFile?.visual_ready_at);
+}
+
+function documentUsesVisualPages(documentFile) {
+  const kind = clean(documentFile?.kind).toLowerCase();
+  return kind === "pdf"
+    || (["docx", "xlsx", "pptx"].includes(kind) && Boolean(documentFile?.visual_ready_at));
 }
 
 function pageHasUsableImage(page) {
@@ -244,10 +250,10 @@ export class DocumentService {
       if (currentJob?.id) {
         currentJob = await this.db.getDocumentJob(this.userId, currentJob.id, { signal: this.signal });
         if (["failed", "expired"].includes(currentJob?.status)) {
-          throw new HttpError(502, `PDF page ${pageNumber} could not be rendered.`, currentJob.error || undefined);
+          throw new HttpError(502, `Document page ${pageNumber} could not be rendered.`, currentJob.error || undefined);
         }
         if (currentJob?.status === "succeeded") {
-          throw new HttpError(502, `PDF page ${pageNumber} finished without a usable image.`);
+          throw new HttpError(502, `Document page ${pageNumber} finished without a usable image.`);
         }
       }
       const remaining = deadline - Date.now();
@@ -258,7 +264,7 @@ export class DocumentService {
       error.name = "AbortError";
       throw error;
     }
-    throw new HttpError(504, `PDF page ${pageNumber} is still rendering. Try again shortly.`);
+    throw new HttpError(504, `Document page ${pageNumber} is still rendering. Try again shortly.`);
   }
 
   async ensureDocumentPages(documentFile, pageNumbers = []) {
@@ -320,7 +326,7 @@ export class DocumentService {
       for (const doc of docs) {
         const start = Math.max(1, Number.parseInt(pageStart || "1", 10) || 1);
         if (doc.page_count && start > Number(doc.page_count)) {
-          throw new HttpError(400, `Page ${start} is outside this ${doc.page_count}-page PDF.`);
+          throw new HttpError(400, `Page ${start} is outside this ${doc.page_count}-page document.`);
         }
         const requestedEnd = Math.max(start, Number.parseInt(pageEnd || String(start + limit - 1), 10) || start + limit - 1);
         const end = doc.page_count ? Math.min(requestedEnd, Number(doc.page_count)) : requestedEnd;
@@ -475,14 +481,14 @@ export class DocumentService {
     const docs = await this.resolveDocuments(attachmentIds);
     const limit = clampInt(maxResults, 5, 1, 8);
     const maxChars = Math.max(500, Math.floor(this.documentsConfig.contextCharsPerTurn / Math.max(1, limit)));
-    const pdfDocs = docs.filter((doc) => doc.kind === "pdf");
+    const visualDocs = docs.filter(documentUsesVisualPages);
     const chunkDocs = docs.filter((doc) => Boolean(doc.text_ready_at));
     const results = [];
     const citations = [];
     const visualPages = [];
 
-    if (pdfDocs.length) {
-      const pageResult = await this.pageResultsForDocs(pdfDocs, { query, maxResults: limit });
+    if (visualDocs.length) {
+      const pageResult = await this.pageResultsForDocs(visualDocs, { query, maxResults: limit });
       results.push(...pageResult.results);
       citations.push(...pageResult.citations);
       visualPages.push(...pageResult.visualPages);
@@ -531,7 +537,7 @@ export class DocumentService {
   async read({ attachmentId, query = "", maxChars, pageStart = null, pageEnd = null } = {}) {
     if (query) {
       const doc = await this.requireDocumentByAttachment(attachmentId);
-      if (doc.kind === "pdf") {
+      if (documentUsesVisualPages(doc)) {
         await this.consume({ toolCount: 1 });
         const pageResult = await this.pageResultsForDocs([doc], {
           query,
@@ -553,7 +559,7 @@ export class DocumentService {
     }
     await this.consume({ toolCount: 1 });
     const doc = await this.requireDocumentByAttachment(attachmentId);
-    if (doc.kind === "pdf") {
+    if (documentUsesVisualPages(doc)) {
       const pageResult = await this.pageResultsForDocs([doc], {
         maxResults: this.pageLimit(null),
         pageStart,
@@ -591,14 +597,14 @@ export class DocumentService {
   async extractTables({ attachmentId, maxResults = 5 } = {}) {
     await this.consume({ toolCount: 1 });
     const doc = await this.requireDocumentByAttachment(attachmentId);
-    if (doc.kind === "pdf") {
+    if (documentUsesVisualPages(doc)) {
       const pageResult = await this.pageResultsForDocs([doc], { maxResults });
       return {
         ok: true,
         provider: "documents",
         results: pageResult.results.map((entry) => ({
           ...entry,
-          content: `${entry.content}\n\nTable extraction for visual PDFs is page-image based. Inspect this page image for tables and cite it if used.`
+          content: `${entry.content}\n\nTable extraction for visual documents is page-image based. Inspect this page image for tables and cite it if used.`
         })),
         citations: pageResult.citations,
         visualPages: pageResult.visualPages,

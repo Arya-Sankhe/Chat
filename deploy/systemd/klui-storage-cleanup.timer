@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Klui orphan R2 storage cleanup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+Unit=klui-storage-cleanup.service
+
+[Install]
+WantedBy=timers.target

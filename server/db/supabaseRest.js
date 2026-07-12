@@ -204,6 +204,10 @@ export class SupabaseRest {
     return attachments.createAttachment(this, attachment, options);
   }
 
+  async listOrphanAttachments(options) {
+    return attachments.listOrphanAttachments(this, options);
+  }
+
   async completeAttachment(userId, attachmentId, patch, options) {
     return attachments.completeAttachment(this, userId, attachmentId, patch, options);
   }

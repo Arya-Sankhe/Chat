@@ -133,6 +133,10 @@ export function loadConfig(env = process.env) {
       readExpiresSeconds: readInt(env.R2_READ_EXPIRES_SECONDS, 900),
       maxImageBytes: readInt(env.R2_MAX_IMAGE_BYTES, 10 * 1024 * 1024)
     },
+    storageCleanup: {
+      graceDays: readInt(env.STORAGE_CLEANUP_GRACE_DAYS, 7),
+      batchSize: readInt(env.STORAGE_CLEANUP_BATCH_SIZE, 100)
+    },
     context: {
       maxTokens: contextMaxTokens,
       compactAtTokens: contextCompactAtTokens,

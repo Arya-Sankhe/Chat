@@ -20,7 +20,7 @@ The Compose service now uses the agreed initial VPS profile:
 - a 3 GB worker memory ceiling, leaving host headroom for the API, research worker, search service, Docker, and the operating system
 - no document-worker CPU cap; the bounded in-process concurrency remains the CPU guardrail
 
-Two worker loops let the local EdgeParse extraction job and CPU-bound page-rendering job for a PDF progress concurrently and also reduce queue wait for separate uploads. Each rendering job may run two bounded `pdftoppm` processes, so do not raise worker concurrency and render concurrency together without measuring peak RSS, CPU, temporary disk, and failures. A completed render range is uploaded and published immediately; it does not wait for every other range to finish.
+Two worker loops let text extraction and CPU-bound visual enrichment progress concurrently and also reduce queue wait for separate uploads. Office enrichment first converts DOCX/XLSX/PPTX to a job-local PDF with LibreOffice, then reuses the same bounded `pdftoppm` rendering path; the temporary PDF disappears with the job temp directory and is never uploaded. Each rendering job may run two bounded `pdftoppm` processes, so do not raise worker concurrency and render concurrency together without measuring peak RSS, CPU, temporary disk, and failures. A completed render range is uploaded and published immediately; it does not wait for every other range to finish.
 
 Workers renew job leases every 30 seconds and stop before an unrenewed lease can expire. A job reclaimed after three worker crashes is marked failed instead of being retried forever.
 
@@ -28,7 +28,7 @@ Keep the durable queue even when the VPS usually starts uploads immediately. Tun
 
 ## What more CPU improves
 
-More vCPU speeds up local EdgeParse parsing and the bounded `pdftoppm` page ranges. It does not make Jina, R2, or Supabase network calls faster. Watch per-stage timings for text extraction, rendering, embeddings, and page uploads separately before changing resources.
+More vCPU speeds up local EdgeParse parsing, LibreOffice conversion, and the bounded `pdftoppm` page ranges. It does not make Jina, R2, or Supabase network calls faster. Watch per-stage timings for text extraction, Office conversion, rendering, embeddings, and page uploads separately before changing resources.
 
 ## External service settings
 
@@ -36,5 +36,8 @@ More vCPU speeds up local EdgeParse parsing and the bounded `pdftoppm` page rang
 - Enable Cloudflare R2 Local Uploads when users are far from the bucket location.
 - Keep direct browser-to-R2 uploads working. The same-origin relay is a reliability fallback and sends the whole file through the API service.
 - Apply `supabase/migrations/2026_07_11_harden_document_uploads.sql`, then `supabase/migrations/2026_07_11_rev3_document_pipeline.sql`, before deploying the Rev 3 worker.
+- For Office visual enrichment, deploy the updated API and worker first, then apply `supabase/migrations/20260712215913_add_office_visual_enrichment.sql`. This prevents an older worker from claiming a newly queued Office visual job and trying to parse the Office file as a PDF.
 
 Cloudflare R2 Local Uploads: https://developers.cloudflare.com/r2/buckets/local-uploads/
+
+The daily orphan-file cleanup and exact systemd setup commands are documented in [STORAGE_CLEANUP.md](STORAGE_CLEANUP.md).

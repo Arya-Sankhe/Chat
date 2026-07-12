@@ -179,10 +179,28 @@ test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the c
   assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
 
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
-  assert.match(hint, /PDF reading/);
+  assert.match(hint, /Visual document reading/);
   assert.match(hint, /page images are the source of truth/);
   assert.match(hint, /inspect returned page images before answering/);
   assert.match(hint, /cmp466 hw3\.pdf \(pdf, 3 pages/);
+});
+
+test("selectDocumentSkills attaches visual reading for enriched Office documents", () => {
+  const readyDocuments = [{
+    id: documentFileId,
+    attachment_id: attachmentId,
+    kind: "pptx",
+    visual_ready_at: "2026-07-12T00:00:00.000Z",
+    page_count: 4,
+    version_no: 1,
+    attachments: { file_name: "Roadmap.pptx" }
+  }];
+
+  const selection = selectDocumentSkills({ text: "hello", readyDocuments });
+  const hint = buildDocumentSystemHint({ readyDocuments, selection });
+  assert.deepEqual(selection.skills, ["document-read", "pdf-read"]);
+  assert.match(hint, /Visual document reading/);
+  assert.match(hint, /Roadmap\.pptx \(pptx, 4 pages/);
 });
 
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
@@ -239,7 +257,7 @@ test("buildDocumentSystemHint injects presentation guidance and exposes PPTX cre
   assert.doesNotMatch(hint, /Professional PDF creation skill/);
 });
 
-test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready PDFs", () => {
+test("buildDocumentSystemHint injects visual-reading guidance for ready PDFs", () => {
   const readyDocuments = [{
     id: documentFileId,
     attachment_id: attachmentId,
@@ -251,7 +269,7 @@ test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready
   const selection = selectDocumentSkills({ text: "solve all questions in this pdf", readyDocuments });
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
 
-  assert.match(hint, /PDF reading/);
+  assert.match(hint, /Visual document reading/);
   assert.match(hint, /start with read_document/);
   assert.match(hint, /Homework\.pdf \(pdf, 5 pages/);
 });
@@ -348,6 +366,50 @@ test("DocumentService searches visual PDF pages and returns page image context",
   assert.equal(result.results[0].source_type, "page_image");
   assert.equal(result.visualPages[0].url, "https://signed.example/users/user/documents/doc/pages/page-0001.jpg");
   assert.equal(result.citations[0].page, 1);
+});
+
+test("DocumentService searches visually enriched Office pages", async () => {
+  const db = {
+    async listUsableDocumentFiles() {
+      return [{
+        id: documentFileId,
+        attachment_id: attachmentId,
+        conversation_id: conversationId,
+        text_ready_at: "2026-07-12T00:00:00.000Z",
+        visual_ready_at: "2026-07-12T00:01:00.000Z",
+        kind: "pptx",
+        page_count: 3,
+        attachments: { file_name: "Roadmap.pptx" }
+      }];
+    },
+    async listDocumentPages() {
+      return [{
+        id: "page_2",
+        document_file_id: documentFileId,
+        page_number: 2,
+        source_label: "Page 2",
+        image_key: "users/user/documents/doc/pages/page-0002.jpg",
+        text: ""
+      }];
+    },
+    async searchDocumentChunks() {
+      return [];
+    }
+  };
+  const service = new DocumentService({
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    db,
+    r2: { readUrl: (key) => `https://signed.example/${key}` },
+    userId,
+    conversationId,
+    plan: { id: "pro" },
+    signal: new AbortController().signal
+  });
+
+  const result = await service.search({ query: "timeline", maxResults: 2 });
+  assert.equal(result.results[0].source_type, "page_image");
+  assert.equal(result.visualPages[0].page_number, 2);
+  assert.equal(result.citations[0].title, "Roadmap.pptx - Page 2");
 });
 
 test("DocumentService hides internal preview exports from automatic ready documents", async () => {
