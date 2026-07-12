@@ -173,6 +173,8 @@ const state = {
     kind: "",
     sourceKind: "",
     url: "",
+    sheets: [],
+    activeSheet: 0,
     loading: false,
     error: ""
   }
@@ -3144,10 +3146,14 @@ async function startDocumentUpload(item) {
   }
 }
 
-function addImages(files) {
+function acceptPendingFiles(files) {
   if (!requireAuth()) return;
   if (state.temporaryChat) {
     showToast("Temporary chat is text-only for now.");
+    return;
+  }
+  if (state.researchMode) {
+    showToast("Turn off Deep Research before adding attachments.");
     return;
   }
   const draft = els.promptInput.value;
@@ -5348,7 +5354,7 @@ function bindEvents() {
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {
-    addImages(e.target.files || []);
+    acceptPendingFiles(e.target.files || []);
     e.target.value = "";
   });
   els.cameraAction?.addEventListener("click", () => {
@@ -5361,8 +5367,26 @@ function bindEvents() {
     els.cameraFileInput?.click();
   });
   els.cameraFileInput?.addEventListener("change", (e) => {
-    addImages(e.target.files || []);
+    acceptPendingFiles(e.target.files || []);
     e.target.value = "";
+  });
+
+  const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+  els.composer?.addEventListener("dragover", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    if (state.temporaryChat || state.researchMode) return;
+    event.dataTransfer.dropEffect = "copy";
+    els.composer.classList.add("drag-over");
+  });
+  els.composer?.addEventListener("dragleave", (event) => {
+    if (!els.composer.contains(event.relatedTarget)) els.composer.classList.remove("drag-over");
+  });
+  els.composer?.addEventListener("drop", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    els.composer.classList.remove("drag-over");
+    acceptPendingFiles(event.dataTransfer?.files || []);
   });
 
   if (els.webSearchToggle) {
@@ -5631,7 +5655,7 @@ function bindEvents() {
     const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
     if (files.length) {
       e.preventDefault();
-      addImages(files);
+      acceptPendingFiles(files);
       return;
     }
     const pasted = e.clipboardData?.getData("text/plain") || "";

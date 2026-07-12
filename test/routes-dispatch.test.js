@@ -313,6 +313,44 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(res.json().document.id, "doc-1");
 });
 
+test("XLSX view returns extracted sheets without creating a PDF preview", async () => {
+  let previewJobCreated = false;
+  const overrides = stubbedDeps({
+    db: {
+      async getAttachment() {
+        return {
+          id: "sheet-1",
+          status: "uploaded",
+          file_name: "budget.xlsx",
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        };
+      },
+      async getDocumentFileByAttachment() {
+        return { id: "doc-1", kind: "xlsx", text_ready_at: "2026-07-13T00:00:00Z" };
+      },
+      async listDocumentChunks() {
+        return [{ source_label: "Budget", text: "Item\tCost\nHosting\t20" }];
+      },
+      async createDocumentJob() {
+        previewJobCreated = true;
+        return { id: "job-1" };
+      }
+    }
+  });
+
+  const res = await dispatch(documentReadyConfig, {
+    path: "/api/attachments/sheet-1/view",
+    overrides
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(previewJobCreated, false);
+  assert.deepEqual(res.json().sheets, [{
+    name: "Budget",
+    rows: [["Item", "Cost"], ["Hosting", "20"]]
+  }]);
+});
+
 test("authenticated routes dispatch to their resource-specific handlers", async () => {
   const cases = [
     { method: "GET", path: "/api/payments/ziina", dbMethod: "listPaymentRequests", result: [] },

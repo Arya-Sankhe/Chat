@@ -144,7 +144,39 @@ export function createDocumentViewer({
     if (state.viewer.loading && state.viewer.jobId) return `${format || "DOCUMENT"} preview is being prepared`;
     if (state.viewer.loading) return "Loading preview";
     if (state.viewer.error) return "Preview unavailable";
+    if (state.viewer.sheets?.length) return `${format || "XLSX"} · ${state.viewer.sheets.length} sheet${state.viewer.sheets.length === 1 ? "" : "s"}`;
     return format ? `${format} preview` : "Preview";
+  }
+
+  function columnLabel(index) {
+    let value = index + 1;
+    let label = "";
+    while (value > 0) {
+      value -= 1;
+      label = String.fromCharCode(65 + (value % 26)) + label;
+      value = Math.floor(value / 26);
+    }
+    return label;
+  }
+
+  function renderSheetViewer() {
+    const sheets = state.viewer.sheets || [];
+    const activeSheet = Math.min(Math.max(Number(state.viewer.activeSheet) || 0, 0), sheets.length - 1);
+    const rows = sheets[activeSheet]?.rows || [];
+    const columns = rows.reduce((max, row) => Math.max(max, row.length), 0);
+    delete elements.documentViewerBody.dataset.pdfUrl;
+    elements.documentViewerBody.innerHTML = `
+      <div class="sheet-viewer">
+        <div class="sheet-tabs" role="tablist" aria-label="Workbook sheets">
+          ${sheets.map((sheet, index) => `<button type="button" role="tab" aria-selected="${index === activeSheet}" data-sheet-index="${index}">${escapeHtml(sheet.name || `Sheet ${index + 1}`)}</button>`).join("")}
+        </div>
+        <div class="sheet-grid">
+          <table>
+            <thead><tr><th class="sheet-corner" aria-hidden="true"></th>${Array.from({ length: columns }, (_, index) => `<th scope="col">${columnLabel(index)}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map((row, rowIndex) => `<tr><th scope="row">${rowIndex + 1}</th>${Array.from({ length: columns }, (_, columnIndex) => `<td>${escapeHtml(row[columnIndex] || "")}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>`;
   }
 
   function renderDocumentViewer() {
@@ -184,6 +216,10 @@ export function createDocumentViewer({
       delete elements.documentViewerBody.dataset.pdfUrl;
       const label = viewer.jobId ? "Preparing preview…" : "Loading preview…";
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
+      return;
+    }
+    if (viewer.sheets?.length) {
+      renderSheetViewer();
       return;
     }
     if (viewer.url) {
@@ -354,7 +390,7 @@ export function createDocumentViewer({
       pollDocumentPreviewJob(payload.jobId);
       return;
     }
-    if (!payload.url) throw new Error("Preview URL was not returned.");
+    if (!payload.url && !payload.sheets?.length) throw new Error("Preview was not returned.");
     stopDocumentPreviewPoll();
     setDocumentViewerState({
       open: true,
@@ -364,7 +400,9 @@ export function createDocumentViewer({
       fileName: payload.fileName || fileName || "Document",
       kind: payload.kind || "pdf",
       sourceKind: sourceKind || payload.sourceKind || payload.kind || "pdf",
-      url: payload.url,
+      url: payload.url || "",
+      sheets: Array.isArray(payload.sheets) ? payload.sheets : [],
+      activeSheet: 0,
       loading: false,
       error: ""
     });
@@ -381,6 +419,8 @@ export function createDocumentViewer({
       kind: "pdf",
       sourceKind: format.toLowerCase(),
       url: "",
+      sheets: [],
+      activeSheet: 0,
       loading: true,
       error: ""
     });
@@ -404,10 +444,18 @@ export function createDocumentViewer({
       kind: "",
       sourceKind: "",
       url: "",
+      sheets: [],
+      activeSheet: 0,
       loading: false,
       error: ""
     });
   }
+
+  elements.documentViewerBody?.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-sheet-index]");
+    if (!tab) return;
+    setDocumentViewerState({ activeSheet: Number(tab.dataset.sheetIndex) || 0 });
+  });
 
   function setDocumentViewerWidth(width) {
     const min = 360;

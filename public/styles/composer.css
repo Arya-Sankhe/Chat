@@ -602,6 +602,14 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+.composer.drag-over {
+
+  border-color: var(--accent);
+
+  box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-md);
+
+}
+
 .composer textarea {
 
   width: 100%;
@@ -2242,4 +2250,3 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
   color: var(--text);
 
 }
-

@@ -236,6 +236,21 @@ function inlineViewPayload(context, attachment, { sourceKind = "", status = "rea
   };
 }
 
+function sheetViewPayload(attachment, chunks) {
+  return {
+    status: "ready",
+    fileName: attachment.file_name,
+    contentType: attachment.content_type,
+    kind: "xlsx",
+    sourceKind: "xlsx",
+    attachmentId: attachment.id,
+    sheets: chunks.map((chunk, index) => ({
+      name: chunk.source_label || `Sheet ${index + 1}`,
+      rows: String(chunk.text || "").split("\n").map((row) => row.split("\t"))
+    }))
+  };
+}
+
 export async function handleAttachmentView(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -258,6 +273,18 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
 
   const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
   if (!doc) throw new HttpError(404, "Document metadata not found.");
+
+  if (kind === "xlsx" && doc.text_ready_at) {
+    const chunks = await context.db.listDocumentChunks(context.user.id, doc.id, {
+      sourceType: "sheet",
+      limit: config.documents.maxXlsxSheets,
+      signal: req.signal
+    });
+    if (chunks.length) {
+      sendJson(res, 200, sheetViewPayload(attachment, chunks));
+      return;
+    }
+  }
 
   const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, doc.id, { signal: req.signal });
   if (cached?.attachments?.status === "uploaded" && cached.attachments.object_key) {

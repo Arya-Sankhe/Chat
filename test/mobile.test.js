@@ -251,6 +251,17 @@ test("adding uploads preserves an existing composer draft", async () => {
   assert.match(source, /renderImages\(\);\s*els\.promptInput\.value = draft;\s*applyComposerHeight\(\)/);
 });
 
+test("composer drag and drop reuses the shared attachment acceptance path", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /function acceptPendingFiles\(files\)/);
+  assert.match(source, /addEventListener\("dragover"/);
+  assert.match(source, /addEventListener\("dragleave"/);
+  assert.match(source, /addEventListener\("drop"[\s\S]*?acceptPendingFiles\(event\.dataTransfer\?\.files \|\| \[\]\)/);
+  assert.match(source, /imageFileInput\.addEventListener\("change"[\s\S]*?acceptPendingFiles\(e\.target\.files \|\| \[\]\)/);
+});
+
 test("document enrichment cannot reactivate the composer progress ring", async () => {
   const appJs = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")

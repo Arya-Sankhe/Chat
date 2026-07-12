@@ -406,6 +406,140 @@ body.document-viewer-resizing {
 
 }
 
+.sheet-viewer {
+
+  min-width: max-content;
+
+}
+
+.sheet-tabs {
+
+  position: sticky;
+
+  top: -18px;
+
+  z-index: 3;
+
+  display: flex;
+
+  gap: 4px;
+
+  padding: 10px 0;
+
+  background: var(--bg-secondary);
+
+}
+
+.sheet-tabs button {
+
+  min-height: 30px;
+
+  padding: 0 10px;
+
+  border: 1px solid var(--border);
+
+  border-radius: 6px;
+
+  background: var(--bg);
+
+  color: var(--text-secondary);
+
+  font-size: 12px;
+
+}
+
+.sheet-tabs button[aria-selected="true"] {
+
+  border-color: var(--text-secondary);
+
+  color: var(--text);
+
+}
+
+.sheet-grid table {
+
+  border-spacing: 0;
+
+  border-collapse: separate;
+
+  background: var(--bg);
+
+  font-size: 12px;
+
+}
+
+.sheet-grid th,
+
+.sheet-grid td {
+
+  min-width: 96px;
+
+  max-width: 320px;
+
+  padding: 7px 9px;
+
+  border-right: 1px solid var(--border-light);
+
+  border-bottom: 1px solid var(--border-light);
+
+  color: var(--text);
+
+  text-align: left;
+
+  white-space: pre-wrap;
+
+  overflow-wrap: anywhere;
+
+}
+
+.sheet-grid thead th,
+
+.sheet-grid tbody th {
+
+  position: sticky;
+
+  background: var(--bg-secondary);
+
+  color: var(--text-secondary);
+
+  font-weight: 600;
+
+}
+
+.sheet-grid thead th {
+
+  top: 42px;
+
+  z-index: 2;
+
+  text-align: center;
+
+}
+
+.sheet-grid tbody th {
+
+  left: 0;
+
+  z-index: 1;
+
+  min-width: 42px;
+
+  width: 42px;
+
+  text-align: right;
+
+}
+
+.sheet-grid .sheet-corner {
+
+  left: 0;
+
+  z-index: 3;
+
+  min-width: 42px;
+
+}
+
 /* ─── Top Bar ─── */
 
 .topbar {
@@ -517,4 +651,3 @@ body.document-viewer-resizing {
 }
 
 .usage-pill:empty { display: none; }
-
