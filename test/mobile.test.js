@@ -114,6 +114,16 @@ test("chat shell is visible before JavaScript finishes booting", async () => {
   assert.doesNotMatch(source, /class="app-shell hidden" id="chatView"/);
 });
 
+test("chat navigation stays on the active conversation while a response is running", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /function blockChatNavigationWhileRunning\(\)/);
+  assert.match(source, /async function openConversation\(conversationId\)[\s\S]*?blockChatNavigationWhileRunning\(\)/);
+  assert.match(source, /function openNewChat\([^)]*\)[\s\S]*?blockChatNavigationWhileRunning\(\)/);
+  assert.match(source, /window\.addEventListener\("popstate"[\s\S]*?blockChatNavigationWhileRunning\(\)/);
+});
+
 test("mobile bundle includes the shared Deep Research controls", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/index.html", import.meta.url), "utf8")

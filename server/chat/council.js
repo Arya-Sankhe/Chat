@@ -18,6 +18,8 @@ import {
   injectWebContextMessage,
   sharedDocumentMetadata,
   sharedWebsearchMetadata,
+  createAssistantOutputMessage,
+  startSse,
   writeSse
 } from "./shared.js";
 
@@ -36,7 +38,8 @@ export async function handleCouncilConversationMessage({
   crofai,
   provider,
   webSearch,
-  documentSearch
+  documentSearch,
+  turnRun = null
 }) {
   const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
@@ -56,13 +59,13 @@ export async function handleCouncilConversationMessage({
 
   const sessionId = `cnc_${generateNonce()}_${generateNonce()}`;
   const panelistMessages = [];
-  for (const chatRequest of chatRequests) {
+  for (const [index, chatRequest] of chatRequests.entries()) {
     const baseMeta = { council: { sessionId, role: "panelist", stage: 1 } };
     const webMeta = sharedWebsearchMetadata(sharedSearch);
     const documentMeta = sharedDocumentMetadata(documentSearch);
     if (webMeta) baseMeta.websearch = webMeta;
     if (documentMeta) baseMeta.documents = documentMeta;
-    panelistMessages.push(await context.db.insertMessage({
+    panelistMessages.push(await createAssistantOutputMessage(context, {
       user_id: context.user.id,
       conversation_id: conversation.id,
       role: "assistant",
@@ -71,7 +74,7 @@ export async function handleCouncilConversationMessage({
       reasoning: "",
       tool_calls: [],
       metadata: baseMeta
-    }, { signal: req.signal }));
+    }, { signal: req.signal, turnRun, outputSlot: `panel:${index}` }));
   }
 
   if (!conversation.title || conversation.title === "New chat") {
@@ -85,17 +88,12 @@ export async function handleCouncilConversationMessage({
     }, { signal: req.signal });
   }
 
-  const controller = new AbortController();
+  const controller = req.turnController || new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();
   });
 
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-accel-buffering": "no"
-  });
+  startSse(res, turnRun?.id ? { "x-klui-turn-run-id": turnRun.id } : {});
 
   writeSse(res, {
     type: "council:start",
@@ -150,6 +148,7 @@ export async function handleCouncilConversationMessage({
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
+        error: null,
         ...(durationMeta ? { metadata: durationMeta } : {})
       }, { signal: req.signal });
 
@@ -299,7 +298,7 @@ export async function handleCouncilConversationMessage({
   if (!validPanelists.length) {
     writeSse(res, { type: "council:chairman:skipped", reason: "No responses to synthesize." });
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
-    res.end();
+    if (!turnRun?.id) res.end();
     return;
   }
 
@@ -312,7 +311,7 @@ export async function handleCouncilConversationMessage({
 
   const chairmanWebMeta = sharedWebsearchMetadata(sharedSearch);
   const chairmanDocumentMeta = sharedDocumentMetadata(documentSearch);
-  const chairmanMessage = await context.db.insertMessage({
+  const chairmanMessage = await createAssistantOutputMessage(context, {
     user_id: context.user.id,
     conversation_id: conversation.id,
     role: "assistant",
@@ -331,7 +330,7 @@ export async function handleCouncilConversationMessage({
       ...(chairmanWebMeta ? { websearch: chairmanWebMeta } : {}),
       ...(chairmanDocumentMeta ? { documents: chairmanDocumentMeta } : {})
     }
-  }, { signal: req.signal });
+  }, { signal: req.signal, turnRun, outputSlot: "chairman" });
 
   writeSse(res, {
     type: "council:chairman:start",
@@ -378,6 +377,7 @@ export async function handleCouncilConversationMessage({
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
+      error: null,
       ...(chairmanDurationMeta ? { metadata: chairmanDurationMeta } : {})
     }, { signal: req.signal });
 
@@ -398,5 +398,5 @@ export async function handleCouncilConversationMessage({
   }
 
   await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
-  res.end();
+  if (!turnRun?.id) res.end();
 }

@@ -258,12 +258,13 @@ test("buildDocumentSystemHint injects PDF visual-reading guidance only for ready
 
 test("DocumentService searches ready document chunks and returns document citations", async () => {
   const db = {
-    async listReadyDocumentFiles() {
+    async listUsableDocumentFiles() {
       return [{
         id: documentFileId,
         attachment_id: attachmentId,
         conversation_id: conversationId,
         processing_status: "ready",
+        text_ready_at: "2026-07-11T00:00:00.000Z",
         kind: "docx",
         version_no: 1,
         attachments: { file_name: "Contract.pdf" }
@@ -296,12 +297,13 @@ test("DocumentService searches ready document chunks and returns document citati
 
 test("DocumentService searches visual PDF pages and returns page image context", async () => {
   const db = {
-    async listReadyDocumentFiles() {
+    async listUsableDocumentFiles() {
       return [{
         id: documentFileId,
         attachment_id: attachmentId,
         conversation_id: conversationId,
         processing_status: "ready",
+        visual_ready_at: "2026-07-11T00:00:00.000Z",
         kind: "pdf",
         version_no: 1,
         page_count: 5,
@@ -320,6 +322,9 @@ test("DocumentService searches visual PDF pages and returns page image context",
         text: "",
         metadata: { page: 1 }
       }];
+    },
+    async searchDocumentChunks() {
+      return [];
     }
   };
 
@@ -347,16 +352,80 @@ test("DocumentService searches visual PDF pages and returns page image context",
 
 test("DocumentService hides internal preview exports from automatic ready documents", async () => {
   const service = documentServiceWithDb({
-    async listReadyDocumentFiles() {
+    async listUsableDocumentFiles() {
       return [
-        { id: "doc_1", processing_status: "ready", metadata: {}, conversation_id: conversationId },
-        { id: "doc_preview", processing_status: "ready", metadata: { preview: true }, conversation_id: conversationId }
+        { id: "doc_1", text_ready_at: "2026-07-11T00:00:00.000Z", metadata: {}, conversation_id: conversationId },
+        { id: "doc_preview", text_ready_at: "2026-07-11T00:00:00.000Z", metadata: { preview: true }, conversation_id: conversationId }
       ];
     }
   });
 
   const docs = await service.readyDocuments();
   assert.deepEqual(docs.map((doc) => doc.id), ["doc_1"]);
+});
+
+test("DocumentService queues every missing page before waiting for renders", async () => {
+  const queueCalls = [];
+  let queueingComplete = false;
+  const db = {
+    async listDocumentPagesByNumbers(_userId, _documentId, pageNumbers) {
+      if (pageNumbers.length > 1) return [];
+      assert.equal(queueingComplete, true, "page polling starts only after all render jobs are queued");
+      const pageNumber = pageNumbers[0];
+      return [{
+        id: `page_${pageNumber}`,
+        document_file_id: documentFileId,
+        page_number: pageNumber,
+        image_key: `page-${pageNumber}.jpg`
+      }];
+    },
+    async queueDocumentPageRender({ pageNumber }) {
+      queueCalls.push(pageNumber);
+      if (queueCalls.length === 3) queueingComplete = true;
+      return { job: { id: `job_${pageNumber}`, status: "queued" } };
+    }
+  };
+  const service = documentServiceWithDb(db);
+  const pages = await service.ensureDocumentPages({ id: documentFileId }, [3, 1, 2]);
+
+  assert.deepEqual(queueCalls.sort((a, b) => a - b), [1, 2, 3]);
+  assert.deepEqual(pages.map((page) => page.page_number), [3, 1, 2]);
+});
+
+test("DocumentService rerenders a page row that has no usable image key", async () => {
+  let queued = false;
+  const service = documentServiceWithDb({
+    async listDocumentPagesByNumbers() {
+      if (!queued) {
+        return [{ id: "broken", document_file_id: documentFileId, page_number: 2, image_key: "" }];
+      }
+      return [{ id: "fixed", document_file_id: documentFileId, page_number: 2, image_key: "page-2.jpg" }];
+    },
+    async queueDocumentPageRender({ pageNumber }) {
+      assert.equal(pageNumber, 2);
+      queued = true;
+      return { job: { id: "job-2", status: "queued" } };
+    },
+    async getDocumentJob() {
+      return { id: "job-2", status: "running" };
+    }
+  });
+
+  const pages = await service.ensureDocumentPages({ id: documentFileId }, [2]);
+  assert.deepEqual(pages.map((page) => page.id), ["fixed"]);
+  assert.equal(queued, true);
+});
+
+test("DocumentService bounds an on-demand page render wait", async () => {
+  const service = documentServiceWithDb({
+    async listDocumentPagesByNumbers() { return []; },
+    async getDocumentJob() { return { id: "job_1", status: "running" }; }
+  });
+
+  await assert.rejects(
+    service.waitForRenderedPage({ id: documentFileId }, 7, { id: "job_1", status: "queued" }),
+    (error) => error?.status === 504 && /still rendering/.test(error.message)
+  );
 });
 
 test("DocumentService validates attachment ownership-shaped ids before document lookup", async () => {

@@ -9,6 +9,7 @@ import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
 import * as research from "./rest/research.js";
 import * as subscriptions from "./rest/subscriptions.js";
+import * as turns from "./rest/turns.js";
 
 function queryString(params = {}) {
   const query = new URLSearchParams();
@@ -159,6 +160,46 @@ export class SupabaseRest {
     return chat.updateMessage(this, userId, messageId, patch, options);
   }
 
+  async submitDocumentTurn(params, options) {
+    return turns.submitDocumentTurn(this, params, options);
+  }
+
+  async getPendingDocumentTurn(userId, turnId, options) {
+    return turns.getPendingDocumentTurn(this, userId, turnId, options);
+  }
+
+  async listPendingDocumentTurns(userId, conversationId, options) {
+    return turns.listPendingDocumentTurns(this, userId, conversationId, options);
+  }
+
+  async claimPendingDocumentTurn(params, options) {
+    return turns.claimPendingDocumentTurn(this, params, options);
+  }
+
+  async heartbeatPendingDocumentTurn(params, options) {
+    return turns.heartbeatPendingDocumentTurn(this, params, options);
+  }
+
+  async releasePendingDocumentTurn(params, options) {
+    return turns.releasePendingDocumentTurn(this, params, options);
+  }
+
+  async markPendingTurnProviderStarted(params, options) {
+    return turns.markPendingTurnProviderStarted(this, params, options);
+  }
+
+  async finishPendingDocumentTurn(params, options) {
+    return turns.finishPendingDocumentTurn(this, params, options);
+  }
+
+  async cancelPendingDocumentTurn(userId, turnId, options) {
+    return turns.cancelPendingDocumentTurn(this, userId, turnId, options);
+  }
+
+  async upsertTurnOutputMessage(message, options) {
+    return turns.upsertTurnOutputMessage(this, message, options);
+  }
+
   async createAttachment(attachment, options) {
     return attachments.createAttachment(this, attachment, options);
   }
@@ -197,6 +238,10 @@ export class SupabaseRest {
 
   async listReadyDocumentFiles(userId, conversationId, options) {
     return documents.listReadyDocumentFiles(this, userId, conversationId, options);
+  }
+
+  async listUsableDocumentFiles(userId, conversationId, options) {
+    return documents.listUsableDocumentFiles(this, userId, conversationId, options);
   }
 
   async listDocumentFilesByAttachments(userId, attachmentIds, options) {
@@ -253,6 +298,14 @@ export class SupabaseRest {
 
   async listDocumentPages(userId, documentFileId, options) {
     return documents.listDocumentPages(this, userId, documentFileId, options);
+  }
+
+  async listDocumentPagesByNumbers(userId, documentFileId, pageNumbers, options) {
+    return documents.listDocumentPagesByNumbers(this, userId, documentFileId, pageNumbers, options);
+  }
+
+  async queueDocumentPageRender(params, options) {
+    return documents.queueDocumentPageRender(this, params, options);
   }
 
   async searchDocumentPages(params, options) {

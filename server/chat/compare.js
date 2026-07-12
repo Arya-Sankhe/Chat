@@ -11,6 +11,8 @@ import {
   injectWebContextMessage,
   sharedDocumentMetadata,
   sharedWebsearchMetadata,
+  createAssistantOutputMessage,
+  startSse,
   writeSse
 } from "./shared.js";
 
@@ -25,7 +27,8 @@ export async function handleCompareConversationMessage({
   crofai,
   provider,
   webSearch,
-  documentSearch
+  documentSearch,
+  turnRun = null
 }) {
   const includeReasoning = context.profile?.role === "admin";
   const sharedSearch = webSearch?.contextMessage
@@ -44,14 +47,14 @@ export async function handleCompareConversationMessage({
   }
 
   const assistantMessages = [];
-  for (const chatRequest of chatRequests) {
+  for (const [index, chatRequest] of chatRequests.entries()) {
     const webMeta = sharedWebsearchMetadata(sharedSearch);
     const documentMeta = sharedDocumentMetadata(documentSearch);
     const baseMeta = {
       ...(webMeta ? { websearch: webMeta } : {}),
       ...(documentMeta ? { documents: documentMeta } : {})
     };
-    assistantMessages.push(await context.db.insertMessage({
+    assistantMessages.push(await createAssistantOutputMessage(context, {
       user_id: context.user.id,
       conversation_id: conversation.id,
       role: "assistant",
@@ -60,7 +63,7 @@ export async function handleCompareConversationMessage({
       reasoning: "",
       tool_calls: [],
       metadata: baseMeta
-    }, { signal: req.signal }));
+    }, { signal: req.signal, turnRun, outputSlot: `compare:${index}` }));
   }
 
   if (!conversation.title || conversation.title === "New chat") {
@@ -74,17 +77,12 @@ export async function handleCompareConversationMessage({
     }, { signal: req.signal });
   }
 
-  const controller = new AbortController();
+  const controller = req.turnController || new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();
   });
 
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
-    connection: "keep-alive",
-    "x-accel-buffering": "no"
-  });
+  startSse(res, turnRun?.id ? { "x-klui-turn-run-id": turnRun.id } : {});
 
   await Promise.all(chatRequests.map(async (chatRequest, index) => {
     const assistantMessage = assistantMessages[index];
@@ -125,6 +123,7 @@ export async function handleCompareConversationMessage({
         reasoning: accumulated.reasoning,
         tool_calls: accumulated.toolCalls,
         finish_reason: accumulated.finishReason || null,
+        error: null,
         ...(compareDurationMeta ? { metadata: compareDurationMeta } : {})
       }, { signal: req.signal });
 
@@ -148,5 +147,5 @@ export async function handleCompareConversationMessage({
   }));
 
   await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
-  res.end();
+  if (!turnRun?.id) res.end();
 }

@@ -44,9 +44,9 @@ services:
       - path: .env
         required: false
     environment:
-      DOCUMENT_WORKER_CONCURRENCY: 1
-    mem_limit: 1500m
-    cpus: "1.5"
+      DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
+      DOCUMENT_WORKER_POLL_SECONDS: ${DOCUMENT_WORKER_POLL_SECONDS:-0.5}
+    mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-3g}
     healthcheck:
       test: ["CMD", "python", "-m", "worker.healthcheck"]
       interval: 30s

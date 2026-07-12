@@ -2,6 +2,7 @@ import {
   configureApiAuth,
   approveAdminPayment,
   cancelResearch,
+  cancelPendingDocumentTurn,
   createConversation,
   createResearch,
   createZiinaPaymentRequest,
@@ -75,6 +76,7 @@ import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
+import { reconcilePendingTurnMessages } from "./pendingTurns.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -151,6 +153,12 @@ const state = {
   running: false,
   autoScroll: true,
   abortController: null,
+  activeTurnRunId: "",
+  activeTurnConversationId: "",
+  activeTurnWaiting: false,
+  activeTurnCancelRequested: false,
+  activeTurnCancelResult: null,
+  resumingTurnId: "",
   pendingDeleteId: "",
   pendingRenameId: "",
   openConversationMenuId: "",
@@ -386,6 +394,12 @@ function syncConversationUrl({ replace = false } = {}) {
   window.history[method]({ conversationId: state.activeConversationId || "" }, "", target);
 }
 
+function blockChatNavigationWhileRunning() {
+  if (!state.running) return false;
+  showToast("Stop the current response before switching chats.");
+  return true;
+}
+
 function textFromMessageContent(content) {
   if (!Array.isArray(content)) return String(content || "");
   return content
@@ -454,6 +468,7 @@ function setResearchMode(enabled) {
 }
 
 function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
+  if (blockChatNavigationWhileRunning()) return;
   const next = Boolean(enabled);
   if (state.temporaryChat === next && !resetChat) {
     renderTemporaryChatMode();
@@ -1637,6 +1652,7 @@ function toggleConversationMenu(conversationId, button) {
 
 async function openConversation(conversationId) {
   if (!conversationId) return;
+  if (blockChatNavigationWhileRunning()) return;
   state.temporaryChat = false;
   state.activeConversationId = conversationId;
   clearFollowUps();
@@ -2910,6 +2926,7 @@ function pendingDocumentLabel(item) {
   if (item.status === "failed") return item.error || "Failed";
   if (item.status === "uploading") return "Uploading";
   if (item.status === "processing") return `${Math.max(1, Math.min(99, Math.round(item.progress || 10)))}%`;
+  if (item.enriching) return item.stage || "Preparing page images";
   return "Queued";
 }
 
@@ -2926,7 +2943,7 @@ function renderImages() {
     <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
         ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
-        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
+        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" || img.enriching ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
       <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
     </div>
   `).join("");
@@ -3065,13 +3082,18 @@ async function pollUploadedDocument(localId, attachmentId) {
     const doc = payload.document || {};
     if (!state.images.some((entry) => entry.localId === localId)) return;
     updatePendingDocument(localId, {
-      status: doc.status === "ready" ? "ready" : "processing",
+      status: doc.usable ? "ready" : "processing",
+      enriching: Boolean(doc.usable && doc.status !== "ready"),
       progress: doc.status === "ready" ? 100 : Math.max(8, Number(doc.progress || 15)),
+      stage: doc.stage || "",
+      textReadyAt: doc.textReadyAt || null,
+      visualReadyAt: doc.visualReadyAt || null,
+      enrichedAt: doc.enrichedAt || null,
       documentId: doc.id || "",
       error: doc.error?.message || ""
     });
     if (doc.status === "ready") return;
-    if (doc.status === "failed") {
+    if (doc.status === "failed" && !doc.usable) {
       throw new Error(doc.error?.message || "Document could not be processed.");
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -3355,6 +3377,20 @@ function setRunning(running) {
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = running || !state.config?.services?.research;
   updateComposerPlaceholder();
   updateSendButton();
+}
+
+function trackPendingTurnEvent(event) {
+  if (event?.type === "turn:submitted") {
+    state.activeTurnRunId = event.turnRunId || "";
+    return;
+  }
+  if (event?.type === "turn:waiting" || event?.type === "turn:claimed") {
+    state.activeTurnWaiting = true;
+    return;
+  }
+  if (event?.type && !event.type.startsWith("turn:")) {
+    state.activeTurnWaiting = false;
+  }
 }
 
 researchController = createResearchController({
@@ -3713,6 +3749,128 @@ async function loadActiveConversation() {
   const payload = await fetchConversation(state.session, state.activeConversationId);
   state.messages = payload.messages || [];
   researchController.resumeResearchPolling();
+  const pendingTurn = (payload.pendingTurns || [])[0];
+  if (pendingTurn && !state.running && state.resumingTurnId !== pendingTurn.id) {
+    setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
+  }
+}
+
+function restoredTurnAttachment(part) {
+  const source = part?.type === "file" ? part.file : part?.image_url;
+  const attachmentId = source?.attachment_id || "";
+  if (!attachmentId) return null;
+  const category = part.type === "file" ? "document" : "image";
+  const item = {
+    localId: `cancelled_${attachmentId}`,
+    file: {
+      name: source.file_name || (category === "document" ? "Document" : "Image"),
+      type: source.content_type || (category === "document" ? "application/octet-stream" : "image/jpeg"),
+      size: Number(source.size_bytes || 0)
+    },
+    category,
+    previewUrl: category === "image" ? (source.url || "") : "",
+    status: category === "document" ? "processing" : "ready",
+    progress: category === "document" ? 8 : 100,
+    attachmentId,
+    uploaded: {
+      id: attachmentId,
+      fileName: source.file_name || (category === "document" ? "Document" : "Image"),
+      contentType: source.content_type || (category === "document" ? "application/octet-stream" : "image/jpeg"),
+      sizeBytes: Number(source.size_bytes || 0),
+      category
+    },
+    error: ""
+  };
+  return item;
+}
+
+function restoreCancelledTurnDraft(result) {
+  if (result?.run?.status !== "cancelled" || !result.user_message) return false;
+  if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
+  els.promptInput.value = textFromMessageContent(result.user_message.content);
+  const parts = Array.isArray(result.user_message.content) ? result.user_message.content : [];
+  state.images = parts.map(restoredTurnAttachment).filter(Boolean);
+  for (const item of state.images) {
+    if (item.category !== "document") continue;
+    rememberPendingDocument(item);
+    void pollUploadedDocument(item.localId, item.attachmentId).catch((error) => {
+      updatePendingDocument(item.localId, {
+        status: "failed",
+        progress: 0,
+        error: error?.message || "Document status could not be restored."
+      });
+    });
+  }
+  renderImages();
+  applyComposerHeight();
+  return true;
+}
+
+async function resumePendingDocumentTurn(run) {
+  if (!run?.id || state.running || !state.activeConversationId) return;
+  const conversationId = run.conversation_id || state.activeConversationId;
+  if (conversationId !== state.activeConversationId) return;
+  state.resumingTurnId = run.id;
+  const payload = run.request_payload || {};
+  const compareModels = Array.isArray(payload.models) ? payload.models.filter(Boolean) : [];
+  const council = Boolean(payload.council);
+  const localAssistant = localAssistantForMode(compareModels, council);
+  markAssistantActivityTree(localAssistant);
+  state.messages = reconcilePendingTurnMessages(state.messages, run.id, localAssistant);
+  state.abortController = new AbortController();
+  state.activeTurnRunId = run.id;
+  state.activeTurnConversationId = conversationId;
+  setAutoScroll(true);
+  setRunning(true);
+  renderMessages();
+  pinMessagesToBottom();
+
+  try {
+    await streamConversationMessage(state.session, conversationId, { turnRunId: run.id }, {
+      signal: state.abortController.signal,
+      onEvent: (event) => {
+        trackPendingTurnEvent(event);
+        if (council) {
+          const target = applyCouncilStreamEvent(localAssistant, event);
+          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          else queueRenderMessages();
+        } else if (compareModels.length) {
+          const target = applyCompareStreamEvent(localAssistant, event);
+          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          else queueRenderMessages();
+        } else {
+          applyStreamEvent(localAssistant, event);
+          queueStreamRenderForEvent(localAssistant, event);
+        }
+      }
+    });
+    markAssistantActivityDoneTree(localAssistant);
+  } catch (error) {
+    if (error.name === "AbortError") localAssistant.stopped = true;
+    else localAssistant.error = error.message || "The pending turn could not resume.";
+  } finally {
+    state.abortController = null;
+    state.activeTurnRunId = "";
+    state.activeTurnConversationId = "";
+    state.activeTurnWaiting = false;
+    state.activeTurnCancelRequested = false;
+    state.activeTurnCancelResult = null;
+    state.resumingTurnId = "";
+    setRunning(false);
+    setAutoScroll(false);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (state.activeConversationId === conversationId) {
+      const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
+      if (refreshed) {
+        state.messages = refreshed.messages || state.messages;
+        const nextTurn = (refreshed.pendingTurns || [])[0];
+        if (nextTurn && nextTurn.id !== run.id) {
+          setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
+        }
+      }
+    }
+    renderShell();
+  }
 }
 
 async function loadChatApp() {
@@ -3737,6 +3895,7 @@ function requireAuth() {
 }
 
 function openNewChat({ replaceUrl = false } = {}) {
+  if (blockChatNavigationWhileRunning()) return;
   state.activeConversationId = "";
   state.messages = [];
   for (const item of state.images) forgetPendingDocument(item);
@@ -3793,6 +3952,11 @@ async function removeConversation(id) {
   const previousPinnedChatIds = [...state.pinnedChatIds];
   const wasActive = state.activeConversationId === id;
   const previousMessages = wasActive ? [...state.messages] : [];
+
+  if (wasActive && blockChatNavigationWhileRunning()) {
+    closeConfirmDialog();
+    return;
+  }
 
   closeConfirmDialog();
   closeConversationMenus();
@@ -3921,8 +4085,8 @@ async function waitForDocumentReady(attachmentId, fileName) {
   while (state.session) {
     const payload = await fetchDocumentStatus(state.session, attachmentId);
     const doc = payload.document || {};
-    if (doc.status === "ready") return doc;
-    if (doc.status === "failed") {
+    if (doc.usable) return doc;
+    if (doc.status === "failed" && !doc.usable) {
       throw new Error(doc.error?.message || `${fileName || "Document"} could not be processed.`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -4102,43 +4266,9 @@ async function retryFailedAssistant(assistantMessageId) {
   }
 }
 
-async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null }) {
-  compareController.closeCompareContextBanner();
-
-  const temporaryChat = state.temporaryChat;
-  const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
-
-  if (!temporaryChat && (newChat || !state.activeConversationId)) {
-    const payload = await createConversation(state.session, { model: compareModels[0] || resolveRoutedModel({ images }) });
-    state.conversations.unshift(payload.conversation);
-    state.activeConversationId = payload.conversation.id;
-    state.messages = [];
-    syncConversationUrl();
-    renderConversations();
-  }
-
-  const keptParts = keepAttachments.map((att) => att.category === "document"
-    ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
-    : { type: "image_url", image_url: { attachment_id: att.id, file_name: att.fileName, url: att.url } });
-
-  const localUser = {
-    id: `local_${Date.now()}`,
-    role: "user",
-    ...(paste ? { metadata: { paste } } : {}),
-    content: (images.length || keptParts.length)
-      ? [
-          ...(text ? [{ type: "text", text }] : []),
-          ...keptParts,
-          ...images.map((img) => img.category === "image"
-            ? { type: "image_url", image_url: { url: img.previewUrl } }
-            : { type: "file", file: { file_name: img.file.name, content_type: img.file.type } })
-        ]
-      : text
-  };
-
-  let localAssistant;
+function localAssistantForMode(compareModels = [], council = false) {
   if (council) {
-    localAssistant = {
+    return {
       id: `local_council_${Date.now()}`,
       role: "assistant",
       councilGroup: true,
@@ -4159,11 +4289,12 @@ async function executeSend({ text, images, compareModels, council = false, descr
       chairman: null,
       ballots: []
     };
-  } else if (compareModels.length) {
+  }
+  if (compareModels.length) {
     const stamp = (typeof crypto !== "undefined" && crypto.randomUUID)
       ? crypto.randomUUID()
       : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    localAssistant = {
+    return {
       id: `local_compare_${stamp}`,
       role: "assistant",
       compareGroup: true,
@@ -4176,15 +4307,52 @@ async function executeSend({ text, images, compareModels, council = false, descr
         toolCalls: []
       }))
     };
-  } else {
-    localAssistant = {
-      id: `local_assistant_${Date.now()}`,
-      role: "assistant",
-      content: "",
-      reasoning: "",
-      toolCalls: []
-    };
   }
+  return {
+    id: `local_assistant_${Date.now()}`,
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
+}
+
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null }) {
+  compareController.closeCompareContextBanner();
+
+  const temporaryChat = state.temporaryChat;
+  const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
+
+  if (!temporaryChat && (newChat || !state.activeConversationId)) {
+    const payload = await createConversation(state.session, { model: compareModels[0] || resolveRoutedModel({ images }) });
+    state.conversations.unshift(payload.conversation);
+    state.activeConversationId = payload.conversation.id;
+    state.messages = [];
+    syncConversationUrl();
+    renderConversations();
+  }
+  const conversationId = state.activeConversationId;
+
+  const keptParts = keepAttachments.map((att) => att.category === "document"
+    ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
+    : { type: "image_url", image_url: { attachment_id: att.id, file_name: att.fileName, url: att.url } });
+
+  const localUser = {
+    id: `local_${Date.now()}`,
+    role: "user",
+    ...(paste ? { metadata: { paste } } : {}),
+    content: (images.length || keptParts.length)
+      ? [
+          ...(text ? [{ type: "text", text }] : []),
+          ...keptParts,
+          ...images.map((img) => img.category === "image"
+            ? { type: "image_url", image_url: { url: img.previewUrl } }
+            : { type: "file", file: { file_name: img.file.name, content_type: img.file.type } })
+        ]
+      : text
+  };
+
+  const localAssistant = localAssistantForMode(compareModels, council);
 
   markAssistantActivityTree(localAssistant);
   /* Drop any cancelled local compare/council group from the previous send
@@ -4207,6 +4375,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   renderImages();
 
   state.abortController = new AbortController();
+  state.activeTurnConversationId = temporaryChat ? "" : conversationId;
   setAutoScroll(true);
   setRunning(true);
   renderMessages();
@@ -4245,6 +4414,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
     updateSetting("model", effectiveModel);
     const payload = {
       text,
+      clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`,
       attachments: uploaded.map((item) => item.id),
       model: effectiveModel,
       provider,
@@ -4266,39 +4438,43 @@ async function executeSend({ text, images, compareModels, council = false, descr
       }, {
         signal: state.abortController.signal,
         onEvent: (event) => {
+          trackPendingTurnEvent(event);
           applyStreamEvent(localAssistant, event);
           queueStreamRenderForEvent(localAssistant, event);
         }
       });
     } else if (council) {
-      await streamCompareConversationMessage(state.session, state.activeConversationId, {
+      await streamCompareConversationMessage(state.session, conversationId, {
         ...payload,
         models: compareModels,
         council: true
       }, {
         signal: state.abortController.signal,
         onEvent: (event) => {
+          trackPendingTurnEvent(event);
           const target = applyCouncilStreamEvent(localAssistant, event);
           if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
           else queueRenderMessages();
         }
       });
     } else if (compareModels.length) {
-      await streamCompareConversationMessage(state.session, state.activeConversationId, {
+      await streamCompareConversationMessage(state.session, conversationId, {
         ...payload,
         models: compareModels
       }, {
         signal: state.abortController.signal,
         onEvent: (event) => {
+          trackPendingTurnEvent(event);
           const target = applyCompareStreamEvent(localAssistant, event);
           if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
           else queueRenderMessages();
         }
       });
     } else {
-      await streamConversationMessage(state.session, state.activeConversationId, payload, {
+      await streamConversationMessage(state.session, conversationId, payload, {
         signal: state.abortController.signal,
         onEvent: (event) => {
+          trackPendingTurnEvent(event);
           applyStreamEvent(localAssistant, event);
           queueStreamRenderForEvent(localAssistant, event);
         }
@@ -4311,6 +4487,13 @@ async function executeSend({ text, images, compareModels, council = false, descr
   } catch (err) {
     if (err.name === "AbortError") {
       wasAborted = true;
+      if (state.activeTurnCancelRequested && state.activeTurnWaiting && !state.activeTurnCancelResult) {
+        els.promptInput.value = text;
+        state.images = images;
+        for (const item of images) rememberPendingDocument(item);
+        renderImages();
+        applyComposerHeight();
+      }
       if (localAssistant.councilGroup) {
         for (const panelist of localAssistant.panelists) panelist.stopped = true;
         if (localAssistant.chairman) localAssistant.chairman.stopped = true;
@@ -4341,9 +4524,14 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const queuedFollowUps = !wasAborted && shouldReloadConversation ? drainFollowUps() : [];
     const completedScrollTop = els.messages.scrollTop;
     state.abortController = null;
+    state.activeTurnRunId = "";
+    state.activeTurnConversationId = "";
+    state.activeTurnWaiting = false;
+    state.activeTurnCancelRequested = false;
+    state.activeTurnCancelResult = null;
     setRunning(false);
     setAutoScroll(false);
-    if (shouldReloadConversation && !temporaryChat) {
+    if (shouldReloadConversation && !temporaryChat && state.activeConversationId === conversationId) {
       const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
       if (reloaded) {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
@@ -5065,6 +5253,14 @@ function bindEvents() {
 
   window.addEventListener("popstate", async () => {
     if (!state.session?.access_token) return;
+    if (blockChatNavigationWhileRunning()) {
+      window.history.replaceState(
+        { conversationId: state.activeConversationId || "" },
+        "",
+        conversationUrl(state.activeConversationId)
+      );
+      return;
+    }
     const routeResearchId = researchIdFromLocation();
     const routeConversationId = conversationIdFromLocation();
     suppressUrlSync = true;
@@ -5397,6 +5593,19 @@ function bindEvents() {
   els.stopButton.addEventListener("click", () => {
     if (state.activeResearchId) {
       cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));
+      return;
+    }
+    if (state.activeTurnRunId && state.activeTurnConversationId) {
+      state.activeTurnCancelRequested = true;
+      cancelPendingDocumentTurn(
+        state.session,
+        state.activeTurnConversationId,
+        state.activeTurnRunId
+      ).then((result) => {
+        state.activeTurnCancelResult = result;
+        restoreCancelledTurnDraft(result);
+      }).catch((error) => showToast(error.message || "The pending turn could not be cancelled."))
+        .finally(() => state.abortController?.abort());
       return;
     }
     state.abortController?.abort();

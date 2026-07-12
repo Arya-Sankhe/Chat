@@ -9,11 +9,18 @@ const FAKE_CONFIG = {
   }
 };
 
-function withStubbedFetch(fetchImpl, fn) {
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+}
+
+async function withStubbedFetch(fetchImpl, fn) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = fetchImpl;
   try {
-    return fn();
+    return await fn();
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -198,6 +205,156 @@ test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
       limits: { max_pdf_pages: 100 }
     });
     assert.equal(result.job.id, "job_1");
+  });
+});
+
+test("listUsableDocumentFiles queries capability timestamps instead of terminal status", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.pathname, "/rest/v1/document_files");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("conversation_id"), "eq.conv_1");
+    assert.equal(parsed.searchParams.get("or"), "(text_ready_at.not.is.null,visual_ready_at.not.is.null)");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([{ id: "doc_1", text_ready_at: "2026-07-11T00:00:00Z" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const rows = await db.listUsableDocumentFiles("user_1", "conv_1");
+    assert.equal(rows[0].id, "doc_1");
+  });
+});
+
+test("submitDocumentTurn sends one atomic pending-turn RPC payload", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_submit_document_turn");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_conversation_id: "conv_1",
+      p_client_turn_key: "00000000-0000-4000-8000-000000000001",
+      p_mode: "single",
+      p_user_content: [{ type: "text", text: "Read this" }],
+      p_message_metadata: {},
+      p_request_payload: { model: "model_1" },
+      p_attachment_ids: ["att_1"]
+    });
+    return jsonResponse({
+      run: { id: "turn_1", status: "waiting_documents" },
+      user_message: { id: "msg_1", role: "user" }
+    });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.submitDocumentTurn({
+      userId: "user_1",
+      conversationId: "conv_1",
+      clientTurnKey: "00000000-0000-4000-8000-000000000001",
+      mode: "single",
+      userContent: [{ type: "text", text: "Read this" }],
+      requestPayload: { model: "model_1" },
+      attachmentIds: ["att_1"]
+    });
+    assert.equal(result.run.id, "turn_1");
+  });
+});
+
+test("upsertTurnOutputMessage creates an output slot without overwriting an existing row", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "POST");
+    assert.equal(parsed.pathname, "/rest/v1/messages");
+    assert.equal(parsed.searchParams.get("on_conflict"), "turn_run_id,output_slot");
+    assert.equal(options.headers.prefer, "resolution=ignore-duplicates,return=representation");
+    return jsonResponse([{ id: "msg_2", turn_run_id: "turn_1", output_slot: "single" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.upsertTurnOutputMessage({
+      user_id: "user_1",
+      conversation_id: "conv_1",
+      role: "assistant",
+      turn_run_id: "turn_1",
+      output_slot: "single"
+    });
+    assert.equal(result.id, "msg_2");
+  });
+});
+
+test("upsertTurnOutputMessage returns the preserved output when the slot already exists", async () => {
+  let calls = 0;
+  await withStubbedFetch(async (url, options = {}) => {
+    calls += 1;
+    const parsed = new URL(url);
+    if (calls === 1) {
+      assert.equal(options.method, "POST");
+      assert.equal(options.headers.prefer, "resolution=ignore-duplicates,return=representation");
+      return jsonResponse([]);
+    }
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("turn_run_id"), "eq.turn_1");
+    assert.equal(parsed.searchParams.get("output_slot"), "eq.single");
+    return jsonResponse([{
+      id: "msg_existing",
+      turn_run_id: "turn_1",
+      output_slot: "single",
+      content: "Preserve me"
+    }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.upsertTurnOutputMessage({
+      user_id: "user_1",
+      conversation_id: "conv_1",
+      role: "assistant",
+      turn_run_id: "turn_1",
+      output_slot: "single",
+      content: ""
+    });
+    assert.equal(result.id, "msg_existing");
+    assert.equal(result.content, "Preserve me");
+    assert.equal(calls, 2);
+  });
+});
+
+test("releasePendingDocumentTurn uses the fenced release RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_release_pending_document_turn");
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_turn_id: "turn_1",
+      p_claim_token: "claim_1"
+    });
+    return jsonResponse({ id: "turn_1", status: "waiting_documents" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.releasePendingDocumentTurn({
+      userId: "user_1",
+      turnId: "turn_1",
+      claimToken: "claim_1"
+    });
+    assert.equal(result.status, "waiting_documents");
+  });
+});
+
+test("queueDocumentPageRender uses the high-priority render RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_queue_document_page_render");
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_document_file_id: "doc_1",
+      p_page_number: 7
+    });
+    return jsonResponse({ page: null, job: { id: "job_7", priority: 100 } });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const result = await db.queueDocumentPageRender({
+      userId: "user_1",
+      documentFileId: "doc_1",
+      pageNumber: 7
+    });
+    assert.equal(result.job.priority, 100);
   });
 });
 

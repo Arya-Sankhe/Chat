@@ -26,7 +26,7 @@ import {
   handlePresignUpload,
   handleUploadContent
 } from "./routes/uploads.js";
-import { handleConversationMessage } from "./chat/pipeline.js";
+import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
 import { handleTemporaryChat } from "./chat/temporary.js";
 
 export function installStableRequestSignal(req) {
@@ -189,6 +189,12 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "conversations" && parts[2] && parts[3] === "messages") {
       await handleConversationMessage(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "conversations" && parts[2]
+      && parts[3] === "turns" && parts[4] && parts[5] === "cancel") {
+      await handlePendingDocumentTurnCancel(req, res, config, parts[2], parts[4]);
       return;
     }
 

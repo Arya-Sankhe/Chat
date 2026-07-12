@@ -367,7 +367,23 @@ export async function streamConversationMessage(session, conversationId, payload
   });
 
   if (!response.ok) throw new Error(await readProblem(response));
+  const turnRunId = response.headers.get("x-klui-turn-run-id") || "";
+  if (turnRunId) onEvent({ type: "turn:submitted", turnRunId });
   return readSseStream(response, onEvent);
+}
+
+export async function cancelPendingDocumentTurn(session, conversationId, turnRunId) {
+  const response = await apiFetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnRunId)}/cancel`,
+    {
+      session,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}"
+    }
+  );
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
 }
 
 export async function streamCompareConversationMessage(session, conversationId, payload, { signal, onEvent }) {

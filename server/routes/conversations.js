@@ -42,10 +42,16 @@ export async function handleConversationById(req, res, config, conversationId) {
 
   if (req.method === "GET") {
     const messages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+    const pendingTurns = await context.db.listPendingDocumentTurns(
+      context.user.id,
+      conversation.id,
+      { signal: req.signal }
+    );
     const includeReasoning = context.profile?.role === "admin";
     sendJson(res, 200, {
       conversation,
-      messages: await hydrateMessagesForClient(messages, context.r2, { includeReasoning })
+      messages: await hydrateMessagesForClient(messages, context.r2, { includeReasoning }),
+      pendingTurns
     });
     return;
   }

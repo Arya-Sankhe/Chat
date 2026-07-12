@@ -50,6 +50,26 @@ export function writeSse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+export function startSse(res, headers = {}) {
+  if (res.headersSent) return;
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+    ...headers
+  });
+}
+
+export function createAssistantOutputMessage(context, row, { signal, turnRun = null, outputSlot = "" } = {}) {
+  if (!turnRun?.id) return context.db.insertMessage(row, { signal });
+  return context.db.upsertTurnOutputMessage({
+    ...row,
+    turn_run_id: turnRun.id,
+    output_slot: outputSlot
+  }, { signal });
+}
+
 export function hasAssistantOutput(accumulated, artifacts = []) {
   return Boolean(
     String(accumulated?.content || "").trim() ||

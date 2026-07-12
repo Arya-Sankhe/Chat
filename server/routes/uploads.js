@@ -168,7 +168,11 @@ export async function handleCompleteUpload(req, res, config) {
     document: documentFile ? {
       id: documentFile.id,
       status: documentFile.processing_status,
-      kind: documentFile.kind
+      kind: documentFile.kind,
+      textReadyAt: documentFile.text_ready_at || null,
+      visualReadyAt: documentFile.visual_ready_at || null,
+      enrichedAt: documentFile.enriched_at || null,
+      usable: Boolean(documentFile.text_ready_at || documentFile.visual_ready_at)
     } : null
   });
 }
@@ -313,6 +317,10 @@ export async function handleDocumentStatus(req, res, config, attachmentId) {
       attachmentId: doc.attachment_id,
       kind: doc.kind,
       status: doc.processing_status,
+      usable: Boolean(doc.text_ready_at || doc.visual_ready_at),
+      textReadyAt: doc.text_ready_at || null,
+      visualReadyAt: doc.visual_ready_at || null,
+      enrichedAt: doc.enriched_at || null,
       pageCount: doc.page_count,
       wordCount: doc.word_count,
       sheetCount: doc.sheet_count,
@@ -320,6 +328,7 @@ export async function handleDocumentStatus(req, res, config, attachmentId) {
       progress: Number(doc.metadata?.progress || (doc.processing_status === "ready" ? 100 : 0)) || 0,
       stage: doc.metadata?.stage || "",
       mode: doc.metadata?.mode || "",
+      stageErrors: doc.stage_errors || {},
       error: doc.error || null,
       versionNo: doc.version_no,
       sourceEtag: doc.source_etag

@@ -146,6 +146,12 @@ const ROUTES = [
   { path: "/api/conversations/conv-1", method: "GET", authKind: "chat" },
   { path: "/api/conversations/conv-1/messages", method: "POST", authKind: "chat", enforced405: "GET" },
   {
+    path: "/api/conversations/conv-1/turns/00000000-0000-4000-8000-000000000001/cancel",
+    method: "POST",
+    authKind: "chat",
+    enforced405: "GET"
+  },
+  {
     path: "/api/temporary-chat", method: "POST", authKind: "chat", enforced405: "GET",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
   },

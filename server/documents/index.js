@@ -124,8 +124,33 @@ function vectorLiteral(values) {
   return `[${floats.join(",")}]`;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  if (signal?.aborted) {
+    const error = new Error("Document operation was cancelled.");
+    error.name = "AbortError";
+    return Promise.reject(error);
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      const error = new Error("Document operation was cancelled.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function documentIsUsable(documentFile) {
+  return Boolean(documentFile?.text_ready_at || documentFile?.visual_ready_at);
+}
+
+function pageHasUsableImage(page) {
+  return Boolean(String(page?.image_key || "").trim());
 }
 
 export class DocumentService {
@@ -157,7 +182,7 @@ export class DocumentService {
 
   async readyDocuments() {
     if (!this.enabled || !this.conversationId) return [];
-    const docs = await this.db.listReadyDocumentFiles(this.userId, this.conversationId, { signal: this.signal });
+    const docs = await this.db.listUsableDocumentFiles(this.userId, this.conversationId, { signal: this.signal });
     return docs.filter((doc) => doc?.metadata?.preview !== true);
   }
 
@@ -204,24 +229,116 @@ export class DocumentService {
     return this.r2.readUrl(page.image_key);
   }
 
-  async pageResultsForDocs(docs, { query = "", maxResults = 5, pageStart = null, pageEnd = null } = {}) {
+  async waitForRenderedPage(documentFile, pageNumber, job) {
+    const deadline = Date.now() + Math.max(1000, Number(this.documentsConfig.jobWaitMs || 20_000));
+    let currentJob = job;
+    while (!this.signal?.aborted && Date.now() < deadline) {
+      const pages = await this.db.listDocumentPagesByNumbers(
+        this.userId,
+        documentFile.id,
+        [pageNumber],
+        { signal: this.signal }
+      );
+      if (pageHasUsableImage(pages[0])) return pages[0];
+
+      if (currentJob?.id) {
+        currentJob = await this.db.getDocumentJob(this.userId, currentJob.id, { signal: this.signal });
+        if (["failed", "expired"].includes(currentJob?.status)) {
+          throw new HttpError(502, `PDF page ${pageNumber} could not be rendered.`, currentJob.error || undefined);
+        }
+        if (currentJob?.status === "succeeded") {
+          throw new HttpError(502, `PDF page ${pageNumber} finished without a usable image.`);
+        }
+      }
+      const remaining = deadline - Date.now();
+      if (remaining > 0) await sleep(Math.min(500, remaining), this.signal);
+    }
+    if (this.signal?.aborted) {
+      const error = new Error("Document page rendering was cancelled.");
+      error.name = "AbortError";
+      throw error;
+    }
+    throw new HttpError(504, `PDF page ${pageNumber} is still rendering. Try again shortly.`);
+  }
+
+  async ensureDocumentPages(documentFile, pageNumbers = []) {
+    const numbers = [...new Set(pageNumbers.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
+    if (!numbers.length) return [];
+    const existing = await this.db.listDocumentPagesByNumbers(
+      this.userId,
+      documentFile.id,
+      numbers,
+      { signal: this.signal }
+    );
+    const byNumber = new Map(
+      existing
+        .filter(pageHasUsableImage)
+        .map((page) => [Number(page.page_number), page])
+    );
+    const missing = numbers.filter((pageNumber) => !byNumber.has(pageNumber));
+    const queued = await Promise.all(missing.map(async (pageNumber) => ({
+      pageNumber,
+      result: await this.db.queueDocumentPageRender({
+        userId: this.userId,
+        documentFileId: documentFile.id,
+        pageNumber
+      }, { signal: this.signal })
+    })));
+    await Promise.all(queued.map(async ({ pageNumber, result }) => {
+      const page = (pageHasUsableImage(result?.page) ? result.page : null)
+        || await this.waitForRenderedPage(documentFile, pageNumber, result?.job);
+      byNumber.set(pageNumber, page);
+    }));
+    return numbers.map((pageNumber) => byNumber.get(pageNumber)).filter(Boolean);
+  }
+
+  async textPageCandidates(docs, query, limit) {
+    const text = clean(query);
+    if (!text || !docs.length) return [];
+    const chunks = await this.db.searchDocumentChunks({
+      userId: this.userId,
+      documentFileIds: docs.map((doc) => doc.id),
+      query: text,
+      limit
+    }, { signal: this.signal }).catch(() => []);
+    return (chunks || []).map((chunk) => ({
+      document_file_id: chunk.document_file_id,
+      page_number: Number(chunk?.metadata?.page || 0)
+    })).filter((entry) => entry.page_number > 0);
+  }
+
+  async pageResultsForDocs(docs, {
+    query = "",
+    maxResults = 5,
+    pageStart = null,
+    pageEnd = null,
+    ensureAvailable = false
+  } = {}) {
     const limit = this.pageLimit(maxResults);
     let pages = [];
     if (pageStart || pageEnd) {
       for (const doc of docs) {
         const start = Math.max(1, Number.parseInt(pageStart || "1", 10) || 1);
-        const end = Math.max(start, Number.parseInt(pageEnd || String(start + limit - 1), 10) || start + limit - 1);
+        if (doc.page_count && start > Number(doc.page_count)) {
+          throw new HttpError(400, `Page ${start} is outside this ${doc.page_count}-page PDF.`);
+        }
+        const requestedEnd = Math.max(start, Number.parseInt(pageEnd || String(start + limit - 1), 10) || start + limit - 1);
+        const end = doc.page_count ? Math.min(requestedEnd, Number(doc.page_count)) : requestedEnd;
         const docLimit = this.pageLimit((end - start) + 1, limit);
-        const rows = await this.db.listDocumentPages(this.userId, doc.id, {
-          limit: docLimit,
-          pageStart: start,
-          pageEnd: end,
-          signal: this.signal
-        });
+        const numbers = Array.from({ length: docLimit }, (_, index) => start + index);
+        const rows = ensureAvailable
+          ? await this.ensureDocumentPages(doc, numbers)
+          : await this.db.listDocumentPages(this.userId, doc.id, {
+              limit: docLimit,
+              pageStart: start,
+              pageEnd: end,
+              signal: this.signal
+            });
         pages.push(...rows);
       }
       pages = pages.slice(0, limit);
     } else {
+      const textCandidates = await this.textPageCandidates(docs, query, limit);
       const queryEmbedding = query ? await this.embedQuery(query).catch(() => "") : "";
       if (queryEmbedding) {
         pages = await this.db.searchDocumentPages({
@@ -231,12 +348,31 @@ export class DocumentService {
           limit
         }, { signal: this.signal }).catch(() => []);
       }
+      const pageKey = (page) => `${page.document_file_id}:${Number(page.page_number)}`;
+      const byKey = new Map((pages || []).map((page) => [pageKey(page), page]));
+      for (const candidate of textCandidates) {
+        const key = pageKey(candidate);
+        if (byKey.has(key)) continue;
+        const doc = docs.find((entry) => entry.id === candidate.document_file_id);
+        if (!doc) continue;
+        const rows = ensureAvailable
+          ? await this.ensureDocumentPages(doc, [candidate.page_number])
+          : await this.db.listDocumentPagesByNumbers(
+              this.userId,
+              doc.id,
+              [candidate.page_number],
+              { signal: this.signal }
+            );
+        if (rows[0]) byKey.set(key, rows[0]);
+      }
+      pages = [...byKey.values()].slice(0, limit);
       if (!pages.length) {
         for (const doc of docs) {
-          const rows = await this.db.listDocumentPages(this.userId, doc.id, {
-            limit,
-            signal: this.signal
-          });
+          const fallbackCount = Math.min(limit, Number(doc.page_count || limit));
+          const fallbackNumbers = Array.from({ length: fallbackCount }, (_, index) => index + 1);
+          const rows = ensureAvailable
+            ? await this.ensureDocumentPages(doc, fallbackNumbers)
+            : await this.db.listDocumentPages(this.userId, doc.id, { limit, signal: this.signal });
           pages.push(...rows);
           if (pages.length >= limit) break;
         }
@@ -244,6 +380,7 @@ export class DocumentService {
       }
     }
 
+    pages = (pages || []).filter(pageHasUsableImage);
     const docById = new Map(docs.map((doc) => [doc.id, doc]));
     const results = [];
     const citations = [];
@@ -295,7 +432,7 @@ export class DocumentService {
 
     const filtered = docs.filter((doc) => {
       if (this.conversationId && doc.conversation_id !== this.conversationId) return false;
-      return doc.processing_status === "ready";
+      return documentIsUsable(doc);
     });
 
     if (!filtered.length) {
@@ -313,7 +450,7 @@ export class DocumentService {
     if (this.conversationId && doc.conversation_id !== this.conversationId) {
       throw new HttpError(404, "Document was not found in this conversation.");
     }
-    if (ready && doc.processing_status !== "ready") {
+    if (ready && !documentIsUsable(doc)) {
       throw new HttpError(409, "Document is still processing.");
     }
     return doc;
@@ -327,7 +464,7 @@ export class DocumentService {
     if (this.conversationId && doc.conversation_id !== this.conversationId) {
       throw new HttpError(404, "Document was not found in this conversation.");
     }
-    if (ready && doc.processing_status !== "ready") {
+    if (ready && !documentIsUsable(doc)) {
       throw new HttpError(409, "Document is still processing.");
     }
     return doc;
@@ -339,7 +476,7 @@ export class DocumentService {
     const limit = clampInt(maxResults, 5, 1, 8);
     const maxChars = Math.max(500, Math.floor(this.documentsConfig.contextCharsPerTurn / Math.max(1, limit)));
     const pdfDocs = docs.filter((doc) => doc.kind === "pdf");
-    const chunkDocs = docs.filter((doc) => doc.kind !== "pdf");
+    const chunkDocs = docs.filter((doc) => Boolean(doc.text_ready_at));
     const results = [];
     const citations = [];
     const visualPages = [];
@@ -400,7 +537,8 @@ export class DocumentService {
           query,
           maxResults: this.pageLimit(null),
           pageStart,
-          pageEnd
+          pageEnd,
+          ensureAvailable: true
         });
         return {
           ok: true,
@@ -419,7 +557,8 @@ export class DocumentService {
       const pageResult = await this.pageResultsForDocs([doc], {
         maxResults: this.pageLimit(null),
         pageStart,
-        pageEnd
+        pageEnd,
+        ensureAvailable: true
       });
       return {
         ok: true,
@@ -494,7 +633,7 @@ export class DocumentService {
     const deadline = Date.now() + Math.max(1000, Number(this.documentsConfig.jobWaitMs || 20_000));
     let current = job;
     while (Date.now() < deadline) {
-      await sleep(750);
+      await sleep(750, this.signal);
       current = await this.db.getDocumentJob(this.userId, job.id, { signal: this.signal });
       if (!current) break;
       if (current.status === "succeeded") {

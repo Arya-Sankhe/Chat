@@ -81,6 +81,19 @@ export async function listReadyDocumentFiles(client, userId, conversationId, { s
   });
 }
 
+export async function listUsableDocumentFiles(client, userId, conversationId, { signal } = {}) {
+  return client.request("document_files", {
+    query: {
+      user_id: `eq.${userId}`,
+      conversation_id: `eq.${conversationId}`,
+      or: "(text_ready_at.not.is.null,visual_ready_at.not.is.null)",
+      select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
+      order: "created_at.asc"
+    },
+    signal
+  });
+}
+
 export async function listDocumentFilesByAttachments(client, userId, attachmentIds = [], { signal } = {}) {
   const ids = [...new Set(attachmentIds.filter(Boolean))];
   if (!ids.length) return [];
@@ -179,6 +192,33 @@ export async function listDocumentPages(client, userId, documentFileId, { limit 
     },
     signal
   });
+}
+
+export async function listDocumentPagesByNumbers(client, userId, documentFileId, pageNumbers = [], { signal } = {}) {
+  const numbers = [...new Set(pageNumbers.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
+  if (!numbers.length) return [];
+  return client.request("document_pages", {
+    query: {
+      user_id: `eq.${userId}`,
+      document_file_id: `eq.${documentFileId}`,
+      page_number: `in.(${numbers.join(",")})`,
+      select: "id,document_file_id,page_number,source_label,image_key,image_content_type,width_px,height_px,text,metadata",
+      order: "page_number.asc"
+    },
+    signal
+  });
+}
+
+export async function queueDocumentPageRender(client, {
+  userId,
+  documentFileId,
+  pageNumber
+}, { signal } = {}) {
+  return client.rpc("klui_queue_document_page_render", {
+    p_user_id: userId,
+    p_document_file_id: documentFileId,
+    p_page_number: pageNumber
+  }, { signal });
 }
 
 export async function searchDocumentPages(client, { userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {

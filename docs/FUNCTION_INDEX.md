@@ -138,7 +138,7 @@ regex substitutions) are deliberately not listed.
 ## D. Persistence (PostgREST client)
 
 ### `class SupabaseRest` ← mixed
-- **Path**: `server/db/supabaseRest.js` (methods delegate to `server/db/rest/{profiles,subscriptions,payments,chat,attachments,documents,research,billing,caches,admin,helpers}.js`)
+- **Path**: `server/db/supabaseRest.js` (methods delegate to `server/db/rest/{profiles,subscriptions,payments,chat,turns,attachments,documents,research,billing,caches,admin,helpers}.js`)
 - **Responsibility**: PostgREST client for the `service_role` key.
   The public class surface is unchanged; each method forwards to the
   matching `server/db/rest/*` module. RPCs this Node client actually
@@ -162,9 +162,16 @@ regex substitutions) are deliberately not listed.
     `deleteMessage`, `listMessageAttachments`, `createAttachment`,
     `completeAttachment`, `updateAttachment`, `getAttachment`,
     `deleteAttachment`.
+  - **Durable document turns**: `submitDocumentTurn`,
+    `getPendingDocumentTurn`, `listPendingDocumentTurns`,
+    `claimPendingDocumentTurn`, `heartbeatPendingDocumentTurn`,
+    `releasePendingDocumentTurn`, `markPendingTurnProviderStarted`,
+    `finishPendingDocumentTurn`, `cancelPendingDocumentTurn`,
+    `upsertTurnOutputMessage` (non-destructive get-or-create by output slot).
   - **Documents**: `createDocumentFile`, `getDocumentFile`,
     `getDocumentFileByAttachment`, `getReadyPdfPreviewForDocument`,
-    `getActivePdfPreviewJob`, `listReadyDocumentFiles`,
+    `getActivePdfPreviewJob`, `listReadyDocumentFiles` (legacy terminal-ready
+    lookup), `listUsableDocumentFiles` (runtime capability lookup),
     `listDocumentFilesByAttachments`, `updateDocumentFile`,
     `updateDocumentFileByAttachment`, `createDocumentJob`,
     `getDocumentJob`, `listDocumentChunks`, `listDocumentPages`,
@@ -350,8 +357,8 @@ regex substitutions) are deliberately not listed.
 - **Path**: `server/documents/skills.js`
 - **Responsibility**: Heuristic-based tool/skill selection from the
   user prompt. Returns `{enabled, skills, toolNames, ready}`.
-  Always attaches visual read tools and the `pdf-read` skill when
-  a ready PDF is in the chat.
+  Attaches the appropriate document tools and `pdf-read` guidance as soon as
+  a PDF has usable text or published visual pages in the chat.
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/documents/skillRegistry.js`.
 
@@ -657,7 +664,7 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
   `server/saas/messages.js`.
 
-### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `handleConversationMessage` ← mixed
+### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
 - **Path**: `server/chat/pipeline.js` (several helpers re-exported from
   `server/routes.js` for tests)
 - **Responsibility**: Chat dispatcher (single vs compare vs council,
@@ -668,18 +675,28 @@ regex substitutions) are deliberately not listed.
   `sanitizeResearchPublicView` so denied legacy URLs never reach later
   model calls. Single-chat flow uses `runChatWithToolLoop` here;
   `streamSingleChat` in `single.js` is the legacy no-tools fast path only.
+  Document-gated turns are durably claimed, heartbeat-fenced, finalized before
+  the SSE response closes, and released for immediate safe resume when a
+  pre-provider connection disappears.
 - **Callers**: `handleApiRequest` (`POST …/messages`).
 - **Major dependencies**: `server/chat/compare.js`, `server/chat/council.js`,
   `server/websearch/tool/loop.js`, `server/documents/*`, `server/saas/*`,
   `server/research/public.js`.
 
-### `buildUntrustedWebContext`, `injectWebContextMessage`, `sharedWebsearchMetadata`, `sharedDocumentMetadata`, `writeSse`, `hasAssistantOutput`
+### `buildUntrustedWebContext`, `injectWebContextMessage`, `sharedWebsearchMetadata`, `sharedDocumentMetadata`, `writeSse`, `createAssistantOutputMessage`, `hasAssistantOutput`
 - **Path**: `server/chat/shared.js`
 - **Responsibility**: Shared Compare/Council web and document context
   injection helpers and SSE write utility.
 - **Callers**: `server/chat/pipeline.js`, `server/chat/compare.js`,
   `server/chat/council.js`.
 - **Major dependencies**: none.
+
+### `waitForDocumentCapabilities`, `startPendingTurnHeartbeat`, `wrapProviderCallsWithTurnFence`
+- **Path**: `server/chat/turns.js`
+- **Responsibility**: Capability waiting, claim ownership helpers, lease
+  heartbeat safety, and the one-time provider-start fence for durable turns.
+- **Callers**: `server/chat/pipeline.js`.
+- **Major dependencies**: `server/http/responses.js`.
 
 ### `streamSingleChat`
 - **Path**: `server/chat/single.js`
@@ -725,7 +742,7 @@ regex substitutions) are deliberately not listed.
 - **Callers**: every other browser module.
 - **Major dependencies**: `public/js/platform/index.js`.
 
-### `fetchConfig`, `fetchPlans`, `createZiinaPaymentRequest`, `fetchZiinaPaymentRequests`, `approveAdminPayment`, `rejectAdminPayment`, `fetchMe`, `fetchModels`, `listConversations`, `createConversation`, `fetchConversation`, `deleteConversation`, `updateConversation`, `createResearch`, `fetchResearchStatus`, `cancelResearch`, `fetchResearchReport`, `presignUpload`, `completeUpload`, `putUploadContent`, `uploadImage`, `uploadFile`, `fetchDocumentStatus`, `deleteAttachment`, `fetchDocumentJobStatus`, `fetchAttachmentView`, `downloadAttachment`, `streamConversationMessage`, `streamCompareConversationMessage`, `streamTemporaryChat`, `fetchAdminSummary`, `updateAdminSettings`
+### `fetchConfig`, `fetchPlans`, `createZiinaPaymentRequest`, `fetchZiinaPaymentRequests`, `approveAdminPayment`, `rejectAdminPayment`, `fetchMe`, `fetchModels`, `listConversations`, `createConversation`, `fetchConversation`, `deleteConversation`, `updateConversation`, `createResearch`, `fetchResearchStatus`, `cancelResearch`, `fetchResearchReport`, `presignUpload`, `completeUpload`, `putUploadContent`, `uploadImage`, `uploadFile`, `fetchDocumentStatus`, `deleteAttachment`, `fetchDocumentJobStatus`, `fetchAttachmentView`, `downloadAttachment`, `streamConversationMessage`, `streamCompareConversationMessage`, `cancelPendingDocumentTurn`, `streamTemporaryChat`, `fetchAdminSummary`, `updateAdminSettings`
 - **Path**: `public/js/api.js`
 - **Responsibility**: One-to-one mapping to the server's `/api/*`
   routes. `uploadImage` / `uploadFile` are the only browser-side
@@ -790,6 +807,14 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `public/js/app.js`; `test/app-reducers.test.js` (fixture replay).
 - **Major dependencies**: `public/js/reasoning.js`.
 
+### `reconcilePendingTurnMessages`
+- **Path**: `public/js/pendingTurns.js`
+- **Responsibility**: Reuses persisted single, compare, and council output
+  slots inside one live streaming shell during reconnect, without duplicating
+  messages or clearing partial output.
+- **Callers**: `public/js/app.js`.
+- **Major dependencies**: none.
+
 ### `createDocumentViewer`
 - **Path**: `public/js/documentViewer.js`
 - **Responsibility**: PDF.js viewer, artifact cards, preview-job and
@@ -852,6 +877,7 @@ regex substitutions) are deliberately not listed.
 - **Callers**: HTML (event handlers in `bindEvents`).
 - **Major dependencies**: `public/js/api.js`, `public/js/auth.js`,
   `public/js/streaming.js`, `public/js/documentViewer.js`,
+  `public/js/pendingTurns.js`,
   `public/js/research.js`, `public/js/compare.js`, `public/js/council.js`,
   `public/js/adminPanel.js`, `public/js/platform/index.js`,
   `public/js/platform/updates.js`, `public/js/render.js`, `public/js/reasoning.js`.
@@ -925,24 +951,22 @@ through the database.
     `requests.exceptions.RequestException` it backs off with
     exponential delay up to `max_backoff_seconds` (the
     `claim_failures` counter resets on success).
-  - `handle_job(job)` — creates a temp dir, renews the owned job lease in a
-    heartbeat thread, dispatches, then
-    updates the job to `succeeded` (with `output`) or `failed` (with
-    `error`) and updates the document file to `failed` on
-    exception. Cleans up the temp dir in `finally`.
-  - `dispatch(job, tmp)` — routes by `job.job_type` prefix to
-    `extract_job` / `create_job` / `edit_job` / `export_job`.
-  - `extract_job(job, tmp)` — top-level extraction. For PDFs,
-    `extract_pdf_visual_job`; for everything else, `extract` plus
-    chunk/page persistence. Writes the final manifest into the
-    job's `output` and sets `document_files.processing_status =
-    "ready"` (with `page_count`, `word_count`, etc.).
-  - `extract_pdf_visual_job(job, tmp, doc, attachment, source, limits)`
-    — the PDF path. Decrypts via `pypdf`, renders each page with
-    `pdfplumber` + bounded parallel Poppler ranges to JPEG at
-    `visual_page_dpi`, uploads page images through a bounded R2 pool,
-    embeds via `JinaEmbeddings` (when enabled), and writes a
-    `document_pages` row per page. Updates progress every 5 completed pages.
+  - `handle_job(job)` — creates a temp dir, renews the owned lease in a
+    heartbeat thread, dispatches, then completes or fails through the
+    lease-fenced stage-aware RPCs. Cleans up in `finally`.
+  - `dispatch(job, tmp)` — routes extraction, `document.enrich.pdf`,
+    `document.render_page`, create, edit, and export jobs.
+  - `extract_job` / `extract_pdf_text_job` — non-PDF extraction plus the
+    uploaded-PDF EdgeParse path. EdgeParse reads existing digital text and
+    structure only; no OCR or OCR fallback exists. A usable result sets
+    `text_ready_at`; an empty/failed parse records a soft text-stage outcome
+    so visual enrichment can continue independently.
+  - `enrich_pdf_job` — validates with `pypdf`, renders bounded Poppler ranges
+    concurrently, and uploads/upserts each completed range immediately.
+    It publishes `visual_ready_at` once the full image manifest exists, then
+    attempts Jina embeddings and sets `enriched_at` only when every page embeds.
+  - `render_page_job` — renders one specifically requested missing page into
+    the same deterministic key without overwriting an existing richer page row.
   - `limit(limits, key, fallback)` / `cap_chunks(chunks, limits)` —
     apply the per-job limits object (set from
     `job.input.limits` plus `default_limits`).
@@ -951,8 +975,7 @@ through the database.
     `extract_csv` — kind-specific extraction. Returns `(chunks,
     meta)` where chunks are per-document record rows and `meta`
     is the document manifest.
-  - `extract_pdf_page_text`, `render_pdf_pages` — page text via
-    `pdfplumber`, page images via bounded `pdftoppm` subprocesses.
+  - `render_pdf_pages` — page images via bounded `pdftoppm` subprocesses.
   - `estimated_page_pixels(page)` — derives `width_px` /
     `height_px` for the page image.
   - `chunk(user_id, document_file_id, index, source_type, label, text, metadata)` —
@@ -978,7 +1001,7 @@ through the database.
     `"edited"` / `"exported"` and `parent_document_id` set to the
     version chain.
 - **Callers**: `if __name__ == "__main__":` entry.
-- **Major dependencies**: `boto3`, `pdfplumber`, `pypdf`, `python-docx`,
+- **Major dependencies**: `boto3`, `edgeparse`, `pypdf`, `python-docx`,
   `openpyxl`, `python-pptx`, `reportlab`, `requests`,
   `charset_normalizer`, `poppler-utils` (via `pdftoppm` /
   `pdfinfo`).
@@ -988,9 +1011,9 @@ through the database.
 - **Responsibility**: Service-role PostgREST client for the worker.
   Methods: `request`, `rpc`, `claim_job` (calls
   `klui_claim_document_job`), `get_attachment`, `get_document_file`,
-  `update_document_file`, `create_attachment`, `create_document_file`,
-  `delete_chunks`, `delete_pages`, `insert_chunks`, `insert_pages`,
-  `update_job`, `renew_job_lease`.
+  `complete_document_job`, `publish_document_visual_ready`,
+  `fail_document_job`, document/attachment lookup and persistence,
+  conflict-keyed chunk/page upserts, `update_page`, and lease renewal.
 - **Callers**: `Processor`.
 - **Major dependencies**: `requests`.
 
@@ -1003,7 +1026,7 @@ through the database.
   `JINA_API_KEY` is not set, in which case the worker still
   produces the page rows but with `embedding = NULL`. Inputs are grouped into
   configurable bounded batches while preserving page order.
-- **Callers**: `Processor.extract_pdf_visual_job`.
+- **Callers**: `Processor.enrich_pdf_job`.
 - **Major dependencies**: `requests`.
 
 ### `class R2`

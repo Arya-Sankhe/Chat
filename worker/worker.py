@@ -16,7 +16,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 import boto3
-import pdfplumber
+import edgeparse
 import requests
 import reportlab
 from botocore.config import Config as BotoConfig
@@ -145,8 +145,275 @@ class LeaseLostError(RuntimeError):
     pass
 
 
+class JobCancelledError(RuntimeError):
+    def __init__(self, message="job_cancelled"):
+        super().__init__(message)
+        self.code = "cancelled"
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_edgeparse_result(raw):
+    """Normalize EdgeParse JSON output into a document dict with kids + page count."""
+    if raw is None:
+        return {"number of pages": 0, "kids": []}
+
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {"number of pages": 0, "kids": []}
+        parsed = json.loads(text)
+        return normalize_edgeparse_result(parsed)
+
+    if not isinstance(raw, dict):
+        for attr in ("json", "data", "document", "result", "output"):
+            if hasattr(raw, attr):
+                value = getattr(raw, attr)
+                if callable(value):
+                    try:
+                        value = value()
+                    except TypeError:
+                        pass
+                if value is not None and value is not raw:
+                    return normalize_edgeparse_result(value)
+        if hasattr(raw, "model_dump") and callable(raw.model_dump):
+            return normalize_edgeparse_result(raw.model_dump())
+        if hasattr(raw, "dict") and callable(raw.dict):
+            return normalize_edgeparse_result(raw.dict())
+        raise TypeError(f"unsupported EdgeParse result type: {type(raw)!r}")
+
+    data = raw
+    if "kids" not in data:
+        for key in ("document", "data", "result", "output"):
+            nested = data.get(key)
+            if isinstance(nested, dict) and ("kids" in nested or "number of pages" in nested):
+                data = nested
+                break
+            if isinstance(nested, str):
+                return normalize_edgeparse_result(nested)
+
+    kids = data.get("kids")
+    if kids is None:
+        kids = []
+    if not isinstance(kids, list):
+        kids = list(kids)
+
+    page_count = data.get("number of pages")
+    if page_count is None:
+        page_count = data.get("number_of_pages") or data.get("page_count") or 0
+    try:
+        page_count = int(page_count or 0)
+    except (TypeError, ValueError):
+        page_count = 0
+
+    if page_count <= 0 and kids:
+        max_page = 0
+        for kid in kids:
+            if not isinstance(kid, dict):
+                continue
+            try:
+                max_page = max(max_page, int(kid.get("page number") or kid.get("page_number") or 0))
+            except (TypeError, ValueError):
+                continue
+        page_count = max_page
+
+    normalized = dict(data)
+    normalized["number of pages"] = page_count
+    normalized["kids"] = kids
+    return normalized
+
+
+def _edgeparse_heading_level(element):
+    level = element.get("heading level")
+    if level is None:
+        level = element.get("heading_level")
+    if level is None:
+        level = element.get("level")
+    if isinstance(level, str):
+        match = re.search(r"(\d+)", level)
+        if match:
+            level = match.group(1)
+        elif level.strip().lower() == "title":
+            level = 1
+        else:
+            level = 1
+    try:
+        level = int(level or 1)
+    except (TypeError, ValueError):
+        level = 1
+    return max(1, min(level, 6))
+
+
+def _edgeparse_cell_text(cell):
+    if cell is None:
+        return ""
+    if isinstance(cell, str):
+        return cell.strip()
+    if not isinstance(cell, dict):
+        return str(cell).strip()
+    parts = []
+    for kid in cell.get("kids") or []:
+        text = _edgeparse_cell_text(kid)
+        if text:
+            parts.append(text)
+    content = cell.get("content")
+    if content is not None and str(content).strip():
+        parts.append(str(content).strip())
+    return " ".join(parts).strip()
+
+
+def _edgeparse_table_markdown(element):
+    rows = element.get("rows") or []
+    table_rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cells = row.get("cells") or []
+        values = [_edgeparse_cell_text(cell) for cell in cells]
+        if any(values):
+            table_rows.append(values)
+    if not table_rows:
+        return ""
+    width = max(len(row) for row in table_rows)
+    normalized = [normalize_table_row_width(row, width) for row in table_rows]
+    header = normalized[0]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    for row in normalized[1:]:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
+def format_edgeparse_element(element):
+    if not isinstance(element, dict):
+        return ""
+    element_type = str(element.get("type") or "").strip().lower()
+    content = str(element.get("content") or "").strip()
+
+    if element_type == "heading":
+        if not content:
+            return ""
+        return f"{'#' * _edgeparse_heading_level(element)} {content}"
+
+    if element_type in ("paragraph", "caption", "formula", "text"):
+        return content
+
+    if element_type == "list":
+        items = []
+        for item in element.get("list items") or element.get("list_items") or []:
+            if isinstance(item, dict):
+                text = str(item.get("content") or "").strip()
+            else:
+                text = str(item or "").strip()
+            if text:
+                items.append(f"- {text}")
+        return "\n".join(items)
+
+    if element_type == "table":
+        return _edgeparse_table_markdown(element)
+
+    if element_type in ("table cell", "table_cell"):
+        return _edgeparse_cell_text(element)
+
+    if element_type in ("image", "figure"):
+        return ""
+
+    return content
+
+
+def is_usable_extracted_text(text):
+    """Require enough signal that one garbage token cannot unlock text capability."""
+    value = (text or "").strip()
+    if not value:
+        return False
+    words = value.split()
+    alnum = sum(1 for ch in value if ch.isalnum())
+    return len(words) >= 3 or alnum >= 20
+
+
+def group_edgeparse_pages(document, max_page_count=None):
+    """Group EdgeParse kids into page-anchored structured Markdown texts.
+
+    When max_page_count is provided (pypdf page count), it is authoritative:
+    elements with page numbers beyond it are ignored and page_count is not inflated.
+    """
+    doc = normalize_edgeparse_result(document)
+    try:
+        reported_pages = int(doc.get("number of pages") or 0)
+    except (TypeError, ValueError):
+        reported_pages = 0
+    try:
+        max_pages = int(max_page_count) if max_page_count is not None else None
+    except (TypeError, ValueError):
+        max_pages = None
+    if max_pages is not None and max_pages < 0:
+        max_pages = 0
+
+    by_page = {}
+    for kid in doc.get("kids") or []:
+        if not isinstance(kid, dict):
+            continue
+        try:
+            page_number = int(kid.get("page number") or kid.get("page_number") or 0)
+        except (TypeError, ValueError):
+            continue
+        if page_number < 1:
+            continue
+        if max_pages is not None and page_number > max_pages:
+            continue
+        by_page.setdefault(page_number, []).append(kid)
+
+    if max_pages is not None:
+        page_count = max_pages
+    else:
+        page_count = reported_pages
+        if by_page:
+            page_count = max(page_count, max(by_page.keys()))
+
+    pages = []
+    for page_number in range(1, page_count + 1):
+        elements = by_page.get(page_number) or []
+        blocks = []
+        for element in elements:
+            block = format_edgeparse_element(element)
+            if block and block.strip():
+                blocks.append(block.strip())
+        text = "\n\n".join(blocks).strip()
+        pages.append({
+            "page_number": page_number,
+            "text": text,
+            "elements": elements,
+            "word_count": len(text.split()) if text else 0,
+        })
+    combined = "\n\n".join(page["text"] for page in pages if page["text"]).strip()
+    return {
+        "page_count": page_count,
+        "pages": pages,
+        "word_count": sum(page["word_count"] for page in pages),
+        "has_usable_text": is_usable_extracted_text(combined),
+    }
+
+
+def build_pdftoppm_command(path, prefix, dpi, first=None, last=None):
+    cmd = [
+        "pdftoppm",
+        "-jpeg",
+        "-jpegopt",
+        "quality=85",
+        "-r",
+        str(max(72, min(int(dpi or 144), 180))),
+    ]
+    if first is not None and last is not None:
+        cmd.extend(["-f", str(int(first)), "-l", str(int(last))])
+    cmd.extend([str(path), str(prefix)])
+    return cmd
 
 
 def lease_until_iso(lease_seconds):
@@ -408,6 +675,34 @@ class Supabase:
         })
         return rows[0] if rows else None
 
+    def complete_document_job(self, job_id, worker_id, output=None, document_patch=None):
+        return self.rpc("klui_complete_document_job", {
+            "p_job_id": job_id,
+            "p_worker_id": worker_id,
+            "p_output": output if output is not None else {},
+            "p_document_patch": document_patch if document_patch is not None else {},
+        })
+
+    def publish_document_visual_ready(self, job_id, worker_id, document_file_id, page_count, metadata=None):
+        return self.rpc("klui_publish_document_visual_ready", {
+            "p_job_id": job_id,
+            "p_worker_id": worker_id,
+            "p_document_file_id": document_file_id,
+            "p_page_count": int(page_count),
+            "p_metadata": metadata if metadata is not None else {},
+        })
+
+    def fail_document_job(self, job_id, worker_id, error):
+        return self.rpc("klui_fail_document_job", {
+            "p_job_id": job_id,
+            "p_worker_id": worker_id,
+            "p_error": error if error is not None else {"code": "worker_error", "message": "Document processing failed."},
+        })
+
+    def get_job(self, job_id):
+        rows = self.request("document_jobs", params={"id": f"eq.{job_id}", "select": "*", "limit": "1"})
+        return rows[0] if rows else None
+
     def get_attachment(self, attachment_id):
         rows = self.request("attachments", params={"id": f"eq.{attachment_id}", "select": "*", "limit": "1"})
         return rows[0] if rows else None
@@ -462,17 +757,35 @@ class Supabase:
                 retryable=True,
             )
 
-    def insert_pages(self, pages):
+    def insert_pages(self, pages, on_conflict="merge"):
         if not pages:
             return
+        if on_conflict == "ignore":
+            prefer = "resolution=ignore-duplicates,return=minimal"
+        else:
+            prefer = "resolution=merge-duplicates,return=minimal"
         for i in range(0, len(pages), 100):
             self.request(
                 "document_pages",
                 method="POST",
+                params={"on_conflict": "document_file_id,page_number"},
                 body=pages[i:i + 100],
-                prefer="resolution=merge-duplicates,return=minimal",
+                prefer=prefer,
                 retryable=True,
             )
+
+    def update_page(self, document_file_id, page_number, patch):
+        rows = self.request(
+            "document_pages",
+            method="PATCH",
+            params={
+                "document_file_id": f"eq.{document_file_id}",
+                "page_number": f"eq.{int(page_number)}",
+            },
+            body=patch,
+            prefer="return=representation",
+        )
+        return rows[0] if rows else None
 
     def update_job(self, job_id, patch, worker_id=None):
         params = {"id": f"eq.{job_id}"}
@@ -496,6 +809,7 @@ class Supabase:
                 "id": f"eq.{job_id}",
                 "worker_id": f"eq.{worker_id}",
                 "status": "eq.running",
+                "lease_until": f"gte.{now_iso()}",
             },
             body={
                 "lease_until": lease_until_iso(lease_seconds),
@@ -646,6 +960,7 @@ class Processor:
         )
         self.heartbeat_seconds = min(self.heartbeat_seconds, max(1.0, self.lease_seconds / 2.0))
         self._lease_lost = None
+        self._active_job_id = None
         self.max_extracted_chars = int(env("DOCUMENT_MAX_EXTRACTED_CHARS", "500000"))
         self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "144"))
         self.pdf_render_workers = env_int(
@@ -714,6 +1029,7 @@ class Processor:
         stop_heartbeat = threading.Event()
         lease_lost = threading.Event()
         self._lease_lost = lease_lost
+        self._active_job_id = job_id
         heartbeat = threading.Thread(
             target=self._lease_heartbeat_loop,
             args=(job_id, stop_heartbeat, lease_lost),
@@ -723,44 +1039,67 @@ class Processor:
         heartbeat.start()
         try:
             output = self.dispatch(job, tmp)
-            self.assert_job_lease()
-            updated = self.db.update_job(job_id, {
-                "status": "succeeded",
-                "output": output,
-                "finished_at": now_iso(),
-                "lease_until": None,
-            }, self.worker_id)
-            if not updated:
+            self.assert_job_active(job_id)
+            document_patch = {}
+            if isinstance(output, dict):
+                document_patch = output.pop("_document_patch", None) or {}
+                public_output = output
+            else:
+                public_output = output or {}
+            completed = self.db.complete_document_job(
+                job_id,
+                self.worker_id,
+                public_output,
+                document_patch,
+            )
+            if completed is None:
                 raise LeaseLostError("job_lease_lost")
         except LeaseLostError as exc:
             print(f"job {job_id} stopped after losing its lease: {exc}", flush=True)
+        except JobCancelledError as exc:
+            error = {"message": str(exc), "code": getattr(exc, "code", "cancelled")}
+            failed = self.db.fail_document_job(job_id, self.worker_id, error)
+            if failed is None:
+                print(f"job {job_id} cancel ignored after losing its lease", flush=True)
+            else:
+                print(f"job {job_id} cancelled: {exc}", flush=True)
         except Exception as exc:
             error = {"message": str(exc), "code": getattr(exc, "code", "worker_error")}
-            failed_job = self.db.update_job(job_id, {
-                "status": "failed",
-                "error": error,
-                "finished_at": now_iso(),
-                "lease_until": None,
-            }, self.worker_id)
-            doc_id = job.get("document_file_id")
-            if failed_job and doc_id:
-                self.db.update_document_file(doc_id, {
-                    "processing_status": "failed",
-                    "error": error,
-                })
-            print(f"job {job_id} failed: {exc}", flush=True)
+            failed = self.db.fail_document_job(job_id, self.worker_id, error)
+            if failed is None:
+                print(f"job {job_id} failure ignored after losing its lease: {exc}", flush=True)
+            else:
+                print(f"job {job_id} failed: {exc}", flush=True)
         finally:
             stop_heartbeat.set()
             heartbeat.join(timeout=max(1.0, min(self.heartbeat_seconds, 5.0)))
             self._lease_lost = None
+            self._active_job_id = None
             shutil.rmtree(tmp, ignore_errors=True)
 
     def assert_job_lease(self):
         if self._lease_lost is not None and self._lease_lost.is_set():
             raise LeaseLostError("job_lease_lost")
 
+    def assert_job_active(self, job_id=None):
+        self.assert_job_lease()
+        target_id = job_id or getattr(self, "_active_job_id", None)
+        if not target_id:
+            return
+        current = self.db.get_job(target_id)
+        if not current:
+            raise LeaseLostError("job_missing")
+        if current.get("cancel_requested"):
+            raise JobCancelledError("job_cancelled")
+        if current.get("status") != "running" or current.get("worker_id") != self.worker_id:
+            raise LeaseLostError("job_lease_lost")
+
     def dispatch(self, job, tmp):
         job_type = job["job_type"]
+        if job_type == "document.enrich.pdf":
+            return self.enrich_pdf_job(job, tmp)
+        if job_type == "document.render_page":
+            return self.render_page_job(job, tmp)
         if job_type.startswith("document.extract."):
             return self.extract_job(job, tmp)
         if job_type.startswith("document.create."):
@@ -776,10 +1115,10 @@ class Processor:
         attachment = self.db.get_attachment(doc["attachment_id"])
         source = tmp / safe_name(attachment["file_name"])
         self.r2.download(attachment["object_key"], source)
-        self.assert_job_lease()
+        self.assert_job_active(job["id"])
         limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
         if doc["kind"] == "pdf":
-            return self.extract_pdf_visual_job(job, tmp, doc, attachment, source, limits)
+            return self.extract_pdf_text_job(job, tmp, doc, attachment, source, limits)
 
         chunks, meta = self.extract(source, doc["kind"], doc["user_id"], doc["id"], limits)
         extraction = {
@@ -790,26 +1129,139 @@ class Processor:
         extraction_path.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
         extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
         self.r2.upload(extraction_key, extraction_path, "application/json")
-        self.assert_job_lease()
+        self.assert_job_active(job["id"])
         self.db.delete_chunks(doc["id"])
-        self.db.delete_pages(doc["id"])
         self.db.insert_chunks(chunks)
-        self.assert_job_lease()
-        self.db.update_document_file(doc["id"], {
-            "processing_status": "ready",
-            "page_count": meta.get("page_count"),
-            "word_count": meta.get("word_count"),
-            "sheet_count": meta.get("sheet_count"),
-            "used_cell_count": meta.get("used_cell_count"),
-            "extraction_key": extraction_key,
-            "source_etag": attachment.get("etag"),
-            "metadata": meta,
-            "error": None,
-        })
-        return {"document_file_id": doc["id"], "status": "ready", **meta}
+        self.assert_job_active(job["id"])
+        ready_at = now_iso()
+        meta_out = {
+            **meta,
+            "progress": 100,
+            "stage": "text_ready",
+            "file_name": attachment["file_name"],
+            "content_type": attachment["content_type"],
+            "size_bytes": attachment["size_bytes"],
+        }
+        return {
+            "document_file_id": doc["id"],
+            "status": "text_ready",
+            **meta,
+            "_document_patch": {
+                "text_ready_at": ready_at,
+                "page_count": meta.get("page_count"),
+                "word_count": meta.get("word_count"),
+                "extraction_key": extraction_key,
+                "metadata": meta_out,
+                "error": None,
+            },
+        }
 
-    def extract_pdf_visual_job(self, job, tmp, doc, attachment, source, limits):
+    def extract_pdf_text_job(self, job, tmp, doc, attachment, source, limits):
         job_started = time.monotonic()
+        self.db.update_document_file(doc["id"], {
+            "processing_status": "processing",
+            "metadata": {
+                "mode": "edgeparse_text",
+                "progress": 5,
+                "stage": "extracting_text",
+                "file_name": attachment["file_name"],
+                "content_type": attachment["content_type"],
+                "size_bytes": attachment["size_bytes"],
+            },
+        })
+        self.assert_job_active(job["id"])
+
+        reader = PdfReader(str(source))
+        if reader.is_encrypted:
+            raise RuntimeError("password_protected")
+        page_count = len(reader.pages)
+        max_pages = self.limit(limits, "max_pdf_pages", 100)
+        if page_count > max_pages:
+            raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
+
+        extract_started = time.monotonic()
+        chunks, meta = self.extract_pdf(source, doc["user_id"], doc["id"], limits, page_count=page_count)
+        extract_seconds = time.monotonic() - extract_started
+        self.assert_job_active(job["id"])
+
+        extraction = {
+            "metadata": meta,
+            "chunks": [{k: v for k, v in chunk.items() if k not in ("user_id", "document_file_id")} for chunk in chunks],
+        }
+        extraction_path = tmp / "extraction.json"
+        extraction_path.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
+        extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
+        self.r2.upload(extraction_key, extraction_path, "application/json")
+        self.assert_job_active(job["id"])
+
+        # PDF retries upsert chunks in place — never delete-all first (avoids a gap).
+        self.db.insert_chunks(chunks)
+        self.assert_job_active(job["id"])
+
+        has_usable_text = bool(meta.get("has_usable_text"))
+        ready_at = now_iso()
+        stage_errors = {}
+        if meta.get("edgeparse_failed"):
+            stage_errors["text"] = {
+                "code": "edgeparse_failed",
+                "message": meta.get("edgeparse_error") or "EdgeParse conversion failed.",
+            }
+            has_usable_text = False
+        elif not has_usable_text:
+            stage_errors["text"] = {
+                "code": "no_usable_digital_text",
+                "message": "No usable digital text was found in the PDF.",
+            }
+
+        meta_out = {
+            "mode": "edgeparse_text",
+            "progress": 100,
+            "stage": "text_ready" if has_usable_text else "text_incapable",
+            "page_count": meta.get("page_count", page_count),
+            "word_count": meta.get("word_count", 0),
+            "has_usable_text": has_usable_text,
+            "extractor": "edgeparse",
+            "file_name": attachment["file_name"],
+            "content_type": attachment["content_type"],
+            "size_bytes": attachment["size_bytes"],
+            "warnings": list(stage_errors.values()),
+        }
+        document_patch = {
+            "page_count": meta.get("page_count", page_count),
+            "word_count": meta.get("word_count", 0),
+            "extraction_key": extraction_key,
+            "metadata": meta_out,
+            "error": None,
+        }
+        if has_usable_text:
+            document_patch["text_ready_at"] = ready_at
+        if stage_errors:
+            document_patch["stage_errors"] = stage_errors
+
+        print(
+            f"job {job['id']} PDF extract timings pages={page_count} "
+            f"edgeparse={extract_seconds:.2f}s total={time.monotonic() - job_started:.2f}s "
+            f"usable_text={has_usable_text}",
+            flush=True,
+        )
+        return {
+            "document_file_id": doc["id"],
+            "status": "text_ready" if has_usable_text else "text_incapable",
+            "page_count": meta.get("page_count", page_count),
+            "word_count": meta.get("word_count", 0),
+            "has_usable_text": has_usable_text,
+            "_document_patch": document_patch,
+        }
+
+    def enrich_pdf_job(self, job, tmp):
+        job_started = time.monotonic()
+        doc = self.db.get_document_file(job["document_file_id"])
+        attachment = self.db.get_attachment(doc["attachment_id"])
+        source = tmp / safe_name(attachment["file_name"])
+        self.r2.download(attachment["object_key"], source)
+        self.assert_job_active(job["id"])
+        limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
+
         self.db.update_document_file(doc["id"], {
             "processing_status": "processing",
             "metadata": {
@@ -833,91 +1285,26 @@ class Processor:
         render_dir = tmp / "pages"
         render_dir.mkdir(parents=True, exist_ok=True)
         render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
-        extract_started = time.monotonic()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            text_future = pool.submit(self.extract_pdf_page_text, source, page_count)
-            render_future = pool.submit(self.render_pdf_pages, source, render_dir, render_dpi, page_count)
-            text_by_page = text_future.result()
-            image_paths = render_future.result()
-        extract_seconds = time.monotonic() - extract_started
-        if len(image_paths) < page_count:
-            raise RuntimeError(f"pdf_render_failed: expected {page_count} pages, rendered {len(image_paths)}")
-
         self.db.update_document_file(doc["id"], {
             "metadata": {
                 "mode": "visual_pages",
-                "progress": 35,
-                "stage": "embedding",
+                "progress": 10,
+                "stage": "rendering_pages",
                 "page_count": page_count,
                 "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
             },
         })
 
-        warnings = []
-        embedding_started = time.monotonic()
-        try:
-            embeddings = self.embeddings.embed_images(image_paths[:page_count]) if self.embeddings.enabled else [None] * page_count
-        except Exception as exc:
-            warnings.append({"code": "embedding_failed", "message": str(exc)})
-            embeddings = [None] * page_count
-        embedding_seconds = time.monotonic() - embedding_started
-
-        if not self.db.get_document_file(doc["id"]):
-            raise RuntimeError("document_deleted")
-        self.assert_job_lease()
-
+        ranges = split_page_ranges(page_count, self.pdf_render_workers) or [(1, page_count)]
         page_specs = []
-        total_words = 0
-        for index, image_path in enumerate(image_paths[:page_count], start=1):
-            page = reader.pages[index - 1]
-            text = text_by_page.get(index, "")
-            total_words += len(text.split())
-            key = f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{index:04d}.jpg"
-            width_px, height_px = self.estimated_page_pixels(page)
-            page_specs.append({
-                "index": index,
-                "image_path": image_path,
-                "key": key,
-                "text": text,
-                "width_px": width_px,
-                "height_px": height_px,
-                "embedding": embeddings[index - 1],
-            })
+        rendered_count = 0
+        done_indexes = set()
+        render_seconds = 0.0
+        upload_seconds = 0.0
 
-        def upload_page(spec):
+        def upload_and_publish(spec):
             self.r2.upload(spec["key"], spec["image_path"], "image/jpeg")
-            return spec["index"]
-
-        upload_started = time.monotonic()
-        with ThreadPoolExecutor(max_workers=min(self.page_upload_workers, max(1, page_count))) as pool:
-            futures = [pool.submit(upload_page, spec) for spec in page_specs]
-            done_indexes = set()
-            for future in as_completed(futures):
-                index = future.result()
-                done_indexes.add(index)
-                completed = len(done_indexes)
-                if completed == page_count or completed % 5 == 0:
-                    self.assert_job_lease()
-                    if not self.db.get_document_file(doc["id"]):
-                        raise RuntimeError("document_deleted")
-                    progress = 35 + int((completed / max(1, page_count)) * 55)
-                    self.db.update_document_file(doc["id"], {
-                        "metadata": {
-                            "mode": "visual_pages",
-                            "progress": min(progress, 95),
-                            "stage": "uploading_pages",
-                            "page_count": page_count,
-                            "pages_uploaded": completed,
-                            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-                            "warnings": warnings,
-                        },
-                    })
-        upload_seconds = time.monotonic() - upload_started
-
-        pages = []
-        for spec in page_specs:
-            text = spec["text"]
-            pages.append({
+            page_row = {
                 "user_id": doc["user_id"],
                 "document_file_id": doc["id"],
                 "page_number": spec["index"],
@@ -926,76 +1313,295 @@ class Processor:
                 "image_content_type": "image/jpeg",
                 "width_px": spec["width_px"],
                 "height_px": spec["height_px"],
-                "text": truncate(text, 12000),
-                "char_count": len(text),
-                "token_estimate": max(1, len(text) // 4) if text else 0,
-                "embedding": spec["embedding"],
-                "embedding_model": self.embeddings.model if spec["embedding"] else None,
-                "embedding_dimensions": 768 if spec["embedding"] else None,
+                "text": "",
+                "char_count": 0,
+                "token_estimate": 0,
+                "embedding": None,
+                "embedding_model": None,
+                "embedding_dimensions": None,
                 "metadata": {
                     "page": spec["index"],
                     "source_etag": attachment.get("etag"),
                 },
-            })
+            }
+            self.db.insert_pages([page_row])
+            return spec["index"]
 
-        manifest = {
-            "metadata": {
-                "mode": "visual_pages",
-                "page_count": page_count,
-                "word_count": total_words,
-                "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-                "embedding_dimensions": 768 if any(page.get("embedding") for page in pages) else None,
-                "warnings": warnings,
-            },
-            "pages": [
-                {
-                    "page_number": page["page_number"],
-                    "source_label": page["source_label"],
-                    "image_key": page["image_key"],
-                    "width_px": page["width_px"],
-                    "height_px": page["height_px"],
-                    "char_count": page["char_count"],
-                }
-                for page in pages
-            ],
+        def render_range(range_index, first_page, last_page):
+            range_dir = render_dir / f"range-{range_index}"
+            range_dir.mkdir(parents=True, exist_ok=True)
+            started = time.monotonic()
+            paths = self.render_pdf_pages(
+                source,
+                range_dir,
+                render_dpi,
+                page_count=(last_page - first_page) + 1,
+                first_page=first_page,
+                last_page=last_page,
+            )
+            return first_page, last_page, paths, time.monotonic() - started
+
+        with ThreadPoolExecutor(max_workers=min(len(ranges), self.pdf_render_workers)) as render_pool:
+            render_futures = [
+                render_pool.submit(render_range, index, first_page, last_page)
+                for index, (first_page, last_page) in enumerate(ranges, start=1)
+            ]
+            for render_future in as_completed(render_futures):
+                first_page, last_page, image_paths, elapsed = render_future.result()
+                render_seconds = max(render_seconds, elapsed)
+                expected = (last_page - first_page) + 1
+                if len(image_paths) != expected:
+                    raise RuntimeError(
+                        f"pdf_render_failed: pages {first_page}-{last_page} expected {expected}, rendered {len(image_paths)}"
+                    )
+                self.assert_job_active(job["id"])
+
+                rendered_specs = []
+                for offset, image_path in enumerate(image_paths):
+                    page_number = first_page + offset
+                    width_px, height_px = self.estimated_page_pixels(reader.pages[page_number - 1])
+                    rendered_specs.append({
+                        "index": page_number,
+                        "image_path": image_path,
+                        "key": f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{page_number:04d}.jpg",
+                        "width_px": width_px,
+                        "height_px": height_px,
+                    })
+                page_specs.extend(rendered_specs)
+                rendered_count += len(rendered_specs)
+
+                range_upload_started = time.monotonic()
+                with ThreadPoolExecutor(
+                    max_workers=min(self.page_upload_workers, max(1, len(rendered_specs)))
+                ) as upload_pool:
+                    upload_futures = [upload_pool.submit(upload_and_publish, spec) for spec in rendered_specs]
+                    for upload_future in as_completed(upload_futures):
+                        done_indexes.add(upload_future.result())
+                upload_seconds += time.monotonic() - range_upload_started
+
+                completed = len(done_indexes)
+                self.assert_job_active(job["id"])
+                if not self.db.get_document_file(doc["id"]):
+                    raise RuntimeError("document_deleted")
+                progress = 10 + int((completed / max(1, page_count)) * 65)
+                self.db.update_document_file(doc["id"], {
+                    "metadata": {
+                        "mode": "visual_pages",
+                        "progress": min(progress, 75),
+                        "stage": "uploading_pages" if completed < page_count else "publishing_visual_manifest",
+                        "page_count": page_count,
+                        "pages_rendered": rendered_count,
+                        "pages_uploaded": completed,
+                        "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+                    },
+                })
+        if len(done_indexes) < page_count:
+            raise RuntimeError(f"pdf_page_upload_failed: expected {page_count} pages, uploaded {len(done_indexes)}")
+        page_specs.sort(key=lambda spec: spec["index"])
+
+        self.assert_job_active(job["id"])
+        visual_ready_metadata = {
+            "mode": "visual_pages",
+            "progress": 75,
+            "stage": "visual_ready",
+            "page_count": page_count,
+            "pages_uploaded": page_count,
+            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
+            "file_name": attachment["file_name"],
+            "content_type": attachment["content_type"],
+            "size_bytes": attachment["size_bytes"],
         }
-        extraction_path = tmp / "pdf-pages.json"
-        extraction_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
-        extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.visual-pages.json")
-        self.r2.upload(extraction_key, extraction_path, "application/json")
+        published = self.db.publish_document_visual_ready(
+            job["id"],
+            self.worker_id,
+            doc["id"],
+            page_count,
+            visual_ready_metadata,
+        )
+        if published is None:
+            raise LeaseLostError("job_lease_lost")
+        visual_ready_at = published.get("visual_ready_at") or now_iso()
 
-        self.assert_job_lease()
-        self.db.delete_chunks(doc["id"])
-        self.db.delete_pages(doc["id"])
-        self.db.insert_pages(pages)
-        self.assert_job_lease()
+        warnings = []
+        stage_errors = {}
+        embedding_seconds = 0.0
+        embeddings = [None] * page_count
+        enriched = False
 
+        if self.embeddings.enabled:
+            self.db.update_document_file(doc["id"], {
+                "metadata": {
+                    "mode": "visual_pages",
+                    "progress": 80,
+                    "stage": "embedding",
+                    "page_count": page_count,
+                    "pages_uploaded": page_count,
+                    "embedding_model": self.embeddings.model,
+                },
+            })
+            embedding_started = time.monotonic()
+            try:
+                embedded = self.embeddings.embed_images([spec["image_path"] for spec in page_specs])
+                if not isinstance(embedded, list):
+                    embedded = list(embedded or [])
+                embeddings = list(embedded[:page_count])
+                while len(embeddings) < page_count:
+                    embeddings.append(None)
+                for spec, embedding in zip(page_specs, embeddings):
+                    if embedding is None:
+                        continue
+                    self.db.update_page(doc["id"], spec["index"], {
+                        "embedding": embedding,
+                        "embedding_model": self.embeddings.model,
+                        "embedding_dimensions": 768,
+                    })
+                enriched = all(embeddings[i] is not None for i in range(page_count))
+                if not enriched:
+                    warnings.append({
+                        "code": "embedding_incomplete",
+                        "message": "One or more page embeddings were missing or skipped.",
+                    })
+                    stage_errors["enrichment"] = {
+                        "code": "embedding_incomplete",
+                        "message": "One or more page embeddings were missing or skipped.",
+                    }
+            except Exception as exc:
+                warnings.append({"code": "embedding_failed", "message": str(exc)})
+                stage_errors["enrichment"] = {
+                    "code": "embedding_failed",
+                    "message": str(exc),
+                }
+                enriched = False
+            embedding_seconds = time.monotonic() - embedding_started
+        else:
+            warnings.append({
+                "code": "embedding_unavailable",
+                "message": "Image embeddings are disabled; visual pages are ready without enrichment.",
+            })
+            stage_errors["enrichment"] = {
+                "code": "embedding_unavailable",
+                "message": "Image embeddings are disabled; visual pages are ready without enrichment.",
+            }
+            enriched = False
+
+        self.assert_job_active(job["id"])
+        enriched_at = now_iso() if enriched else None
         meta = {
             "mode": "visual_pages",
             "progress": 100,
-            "stage": "ready",
+            "stage": "visual_ready" if enriched else "visual_ready_embeddings_degraded",
             "page_count": page_count,
-            "word_count": total_words,
+            "pages_uploaded": page_count,
             "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-            "embedding_dimensions": 768 if any(page.get("embedding") for page in pages) else None,
+            "embedding_dimensions": 768 if any(embeddings) else None,
             "warnings": warnings,
+            "file_name": attachment["file_name"],
+            "content_type": attachment["content_type"],
+            "size_bytes": attachment["size_bytes"],
         }
-        self.db.update_document_file(doc["id"], {
-            "processing_status": "ready",
+        document_patch = {
+            "visual_ready_at": visual_ready_at,
             "page_count": page_count,
-            "word_count": total_words,
-            "extraction_key": extraction_key,
-            "source_etag": attachment.get("etag"),
             "metadata": meta,
             "error": None,
-        })
+        }
+        if enriched_at:
+            document_patch["enriched_at"] = enriched_at
+        if stage_errors:
+            document_patch["stage_errors"] = stage_errors
+
         print(
-            f"job {job['id']} PDF timings pages={page_count} "
-            f"extract_render={extract_seconds:.2f}s embeddings={embedding_seconds:.2f}s "
-            f"page_uploads={upload_seconds:.2f}s total={time.monotonic() - job_started:.2f}s",
+            f"job {job['id']} PDF enrich timings pages={page_count} "
+            f"render={render_seconds:.2f}s embeddings={embedding_seconds:.2f}s "
+            f"page_uploads={upload_seconds:.2f}s total={time.monotonic() - job_started:.2f}s "
+            f"enriched={enriched}",
             flush=True,
         )
-        return {"document_file_id": doc["id"], "status": "ready", **meta}
+        return {
+            "document_file_id": doc["id"],
+            "status": "visual_ready",
+            "page_count": page_count,
+            "pages_uploaded": page_count,
+            "enriched": enriched,
+            "_document_patch": document_patch,
+        }
+
+    def render_page_job(self, job, tmp):
+        doc = self.db.get_document_file(job["document_file_id"])
+        attachment_id = doc.get("attachment_id") or (job.get("input") or {}).get("attachment_id")
+        attachment = self.db.get_attachment(attachment_id)
+        if not attachment:
+            raise RuntimeError("attachment_not_found")
+        source = tmp / safe_name(attachment["file_name"])
+        self.r2.download(attachment["object_key"], source)
+        self.assert_job_active(job["id"])
+
+        input_data = job.get("input") or {}
+        try:
+            page_number = int(input_data.get("page_number"))
+        except (TypeError, ValueError):
+            raise RuntimeError("invalid_page_number")
+        if page_number < 1:
+            raise RuntimeError("invalid_page_number")
+
+        reader = PdfReader(str(source))
+        if reader.is_encrypted:
+            raise RuntimeError("password_protected")
+        page_count = len(reader.pages)
+        if page_number > page_count:
+            raise RuntimeError("page_out_of_range")
+
+        limits = {**self.default_limits, **(input_data.get("limits") or {})}
+        render_dir = tmp / "pages"
+        render_dir.mkdir(parents=True, exist_ok=True)
+        render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
+        self.assert_job_active(job["id"])
+        image_paths = self.render_pdf_pages(
+            source,
+            render_dir,
+            render_dpi,
+            page_count=1,
+            first_page=page_number,
+            last_page=page_number,
+        )
+        if not image_paths:
+            raise RuntimeError(f"pdf_render_failed: page {page_number} was not rendered")
+        self.assert_job_active(job["id"])
+
+        image_path = image_paths[0]
+        key = f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{page_number:04d}.jpg"
+        width_px, height_px = self.estimated_page_pixels(reader.pages[page_number - 1])
+        self.r2.upload(key, image_path, "image/jpeg")
+        self.assert_job_active(job["id"])
+        self.db.insert_pages([{
+            "user_id": doc["user_id"],
+            "document_file_id": doc["id"],
+            "page_number": page_number,
+            "source_label": f"Page {page_number}",
+            "image_key": key,
+            "image_content_type": "image/jpeg",
+            "width_px": width_px,
+            "height_px": height_px,
+            "text": "",
+            "char_count": 0,
+            "token_estimate": 0,
+            "embedding": None,
+            "embedding_model": None,
+            "embedding_dimensions": None,
+            "metadata": {
+                "page": page_number,
+                "source_etag": attachment.get("etag"),
+                "on_demand": True,
+            },
+        }])
+        return {
+            "document_file_id": doc["id"],
+            "page_number": page_number,
+            "image_key": key,
+            "width_px": width_px,
+            "height_px": height_px,
+            "status": "rendered",
+        }
 
     def limit(self, limits, key, fallback):
         try:
@@ -1054,33 +1660,16 @@ class Processor:
             "metadata": metadata or {},
         }
 
-    def extract_pdf_page_text(self, path, page_count):
-        text_by_page = {}
-        try:
-            with pdfplumber.open(str(path)) as pdf:
-                for i, page in enumerate(pdf.pages[:page_count], start=1):
-                    text_by_page[i] = page.extract_text() or ""
-        except Exception as exc:
-            print(f"pdf text layer extraction failed: {exc}", flush=True)
-        return text_by_page
-
-    def render_pdf_pages(self, path, output_dir, dpi=None, page_count=None):
+    def render_pdf_pages(self, path, output_dir, dpi=None, page_count=None, first_page=None, last_page=None):
         prefix = output_dir / "page"
         render_dpi = max(72, min(int(dpi or self.visual_page_dpi), 180))
-        ranges = split_page_ranges(page_count, self.pdf_render_workers) if page_count else []
+        if first_page is not None and last_page is not None:
+            ranges = [(int(first_page), int(last_page))]
+        else:
+            ranges = split_page_ranges(page_count, self.pdf_render_workers) if page_count else []
 
         def run_pdftoppm(first=None, last=None):
-            cmd = [
-                "pdftoppm",
-                "-jpeg",
-                "-jpegopt",
-                "quality=85",
-                "-r",
-                str(render_dpi),
-            ]
-            if first is not None and last is not None:
-                cmd.extend(["-f", str(first), "-l", str(last)])
-            cmd.extend([str(path), str(prefix)])
+            cmd = build_pdftoppm_command(path, prefix, render_dpi, first=first, last=last)
             subprocess.run(
                 cmd,
                 check=True,
@@ -1114,33 +1703,62 @@ class Processor:
         except Exception:
             return None, None
 
-    def extract_pdf(self, path, user_id, document_file_id, limits):
+    def extract_pdf(self, path, user_id, document_file_id, limits, page_count=None):
         reader = PdfReader(str(path))
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
-        page_count = len(reader.pages)
+        pdf_page_count = len(reader.pages)
         max_pages = self.limit(limits, "max_pdf_pages", 100)
-        if page_count > max_pages:
-            raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
+        if pdf_page_count > max_pages:
+            raise RuntimeError(f"too_many_pages: PDF has {pdf_page_count} pages; limit is {max_pages}")
+
+        # pypdf page count is authoritative for the manifest.
+        resolved_page_count = int(page_count if page_count is not None else pdf_page_count)
+        if resolved_page_count < 0:
+            resolved_page_count = 0
+
+        try:
+            raw = edgeparse.convert(str(path), format="json")
+            grouped = group_edgeparse_pages(raw, max_page_count=resolved_page_count)
+        except Exception as exc:
+            # Soft text-incapable outcome: visual enrich can still succeed independently.
+            return [], {
+                "page_count": resolved_page_count or pdf_page_count,
+                "word_count": 0,
+                "has_usable_text": False,
+                "extractor": "edgeparse",
+                "edgeparse_failed": True,
+                "edgeparse_error": str(exc),
+            }
+
         chunks = []
-        low_text = 0
-        total_words = 0
-        with pdfplumber.open(str(path)) as pdf:
-            for i, page in enumerate(pdf.pages[:page_count], start=1):
-                text = page.extract_text() or ""
-                if len(text.strip()) < 30:
-                    low_text += 1
-                total_words += len(text.split())
-                if text.strip():
-                    chunks.append(self.chunk(user_id, document_file_id, len(chunks), "page", f"Page {i}", text, {"page": i}))
-                for table_index, table in enumerate(page.extract_tables() or [], start=1):
-                    rows = ["\t".join("" if cell is None else str(cell) for cell in row) for row in table[:50]]
-                    if rows:
-                        chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Page {i} table {table_index}", "\n".join(rows), {"page": i, "table": table_index}))
-        meta = {"page_count": page_count, "word_count": total_words}
-        if page_count and low_text / page_count > 0.6:
-            meta["warning"] = "needs_ocr"
-        return chunks[:1000], meta
+        for page in grouped["pages"]:
+            text = (page.get("text") or "").strip()
+            if not text:
+                continue
+            chunks.append(self.chunk(
+                user_id,
+                document_file_id,
+                len(chunks),
+                "page",
+                f"Page {page['page_number']}",
+                text,
+                {"page": page["page_number"], "extractor": "edgeparse"},
+            ))
+            if len(chunks) >= 1000:
+                break
+
+        capped = self.cap_chunks(chunks, limits)
+        combined = "\n\n".join((chunk.get("text") or "").strip() for chunk in capped).strip()
+        total_words = sum(len((chunk.get("text") or "").split()) for chunk in capped)
+        has_usable_text = is_usable_extracted_text(combined)
+        meta = {
+            "page_count": resolved_page_count or pdf_page_count,
+            "word_count": total_words,
+            "has_usable_text": has_usable_text,
+            "extractor": "edgeparse",
+        }
+        return capped, meta
 
     def extract_docx(self, path, user_id, document_file_id, limits):
         doc = Document(str(path))
@@ -1944,13 +2562,18 @@ class Processor:
         })
         chunks, meta = self.extract(path, kind, user_id, document_file["id"])
         self.db.insert_chunks(chunks)
+        ready_at = now_iso()
+        # Generated artifacts are created outside the upload extract/enrich pair, so the
+        # worker still marks text readiness (and legacy ready) on the new document row.
         self.db.update_document_file(document_file["id"], {
             "processing_status": "ready",
+            "text_ready_at": ready_at,
             "page_count": meta.get("page_count"),
             "word_count": meta.get("word_count"),
             "sheet_count": meta.get("sheet_count"),
             "used_cell_count": meta.get("used_cell_count"),
             "metadata": {**meta, "generated_by_job": job["id"], **({"preview": True} if preview else {})},
+            "error": None,
         })
         return {
             "attachment_id": attachment["id"],

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
 import { createApiHandler } from "../server/routes.js";
+import { filterCurrentTurnMessages } from "../server/chat/pipeline.js";
 
 /*
  * Phase-0 canonical SSE characterization tests.
@@ -44,7 +45,7 @@ function makeReq({ method = "POST", path, body = null } = {}) {
   return req;
 }
 
-function makeRes() {
+function makeRes(calls = null) {
   return {
     statusCode: null,
     headers: {},
@@ -70,6 +71,7 @@ function makeRes() {
     },
     end(chunk) {
       if (chunk) this.body += String(chunk);
+      calls?.push({ op: "responseEnd" });
       this.writableEnded = true;
       return this;
     },
@@ -320,19 +322,34 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
 function overridesFor(db) {
   return {
     createDb: () => db,
-    createR2: () => ({}),
+    createR2: () => ({
+      readUrl(key) { return `https://signed.example/${key}`; }
+    }),
     verifyUser: async () => ({ id: "user-1", email: "user@example.com", raw: {} })
   };
 }
 
 async function dispatchChat(config, db, { path, body }) {
   const req = makeReq({ path, body });
-  const res = makeRes();
+  const res = makeRes(db.calls);
   await createApiHandler(config, overridesFor(db))(req, res, new URL(path, "http://test.local"));
   return res;
 }
 
 const conversationRow = { id: "conv-1", title: "Existing chat", model: TEXT_MODEL };
+
+test("pending turn execution excludes its user row and output shells from provider history", () => {
+  const messages = [
+    { id: "older-user", role: "user", content: "Earlier" },
+    { id: "turn-user", role: "user", content: "Current" },
+    { id: "turn-output", role: "assistant", turn_run_id: "turn-1", output_slot: "single", content: "" },
+    { id: "unrelated-output", role: "assistant", turn_run_id: "turn-0", content: "Previous answer" }
+  ];
+  assert.deepEqual(
+    filterCurrentTurnMessages(messages, "turn-1", "turn-user").map((message) => message.id),
+    ["older-user", "unrelated-output"]
+  );
+});
 
 /* ── (a) single chat with a web-search tool call ── */
 
@@ -354,7 +371,7 @@ test("single chat with a web-search tool call: canonical transcript, persistence
     body: { text: "What is the latest AI news today?", model: TEXT_MODEL, agentMode: true }
   });
 
-  assert.equal(res.statusCode, 200);
+  assert.equal(res.statusCode, 200, res.body);
   assert.equal(res.headers["content-type"], "text/event-stream; charset=utf-8");
   assert.equal(res.headers["x-klui-user-message-id"], "msg-1");
   assert.equal(res.headers["x-klui-assistant-message-id"], "msg-2");
@@ -610,7 +627,7 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
   /* Billing still applies to temporary chats. */
   assert.deepEqual(
     db.calls.map((call) => call.op),
-    ["checkApiBudget", "recordApiUsageCost"]
+    ["checkApiBudget", "recordApiUsageCost", "responseEnd"]
   );
 });
 
@@ -806,4 +823,133 @@ test("compare: provider requests include prior conversation history", async (t) 
     assert.ok(texts.some((text) => text.includes("Earlier answer")), "prior assistant message is in context");
     assert.ok(texts.some((text) => text.includes("Compare follow-up.")), "new user turn is in context");
   }
+});
+
+test("document send persists one durable turn and fences the first provider call", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: () => [contentDelta("The document says hello."), usageChunk()]
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const storedMessages = [];
+  const turnId = "00000000-0000-4000-8000-000000000101";
+  const attachment = {
+    id: "00000000-0000-4000-8000-000000000102",
+    category: "document",
+    status: "uploaded",
+    file_name: "notes.docx",
+    content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    size_bytes: 512,
+    object_key: "users/user-1/notes.docx"
+  };
+  const documentFile = {
+    id: "00000000-0000-4000-8000-000000000103",
+    attachment_id: attachment.id,
+    conversation_id: "conv-1",
+    kind: "docx",
+    processing_status: "processing",
+    text_ready_at: "2026-07-11T00:00:00.000Z",
+    metadata: { stage: "text_ready", progress: 100 }
+  };
+  let run = null;
+
+  const db = makeDb({ conversation: conversationRow });
+  const calls = db.calls;
+  db.upsertProfile = async (user) => {
+    calls.push({ op: "upsertProfile" });
+    return { id: user.id, role: "user" };
+  };
+  db.listMessages = async () => storedMessages.map((message) => ({ ...message }));
+  db.getAttachment = async (_userId, attachmentId) => attachmentId === attachment.id ? attachment : null;
+  db.getDocumentFileByAttachment = async () => documentFile;
+  db.listDocumentFilesByAttachments = async () => [documentFile];
+  db.submitDocumentTurn = async (payload) => {
+    calls.push({ op: "submitDocumentTurn", payload });
+    const userMessage = {
+      id: "msg-document-user",
+      user_id: "user-1",
+      conversation_id: "conv-1",
+      role: "user",
+      content: payload.userContent,
+      metadata: payload.messageMetadata
+    };
+    storedMessages.push(userMessage);
+    run = {
+      id: turnId,
+      user_id: "user-1",
+      conversation_id: "conv-1",
+      user_message_id: userMessage.id,
+      mode: "single",
+      request_payload: payload.requestPayload,
+      status: "waiting_documents",
+      provider_started_at: null
+    };
+    return { run, user_message: userMessage, created: true };
+  };
+  db.claimPendingDocumentTurn = async ({ claimedBy }) => {
+    run = {
+      ...run,
+      status: "running",
+      claimed_by: claimedBy,
+      claim_token: "00000000-0000-4000-8000-000000000104",
+      lease_until: futureIso(120_000)
+    };
+    calls.push({ op: "claimPendingDocumentTurn" });
+    return run;
+  };
+  db.heartbeatPendingDocumentTurn = async () => run;
+  db.markPendingTurnProviderStarted = async () => {
+    run = { ...run, provider_started_at: new Date().toISOString() };
+    calls.push({ op: "markPendingTurnProviderStarted" });
+    return run;
+  };
+  db.finishPendingDocumentTurn = async ({ status }) => {
+    run = { ...run, status };
+    calls.push({ op: "finishPendingDocumentTurn", status });
+    return run;
+  };
+  db.upsertTurnOutputMessage = async (row) => {
+    const message = { id: "msg-document-assistant", ...row };
+    storedMessages.push(message);
+    calls.push({ op: "upsertTurnOutputMessage", row });
+    return message;
+  };
+
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      text: "Summarize this document",
+      model: TEXT_MODEL,
+      attachments: [attachment.id],
+      clientTurnKey: "00000000-0000-4000-8000-000000000105"
+    }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.headers["x-klui-turn-run-id"], turnId);
+  assert.equal(res.headers["x-klui-user-message-id"], "msg-document-user");
+  assert.equal(res.headers["x-klui-assistant-message-id"], "msg-document-assistant");
+  assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1);
+  assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);
+  assert.ok(
+    calls.findLastIndex((call) => call.op === "upsertProfile")
+      > calls.findIndex((call) => call.op === "claimPendingDocumentTurn"),
+    "auth and entitlement are refreshed after the durable turn is claimed"
+  );
+  assert.equal(calls.filter((call) => call.op === "upsertTurnOutputMessage").length, 1);
+  assert.equal(calls.some((call) => call.op === "insertMessage"), false);
+  assert.ok(
+    calls.findIndex((call) => call.op === "checkApiBudget")
+      < calls.findIndex((call) => call.op === "markPendingTurnProviderStarted"),
+    "the budget gate runs before the durable provider fence"
+  );
+  assert.ok(
+    calls.findIndex((call) => call.op === "markPendingTurnProviderStarted")
+      < calls.findIndex((call) => call.op === "recordApiUsageCost"),
+    "the durable provider fence is written before provider usage is recorded"
+  );
+  assert.equal(calls.at(-2).op, "finishPendingDocumentTurn");
+  assert.equal(calls.at(-2).status, "done");
+  assert.equal(calls.at(-1).op, "responseEnd");
 });

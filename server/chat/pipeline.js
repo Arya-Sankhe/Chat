@@ -1,7 +1,8 @@
-import { listModels } from "../crofai/client.js";
+import { randomUUID } from "node:crypto";
+import { chatCompletion, listModels, streamChatCompletion } from "../crofai/client.js";
 import { normalizeChatRequest } from "../crofai/normalize.js";
 import { configuredServices } from "../config.js";
-import { HttpError, parseJsonBody } from "../http/responses.js";
+import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { withCouncilSystemPrompt } from "../saas/council.js";
 import {
   applyImageDescriptionsToContent,
@@ -15,6 +16,7 @@ import {
   buildStoredUserContent,
   contentText,
   createConversationSummarizer,
+  hydrateMessagesForClient,
   imageCountFromContent,
   normalizeMessageSettings,
   normalizePastedTextRange,
@@ -54,8 +56,22 @@ import { modelCache, modelFromPayload } from "../routes/meta.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
 import { buildUntrustedWebContext } from "./shared.js";
-import { hasAssistantOutput, writeSse } from "./shared.js";
+import {
+  createAssistantOutputMessage,
+  hasAssistantOutput,
+  startSse,
+  writeSse
+} from "./shared.js";
 import { streamSingleChat } from "./single.js";
+import {
+  PENDING_TURN_LEASE_SECONDS,
+  documentHasUsableCapability,
+  pendingTurnConnectionId,
+  pendingTurnIsOwnedBy,
+  startPendingTurnHeartbeat,
+  waitForDocumentCapabilities,
+  wrapProviderCallsWithTurnFence
+} from "./turns.js";
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
@@ -68,6 +84,7 @@ const DEFAULT_COUNCIL_MODELS = [
 ];
 
 const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
+const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function withResearchReportContext(
   messages,
@@ -142,7 +159,7 @@ async function resolveCachedModelMetadata({ context, config, modelId, provider, 
   }
 }
 
-async function loadUploadedAttachments(context, attachmentIds, req, plan) {
+async function loadUploadedAttachments(context, attachmentIds, req, plan, { requireCapability = true } = {}) {
   const maxUploads = (plan.maxImagesPerMessage || 0) + (plan.maxDocumentsPerMessage || 0) + 1;
   const ids = Array.isArray(attachmentIds) ? attachmentIds.filter(Boolean).slice(0, maxUploads) : [];
 
@@ -154,7 +171,7 @@ async function loadUploadedAttachments(context, attachmentIds, req, plan) {
     }
     if (attachment.category === "document") {
       const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
-      if (!doc || doc.processing_status !== "ready") {
+      if (!doc || (requireCapability && !documentHasUsableCapability(doc))) {
         throw new HttpError(409, `${attachment.file_name || "Document"} is still processing.`);
       }
     }
@@ -670,14 +687,14 @@ async function persistImageDescriptions({ db, userId, existingMessages, userCont
   };
 }
 
-export async function handleConversationMessage(req, res, config, conversationId) {
-  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-
-  const context = await requireChatContext(req, config);
+async function executeConversationMessage(req, res, config, conversationId, {
+  context,
+  conversation,
+  body,
+  turnRun = null,
+  persistedUserMessage = null
+} = {}) {
   const includeReasoning = context.profile?.role === "admin";
-  const body = await parseJsonBody(req, 2 * 1024 * 1024);
-  const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
-  if (!conversation) throw new HttpError(404, "Conversation not found.");
 
   const councilEnabled = normalizeCouncilFlag(body.council);
   const compareModels = councilEnabled
@@ -699,13 +716,18 @@ export async function handleConversationMessage(req, res, config, conversationId
   }
 
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-  let userMessage = null;
+  let userMessage = persistedUserMessage;
   let userContent;
   let attachments = [];
   let isRetry = false;
   let isEdit = false;
 
-  if (retryAssistantMessageId) {
+  if (turnRun) {
+    if (!persistedUserMessage) throw new HttpError(409, "The pending turn no longer has a user message.");
+    existingMessages = filterCurrentTurnMessages(existingMessages, turnRun.id, persistedUserMessage.id);
+    userContent = persistedUserMessage.content;
+    attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
+  } else if (retryAssistantMessageId) {
     isRetry = true;
     const retryContext = await resolveMessageRetry({
       db: context.db,
@@ -753,13 +775,21 @@ export async function handleConversationMessage(req, res, config, conversationId
   }
   const settings = normalizeMessageSettings(body);
   settings.systemPrompt = await loadGlobalSystemPrompt(context.db, { signal: req.signal });
+  const providerCrofai = wrapProviderCallsWithTurnFence({
+    crofai: { chatCompletion, streamChatCompletion },
+    db: context.db,
+    userId: context.user.id,
+    run: turnRun
+  });
   const crofai = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
     imageCount,
-    signal: req.signal
+    signal: req.signal,
+    chatCompletionFn: providerCrofai.chatCompletion,
+    streamChatCompletionFn: providerCrofai.streamChatCompletion
   });
   const summarizeHistory = createConversationSummarizer({
     crofai,
@@ -874,7 +904,7 @@ export async function handleConversationMessage(req, res, config, conversationId
     userMessage = await context.db.updateMessage(context.user.id, editUserMessageId, {
       content: userContent
     }, { signal: req.signal }) || userMessage;
-  } else if (!isRetry) {
+  } else if (!isRetry && !turnRun) {
     userMessage = await context.db.insertMessage({
       user_id: context.user.id,
       conversation_id: conversation.id,
@@ -907,7 +937,7 @@ export async function handleConversationMessage(req, res, config, conversationId
         userId: context.user.id,
         conversationId: conversation.id,
         plan: context.plan,
-        signal: req.signal
+        signal: req.turnController?.signal || req.signal
       })
     : null;
   const promptText = contentText(userContent);
@@ -985,9 +1015,10 @@ export async function handleConversationMessage(req, res, config, conversationId
         crofai,
         provider,
         webSearch: sharedSearch,
-        documentSearch: compareDocumentSearch
+        documentSearch: compareDocumentSearch,
+        turnRun
       });
-      return;
+      return { status: req.turnController?.signal.aborted ? "cancelled" : "done" };
     }
 
     await handleCompareConversationMessage({
@@ -1001,9 +1032,10 @@ export async function handleConversationMessage(req, res, config, conversationId
       crofai,
       provider,
       webSearch: sharedSearch,
-      documentSearch: compareDocumentSearch
+      documentSearch: compareDocumentSearch,
+      turnRun
     });
-    return;
+    return { status: req.turnController?.signal.aborted ? "cancelled" : "done" };
   }
 
   const chatRequest = chatRequests[0];
@@ -1066,7 +1098,7 @@ export async function handleConversationMessage(req, res, config, conversationId
     }
   }
 
-  const assistantMessage = await context.db.insertMessage({
+  const assistantMessage = await createAssistantOutputMessage(context, {
     user_id: context.user.id,
     conversation_id: conversation.id,
     role: "assistant",
@@ -1080,7 +1112,7 @@ export async function handleConversationMessage(req, res, config, conversationId
       ...(toolEnabled.documents ? { documents: { ready: readyDocuments.length, skills: documentSkills?.skills || [], tools: documentSkills?.toolNames || [] } } : {}),
       ...(directPdfContext.pageCount ? { documents: { mode: "direct-context", ready: readyDocuments.length, pdfPages: directPdfContext.pageCount, pdfDocuments: directPdfContext.documentCount } } : {})
     }
-  }, { signal: req.signal });
+  }, { signal: req.signal, turnRun, outputSlot: "single" });
 
   if (!conversation.title || conversation.title === "New chat") {
     await context.db.updateConversation(context.user.id, conversation.id, {
@@ -1091,19 +1123,16 @@ export async function handleConversationMessage(req, res, config, conversationId
     await context.db.updateConversation(context.user.id, conversation.id, { model: chatRequest.model }, { signal: req.signal });
   }
 
-  const controller = new AbortController();
+  const controller = req.turnController || new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();
   });
 
   try {
-    res.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "x-accel-buffering": "no",
+    startSse(res, {
       "x-klui-user-message-id": userMessage.id,
-      "x-klui-assistant-message-id": assistantMessage.id
+      "x-klui-assistant-message-id": assistantMessage.id,
+      ...(turnRun?.id ? { "x-klui-turn-run-id": turnRun.id } : {})
     });
 
     const allCitations = [];
@@ -1189,13 +1218,15 @@ export async function handleConversationMessage(req, res, config, conversationId
       reasoning: accumulated.reasoning,
       tool_calls: accumulated.toolCalls,
       finish_reason: accumulated.finishReason || null,
+      error: null,
       ...(finalMetadata ? { metadata: finalMetadata } : {})
     }, { signal: req.signal });
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
-    res.end();
+    if (!turnRun?.id) res.end();
+    return { status: "done" };
   } catch (error) {
     const aborted = error?.name === "AbortError";
     const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
@@ -1213,9 +1244,374 @@ export async function handleConversationMessage(req, res, config, conversationId
     }, aborted ? {} : { signal: req.signal }).catch(() => {});
     if (res.headersSent) {
       writeSse(res, { type: "error", error: message });
-      res.end();
-      return;
+      if (!turnRun?.id) res.end();
+      return { status: aborted ? "cancelled" : "failed", error: message };
     }
     throw error;
   }
+}
+
+export function filterCurrentTurnMessages(messages, turnRunId, userMessageId = "") {
+  return (messages || []).filter((message) => (
+    message?.id !== userMessageId
+    && String(message?.turn_run_id || "") !== String(turnRunId || "")
+  ));
+}
+
+function persistedTurnRequest(body, conversation, config) {
+  const council = normalizeCouncilFlag(body.council);
+  const models = council
+    ? normalizeCouncilModelsForRequest(body.models)
+    : normalizeCompareModelsForRequest(body.models);
+  if (council && (models.length < COUNCIL_MIN_MODELS || models.length > COUNCIL_MAX_MODELS)) {
+    throw new HttpError(400, `Council supports ${COUNCIL_MIN_MODELS} to ${COUNCIL_MAX_MODELS} models.`);
+  }
+
+  const model = String(body.model || conversation.model || "").trim();
+  const settings = normalizeMessageSettings(body);
+  const responseModels = models.length ? models : [model];
+  for (const responseModel of responseModels) {
+    normalizeChatRequest({
+      model: responseModel,
+      messages: [{ role: "user", content: "preflight" }],
+      ...settings
+    });
+  }
+  resolveProvider(models.length ? "openrouter" : body.provider, config);
+
+  return {
+    mode: council ? "council" : (models.length ? "compare" : "single"),
+    payload: {
+      model,
+      provider: models.length ? "openrouter" : String(body.provider || "").trim(),
+      settings,
+      agentMode: normalizeAgentMode(body.agentMode),
+      webSearch: String(body.webSearch || "auto"),
+      ...(models.length ? { models } : {}),
+      ...(council ? { council: true } : {}),
+      ...(typeof body.chairmanModel === "string" && body.chairmanModel.trim()
+        ? { chairmanModel: body.chairmanModel.trim() }
+        : {}),
+      ...(body.describeImages ? { describeImages: true } : {})
+    }
+  };
+}
+
+async function submitDocumentTurn({ req, config, context, conversation, body, attachments }) {
+  const clientTurnKey = String(body.clientTurnKey || "").trim() || randomUUID();
+  if (!UUID_LIKE.test(clientTurnKey)) throw new HttpError(400, "clientTurnKey must be a UUID.");
+  const userContent = buildStoredUserContent(body.text, attachments);
+  const paste = normalizePastedTextRange(body.paste, contentText(userContent));
+  const { mode, payload } = persistedTurnRequest(body, conversation, config);
+  const submitted = await context.db.submitDocumentTurn({
+    userId: context.user.id,
+    conversationId: conversation.id,
+    clientTurnKey,
+    mode,
+    userContent,
+    messageMetadata: paste ? { paste } : {},
+    requestPayload: {
+      ...payload,
+      attachments: attachments.map((attachment) => attachment.id)
+    },
+    attachmentIds: attachments.map((attachment) => attachment.id)
+  }, { signal: req.signal });
+  if (!submitted?.run || !submitted?.user_message) {
+    throw new HttpError(500, "The document turn could not be saved.");
+  }
+  if (submitted.run.conversation_id !== conversation.id) {
+    throw new HttpError(409, "This client turn key is already used by another conversation.");
+  }
+  return submitted;
+}
+
+function terminalTurnMessage(run) {
+  if (run?.status === "failed") return run.error?.message || "The document turn failed.";
+  if (run?.status === "cancelled") return "Stopped by user.";
+  return "";
+}
+
+function turnLeaseExpired(run) {
+  if (!run?.lease_until) return true;
+  return Date.parse(run.lease_until) <= Date.now();
+}
+
+async function waitForTurnPoll(signal, ms = 750) {
+  if (signal.aborted) {
+    const error = new Error("The request was aborted.");
+    error.name = "AbortError";
+    throw error;
+  }
+  await new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      const error = new Error("The request was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function waitForClaimableTurn({ req, res, context, run, userMessage }) {
+  const claimedBy = pendingTurnConnectionId();
+  let announcedClaim = false;
+  while (!req.signal.aborted) {
+    const claimed = await context.db.claimPendingDocumentTurn({
+      userId: context.user.id,
+      turnId: run.id,
+      claimedBy,
+      leaseSeconds: PENDING_TURN_LEASE_SECONDS
+    }, { signal: req.signal });
+    if (!claimed) throw new HttpError(404, "Pending turn not found.");
+    if (["done", "failed", "cancelled"].includes(claimed.status)) return { run: claimed, owned: false };
+    if (pendingTurnIsOwnedBy(claimed, claimedBy)) return { run: claimed, owned: true };
+
+    startSse(res, {
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-turn-run-id": run.id
+    });
+    if (!announcedClaim) {
+      announcedClaim = true;
+      writeSse(res, { type: "turn:claimed", turnRunId: run.id });
+    }
+    await waitForTurnPoll(req.signal);
+    const current = await context.db.getPendingDocumentTurn(context.user.id, run.id, { signal: req.signal });
+    if (!current || ["done", "failed", "cancelled"].includes(current.status)) {
+      return { run: current || claimed, owned: false };
+    }
+    if (current.status === "running" && !turnLeaseExpired(current)) continue;
+  }
+  const error = new Error("The request was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+async function finishClaimedTurn(context, run, status, error = null) {
+  let finishError = null;
+  try {
+    const finished = await context.db.finishPendingDocumentTurn({
+      userId: context.user.id,
+      turnId: run.id,
+      claimToken: run.claim_token,
+      status,
+      error: error ? { message: String(error), code: status === "failed" ? "turn_failed" : "turn_cancelled" } : null
+    });
+    if (finished) return finished;
+  } catch (cause) {
+    finishError = cause;
+  }
+
+  const current = await context.db.getPendingDocumentTurn(context.user.id, run.id).catch(() => null);
+  if (current && ["done", "failed", "cancelled"].includes(current.status)) return current;
+  throw finishError || new HttpError(409, "The pending turn lease was lost before it could be finalized.");
+}
+
+async function releaseClaimedTurn(context, run) {
+  const released = await context.db.releasePendingDocumentTurn({
+    userId: context.user.id,
+    turnId: run.id,
+    claimToken: run.claim_token
+  });
+  if (released) return released;
+  const current = await context.db.getPendingDocumentTurn(context.user.id, run.id).catch(() => null);
+  if (current && current.status !== "running") return current;
+  throw new HttpError(409, "The pending turn claim could not be released.");
+}
+
+async function settleInterruptedTurn(context, run, error, { failed = false } = {}) {
+  const latest = await context.db.getPendingDocumentTurn(context.user.id, run.id).catch(() => null);
+  if (latest && ["done", "failed", "cancelled"].includes(latest.status)) return latest;
+  if (latest?.cancel_requested) {
+    return finishClaimedTurn(context, run, "cancelled", "Stopped by user.");
+  }
+  if (failed || latest?.provider_started_at) {
+    return finishClaimedTurn(context, run, "failed", error?.message || "Generation was interrupted.");
+  }
+  return releaseClaimedTurn(context, run);
+}
+
+async function streamPersistedDocumentTurn({ req, res, config, context, conversation, run, userMessage }) {
+  const requestPayload = run.request_payload || {};
+  const attachments = await loadUploadedAttachments(
+    context,
+    requestPayload.attachments,
+    req,
+    context.plan,
+    { requireCapability: false }
+  );
+  const documentAttachmentIds = attachments
+    .filter((attachment) => attachment.category === "document")
+    .map((attachment) => attachment.id);
+
+  try {
+    await waitForDocumentCapabilities({
+      db: context.db,
+      userId: context.user.id,
+      attachmentIds: documentAttachmentIds,
+      signal: req.signal,
+      onProgress: (documents) => {
+        startSse(res, {
+          "x-klui-user-message-id": userMessage.id,
+          "x-klui-turn-run-id": run.id
+        });
+        writeSse(res, { type: "turn:waiting", turnRunId: run.id, documents });
+      }
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    const claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
+    if (claim.owned) await finishClaimedTurn(context, claim.run, "failed", error?.message);
+    startSse(res, {
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-turn-run-id": run.id
+    });
+    writeSse(res, { type: "error", error: error?.message || "Document processing failed." });
+    res.end();
+    return;
+  }
+
+  const claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
+  if (!claim.owned) {
+    startSse(res, {
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-turn-run-id": run.id
+    });
+    const message = terminalTurnMessage(claim.run);
+    writeSse(res, message
+      ? { type: "error", error: message }
+      : { type: "turn:done", turnRunId: run.id });
+    res.end();
+    return;
+  }
+
+  const claimedRun = claim.run;
+  const controller = new AbortController();
+  req.turnController = controller;
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  const stopHeartbeat = startPendingTurnHeartbeat({
+    db: context.db,
+    userId: context.user.id,
+    run: claimedRun,
+    controller
+  });
+
+  let executionContext = context;
+  let executionConversation;
+  try {
+    executionContext = await requireChatContext(req, config);
+    executionConversation = await executionContext.db.getConversation(
+      executionContext.user.id,
+      conversation.id,
+      { signal: req.signal }
+    );
+    if (!executionConversation) throw new HttpError(404, "Conversation not found.");
+    await loadUploadedAttachments(
+      executionContext,
+      requestPayload.attachments,
+      req,
+      executionContext.plan,
+      { requireCapability: false }
+    );
+    const result = await executeConversationMessage(req, res, config, executionConversation.id, {
+      context: executionContext,
+      conversation: executionConversation,
+      body: requestPayload,
+      turnRun: claimedRun,
+      persistedUserMessage: userMessage
+    });
+    const status = result?.status || "done";
+    if (status === "done") {
+      await finishClaimedTurn(executionContext, claimedRun, "done");
+    } else if (status === "failed") {
+      await finishClaimedTurn(executionContext, claimedRun, "failed", result?.error);
+    } else {
+      await settleInterruptedTurn(executionContext, claimedRun, result?.error ? new Error(result.error) : null);
+    }
+  } catch (error) {
+    await settleInterruptedTurn(executionContext, claimedRun, error, {
+      failed: error?.name !== "AbortError"
+    }).catch(() => {});
+    if (!res.headersSent && error?.name === "AbortError") throw error;
+    startSse(res, {
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-turn-run-id": run.id
+    });
+    if (!res.writableEnded) {
+      writeSse(res, { type: "error", error: error?.message || "Model request failed." });
+    }
+  } finally {
+    stopHeartbeat();
+    delete req.turnController;
+    if (res.headersSent && !res.writableEnded) res.end();
+  }
+}
+
+export async function handleConversationMessage(req, res, config, conversationId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const body = await parseJsonBody(req, 2 * 1024 * 1024);
+  const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
+  if (!conversation) throw new HttpError(404, "Conversation not found.");
+
+  const turnRunId = typeof body.turnRunId === "string" ? body.turnRunId.trim() : "";
+  if (turnRunId) {
+    if (!UUID_LIKE.test(turnRunId)) throw new HttpError(400, "turnRunId must be a UUID.");
+    const run = await context.db.getPendingDocumentTurn(context.user.id, turnRunId, { signal: req.signal });
+    if (!run || run.conversation_id !== conversation.id) throw new HttpError(404, "Pending turn not found.");
+    const messages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
+    const userMessage = messages.find((message) => message.id === run.user_message_id);
+    if (!userMessage) throw new HttpError(409, "The pending turn no longer has a user message.");
+    await streamPersistedDocumentTurn({ req, res, config, context, conversation, run, userMessage });
+    return;
+  }
+
+  const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string" && body.retryAssistantMessageId.trim();
+  const editUserMessageId = typeof body.editUserMessageId === "string" && body.editUserMessageId.trim();
+  if (retryAssistantMessageId || editUserMessageId) {
+    await executeConversationMessage(req, res, config, conversation.id, { context, conversation, body });
+    return;
+  }
+
+  const attachments = await loadUploadedAttachments(
+    context,
+    body.attachments,
+    req,
+    context.plan,
+    { requireCapability: false }
+  );
+  if (!attachments.some((attachment) => attachment.category === "document")) {
+    await executeConversationMessage(req, res, config, conversation.id, { context, conversation, body });
+    return;
+  }
+
+  const submitted = await submitDocumentTurn({ req, config, context, conversation, body, attachments });
+  await streamPersistedDocumentTurn({
+    req,
+    res,
+    config,
+    context,
+    conversation,
+    run: submitted.run,
+    userMessage: submitted.user_message
+  });
+}
+
+export async function handlePendingDocumentTurnCancel(req, res, config, conversationId, turnId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  if (!UUID_LIKE.test(turnId)) throw new HttpError(400, "turnId must be a UUID.");
+  const run = await context.db.getPendingDocumentTurn(context.user.id, turnId, { signal: req.signal });
+  if (!run || run.conversation_id !== conversationId) throw new HttpError(404, "Pending turn not found.");
+  const cancelled = await context.db.cancelPendingDocumentTurn(context.user.id, turnId, { signal: req.signal });
+  const hydrated = cancelled?.user_message
+    ? (await hydrateMessagesForClient([cancelled.user_message], context.r2))[0]
+    : null;
+  sendJson(res, 200, cancelled ? { ...cancelled, user_message: hydrated } : { run });
 }
