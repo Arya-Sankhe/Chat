@@ -722,6 +722,33 @@ test("retry: deletes failed assistant, reuses user message, streams fresh assist
   assert.equal(finalUpdate.patch.finish_reason, "stop");
 });
 
+test("longer retry rewrites the existing answer without adding a user message", async (t) => {
+  t.after(restoreFetch);
+  let providerRequest = null;
+  installProviderFetch({
+    streamFor: (body) => {
+      providerRequest = body;
+      return [contentDelta("A longer answer."), usageChunk()];
+    }
+  });
+
+  const history = [
+    { id: "user-1", role: "user", content: "Explain this." },
+    { id: "asst-2", role: "assistant", content: "Short answer.", finish_reason: "stop" }
+  ];
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { retryAssistantMessageId: "asst-2", responseAdjustment: "longer", model: TEXT_MODEL }
+  });
+
+  assert.match(providerRequest.messages[0].content, /substantially longer/);
+  assert.match(providerRequest.messages[0].content, /<previous_response>\nShort answer\./);
+  assert.equal(db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "user").length, 0);
+  assert.deepEqual(db.calls.filter((call) => call.op === "deleteMessage").map((call) => call.id), ["asst-2"]);
+});
+
 test("edit: rewrites user text, purges downstream messages, streams new assistant", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({

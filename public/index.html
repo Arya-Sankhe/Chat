@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260713-writing-styles-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260713-response-actions-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -263,7 +263,6 @@
                         <button class="composer-style-option" type="button" data-writing-style="concise" role="menuitemradio" aria-checked="false"><span>Concise</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
                         <button class="composer-style-option" type="button" data-writing-style="explanatory" role="menuitemradio" aria-checked="false"><span>Explanatory</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
                         <button class="composer-style-option" type="button" data-writing-style="formal" role="menuitemradio" aria-checked="false"><span>Formal</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
-                        <button class="composer-style-option" type="button" data-writing-style="literary-storyteller" role="menuitemradio" aria-checked="false"><span>Literary Storyteller</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
                       </div>
                     </div>
                     <div class="composer-model-wrap" id="composerModelWrap">
@@ -574,6 +573,31 @@
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+      <div class="selection-actions hidden" id="selectionActions" role="toolbar" aria-label="Selected text actions">
+        <button type="button" id="selectionAddToChat">Add to Chat</button>
+        <button type="button" id="selectionAskSideChat">Ask in Side Chat</button>
+      </div>
+
+      <aside class="side-chat-panel hidden" id="sideChatPanel" role="dialog" aria-label="Temporary side chat">
+        <header class="side-chat-header" id="sideChatHeader">
+          <div>
+            <strong>Side chat</strong>
+            <span>Temporary</span>
+          </div>
+          <button type="button" id="sideChatClose" aria-label="Close side chat" title="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </header>
+        <button class="side-chat-context" id="sideChatContext" type="button" aria-label="View selected context"></button>
+        <div class="side-chat-messages" id="sideChatMessages" aria-live="polite"></div>
+        <div class="side-chat-composer">
+          <textarea id="sideChatInput" rows="1" placeholder="Ask about this text" spellcheck="true"></textarea>
+          <button type="button" id="sideChatSend" aria-label="Send side chat message">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+          </button>
+        </div>
+      </aside>
+
       <aside class="ios-install-hint hidden" id="iosInstallHint" aria-label="Install Klui">
         <button class="ios-install-close" id="iosInstallClose" type="button" aria-label="Dismiss install instructions">x</button>
         <img src="/icons/icon-192.png" width="44" height="44" alt="">
@@ -615,7 +639,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260713-writing-styles-v1"></script>
+    <script type="module" src="/js/app.js?v=20260713-response-actions-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

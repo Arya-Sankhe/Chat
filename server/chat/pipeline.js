@@ -28,7 +28,12 @@ import {
 import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
-import { normalizeWritingStyle, withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
+import {
+  normalizeResponseAdjustment,
+  normalizeWritingStyle,
+  withResponseAdjustmentSystemPrompt,
+  withWritingStyleSystemPrompt
+} from "../saas/writingStyles.js";
 import { DocumentService, buildUntrustedDocumentContext } from "../documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
 import { buildDocumentTools } from "../documents/tool.js";
@@ -228,6 +233,7 @@ async function resolveMessageRetry({ db, userId, conversationId, retryAssistantM
     existingMessages: trimmedMessages,
     userMessage,
     userContent: userMessage.content,
+    assistantContent: contentText(failedAssistant.content),
     attachmentIds: attachmentRows.map((attachment) => attachment.id)
   };
 }
@@ -711,6 +717,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
+  const responseAdjustment = normalizeResponseAdjustment(body.responseAdjustment);
   const editUserMessageId = typeof body.editUserMessageId === "string"
     ? body.editUserMessageId.trim()
     : "";
@@ -720,6 +727,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
   if (retryAssistantMessageId && editUserMessageId) {
     throw new HttpError(400, "Cannot retry and edit in the same request.");
   }
+  if (body.responseAdjustment != null && !responseAdjustment) {
+    throw new HttpError(400, "responseAdjustment must be longer or shorter.");
+  }
+  if (responseAdjustment && !retryAssistantMessageId) {
+    throw new HttpError(400, "Response adjustment requires an assistant message to retry.");
+  }
 
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
   let userMessage = persistedUserMessage;
@@ -727,6 +740,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   let attachments = [];
   let isRetry = false;
   let isEdit = false;
+  let retryAssistantContent = "";
 
   if (turnRun) {
     if (!persistedUserMessage) throw new HttpError(409, "The pending turn no longer has a user message.");
@@ -745,6 +759,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     existingMessages = retryContext.existingMessages;
     userMessage = retryContext.userMessage;
     userContent = retryContext.userContent;
+    retryAssistantContent = retryContext.assistantContent;
     attachments = await loadUploadedAttachments(context, retryContext.attachmentIds, req, context.plan);
   } else if (editUserMessageId) {
     isEdit = true;
@@ -783,6 +798,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
   settings.systemPrompt = withWritingStyleSystemPrompt(
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
+  );
+  settings.systemPrompt = withResponseAdjustmentSystemPrompt(
+    settings.systemPrompt,
+    responseAdjustment,
+    retryAssistantContent
   );
   const providerCrofai = wrapProviderCallsWithTurnFence({
     crofai: { chatCompletion, streamChatCompletion },

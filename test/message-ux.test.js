@@ -27,6 +27,23 @@ test("user message footer always offers copy; edit stays gated behind canEditUse
   assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!edit\s*\)\s*return\s*""/);
 });
 
+test("assistant responses expose length controls and desktop selection reuses temporary chat and pasted context", () => {
+  const appJs = readPublic("js/app.js");
+  const html = readPublic("index.html");
+  const css = readStylesheet();
+  assert.match(appJs, /data-adjust-response="longer"/);
+  assert.match(appJs, /data-adjust-response="shorter"/);
+  assert.match(appJs, /retryFailedAssistant\(assistantId, adjustment\)/);
+  assert.match(appJs, /function addTextToComposerPaste\(/);
+  assert.ok((appJs.match(/addTextToComposerPaste\(/g) || []).length >= 3);
+  assert.match(appJs, /streamTemporaryChat\(state\.session/);
+  assert.match(html, /id="selectionAddToChat"/);
+  assert.match(html, /id="selectionAskSideChat"/);
+  assert.match(html, /id="sideChatPanel"/);
+  assert.match(css, /\.side-chat-panel\s*\{[^}]*resize:\s*both/);
+  assert.match(css, /body\.capacitor-native \.side-chat-panel\s*\{[^}]*display:\s*none\s*!important/);
+});
+
 test("flashCopySuccess swaps the button SVG to a checkmark on success", () => {
   const appJs = readPublic("js/app.js");
   const flash = appJs.match(/function flashCopySuccess\(btn\)\s*\{[\s\S]*?\n\}/);

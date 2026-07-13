@@ -114,8 +114,7 @@ const WRITING_STYLE_LABELS = Object.freeze({
   learning: "Learning",
   concise: "Concise",
   explanatory: "Explanatory",
-  formal: "Formal",
-  "literary-storyteller": "Literary Storyteller"
+  formal: "Formal"
 });
 
 const defaultSettings = {
@@ -210,6 +209,13 @@ let researchController;
 let compareController;
 let councilController;
 let adminPanel;
+let selectedTextContext = null;
+const sideChatState = {
+  context: "",
+  messages: [],
+  running: false,
+  abortController: null
+};
 
 /** One in-flight client run per conversation (or temporary chat). */
 const TEMPORARY_RUN_KEY = "__temporary__";
@@ -401,6 +407,16 @@ const els = {
   pastedTextDialogBody: document.querySelector("#pastedTextDialogBody"),
   pastedTextDialogMeta: document.querySelector("#pastedTextDialogMeta"),
   pastedTextDialogClose: document.querySelector("#pastedTextDialogClose"),
+  selectionActions: document.querySelector("#selectionActions"),
+  selectionAddToChat: document.querySelector("#selectionAddToChat"),
+  selectionAskSideChat: document.querySelector("#selectionAskSideChat"),
+  sideChatPanel: document.querySelector("#sideChatPanel"),
+  sideChatHeader: document.querySelector("#sideChatHeader"),
+  sideChatClose: document.querySelector("#sideChatClose"),
+  sideChatContext: document.querySelector("#sideChatContext"),
+  sideChatMessages: document.querySelector("#sideChatMessages"),
+  sideChatInput: document.querySelector("#sideChatInput"),
+  sideChatSend: document.querySelector("#sideChatSend"),
   composer: document.querySelector(".composer"),
   composerArea: document.querySelector(".composer-area"),
   followupQueue: document.querySelector("#followupQueue"),
@@ -2282,6 +2298,32 @@ function renderMessageRetry(message) {
   return `<button class="msg-action-btn msg-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}" aria-label="Retry" title="Retry"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>`;
 }
 
+function canAdjustAssistant(message) {
+  if (!canRetryAssistant(message) || !rawTextContent(message.content).trim()) return false;
+  const latest = [...state.messages].reverse().find((item) => item.role === "assistant");
+  return String(latest?.id || "") === String(message.id || "");
+}
+
+function renderResponseAdjustmentMenu(message) {
+  if (!canAdjustAssistant(message)) return "";
+  const id = escapeHtml(String(message.id));
+  return `<details class="message-more-menu">
+    <summary class="msg-action-btn" aria-label="More response actions" title="More response actions">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+    </summary>
+    <div class="message-more-popover" role="menu">
+      <button type="button" role="menuitem" data-adjust-response="longer" data-adjust-assistant-id="${id}">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8M12 3v18M8 21h8"/><path d="m9 7 3-3 3 3M9 17l3 3 3-3"/></svg>
+        <span>Longer</span>
+      </button>
+      <button type="button" role="menuitem" data-adjust-response="shorter" data-adjust-assistant-id="${id}">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8M12 3v18M8 21h8"/><path d="m9 10 3 3 3-3M9 14l3-3 3 3"/></svg>
+        <span>Shorter</span>
+      </button>
+    </div>
+  </details>`;
+}
+
 function renderToolStatuses() {
   return "";
 }
@@ -2547,6 +2589,159 @@ const {
   isFinalFinishReason,
   isPlaceholderPeerReason
 });
+
+function addTextToComposerPaste(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  const combined = [state.pastedText, text].filter(Boolean).join("\n\n");
+  if (combined.length > LONG_PASTE_MAX_CHARS) {
+    showToast("Pasted text is too long. Keep it under 95,000 characters.");
+    return false;
+  }
+  state.pastedText = combined;
+  renderImages();
+  updateSendButton();
+  return true;
+}
+
+function selectionActionsEnabled() {
+  return !isNative() && window.matchMedia("(pointer: fine)").matches;
+}
+
+function hideSelectionActions() {
+  els.selectionActions?.classList.add("hidden");
+}
+
+function showSelectionActionsFromCurrentSelection() {
+  if (!selectionActionsEnabled() || !els.selectionActions) return hideSelectionActions();
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return hideSelectionActions();
+  const text = selection.toString().trim();
+  if (!text) return hideSelectionActions();
+
+  const range = selection.getRangeAt(0);
+  const node = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+  if (!(node instanceof Element) || !node.closest(".message.assistant .message-content")) {
+    return hideSelectionActions();
+  }
+
+  const rect = range.getBoundingClientRect();
+  if (!rect.width && !rect.height) return hideSelectionActions();
+  selectedTextContext = {
+    text: text.slice(0, LONG_PASTE_MAX_CHARS),
+    rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+  };
+  els.selectionActions.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const width = els.selectionActions.offsetWidth;
+    const height = els.selectionActions.offsetHeight;
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8);
+    const below = rect.bottom + 8;
+    const top = below + height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - height - 8);
+    els.selectionActions.style.left = `${left}px`;
+    els.selectionActions.style.top = `${top}px`;
+  });
+}
+
+function renderSideChat() {
+  if (!els.sideChatMessages) return;
+  els.sideChatMessages.innerHTML = sideChatState.messages.map((message) => {
+    const text = rawTextContent(message.content);
+    const body = message.role === "assistant" ? renderContent(text) : renderPlainText(text);
+    const pending = message.role === "assistant" && sideChatState.running && !text.trim() && !message.error;
+    return `<div class="side-chat-message ${message.role}">${pending ? "<span class=\"side-chat-thinking\">Thinking…</span>" : body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
+  }).join("");
+  els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
+  requestAnimationFrame(() => {
+    els.sideChatMessages.scrollTop = els.sideChatMessages.scrollHeight;
+  });
+}
+
+function closeSideChat() {
+  sideChatState.abortController?.abort();
+  sideChatState.abortController = null;
+  sideChatState.running = false;
+  sideChatState.context = "";
+  sideChatState.messages = [];
+  els.sideChatPanel?.classList.add("hidden");
+  if (els.sideChatInput) els.sideChatInput.value = "";
+}
+
+function openSideChat(context, anchorRect) {
+  if (!selectionActionsEnabled() || !els.sideChatPanel) return;
+  sideChatState.abortController?.abort();
+  sideChatState.context = String(context || "").trim();
+  sideChatState.messages = [];
+  sideChatState.running = false;
+  sideChatState.abortController = null;
+  els.sideChatContext.textContent = sideChatState.context.replace(/\s+/g, " ").slice(0, 180);
+  els.sideChatPanel.classList.remove("hidden");
+  const panelWidth = els.sideChatPanel.offsetWidth || 380;
+  const panelHeight = els.sideChatPanel.offsetHeight || 480;
+  const preferredLeft = anchorRect.right + 14;
+  const left = preferredLeft + panelWidth <= window.innerWidth - 12
+    ? preferredLeft
+    : Math.max(12, anchorRect.left - panelWidth - 14);
+  const top = Math.min(Math.max(12, anchorRect.top), window.innerHeight - panelHeight - 12);
+  els.sideChatPanel.style.left = `${left}px`;
+  els.sideChatPanel.style.top = `${Math.max(12, top)}px`;
+  renderSideChat();
+  els.sideChatInput.focus();
+}
+
+async function sendSideChatMessage() {
+  const text = els.sideChatInput?.value.trim() || "";
+  if (!text || sideChatState.running || !sideChatState.context) return;
+
+  const history = [
+    { role: "user", content: `Use this selected excerpt from the main chat as context for my questions:\n\n${sideChatState.context}` },
+    ...sideChatState.messages.slice(-18).map((message) => ({
+      role: message.role,
+      content: rawTextContent(message.content)
+    }))
+  ];
+  const userMessage = { role: "user", content: text };
+  const assistantMessage = { role: "assistant", content: "", reasoning: "", toolCalls: [] };
+  sideChatState.messages.push(userMessage, assistantMessage);
+  els.sideChatInput.value = "";
+  sideChatState.running = true;
+  const controller = new AbortController();
+  sideChatState.abortController = controller;
+  renderSideChat();
+
+  try {
+    const provider = activeProvider();
+    const model = provider === "openrouter" ? resolveRoutedModel({ images: [], userContent: text }) : state.settings.model;
+    await streamTemporaryChat(state.session, {
+      text,
+      messages: history,
+      model,
+      provider,
+      settings: { ...state.settings, reasoning_effort: DEFAULT_REASONING_EFFORT },
+      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
+      agentMode: true,
+      webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
+    }, {
+      signal: controller.signal,
+      onEvent: (event) => {
+        applyStreamEvent(assistantMessage, event);
+        renderSideChat();
+      }
+    });
+    loadMe().catch(() => {});
+  } catch (error) {
+    if (error.name !== "AbortError") assistantMessage.error = error.message || "Side chat failed.";
+  } finally {
+    if (sideChatState.abortController === controller) {
+      sideChatState.abortController = null;
+      sideChatState.running = false;
+      renderSideChat();
+      els.sideChatInput?.focus();
+    }
+  }
+}
 
 function prepareCitationPlaceholders(text, citations) {
   const slots = [];
@@ -2846,11 +3041,12 @@ function renderMessageFooter(msg, role) {
   if (role !== "assistant") return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
   const retry = renderMessageRetry(msg);
+  const adjust = renderResponseAdjustmentMenu(msg);
   const citations = renderCitations(msg);
-  if (!copy && !retry && !citations) return "";
+  if (!copy && !retry && !adjust && !citations) return "";
   return `
     <div class="message-footer">
-      ${copy || retry ? `<div class="message-footer-actions">${copy}${retry}</div>` : ""}
+      ${copy || retry || adjust ? `<div class="message-footer-actions">${retry}${copy}${adjust}</div>` : ""}
       ${citations ? `<div class="message-footer-sources">${citations}</div>` : ""}
     </div>
   `;
@@ -4426,7 +4622,7 @@ async function editUserMessage(id) {
   });
 }
 
-async function retryFailedAssistant(assistantMessageId) {
+async function retryFailedAssistant(assistantMessageId, responseAdjustment = "") {
   if (state.running || !state.activeConversationId || !assistantMessageId) return;
 
   const conversationId = state.activeConversationId;
@@ -4472,6 +4668,7 @@ async function retryFailedAssistant(assistantMessageId) {
       : state.settings.model;
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
+      ...(responseAdjustment ? { responseAdjustment } : {}),
       model: retryModel,
       provider: retryProvider,
       settings: {
@@ -4991,6 +5188,63 @@ function setAutoScroll(enabled) {
 
 function bindEvents() {
   initDocumentViewerWidth();
+
+  document.addEventListener("pointerup", (event) => {
+    if (event.target.closest("#selectionActions, #sideChatPanel")) return;
+    requestAnimationFrame(showSelectionActionsFromCurrentSelection);
+  });
+  els.selectionActions?.addEventListener("pointerdown", (event) => event.preventDefault());
+  els.selectionAddToChat?.addEventListener("click", () => {
+    if (selectedTextContext && addTextToComposerPaste(selectedTextContext.text)) {
+      hideSelectionActions();
+      window.getSelection()?.removeAllRanges();
+      selectedTextContext = null;
+      focusPromptInput();
+    }
+  });
+  els.selectionAskSideChat?.addEventListener("click", () => {
+    if (!selectedTextContext) return;
+    openSideChat(selectedTextContext.text, selectedTextContext.rect);
+    hideSelectionActions();
+    window.getSelection()?.removeAllRanges();
+    selectedTextContext = null;
+  });
+  els.sideChatClose?.addEventListener("click", closeSideChat);
+  els.sideChatContext?.addEventListener("click", () => openPastedTextDialog(sideChatState.context));
+  els.sideChatSend?.addEventListener("click", () => { void sendSideChatMessage(); });
+  els.sideChatInput?.addEventListener("input", () => {
+    els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
+  });
+  els.sideChatInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendSideChatMessage();
+    }
+  });
+  let sideChatDrag = null;
+  els.sideChatHeader?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    const rect = els.sideChatPanel.getBoundingClientRect();
+    sideChatDrag = { x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+    els.sideChatHeader.setPointerCapture(event.pointerId);
+  });
+  els.sideChatHeader?.addEventListener("pointermove", (event) => {
+    if (!sideChatDrag) return;
+    const panel = els.sideChatPanel;
+    const left = Math.min(Math.max(8, sideChatDrag.left + event.clientX - sideChatDrag.x), window.innerWidth - panel.offsetWidth - 8);
+    const top = Math.min(Math.max(8, sideChatDrag.top + event.clientY - sideChatDrag.y), window.innerHeight - panel.offsetHeight - 8);
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+  });
+  const stopSideChatDrag = () => { sideChatDrag = null; };
+  els.sideChatHeader?.addEventListener("pointerup", stopSideChatDrag);
+  els.sideChatHeader?.addEventListener("pointercancel", stopSideChatDrag);
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".message-more-menu")) {
+      document.querySelectorAll(".message-more-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+    }
+    if (!event.target.closest("#selectionActions")) hideSelectionActions();
+  });
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
   let chatNavigationFrame = 0;
@@ -5827,6 +6081,15 @@ function bindEvents() {
       if (assistantId) retryFailedAssistant(assistantId).catch((err) => showToast(err.message || "Retry failed."));
       return;
     }
+    const adjustBtn = e.target.closest("[data-adjust-response]");
+    if (adjustBtn) {
+      e.preventDefault();
+      adjustBtn.closest("details")?.removeAttribute("open");
+      const assistantId = adjustBtn.dataset.adjustAssistantId || "";
+      const adjustment = adjustBtn.dataset.adjustResponse || "";
+      if (assistantId) retryFailedAssistant(assistantId, adjustment).catch((err) => showToast(err.message || "Response rewrite failed."));
+      return;
+    }
 
     const editBtn = e.target.closest("[data-edit-msg]");
     if (editBtn) {
@@ -5921,14 +6184,7 @@ function bindEvents() {
     const isLongPaste = pasted.length >= LONG_PASTE_MIN_CHARS || pasted.split("\n").length >= LONG_PASTE_MIN_LINES;
     if (!isLongPaste || state.running) return;
     e.preventDefault();
-    const combined = [state.pastedText, pasted.trim()].filter(Boolean).join("\n\n");
-    if (combined.length > LONG_PASTE_MAX_CHARS) {
-      showToast("Pasted text is too long. Keep it under 95,000 characters.");
-      return;
-    }
-    state.pastedText = combined;
-    renderImages();
-    updateSendButton();
+    addTextToComposerPaste(pasted);
   });
 
   els.temperatureInput.addEventListener("input", (e) => updateSetting("temperature", Number(e.target.value)));

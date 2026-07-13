@@ -467,9 +467,10 @@ test("writing styles use the existing + menu and expose a removable composer pil
   assert.match(source, /id="writingStyleButton"/);
   assert.match(source, /id="writingStyleMenu"/);
   assert.match(source, /id="writingStylePill"/);
-  for (const style of ["normal", "learning", "concise", "explanatory", "formal", "literary-storyteller"]) {
+  for (const style of ["normal", "learning", "concise", "explanatory", "formal"]) {
     assert.match(source, new RegExp(`data-writing-style="${style}"`));
   }
+  assert.doesNotMatch(source, /literary-storyteller/);
 });
 
 test("writing style is included in send and retry payloads", async () => {
