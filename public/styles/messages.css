@@ -468,10 +468,6 @@ body.temporary-chat .messages {
   margin-bottom: 0;
 }
 
-.side-chat-thinking {
-  color: var(--text-tertiary);
-}
-
 .side-chat-error {
   color: var(--danger);
 }
@@ -483,9 +479,14 @@ body.temporary-chat .messages {
   flex: 0 0 auto;
   margin: 0 12px 12px;
   padding: 8px 8px 8px 11px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: 11px;
-  background: var(--bg);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.side-chat-composer:focus-within {
+  border-color: var(--text-tertiary);
 }
 
 .side-chat-composer textarea {

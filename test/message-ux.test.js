@@ -37,10 +37,12 @@ test("assistant responses expose length controls and desktop selection reuses te
   assert.match(appJs, /function addTextToComposerPaste\(/);
   assert.ok((appJs.match(/addTextToComposerPaste\(/g) || []).length >= 3);
   assert.match(appJs, /streamTemporaryChat\(state\.session/);
+  assert.match(appJs, /renderAssistantActivity\(message, \{ streaming \}\)/);
   assert.match(html, /id="selectionAddToChat"/);
   assert.match(html, /id="selectionAskSideChat"/);
   assert.match(html, /id="sideChatPanel"/);
   assert.match(css, /\.side-chat-panel\s*\{[^}]*resize:\s*both/);
+  assert.match(css, /\.side-chat-composer\s*\{[^}]*border:\s*1px solid var\(--border\)/);
   assert.match(css, /body\.capacitor-native \.side-chat-panel\s*\{[^}]*display:\s*none\s*!important/);
 });
 

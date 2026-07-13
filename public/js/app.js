@@ -2647,11 +2647,16 @@ function showSelectionActionsFromCurrentSelection() {
 
 function renderSideChat() {
   if (!els.sideChatMessages) return;
-  els.sideChatMessages.innerHTML = sideChatState.messages.map((message) => {
+  els.sideChatMessages.innerHTML = sideChatState.messages.map((message, index) => {
     const text = rawTextContent(message.content);
     const body = message.role === "assistant" ? renderContent(text) : renderPlainText(text);
-    const pending = message.role === "assistant" && sideChatState.running && !text.trim() && !message.error;
-    return `<div class="side-chat-message ${message.role}">${pending ? "<span class=\"side-chat-thinking\">Thinking…</span>" : body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
+    const streaming = message.role === "assistant"
+      && sideChatState.running
+      && index === sideChatState.messages.length - 1;
+    const activity = message.role === "assistant"
+      ? renderAssistantActivity(message, { streaming })
+      : "";
+    return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
   }).join("");
   els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
   requestAnimationFrame(() => {
