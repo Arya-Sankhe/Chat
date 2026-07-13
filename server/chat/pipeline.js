@@ -28,6 +28,7 @@ import {
 import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { normalizeWritingStyle, withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { DocumentService, buildUntrustedDocumentContext } from "../documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
 import { buildDocumentTools } from "../documents/tool.js";
@@ -779,7 +780,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
     }
   }
   const settings = normalizeMessageSettings(body);
-  settings.systemPrompt = await loadGlobalSystemPrompt(context.db, { signal: req.signal });
+  settings.systemPrompt = withWritingStyleSystemPrompt(
+    await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+    body.writingStyle
+  );
   const providerCrofai = wrapProviderCallsWithTurnFence({
     crofai: { chatCompletion, streamChatCompletion },
     db: context.db,
@@ -1292,6 +1296,7 @@ function persistedTurnRequest(body, conversation, config) {
       model,
       provider: models.length ? "openrouter" : String(body.provider || "").trim(),
       settings,
+      writingStyle: normalizeWritingStyle(body.writingStyle),
       agentMode: normalizeAgentMode(body.agentMode),
       webSearch: String(body.webSearch || "auto"),
       ...(models.length ? { models } : {}),

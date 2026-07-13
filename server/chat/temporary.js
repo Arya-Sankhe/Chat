@@ -11,6 +11,7 @@ import {
 } from "../saas/messages.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
@@ -57,7 +58,10 @@ export async function handleTemporaryChat(req, res, config) {
   }
 
   const settings = normalizeMessageSettings(body);
-  settings.systemPrompt = await loadGlobalSystemPrompt(context.db, { signal: req.signal });
+  settings.systemPrompt = withWritingStyleSystemPrompt(
+    await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+    body.writingStyle
+  );
   const userContent = buildStoredUserContent(body.text, []);
   const promptText = contentText(userContent);
   const historyMessages = [

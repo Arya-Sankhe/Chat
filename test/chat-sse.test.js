@@ -447,15 +447,19 @@ test("single chat with a web-search tool call: canonical transcript, persistence
 
 test("compare: server substitutes the default pair and streams per-index start/delta/done", async (t) => {
   t.after(restoreFetch);
+  const providerBodies = [];
   installProviderFetch({
-    streamFor: (body) => [contentDelta(`Answer from ${body.model}`), usageChunk()]
+    streamFor: (body) => {
+      providerBodies.push(body);
+      return [contentDelta(`Answer from ${body.model}`), usageChunk()];
+    }
   });
 
   const config = loadConfig(CONFIG_ENV);
   const db = makeDb({ conversation: conversationRow });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
-    body: { text: "Compare this.", models: ["model-a", "model-b"] }
+    body: { text: "Compare this.", models: ["model-a", "model-b"], writingStyle: "learning" }
   });
 
   assert.equal(res.statusCode, 200);
@@ -471,6 +475,7 @@ test("compare: server substitutes the default pair and streams per-index start/d
     ], `lane ${index} (${model})`);
   }
   assert.equal(events.length, 8, "compare emits exactly per-lane events, no global done/usage");
+  assert.ok(providerBodies.every((body) => /Writing style skill \(learning\)/.test(body.messages[0].content)));
 
   /* Two assistant rows persisted, then updated with their content. */
   const assistantInserts = db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "assistant");
@@ -494,8 +499,10 @@ test("compare: server substitutes the default pair and streams per-index start/d
 
 test("council: panel, anonymized peer review, and chairman synthesis transcript", async (t) => {
   t.after(restoreFetch);
+  const streamedBodies = [];
   installProviderFetch({
     streamFor: (body) => {
+      streamedBodies.push(body);
       const isChairman = body.messages.some((message) =>
         typeof message.content === "string" && message.content.includes("You are the Chairman"));
       if (isChairman) return [contentDelta("Synthesized final answer."), usageChunk()];
@@ -517,7 +524,7 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
   const db = makeDb({ conversation: conversationRow });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
-    body: { text: "Council question.", council: true, models: ["model-a", "model-b"] }
+    body: { text: "Council question.", council: true, models: ["model-a", "model-b"], writingStyle: "formal" }
   });
 
   assert.equal(res.statusCode, 200);
@@ -575,6 +582,8 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
     .join("");
   assert.equal(chairmanContent, "Synthesized final answer.");
   assert.equal(events.at(-1).type, "council:chairman:done");
+  assert.equal(streamedBodies.length, 5, "four panelists and the chairman stream");
+  assert.ok(streamedBodies.every((body) => /Writing style skill \(formal\)/.test(body.messages[0].content)));
 
   /* Stage ordering is frozen. */
   const order = [
@@ -634,6 +643,34 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
     db.calls.map((call) => call.op),
     ["checkApiBudget", "recordApiUsageCost", "responseEnd"]
   );
+});
+
+test("writing styles reach normal and temporary provider prompts without leaking provider fields", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta("Styled answer."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Be brief.", model: TEXT_MODEL, agentMode: false, writingStyle: "concise" }
+  });
+  await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "Write professionally.", model: TEXT_MODEL, writingStyle: "formal" }
+  });
+
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].messages[0].content, /Writing style skill \(concise\)/);
+  assert.match(requests[1].messages[0].content, /Writing style skill \(formal\)/);
+  assert.equal("writingStyle" in requests[0], false);
+  assert.equal("writingStyle" in requests[1], false);
 });
 
 /* ── retry and edit modes ── */
@@ -927,6 +964,7 @@ test("client-keyed send persists one durable turn and fences the first provider 
       text: "Say hello",
       model: TEXT_MODEL,
       attachments: [],
+      writingStyle: "learning",
       clientTurnKey: "00000000-0000-4000-8000-000000000105"
     }
   });
@@ -936,6 +974,7 @@ test("client-keyed send persists one durable turn and fences the first provider 
   assert.equal(res.headers["x-klui-user-message-id"], "msg-document-user");
   assert.equal(res.headers["x-klui-assistant-message-id"], undefined);
   assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1);
+  assert.equal(calls.find((call) => call.op === "submitDocumentTurn").payload.requestPayload.writingStyle, "learning");
   assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.attachmentIds, []);
   assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);
   assert.ok(

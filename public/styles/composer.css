@@ -805,6 +805,176 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+.composer-action-menu-value {
+
+  margin-left: auto;
+
+  overflow: hidden;
+
+  color: var(--text-tertiary);
+
+  font-size: 13px;
+
+  font-weight: 500;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+.composer-action-menu-item .composer-action-menu-chevron {
+
+  flex-basis: 15px;
+
+}
+
+.composer-style-menu-back,
+
+.composer-style-option {
+
+  display: flex;
+
+  align-items: center;
+
+  width: 100%;
+
+  min-height: 42px;
+
+  border-radius: 10px;
+
+  color: var(--text);
+
+  font-size: 14px;
+
+  text-align: left;
+
+}
+
+.composer-style-menu-back {
+
+  gap: 9px;
+
+  margin-bottom: 5px;
+
+  padding: 7px 9px;
+
+  border-bottom: 1px solid var(--border-light);
+
+  border-radius: 8px 8px 0 0;
+
+  color: var(--text-secondary);
+
+  font-weight: 650;
+
+}
+
+.composer-style-option {
+
+  justify-content: space-between;
+
+  padding: 8px 11px;
+
+  font-weight: 560;
+
+  transition: background var(--transition), color var(--transition);
+
+}
+
+.composer-style-menu-back:hover,
+
+.composer-style-option:hover,
+
+.composer-style-option[aria-checked="true"] {
+
+  background: var(--bg-secondary);
+
+}
+
+.composer-style-option svg {
+
+  visibility: hidden;
+
+  color: var(--accent);
+
+}
+
+.composer-style-option[aria-checked="true"] svg {
+
+  visibility: visible;
+
+}
+
+.writing-style-pill {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  min-width: 0;
+
+  height: 38px;
+
+  padding: 0 7px 0 12px;
+
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-light));
+
+  border-radius: var(--radius-full);
+
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+
+  color: var(--text);
+
+  font-size: 13px;
+
+  font-weight: 620;
+
+}
+
+.writing-style-pill.hidden {
+
+  display: none;
+
+}
+
+.writing-style-pill > span {
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+.writing-style-pill button {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  width: 26px;
+
+  height: 26px;
+
+  margin-left: 4px;
+
+  border-radius: var(--radius-full);
+
+  color: var(--text-secondary);
+
+}
+
+.writing-style-pill button:hover {
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+
+  color: var(--text);
+
+}
+
 .web-search-toggle[aria-pressed="true"] {
 
   color: #2e86de;

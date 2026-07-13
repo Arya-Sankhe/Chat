@@ -109,6 +109,14 @@ const LONG_PASTE_MAX_CHARS = 95000;
 const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
+const WRITING_STYLE_LABELS = Object.freeze({
+  normal: "Normal",
+  learning: "Learning",
+  concise: "Concise",
+  explanatory: "Explanatory",
+  formal: "Formal",
+  "literary-storyteller": "Literary Storyteller"
+});
 
 const defaultSettings = {
   model: OPENROUTER_TEXT_MODEL,
@@ -124,6 +132,7 @@ const defaultSettings = {
   compareMode: "compare",
   agentMode: true,
   webSearchMode: "auto",
+  writingStyle: "normal",
   provider: "openrouter",
   kluiModel: "",
   theme: "classic",
@@ -401,6 +410,13 @@ const els = {
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
   composerActionMenu: document.querySelector("#composerActionMenu"),
+  writingStyleButton: document.querySelector("#writingStyleButton"),
+  writingStyleMenu: document.querySelector("#writingStyleMenu"),
+  writingStyleBack: document.querySelector("#writingStyleBack"),
+  writingStyleMenuValue: document.querySelector("#writingStyleMenuValue"),
+  writingStylePill: document.querySelector("#writingStylePill"),
+  writingStylePillLabel: document.querySelector("#writingStylePillLabel"),
+  writingStylePillClose: document.querySelector("#writingStylePillClose"),
   imageToggle: document.querySelector("#imageToggle"),
   deepResearchToggle: document.querySelector("#deepResearchToggle"),
   researchModeChip: document.querySelector("#researchModeChip"),
@@ -574,6 +590,29 @@ function renderResearchMode() {
   els.deepResearchToggle?.setAttribute("aria-pressed", String(state.researchMode));
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = state.running || !available;
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat || state.researchMode;
+}
+
+function normalizeWritingStyle(value) {
+  const style = String(value || "normal").trim().toLowerCase();
+  return Object.hasOwn(WRITING_STYLE_LABELS, style) ? style : "normal";
+}
+
+function renderWritingStyle() {
+  const style = normalizeWritingStyle(state.settings.writingStyle);
+  const label = WRITING_STYLE_LABELS[style];
+  if (els.writingStyleMenuValue) els.writingStyleMenuValue.textContent = label;
+  els.writingStylePill?.classList.toggle("hidden", style === "normal");
+  if (els.writingStylePillLabel) els.writingStylePillLabel.textContent = label;
+  els.writingStyleMenu?.querySelectorAll("[data-writing-style]").forEach((option) => {
+    option.setAttribute("aria-checked", String(option.dataset.writingStyle === style));
+  });
+}
+
+function setWritingStyle(value) {
+  updateSetting("writingStyle", normalizeWritingStyle(value));
+  renderWritingStyle();
+  closeActionMenu();
+  els.promptInput?.focus();
 }
 
 function setResearchMode(enabled) {
@@ -878,6 +917,7 @@ function loadSettings() {
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
     loaded.agentMode = true;
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
+    loaded.writingStyle = normalizeWritingStyle(loaded.writingStyle);
     loaded.provider = "openrouter";
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
     loaded.thinkingEffort = DEFAULT_REASONING_EFFORT;
@@ -1121,6 +1161,7 @@ function renderShell() {
   renderAuthOptions();
   renderTemporaryChatMode();
   renderResearchMode();
+  renderWritingStyle();
   renderAdminOnlyControls();
 
   if (!servicesReady()) {
@@ -1882,14 +1923,30 @@ function closeModelDropdown() {
 }
 
 function toggleActionMenu() {
-  const open = els.composerActionMenu.classList.toggle("hidden") === false;
+  const open = els.composerActionMenu.classList.contains("hidden")
+    && els.writingStyleMenu?.classList.contains("hidden");
+  els.composerActionMenu.classList.toggle("hidden", !open);
+  els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton.setAttribute("aria-expanded", String(open));
   els.composerActionMenuWrap.classList.toggle("is-open", open);
+}
+
+function openWritingStyleMenu() {
+  els.composerActionMenu?.classList.add("hidden");
+  els.writingStyleMenu?.classList.remove("hidden");
+  els.actionMenuButton?.setAttribute("aria-expanded", "true");
+  els.composerActionMenuWrap?.classList.add("is-open");
+}
+
+function openActionMenuRoot() {
+  els.writingStyleMenu?.classList.add("hidden");
+  els.composerActionMenu?.classList.remove("hidden");
 }
 
 function closeActionMenu() {
   if (!els.composerActionMenu) return;
   els.composerActionMenu.classList.add("hidden");
+  els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton?.setAttribute("aria-expanded", "false");
   els.composerActionMenuWrap?.classList.remove("is-open");
 }
@@ -4421,6 +4478,7 @@ async function retryFailedAssistant(assistantMessageId) {
         ...state.settings,
         reasoning_effort: DEFAULT_REASONING_EFFORT
       },
+      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
     }, {
@@ -4638,6 +4696,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         ...state.settings,
         reasoning_effort: DEFAULT_REASONING_EFFORT
       },
+      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
       ...(paste ? { paste } : {}),
@@ -5141,6 +5200,13 @@ function bindEvents() {
   });
   els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
   els.researchModeClose?.addEventListener("click", () => setResearchMode(false));
+  els.writingStyleButton?.addEventListener("click", openWritingStyleMenu);
+  els.writingStyleBack?.addEventListener("click", openActionMenuRoot);
+  els.writingStyleMenu?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-writing-style]");
+    if (option) setWritingStyle(option.dataset.writingStyle);
+  });
+  els.writingStylePillClose?.addEventListener("click", () => setWritingStyle("normal"));
   els.researchReportBack?.addEventListener("click", () => researchController.closeResearchReport());
   els.researchVisualTab?.addEventListener("click", () => researchController.setResearchReportView("visual"));
   els.researchTextTab?.addEventListener("click", () => researchController.setResearchReportView("text"));
@@ -5209,7 +5275,7 @@ function bindEvents() {
     if (els.confirmDialog.classList.contains("open")) { closeConfirmDialog(); return; }
     if (!els.lightbox.classList.contains("hidden")) { closeLightbox(); return; }
     if (state.viewer.open) { closeDocumentViewer(); return; }
-    if (!els.composerActionMenu.classList.contains("hidden")) { closeActionMenu(); return; }
+    if (!els.composerActionMenu.classList.contains("hidden") || !els.writingStyleMenu?.classList.contains("hidden")) { closeActionMenu(); return; }
     if (!els.compareDropdown.classList.contains("hidden")) { compareController.closeCompareDropdown(); return; }
     if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
     if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }

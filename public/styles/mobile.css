@@ -3188,6 +3188,9 @@ body.capacitor-native .composer-model-wrap,
 body.capacitor-native .composer-compare-wrap {
   display: none !important;
 }
+body.capacitor-native .writing-style-pill {
+  display: none !important;
+}
 
 /* + button: inline at start (left side) */
 body.capacitor-native .composer .composer-action-menu-wrap {

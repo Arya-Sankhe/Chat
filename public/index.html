@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260713-document-editor-polish-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260713-writing-styles-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -234,6 +234,12 @@
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
                           <span>Take photo</span>
                         </button>
+                        <button class="composer-action-menu-item" type="button" id="writingStyleButton" role="menuitem" aria-haspopup="menu">
+                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                          <span>Styles</span>
+                          <span class="composer-action-menu-value" id="writingStyleMenuValue">Normal</span>
+                          <svg class="composer-action-menu-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
                         <button class="composer-action-menu-item web-search-toggle hidden" type="button" id="webSearchToggle" role="menuitem" aria-pressed="true" aria-label="Web search auto" title="Web search: Auto — the model searches the web when needed. Click to turn off.">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
                           <span>Web search</span>
@@ -246,6 +252,18 @@
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
                           <span>Model parameters</span>
                         </button>
+                      </div>
+                      <div class="composer-action-menu composer-style-menu hidden" id="writingStyleMenu" role="menu" aria-label="Writing styles">
+                        <button class="composer-style-menu-back" type="button" id="writingStyleBack" aria-label="Back to more actions">
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                          <span>Styles</span>
+                        </button>
+                        <button class="composer-style-option" type="button" data-writing-style="normal" role="menuitemradio" aria-checked="true"><span>Normal</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
+                        <button class="composer-style-option" type="button" data-writing-style="learning" role="menuitemradio" aria-checked="false"><span>Learning</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
+                        <button class="composer-style-option" type="button" data-writing-style="concise" role="menuitemradio" aria-checked="false"><span>Concise</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
+                        <button class="composer-style-option" type="button" data-writing-style="explanatory" role="menuitemradio" aria-checked="false"><span>Explanatory</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
+                        <button class="composer-style-option" type="button" data-writing-style="formal" role="menuitemradio" aria-checked="false"><span>Formal</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
+                        <button class="composer-style-option" type="button" data-writing-style="literary-storyteller" role="menuitemradio" aria-checked="false"><span>Literary Storyteller</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
                       </div>
                     </div>
                     <div class="composer-model-wrap" id="composerModelWrap">
@@ -286,6 +304,12 @@
                       <button class="compare-btn council-btn" id="councilButton" type="button" aria-pressed="false" aria-label="Council mode" title="Council mode">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
                         <span id="councilLabel">Council</span>
+                      </button>
+                    </div>
+                    <div class="writing-style-pill hidden" id="writingStylePill">
+                      <span id="writingStylePillLabel"></span>
+                      <button type="button" id="writingStylePillClose" aria-label="Use normal writing style" title="Use normal writing style">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
                       </button>
                     </div>
                   </div>
@@ -591,7 +615,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260713-document-editor-polish-v1"></script>
+    <script type="module" src="/js/app.js?v=20260713-writing-styles-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

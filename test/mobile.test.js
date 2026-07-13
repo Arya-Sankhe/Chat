@@ -460,6 +460,28 @@ test("camera action button exists in the + menu", async () => {
   assert.match(source, /Take photo/, "camera action button must have label 'Take photo'");
 });
 
+test("writing styles use the existing + menu and expose a removable composer pill", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(source, /id="writingStyleButton"/);
+  assert.match(source, /id="writingStyleMenu"/);
+  assert.match(source, /id="writingStylePill"/);
+  for (const style of ["normal", "learning", "concise", "explanatory", "formal", "literary-storyteller"]) {
+    assert.match(source, new RegExp(`data-writing-style="${style}"`));
+  }
+});
+
+test("writing style is included in send and retry payloads", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.ok(
+    source.match(/writingStyle:\s*normalizeWritingStyle\(state\.settings\.writingStyle\)/g)?.length >= 2,
+    "normal sends and retries must both include writingStyle"
+  );
+});
+
 test("camera action is only shown inside the Capacitor mobile app", async () => {
   const source = readStylesheet();
   assert.match(source, /body\.capacitor-native \.mobile-camera-action\.hidden\s*\{[\s\S]*?display:\s*flex\s*!important/);
