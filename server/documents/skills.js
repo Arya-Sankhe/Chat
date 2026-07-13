@@ -161,6 +161,6 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
     sections.push("Capability check: create_document can create downloadable DOCX, XLSX, PPTX, and PDF files plus editable Markdown documents. Do not claim you lack this capability when this tool is available; call it for requested artifacts or explain the real tool error if it fails.");
   }
 
-  sections.push("When a document tool returns output.download_url, mention the generated file briefly. The app will render a download card from tool metadata.");
+  sections.push("When a document tool returns output.download_url, mention the generated file briefly without including a URL or markdown link. The app will render the artifact card for viewing and download.");
   return sections.filter(Boolean).join("\n\n");
 }

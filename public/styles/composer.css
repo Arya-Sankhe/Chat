@@ -301,7 +301,7 @@
   top: 50%;
   right: 28px;
   width: min(320px, calc(100vw - 80px));
-  max-height: min(390px, calc(100vh - 160px));
+  max-height: min(248px, calc(100vh - 160px));
   padding: 10px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -329,7 +329,8 @@
 .chat-prompt-list button {
   display: block;
   width: 100%;
-  padding: 9px;
+  height: 36px;
+  padding: 0 9px;
   overflow: hidden;
   border-radius: 8px;
   color: var(--text-secondary);

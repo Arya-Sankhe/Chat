@@ -743,5 +743,7 @@ test("desktop chat navigation stays out of mobile and tracks prompt position", a
   assert.match(css, /@media \(max-width: 900px\), \(hover: none\), \(pointer: coarse\)[\s\S]*?\.chat-prompt-nav \{ display: none !important; \}/);
   assert.match(css, /body\.capacitor-native \.chat-jump-bottom,[\s\S]*?body\.capacitor-native \.chat-prompt-nav \{ display: none !important; \}/);
   assert.match(css, /\.chat-prompt-nav \{[\s\S]*?right:\s*18px/);
+  assert.match(css, /\.chat-prompt-panel \{[\s\S]*?max-height:\s*min\(248px,\s*calc\(100vh - 160px\)\);[\s\S]*?overflow-y:\s*auto/);
+  assert.match(css, /\.chat-prompt-list button \{[\s\S]*?height:\s*36px;[\s\S]*?padding:\s*0 9px/);
   assert.match(css, /body\[data-chat-theme="cyber"\] \.chat-panel > \.chat-prompt-nav,[\s\S]*?body\[data-chat-theme="doodle"\] \.chat-panel > \.chat-prompt-nav \{[\s\S]*?position:\s*absolute;[\s\S]*?z-index:\s*12;/);
 });
