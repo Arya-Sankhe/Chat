@@ -32,10 +32,14 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(app, /% of project capacity used/);
   assert.doesNotMatch(app, /formatProjectBytes\(usage\.usedBytes\)/);
   assert.match(app, /const showTempToggle = !state\.projectsOpen/);
+  assert.match(app, /state\.conversations\.filter\(\(conversation\) => !conversation\.project_id\)\.sort/);
+  assert.match(app, /if \(createdConversation\) renderShell\(\);/);
+  assert.match(app, /waitForDocumentReady\(document\.id, document\.fileName\)/);
   assert.match(css, /\.project-capacity-track/);
   assert.match(css, /\.project-detail-layout\s*\{[\s\S]*grid-template-columns/);
   assert.match(css, /\.project-list\s*\{[\s\S]*repeat\(2/);
   assert.match(css, /\.project-composer-slot \.composer-area/);
+  assert.doesNotMatch(css, /\.project-composer-slot \.composer\s*\{[\s\S]*?min-height:\s*136px/);
 });
 
 test("document citations open in the existing viewer", () => {

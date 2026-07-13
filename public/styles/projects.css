@@ -284,10 +284,6 @@
   font-size: 12px;
 }
 
-.project-composer-slot {
-  min-height: 136px;
-}
-
 body.projects-open .project-composer-slot .composer-area {
   position: static;
   z-index: auto;
@@ -300,24 +296,6 @@ body.projects-open .project-composer-slot .composer-wrap {
   max-width: none;
   margin: 0;
   background: transparent !important;
-}
-
-body.projects-open .project-composer-slot .composer {
-  display: flex;
-  min-height: 136px;
-  flex-direction: column;
-  padding: 18px 20px 14px;
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-}
-
-body.projects-open .project-composer-slot .composer textarea {
-  flex: 1;
-  min-height: 52px;
-}
-
-body.projects-open .project-composer-slot .composer-bottom {
-  margin-top: auto;
 }
 
 body.projects-open .project-composer-slot .chat-jump-bottom,

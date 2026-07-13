@@ -1887,17 +1887,28 @@ async function uploadProjectFiles(files) {
   state.projectUploading = true;
   renderProjects();
   try {
-    await Promise.all(accepted.map(async (file) => {
+    const projectId = state.activeProjectId;
+    const uploaded = await Promise.all(accepted.map(async (file) => {
       const presigned = await presignUpload(state.session, file, "document", { projectId: state.activeProjectId });
       try {
         await putUploadContent(state.session, presigned, file, "document");
-        await completeUpload(state.session, presigned.uploadId);
+        return await completeUpload(state.session, presigned.uploadId);
       } catch (error) {
         await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
         throw error;
       }
     }));
     await loadActiveProject();
+    for (const document of uploaded.filter((item) => !item.document?.usable)) {
+      void waitForDocumentReady(document.id, document.fileName)
+        .catch(() => null)
+        .then(async () => {
+          if (!state.projectsOpen || state.activeProjectId !== projectId) return;
+          await loadActiveProject();
+          renderProjects();
+        })
+        .catch(() => {});
+    }
   } catch (error) {
     showToast(error.message || "Project files could not be uploaded.");
   } finally {
@@ -2051,7 +2062,7 @@ function unpinChat(id) {
 }
 
 function sortedConversations() {
-  return state.conversations.slice().sort((a, b) => {
+  return state.conversations.filter((conversation) => !conversation.project_id).sort((a, b) => {
     const ta = a.updated_at || a.created_at || "";
     const tb = b.updated_at || b.created_at || "";
     return String(tb).localeCompare(String(ta));
@@ -5222,6 +5233,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
+  let createdConversation = false;
 
   if (!temporaryChat && (newChat || !state.activeConversationId)) {
     const payload = await createConversation(state.session, {
@@ -5232,6 +5244,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     state.activeConversationId = payload.conversation.id;
     state.projectsOpen = false;
     state.messages = [];
+    createdConversation = true;
     syncConversationUrl();
     renderConversations();
   }
@@ -5290,7 +5303,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
   activeRun.messages = state.messages;
   setAutoScroll(true);
   syncActiveRunningUi();
-  renderMessages();
+  if (createdConversation) renderShell();
+  else renderMessages();
   pinMessagesToBottom();
   let shouldReloadConversation = false;
   let wasAborted = false;
