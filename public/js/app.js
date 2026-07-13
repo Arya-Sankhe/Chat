@@ -359,6 +359,7 @@ const els = {
   documentViewerTitle: document.querySelector("#documentViewerTitle"),
   documentViewerMeta: document.querySelector("#documentViewerMeta"),
   documentViewerDownload: document.querySelector("#documentViewerDownload"),
+  documentViewerFullscreen: document.querySelector("#documentViewerFullscreen"),
   documentViewerClose: document.querySelector("#documentViewerClose"),
   documentViewerBody: document.querySelector("#documentViewerBody"),
   appUpdateDialog: document.querySelector("#appUpdateDialog"),
@@ -2183,6 +2184,7 @@ const {
     documentViewerMeta: els.documentViewerMeta,
     documentViewerDownload: els.documentViewerDownload,
     documentViewerDownloadMenu: document.querySelector("#documentViewerDownloadMenu"),
+    documentViewerFullscreen: els.documentViewerFullscreen,
     documentViewerClose: els.documentViewerClose,
     documentViewerBody: els.documentViewerBody
   },

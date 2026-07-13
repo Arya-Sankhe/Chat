@@ -1,5 +1,11 @@
 import { mountDocumentEditor } from "./documentEditor.js";
 
+const viewerSvg = (content) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${content}</svg>`;
+const DOWNLOAD_ICON = viewerSvg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>');
+const CHEVRON_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const EXPAND_ICON = viewerSvg('<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>');
+const COLLAPSE_ICON = viewerSvg('<path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5"/>');
+
 export function createDocumentViewer({
   elements,
   state,
@@ -26,6 +32,10 @@ export function createDocumentViewer({
   let editorSaveTimer = null;
   let editorSavePromise = null;
   let pendingMarkdown = "";
+  let isFullscreen = false;
+  let fullscreenAnimation = null;
+  let viewerAnimation = null;
+  let viewerTransitionToken = 0;
 
   function findPendingArtifacts() {
     const out = [];
@@ -150,6 +160,49 @@ export function createDocumentViewer({
     renderDocumentViewer();
   }
 
+  function syncFullscreenButton() {
+    if (!elements.documentViewerFullscreen) return;
+    elements.documentViewerFullscreen.innerHTML = isFullscreen ? COLLAPSE_ICON : EXPAND_ICON;
+    elements.documentViewerFullscreen.setAttribute("aria-pressed", String(isFullscreen));
+    elements.documentViewerFullscreen.setAttribute("aria-label", isFullscreen ? "Exit full screen" : "Enter full screen");
+    elements.documentViewerFullscreen.title = isFullscreen ? "Exit full screen" : "Enter full screen";
+  }
+
+  function setFullscreen(next, { animate = true } = {}) {
+    const value = Boolean(next);
+    if (value === isFullscreen || !elements.documentViewer) return;
+    const before = elements.documentViewer.getBoundingClientRect();
+    isFullscreen = value;
+    document.body.classList.toggle("document-viewer-fullscreen", isFullscreen);
+    elements.documentViewerDownloadMenu?.classList.add("hidden");
+    syncFullscreenButton();
+    const after = elements.documentViewer.getBoundingClientRect();
+    fullscreenAnimation?.cancel();
+    if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches || !before.width || !after.width || typeof elements.documentViewer.animate !== "function") return;
+    const transform = `translate3d(${before.left - after.left}px, ${before.top - after.top}px, 0) scale(${before.width / after.width}, ${before.height / after.height})`;
+    fullscreenAnimation = elements.documentViewer.animate([
+      { transform, transformOrigin: "top left" },
+      { transform: "translate3d(0, 0, 0) scale(1)", transformOrigin: "top left" }
+    ], { duration: 220, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+  }
+
+  function animateViewer(opening) {
+    viewerAnimation?.cancel();
+    if (typeof elements.documentViewer?.animate !== "function") return Promise.resolve();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const frames = reducedMotion
+      ? [{ opacity: opening ? 0.7 : 1 }, { opacity: opening ? 1 : 0 }]
+      : opening
+        ? [{ opacity: 0, transform: "translate3d(18px, 0, 0) scale(0.995)" }, { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" }]
+        : [{ opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" }, { opacity: 0, transform: "translate3d(14px, 0, 0) scale(0.997)" }];
+    viewerAnimation = elements.documentViewer.animate(frames, {
+      duration: reducedMotion ? 120 : opening ? 220 : 160,
+      easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+      fill: opening ? "none" : "forwards"
+    });
+    return viewerAnimation.finished.catch(() => {});
+  }
+
   function viewerMetaLabel() {
     const format = String(state.viewer.sourceKind || state.viewer.kind || "").toUpperCase();
     if (state.viewer.loading && state.viewer.jobId) return `${format || "DOCUMENT"} preview is being prepared`;
@@ -202,9 +255,10 @@ export function createDocumentViewer({
     const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
     const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
     const editable = viewer.kind === "editable";
+    elements.documentViewerBody.classList.toggle("is-editable", editable);
     elements.documentViewerDownload.classList.toggle("hidden", !downloadHref);
     elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref);
-    elements.documentViewerDownload.innerHTML = editable ? "Download <span aria-hidden=\"true\">&#8964;</span>" : "Download";
+    elements.documentViewerDownload.innerHTML = `${DOWNLOAD_ICON}<span>Download</span>${editable ? `<span class="document-download-chevron">${CHEVRON_ICON}</span>` : ""}`;
     elements.documentViewerDownload.setAttribute("aria-expanded", String(editable && !elements.documentViewerDownloadMenu?.classList.contains("hidden")));
     if (!editable) elements.documentViewerDownloadMenu?.classList.add("hidden");
     if (downloadHref) {
@@ -219,6 +273,7 @@ export function createDocumentViewer({
     }
 
     if (!viewer.open) {
+      if (isFullscreen) setFullscreen(false, { animate: false });
       destroyEditor();
       delete elements.documentViewerBody.dataset.pdfUrl;
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
@@ -507,6 +562,7 @@ export function createDocumentViewer({
   }
 
   async function openDocumentViewer({ attachmentId, fileName = "", format = "" }) {
+    viewerTransitionToken += 1;
     stopDocumentPreviewPoll();
     setDocumentViewerState({
       open: true,
@@ -524,6 +580,7 @@ export function createDocumentViewer({
       loading: true,
       error: ""
     });
+    animateViewer(true);
     try {
       await loadDocumentViewerUrl(attachmentId, { fileName, sourceKind: format.toLowerCase() });
     } catch (err) {
@@ -532,11 +589,18 @@ export function createDocumentViewer({
   }
 
   async function closeDocumentViewer() {
+    if (!state.viewer.open) return;
+    const transitionToken = ++viewerTransitionToken;
+    const exitAnimation = animateViewer(false);
+    let savePromise = Promise.resolve();
     if (editorController) {
       pendingMarkdown = editorController.getMarkdown();
-      await saveEditorNow().catch(() => {});
+      savePromise = saveEditorNow().catch(() => {});
     }
+    await Promise.all([exitAnimation, savePromise]);
+    if (transitionToken !== viewerTransitionToken) return;
     destroyEditor();
+    if (isFullscreen) setFullscreen(false, { animate: false });
     stopDocumentPreviewPoll();
     pdfRenderToken += 1;
     if (elements.documentViewerBody) delete elements.documentViewerBody.dataset.pdfUrl;
@@ -622,6 +686,27 @@ export function createDocumentViewer({
     }
   });
 
+  elements.documentViewerFullscreen?.addEventListener("click", () => {
+    if (state.viewer.open) setFullscreen(!isFullscreen);
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    if (elements.documentViewerDownloadMenu?.classList.contains("hidden")) return;
+    if (elements.documentViewerDownload.contains(event.target) || elements.documentViewerDownloadMenu.contains(event.target)) return;
+    elements.documentViewerDownloadMenu.classList.add("hidden");
+    elements.documentViewerDownload.setAttribute("aria-expanded", "false");
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!elements.documentViewerDownloadMenu?.classList.contains("hidden")) {
+      elements.documentViewerDownloadMenu.classList.add("hidden");
+      elements.documentViewerDownload.setAttribute("aria-expanded", "false");
+    } else if (isFullscreen) {
+      setFullscreen(false);
+    }
+  });
+
   elements.documentViewerDownloadMenu?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-document-export]");
     if (!button) return;
@@ -635,6 +720,8 @@ export function createDocumentViewer({
       elements.documentViewerDownload.disabled = false;
     }
   });
+
+  syncFullscreenButton();
 
   function setDocumentViewerWidth(width) {
     const min = 360;

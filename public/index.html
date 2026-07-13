@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260713-document-editor-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260713-document-editor-polish-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -310,16 +310,20 @@
           <div class="document-viewer-resizer" id="documentViewerResizer" role="separator" aria-orientation="vertical" aria-label="Resize document viewer"></div>
           <header class="document-viewer-header">
             <div class="document-viewer-title-wrap">
-              <div class="document-viewer-title" id="documentViewerTitle">Document</div>
-              <div class="document-viewer-meta" id="documentViewerMeta"></div>
+              <span class="document-viewer-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span>
+              <div class="document-viewer-title-copy">
+                <div class="document-viewer-title" id="documentViewerTitle">Document</div>
+                <div class="document-viewer-meta" id="documentViewerMeta"></div>
+              </div>
             </div>
             <div class="document-viewer-actions">
-              <button class="document-viewer-action hidden" id="documentViewerDownload" type="button" hidden>Download</button>
+              <button class="document-viewer-action hidden" id="documentViewerDownload" type="button" aria-haspopup="menu" aria-expanded="false" hidden>Download</button>
               <div class="document-download-menu hidden" id="documentViewerDownloadMenu" role="menu">
-                <button type="button" role="menuitem" data-document-export="md"><span>Markdown</span><small>.md</small></button>
-                <button type="button" role="menuitem" data-document-export="docx"><span>Word</span><small>.docx</small></button>
                 <button type="button" role="menuitem" data-document-export="pdf"><span>PDF</span><small>.pdf</small></button>
+                <button type="button" role="menuitem" data-document-export="docx"><span>Word</span><small>.docx</small></button>
+                <button type="button" role="menuitem" data-document-export="md"><span>Markdown</span><small>.md</small></button>
               </div>
+              <button class="document-viewer-icon-action" id="documentViewerFullscreen" type="button" aria-label="Enter full screen" title="Enter full screen"></button>
               <button class="document-viewer-close" id="documentViewerClose" type="button" aria-label="Close viewer" title="Close">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
               </button>
@@ -587,7 +591,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260713-document-editor-v1"></script>
+    <script type="module" src="/js/app.js?v=20260713-document-editor-polish-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>
