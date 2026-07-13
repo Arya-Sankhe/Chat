@@ -106,9 +106,19 @@ create table if not exists public.payment_requests (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  instructions text not null default '' check (char_length(instructions) <= 10000),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.conversations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
   title text not null default 'New chat',
   model text,
   created_at timestamptz not null default now(),
@@ -138,6 +148,7 @@ create table if not exists public.attachments (
   user_id uuid not null references public.profiles(id) on delete cascade,
   conversation_id uuid references public.conversations(id) on delete cascade,
   message_id uuid references public.messages(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
   category text not null default 'image' check (category in ('image', 'document')),
   object_key text not null unique,
   file_name text not null,
@@ -172,6 +183,7 @@ create table if not exists public.document_files (
   user_id uuid not null references public.profiles(id) on delete cascade,
   conversation_id uuid references public.conversations(id) on delete cascade,
   message_id uuid references public.messages(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
   kind text not null check (kind in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv')),
   source text not null default 'upload' check (source in ('upload', 'generated', 'edited', 'exported')),
   parent_document_id uuid references public.document_files(id) on delete set null,
@@ -372,13 +384,17 @@ set price_label = 'Manual payment', updated_at = now()
 where price_label = 'Configured in Stripe';
 
 create index if not exists subscriptions_user_updated_idx on public.subscriptions (user_id, updated_at desc);
+create index if not exists projects_user_updated_idx on public.projects (user_id, updated_at desc);
 create index if not exists conversations_user_updated_idx on public.conversations (user_id, updated_at desc) where deleted_at is null;
+create index if not exists conversations_project_idx on public.conversations (project_id) where project_id is not null;
 create index if not exists messages_conversation_created_idx on public.messages (conversation_id, created_at);
 create index if not exists attachments_user_status_idx on public.attachments (user_id, status);
 create index if not exists attachments_user_category_idx on public.attachments (user_id, category);
 create index if not exists attachments_conversation_idx on public.attachments (conversation_id) where conversation_id is not null;
 create index if not exists attachments_message_idx on public.attachments (message_id) where message_id is not null;
-create index if not exists attachments_orphan_cleanup_idx on public.attachments (created_at) where conversation_id is null and message_id is null;
+create index if not exists attachments_project_idx on public.attachments (project_id) where project_id is not null;
+create index if not exists attachments_orphan_cleanup_idx on public.attachments (created_at)
+  where conversation_id is null and message_id is null and (project_id is null or status = 'pending');
 create index if not exists document_chunks_tsv_idx on public.document_chunks using gin (tsv);
 create index if not exists document_chunks_doc_idx on public.document_chunks (document_file_id, chunk_index);
 create index if not exists document_chunks_user_doc_idx on public.document_chunks (user_id, document_file_id);
@@ -390,7 +406,8 @@ create index if not exists document_files_user_status_idx on public.document_fil
 create index if not exists document_files_conversation_status_idx on public.document_files (conversation_id, processing_status);
 create index if not exists document_files_message_idx on public.document_files (message_id) where message_id is not null;
 create index if not exists document_files_parent_document_idx on public.document_files (parent_document_id) where parent_document_id is not null;
-create index if not exists document_files_orphan_cleanup_idx on public.document_files (created_at) where conversation_id is null and message_id is null;
+create index if not exists document_files_project_idx on public.document_files (project_id) where project_id is not null;
+create index if not exists document_files_orphan_cleanup_idx on public.document_files (created_at) where conversation_id is null and message_id is null and project_id is null;
 create index if not exists document_jobs_claim_idx on public.document_jobs (priority desc, created_at asc) where status = 'queued';
 create index if not exists document_jobs_lease_idx on public.document_jobs (lease_until) where status = 'running';
 create index if not exists document_jobs_user_status_idx on public.document_jobs (user_id, status);
@@ -411,10 +428,10 @@ create index if not exists payment_requests_status_created_idx on public.payment
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
-grant select on public.profiles, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
+grant select on public.profiles, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
 grant select on public.research_runs to authenticated;
 grant select on public.usage_api_weekly to authenticated;
-grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
+grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
 grant all on public.research_runs to service_role;
 
 alter table public.profiles enable row level security;
@@ -422,6 +439,7 @@ alter table public.app_settings enable row level security;
 alter table public.plans enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.payment_requests enable row level security;
+alter table public.projects enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 alter table public.attachments enable row level security;
@@ -438,6 +456,7 @@ drop policy if exists "profiles read own" on public.profiles;
 drop policy if exists "plans read active" on public.plans;
 drop policy if exists "subscriptions read own" on public.subscriptions;
 drop policy if exists "payment requests read own" on public.payment_requests;
+drop policy if exists "projects read own" on public.projects;
 drop policy if exists "conversations read own" on public.conversations;
 drop policy if exists "messages read own" on public.messages;
 drop policy if exists "attachments read own" on public.attachments;
@@ -452,6 +471,7 @@ create policy "profiles read own" on public.profiles for select using (auth.uid(
 create policy "plans read active" on public.plans for select using (active = true);
 create policy "subscriptions read own" on public.subscriptions for select using (auth.uid() = user_id);
 create policy "payment requests read own" on public.payment_requests for select using (auth.uid() = user_id);
+create policy "projects read own" on public.projects for select using (auth.uid() = user_id);
 create policy "conversations read own" on public.conversations for select using (auth.uid() = user_id);
 create policy "messages read own" on public.messages for select using (auth.uid() = user_id);
 create policy "attachments read own" on public.attachments for select using (auth.uid() = user_id);
@@ -755,102 +775,6 @@ revoke all on function public.klui_claim_document_job(text, integer)
   from public, anon, authenticated;
 grant execute on function public.klui_claim_document_job(text, integer) to service_role;
 
-create or replace function public.klui_complete_document_upload(
-  p_user_id uuid,
-  p_attachment_id uuid,
-  p_size_bytes integer,
-  p_etag text,
-  p_kind text,
-  p_limits jsonb default '{}'::jsonb
-) returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_attachment public.attachments;
-  v_document public.document_files;
-  v_job public.document_jobs;
-begin
-  if p_kind not in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv') then
-    raise exception 'unsupported_document_kind';
-  end if;
-
-  select * into v_attachment
-  from public.attachments
-  where id = p_attachment_id and user_id = p_user_id
-  for update;
-
-  if not found then
-    raise exception 'attachment_not_found';
-  end if;
-  if v_attachment.category <> 'document' then
-    raise exception 'attachment_is_not_document';
-  end if;
-
-  update public.attachments
-  set status = 'uploaded',
-      uploaded_at = coalesce(uploaded_at, now()),
-      size_bytes = coalesce(p_size_bytes, size_bytes),
-      etag = coalesce(p_etag, etag)
-  where id = v_attachment.id
-  returning * into v_attachment;
-
-  insert into public.document_files (
-    attachment_id, user_id, conversation_id, message_id, kind, source,
-    source_etag, processing_status, metadata
-  ) values (
-    v_attachment.id, v_attachment.user_id, v_attachment.conversation_id,
-    v_attachment.message_id, p_kind, 'upload', v_attachment.etag, 'pending',
-    jsonb_build_object(
-      'file_name', v_attachment.file_name,
-      'content_type', v_attachment.content_type,
-      'size_bytes', v_attachment.size_bytes
-    )
-  )
-  on conflict (attachment_id) do update
-    set source_etag = coalesce(excluded.source_etag, public.document_files.source_etag),
-        updated_at = now()
-  returning * into v_document;
-
-  insert into public.document_jobs (
-    user_id, document_file_id, conversation_id, message_id, job_type, input
-  ) values (
-    v_attachment.user_id, v_document.id, v_attachment.conversation_id,
-    v_attachment.message_id, 'document.extract.' || p_kind,
-    jsonb_build_object(
-      'attachment_id', v_attachment.id,
-      'object_key', v_attachment.object_key,
-      'file_name', v_attachment.file_name,
-      'content_type', v_attachment.content_type,
-      'size_bytes', v_attachment.size_bytes,
-      'etag', v_attachment.etag,
-      'limits', coalesce(p_limits, '{}'::jsonb)
-    )
-  )
-  on conflict do nothing
-  returning * into v_job;
-
-  if v_job.id is null then
-    select * into v_job
-    from public.document_jobs
-    where document_file_id = v_document.id
-      and job_type = 'document.extract.' || p_kind
-    order by created_at asc
-    limit 1;
-  end if;
-
-  return jsonb_build_object(
-    'attachment', to_jsonb(v_attachment),
-    'document_file', to_jsonb(v_document),
-    'job', to_jsonb(v_job)
-  );
-end;
-$$;
-
-revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb) from public, anon, authenticated;
-grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb) to service_role;
-
 create or replace function public.klui_claim_research_run(
   p_worker_id text,
   p_lease_seconds integer default 120
@@ -1147,7 +1071,9 @@ create or replace function public.klui_complete_document_upload(
   p_size_bytes integer,
   p_etag text,
   p_kind text,
-  p_limits jsonb default '{}'::jsonb
+  p_limits jsonb default '{}'::jsonb,
+  p_project_id uuid default null,
+  p_project_max_bytes bigint default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -1157,6 +1083,7 @@ declare
   v_attachment public.attachments;
   v_document public.document_files;
   v_jobs jsonb;
+  v_used_bytes bigint;
 begin
   if p_kind not in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv') then
     raise exception 'unsupported_document_kind';
@@ -1169,6 +1096,26 @@ begin
 
   if not found then raise exception 'attachment_not_found'; end if;
   if v_attachment.category <> 'document' then raise exception 'attachment_is_not_document'; end if;
+  if v_attachment.project_id is distinct from p_project_id then raise exception 'project_mismatch'; end if;
+
+  if p_project_id is not null then
+    perform 1 from public.projects
+    where id = p_project_id and user_id = p_user_id
+    for update;
+    if not found then raise exception 'project_not_found'; end if;
+    if p_project_max_bytes is null or p_project_max_bytes <= 0 then
+      raise exception 'project_limit_missing';
+    end if;
+    select coalesce(sum(size_bytes), 0) into v_used_bytes
+    from public.attachments
+    where project_id = p_project_id
+      and user_id = p_user_id
+      and status = 'uploaded'
+      and id <> v_attachment.id;
+    if v_used_bytes + coalesce(p_size_bytes, v_attachment.size_bytes, 0) > p_project_max_bytes then
+      raise exception 'project_storage_limit_exceeded';
+    end if;
+  end if;
 
   update public.attachments
   set status = 'uploaded',
@@ -1179,11 +1126,11 @@ begin
   returning * into v_attachment;
 
   insert into public.document_files (
-    attachment_id, user_id, conversation_id, message_id, kind, source,
+    attachment_id, user_id, conversation_id, message_id, project_id, kind, source,
     source_etag, processing_status, metadata
   ) values (
     v_attachment.id, v_attachment.user_id, v_attachment.conversation_id,
-    v_attachment.message_id, p_kind, 'upload', v_attachment.etag, 'pending',
+    v_attachment.message_id, v_attachment.project_id, p_kind, 'upload', v_attachment.etag, 'pending',
     jsonb_build_object(
       'file_name', v_attachment.file_name,
       'content_type', v_attachment.content_type,
@@ -1192,6 +1139,7 @@ begin
   )
   on conflict (attachment_id) do update
     set source_etag = coalesce(excluded.source_etag, public.document_files.source_etag),
+        project_id = excluded.project_id,
         updated_at = now()
   returning * into v_document;
 
@@ -1238,9 +1186,9 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb)
+revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint)
   from public, anon, authenticated;
-grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb)
+grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint)
   to service_role;
 
 create or replace function public.klui_complete_document_job(

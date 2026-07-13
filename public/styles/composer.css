@@ -1448,6 +1448,18 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   transition: background var(--transition);
 
+  width: 100%;
+
+  border: 0;
+
+  background: transparent;
+
+  font: inherit;
+
+  text-align: left;
+
+  cursor: pointer;
+
 }
 
 .inline-source-row:hover {
@@ -1645,6 +1657,18 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
   color: inherit;
 
   transition: background var(--transition);
+
+  width: 100%;
+
+  border: 0;
+
+  background: transparent;
+
+  font: inherit;
+
+  text-align: left;
+
+  cursor: pointer;
 
 }
 

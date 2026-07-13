@@ -525,6 +525,56 @@ test("DocumentService validates attachment ownership-shaped ids before document 
   );
 });
 
+test("DocumentService includes small project text and skips chunk loading for large projects", async () => {
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  let chunkCalls = 0;
+  const small = new DocumentService({
+    config: { documents: { enabled: true } },
+    db: {
+      async listUsableProjectDocumentFiles() {
+        return [{
+          id: documentFileId,
+          attachment_id: attachmentId,
+          project_id: projectId,
+          text_ready_at: "2026-07-13T00:00:00Z",
+          word_count: 100,
+          attachments: { file_name: "Brief.pdf" }
+        }];
+      },
+      async listDocumentChunksForFiles() {
+        chunkCalls += 1;
+        return [{ document_file_id: documentFileId, source_label: "Page 1", text: "Project evidence", token_estimate: 3 }];
+      }
+    },
+    r2: {}, userId, conversationId, projectId, plan: { id: "pro" }, signal: new AbortController().signal
+  });
+  assert.match(await small.smallProjectContext(), /Project evidence/);
+  assert.equal(chunkCalls, 1);
+
+  small.db.listUsableProjectDocumentFiles = async () => [{
+    id: documentFileId,
+    project_id: projectId,
+    text_ready_at: "2026-07-13T00:00:00Z",
+    word_count: 20000
+  }];
+  assert.equal(await small.smallProjectContext(), "");
+  assert.equal(chunkCalls, 1);
+
+  small.db.listUsableProjectDocumentFiles = async () => [{
+    id: documentFileId,
+    project_id: projectId,
+    text_ready_at: "2026-07-13T00:00:00Z",
+    word_count: 100
+  }];
+  small.db.listDocumentChunksForFiles = async () => Array.from({ length: 501 }, (_, index) => ({
+    document_file_id: documentFileId,
+    source_label: `Part ${index + 1}`,
+    text: "x",
+    token_estimate: 1
+  }));
+  assert.equal(await small.smallProjectContext(), "");
+});
+
 test("DocumentService rejects document_file_id edits outside the active conversation", async () => {
   const service = documentServiceWithDb({
     async getDocumentFile() {
@@ -546,6 +596,46 @@ test("DocumentService rejects document_file_id edits outside the active conversa
       instructions: "Update the title"
     }),
     /not found in this conversation/
+  );
+});
+
+test("DocumentService keeps shared project knowledge read-only", async () => {
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  const service = new DocumentService({
+    config: {
+      documents: {
+        enabled: true,
+        contextCharsPerTurn: 5000,
+        jobWaitMs: 10
+      }
+    },
+    db: {
+      async getDocumentFile() {
+        return {
+          id: documentFileId,
+          attachment_id: attachmentId,
+          conversation_id: null,
+          project_id: projectId,
+          processing_status: "ready",
+          text_ready_at: "2026-07-13T00:00:00Z",
+          kind: "docx"
+        };
+      }
+    },
+    r2: {},
+    userId,
+    conversationId,
+    projectId,
+    plan: { id: "pro" },
+    signal: new AbortController().signal
+  });
+
+  await assert.rejects(
+    service.editDocument({
+      documentFileId,
+      instructions: "Update the shared source"
+    }),
+    /Project knowledge is read-only/
   );
 });
 

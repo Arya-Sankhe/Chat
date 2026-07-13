@@ -7,6 +7,7 @@ import * as chat from "./rest/chat.js";
 import * as documents from "./rest/documents.js";
 import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
+import * as projects from "./rest/projects.js";
 import * as research from "./rest/research.js";
 import * as subscriptions from "./rest/subscriptions.js";
 import * as turns from "./rest/turns.js";
@@ -118,6 +119,38 @@ export class SupabaseRest {
 
   async listConversations(userId, options) {
     return chat.listConversations(this, userId, options);
+  }
+
+  async listProjects(userId, options) {
+    return projects.listProjects(this, userId, options);
+  }
+
+  async createProject(userId, name, options) {
+    return projects.createProject(this, userId, name, options);
+  }
+
+  async getProject(userId, projectId, options) {
+    return projects.getProject(this, userId, projectId, options);
+  }
+
+  async updateProject(userId, projectId, patch, options) {
+    return projects.updateProject(this, userId, projectId, patch, options);
+  }
+
+  async deleteProject(userId, projectId, options) {
+    return projects.deleteProject(this, userId, projectId, options);
+  }
+
+  async listProjectAttachments(userId, projectId, options) {
+    return projects.listProjectAttachments(this, userId, projectId, options);
+  }
+
+  async listProjectConversations(userId, projectId, options) {
+    return projects.listProjectConversations(this, userId, projectId, options);
+  }
+
+  async listProjectDocuments(userId, projectId, options) {
+    return projects.listProjectDocuments(this, userId, projectId, options);
   }
 
   async createConversation(userId, conversation, options) {
@@ -250,6 +283,14 @@ export class SupabaseRest {
 
   async listUsableDocumentFiles(userId, conversationId, options) {
     return documents.listUsableDocumentFiles(this, userId, conversationId, options);
+  }
+
+  async listUsableProjectDocumentFiles(userId, projectId, options) {
+    return documents.listUsableProjectDocumentFiles(this, userId, projectId, options);
+  }
+
+  async listDocumentChunksForFiles(userId, documentFileIds, options) {
+    return documents.listDocumentChunksForFiles(this, userId, documentFileIds, options);
   }
 
   async listDocumentFilesByAttachments(userId, attachmentIds, options) {

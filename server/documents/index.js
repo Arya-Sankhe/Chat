@@ -199,13 +199,14 @@ function pageHasUsableImage(page) {
 }
 
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, plan, signal }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, plan, signal }) {
     this.config = config;
     this.documentsConfig = config.documents || {};
     this.db = db;
     this.r2 = r2;
     this.userId = userId;
     this.conversationId = conversationId;
+    this.projectId = projectId;
     this.plan = plan;
     this.signal = signal;
   }
@@ -226,9 +227,61 @@ export class DocumentService {
   }
 
   async readyDocuments() {
-    if (!this.enabled || !this.conversationId) return [];
-    const docs = await this.db.listUsableDocumentFiles(this.userId, this.conversationId, { signal: this.signal });
-    return docs.filter((doc) => doc?.metadata?.preview !== true);
+    if (!this.enabled || (!this.conversationId && !this.projectId)) return [];
+    const [chatDocs, projectDocs] = await Promise.all([
+      this.conversationId
+        ? this.db.listUsableDocumentFiles(this.userId, this.conversationId, { signal: this.signal })
+        : [],
+      this.projectId
+        ? this.db.listUsableProjectDocumentFiles(this.userId, this.projectId, { signal: this.signal })
+        : []
+    ]);
+    return [...new Map([...chatDocs, ...projectDocs]
+      .filter((doc) => doc?.metadata?.preview !== true)
+      .map((doc) => [doc.id, doc])).values()];
+  }
+
+  ownsDocument(doc) {
+    return Boolean(doc && (
+      (this.conversationId && doc.conversation_id === this.conversationId)
+      || (this.projectId && doc.project_id === this.projectId)
+    ));
+  }
+
+  async smallProjectContext(maxTokens = 20_000) {
+    if (!this.enabled || !this.projectId) return "";
+    const docs = (await this.db.listUsableProjectDocumentFiles(
+      this.userId,
+      this.projectId,
+      { signal: this.signal }
+    )).filter((doc) => doc.text_ready_at && doc?.metadata?.preview !== true);
+    if (!docs.length) return "";
+    const estimatedTokens = docs.reduce((sum, doc) => {
+      const words = Math.max(0, Number(doc.word_count || 0));
+      return sum + Math.ceil(words * 1.35);
+    }, 0);
+    if (!estimatedTokens || estimatedTokens > maxTokens) return "";
+    const maxChunks = 500;
+    const chunks = await this.db.listDocumentChunksForFiles(
+      this.userId,
+      docs.map((doc) => doc.id),
+      { limit: maxChunks + 1, signal: this.signal }
+    );
+    if (chunks.length > maxChunks) return "";
+    const total = chunks.reduce((sum, chunk) => sum + Math.max(1, Number(chunk.token_estimate || Math.ceil(String(chunk.text || "").length / 4))), 0);
+    if (!chunks.length || total > maxTokens) return "";
+    const docsById = new Map(docs.map((doc) => [doc.id, doc]));
+    const results = chunks.map((chunk) => {
+      const doc = docsById.get(chunk.document_file_id);
+      return {
+        title: `${documentTitle(doc)} — ${chunk.source_label || "Excerpt"}`,
+        content: String(chunk.text || "")
+      };
+    });
+    return buildUntrustedDocumentContext({
+      lead: "Project knowledge is small enough to include in full for this request.",
+      results
+    });
   }
 
   async hasReadyDocuments() {
@@ -476,7 +529,7 @@ export class DocumentService {
       : await this.readyDocuments();
 
     const filtered = docs.filter((doc) => {
-      if (this.conversationId && doc.conversation_id !== this.conversationId) return false;
+      if (!this.ownsDocument(doc)) return false;
       return documentIsUsable(doc);
     });
 
@@ -492,8 +545,10 @@ export class DocumentService {
     if (!uuidLike.test(id)) throw new HttpError(400, "Document attachment id is invalid.");
     const doc = await this.db.getDocumentFileByAttachment(this.userId, id, { signal: this.signal });
     if (!doc) throw new HttpError(404, "Document was not found.");
-    if (this.conversationId && doc.conversation_id !== this.conversationId) {
-      throw new HttpError(404, "Document was not found in this conversation.");
+    if (!this.ownsDocument(doc)) {
+      throw new HttpError(404, this.projectId
+        ? "Document was not found in this chat or project."
+        : "Document was not found in this conversation.");
     }
     if (ready && !documentIsUsable(doc)) {
       throw new HttpError(409, "Document is still processing.");
@@ -506,8 +561,10 @@ export class DocumentService {
     if (!uuidLike.test(id)) throw new HttpError(400, "Document file id is invalid.");
     const doc = await this.db.getDocumentFile(this.userId, id, { signal: this.signal });
     if (!doc) throw new HttpError(404, "Document was not found.");
-    if (this.conversationId && doc.conversation_id !== this.conversationId) {
-      throw new HttpError(404, "Document was not found in this conversation.");
+    if (!this.ownsDocument(doc)) {
+      throw new HttpError(404, this.projectId
+        ? "Document was not found in this chat or project."
+        : "Document was not found in this conversation.");
     }
     if (ready && !documentIsUsable(doc)) {
       throw new HttpError(409, "Document is still processing.");
@@ -784,6 +841,9 @@ export class DocumentService {
     const doc = attachmentId
       ? await this.requireDocumentByAttachment(attachmentId)
       : await this.requireDocumentById(documentFileId);
+    if (!this.conversationId || doc.conversation_id !== this.conversationId) {
+      throw new HttpError(403, "Project knowledge is read-only. Create a copy before editing it.");
+    }
     if (sourceEtag && doc.source_etag && sourceEtag !== doc.source_etag) {
       throw new HttpError(409, "Document changed since the edit was prepared.");
     }

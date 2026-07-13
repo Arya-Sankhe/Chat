@@ -25,9 +25,14 @@ export async function handleConversations(req, res, config) {
 
   if (req.method === "POST") {
     const body = await parseJsonBody(req);
+    const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+    if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
+      throw new HttpError(404, "Project not found.");
+    }
     const conversation = await context.db.createConversation(context.user.id, {
       title: body.title || "New chat",
-      model: body.model || ""
+      model: body.model || "",
+      projectId: projectId || null
     }, { signal: req.signal });
     sendJson(res, 201, { conversation });
     return;
@@ -59,9 +64,21 @@ export async function handleConversationById(req, res, config, conversationId) {
 
   if (req.method === "PATCH") {
     const body = await parseJsonBody(req);
-    const title = typeof body.title === "string" ? body.title.trim() : "";
-    if (!title) throw new HttpError(400, "Title is required.");
-    const updated = await context.db.updateConversation(context.user.id, conversation.id, { title }, { signal: req.signal });
+    const patch = {};
+    if (body.title !== undefined) {
+      const title = typeof body.title === "string" ? body.title.trim() : "";
+      if (!title) throw new HttpError(400, "Title is required.");
+      patch.title = title;
+    }
+    if (body.projectId !== undefined) {
+      const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+      if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
+        throw new HttpError(404, "Project not found.");
+      }
+      patch.project_id = projectId || null;
+    }
+    if (!Object.keys(patch).length) throw new HttpError(400, "No conversation changes were provided.");
+    const updated = await context.db.updateConversation(context.user.id, conversation.id, patch, { signal: req.signal });
     sendJson(res, 200, { conversation: updated });
     return;
   }

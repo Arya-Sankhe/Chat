@@ -34,6 +34,10 @@ function documentExtractionLimits(config) {
 export async function handlePresignUpload(req, res, config) {
   const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req);
+  const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+  if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
+    throw new HttpError(404, "Project not found.");
+  }
 
   const category = assertUpload({
     category: body.category,
@@ -44,6 +48,9 @@ export async function handlePresignUpload(req, res, config) {
     maxImageBytes: config.r2.maxImageBytes,
     maxDocumentBytes: config.documents.maxFileBytes
   });
+  if (projectId && category !== "document") {
+    throw new HttpError(400, "Only documents can be added to project knowledge.");
+  }
   if (category === "document" && !configuredServices(config).documents) {
     throw new HttpError(503, "Document uploads are not configured.");
   }
@@ -56,7 +63,8 @@ export async function handlePresignUpload(req, res, config) {
     file_name: String(body.fileName || "upload"),
     content_type: body.contentType,
     size_bytes: Number(body.sizeBytes),
-    status: "pending"
+    status: "pending",
+    project_id: projectId || null
   }, { signal: req.signal });
 
   sendJson(res, 200, {
@@ -148,7 +156,9 @@ export async function handleCompleteUpload(req, res, config) {
       sizeBytes: head.sizeBytes || attachment.size_bytes,
       etag: head.etag || attachment.etag || null,
       kind,
-      limits: documentExtractionLimits(config)
+      limits: documentExtractionLimits(config),
+      projectId: attachment.project_id || null,
+      projectMaxBytes: context.plan.maxProjectBytes
     }, { signal: req.signal });
     completed = result?.attachment;
     documentFile = result?.document_file;
@@ -437,7 +447,6 @@ export async function handleAttachmentDelete(req, res, config, attachmentId) {
   const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
   await context.r2.deleteObjects(keys, { signal: req.signal });
   await context.db.deleteAttachment(context.user.id, attachment.id, { signal: req.signal });
-  await context.r2.deleteObjects(keys, { signal: req.signal });
   sendJson(res, 200, { deleted: true });
 }
 

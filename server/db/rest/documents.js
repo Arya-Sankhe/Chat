@@ -94,6 +94,34 @@ export async function listUsableDocumentFiles(client, userId, conversationId, { 
   });
 }
 
+export async function listUsableProjectDocumentFiles(client, userId, projectId, { signal } = {}) {
+  return client.request("document_files", {
+    query: {
+      user_id: `eq.${userId}`,
+      project_id: `eq.${projectId}`,
+      or: "(text_ready_at.not.is.null,visual_ready_at.not.is.null)",
+      select: "*,attachments(id,file_name,content_type,size_bytes,object_key,etag)",
+      order: "created_at.asc"
+    },
+    signal
+  });
+}
+
+export async function listDocumentChunksForFiles(client, userId, documentFileIds = [], { limit = 5000, signal } = {}) {
+  const ids = [...new Set(documentFileIds.filter(Boolean))];
+  if (!ids.length) return [];
+  return client.request("document_chunks", {
+    query: {
+      user_id: `eq.${userId}`,
+      document_file_id: `in.(${ids.join(",")})`,
+      select: "document_file_id,chunk_index,source_type,source_label,text,token_estimate,metadata",
+      order: "document_file_id.asc,chunk_index.asc",
+      limit: String(limit)
+    },
+    signal
+  });
+}
+
 export async function listDocumentFilesByAttachments(client, userId, attachmentIds = [], { signal } = {}) {
   const ids = [...new Set(attachmentIds.filter(Boolean))];
   if (!ids.length) return [];
@@ -145,7 +173,9 @@ export async function completeDocumentUpload(client, {
   sizeBytes,
   etag = null,
   kind,
-  limits = {}
+  limits = {},
+  projectId = null,
+  projectMaxBytes = null
 }, { signal } = {}) {
   return client.rpc("klui_complete_document_upload", {
     p_user_id: userId,
@@ -153,7 +183,9 @@ export async function completeDocumentUpload(client, {
     p_size_bytes: sizeBytes,
     p_etag: etag,
     p_kind: kind,
-    p_limits: limits
+    p_limits: limits,
+    p_project_id: projectId,
+    p_project_max_bytes: projectMaxBytes
   }, { signal });
 }
 

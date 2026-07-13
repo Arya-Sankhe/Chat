@@ -4,6 +4,7 @@ import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversations, handleMessageById } from "./routes/conversations.js";
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
+import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
   handleAdminPaymentRequests,
   handleAdminUpdatePaymentRequest,
@@ -171,6 +172,16 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/conversations") {
       await handleConversations(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/projects") {
+      await handleProjects(req, res, config);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "projects" && parts[2] && !parts[3]) {
+      await handleProjectById(req, res, config, parts[2]);
       return;
     }
 

@@ -116,6 +116,21 @@ test("listMessages scopes messages to the user and conversation", async () => {
   });
 });
 
+test("listProjects scopes projects to the user and update order", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "GET");
+    assert.equal(
+      url,
+      "https://example.supabase.co/rest/v1/projects?user_id=eq.user_1&select=*&order=updated_at.desc"
+    );
+    expectServiceHeaders(options.headers);
+    return jsonResponse([{ id: "project_1", name: "Launch" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.deepEqual(await db.listProjects("user_1"), [{ id: "project_1", name: "Launch" }]);
+  });
+});
+
 test("createAttachment POSTs attachment rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");
@@ -152,6 +167,7 @@ test("listOrphanAttachments selects only detached rows older than the cutoff", a
     assert.equal(parsed.pathname, "/rest/v1/attachments");
     assert.equal(parsed.searchParams.get("conversation_id"), "is.null");
     assert.equal(parsed.searchParams.get("message_id"), "is.null");
+    assert.equal(parsed.searchParams.get("or"), "(project_id.is.null,and(project_id.not.is.null,status.eq.pending))");
     assert.equal(parsed.searchParams.get("created_at"), "lt.2026-07-06T00:00:00.000Z");
     assert.equal(parsed.searchParams.get("order"), "created_at.asc");
     assert.equal(parsed.searchParams.get("limit"), "25");
@@ -205,7 +221,9 @@ test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
       p_size_bytes: 1234,
       p_etag: "etag-1",
       p_kind: "pdf",
-      p_limits: { max_pdf_pages: 100 }
+      p_limits: { max_pdf_pages: 100 },
+      p_project_id: null,
+      p_project_max_bytes: null
     });
 
     return new Response(JSON.stringify({

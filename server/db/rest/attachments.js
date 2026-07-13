@@ -50,6 +50,7 @@ export async function listOrphanAttachments(client, { before, limit = 100, signa
     query: {
       conversation_id: "is.null",
       message_id: "is.null",
+      or: "(project_id.is.null,and(project_id.not.is.null,status.eq.pending))",
       created_at: `lt.${before}`,
       select: "id,user_id,object_key,category,file_name,content_type,size_bytes,etag,created_at",
       order: "created_at.asc",

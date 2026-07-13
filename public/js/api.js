@@ -131,6 +131,49 @@ export async function listConversations(session) {
   return response.json();
 }
 
+export async function listProjects(session) {
+  const response = await apiFetch("/api/projects", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createProject(session, name) {
+  const response = await apiFetch("/api/projects", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchProject(session, id) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateProject(session, id, body) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteProject(session, id) {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function createConversation(session, body = {}) {
   const response = await apiFetch("/api/conversations", {
     session,
@@ -204,7 +247,7 @@ function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }
 
-export async function presignUpload(session, file, category = uploadCategory(file), { signal } = {}) {
+export async function presignUpload(session, file, category = uploadCategory(file), { signal, projectId = null } = {}) {
   const response = await apiFetch("/api/uploads/presign", {
     session,
     method: "POST",
@@ -213,7 +256,8 @@ export async function presignUpload(session, file, category = uploadCategory(fil
       fileName: file.name,
       contentType: file.type,
       sizeBytes: file.size,
-      category
+      category,
+      projectId
     }),
     signal
   });

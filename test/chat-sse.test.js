@@ -894,6 +894,30 @@ test("compare: provider requests include prior conversation history", async (t) 
   }
 });
 
+test("project knowledge cannot be rebound to an individual chat message", async () => {
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const attachmentId = "00000000-0000-4000-8000-000000000202";
+  db.getAttachment = async (_userId, id) => id === attachmentId ? {
+    id,
+    project_id: "00000000-0000-4000-8000-000000000201",
+    category: "image",
+    status: "uploaded",
+    file_name: "shared.png",
+    content_type: "image/png",
+    size_bytes: 100
+  } : null;
+
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Use the shared source", model: TEXT_MODEL, attachments: [attachmentId] }
+  });
+
+  assert.equal(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /Project knowledge is already available/);
+  assert.equal(db.calls.some((call) => call.op === "updateAttachment"), false);
+});
+
 test("client-keyed send persists one durable turn and fences the first provider call", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260713-response-actions-v1">
+    <link rel="stylesheet" href="/styles.css?v=20260713-projects-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -70,6 +70,12 @@
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </span>
                 <span class="sidebar-nav-label">Search chats</span>
+              </button>
+              <button class="sidebar-nav-item" id="projectsButton" type="button" aria-label="Projects" title="Projects">
+                <span class="sidebar-nav-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+                </span>
+                <span class="sidebar-nav-label">Projects</span>
               </button>
               <div class="sidebar-pin-wrap" id="sidebarPinWrap">
                 <button class="sidebar-nav-item sidebar-pin-trigger" id="pinnedChatsButton" type="button" aria-label="Pinned chats" aria-haspopup="menu" aria-expanded="false" title="Pinned chats">
@@ -178,6 +184,7 @@
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             </button>
           </header>
+          <section class="project-view hidden" id="projectView" aria-live="polite"></section>
           <section class="messages" id="messages" aria-live="polite"></section>
 
           <aside class="chat-prompt-nav hidden" id="chatPromptNav" aria-label="Conversation prompts">
@@ -205,6 +212,7 @@
 
           <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv" multiple class="sr-only">
           <input id="cameraFileInput" type="file" accept="image/*" capture="environment" class="sr-only">
+          <input id="projectFileInput" type="file" accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv" multiple class="sr-only">
 
           <section class="composer-area" aria-label="Message composer">
             <div class="composer-wrap">
@@ -548,6 +556,22 @@
         <div class="overlay" id="overlay" hidden></div>
       </div>
 
+      <dialog class="project-create-dialog" id="projectCreateDialog" aria-labelledby="projectCreateTitle">
+        <form method="dialog" id="projectCreateForm">
+          <div class="project-dialog-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+          </div>
+          <h2 id="projectCreateTitle">Create a project</h2>
+          <p>Keep related chats, instructions, and files together.</p>
+          <label for="projectNameInput">Project name</label>
+          <input id="projectNameInput" maxlength="80" autocomplete="off" placeholder="e.g. Product launch">
+          <div class="project-dialog-actions">
+            <button type="button" id="projectCreateCancel">Cancel</button>
+            <button type="submit" class="project-dialog-primary">Create project</button>
+          </div>
+        </form>
+      </dialog>
+
       <section class="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
         <header class="research-report-header">
           <button class="research-report-back" id="researchReportBack" type="button">Back to chat</button>
@@ -639,7 +663,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260713-response-actions-v1"></script>
+    <script type="module" src="/js/app.js?v=20260713-projects-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

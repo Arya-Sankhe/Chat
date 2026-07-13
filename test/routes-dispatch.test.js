@@ -139,6 +139,9 @@ const ROUTES = [
   { path: "/api/attachments/att-1", method: "DELETE", authKind: "chat" },
   { path: "/api/conversations", method: "GET", authKind: "chat" },
   { path: "/api/conversations", method: "POST", authKind: "chat" },
+  { path: "/api/projects", method: "GET", authKind: "chat" },
+  { path: "/api/projects", method: "POST", authKind: "chat" },
+  { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
   { path: "/api/research", method: "POST", authKind: "chat" },
   { path: "/api/research/run-1/status", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research/run-1/cancel", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -267,6 +270,56 @@ test("authenticated happy path works through stubbed dependencies", async () => 
   const res = await dispatch(authReadyConfig, { path: "/api/conversations", overrides });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { conversations: [{ id: "conv-1", title: "Hello" }] });
+});
+
+test("project detail reports source-byte capacity and scoped resources", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return { id: "project-1", name: "Launch" }; },
+      async listProjectAttachments() {
+        return [
+          { id: "a1", status: "uploaded", size_bytes: 1024 },
+          { id: "a2", status: "pending", size_bytes: 4096 }
+        ];
+      },
+      async listProjectDocuments() { return [{ id: "doc-1", project_id: "project-1" }]; },
+      async listProjectConversations() { return [{ id: "conv-1", project_id: "project-1" }]; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    path: "/api/projects/project-1",
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().usage.usedBytes, 1024);
+  assert.equal(res.json().usage.maxBytes, 100 * 1024 * 1024);
+  assert.deepEqual(res.json().documents, [{ id: "doc-1", project_id: "project-1" }]);
+  assert.deepEqual(res.json().conversations, [{ id: "conv-1", project_id: "project-1" }]);
+});
+
+test("project ownership is accepted only for document uploads", async () => {
+  let created = false;
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return { id: "project-1", name: "Launch" }; },
+      async createAttachment() { created = true; return { id: "upload-1" }; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/uploads/presign",
+    body: {
+      projectId: "project-1",
+      category: "image",
+      contentType: "image/png",
+      fileName: "photo.png",
+      sizeBytes: 10
+    },
+    overrides
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "Only documents can be added to project knowledge.");
+  assert.equal(created, false);
 });
 
 test("document upload completion queues extraction through one atomic RPC", async () => {
@@ -432,6 +485,7 @@ test("authenticated routes dispatch to their resource-specific handlers", async 
     { method: "GET", path: "/api/attachments/att-1/view", dbMethod: "getAttachment", result: null },
     { method: "DELETE", path: "/api/attachments/att-1", dbMethod: "getAttachment", result: null },
     { method: "POST", path: "/api/conversations", body: { title: "T" }, dbMethod: "createConversation", result: { id: "conv-1", title: "T" } },
+    { method: "GET", path: "/api/projects", dbMethod: "listProjects", result: [] },
     { method: "GET", path: "/api/research/run-1/status", dbMethod: "getResearchRun", result: null },
     { method: "GET", path: "/api/conversations/conv-1", dbMethod: "getConversation", result: null },
     { method: "DELETE", path: "/api/messages/msg-1", dbMethod: "listMessageAttachments", result: [] }

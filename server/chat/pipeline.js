@@ -177,6 +177,9 @@ async function loadUploadedAttachments(context, attachmentIds, req, plan, { requ
     if (!attachment || attachment.status !== "uploaded") {
       throw new HttpError(400, "One of the selected uploads is not ready.");
     }
+    if (attachment.project_id) {
+      throw new HttpError(409, "Project knowledge is already available to chats in that project.");
+    }
     if (attachment.category === "document") {
       const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
       if (!doc || (requireCapability && !documentHasUsableCapability(doc))) {
@@ -707,6 +710,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
   persistedUserMessage = null
 } = {}) {
   const includeReasoning = context.profile?.role === "admin";
+  const project = conversation.project_id
+    ? await context.db.getProject(context.user.id, conversation.project_id, { signal: req.signal })
+    : null;
 
   const councilEnabled = normalizeCouncilFlag(body.council);
   const compareModels = councilEnabled
@@ -804,6 +810,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
     responseAdjustment,
     retryAssistantContent
   );
+  if (project?.instructions) {
+    settings.systemPrompt = `${settings.systemPrompt || ""}\n\nProject instructions from the user:\n${project.instructions}`.trim();
+  }
   const providerCrofai = wrapProviderCallsWithTurnFence({
     crofai: { chatCompletion, streamChatCompletion },
     db: context.db,
@@ -898,8 +907,27 @@ async function executeConversationMessage(req, res, config, conversationId, {
     ? withCouncilSystemPrompt(settings.systemPrompt || "")
     : (settings.systemPrompt || "");
 
+  const documents = configuredServices(config).documents
+    ? new DocumentService({
+        config,
+        db: context.db,
+        r2: context.r2,
+        userId: context.user.id,
+        conversationId: conversation.id,
+        projectId: project?.id || null,
+        plan: context.plan,
+        signal: req.turnController?.signal || req.signal
+      })
+    : null;
+  const projectContextMessage = documents
+    ? await documents.smallProjectContext().catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return "";
+      })
+    : "";
+
   async function providerMessagesForModel(model) {
-    return buildProviderMessages({
+    const messages = await buildProviderMessages({
       messages: historyMessages,
       systemPrompt: stage1SystemPrompt,
       r2: context.r2,
@@ -907,6 +935,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
       contextConfig: config.context,
       summarizeHistory
     });
+    if (projectContextMessage) {
+      const lastUser = messages.findLastIndex((message) => message.role === "user");
+      messages.splice(lastUser < 0 ? messages.length : lastUser, 0, {
+        role: "user",
+        content: projectContextMessage
+      });
+    }
+    return messages;
   }
 
   const chatRequests = compareModels.length
@@ -958,17 +994,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
   const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
-  const documents = configuredServices(config).documents
-    ? new DocumentService({
-        config,
-        db: context.db,
-        r2: context.r2,
-        userId: context.user.id,
-        conversationId: conversation.id,
-        plan: context.plan,
-        signal: req.turnController?.signal || req.signal
-      })
-    : null;
   const promptText = contentText(userContent);
 
   if (councilEnabled || compareModels.length) {

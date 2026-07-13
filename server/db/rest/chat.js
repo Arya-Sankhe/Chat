@@ -5,17 +5,17 @@ export async function listConversations(client, userId, { signal } = {}) {
     query: {
       user_id: `eq.${userId}`,
       deleted_at: "is.null",
-      select: "id,title,model,created_at,updated_at",
+      select: "id,title,model,project_id,created_at,updated_at",
       order: "updated_at.desc"
     },
     signal
   });
 }
 
-export async function createConversation(client, userId, { title = "New chat", model = "" } = {}, { signal } = {}) {
+export async function createConversation(client, userId, { title = "New chat", model = "", projectId = null } = {}, { signal } = {}) {
   const rows = await client.request("conversations", {
     method: "POST",
-    body: { user_id: userId, title, model: model || null },
+    body: { user_id: userId, title, model: model || null, project_id: projectId || null },
     prefer: "return=representation",
     signal
   });
