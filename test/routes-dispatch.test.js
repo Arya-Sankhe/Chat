@@ -351,6 +351,63 @@ test("XLSX view returns extracted sheets without creating a PDF preview", async 
   }]);
 });
 
+test("generated prose document view returns its editable source", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getAttachment() {
+        return { id: "doc-attachment", status: "uploaded", file_name: "report.pdf", content_type: "application/pdf" };
+      },
+      async getDocumentFileByAttachment() {
+        return {
+          id: "doc-1",
+          kind: "pdf",
+          metadata: { editable: true, editor_markdown: "# Report\n\nBody", editor_revision: 3 }
+        };
+      }
+    }
+  });
+
+  const res = await dispatch(documentReadyConfig, {
+    path: "/api/attachments/doc-attachment/view",
+    overrides
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().kind, "editable");
+  assert.equal(res.json().markdown, "# Report\n\nBody");
+  assert.equal(res.json().revision, 3);
+});
+
+test("editable document saves canonical markdown into existing metadata", async () => {
+  let savedPatch = null;
+  const overrides = stubbedDeps({
+    db: {
+      async getDocumentFileByAttachment() {
+        return {
+          id: "doc-1",
+          metadata: { editable: true, editor_markdown: "# Before", editor_revision: 1 }
+        };
+      },
+      async updateDocumentFile(_userId, _documentId, patch) {
+        savedPatch = patch;
+        return { id: "doc-1" };
+      }
+    }
+  });
+
+  const res = await dispatch(documentReadyConfig, {
+    method: "PATCH",
+    path: "/api/attachments/doc-attachment/editor",
+    body: { markdown: "# After", revision: 1 },
+    overrides
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().revision, 2);
+  assert.equal(savedPatch.metadata.editor_markdown, "# After");
+  assert.equal(savedPatch.metadata.editor_revision, 2);
+});
+
 test("authenticated routes dispatch to their resource-specific handlers", async () => {
   const cases = [
     { method: "GET", path: "/api/payments/ziina", dbMethod: "listPaymentRequests", result: [] },

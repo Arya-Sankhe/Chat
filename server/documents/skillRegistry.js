@@ -2,7 +2,7 @@ const BASE_SKILLS = {
   "artifact-planner": [
     "Artifact planner:",
     "- Before creating a file, choose the smallest useful artifact type that matches the user's goal and requested format.",
-    "- Prefer DOCX for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
+    "- Prefer DOCX/Markdown for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
     "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
     "- Tool availability is not an instruction to create a file. Only call create_document when the user wants a downloadable/generated artifact, not when they only want an answer or summary.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
@@ -54,7 +54,7 @@ const SPECIALIZED_SKILLS = {
   ].join("\n"),
   "word-create": [
     "Professional Word document creation skill:",
-    "- Use create_document with format \"docx\" when the user asks for Word, DOCX, or an editable document.",
+    "- Use create_document with format \"docx\" when the user asks for Word/DOCX, and format \"md\" when they ask for Markdown. Both open in the editable document viewer.",
     "- First infer the document's audience, purpose, formality level, and likely use case. Choose an appropriate structure before writing.",
     "- Plan the DOCX as a real document before calling the tool: title, optional subtitle, key takeaway/summary, 2-6 meaningful sections, tables when useful, and a conclusion or next steps.",
     "- Prefer sections/tables/data fields over a single undifferentiated content blob when the output has multiple parts.",

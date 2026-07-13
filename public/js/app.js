@@ -10,6 +10,7 @@ import {
   deleteConversation,
   updateConversation,
   downloadAttachment,
+  exportEditableDocument,
   fetchAttachmentView,
   fetchAdminSummary,
   fetchConfig,
@@ -23,6 +24,7 @@ import {
   fetchResearchStatus,
   fetchZiinaPaymentRequests,
   listConversations,
+  saveEditableDocument,
   rejectAdminPayment,
   completeUpload,
   presignUpload,
@@ -175,6 +177,8 @@ const state = {
     url: "",
     sheets: [],
     activeSheet: 0,
+    markdown: "",
+    revision: 0,
     loading: false,
     error: ""
   }
@@ -2178,12 +2182,17 @@ const {
     documentViewerTitle: els.documentViewerTitle,
     documentViewerMeta: els.documentViewerMeta,
     documentViewerDownload: els.documentViewerDownload,
+    documentViewerDownloadMenu: document.querySelector("#documentViewerDownloadMenu"),
     documentViewerClose: els.documentViewerClose,
     documentViewerBody: els.documentViewerBody
   },
   state,
   fetchDocumentJobStatus,
   fetchAttachmentView,
+  saveEditableDocument,
+  exportEditableDocument,
+  downloadAttachment,
+  showToast,
   queueRenderMessages,
   escapeHtml,
   artifactListFromMessage,
@@ -5469,25 +5478,6 @@ function bindEvents() {
   });
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
-  els.documentViewerDownload?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    const attachmentId = state.viewer?.downloadAttachmentId || state.viewer?.attachmentId;
-    if (!attachmentId) return;
-    if (!state.session?.access_token) {
-      showToast("Please sign in to download.");
-      return;
-    }
-    const fileName = state.viewer?.fileName || els.documentViewerDownload.dataset.fileName || "download";
-    try {
-      els.documentViewerDownload.disabled = true;
-      await downloadAttachment(state.session, attachmentId, fileName);
-    } catch (err) {
-      showToast(err?.message || "Download failed.");
-    } finally {
-      els.documentViewerDownload.disabled = false;
-    }
-  });
-
   els.messages.addEventListener("click", async (e) => {
     const pastedCard = e.target.closest("[data-open-pasted-text]");
     if (pastedCard) {

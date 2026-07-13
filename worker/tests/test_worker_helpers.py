@@ -851,6 +851,37 @@ class PdftoppmCommandTest(unittest.TestCase):
 
 
 class DispatchRoutingTest(unittest.TestCase):
+    def test_store_generated_keeps_editable_markdown_for_prose_documents(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.r2 = mock.Mock()
+        processor.r2.upload.return_value = "etag-1"
+        processor.db = mock.Mock()
+        processor.db.create_attachment.return_value = {"id": "att-1", "file_name": "report.docx"}
+        processor.db.create_document_file.return_value = {"id": "doc-1"}
+        processor.extract = mock.Mock(return_value=([], {"word_count": 2}))
+        processor.object_key = mock.Mock(return_value="users/u/report.docx")
+        job = {
+            "id": "job-1",
+            "user_id": "user-1",
+            "conversation_id": "conversation-1",
+            "input": {"editor_markdown": "# Report\n\nEditable body."},
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "report.docx"
+            output.write_bytes(b"docx")
+            processor.store_generated(
+                job, Path(tmp), output, "docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "generated", None,
+            )
+
+        created = processor.db.create_document_file.call_args.args[0]
+        updated = processor.db.update_document_file.call_args.args[1]
+        self.assertTrue(created["metadata"]["editable"])
+        self.assertEqual(updated["metadata"]["editor_markdown"], "# Report\n\nEditable body.")
+        self.assertEqual(updated["metadata"]["editor_revision"], 1)
+
     def test_dispatch_routes_rev3_job_types(self):
         processor = w.Processor.__new__(w.Processor)
         processor.extract_job = mock.Mock(return_value={"ok": "extract"})

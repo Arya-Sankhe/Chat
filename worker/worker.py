@@ -2570,6 +2570,12 @@ class Processor:
         user_id = job["user_id"]
         input_data = job.get("input") or {}
         preview = bool(input_data.get("preview"))
+        editor_markdown = str(input_data.get("editor_markdown") or "").strip()
+        editor_metadata = {
+            "editor_markdown": editor_markdown,
+            "editor_revision": 1,
+            "editable": True,
+        } if editor_markdown and kind in ("docx", "pdf") and not preview else {}
         key = self.object_key(user_id, path.name)
         etag = self.r2.upload(key, path, content_type)
         attachment = self.db.create_attachment({
@@ -2596,7 +2602,7 @@ class Processor:
             "version_no": int(parent_doc.get("version_no", 0)) + 1 if parent_doc else 1,
             "source_etag": etag,
             "processing_status": "processing",
-            "metadata": {"generated_by_job": job["id"], **({"preview": True} if preview else {})},
+            "metadata": {"generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
         })
         chunks, meta = self.extract(path, kind, user_id, document_file["id"])
         self.db.insert_chunks(chunks)
@@ -2610,7 +2616,7 @@ class Processor:
             "word_count": meta.get("word_count"),
             "sheet_count": meta.get("sheet_count"),
             "used_cell_count": meta.get("used_cell_count"),
-            "metadata": {**meta, "generated_by_job": job["id"], **({"preview": True} if preview else {})},
+            "metadata": {**meta, "generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
             "error": None,
         })
         return {

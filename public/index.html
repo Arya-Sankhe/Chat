@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260713-drop-xlsx-v2">
+    <link rel="stylesheet" href="/styles.css?v=20260713-document-editor-v1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -315,6 +315,11 @@
             </div>
             <div class="document-viewer-actions">
               <button class="document-viewer-action hidden" id="documentViewerDownload" type="button" hidden>Download</button>
+              <div class="document-download-menu hidden" id="documentViewerDownloadMenu" role="menu">
+                <button type="button" role="menuitem" data-document-export="md"><span>Markdown</span><small>.md</small></button>
+                <button type="button" role="menuitem" data-document-export="docx"><span>Word</span><small>.docx</small></button>
+                <button type="button" role="menuitem" data-document-export="pdf"><span>PDF</span><small>.pdf</small></button>
+              </div>
               <button class="document-viewer-close" id="documentViewerClose" type="button" aria-label="Close viewer" title="Close">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
               </button>
@@ -582,7 +587,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260713-drop-xlsx-v2"></script>
+    <script type="module" src="/js/app.js?v=20260713-document-editor-v1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

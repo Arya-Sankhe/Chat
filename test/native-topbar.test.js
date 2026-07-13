@@ -79,7 +79,6 @@ test("the document viewer Download control is a <button> (not an <a>) so the And
 });
 
 test("the renderer wires the viewer's Download dataset to the same attachment id used by the Capacitor-aware download path", () => {
-  const appJs = readPublic("js/app.js");
   const documentViewerJs = readPublic("js/documentViewer.js");
   assert.match(
     documentViewerJs,
@@ -87,17 +86,17 @@ test("the renderer wires the viewer's Download dataset to the same attachment id
     "viewer download dataset.attachmentId assignment missing"
   );
   assert.match(
-    appJs,
+    documentViewerJs,
     /documentViewerDownload\?\.addEventListener\(\s*"click"/,
     "viewer download click handler missing"
   );
   assert.match(
-    appJs,
-    /await\s+downloadAttachment\(state\.session,\s*attachmentId,\s*fileName\)/,
+    documentViewerJs,
+    /await\s+downloadAttachment\(state\.session,\s*attachmentId,/,
     "viewer download click should call downloadAttachment"
   );
   assert.doesNotMatch(
-    appJs,
+    documentViewerJs,
     /documentViewerDownload\.href\s*=/,
     "viewer download must not set an href (it is now a <button>)"
   );

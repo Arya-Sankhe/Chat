@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DocumentService, buildUntrustedDocumentContext } from "../server/documents/index.js";
+import { DocumentService, buildEditableMarkdown, buildUntrustedDocumentContext } from "../server/documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../server/documents/skills.js";
 import { buildDocumentTools, executeDocumentToolCall } from "../server/documents/tool.js";
 
@@ -9,6 +9,22 @@ const userId = "00000000-0000-4000-8000-000000000001";
 const conversationId = "00000000-0000-4000-8000-000000000002";
 const attachmentId = "00000000-0000-4000-8000-000000000003";
 const documentFileId = "00000000-0000-4000-8000-000000000004";
+
+test("buildEditableMarkdown preserves prose, sections, and structured tables", () => {
+  assert.equal(buildEditableMarkdown({
+    title: "Cost report",
+    content: "Intro paragraph.",
+    sections: [{ title: "Finding", content: "The result." }],
+    tables: [{ title: "Totals", headers: ["Item", "Cost"], rows: [["VPS", "$48"]] }]
+  }), [
+    "# Cost report",
+    "Intro paragraph.",
+    "## Finding",
+    "The result.",
+    "## Totals",
+    "| Item | Cost |\n| --- | --- |\n| VPS | $48 |"
+  ].join("\n\n"));
+});
 
 function documentServiceWithDb(db) {
   return new DocumentService({
@@ -240,6 +256,14 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   assert.doesNotMatch(excelHint, /Professional Word document creation skill/);
   assert.doesNotMatch(excelHint, /Professional PDF creation skill/);
   assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
+});
+
+test("Markdown requests use the editable document creation path", () => {
+  const selection = selectDocumentSkills({ text: "create a Markdown file with this report", readyDocuments: [] });
+  const tool = buildDocumentTools({ toolNames: selection.toolNames }).find((entry) => entry.function.name === "create_document");
+  assert.ok(tool);
+  assert.deepEqual(tool.function.parameters.properties.format.enum, ["md", "docx", "xlsx", "pptx", "pdf"]);
+  assert.match(buildDocumentSystemHint({ readyDocuments: [], selection }), /format "md" when they ask for Markdown/);
 });
 
 test("buildDocumentSystemHint injects presentation guidance and exposes PPTX creation", () => {

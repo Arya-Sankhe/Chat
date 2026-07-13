@@ -25,6 +25,45 @@ function truncate(value, maxChars) {
   return `${text.slice(0, Math.max(0, maxChars - 24))}\n...[truncated]`;
 }
 
+function markdownTable(table) {
+  const headers = Array.isArray(table?.headers) ? table.headers : [];
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  if (!headers.length && !rows.length) return "";
+  const width = Math.max(headers.length, ...rows.map((row) => Array.isArray(row) ? row.length : 0));
+  if (!width) return "";
+  const cleanCell = (value) => String(value ?? "").replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+  const head = Array.from({ length: width }, (_, index) => cleanCell(headers[index] ?? `Column ${index + 1}`));
+  const body = rows.map((row) => Array.from({ length: width }, (_, index) => cleanCell(row?.[index])));
+  return [
+    `| ${head.join(" | ")} |`,
+    `| ${head.map(() => "---").join(" | ")} |`,
+    ...body.map((row) => `| ${row.join(" | ")} |`)
+  ].join("\n");
+}
+
+export function buildEditableMarkdown({ title, content, sections, tables } = {}) {
+  const parts = [];
+  const heading = clean(title);
+  const body = clean(content);
+  const firstHeading = body.match(/^#{1,3}\s+(.+)$/m)?.[1] || "";
+  const comparable = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (heading && comparable(firstHeading) !== comparable(heading)) parts.push(`# ${heading}`);
+  if (body) parts.push(body);
+  for (const section of Array.isArray(sections) ? sections : []) {
+    const sectionTitle = clean(section?.heading || section?.title);
+    const sectionBody = clean(section?.content || section?.text || section?.body);
+    if (sectionTitle) parts.push(`## ${sectionTitle}`);
+    if (sectionBody) parts.push(sectionBody);
+  }
+  for (const table of Array.isArray(tables) ? tables : []) {
+    const tableTitle = clean(table?.title || table?.caption);
+    const rendered = markdownTable(table);
+    if (tableTitle) parts.push(`## ${tableTitle}`);
+    if (rendered) parts.push(rendered);
+  }
+  return parts.join("\n\n").trim().slice(0, 200_000);
+}
+
 function documentTitle(documentFile) {
   return documentFile?.attachments?.file_name || documentFile?.file_name || "Document";
 }
@@ -714,23 +753,29 @@ export class DocumentService {
   }
 
   async createDocument({ format, title, instructions, content, sections, tables, data } = {}) {
-    const normalizedFormat = inferCreateFormat(format, title, instructions);
+    const requestedFormat = inferCreateFormat(format, title, instructions);
+    const normalizedFormat = requestedFormat === "md" ? "docx" : requestedFormat;
     if (!["docx", "xlsx", "pptx", "pdf"].includes(normalizedFormat)) {
-      throw new HttpError(400, "create_document format must be docx, xlsx, pptx, or pdf.");
+      throw new HttpError(400, "create_document format must be md, docx, xlsx, pptx, or pdf.");
     }
     const resolvedContent = await this.resolveCreateContent({ content, instructions, sections, data });
+    const editorMarkdown = ["docx", "pdf"].includes(normalizedFormat)
+      ? buildEditableMarkdown({ title, content: resolvedContent.content, sections, tables })
+      : "";
     return this.enqueueAndWait({
       jobType: `document.create.${normalizedFormat}`,
       generatedCount: 1,
       input: {
         format: normalizedFormat,
+        requested_format: requestedFormat,
         title: clean(title).slice(0, 200),
         instructions: clean(instructions).slice(0, 30_000),
         content: resolvedContent.content,
         content_source: resolvedContent.source,
         sections: Array.isArray(sections) ? sections.slice(0, 50) : [],
         tables: Array.isArray(tables) ? tables.slice(0, 20) : [],
-        data: data && typeof data === "object" ? data : {}
+        data: data && typeof data === "object" ? data : {},
+        editor_markdown: editorMarkdown
       }
     });
   }

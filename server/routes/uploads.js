@@ -1,6 +1,7 @@
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
+import { DocumentService } from "../documents/index.js";
 import { requireChatContext } from "./context.js";
 
 export function documentKindFromUpload({ fileName, contentType }) {
@@ -251,6 +252,31 @@ function sheetViewPayload(attachment, chunks) {
   };
 }
 
+function editableViewPayload(attachment, doc) {
+  return {
+    status: "ready",
+    fileName: attachment.file_name,
+    contentType: attachment.content_type,
+    kind: "editable",
+    sourceKind: doc.kind,
+    attachmentId: attachment.id,
+    markdown: String(doc.metadata?.editor_markdown || ""),
+    revision: Number(doc.metadata?.editor_revision || 1)
+  };
+}
+
+function editableDocumentTitle(fileName) {
+  return String(fileName || "Document").replace(/\.(md|docx|pdf)$/i, "").trim() || "Document";
+}
+
+async function requireEditableDocument(context, attachmentId, signal) {
+  const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachmentId, { signal });
+  if (!doc || doc.metadata?.editable !== true || !String(doc.metadata?.editor_markdown || "").trim()) {
+    throw new HttpError(404, "Editable document source was not found.");
+  }
+  return doc;
+}
+
 export async function handleAttachmentView(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -258,6 +284,14 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
 
   const kind = attachmentDocumentKind(attachment);
+  const doc = ["pdf", "docx"].includes(kind) && configuredServices(config).documents
+    ? await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal })
+    : null;
+
+  if (doc?.metadata?.editable === true && String(doc.metadata?.editor_markdown || "").trim()) {
+    sendJson(res, 200, editableViewPayload(attachment, doc));
+    return;
+  }
 
   if (kind === "pdf") {
     sendJson(res, 200, inlineViewPayload(context, attachment, { sourceKind: "pdf" }));
@@ -271,11 +305,11 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
     throw new HttpError(503, "Document previews are not configured.");
   }
 
-  const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
-  if (!doc) throw new HttpError(404, "Document metadata not found.");
+  const documentFile = doc || await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
+  if (!documentFile) throw new HttpError(404, "Document metadata not found.");
 
-  if (kind === "xlsx" && doc.text_ready_at) {
-    const chunks = await context.db.listDocumentChunks(context.user.id, doc.id, {
+  if (kind === "xlsx" && documentFile.text_ready_at) {
+    const chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
       sourceType: "sheet",
       limit: config.documents.maxXlsxSheets,
       signal: req.signal
@@ -286,25 +320,25 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
     }
   }
 
-  const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, doc.id, { signal: req.signal });
+  const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, documentFile.id, { signal: req.signal });
   if (cached?.attachments?.status === "uploaded" && cached.attachments.object_key) {
     sendJson(res, 200, inlineViewPayload(context, cached.attachments, { sourceKind: kind }));
     return;
   }
 
-  const active = await context.db.getActivePdfPreviewJob(context.user.id, doc.id, { signal: req.signal });
+  const active = await context.db.getActivePdfPreviewJob(context.user.id, documentFile.id, { signal: req.signal });
   const job = active || await context.db.createDocumentJob({
     user_id: context.user.id,
-    document_file_id: doc.id,
-    conversation_id: doc.conversation_id,
-    message_id: doc.message_id || null,
+    document_file_id: documentFile.id,
+    conversation_id: documentFile.conversation_id,
+    message_id: documentFile.message_id || null,
     job_type: `document.export.${kind}_to_pdf`,
     priority: -5,
     input: {
       target_format: "pdf",
       preview: true,
       attachment_id: attachment.id,
-      document_file_id: doc.id,
+      document_file_id: documentFile.id,
       output_file_name: pdfPreviewFileName(attachment.file_name)
     }
   }, { signal: req.signal });
@@ -315,6 +349,79 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
     fileName: pdfPreviewFileName(attachment.file_name),
     kind: "pdf",
     sourceKind: kind
+  });
+}
+
+export async function handleDocumentEditor(req, res, config, attachmentId) {
+  if (req.method !== "PATCH") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const doc = await requireEditableDocument(context, attachmentId, req.signal);
+  const body = await parseJsonBody(req, 256 * 1024);
+  const markdown = String(body.markdown || "").trim();
+  if (!markdown) throw new HttpError(400, "Document content cannot be empty.");
+  if (markdown.length > 200_000) throw new HttpError(413, "Document content is too large.");
+  const currentRevision = Number(doc.metadata?.editor_revision || 1);
+  if (body.revision !== undefined && Number(body.revision) !== currentRevision) {
+    throw new HttpError(409, "This document was changed elsewhere. Reopen it before saving.");
+  }
+  const revision = currentRevision + 1;
+  await context.db.updateDocumentFile(context.user.id, doc.id, {
+    metadata: { ...doc.metadata, editor_markdown: markdown, editor_revision: revision }
+  }, { signal: req.signal });
+  sendJson(res, 200, { saved: true, revision });
+}
+
+export async function handleDocumentEditorExport(req, res, config, attachmentId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
+  if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
+  const doc = await requireEditableDocument(context, attachmentId, req.signal);
+  const body = await parseJsonBody(req, 256 * 1024);
+  const format = String(body.format || "").toLowerCase();
+  if (!["docx", "pdf"].includes(format)) throw new HttpError(400, "Export format must be docx or pdf.");
+  const markdown = String(body.markdown || doc.metadata.editor_markdown || "").trim();
+  if (!markdown || markdown.length > 200_000) throw new HttpError(400, "Document content cannot be exported.");
+  const documents = new DocumentService({
+    config,
+    db: context.db,
+    r2: context.r2,
+    userId: context.user.id,
+    conversationId: doc.conversation_id,
+    plan: context.plan,
+    signal: req.signal
+  });
+  const title = editableDocumentTitle(attachment.file_name);
+  const result = await documents.enqueueAndWait({
+    jobType: `document.create.${format}`,
+    generatedCount: 1,
+    input: {
+      format,
+      title,
+      instructions: "Export the edited document faithfully.",
+      content: markdown,
+      content_source: "editor",
+      sections: [],
+      tables: [],
+      data: {},
+      editor_markdown: markdown
+    }
+  });
+  const output = result.output || {};
+  if (result.pending) {
+    sendJson(res, 202, { status: "processing", jobId: result.job?.id || output.job_id });
+    return;
+  }
+  if (!result.ok || !output.attachment_id) {
+    throw new HttpError(502, result.error?.message || "Document export failed.");
+  }
+  sendJson(res, 200, {
+    status: "ready",
+    artifact: {
+      attachment_id: output.attachment_id,
+      file_name: output.file_name,
+      format: output.kind
+    }
   });
 }
 

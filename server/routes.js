@@ -22,6 +22,8 @@ import {
   handleAttachmentView,
   handleCompleteUpload,
   handleDocumentJobStatus,
+  handleDocumentEditor,
+  handleDocumentEditorExport,
   handleDocumentStatus,
   handlePresignUpload,
   handleUploadContent
@@ -149,6 +151,16 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "view") {
       await handleAttachmentView(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "editor" && !parts[4]) {
+      await handleDocumentEditor(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "attachments" && parts[2] && parts[3] === "editor" && parts[4] === "export") {
+      await handleDocumentEditorExport(req, res, config, parts[2]);
       return;
     }
 

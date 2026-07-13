@@ -309,6 +309,28 @@ export async function fetchAttachmentView(session, attachmentId) {
   return response.json();
 }
 
+export async function saveEditableDocument(session, attachmentId, markdown, revision) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown, revision })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function exportEditableDocument(session, attachmentId, format, markdown) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format, markdown })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 /**
  * Authenticated download: ask the API for a short-lived signed URL and
  * navigate to it. The presigned URL carries its own auth in the query

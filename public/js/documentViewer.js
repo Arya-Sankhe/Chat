@@ -1,8 +1,14 @@
+import { mountDocumentEditor } from "./documentEditor.js";
+
 export function createDocumentViewer({
   elements,
   state,
   fetchDocumentJobStatus,
   fetchAttachmentView,
+  saveEditableDocument,
+  exportEditableDocument,
+  downloadAttachment,
+  showToast,
   queueRenderMessages,
   escapeHtml,
   artifactListFromMessage,
@@ -15,6 +21,11 @@ export function createDocumentViewer({
   let documentViewerPoll = null;
   let pdfJsPromise = null;
   let pdfRenderToken = 0;
+  let editorController = null;
+  let editorAttachmentId = "";
+  let editorSaveTimer = null;
+  let editorSavePromise = null;
+  let pendingMarkdown = "";
 
   function findPendingArtifacts() {
     const out = [];
@@ -144,6 +155,7 @@ export function createDocumentViewer({
     if (state.viewer.loading && state.viewer.jobId) return `${format || "DOCUMENT"} preview is being prepared`;
     if (state.viewer.loading) return "Loading preview";
     if (state.viewer.error) return "Preview unavailable";
+    if (state.viewer.kind === "editable") return `${format || "DOCUMENT"} · EDITABLE`;
     if (state.viewer.sheets?.length) return `${format || "XLSX"} · ${state.viewer.sheets.length} sheet${state.viewer.sheets.length === 1 ? "" : "s"}`;
     return format ? `${format} preview` : "Preview";
   }
@@ -189,8 +201,12 @@ export function createDocumentViewer({
 
     const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
     const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
+    const editable = viewer.kind === "editable";
     elements.documentViewerDownload.classList.toggle("hidden", !downloadHref);
     elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref);
+    elements.documentViewerDownload.innerHTML = editable ? "Download <span aria-hidden=\"true\">&#8964;</span>" : "Download";
+    elements.documentViewerDownload.setAttribute("aria-expanded", String(editable && !elements.documentViewerDownloadMenu?.classList.contains("hidden")));
+    if (!editable) elements.documentViewerDownloadMenu?.classList.add("hidden");
     if (downloadHref) {
       // Anchor attrs no longer apply (the element is now a <button> so the
       // WebView does not open the Android share sheet). Click handler reads
@@ -203,6 +219,7 @@ export function createDocumentViewer({
     }
 
     if (!viewer.open) {
+      destroyEditor();
       delete elements.documentViewerBody.dataset.pdfUrl;
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
       return;
@@ -218,6 +235,11 @@ export function createDocumentViewer({
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
       return;
     }
+    if (editable) {
+      renderEditableDocument();
+      return;
+    }
+    destroyEditor();
     if (viewer.sheets?.length) {
       renderSheetViewer();
       return;
@@ -227,6 +249,80 @@ export function createDocumentViewer({
       return;
     }
     elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Preview is not available for this document.</div>`;
+  }
+
+  function destroyEditor() {
+    if (editorSaveTimer) clearTimeout(editorSaveTimer);
+    editorSaveTimer = null;
+    editorController?.destroy();
+    editorController = null;
+    editorAttachmentId = "";
+    pendingMarkdown = "";
+  }
+
+  function markEditorStatus(label) {
+    if (state.viewer.kind === "editable") elements.documentViewerMeta.textContent = `${String(state.viewer.sourceKind || "DOCUMENT").toUpperCase()} · ${label}`;
+  }
+
+  async function saveEditorNow() {
+    if (editorSavePromise) await editorSavePromise;
+    if (!editorController || !pendingMarkdown || !state.session?.access_token) return;
+    if (editorSaveTimer) clearTimeout(editorSaveTimer);
+    editorSaveTimer = null;
+    const markdown = pendingMarkdown;
+    pendingMarkdown = "";
+    markEditorStatus("SAVING");
+    editorSavePromise = (async () => {
+      const result = await saveEditableDocument(
+        state.session,
+        state.viewer.attachmentId,
+        markdown,
+        state.viewer.revision
+      );
+      state.viewer.revision = Number(result.revision || state.viewer.revision);
+      state.viewer.markdown = markdown;
+      markEditorStatus("SAVED");
+    })();
+    try {
+      await editorSavePromise;
+    } catch (error) {
+      if (!pendingMarkdown) pendingMarkdown = markdown;
+      markEditorStatus("SAVE FAILED");
+      showToast?.(error.message || "Document save failed.");
+      throw error;
+    } finally {
+      editorSavePromise = null;
+    }
+  }
+
+  async function renderEditableDocument() {
+    if (editorController && editorAttachmentId === state.viewer.attachmentId) return;
+    destroyEditor();
+    const attachmentId = state.viewer.attachmentId;
+    editorAttachmentId = attachmentId;
+    elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>Loading editor…</div>`;
+    try {
+      const mounted = await mountDocumentEditor({
+        container: elements.documentViewerBody,
+        markdown: state.viewer.markdown,
+        onChange: (markdown) => {
+          pendingMarkdown = markdown;
+          markEditorStatus("UNSAVED");
+          if (editorSaveTimer) clearTimeout(editorSaveTimer);
+          editorSaveTimer = setTimeout(() => saveEditorNow().catch(() => {}), 900);
+        }
+      });
+      if (!state.viewer.open || state.viewer.attachmentId !== attachmentId) {
+        mounted.destroy();
+        destroyEditor();
+        return;
+      }
+      editorController = mounted;
+      markEditorStatus("SAVED");
+    } catch (error) {
+      editorController = null;
+      elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">${escapeHtml(error.message || "The editor could not be loaded.")}</div>`;
+    }
   }
 
   async function loadPdfJs() {
@@ -390,7 +486,7 @@ export function createDocumentViewer({
       pollDocumentPreviewJob(payload.jobId);
       return;
     }
-    if (!payload.url && !payload.sheets?.length) throw new Error("Preview was not returned.");
+    if (!payload.url && !payload.sheets?.length && !payload.markdown) throw new Error("Preview was not returned.");
     stopDocumentPreviewPoll();
     setDocumentViewerState({
       open: true,
@@ -403,6 +499,8 @@ export function createDocumentViewer({
       url: payload.url || "",
       sheets: Array.isArray(payload.sheets) ? payload.sheets : [],
       activeSheet: 0,
+      markdown: String(payload.markdown || ""),
+      revision: Number(payload.revision || 0),
       loading: false,
       error: ""
     });
@@ -421,6 +519,8 @@ export function createDocumentViewer({
       url: "",
       sheets: [],
       activeSheet: 0,
+      markdown: "",
+      revision: 0,
       loading: true,
       error: ""
     });
@@ -431,7 +531,12 @@ export function createDocumentViewer({
     }
   }
 
-  function closeDocumentViewer() {
+  async function closeDocumentViewer() {
+    if (editorController) {
+      pendingMarkdown = editorController.getMarkdown();
+      await saveEditorNow().catch(() => {});
+    }
+    destroyEditor();
     stopDocumentPreviewPoll();
     pdfRenderToken += 1;
     if (elements.documentViewerBody) delete elements.documentViewerBody.dataset.pdfUrl;
@@ -446,6 +551,8 @@ export function createDocumentViewer({
       url: "",
       sheets: [],
       activeSheet: 0,
+      markdown: "",
+      revision: 0,
       loading: false,
       error: ""
     });
@@ -455,6 +562,78 @@ export function createDocumentViewer({
     const tab = event.target.closest("[data-sheet-index]");
     if (!tab) return;
     setDocumentViewerState({ activeSheet: Number(tab.dataset.sheetIndex) || 0 });
+  });
+
+  function markdownFileName() {
+    return String(state.viewer.fileName || "document").replace(/\.(docx|pdf|md)$/i, "") + ".md";
+  }
+
+  function downloadMarkdown(markdown) {
+    const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = markdownFileName();
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function waitForExport(jobId) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const payload = await fetchDocumentJobStatus(state.session, jobId);
+      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) return payload.artifact;
+      if (["failed", "expired"].includes(payload?.job?.status)) throw new Error(payload.job.error?.message || "Export failed.");
+    }
+    throw new Error("Export is still processing. Try again shortly.");
+  }
+
+  async function exportEditable(format) {
+    const markdown = editorController?.getMarkdown() || state.viewer.markdown;
+    if (!markdown) return;
+    if (format === "md") {
+      downloadMarkdown(markdown);
+      return;
+    }
+    await saveEditorNow();
+    const result = await exportEditableDocument(state.session, state.viewer.attachmentId, format, markdown);
+    const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
+    if (!artifact?.attachment_id) throw new Error("Export did not return a file.");
+    await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `document.${format}`);
+  }
+
+  elements.documentViewerDownload?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    if (state.viewer.kind === "editable") {
+      elements.documentViewerDownloadMenu?.classList.toggle("hidden");
+      elements.documentViewerDownload.setAttribute("aria-expanded", String(!elements.documentViewerDownloadMenu?.classList.contains("hidden")));
+      return;
+    }
+    const attachmentId = state.viewer.downloadAttachmentId || state.viewer.attachmentId;
+    if (!attachmentId || !state.session?.access_token) return showToast?.("Please sign in to download.");
+    try {
+      elements.documentViewerDownload.disabled = true;
+      await downloadAttachment(state.session, attachmentId, state.viewer.fileName || "download");
+    } catch (error) {
+      showToast?.(error.message || "Download failed.");
+    } finally {
+      elements.documentViewerDownload.disabled = false;
+    }
+  });
+
+  elements.documentViewerDownloadMenu?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-document-export]");
+    if (!button) return;
+    elements.documentViewerDownloadMenu.classList.add("hidden");
+    try {
+      elements.documentViewerDownload.disabled = true;
+      await exportEditable(button.dataset.documentExport);
+    } catch (error) {
+      showToast?.(error.message || "Export failed.");
+    } finally {
+      elements.documentViewerDownload.disabled = false;
+    }
   });
 
   function setDocumentViewerWidth(width) {

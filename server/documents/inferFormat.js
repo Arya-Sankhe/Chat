@@ -9,9 +9,11 @@ export function inferCreateFormat(format, ...hints) {
   const asksPdf = /\b(pdf\s+(file|document)|as\s+a\s+pdf|create\s+a\s+pdf|make\s+a\s+pdf|generate\s+a\s+pdf|\.pdf\b)/.test(text);
   const asksSheet = /\b(xlsx\s+(file|document)|excel\s+(file|sheet|workbook)|spreadsheet|workbook|\.xlsx\b)/.test(text);
   const asksSlides = /\b(pptx\s+(file|deck|presentation)|powerpoint|slides?|deck|presentation|\.pptx\b)/.test(text);
+  const asksMarkdown = /\b(markdown\s+(file|document)|as\s+markdown|\.md\b)/.test(text);
   if (asksWord) return "docx";
   if (asksSheet) return "xlsx";
   if (asksSlides) return "pptx";
+  if (asksMarkdown) return "md";
   if (asksPdf) return "pdf";
   return normalized;
 }

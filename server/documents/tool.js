@@ -95,11 +95,11 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new DOCX, XLSX, PPTX, or PDF artifact for the user. When creating a text document or deck, include the complete content that should appear in the artifact; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. Use format docx for Word documents, pptx for slide decks, and pdf only for PDFs.",
+        description: "Create a new editable text document, DOCX, XLSX, PPTX, or PDF artifact for the user. Use md for Markdown requests; prose documents can be edited in the viewer and downloaded as Markdown, Word, or PDF. Include the complete content; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array.",
         parameters: {
           type: "object",
           properties: {
-            format: { type: "string", enum: ["docx", "xlsx", "pptx", "pdf"] },
+            format: { type: "string", enum: ["md", "docx", "xlsx", "pptx", "pdf"] },
             title: { type: "string" },
             theme: { type: "string", enum: ["clean", "business", "academic"], description: "Optional visual theme. Use academic for school/research/coursework, business for strategy/reports/proposals/dashboards, and clean otherwise." },
             instructions: { type: "string", description: "Formatting or construction instructions for the worker." },

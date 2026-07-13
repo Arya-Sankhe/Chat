@@ -51,6 +51,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksWord = /\b(word\s+(doc|document|file)|docx|\.docx)\b/i.test(prompt);
   const asksExcel = /\b(excel|xlsx|spreadsheet|workbook|worksheet|csv|tsv|\.xlsx|\.csv|\.tsv)\b/i.test(prompt);
   const asksPpt = /\b(powerpoint|ppt|pptx|slides?|deck|presentation)\b/i.test(prompt);
+  const asksMarkdown = /\b(markdown|\.md)\b/i.test(prompt);
   const asksGenericDocument = /\b(document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
   const hasReadyVisualDocument = (readyDocuments || []).some((doc) => (
     doc?.kind === "pdf"
@@ -65,9 +66,11 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     || (fileDeliveryAction && /\b(excel\s+(file|sheet|workbook)|xlsx\s+(file|document)|spreadsheet|workbook|\.xlsx|\.csv|\.tsv)\b/i.test(prompt));
   const pptOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?(powerpoint|pptx?|slides?|deck|presentation)\b/i.test(prompt)
     || (fileDeliveryAction && /\b(powerpoint\s+(file|deck|presentation)|pptx?\s+(file|deck)|slide\s+deck|deck|presentation|\.pptx?)\b/i.test(prompt));
-  const explicitArtifactFormat = asksPdf || asksWord || asksExcel || asksPpt;
+  const markdownOutput = /\b(create|make|generate|draft|write|build|produce|give|send|provide|prepare|share|attach|deliver|download|export)\s+(an?\s+)?markdown\b/i.test(prompt)
+    || (fileDeliveryAction && /\b(markdown\s+(file|document)|\.md)\b/i.test(prompt));
+  const explicitArtifactFormat = asksPdf || asksWord || asksExcel || asksPpt || asksMarkdown;
   const artifactTaskIntent = createAction || fileDeliveryAction || mentionsExisting || readAction;
-  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || (explicitArtifactFormat && artifactTaskIntent);
+  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || markdownOutput || (explicitArtifactFormat && artifactTaskIntent);
 
   const skills = new Set();
   const tools = new Set();
@@ -102,7 +105,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
       skills.add("pdf-create");
       tools.add("create_document");
     }
-    if (asksWord || (!explicitArtifactFormat && createAction && asksGenericDocument)) {
+    if (asksWord || asksMarkdown || (!explicitArtifactFormat && createAction && asksGenericDocument)) {
       skills.add("word-create");
       tools.add("create_document");
     }
@@ -155,7 +158,7 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
   }
 
   if ((selection.toolNames || []).includes("create_document")) {
-    sections.push("Capability check: create_document can create downloadable DOCX, XLSX, PPTX, and PDF files. Do not claim you lack this capability when this tool is available; call it for requested artifacts or explain the real tool error if it fails.");
+    sections.push("Capability check: create_document can create downloadable DOCX, XLSX, PPTX, and PDF files plus editable Markdown documents. Do not claim you lack this capability when this tool is available; call it for requested artifacts or explain the real tool error if it fails.");
   }
 
   sections.push("When a document tool returns output.download_url, mention the generated file briefly. The app will render a download card from tool metadata.");
