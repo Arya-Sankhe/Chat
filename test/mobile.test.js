@@ -283,6 +283,8 @@ test("sent images can open in the existing lightbox", async () => {
 test("narrow browser layout uses a drawer header and unclipped model menu", async () => {
   const source = readStylesheet();
   assert.match(source, /@media \(max-width: 860px\)/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-menu \{[\s\S]*display: inline-flex !important/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.native-nav-backdrop \{[\s\S]*transition: opacity 160ms var\(--ease-out\)/);
   assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
   assert.match(source, /body\.sidebar-open \.sidebar-nav-label/);
   assert.match(source, /body\.sidebar-open \.conversation-row/);

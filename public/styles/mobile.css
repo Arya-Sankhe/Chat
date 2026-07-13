@@ -3745,3 +3745,59 @@ body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact
   transition: opacity var(--motion-medium) var(--ease-out), transform var(--motion-medium) var(--ease-out);
 }
 
+/* Narrow web: reuse the existing navigation drawer as a light floating menu. */
+@media (max-width: 860px) {
+  body:not(.capacitor-native) .native-mobile-menu {
+    display: inline-flex !important;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    transition: transform 140ms var(--ease-out), background-color 140ms ease;
+  }
+
+  body:not(.capacitor-native) .native-mobile-menu:hover {
+    background: var(--bg-secondary);
+  }
+
+  body:not(.capacitor-native) .native-mobile-menu:active {
+    transform: scale(.96);
+  }
+
+  body:not(.capacitor-native) .sidebar,
+  body:not(.capacitor-native).guest-mode .sidebar {
+    transition: transform 220ms cubic-bezier(.32, .72, 0, 1), visibility 0s linear 220ms;
+  }
+
+  body:not(.capacitor-native).sidebar-open .sidebar,
+  body:not(.capacitor-native).guest-mode.sidebar-open .sidebar {
+    transition: transform 220ms cubic-bezier(.32, .72, 0, 1), visibility 0s;
+  }
+
+  body:not(.capacitor-native) .native-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+    display: block;
+    border: 0;
+    background: rgba(0, 0, 0, .24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms var(--ease-out);
+  }
+
+  body:not(.capacitor-native).sidebar-open .native-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 860px) and (prefers-reduced-motion: reduce) {
+  body:not(.capacitor-native) .sidebar,
+  body:not(.capacitor-native).guest-mode .sidebar {
+    transition-duration: 0ms;
+  }
+
+  body:not(.capacitor-native) .native-nav-backdrop {
+    transition-duration: 100ms;
+  }
+}
