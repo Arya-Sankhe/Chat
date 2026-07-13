@@ -226,18 +226,19 @@ export function createResearchController({
       if (generation !== researchPollGeneration) return;
       const run = payload.run;
       updateResearchMessage(run);
-      renderMessages();
+      const messageVisible = state.messages.some((entry) => String(entry.id) === String(run.messageId));
+      if (messageVisible) renderMessages();
       if (["queued", "running"].includes(run.status)) {
         state.activeResearchId = run.id;
-        setRunning(true);
+        setRunning(true, run.conversationId);
         researchPollTimer = setTimeout(() => pollResearch(run.id, 0, generation), 2000);
         return;
       }
       state.activeResearchId = "";
-      setRunning(false);
+      setRunning(false, run.conversationId);
       await Promise.all([loadMe(), loadConversations()]).catch(() => {});
       if (generation !== researchPollGeneration) return;
-      renderShell();
+      if (messageVisible) renderShell();
     } catch (error) {
       if (generation !== researchPollGeneration) return;
       if (failedAttempts < 1 && state.session) {
@@ -254,6 +255,7 @@ export function createResearchController({
     clearTimeout(researchPollTimer);
     researchPollTimer = null;
     researchPollGeneration += 1;
+    state.activeResearchId = "";
   }
 
   function abandonResearchPolling() {
@@ -275,13 +277,13 @@ export function createResearchController({
       return meta?.runId && ["queued", "running"].includes(meta.status);
     });
     if (running) {
-      void pollResearch(running.metadata.research.runId);
+      state.activeResearchId = running.metadata.research.runId;
+      void pollResearch(state.activeResearchId);
       return;
     }
-    // Conversation switch / resume with no active run: drop stale research UI lock.
-    const hadActiveResearch = Boolean(state.activeResearchId);
+    // Another conversation may still own an active research run; only clear the
+    // local stop target. Do not clear a global/composer lock for that other chat.
     state.activeResearchId = "";
-    if (hadActiveResearch) setRunning(false);
   }
 
   function applyResearchRunUpdate(run) {
@@ -327,7 +329,6 @@ export function createResearchController({
       showToast("Deep Research requires a normal text chat.");
       return;
     }
-    setRunning(true);
     try {
       const payload = await createResearch(state.session, {
         query,
@@ -351,6 +352,7 @@ export function createResearchController({
       applyComposerHeight();
       renderImages();
       renderResearchMode();
+      setRunning(true, payload.run.conversationId);
       renderShell();
       await pollResearch(payload.run.id);
     } catch (error) {

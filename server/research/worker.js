@@ -187,23 +187,28 @@ async function loop() {
   }
   await failExpiredRuns();
   console.log(`${workerId} started`);
+  const active = new Set();
   while (!stopping) {
     if (Date.now() - lastExpiredCleanupAt >= 60_000) await failExpiredRuns();
-    const runs = [];
-    for (let index = 0; index < config.research.workerConcurrency; index += 1) {
+    while (!stopping && active.size < config.research.workerConcurrency) {
       const run = await db.claimResearchRun(workerId, config.research.leaseSeconds).catch((error) => {
         console.error("Research claim failed", error?.message || error);
         return null;
       });
       if (!run) break;
-      runs.push(run);
+      const task = processRun(run).finally(() => active.delete(task));
+      active.add(task);
     }
-    if (!runs.length) {
+    if (!active.size) {
       await sleep(config.research.pollMs);
       continue;
     }
-    await Promise.all(runs.map(processRun));
+    await Promise.race([
+      ...active,
+      sleep(config.research.pollMs)
+    ]);
   }
+  await Promise.allSettled(active);
 }
 
 process.on("SIGTERM", () => { stopping = true; });

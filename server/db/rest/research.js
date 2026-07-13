@@ -18,10 +18,11 @@ export async function getResearchRun(client, userId, runId, { signal } = {}) {
   return single(rows);
 }
 
-export async function listActiveResearchRuns(client, userId, { signal } = {}) {
+export async function listActiveResearchRuns(client, userId, conversationId = "", { signal } = {}) {
   return client.request("research_runs", {
     query: {
       user_id: `eq.${userId}`,
+      ...(conversationId ? { conversation_id: `eq.${conversationId}` } : {}),
       status: "in.(queued,running)",
       select: "*",
       order: "created_at.desc",

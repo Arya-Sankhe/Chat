@@ -284,8 +284,8 @@ export class SupabaseRest {
     return research.getResearchRun(this, userId, runId, options);
   }
 
-  async listActiveResearchRuns(userId, options) {
-    return research.listActiveResearchRuns(this, userId, options);
+  async listActiveResearchRuns(userId, conversationId, options) {
+    return research.listActiveResearchRuns(this, userId, conversationId, options);
   }
 
   async updateResearchRun(runId, patch, options) {

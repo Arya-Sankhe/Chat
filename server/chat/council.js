@@ -90,9 +90,11 @@ export async function handleCouncilConversationMessage({
   }
 
   const controller = req.turnController || new AbortController();
-  res.on("close", () => {
-    if (!res.writableEnded) controller.abort();
-  });
+  if (!turnRun?.id) {
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
+  }
 
   startSse(res, turnRun?.id ? { "x-klui-turn-run-id": turnRun.id } : {});
 

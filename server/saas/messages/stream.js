@@ -108,6 +108,7 @@ export function sanitizeProviderEvent(event, { includeReasoning = false } = {}) 
 }
 
 export function writeProviderEvent(res, event, { includeReasoning = false } = {}) {
+  if (res.destroyed || res.writableEnded) return;
   res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
 }
 
@@ -153,11 +154,11 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
   let buffer = "";
 
   try {
-    while (!res.destroyed) {
+    while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      if (includeReasoning) res.write(Buffer.from(value));
+      if (includeReasoning && !res.destroyed && !res.writableEnded) res.write(Buffer.from(value));
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
       buffer = parseSseEvents(buffer, (event) => {
         applyStreamEvent(assistant, event);

@@ -64,7 +64,7 @@ services:
     environment:
       WEBSEARCH_PRIMARY_PROVIDER: searxng
       SEARXNG_BASE_URL: http://searxng:8080
-      RESEARCH_WORKER_CONCURRENCY: 1
+      RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
     depends_on:
       searxng:
         condition: service_healthy

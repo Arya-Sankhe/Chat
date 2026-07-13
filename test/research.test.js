@@ -14,7 +14,7 @@ import { filterDeniedDomains, mergeDenyDomains } from "../server/websearch/deny-
 
 test("research config uses bounded VPS-friendly defaults", () => {
   const config = loadConfig({});
-  assert.equal(config.research.workerConcurrency, 1);
+  assert.equal(config.research.workerConcurrency, 3);
   assert.equal(config.research.fetchConcurrency, 3);
   assert.equal(config.research.maxPages, 18);
   assert.equal(config.research.maxRunMs, 1_200_000);
@@ -545,7 +545,7 @@ test("stopped research poll ignores in-flight status and queued timer continuati
       assert.equal(effects.renderShell, 0);
       assert.equal(scheduled.length, 0);
       assert.equal(controller.isResearchPollingActive(), false);
-      assert.equal(state.activeResearchId, "run_1");
+      assert.equal(state.activeResearchId, "");
       assert.equal(state.messages[0].metadata.research.progress.percent, 5);
       assert.equal(state.messages[0].metadata.research.title, "Topic");
       assert.equal(state.messages[0].content, "Working");
@@ -602,7 +602,7 @@ test("stopped research poll ignores in-flight status and queued timer continuati
       assert.equal(effects.loadConversations, 0);
       assert.equal(effects.renderShell, 0);
       assert.equal(controller.isResearchPollingActive(), false);
-      assert.equal(state.activeResearchId, "run_1");
+      assert.equal(state.activeResearchId, "");
       assert.equal(state.messages[0].metadata.research.progress.percent, 25);
       assert.equal(state.messages[0].metadata.research.title, "Live title");
       assert.equal(state.messages[0].content, "Live summary");
@@ -636,7 +636,7 @@ test("stopped research poll ignores in-flight status and queued timer continuati
       assert.equal(scheduled.length, 0, "stale in-flight status must not reschedule");
       assert.equal(controller.isResearchPollingActive(), false);
       assert.equal(state.activeResearchId, "");
-      assert.deepEqual(effects.setRunning, [false]);
+      assert.deepEqual(effects.setRunning, []);
       assert.equal(state.messages[0].content, "Hello");
       assert.equal(state.messages[0].metadata.research, undefined);
     }
@@ -686,6 +686,41 @@ test("stopped research poll ignores in-flight status and queued timer continuati
       controller.abandonResearchPolling();
 
       assert.deepEqual(effects.setRunning, []);
+    }
+
+    // (f) Switching chats stops polling without clearing another conversation's research lock.
+    {
+      scheduled.length = 0;
+      const state = makeState();
+      state.activeConversationId = "conv_a";
+      const effects = makeEffects();
+      const controller = await makeController(state, effects, async () => ({
+        run: {
+          id: "run_1",
+          messageId: "msg_1",
+          status: "running",
+          phase: "searching",
+          progress: { percent: 25, label: "Gathering" },
+          title: "Live title",
+          summary: "Live summary",
+          sourceCount: 2,
+          elapsedMs: 3000
+        }
+      }));
+
+      controller.resumeResearchPolling();
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.deepEqual(effects.setRunning, [true]);
+
+      controller.stopResearchPolling();
+      state.messages = [{ id: "msg_other", content: "Hello", metadata: {} }];
+      state.activeResearchId = "run_1";
+      controller.resumeResearchPolling();
+
+      assert.equal(controller.isResearchPollingActive(), false);
+      assert.equal(state.activeResearchId, "");
+      assert.deepEqual(effects.setRunning, [true], "resume without active research must not clear another chat's lock");
     }
   } finally {
     globalThis.setTimeout = realSetTimeout;

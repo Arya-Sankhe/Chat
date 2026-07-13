@@ -114,14 +114,29 @@ test("chat shell is visible before JavaScript finishes booting", async () => {
   assert.doesNotMatch(source, /class="app-shell hidden" id="chatView"/);
 });
 
-test("chat navigation stays on the active conversation while a response is running", async () => {
+test("chat navigation allows switching while another conversation is running", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
+  assert.match(source, /const conversationRuns = new Map\(\)/);
   assert.match(source, /function blockChatNavigationWhileRunning\(\)/);
-  assert.match(source, /async function openConversation\(conversationId\)[\s\S]*?blockChatNavigationWhileRunning\(\)/);
-  assert.match(source, /function openNewChat\([^)]*\)[\s\S]*?blockChatNavigationWhileRunning\(\)/);
-  assert.match(source, /window\.addEventListener\("popstate"[\s\S]*?blockChatNavigationWhileRunning\(\)/);
+  assert.match(source, /temporaryChat && conversationRuns\.has\(TEMPORARY_RUN_KEY\)/);
+  assert.match(source, /async function openConversation\(conversationId\)[\s\S]*?parkActiveConversationRun\(\)/);
+  assert.match(source, /function openNewChat\([^)]*\)[\s\S]*?parkActiveConversationRun\(\)/);
+  assert.match(source, /window\.addEventListener\("popstate"[\s\S]*?parkActiveConversationRun\(\)/);
+  assert.doesNotMatch(
+    source,
+    /async function openConversation\(conversationId\)\s*\{[^}]*if \(blockChatNavigationWhileRunning\(\)\) return;[^}]*state\.running/
+  );
+});
+
+test("streaming callbacks are scoped to the active conversation run", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /if \(!isRunKeyActive\(runKey\)\) return;/);
+  assert.match(source, /function syncActiveRunningUi\(\)/);
+  assert.match(source, /els\.stopButton\.addEventListener\("click"[\s\S]*?const run = getConversationRun\(\)/);
 });
 
 test("mobile bundle includes the shared Deep Research controls", async () => {

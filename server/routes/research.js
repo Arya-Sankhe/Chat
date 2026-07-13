@@ -45,9 +45,6 @@ export async function handleCreateResearch(req, res, config) {
   if (body.temporary || body.compare || body.council || body.hasAttachments) {
     throw new HttpError(400, "Deep Research currently works in a normal text chat only.");
   }
-  const active = await context.db.listActiveResearchRuns(context.user.id, { signal: req.signal });
-  if (active.length) throw new HttpError(409, "Finish or cancel your active research first.");
-
   const model = RESEARCH_MODELS.has(body.model) ? body.model : OPENROUTER_TEXT_MODEL;
   const provider = resolveProvider("openrouter", config);
   await createCrofaiUsageMeter({
@@ -68,6 +65,12 @@ export async function handleCreateResearch(req, res, config) {
       model
     }, { signal: req.signal });
   }
+  const active = await context.db.listActiveResearchRuns(
+    context.user.id,
+    conversation.id,
+    { signal: req.signal }
+  );
+  if (active.length) throw new HttpError(409, "Finish or cancel the research in this chat first.");
 
   const userMessage = await context.db.insertMessage({
     user_id: context.user.id,
@@ -108,7 +111,7 @@ export async function handleCreateResearch(req, res, config) {
     } else {
       await context.db.deleteConversation(context.user.id, conversation.id, { signal: req.signal }).catch(() => {});
     }
-    if (error?.status === 409) throw new HttpError(409, "Finish or cancel your active research first.");
+    if (error?.status === 409) throw new HttpError(409, "Finish or cancel the research in this chat first.");
     throw error;
   }
   await context.db.updateMessage(context.user.id, assistantMessage.id, {

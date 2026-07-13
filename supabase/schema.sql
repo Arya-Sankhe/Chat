@@ -402,7 +402,7 @@ create unique index if not exists document_jobs_extract_once_idx on public.docum
 create index if not exists research_runs_claim_idx on public.research_runs (created_at asc) where status = 'queued';
 create index if not exists research_runs_lease_idx on public.research_runs (lease_until) where status = 'running';
 create index if not exists research_runs_user_status_idx on public.research_runs (user_id, status);
-create unique index if not exists research_runs_one_active_per_user_idx on public.research_runs (user_id) where status in ('queued', 'running');
+create unique index if not exists research_runs_one_active_per_conversation_idx on public.research_runs (user_id, conversation_id) where status in ('queued', 'running');
 create index if not exists research_runs_conversation_idx on public.research_runs (conversation_id, created_at desc);
 create index if not exists research_runs_user_message_idx on public.research_runs (user_message_id) where user_message_id is not null;
 create index if not exists research_runs_assistant_message_idx on public.research_runs (assistant_message_id) where assistant_message_id is not null;

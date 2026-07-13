@@ -211,7 +211,7 @@ export function loadConfig(env = process.env) {
     research: {
       enabled: readBoolean(env.RESEARCH_ENABLED, true),
       cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash",
-      workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 1),
+      workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 3),
       leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),
       pollMs: readInt(env.RESEARCH_WORKER_POLL_MS, 2000),
       maxRunMs: readInt(env.RESEARCH_MAX_RUN_MS, 20 * 60 * 1000),

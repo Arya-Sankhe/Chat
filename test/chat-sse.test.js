@@ -830,7 +830,7 @@ test("compare: provider requests include prior conversation history", async (t) 
   }
 });
 
-test("document send persists one durable turn and fences the first provider call", async (t) => {
+test("client-keyed send persists one durable turn and fences the first provider call", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({
     streamFor: () => [contentDelta("The document says hello."), usageChunk()]
@@ -924,9 +924,9 @@ test("document send persists one durable turn and fences the first provider call
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
     body: {
-      text: "Summarize this document",
+      text: "Say hello",
       model: TEXT_MODEL,
-      attachments: [attachment.id],
+      attachments: [],
       clientTurnKey: "00000000-0000-4000-8000-000000000105"
     }
   });
@@ -936,6 +936,7 @@ test("document send persists one durable turn and fences the first provider call
   assert.equal(res.headers["x-klui-user-message-id"], "msg-document-user");
   assert.equal(res.headers["x-klui-assistant-message-id"], undefined);
   assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1);
+  assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.attachmentIds, []);
   assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);
   assert.ok(
     calls.findLastIndex((call) => call.op === "upsertProfile")

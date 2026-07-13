@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStreamEvent, normalizeUsage } from "../server/saas/messages.js";
+import {
+  applyStreamEvent,
+  normalizeUsage,
+  pipeProviderStreamAndAccumulate
+} from "../server/saas/messages.js";
 
 test("normalizeUsage maps OpenAI/OpenRouter usage fields", () => {
   assert.deepEqual(
@@ -42,4 +46,32 @@ test("applyStreamEvent captures the trailing usage chunk with empty choices", ()
     completionTokens: 1000,
     totalTokens: 5000
   });
+});
+
+test("provider streaming finishes after the browser response disconnects", async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"Still "}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"working"},"finish_reason":"stop"}]}\n\n',
+    'data: [DONE]\n\n'
+  ];
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+        controller.close();
+      }
+    })
+  };
+  const disconnectedResponse = {
+    destroyed: true,
+    writableEnded: false,
+    write() {
+      assert.fail("a disconnected response must not be written to");
+    }
+  };
+
+  const result = await pipeProviderStreamAndAccumulate(upstream, disconnectedResponse);
+
+  assert.equal(result.content, "Still working");
+  assert.equal(result.finishReason, "stop");
 });

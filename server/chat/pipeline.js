@@ -86,6 +86,7 @@ const DEFAULT_COUNCIL_MODELS = [
 
 const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
 const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const activeTurnControllers = new Map();
 
 export async function withResearchReportContext(
   messages,
@@ -1128,9 +1129,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
   }
 
   const controller = req.turnController || new AbortController();
-  res.on("close", () => {
-    if (!res.writableEnded) controller.abort();
-  });
+  if (!turnRun?.id) {
+    res.on("close", () => {
+      if (!res.writableEnded) controller.abort();
+    });
+  }
 
   try {
     startSse(res, {
@@ -1151,7 +1154,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           documents,
           visualDocuments: selectedModelSupportsVision,
           onUpstreamEvent: (event) => {
-            res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+            writeSse(res, sanitizeProviderEvent(event, { includeReasoning }));
           },
           onToolEvent: (event) => { writeSse(res, event); }
         })
@@ -1445,14 +1448,34 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
     "x-klui-turn-run-id": run.id
   });
 
+  const registeredController = activeTurnControllers.get(run.id);
+  const controller = registeredController || new AbortController();
+  const ownsController = !registeredController;
+  if (ownsController) activeTurnControllers.set(run.id, controller);
+  Object.defineProperty(req, "signal", {
+    configurable: true,
+    enumerable: false,
+    value: controller.signal
+  });
+  req.turnController = controller;
+
+  const clearController = () => {
+    if (ownsController && activeTurnControllers.get(run.id) === controller) activeTurnControllers.delete(run.id);
+  };
   const requestPayload = run.request_payload || {};
-  const attachments = await loadUploadedAttachments(
-    context,
-    requestPayload.attachments,
-    req,
-    context.plan,
-    { requireCapability: false }
-  );
+  let attachments;
+  try {
+    attachments = await loadUploadedAttachments(
+      context,
+      requestPayload.attachments,
+      req,
+      context.plan,
+      { requireCapability: false }
+    );
+  } catch (error) {
+    clearController();
+    throw error;
+  }
   const documentAttachmentIds = attachments
     .filter((attachment) => attachment.category === "document")
     .map((attachment) => attachment.id);
@@ -1468,7 +1491,10 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
       }
     });
   } catch (error) {
-    if (error?.name === "AbortError") throw error;
+    if (error?.name === "AbortError") {
+      clearController();
+      throw error;
+    }
     const claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
     if (claim.owned) await finishClaimedTurn(context, claim.run, "failed", error?.message);
     startSse(res, {
@@ -1477,10 +1503,17 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
     });
     writeSse(res, { type: "error", error: error?.message || "Document processing failed." });
     res.end();
+    clearController();
     return;
   }
 
-  const claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
+  let claim;
+  try {
+    claim = await waitForClaimableTurn({ req, res, context, run, userMessage });
+  } catch (error) {
+    clearController();
+    throw error;
+  }
   if (!claim.owned) {
     startSse(res, {
       "x-klui-user-message-id": userMessage.id,
@@ -1491,15 +1524,11 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
       ? { type: "error", error: message }
       : { type: "turn:done", turnRunId: run.id });
     res.end();
+    clearController();
     return;
   }
 
   const claimedRun = claim.run;
-  const controller = new AbortController();
-  req.turnController = controller;
-  res.on("close", () => {
-    if (!res.writableEnded) controller.abort();
-  });
   const stopHeartbeat = startPendingTurnHeartbeat({
     db: context.db,
     userId: context.user.id,
@@ -1553,6 +1582,7 @@ async function streamPersistedDocumentTurn({ req, res, config, context, conversa
     }
   } finally {
     stopHeartbeat();
+    clearController();
     delete req.turnController;
     if (res.headersSent && !res.writableEnded) res.end();
   }
@@ -1591,7 +1621,8 @@ export async function handleConversationMessage(req, res, config, conversationId
     context.plan,
     { requireCapability: false }
   );
-  if (!attachments.some((attachment) => attachment.category === "document")) {
+  if (!String(body.clientTurnKey || "").trim()
+    && !attachments.some((attachment) => attachment.category === "document")) {
     await executeConversationMessage(req, res, config, conversation.id, { context, conversation, body });
     return;
   }
@@ -1615,6 +1646,7 @@ export async function handlePendingDocumentTurnCancel(req, res, config, conversa
   const run = await context.db.getPendingDocumentTurn(context.user.id, turnId, { signal: req.signal });
   if (!run || run.conversation_id !== conversationId) throw new HttpError(404, "Pending turn not found.");
   const cancelled = await context.db.cancelPendingDocumentTurn(context.user.id, turnId, { signal: req.signal });
+  activeTurnControllers.get(turnId)?.abort();
   const hydrated = cancelled?.user_message
     ? (await hydrateMessagesForClient([cancelled.user_message], context.r2))[0]
     : null;
