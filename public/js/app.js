@@ -158,6 +158,8 @@ const state = {
   activeProjectId: "",
   activeProject: null,
   projectUploading: false,
+  projectSearch: "",
+  projectSort: "updated",
   pinnedChatIds: [],
   activeConversationId: "",
   temporaryChat: false,
@@ -431,6 +433,7 @@ const els = {
   sideChatSend: document.querySelector("#sideChatSend"),
   composer: document.querySelector(".composer"),
   composerArea: document.querySelector(".composer-area"),
+  composerHomeAnchor: document.querySelector("#composerHomeAnchor"),
   followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
   cameraFileInput: document.querySelector("#cameraFileInput"),
@@ -619,10 +622,10 @@ function renderTemporaryChatMode() {
   const onEmptyChat = !state.messages.length;
   // Incognito affordance only on the home/empty screen or while a temp chat
   // is active — hide it once a normal conversation has messages.
-  const showTempToggle = onEmptyChat || state.temporaryChat;
+  const showTempToggle = !state.projectsOpen && (onEmptyChat || state.temporaryChat);
   els.temporaryChatBar?.classList.toggle("hidden", !showTempToggle);
   els.temporaryChatToggle?.classList.toggle("hidden", !showTempToggle);
-  els.temporaryChatLabel?.classList.toggle("hidden", !state.temporaryChat);
+  els.temporaryChatLabel?.classList.toggle("hidden", state.projectsOpen || !state.temporaryChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
     els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
@@ -1644,32 +1647,40 @@ function projectSourceRows(project = state.activeProject) {
 }
 
 function projectListMarkup() {
-  const projects = state.projects || [];
-  const rows = projects.length
-    ? projects.map((project) => `
-        <button class="project-list-row" type="button" data-open-project-id="${escapeHtml(project.id)}">
-          <span class="project-list-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
-          </span>
+  const search = state.projectSearch.trim().toLowerCase();
+  const projects = [...(state.projects || [])].sort((a, b) => state.projectSort === "name"
+      ? a.name.localeCompare(b.name)
+      : new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+  const visibleCount = projects.filter((project) => !search || project.name.toLowerCase().includes(search)).length;
+  const rows = projects.map((project) => `
+        <button class="project-list-row" type="button" data-open-project-id="${escapeHtml(project.id)}" ${search && !project.name.toLowerCase().includes(search) ? "hidden" : ""}>
           <span class="project-list-copy">
             <strong>${escapeHtml(project.name)}</strong>
             <small>Updated ${escapeHtml(formatChatAge(project.updated_at || project.created_at).toLowerCase())}</small>
           </span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
         </button>
-      `).join("")
-    : `<div class="project-empty"><strong>No projects yet</strong><p>Create one to keep related chats, instructions, and files together.</p></div>`;
+      `).join("");
+  const empty = `<div class="project-empty" ${visibleCount ? "hidden" : ""}><strong>${search ? "No matching projects" : "No projects yet"}</strong><p>${search ? "Try another search." : "Create one to keep related chats, instructions, and files together."}</p></div>`;
 
   return `
     <div class="projects-page">
       <header class="projects-page-header">
-        <div><p class="project-eyebrow">Workspace</p><h1>Projects</h1></div>
-        <button class="project-primary-button" type="button" data-create-project>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          New project
-        </button>
+        <h1>Projects</h1>
+        <div class="projects-page-actions">
+          <label class="project-sort-control">Sort by
+            <select data-project-sort aria-label="Sort projects">
+              <option value="updated" ${state.projectSort === "updated" ? "selected" : ""}>Last updated</option>
+              <option value="name" ${state.projectSort === "name" ? "selected" : ""}>Name</option>
+            </select>
+          </label>
+          <button class="project-primary-button" type="button" data-create-project>New project</button>
+        </div>
       </header>
-      <div class="project-list">${rows}</div>
+      <label class="project-search-control">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input type="search" data-project-search value="${escapeHtml(state.projectSearch)}" placeholder="Search projects..." aria-label="Search projects">
+      </label>
+      <div class="project-list">${rows}${empty}</div>
     </div>`;
 }
 
@@ -1712,47 +1723,55 @@ function projectDetailMarkup() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
         All projects
       </button>
-      <header class="project-detail-header">
-        <div class="project-detail-heading">
-          <span class="project-hero-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></span>
-          <div><input class="project-title-input" value="${escapeHtml(project.name)}" maxlength="80" aria-label="Project name"><p>Shared context for every chat in this project</p></div>
-        </div>
-        <button class="project-delete-button" type="button" data-delete-project>Delete</button>
-      </header>
+      <div class="project-detail-layout">
+        <main class="project-detail-main">
+          <header class="project-detail-header">
+            <input class="project-title-input" value="${escapeHtml(project.name)}" maxlength="80" aria-label="Project name">
+            <button class="project-delete-button" type="button" data-delete-project>Delete</button>
+          </header>
+          <div class="project-composer-slot"></div>
+          <section class="project-recents-section">
+            <div class="project-section-heading"><h2>Recents</h2></div>
+            <div class="project-recent-list">${recentMarkup}</div>
+          </section>
+        </main>
 
-      <section class="project-section">
-        <div class="project-section-heading"><h2>Recents</h2><button type="button" data-new-project-chat>New chat</button></div>
-        <div class="project-recent-list">${recentMarkup}</div>
-      </section>
+        <aside class="project-context-panel">
+          <section class="project-context-section project-instructions-section">
+            <div class="project-section-heading"><div><h2>Instructions</h2><p>Applied to every response in this project.</p></div><button type="button" data-save-project-instructions>Save</button></div>
+            <textarea class="project-instructions-input" maxlength="10000" placeholder="How should Klui help with this project?">${escapeHtml(project.instructions || "")}</textarea>
+          </section>
 
-      <section class="project-section">
-        <div class="project-section-heading"><div><h2>Instructions</h2><p>Applied to every response in this project.</p></div><button type="button" data-save-project-instructions>Save</button></div>
-        <textarea class="project-instructions-input" maxlength="10000" placeholder="How should Klui help with this project?">${escapeHtml(project.instructions || "")}</textarea>
-      </section>
-
-      <section class="project-section">
-        <div class="project-section-heading"><div><h2>Project knowledge</h2><p>Files are available to every chat in this project.</p></div><button type="button" data-add-project-files ${state.projectUploading ? "disabled" : ""}>${state.projectUploading ? "Uploading..." : "Add files"}</button></div>
-        <div class="project-capacity" aria-label="${escapeHtml(String(usage.percent || 0))}% of project knowledge used">
-          <div class="project-capacity-copy"><span>Knowledge capacity</span><strong>${escapeHtml(String(usage.percent || 0))}%</strong></div>
-          <div class="project-capacity-track"><span style="width:${Math.min(100, Number(usage.percent || 0))}%"></span></div>
-          <small>${escapeHtml(formatProjectBytes(usage.usedBytes))} of ${escapeHtml(formatProjectBytes(usage.maxBytes))}</small>
-        </div>
-        <div class="project-source-list">${sourceMarkup}</div>
-      </section>
+          <section class="project-context-section project-files-section">
+            <div class="project-section-heading"><h2>Files</h2><button type="button" data-add-project-files ${state.projectUploading ? "disabled" : ""} aria-label="Add project files">${state.projectUploading ? "Uploading..." : "+"}</button></div>
+            <div class="project-capacity" aria-label="${escapeHtml(String(usage.percent || 0))}% of project knowledge used">
+              <div class="project-capacity-track"><span style="width:${Math.min(100, Number(usage.percent || 0))}%"></span></div>
+              <p>${escapeHtml(String(usage.percent || 0))}% of project capacity used</p>
+            </div>
+            <div class="project-source-list">${sourceMarkup}</div>
+          </section>
+        </aside>
+      </div>
     </div>`;
 }
 
 function renderProjects() {
   if (!els.projectView) return;
+  if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
+    els.composerHomeAnchor.after(els.composerArea);
+  }
   const visible = state.projectsOpen && !state.activeConversationId;
+  const detailReady = Boolean(visible && state.activeProjectId && state.activeProject?.project);
   els.projectView.classList.toggle("hidden", !visible);
   els.messages?.classList.toggle("hidden", visible);
   if (visible) els.chatPromptNav?.classList.add("hidden");
-  els.composerArea?.classList.toggle("hidden", visible && !state.activeProjectId);
+  els.composerArea?.classList.toggle("hidden", visible && !detailReady);
   document.body.classList.toggle("projects-open", visible);
   els.projectsButton?.classList.toggle("active", state.projectsOpen);
   if (!visible) return;
   els.projectView.innerHTML = state.activeProjectId ? projectDetailMarkup() : projectListMarkup();
+  const composerSlot = els.projectView.querySelector(".project-composer-slot");
+  if (composerSlot && els.composerArea) composerSlot.append(els.composerArea);
 }
 
 async function loadProjects() {
@@ -1949,12 +1968,34 @@ async function handleProjectViewClick(event) {
 }
 
 async function handleProjectTitleChange(event) {
+  const sort = event.target.closest("[data-project-sort]");
+  if (sort) {
+    state.projectSort = sort.value === "name" ? "name" : "updated";
+    renderProjects();
+    return;
+  }
   const input = event.target.closest(".project-title-input");
   if (!input) return;
   const name = input.value.trim();
   if (!name || name === state.activeProject?.project?.name) return;
   try { await saveProjectPatch({ name }, "Project renamed."); }
   catch (error) { showToast(error.message || "Project could not be renamed."); }
+}
+
+function handleProjectSearch(event) {
+  const input = event.target.closest("[data-project-search]");
+  if (!input) return;
+  state.projectSearch = input.value;
+  const query = state.projectSearch.trim().toLowerCase();
+  let visibleCount = 0;
+  els.projectView.querySelectorAll("[data-open-project-id]").forEach((row) => {
+    const project = state.projects.find((item) => item.id === row.dataset.openProjectId);
+    const visible = !query || project?.name?.toLowerCase().includes(query);
+    row.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+  const empty = els.projectView.querySelector(".project-empty");
+  if (empty) empty.hidden = visibleCount > 0;
 }
 
 /* ─── Conversations ─── */
@@ -5833,6 +5874,7 @@ function bindEvents() {
   });
   els.projectView?.addEventListener("click", (event) => { void handleProjectViewClick(event); });
   els.projectView?.addEventListener("change", (event) => { void handleProjectTitleChange(event); });
+  els.projectView?.addEventListener("input", handleProjectSearch);
   els.projectView?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && event.target.matches(".project-title-input")) {
       event.preventDefault();

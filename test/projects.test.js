@@ -23,11 +23,19 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   const css = readStylesheet();
   assert.match(html, /id="projectsButton"/);
   assert.match(html, /id="projectView"/);
+  assert.match(html, /id="composerHomeAnchor"/);
   assert.match(app, /createConversation\(state\.session,\s*\{[\s\S]*?projectId: state\.activeProjectId \|\| null/);
   assert.match(app, /presignUpload\(state\.session, file, "document", \{ projectId: state\.activeProjectId \}\)/);
   assert.match(app, /usage\.usedBytes/);
   assert.match(app, /usage\.maxBytes/);
+  assert.match(app, /class="project-composer-slot"/);
+  assert.match(app, /% of project capacity used/);
+  assert.doesNotMatch(app, /formatProjectBytes\(usage\.usedBytes\)/);
+  assert.match(app, /const showTempToggle = !state\.projectsOpen/);
   assert.match(css, /\.project-capacity-track/);
+  assert.match(css, /\.project-detail-layout\s*\{[\s\S]*grid-template-columns/);
+  assert.match(css, /\.project-list\s*\{[\s\S]*repeat\(2/);
+  assert.match(css, /\.project-composer-slot \.composer-area/);
 });
 
 test("document citations open in the existing viewer", () => {

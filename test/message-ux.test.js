@@ -112,12 +112,12 @@ test("renderer keeps DOMPurify's SVG-safe profile enabled", () => {
   );
 });
 
-test("temporary chat toggle only shows on empty home or active temp chat", () => {
+test("temporary chat toggle only shows on empty home or active temp chat outside Projects", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
   const fn = appJs.match(/function renderTemporaryChatMode\(\)\s*\{[\s\S]*?\n\}/);
   assert.ok(fn, "renderTemporaryChatMode not found");
-  assert.match(fn[0], /showTempToggle\s*=\s*onEmptyChat\s*\|\|\s*state\.temporaryChat/);
+  assert.match(fn[0], /showTempToggle\s*=\s*!state\.projectsOpen\s*&&\s*\(onEmptyChat\s*\|\|\s*state\.temporaryChat\)/);
   assert.match(fn[0], /temporaryChatToggle\?\.classList\.toggle\(\s*"hidden",\s*!showTempToggle\s*\)/);
   assert.match(
     css,
