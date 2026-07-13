@@ -683,15 +683,6 @@ async function createXlsx(input, outputPath) {
   workbook.created = new Date();
   const sheetPlans = sheetPlansFromInput(input);
   if (sheetPlans.length > 1) {
-    if (input.title || input.instructions || input.data?.recommendation || input.data?.summary) {
-      const overview = workbook.addWorksheet("Overview");
-      overview.addRow(["Title", cleanText(input.title || "Generated workbook")]);
-      if (input.instructions) overview.addRow(["Purpose", cleanText(input.instructions)]);
-      if (input.data?.recommendation || input.data?.summary) overview.addRow(["Key takeaway", cleanText(input.data.recommendation || input.data.summary)]);
-      styleWorksheet(overview, theme, { tableStartRow: 1 });
-      overview.getColumn(1).width = 18;
-      overview.getColumn(2).width = 72;
-    }
     for (const [index, plan] of sheetPlans.entries()) {
       const ws = workbook.addWorksheet(safeSheetName(plan.name || `Table ${index + 1}`), {
         views: [{ state: "frozen", ySplit: 1 }]

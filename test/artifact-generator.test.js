@@ -85,7 +85,6 @@ test("XLSX generator splits sectioned rows into clean worksheets", async () => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(result.path);
   assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), [
-    "Overview",
     "Per-Token-Pricing-per-1M-tokens",
     "Blended-Cost-60-40",
     "Scenario-Analysis"

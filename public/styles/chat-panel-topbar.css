@@ -540,6 +540,30 @@ body.document-viewer-resizing {
 
 }
 
+body[data-mode="dark"] .sheet-grid td {
+
+  background: #1b1b1b;
+
+  border-color: #454545;
+
+}
+
+body[data-mode="dark"] .sheet-grid tr:nth-child(even) td {
+
+  background: #202020;
+
+}
+
+body[data-mode="dark"] .sheet-grid thead th,
+
+body[data-mode="dark"] .sheet-grid tbody th {
+
+  background: #2f2f2f;
+
+  border-color: #4a4a4a;
+
+}
+
 /* ─── Top Bar ─── */
 
 .topbar {
