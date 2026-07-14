@@ -30,6 +30,14 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(app, /usage\.maxBytes/);
   assert.match(app, /class="project-composer-slot"/);
   assert.match(app, /% of project capacity used/);
+  assert.match(app, /data-toggle-project-menu/);
+  assert.match(app, /data-delete-project-chat-id/);
+  assert.match(app, /class="project-source-remove"/);
+  assert.match(app, /function openDeleteConfirm\(/);
+  assert.match(app, /openConfirmDialog\(conversation\)/);
+  assert.doesNotMatch(app, /window\.confirm\(/);
+  assert.doesNotMatch(app, /project-source-actions[\s\S]*?>View<\/button>/);
+  assert.doesNotMatch(app, /class="project-delete-button"/);
   assert.doesNotMatch(app, /formatProjectBytes\(usage\.usedBytes\)/);
   assert.match(app, /const showTempToggle = !state\.projectsOpen/);
   assert.match(app, /state\.conversations\.filter\(\(conversation\) => !conversation\.project_id\)\.sort/);
@@ -39,7 +47,11 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(css, /\.project-detail-layout\s*\{[\s\S]*grid-template-columns/);
   assert.match(css, /\.project-list\s*\{[\s\S]*repeat\(2/);
   assert.match(css, /\.project-composer-slot \.composer-area/);
+  assert.match(css, /\.project-instructions-input\s*\{[\s\S]*resize:\s*none/);
+  assert.match(css, /\.project-source-remove\s*\{[\s\S]*opacity:\s*0/);
+  assert.match(css, /\.project-view--detail/);
   assert.doesNotMatch(css, /\.project-composer-slot \.composer\s*\{[\s\S]*?min-height:\s*136px/);
+  assert.doesNotMatch(css, /\.project-delete-button/);
 });
 
 test("document citations open in the existing viewer", () => {

@@ -182,6 +182,8 @@ const state = {
   activeTurnCancelResult: null,
   resumingTurnId: "",
   pendingDeleteId: "",
+  pendingDeleteAttachmentId: "",
+  pendingDeleteProjectId: "",
   pendingRenameId: "",
   openConversationMenuId: "",
   editingMessageId: "",
@@ -1693,10 +1695,15 @@ function projectDetailMarkup() {
   const sources = projectSourceRows(payload);
   const recentMarkup = conversations.length
     ? conversations.slice(0, 6).map((conversation) => `
-        <button class="project-recent-row" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
-          <span>${escapeHtml(conversation.title || "New chat")}</span>
-          <small>${escapeHtml(formatChatAge(conversation.updated_at || conversation.created_at))}</small>
-        </button>`).join("")
+        <div class="project-recent-row">
+          <button class="project-recent-open" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+            <span>${escapeHtml(conversation.title || "New chat")}</span>
+          </button>
+          <small class="project-recent-age">${escapeHtml(formatChatAge(conversation.updated_at || conversation.created_at))}</small>
+          <button class="project-recent-delete" type="button" data-delete-project-chat-id="${escapeHtml(conversation.id)}" aria-label="Delete ${escapeHtml(conversation.title || "chat")}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>`).join("")
     : `<p class="project-section-empty">Your first conversation will appear here.</p>`;
   const sourceMarkup = sources.length
     ? sources.map((document) => {
@@ -1704,30 +1711,34 @@ function projectDetailMarkup() {
         const ready = Boolean(document.text_ready_at || document.visual_ready_at);
         const status = ready ? "Ready" : document.processing_status === "failed" ? "Failed" : "Processing";
         return `
-          <div class="project-source-row">
+          <div class="project-source-row${ready ? " is-ready" : ""}" data-view-project-attachment="${escapeHtml(attachment.id)}" data-file-name="${escapeHtml(attachment.file_name || "Document")}" data-format="${escapeHtml(document.kind || "")}" data-ready="${ready ? "1" : "0"}" role="button" tabindex="${ready ? "0" : "-1"}" ${ready ? "" : 'aria-disabled="true"'}>
+            <button type="button" class="project-source-remove" data-remove-project-attachment="${escapeHtml(attachment.id)}" data-file-name="${escapeHtml(attachment.file_name || "Document")}" aria-label="Remove ${escapeHtml(attachment.file_name || "document")}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
             <span class="project-source-kind">${escapeHtml(String(document.kind || "file").toUpperCase())}</span>
             <span class="project-source-copy"><strong>${escapeHtml(attachment.file_name || "Document")}</strong><small>${escapeHtml(formatProjectBytes(attachment.size_bytes))} · ${escapeHtml(status)}</small></span>
-            <div class="project-source-actions">
-              <button type="button" data-view-project-attachment="${escapeHtml(attachment.id)}" data-file-name="${escapeHtml(attachment.file_name || "Document")}" data-format="${escapeHtml(document.kind || "")}" ${ready ? "" : "disabled"}>View</button>
-              <button type="button" data-remove-project-attachment="${escapeHtml(attachment.id)}" aria-label="Remove ${escapeHtml(attachment.file_name || "document")}">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
           </div>`;
       }).join("")
     : `<p class="project-section-empty">Add files to give every chat in this project shared context.</p>`;
 
   return `
+    <button class="project-back-button" type="button" data-projects-back>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      All projects
+    </button>
     <div class="project-detail-page">
-      <button class="project-back-button" type="button" data-projects-back>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-        All projects
-      </button>
       <div class="project-detail-layout">
         <main class="project-detail-main">
           <header class="project-detail-header">
             <input class="project-title-input" value="${escapeHtml(project.name)}" maxlength="80" aria-label="Project name">
-            <button class="project-delete-button" type="button" data-delete-project>Delete</button>
+            <div class="project-menu-wrap">
+              <button class="project-menu-btn" type="button" data-toggle-project-menu aria-label="Project options" aria-haspopup="menu" aria-expanded="false">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              </button>
+              <div class="project-menu hidden" data-project-menu role="menu">
+                <button class="project-menu-item project-menu-danger" type="button" role="menuitem" data-delete-project>Delete project</button>
+              </div>
+            </div>
           </header>
           <div class="project-composer-slot"></div>
           <section class="project-recents-section">
@@ -1767,6 +1778,7 @@ function renderProjects() {
   const visible = state.projectsOpen && !state.activeConversationId;
   const detailReady = Boolean(visible && state.activeProjectId && state.activeProject?.project);
   els.projectView.classList.toggle("hidden", !visible);
+  els.projectView?.classList.toggle("project-view--detail", Boolean(visible && state.activeProjectId));
   els.messages?.classList.toggle("hidden", visible);
   if (visible) els.chatPromptNav?.classList.add("hidden");
   els.composerArea?.classList.toggle("hidden", visible && !detailReady);
@@ -1922,6 +1934,19 @@ async function uploadProjectFiles(files) {
 }
 
 async function handleProjectViewClick(event) {
+  const menuBtn = event.target.closest("[data-toggle-project-menu]");
+  if (menuBtn) {
+    const menu = els.projectView.querySelector("[data-project-menu]");
+    const open = Boolean(menu?.classList.contains("hidden"));
+    menu?.classList.toggle("hidden", !open);
+    menuBtn.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  if (!event.target.closest(".project-menu-wrap")) {
+    els.projectView.querySelector("[data-project-menu]")?.classList.add("hidden");
+    els.projectView.querySelector("[data-toggle-project-menu]")?.setAttribute("aria-expanded", "false");
+  }
+
   const create = event.target.closest("[data-create-project]");
   if (create) return openProjectCreateDialog();
   const open = event.target.closest("[data-open-project-id]");
@@ -1935,26 +1960,36 @@ async function handleProjectViewClick(event) {
     els.projectFileInput?.click();
     return;
   }
+  const deleteChat = event.target.closest("[data-delete-project-chat-id]");
+  if (deleteChat) {
+    const id = deleteChat.dataset.deleteProjectChatId;
+    const conversation = (state.activeProject?.conversations || []).find((item) => item.id === id)
+      || state.conversations.find((item) => item.id === id);
+    if (!conversation) return;
+    if (!state.conversations.some((item) => item.id === id)) state.conversations.unshift(conversation);
+    openConfirmDialog(conversation);
+    return;
+  }
   const openChat = event.target.closest("[data-open-chat-id]");
   if (openChat) return openConversation(openChat.dataset.openChatId);
+  const remove = event.target.closest("[data-remove-project-attachment]");
+  if (remove) {
+    event.stopPropagation();
+    openDeleteConfirm({
+      title: "Delete file?",
+      body: `Remove "${remove.dataset.fileName || "this file"}" from this project?`,
+      attachmentId: remove.dataset.removeProjectAttachment
+    });
+    return;
+  }
   const view = event.target.closest("[data-view-project-attachment]");
   if (view) {
+    if (view.dataset.ready !== "1") return;
     openDocumentViewer({
       attachmentId: view.dataset.viewProjectAttachment,
       fileName: view.dataset.fileName || "Document",
       format: view.dataset.format || ""
     });
-    return;
-  }
-  const remove = event.target.closest("[data-remove-project-attachment]");
-  if (remove) {
-    try {
-      await deleteAttachment(state.session, remove.dataset.removeProjectAttachment);
-      await loadActiveProject();
-      renderProjects();
-    } catch (error) {
-      showToast(error.message || "File could not be removed.");
-    }
     return;
   }
   if (event.target.closest("[data-save-project-instructions]")) {
@@ -1964,21 +1999,11 @@ async function handleProjectViewClick(event) {
     return;
   }
   if (event.target.closest("[data-delete-project]")) {
-    if (!window.confirm("Delete this project, its chats, and its files?")) return;
-    try {
-      const deletedProjectId = state.activeProjectId;
-      await deleteProject(state.session, deletedProjectId);
-      state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
-      const deletedConversationIds = new Set(state.conversations
-        .filter((conversation) => conversation.project_id === deletedProjectId)
-        .map((conversation) => conversation.id));
-      state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
-      state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
-      savePinnedChatIds();
-      await openProjects({ replace: true });
-    } catch (error) {
-      showToast(error.message || "Project could not be deleted.");
-    }
+    openDeleteConfirm({
+      title: "Delete project?",
+      body: "Delete this project, its chats, and its files?",
+      projectId: state.activeProjectId
+    });
   }
 }
 
@@ -4111,14 +4136,16 @@ function closeAuthDialog() {
   }
 }
 
-function openConfirmDialog(conversation) {
+function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "" } = {}) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
   if (isNative()) document.body.classList.remove("sidebar-open");
-  state.pendingDeleteId = conversation.id;
-  els.confirmTitle.textContent = "Delete chat?";
-  els.confirmBody.textContent = `Delete "${conversation.title || "New chat"}" from your account?`;
+  state.pendingDeleteId = chatId || "";
+  state.pendingDeleteAttachmentId = attachmentId || "";
+  state.pendingDeleteProjectId = projectId || "";
+  els.confirmTitle.textContent = title;
+  els.confirmBody.textContent = body;
   els.confirmDialog.classList.add("open");
   els.confirmDialog.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -4126,14 +4153,58 @@ function openConfirmDialog(conversation) {
   els.confirmDeleteButton.focus();
 }
 
+function openConfirmDialog(conversation) {
+  openDeleteConfirm({
+    title: "Delete chat?",
+    body: `Delete "${conversation.title || "New chat"}" from your account?`,
+    chatId: conversation.id
+  });
+}
+
 function closeConfirmDialog() {
   state.pendingDeleteId = "";
+  state.pendingDeleteAttachmentId = "";
+  state.pendingDeleteProjectId = "";
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
     els.overlay.hidden = true;
     delete els.overlay.dataset.mode;
   }
+}
+
+async function confirmPendingDelete() {
+  if (state.pendingDeleteAttachmentId) {
+    const attachmentId = state.pendingDeleteAttachmentId;
+    closeConfirmDialog();
+    try {
+      await deleteAttachment(state.session, attachmentId);
+      await loadActiveProject();
+      renderProjects();
+    } catch (error) {
+      showToast(error.message || "File could not be removed.");
+    }
+    return;
+  }
+  if (state.pendingDeleteProjectId) {
+    const deletedProjectId = state.pendingDeleteProjectId;
+    closeConfirmDialog();
+    try {
+      await deleteProject(state.session, deletedProjectId);
+      state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
+      const deletedConversationIds = new Set(state.conversations
+        .filter((conversation) => conversation.project_id === deletedProjectId)
+        .map((conversation) => conversation.id));
+      state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
+      state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
+      savePinnedChatIds();
+      await openProjects({ replace: true });
+    } catch (error) {
+      showToast(error.message || "Project could not be deleted.");
+    }
+    return;
+  }
+  if (state.pendingDeleteId) removeConversation(state.pendingDeleteId);
 }
 
 function openRenameDialog(conversation) {
@@ -4854,6 +4925,9 @@ async function removeConversation(id) {
   closeConfirmDialog();
   closeConversationMenus();
   state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+  if (state.activeProject?.conversations) {
+    state.activeProject.conversations = state.activeProject.conversations.filter((conversation) => conversation.id !== id);
+  }
   unpinChat(id);
 
   if (wasActive) {
@@ -6348,7 +6422,7 @@ function bindEvents() {
 
   els.confirmCancelButton.addEventListener("click", closeConfirmDialog);
   els.confirmDeleteButton.addEventListener("click", () => {
-    if (state.pendingDeleteId) removeConversation(state.pendingDeleteId);
+    void confirmPendingDelete();
   });
   els.renameCancelButton.addEventListener("click", closeRenameDialog);
   els.renameSaveButton.addEventListener("click", saveRenameDialog);
