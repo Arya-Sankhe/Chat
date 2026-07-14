@@ -1757,6 +1757,10 @@ function projectDetailMarkup() {
 
 function renderProjects() {
   if (!els.projectView) return;
+  // Reuse the single composer DOM node instead of duplicating it: park it back
+  // next to #composerHomeAnchor when leaving a project, then move it into
+  // .project-composer-slot for project detail. Fragile if surrounding render
+  // order or markup around the anchor/slot changes — keep those stable.
   if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
     els.composerHomeAnchor.after(els.composerArea);
   }
