@@ -609,8 +609,13 @@ test("native sidebar rename and delete actions close drawer before opening dialo
 
   assert.match(
     source,
-    /function openConfirmDialog\(conversation\) \{[\s\S]*?closeConversationMenus\(\);[\s\S]*?closePinnedPopup\(\);[\s\S]*?closeProfileMenu\(\);[\s\S]*?if \(isNative\(\)\) document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?els\.confirmDialog\.classList\.add\("open"\);/,
+    /function openDeleteConfirm\([\s\S]*?closeConversationMenus\(\);[\s\S]*?closePinnedPopup\(\);[\s\S]*?closeProfileMenu\(\);[\s\S]*?if \(isNative\(\)\) document\.body\.classList\.remove\("sidebar-open"\);[\s\S]*?els\.confirmDialog\.classList\.add\("open"\);/,
     "delete confirmation should not open underneath the native sidebar"
+  );
+  assert.match(
+    source,
+    /function openConfirmDialog\(conversation\) \{\s*openDeleteConfirm\(\{/,
+    "chat deletion should use the shared confirmation flow"
   );
   assert.match(
     source,
