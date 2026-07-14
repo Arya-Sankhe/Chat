@@ -4201,30 +4201,67 @@ function closeConfirmDialog() {
 async function confirmPendingDelete() {
   if (state.pendingDeleteAttachmentId) {
     const attachmentId = state.pendingDeleteAttachmentId;
+    const projectId = state.activeProjectId;
+    const projectDocuments = state.activeProject?.documents || [];
+    const removedDocumentIndex = projectDocuments.findIndex((document) => {
+      const attachment = Array.isArray(document.attachments) ? document.attachments[0] : document.attachments;
+      return attachment?.id === attachmentId;
+    });
+    const removedDocument = projectDocuments[removedDocumentIndex];
     closeConfirmDialog();
+    if (state.activeProject?.documents) {
+      state.activeProject = {
+        ...state.activeProject,
+        documents: state.activeProject.documents.filter((document) => {
+          const attachment = Array.isArray(document.attachments) ? document.attachments[0] : document.attachments;
+          return attachment?.id !== attachmentId;
+        })
+      };
+      renderProjects();
+    }
     try {
       await deleteAttachment(state.session, attachmentId);
-      await loadActiveProject();
-      renderProjects();
+      if (state.activeProjectId === projectId) {
+        await loadActiveProject();
+        renderProjects();
+      }
     } catch (error) {
+      if (state.activeProjectId === projectId && removedDocument) {
+        const documents = [...(state.activeProject?.documents || [])];
+        documents.splice(Math.min(removedDocumentIndex, documents.length), 0, removedDocument);
+        state.activeProject = { ...state.activeProject, documents };
+        renderProjects();
+      }
       showToast(error.message || "File could not be removed.");
     }
     return;
   }
   if (state.pendingDeleteProjectId) {
     const deletedProjectId = state.pendingDeleteProjectId;
+    const deletedProject = state.projects.find((project) => project.id === deletedProjectId);
+    const deletedConversations = state.conversations.filter((conversation) => conversation.project_id === deletedProjectId);
+    const deletedConversationIds = new Set(deletedConversations.map((conversation) => conversation.id));
+    const deletedPinnedChatIds = state.pinnedChatIds.filter((id) => deletedConversationIds.has(id));
     closeConfirmDialog();
+    state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
+    state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
+    state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
+    savePinnedChatIds();
+    state.activeProjectId = "";
+    state.activeProject = null;
+    syncProjectsUrl({ replace: true });
+    renderShell();
     try {
       await deleteProject(state.session, deletedProjectId);
-      state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
-      const deletedConversationIds = new Set(state.conversations
-        .filter((conversation) => conversation.project_id === deletedProjectId)
-        .map((conversation) => conversation.id));
-      state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
-      state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
-      savePinnedChatIds();
-      await openProjects({ replace: true });
     } catch (error) {
+      if (deletedProject && !state.projects.some((project) => project.id === deletedProjectId)) {
+        state.projects = [deletedProject, ...state.projects];
+      }
+      const currentConversationIds = new Set(state.conversations.map((conversation) => conversation.id));
+      state.conversations = [...deletedConversations.filter((conversation) => !currentConversationIds.has(conversation.id)), ...state.conversations];
+      state.pinnedChatIds = [...new Set([...state.pinnedChatIds, ...deletedPinnedChatIds])];
+      savePinnedChatIds();
+      renderShell();
       showToast(error.message || "Project could not be deleted.");
     }
     return;

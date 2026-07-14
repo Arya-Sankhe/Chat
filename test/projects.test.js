@@ -71,6 +71,8 @@ test("project lifecycle guards shared sources and clears deleted project chats",
   assert.match(pipeline, /if \(attachment\.project_id\)[\s\S]*Project knowledge is already available/);
   assert.match(uploads, /projectId && category !== "document"/);
   assert.match(app, /state\.conversations = state\.conversations\.filter\(\(conversation\) => conversation\.project_id !== deletedProjectId\)/);
+  assert.match(app, /documents: state\.activeProject\.documents\.filter[\s\S]*?renderProjects\(\);[\s\S]*?await deleteAttachment\(state\.session, attachmentId\)/);
+  assert.match(app, /state\.projects = state\.projects\.filter\(\(project\) => project\.id !== deletedProjectId\)[\s\S]*?renderShell\(\);[\s\S]*?await deleteProject\(state\.session, deletedProjectId\)/);
 });
 
 test("schema exposes only the capacity-aware document upload RPC", () => {
