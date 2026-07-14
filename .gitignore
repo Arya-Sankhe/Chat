@@ -1,5 +1,4 @@
 node_modules/
-.cursor/skills/
 .agents/
 .env
 .DS_Store
