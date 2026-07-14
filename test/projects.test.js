@@ -35,6 +35,8 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(app, /class="project-source-remove"/);
   assert.match(app, /function openDeleteConfirm\(/);
   assert.match(app, /openConfirmDialog\(conversation\)/);
+  assert.match(app, /function renderProjectChatCrumb\(/);
+  assert.match(html, /id="projectChatCrumb"/);
   assert.doesNotMatch(app, /window\.confirm\(/);
   assert.doesNotMatch(app, /project-source-actions[\s\S]*?>View<\/button>/);
   assert.doesNotMatch(app, /class="project-delete-button"/);
@@ -50,6 +52,7 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(css, /\.project-instructions-input\s*\{[\s\S]*resize:\s*none/);
   assert.match(css, /\.project-source-remove\s*\{[\s\S]*opacity:\s*0/);
   assert.match(css, /\.project-view--detail/);
+  assert.match(css, /\.project-chat-crumb/);
   assert.doesNotMatch(css, /\.project-composer-slot \.composer\s*\{[\s\S]*?min-height:\s*136px/);
   assert.doesNotMatch(css, /\.project-delete-button/);
 });

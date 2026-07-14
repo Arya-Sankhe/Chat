@@ -408,6 +408,8 @@ const els = {
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
   projectView: document.querySelector("#projectView"),
+  projectChatCrumb: document.querySelector("#projectChatCrumb"),
+  projectChatCrumbName: document.querySelector("#projectChatCrumbName"),
   chatJumpBottom: document.querySelector("#chatJumpBottom"),
   chatPromptNav: document.querySelector("#chatPromptNav"),
   chatPromptRail: document.querySelector("#chatPromptRail"),
@@ -1220,6 +1222,7 @@ function renderShell() {
   renderResearchMode();
   renderWritingStyle();
   renderProjects();
+  renderProjectChatCrumb();
   renderAdminOnlyControls();
 
   if (!servicesReady()) {
@@ -1766,6 +1769,23 @@ function projectDetailMarkup() {
     </div>`;
 }
 
+function renderProjectChatCrumb() {
+  if (!els.projectChatCrumb) return;
+  const conversation = state.conversations.find((item) => item.id === state.activeConversationId);
+  const projectId = conversation?.project_id || "";
+  // Only while a project chat is open — not on the project home / normal chats.
+  const visible = Boolean(projectId && state.activeConversationId && !state.projectsOpen && !state.temporaryChat);
+  els.projectChatCrumb.classList.toggle("hidden", !visible);
+  document.body.classList.toggle("project-chat-open", visible);
+  if (!visible) return;
+  const project = state.projects.find((item) => item.id === projectId)
+    || (state.activeProject?.project?.id === projectId ? state.activeProject.project : null);
+  const name = project?.name || "Project";
+  els.projectChatCrumb.dataset.projectId = projectId;
+  els.projectChatCrumb.setAttribute("aria-label", `Back to ${name}`);
+  if (els.projectChatCrumbName) els.projectChatCrumbName.textContent = name;
+}
+
 function renderProjects() {
   if (!els.projectView) return;
   // Reuse the single composer DOM node instead of duplicating it: park it back
@@ -1784,6 +1804,7 @@ function renderProjects() {
   els.composerArea?.classList.toggle("hidden", visible && !detailReady);
   document.body.classList.toggle("projects-open", visible);
   els.projectsButton?.classList.toggle("active", state.projectsOpen);
+  renderProjectChatCrumb();
   if (!visible) return;
   els.projectView.innerHTML = state.activeProjectId ? projectDetailMarkup() : projectListMarkup();
   const composerSlot = els.projectView.querySelector(".project-composer-slot");
@@ -2298,7 +2319,11 @@ async function openConversation(conversationId) {
   researchController.stopResearchPolling();
   state.images = state.images.filter((item) => item.category !== "document");
   state.temporaryChat = false;
-  const conversation = state.conversations.find((item) => item.id === conversationId);
+  let conversation = state.conversations.find((item) => item.id === conversationId);
+  if (!conversation) {
+    conversation = (state.activeProject?.conversations || []).find((item) => item.id === conversationId) || null;
+    if (conversation) state.conversations.unshift(conversation);
+  }
   state.activeProjectId = conversation?.project_id || "";
   state.projectsOpen = false;
   state.activeProject = null;
@@ -5963,6 +5988,10 @@ function bindEvents() {
   els.projectsButton?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
     void openProjects();
+  });
+  els.projectChatCrumb?.addEventListener("click", () => {
+    const projectId = els.projectChatCrumb.dataset.projectId;
+    if (projectId) void openProject(projectId);
   });
   els.projectView?.addEventListener("click", (event) => { void handleProjectViewClick(event); });
   els.projectView?.addEventListener("change", (event) => { void handleProjectTitleChange(event); });

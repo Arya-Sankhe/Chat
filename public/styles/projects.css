@@ -1,5 +1,59 @@
 /* Claude-inspired project surfaces using Klui's existing colors and type. */
 
+.project-chat-crumb {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(42vw, 280px);
+  min-height: 34px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out), background-color 140ms ease, color 140ms ease;
+}
+
+.project-chat-crumb svg {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.project-chat-crumb span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-chat-crumb:hover {
+  background: var(--bg-secondary);
+}
+
+.project-chat-crumb:hover svg {
+  color: var(--text);
+}
+
+.project-chat-crumb:active {
+  transform: scale(.97);
+}
+
+body.project-chat-open .messages {
+  padding-top: 72px;
+}
+
+body.capacitor-native .project-chat-crumb {
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + var(--native-bar-h, 52px) + 6px);
+  left: 12px;
+}
+
 .project-view {
   flex: 1;
   min-height: 0;
