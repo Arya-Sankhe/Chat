@@ -999,6 +999,149 @@ body.document-viewer-resizing {
   color: var(--accent-contrast);
 }
 
+.document-formula-input-row button:active {
+  transform: scale(0.97);
+}
+
+.document-revise-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  max-width: min(320px, calc(100% - 24px));
+  min-height: 36px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.06);
+  transform-origin: bottom left;
+  transition: opacity 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)), transform 160ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.document-revise-pill.hidden {
+  display: none;
+}
+
+.document-revise-ask {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, transform 140ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+.document-revise-ask:hover {
+  background: var(--bg-secondary);
+}
+
+.document-revise-ask:active {
+  transform: scale(0.97);
+}
+
+.document-revise-form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: min(280px, 72vw);
+  padding: 0 2px 0 8px;
+}
+
+.document-revise-form.hidden {
+  display: none;
+}
+
+.document-revise-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.document-revise-form input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.document-revise-send,
+.document-revise-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)), opacity 140ms ease;
+}
+
+.document-revise-send:active,
+.document-revise-stop:active {
+  transform: scale(0.97);
+}
+
+.document-revise-send.hidden,
+.document-revise-stop.hidden {
+  display: none;
+}
+
+.document-editor-content .doc-revise-pending {
+  border-radius: 4px;
+  color: transparent;
+  background-image: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--text-secondary) 35%, transparent) 0%,
+    color-mix(in srgb, var(--text) 70%, transparent) 45%,
+    color-mix(in srgb, var(--text-secondary) 35%, transparent) 90%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  filter: blur(1.2px);
+  animation: doc-revise-shimmer 1.15s linear infinite;
+}
+
+@keyframes doc-revise-shimmer {
+  from { background-position: 100% center; }
+  to { background-position: 0% center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-revise-pill,
+  .document-revise-ask,
+  .document-revise-send,
+  .document-revise-stop {
+    transition: none;
+  }
+
+  .document-editor-content .doc-revise-pending {
+    animation: none;
+    filter: blur(0.6px);
+    opacity: 0.72;
+  }
+}
+
 body.document-viewer-fullscreen {
   overflow: hidden;
 }

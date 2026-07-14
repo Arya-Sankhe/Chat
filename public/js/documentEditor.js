@@ -10,6 +10,7 @@ function loadDependencies() {
       import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-mathematics@3.27.3")
     ]).then(([core, starter, table, markdown, mathematics]) => ({
       Editor: core.Editor,
+      Mark: core.Mark,
       StarterKit: starter.StarterKit,
       TableKit: table.TableKit,
       Markdown: markdown.Markdown,
@@ -37,7 +38,9 @@ const icons = {
   rowAfter: svg('<rect x="4" y="5" width="16" height="5" rx="1"/><path d="M8 15h8M12 12v8M10 18l2 2 2-2"/>'),
   deleteRow: svg('<rect x="4" y="4" width="16" height="5" rx="1"/><path d="m9 14 6 6M15 14l-6 6"/>'),
   deleteTable: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M4 4l16 16"/>'),
-  check: svg('<path d="m5 12 4 4L19 6"/>')
+  check: svg('<path d="m5 12 4 4L19 6"/>'),
+  send: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>',
+  stop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>'
 };
 
 export function protectCurrencyDollars(markdown = "") {
@@ -84,13 +87,31 @@ function editorMarkup() {
           <button type="button" data-formula-insert aria-label="Insert formula" title="Insert formula">${icons.check}</button>
         </div>
       </div>
+      <div class="document-revise-pill hidden" data-revise-pill>
+        <button type="button" class="document-revise-ask" data-revise-ask>Ask for changes</button>
+        <form class="document-revise-form hidden" data-revise-form>
+          <input type="text" data-revise-input placeholder="Describe changes" aria-label="Describe changes" autocomplete="off">
+          <button type="submit" class="document-revise-send" data-revise-send aria-label="Apply changes" title="Apply changes">${icons.send}</button>
+          <button type="button" class="document-revise-stop hidden" data-revise-stop aria-label="Stop" title="Stop">${icons.stop}</button>
+        </form>
+      </div>
       <div class="document-editor-scroll">
         <div class="document-editor-paper"><div data-document-editor></div></div>
       </div>
     </div>`;
 }
 
-export async function mountDocumentEditor({ container, markdown, onChange }) {
+function createRevisePendingMark(Mark) {
+  return Mark.create({
+    name: "revisePending",
+    inclusive: false,
+    excludes: "",
+    parseHTML: () => [{ tag: "span[data-revise-pending]" }],
+    renderHTML: () => ["span", { "data-revise-pending": "", class: "doc-revise-pending" }, 0]
+  });
+}
+
+export async function mountDocumentEditor({ container, markdown, onChange, onRevise }) {
   const deps = await loadDependencies();
   container.innerHTML = editorMarkup();
   const editor = new deps.Editor({
@@ -99,7 +120,8 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
       deps.StarterKit,
       deps.TableKit.configure({ table: { resizable: true } }),
       deps.Markdown,
-      deps.Mathematics.configure({ katexOptions: { throwOnError: false } })
+      deps.Mathematics.configure({ katexOptions: { throwOnError: false } }),
+      createRevisePendingMark(deps.Mark)
     ],
     content: protectCurrencyDollars(markdown),
     contentType: "markdown",
@@ -116,6 +138,16 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
   const formulaPopover = container.querySelector("[data-formula-popover]");
   const formulaInput = container.querySelector("[data-formula-input]");
   const formulaPreview = container.querySelector("[data-formula-preview]");
+  const revisePill = container.querySelector("[data-revise-pill]");
+  const reviseAsk = container.querySelector("[data-revise-ask]");
+  const reviseForm = container.querySelector("[data-revise-form]");
+  const reviseInput = container.querySelector("[data-revise-input]");
+  const reviseSend = container.querySelector("[data-revise-send]");
+  const reviseStop = container.querySelector("[data-revise-stop]");
+  let reviseRange = null;
+  let reviseAbort = null;
+  let reviseBusy = false;
+  let ignoreOutsideClickOnce = false;
   const activeCommands = {
     h1: () => editor.isActive("heading", { level: 1 }),
     h2: () => editor.isActive("heading", { level: 2 }),
@@ -190,6 +222,166 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
     formulaInput.focus();
   }
 
+  function positionRevisePill(from = reviseRange?.from, to = reviseRange?.to) {
+    if (from == null || to == null || revisePill.classList.contains("hidden")) return;
+    const shellRect = shell.getBoundingClientRect();
+    const start = editor.view.coordsAtPos(from);
+    const end = editor.view.coordsAtPos(to);
+    const left = Math.max(10, Math.min(start.left - shellRect.left, shell.clientWidth - revisePill.offsetWidth - 10));
+    let top = Math.min(start.top, end.top) - shellRect.top - revisePill.offsetHeight - 8;
+    if (top < toolbar.offsetHeight + 6) top = Math.max(start.bottom, end.bottom) - shellRect.top + 8;
+    revisePill.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
+  }
+
+  function hideRevisePill({ force = false } = {}) {
+    if (reviseBusy && !force) return;
+    if (reviseAbort) {
+      reviseAbort.abort();
+      reviseAbort = null;
+    }
+    reviseBusy = false;
+    reviseRange = null;
+    revisePill.classList.add("hidden");
+    reviseAsk.classList.remove("hidden");
+    reviseForm.classList.add("hidden");
+    reviseInput.value = "";
+    reviseSend.classList.remove("hidden");
+    reviseStop.classList.add("hidden");
+    reviseSend.disabled = false;
+    editor.setEditable(true);
+    editor.chain().unsetMark("revisePending").run();
+  }
+
+  function showReviseAsk() {
+    if (reviseBusy || typeof onRevise !== "function") return;
+    const { from, to, empty } = editor.state.selection;
+    if (empty || to - from < 1) {
+      hideRevisePill();
+      return;
+    }
+    closeFormulaPopover();
+    reviseRange = { from, to };
+    // Already in describe mode — keep the form; only refresh the range/position.
+    if (!reviseForm.classList.contains("hidden")) {
+      requestAnimationFrame(() => positionRevisePill(from, to));
+      return;
+    }
+    reviseAsk.classList.remove("hidden");
+    reviseForm.classList.add("hidden");
+    revisePill.classList.remove("hidden");
+    requestAnimationFrame(() => positionRevisePill(from, to));
+  }
+
+  function dismissRevisePill() {
+    // Collapse selection so selectionUpdate does not immediately re-open the pill.
+    if (!editor.state.selection.empty) {
+      const { to } = editor.state.selection;
+      editor.chain().setTextSelection(to).run();
+    }
+    hideRevisePill({ force: true });
+  }
+
+  function handleReviseOutsideClick() {
+    if (reviseBusy) return;
+    // Mouseup that finishes a drag-select often lands in paper whitespace and
+    // synthesizes a click — ignore that one so the pill can appear.
+    if (ignoreOutsideClickOnce) {
+      ignoreOutsideClickOnce = false;
+      return;
+    }
+    // Typed instruction in "Describe changes" — never dismiss on outside click.
+    if (!reviseForm.classList.contains("hidden") && reviseInput.value.trim()) return;
+    dismissRevisePill();
+  }
+
+  function openReviseForm() {
+    if (!reviseRange || reviseBusy) return;
+    reviseAsk.classList.add("hidden");
+    reviseForm.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      positionRevisePill();
+      reviseInput.focus();
+    });
+  }
+
+  function selectionText(from, to) {
+    return editor.state.doc.textBetween(from, to, "\n\n", "\n").trim();
+  }
+
+  async function submitRevise(event) {
+    event?.preventDefault?.();
+    if (reviseBusy || !reviseRange || typeof onRevise !== "function") return;
+    const instruction = reviseInput.value.trim();
+    if (!instruction) {
+      reviseInput.focus();
+      return;
+    }
+    const { from, to } = reviseRange;
+    const selection = selectionText(from, to);
+    if (!selection) {
+      hideRevisePill({ force: true });
+      return;
+    }
+
+    reviseBusy = true;
+    reviseAbort = new AbortController();
+    reviseSend.classList.add("hidden");
+    reviseStop.classList.remove("hidden");
+    reviseInput.disabled = true;
+    editor.setEditable(false);
+    editor.chain().focus().setTextSelection({ from, to }).setMark("revisePending").run();
+    positionRevisePill(from, to);
+
+    try {
+      const replacement = await onRevise({
+        selection,
+        instruction,
+        markdown: editor.getMarkdown(),
+        signal: reviseAbort.signal
+      });
+      const text = String(replacement || "").trim();
+      if (!text) throw new Error("No revision returned.");
+      editor.setEditable(true);
+      const inserted = editor.chain()
+        .focus()
+        .setTextSelection({ from, to })
+        .unsetMark("revisePending")
+        .deleteSelection()
+        .insertContent(protectCurrencyDollars(text), { contentType: "markdown" })
+        .run();
+      if (!inserted) {
+        editor.chain().focus().insertContent(text).run();
+      }
+      onChange?.(editor.getMarkdown());
+      hideRevisePill({ force: true });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        editor.setEditable(true);
+        editor.chain().unsetMark("revisePending").run();
+        reviseBusy = false;
+        reviseAbort = null;
+        reviseInput.disabled = false;
+        reviseSend.classList.remove("hidden");
+        reviseStop.classList.add("hidden");
+        return;
+      }
+      editor.setEditable(true);
+      editor.chain().unsetMark("revisePending").run();
+      reviseBusy = false;
+      reviseAbort = null;
+      reviseInput.disabled = false;
+      reviseSend.classList.remove("hidden");
+      reviseStop.classList.add("hidden");
+      reviseInput.focus();
+      throw error;
+    }
+  }
+
+  function stopRevise() {
+    if (!reviseBusy) return;
+    reviseAbort?.abort();
+  }
+
   function insertFormula() {
     const latex = formulaInput.value.trim();
     if (!latex) return;
@@ -227,7 +419,7 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
   }
 
   container.addEventListener("mousedown", (event) => {
-    if (event.target.closest("[data-editor-command], [data-formula-insert]")) event.preventDefault();
+    if (event.target.closest("[data-editor-command], [data-formula-insert], [data-revise-pill]")) event.preventDefault();
   });
   container.addEventListener("click", (event) => {
     const button = event.target.closest("[data-editor-command]");
@@ -240,12 +432,37 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
       insertFormula();
       return;
     }
+    if (event.target.closest("[data-revise-ask]")) {
+      openReviseForm();
+      return;
+    }
+    if (event.target.closest("[data-revise-stop]")) {
+      stopRevise();
+      return;
+    }
     const tableCell = event.target.closest("td, th");
     if (tableCell) {
       tableToolbar.classList.remove("hidden");
       requestAnimationFrame(() => positionTableToolbar(tableCell));
     }
     if (!event.target.closest("[data-formula-popover]")) closeFormulaPopover();
+    if (!event.target.closest("[data-revise-pill]")) handleReviseOutsideClick();
+  });
+  reviseForm.addEventListener("submit", (event) => {
+    submitRevise(event).catch((error) => {
+      const message = error?.message || "Could not apply changes.";
+      reviseInput.setCustomValidity(message);
+      reviseInput.reportValidity();
+      reviseInput.setCustomValidity("");
+    });
+  });
+  reviseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (reviseBusy) stopRevise();
+      else hideRevisePill({ force: true });
+      editor.commands.focus();
+    }
   });
   formulaInput.addEventListener("input", renderFormulaPreview);
   formulaInput.addEventListener("keydown", (event) => {
@@ -258,9 +475,33 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
       editor.commands.focus();
     }
   });
-  container.addEventListener("scroll", positionTableToolbar, { passive: true });
-  window.addEventListener("resize", positionTableToolbar);
-  editor.on("selectionUpdate", syncToolbar);
+  container.addEventListener("scroll", () => {
+    positionTableToolbar();
+    positionRevisePill();
+  }, { passive: true });
+  function onWindowResize() {
+    positionTableToolbar();
+    positionRevisePill();
+  }
+  window.addEventListener("resize", onWindowResize);
+  editor.on("selectionUpdate", () => {
+    syncToolbar();
+    if (reviseBusy) return;
+    if (reviseForm.classList.contains("hidden")) showReviseAsk();
+  });
+  function onPointerUp(event) {
+    if (reviseBusy) return;
+    // Clicks on the pill itself must not re-run showReviseAsk (that resets Ask → Describe).
+    if (event.target.closest?.("[data-revise-pill]")) return;
+    // Form open with typed text: leave it alone on pointerup elsewhere.
+    if (!reviseForm.classList.contains("hidden") && reviseInput.value.trim()) return;
+    if (!editor.state.selection.empty) {
+      ignoreOutsideClickOnce = true;
+      requestAnimationFrame(showReviseAsk);
+    }
+  }
+  // Shell (not only ProseMirror DOM): selection mouseup often ends in paper whitespace.
+  shell.addEventListener("pointerup", onPointerUp);
   editor.on("transaction", syncToolbar);
   deps.migrateMathStrings(editor);
   syncToolbar();
@@ -268,7 +509,9 @@ export async function mountDocumentEditor({ container, markdown, onChange }) {
   return {
     getMarkdown: () => editor.getMarkdown(),
     destroy: () => {
-      window.removeEventListener("resize", positionTableToolbar);
+      hideRevisePill({ force: true });
+      shell.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("resize", onWindowResize);
       editor.destroy();
     }
   };

@@ -431,6 +431,79 @@ test("generated prose document view returns its editable source", async () => {
   assert.equal(res.json().revision, 3);
 });
 
+test("editable document revise returns replacement markdown without a chat message", async () => {
+  const originalFetch = globalThis.fetch;
+  let chatCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/chat/completions")) {
+      chatCalls += 1;
+      const body = JSON.parse(String(init.body || "{}"));
+      assert.match(body.messages?.[1]?.content || "", /Selected portion to revise/);
+      assert.match(body.messages?.[1]?.content || "", /Make it warmer/);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        async json() {
+          return {
+            id: "gen-1",
+            choices: [{ message: { content: "```markdown\nWarmer world\n```" } }],
+            usage: { cost: 0.0001 }
+          };
+        },
+        async text() {
+          return "";
+        }
+      };
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const config = loadConfig({
+      ...SUPABASE_ENV,
+      OPENROUTER_API_KEY: "or-key",
+      R2_ACCOUNT_ID: "account-1",
+      R2_ACCESS_KEY_ID: "r2-key",
+      R2_SECRET_ACCESS_KEY: "r2-secret",
+      R2_BUCKET: "uploads"
+    });
+    const overrides = stubbedDeps({
+      db: {
+        async getDocumentFileByAttachment() {
+          return {
+            id: "doc-1",
+            metadata: { editable: true, editor_markdown: "# Hello\n\nWorld", editor_revision: 1 }
+          };
+        },
+        async checkApiBudget() {
+          return { allowed: true };
+        },
+        async recordApiUsageCost() {
+          return {};
+        }
+      }
+    });
+
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/attachments/doc-attachment/editor/revise",
+      body: {
+        markdown: "# Hello\n\nWorld",
+        selection: "World",
+        instruction: "Make it warmer"
+      },
+      overrides
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().replacement, "Warmer world");
+    assert.equal(chatCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("editable document saves canonical markdown into existing metadata", async () => {
   let savedPatch = null;
   const overrides = stubbedDeps({

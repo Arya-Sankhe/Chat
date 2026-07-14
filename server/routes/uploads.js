@@ -1,8 +1,14 @@
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
+import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { DocumentService } from "../documents/index.js";
 import { requireChatContext } from "./context.js";
+
+const REVISE_SELECTION_MAX = 24_000;
+const REVISE_DOC_MAX = 120_000;
+const REVISE_INSTRUCTION_MAX = 4_000;
 
 export function documentKindFromUpload({ fileName, contentType }) {
   const fromName = documentKindFromFileName(fileName);
@@ -433,6 +439,85 @@ export async function handleDocumentEditorExport(req, res, config, attachmentId)
       format: output.kind
     }
   });
+}
+
+function stripReviseFences(text) {
+  const trimmed = String(text || "").trim();
+  const fenced = trimmed.match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced ? fenced[1] : trimmed).trim();
+}
+
+export async function handleDocumentEditorRevise(req, res, config, attachmentId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  if (!configuredServices(config).documents) {
+    throw new HttpError(503, "Document editing is not configured.");
+  }
+  const context = await requireChatContext(req, config);
+  await requireEditableDocument(context, attachmentId, req.signal);
+  const body = await parseJsonBody(req, 256 * 1024);
+  const markdown = String(body.markdown || "").trim();
+  const selection = String(body.selection || "").trim();
+  const instruction = String(body.instruction || "").trim();
+  if (!markdown) throw new HttpError(400, "Document content cannot be empty.");
+  if (!selection) throw new HttpError(400, "Select text to revise.");
+  if (!instruction) throw new HttpError(400, "Describe the changes you want.");
+  if (markdown.length > REVISE_DOC_MAX) throw new HttpError(413, "Document is too large to revise in place.");
+  if (selection.length > REVISE_SELECTION_MAX) throw new HttpError(413, "Selection is too large to revise in place.");
+  if (instruction.length > REVISE_INSTRUCTION_MAX) throw new HttpError(413, "Change request is too long.");
+
+  const provider = resolveProvider("openrouter", config);
+  const model = typeof body.model === "string" && body.model.trim()
+    ? body.model.trim()
+    : OPENROUTER_TEXT_MODEL;
+  const meter = createCrofaiUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    signal: req.signal
+  });
+
+  const content = await meter.chatCompletion({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    providerId: provider.id,
+    signal: req.signal,
+    body: {
+      model,
+      temperature: 0.2,
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You revise a selected portion of a markdown document.",
+            "Return ONLY the replacement markdown for that selection.",
+            "No preface, no explanation, no markdown fences.",
+            "Keep the rest of the document unchanged by only rewriting the selection.",
+            "Preserve structure (headings, lists, tables, emphasis) unless the instruction asks to change it.",
+            "Match the document's tone and formatting."
+          ].join(" ")
+        },
+        {
+          role: "user",
+          content: [
+            "Full document:",
+            markdown,
+            "",
+            "Selected portion to revise:",
+            selection,
+            "",
+            "Instruction:",
+            instruction
+          ].join("\n")
+        }
+      ]
+    }
+  });
+
+  const replacement = stripReviseFences(content);
+  if (!replacement) throw new HttpError(502, "The model returned an empty revision.");
+  sendJson(res, 200, { replacement });
 }
 
 export async function handleAttachmentDelete(req, res, config, attachmentId) {

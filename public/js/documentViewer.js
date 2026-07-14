@@ -12,6 +12,7 @@ export function createDocumentViewer({
   fetchDocumentJobStatus,
   fetchAttachmentView,
   saveEditableDocument,
+  reviseEditableDocument,
   exportEditableDocument,
   downloadAttachment,
   showToast,
@@ -365,6 +366,23 @@ export function createDocumentViewer({
           markEditorStatus("UNSAVED");
           if (editorSaveTimer) clearTimeout(editorSaveTimer);
           editorSaveTimer = setTimeout(() => saveEditorNow().catch(() => {}), 900);
+        },
+        onRevise: async ({ selection, instruction, markdown, signal }) => {
+          markEditorStatus("REVISING");
+          try {
+            const result = await reviseEditableDocument(state.session, state.viewer.attachmentId, {
+              markdown,
+              selection,
+              instruction,
+              model: state.activeConversation?.model || state.settings?.model,
+              signal
+            });
+            return result.replacement;
+          } catch (error) {
+            if (error?.name !== "AbortError") markEditorStatus("UNSAVED");
+            else markEditorStatus("SAVED");
+            throw error;
+          }
         }
       });
       if (!state.viewer.open || state.viewer.attachmentId !== attachmentId) {

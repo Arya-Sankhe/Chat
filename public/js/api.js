@@ -364,6 +364,18 @@ export async function saveEditableDocument(session, attachmentId, markdown, revi
   return response.json();
 }
 
+export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, model, signal }) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/revise`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown, selection, instruction, model }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function exportEditableDocument(session, attachmentId, format, markdown) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/export`, {
     session,
