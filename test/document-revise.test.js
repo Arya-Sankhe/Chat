@@ -14,7 +14,13 @@ test("document editor ships ask-for-changes revise pill with shimmer loading", a
 
   assert.match(editor, /Ask for changes/);
   assert.match(editor, /Describe changes/);
-  assert.match(editor, /doc-revise-pending/);
+  assert.match(editor, /Decoration\.inline/);
+  assert.match(editor, /DecorationSet\.create/);
+  assert.match(editor, /revisePendingDecoration/);
+  assert.match(editor, /never enters undo history/);
+  assert.match(editor, /resolveReviseRange/);
+  assert.match(editor, /forEachCell/);
+  assert.match(editor, /selectionMarkdown/);
   assert.match(editor, /ignoreOutsideClickOnce/);
   assert.match(editor, /reviseInput\.value\.trim\(\)/);
   assert.match(editor, /reviseInput\.disabled = false/);

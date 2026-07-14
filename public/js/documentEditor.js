@@ -1,4 +1,5 @@
 let dependenciesPromise;
+const REVISE_PENDING_KEY = "kluiRevisePending";
 
 function loadDependencies() {
   if (!dependenciesPromise) {
@@ -7,15 +8,21 @@ function loadDependencies() {
       import(/* @vite-ignore */ "https://esm.sh/@tiptap/starter-kit@3.27.3"),
       import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-table@3.27.3"),
       import(/* @vite-ignore */ "https://esm.sh/@tiptap/markdown@3.27.3"),
-      import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-mathematics@3.27.3")
-    ]).then(([core, starter, table, markdown, mathematics]) => ({
+      import(/* @vite-ignore */ "https://esm.sh/@tiptap/extension-mathematics@3.27.3"),
+      import(/* @vite-ignore */ "https://esm.sh/@tiptap/pm@3.27.3/state"),
+      import(/* @vite-ignore */ "https://esm.sh/@tiptap/pm@3.27.3/view")
+    ]).then(([core, starter, table, markdown, mathematics, pmState, pmView]) => ({
       Editor: core.Editor,
-      Mark: core.Mark,
+      Extension: core.Extension,
       StarterKit: starter.StarterKit,
       TableKit: table.TableKit,
       Markdown: markdown.Markdown,
       Mathematics: mathematics.Mathematics,
-      migrateMathStrings: mathematics.migrateMathStrings
+      migrateMathStrings: mathematics.migrateMathStrings,
+      Plugin: pmState.Plugin,
+      PluginKey: pmState.PluginKey,
+      Decoration: pmView.Decoration,
+      DecorationSet: pmView.DecorationSet
     }));
   }
   return dependenciesPromise;
@@ -101,14 +108,98 @@ function editorMarkup() {
     </div>`;
 }
 
-function createRevisePendingMark(Mark) {
-  return Mark.create({
-    name: "revisePending",
-    inclusive: false,
-    excludes: "",
-    parseHTML: () => [{ tag: "span[data-revise-pending]" }],
-    renderHTML: () => ["span", { "data-revise-pending": "", class: "doc-revise-pending" }, 0]
+
+function resolveReviseRange(selection) {
+  // CellSelection.from/to is only the head cell — expand to all selected cells,
+  // or the whole table when every cell is selected.
+  if (typeof selection.forEachCell === "function") {
+    if (selection.isRowSelection?.() && selection.isColSelection?.()) {
+      const from = selection.$anchorCell.before(-1);
+      return { from, to: from + selection.$anchorCell.node(-1).nodeSize };
+    }
+    let from = Infinity;
+    let to = -Infinity;
+    selection.forEachCell((node, pos) => {
+      from = Math.min(from, pos);
+      to = Math.max(to, pos + node.nodeSize);
+    });
+    if (Number.isFinite(from) && to > from) return { from, to };
+  }
+  if (selection.ranges?.length > 1) {
+    let from = Infinity;
+    let to = -Infinity;
+    for (const { $from, $to } of selection.ranges) {
+      from = Math.min(from, $from.pos);
+      to = Math.max(to, $to.pos);
+    }
+    return { from, to };
+  }
+  return { from: selection.from, to: selection.to };
+}
+
+function selectionMarkdown(editor, from, to) {
+  const serialize = editor.storage.markdown?.manager?.serialize;
+  if (typeof serialize === "function") {
+    try {
+      const cut = editor.state.doc.cut(from, to);
+      const md = String(serialize(cut.toJSON()) || "").trim();
+      if (md) return md;
+    } catch {
+      // fall through
+    }
+  }
+  return editor.state.doc.textBetween(from, to, "\n\n", "\n").trim();
+}
+
+function createRevisePendingExtension(Extension, Plugin, PluginKey, Decoration, DecorationSet) {
+  // Decorations (not Marks) so the shimmer never enters undo history — Cmd+Z
+  // restores clean pre-edit text instead of the loading state.
+  const key = new PluginKey(REVISE_PENDING_KEY);
+  return Extension.create({
+    name: "revisePendingDecoration",
+    addStorage() {
+      return { key };
+    },
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          key,
+          state: {
+            init: () => DecorationSet.empty,
+            apply(tr, old) {
+              const meta = tr.getMeta(key);
+              if (meta === "clear") return DecorationSet.empty;
+              if (meta && Number.isInteger(meta.from) && Number.isInteger(meta.to) && meta.to > meta.from) {
+                // Always inline — PM splits across cell textblocks so each cell shimmers
+                // like normal text (node deco on <table> blanked the whole grid).
+                return DecorationSet.create(tr.doc, [
+                  Decoration.inline(meta.from, meta.to, { class: "doc-revise-pending" })
+                ]);
+              }
+              return old.map(tr.mapping, tr.doc);
+            }
+          },
+          props: {
+            decorations(state) {
+              return key.getState(state);
+            }
+          }
+        })
+      ];
+    }
   });
+}
+
+function setRevisePendingDecoration(editor, from, to) {
+  const key = editor.storage.revisePendingDecoration?.key;
+  if (!key) return;
+  editor.view.dispatch(editor.state.tr.setMeta(key, { from, to }));
+}
+
+function clearRevisePendingDecoration(editor) {
+  const key = editor.storage.revisePendingDecoration?.key;
+  if (!key) return;
+  editor.view.dispatch(editor.state.tr.setMeta(key, "clear"));
 }
 
 export async function mountDocumentEditor({ container, markdown, onChange, onRevise }) {
@@ -121,7 +212,7 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
       deps.TableKit.configure({ table: { resizable: true } }),
       deps.Markdown,
       deps.Mathematics.configure({ katexOptions: { throwOnError: false } }),
-      createRevisePendingMark(deps.Mark)
+      createRevisePendingExtension(deps.Extension, deps.Plugin, deps.PluginKey, deps.Decoration, deps.DecorationSet)
     ],
     content: protectCurrencyDollars(markdown),
     contentType: "markdown",
@@ -250,23 +341,24 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     reviseStop.classList.add("hidden");
     reviseSend.disabled = false;
     editor.setEditable(true);
-    editor.chain().unsetMark("revisePending").run();
+    clearRevisePendingDecoration(editor);
   }
 
   function showReviseAsk() {
     if (reviseBusy || typeof onRevise !== "function") return;
-    const { from, to, empty } = editor.state.selection;
+    // Freeze range once describing — focus/selection churn must not shrink to head cell.
+    if (!reviseForm.classList.contains("hidden")) {
+      requestAnimationFrame(() => positionRevisePill());
+      return;
+    }
+    const { empty } = editor.state.selection;
+    const { from, to } = resolveReviseRange(editor.state.selection);
     if (empty || to - from < 1) {
       hideRevisePill();
       return;
     }
     closeFormulaPopover();
     reviseRange = { from, to };
-    // Already in describe mode — keep the form; only refresh the range/position.
-    if (!reviseForm.classList.contains("hidden")) {
-      requestAnimationFrame(() => positionRevisePill(from, to));
-      return;
-    }
     reviseAsk.classList.remove("hidden");
     reviseForm.classList.add("hidden");
     revisePill.classList.remove("hidden");
@@ -305,10 +397,6 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     });
   }
 
-  function selectionText(from, to) {
-    return editor.state.doc.textBetween(from, to, "\n\n", "\n").trim();
-  }
-
   async function submitRevise(event) {
     event?.preventDefault?.();
     if (reviseBusy || !reviseRange || typeof onRevise !== "function") return;
@@ -318,7 +406,7 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
       return;
     }
     const { from, to } = reviseRange;
-    const selection = selectionText(from, to);
+    const selection = selectionMarkdown(editor, from, to);
     if (!selection) {
       hideRevisePill({ force: true });
       return;
@@ -330,7 +418,8 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     reviseStop.classList.remove("hidden");
     reviseInput.disabled = true;
     editor.setEditable(false);
-    editor.chain().focus().setTextSelection({ from, to }).setMark("revisePending").run();
+    editor.chain().focus().setTextSelection({ from, to }).run();
+    setRevisePendingDecoration(editor, from, to);
     positionRevisePill(from, to);
 
     try {
@@ -343,10 +432,10 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
       const text = String(replacement || "").trim();
       if (!text) throw new Error("No revision returned.");
       editor.setEditable(true);
+      clearRevisePendingDecoration(editor);
       const inserted = editor.chain()
         .focus()
         .setTextSelection({ from, to })
-        .unsetMark("revisePending")
         .deleteSelection()
         .insertContent(protectCurrencyDollars(text), { contentType: "markdown" })
         .run();
@@ -358,7 +447,7 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     } catch (error) {
       if (error?.name === "AbortError") {
         editor.setEditable(true);
-        editor.chain().unsetMark("revisePending").run();
+        clearRevisePendingDecoration(editor);
         reviseBusy = false;
         reviseAbort = null;
         reviseInput.disabled = false;
@@ -367,7 +456,7 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
         return;
       }
       editor.setEditable(true);
-      editor.chain().unsetMark("revisePending").run();
+      clearRevisePendingDecoration(editor);
       reviseBusy = false;
       reviseAbort = null;
       reviseInput.disabled = false;
