@@ -17,7 +17,9 @@ test("document editor ships ask-for-changes revise pill with shimmer loading", a
   assert.match(editor, /doc-revise-pending/);
   assert.match(editor, /ignoreOutsideClickOnce/);
   assert.match(editor, /reviseInput\.value\.trim\(\)/);
-  assert.match(editor, /dismissRevisePill/);
+  assert.match(editor, /reviseInput\.disabled = false/);
+  assert.match(editor, /never block/);
+  assert.match(editor, /reviseInput\.focus\(\)/);
   assert.match(editor, /shell\.addEventListener\("pointerup"/);
   assert.match(viewer, /reviseEditableDocument/);
   assert.match(api, /\/editor\/revise/);

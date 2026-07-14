@@ -245,6 +245,7 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     reviseAsk.classList.remove("hidden");
     reviseForm.classList.add("hidden");
     reviseInput.value = "";
+    reviseInput.disabled = false;
     reviseSend.classList.remove("hidden");
     reviseStop.classList.add("hidden");
     reviseSend.disabled = false;
@@ -419,7 +420,15 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
   }
 
   container.addEventListener("mousedown", (event) => {
-    if (event.target.closest("[data-editor-command], [data-formula-insert], [data-revise-pill]")) event.preventDefault();
+    // Keep doc selection when pressing toolbar/ask chrome — but never block
+    // focusing the describe <input> (preventDefault on mousedown steals focus).
+    if (event.target.closest("[data-editor-command], [data-formula-insert]")) {
+      event.preventDefault();
+      return;
+    }
+    if (event.target.closest("[data-revise-ask], [data-revise-send], [data-revise-stop]")) {
+      event.preventDefault();
+    }
   });
   container.addEventListener("click", (event) => {
     const button = event.target.closest("[data-editor-command]");
@@ -438,6 +447,15 @@ export async function mountDocumentEditor({ container, markdown, onChange, onRev
     }
     if (event.target.closest("[data-revise-stop]")) {
       stopRevise();
+      return;
+    }
+    // Click on pill chrome (not send/stop) while describing → refocus the input.
+    if (
+      event.target.closest("[data-revise-pill]")
+      && !reviseForm.classList.contains("hidden")
+      && !event.target.closest("[data-revise-send], [data-revise-stop]")
+    ) {
+      reviseInput.focus();
       return;
     }
     const tableCell = event.target.closest("td, th");
