@@ -648,6 +648,122 @@ body.capacitor-native .side-chat-panel {
 
 }
 
+.msg-timestamp {
+
+  position: relative;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  height: 32px;
+
+  padding: 0 6px;
+
+  color: var(--text-tertiary);
+
+  font-size: 12px;
+
+  font-weight: 500;
+
+  line-height: 1;
+
+  white-space: nowrap;
+
+  cursor: default;
+
+  opacity: 0;
+
+  pointer-events: none;
+
+  transition: opacity 140ms ease;
+
+}
+
+.msg-timestamp::after {
+
+  content: attr(data-full);
+
+  position: absolute;
+
+  top: calc(100% + 6px);
+
+  left: 50%;
+
+  z-index: 12;
+
+  padding: 6px 8px;
+
+  border-radius: 6px;
+
+  background: #111;
+
+  color: #fff;
+
+  font-size: 12px;
+
+  font-weight: 500;
+
+  line-height: 1.2;
+
+  white-space: nowrap;
+
+  opacity: 0;
+
+  pointer-events: none;
+
+  transform: translateX(-50%) translateY(2px) scale(0.97);
+
+  transition: opacity 125ms var(--ease-out), transform 125ms var(--ease-out);
+
+}
+
+@media (hover: hover) and (pointer: fine) {
+
+  .message.user:hover .msg-timestamp {
+
+    opacity: 1;
+
+    pointer-events: auto;
+
+  }
+
+  .msg-timestamp:hover::after,
+
+  .msg-timestamp:focus-visible::after {
+
+    opacity: 1;
+
+    transform: translateX(-50%) translateY(0) scale(1);
+
+  }
+
+}
+
+@media (hover: none) {
+
+  .msg-timestamp {
+
+    opacity: 1;
+
+    pointer-events: auto;
+
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .msg-timestamp,
+
+  .msg-timestamp::after {
+
+    transition: none;
+
+  }
+
+}
+
 .message.user.editing .message-body {
 
   max-width: min(760px, 92%);

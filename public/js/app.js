@@ -3543,6 +3543,23 @@ function renderMessageFooter(msg, role) {
   `;
 }
 
+function formatMessageStamp(iso) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    iso: date.toISOString(),
+    short: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
+    full: date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    })
+  };
+}
+
 function canEditUserMessage(msg) {
   if (state.running) return false;
   const id = msg?.id ? String(msg.id) : "";
@@ -3555,10 +3572,14 @@ function renderUserMessageFooter(msg) {
   const edit = canEditUserMessage(msg)
     ? `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`
     : "";
-  if (!copy && !edit) return "";
+  const stamp = formatMessageStamp(msg.created_at);
+  const time = stamp
+    ? `<time class="msg-timestamp" datetime="${escapeHtml(stamp.iso)}" data-full="${escapeHtml(stamp.full)}">${escapeHtml(stamp.short)}</time>`
+    : "";
+  if (!copy && !edit && !time) return "";
   return `
     <div class="message-footer message-footer--user">
-      <div class="message-footer-actions">${copy}${edit}</div>
+      <div class="message-footer-actions">${time}${copy}${edit}</div>
     </div>
   `;
 }

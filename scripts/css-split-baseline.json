@@ -1,7 +1,7 @@
 {
   "description": "Approved checksum of the concatenated public/styles.css @import tree. verify-css-split.mjs compares the live concatenation against this fixture so intentional CSS edits must refresh the snapshot explicitly. Shallow CI checkouts do not need historical Git objects.",
   "source": "approved-concatenated-css-snapshot",
-  "utf8ByteLength": 257682,
-  "sha256": "afe79b00e8e2719362f1b0a6d4d41915fcc27bbfcf89855749e346939abd416e",
+  "utf8ByteLength": 259009,
+  "sha256": "c909b923a26633a62a0728f89a5776a36f6dff60bdc30f3a262c1ed6bdf375e8",
   "updateInstructions": "When intentionally changing CSS content, concatenate public/styles.css imports, recompute utf8ByteLength and sha256, then update this fixture in the same commit."
 }

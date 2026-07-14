@@ -24,7 +24,18 @@ test("user message footer always offers copy; edit stays gated behind canEditUse
   );
   assert.match(footer[0], /messageCopyButton\(msg,\s*\{\s*iconOnly:\s*true\s*\}\)/);
   assert.match(footer[0], /canEditUserMessage\(msg\)/);
-  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!edit\s*\)\s*return\s*""/);
+  assert.match(footer[0], /formatMessageStamp\(msg\.created_at\)/);
+  assert.match(footer[0], /class="msg-timestamp"/);
+  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!edit\s*&&\s*!time\s*\)\s*return\s*""/);
+});
+
+test("user message timestamps appear on hover and expand on date hover", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  assert.match(appJs, /function formatMessageStamp\(iso\)/);
+  assert.match(css, /\.message\.user:hover \.msg-timestamp/);
+  assert.match(css, /\.msg-timestamp:hover::after/);
+  assert.match(css, /content:\s*attr\(data-full\)/);
 });
 
 test("assistant responses expose length controls and desktop selection reuses temporary chat and pasted context", () => {
