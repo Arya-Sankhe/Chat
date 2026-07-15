@@ -105,6 +105,10 @@ export function loadConfig(env = process.env) {
         baseUrl: cleanUrl(env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1"
       }
     },
+    speech: {
+      apiKey: clean(env.SARVAM_API_KEY),
+      baseUrl: cleanUrl(env.SARVAM_BASE_URL) || "https://api.sarvam.ai"
+    },
     visionDescribeModel: clean(env.VISION_DESCRIBE_MODEL),
     plans,
     access: {
@@ -239,6 +243,7 @@ export function configuredServices(config) {
   return {
     crof: Boolean(config.serverApiKey),
     openrouter: Boolean(config.providers?.openrouter?.apiKey),
+    speech: Boolean(config.speech?.apiKey),
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),

@@ -32,6 +32,7 @@ import {
 } from "./routes/uploads.js";
 import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
 import { handleTemporaryChat } from "./chat/temporary.js";
+import { handleSpeechToText } from "./routes/speech.js";
 
 export function installStableRequestSignal(req) {
   const controller = new AbortController();
@@ -229,6 +230,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/temporary-chat") {
       await handleTemporaryChat(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/speech-to-text") {
+      await handleSpeechToText(req, res, config);
       return;
     }
 

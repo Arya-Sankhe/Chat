@@ -87,7 +87,7 @@ const SUPABASE_ENV = {
 /* Nothing configured: no Supabase, no model keys. */
 const bareConfig = loadConfig({});
 /* Supabase + model keys configured, so requests fail on the token check. */
-const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key" });
+const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key", SARVAM_API_KEY: "sarvam-key" });
 const documentReadyConfig = loadConfig({
   ...SUPABASE_ENV,
   CROFAI_API_KEY: "crof-key",
@@ -158,6 +158,10 @@ const ROUTES = [
     path: "/api/temporary-chat", method: "POST", authKind: "chat", enforced405: "GET",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
   },
+  {
+    path: "/api/speech-to-text", method: "POST", authKind: "chat", enforced405: "GET",
+    preGate: { status: 503, error: "Speech transcription is not configured on the server." }
+  },
   { path: "/api/messages/msg-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/admin/summary", method: "GET", authKind: "admin" },
   { path: "/api/admin/settings", method: "GET", authKind: "admin" },
@@ -174,7 +178,7 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.equal(healthBody.app, "klui-chat");
   assert.deepEqual(
     Object.keys(healthBody.services).sort(),
-    ["access", "crof", "documents", "openrouter", "r2", "research", "supabase", "websearch"]
+    ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "websearch"]
   );
 
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
@@ -270,6 +274,37 @@ test("authenticated happy path works through stubbed dependencies", async () => 
   const res = await dispatch(authReadyConfig, { path: "/api/conversations", overrides });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { conversations: [{ id: "conv-1", title: "Hello" }] });
+});
+
+test("speech route forwards fixed Sarvam settings and returns the transcript", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return new Response(JSON.stringify({ transcript: "hello from speech" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const res = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/speech-to-text",
+      headers: { "content-type": "audio/webm" },
+      body: "audio-bytes",
+      overrides: stubbedDeps()
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { transcript: "hello from speech" });
+    assert.equal(request.url, "https://api.sarvam.ai/speech-to-text");
+    assert.equal(request.options.headers["api-subscription-key"], "sarvam-key");
+    assert.equal(request.options.body.get("model"), "saaras:v3");
+    assert.equal(request.options.body.get("mode"), "codemix");
+    assert.equal(request.options.body.get("language_code"), "unknown");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("project detail reports source-byte capacity and scoped resources", async () => {

@@ -39,6 +39,7 @@ import {
   streamConversationMessage,
   streamTemporaryChat,
   updateAdminSettings,
+  transcribeSpeech,
   uploadFile
 } from "./api.js";
 import {
@@ -112,6 +113,7 @@ const CONTEXT_LIMIT_TOKENS = 256000;
 const LONG_PASTE_MIN_CHARS = 1000;
 const LONG_PASTE_MIN_LINES = 8;
 const LONG_PASTE_MAX_CHARS = 95000;
+const SPEECH_CHUNK_MS = 28_000;
 const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
@@ -218,6 +220,13 @@ let reasoningOpenIds = new Set();
 let suppressUrlSync = false;
 let lastMessagesTouchY = 0;
 let lastNativeBackAt = 0;
+let voiceRecorder = null;
+let voiceStream = null;
+let voiceChunkTimer = null;
+let voiceQueue = Promise.resolve();
+let voiceTranscriptParts = [];
+let voiceError = null;
+let voiceState = "idle";
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
 let researchController;
@@ -463,6 +472,7 @@ const els = {
   researchModeChip: document.querySelector("#researchModeChip"),
   researchModeClose: document.querySelector("#researchModeClose"),
   sendButton: document.querySelector("#sendButton"),
+  voiceButton: document.querySelector("#voiceButton"),
   stopButton: document.querySelector("#stopButton"),
   settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
   settingsModelParamsSection: document.querySelector("#settingsModelParamsSection"),
@@ -4511,6 +4521,10 @@ adminPanel = createAdminPanel({
 });
 
 function updateSendButton() {
+  if (els.voiceButton) {
+    els.voiceButton.disabled = voiceState === "processing"
+      || (!state.config?.services?.speech && voiceState !== "recording");
+  }
   const hasText = Boolean(els.promptInput.value.trim() || state.pastedText);
   if (state.running) {
     const hasContent = hasText || state.images.some((item) => item.category === "image");
@@ -4523,6 +4537,113 @@ function updateSendButton() {
   const blocked = pendingDocumentUploads().length > 0;
   els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
   els.sendButton.disabled = blocked;
+}
+
+function setVoiceState(next) {
+  voiceState = next;
+  if (!els.voiceButton) return;
+  const recording = next === "recording";
+  const processing = next === "processing";
+  els.voiceButton.classList.toggle("is-recording", recording);
+  els.voiceButton.classList.toggle("is-processing", processing);
+  els.voiceButton.setAttribute("aria-pressed", String(recording));
+  els.voiceButton.setAttribute("aria-label", recording ? "Stop voice input" : processing ? "Transcribing voice input" : "Start voice input");
+  els.voiceButton.title = recording ? "Stop recording" : processing ? "Transcribing…" : "Voice input";
+  updateSendButton();
+}
+
+function preferredRecordingType() {
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    .find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function queueVoiceChunk(blob) {
+  if (!blob?.size) return;
+  voiceQueue = voiceQueue.then(async () => {
+    try {
+      const result = await transcribeSpeech(state.session, blob);
+      if (result.transcript) voiceTranscriptParts.push(result.transcript.trim());
+    } catch (error) {
+      voiceError ||= error;
+    }
+  });
+}
+
+function startVoiceChunk() {
+  const mimeType = preferredRecordingType();
+  voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+  voiceRecorder.addEventListener("dataavailable", (event) => queueVoiceChunk(event.data));
+  voiceRecorder.addEventListener("error", (event) => { voiceError ||= event.error || new Error("Recording failed."); });
+  voiceRecorder.addEventListener("stop", () => {
+    if (voiceState === "recording" && voiceStream) startVoiceChunk();
+    else finishVoiceRecording();
+  }, { once: true });
+  voiceRecorder.start();
+  voiceChunkTimer = setTimeout(() => {
+    if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+  }, SPEECH_CHUNK_MS);
+}
+
+function finishVoiceRecording() {
+  clearTimeout(voiceChunkTimer);
+  voiceChunkTimer = null;
+  voiceStream?.getTracks().forEach((track) => track.stop());
+  voiceStream = null;
+  voiceRecorder = null;
+  setVoiceState("processing");
+  voiceQueue.finally(() => {
+    const transcript = voiceTranscriptParts.filter(Boolean).join(" ").trim();
+    if (transcript) {
+      const current = els.promptInput.value;
+      els.promptInput.value = `${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`;
+      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      els.promptInput.focus();
+    }
+    if (voiceError) showToast(transcript ? "Part of the recording could not be transcribed." : voiceError.message);
+    else if (!transcript) showToast("No speech was detected.");
+    voiceTranscriptParts = [];
+    voiceError = null;
+    setVoiceState("idle");
+  });
+}
+
+async function startVoiceRecording() {
+  if (!state.config?.services?.speech) {
+    showToast("Voice input is not configured.");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    showToast("Voice input is not supported in this browser.");
+    return;
+  }
+
+  try {
+    setVoiceState("processing");
+    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    voiceTranscriptParts = [];
+    voiceError = null;
+    voiceQueue = Promise.resolve();
+    setVoiceState("recording");
+    startVoiceChunk();
+  } catch (error) {
+    voiceStream?.getTracks().forEach((track) => track.stop());
+    voiceStream = null;
+    voiceRecorder = null;
+    setVoiceState("idle");
+    showToast(error?.name === "NotAllowedError" ? "Microphone access was blocked." : "Could not start voice input.");
+  }
+}
+
+function toggleVoiceRecording() {
+  if (voiceState === "processing") return;
+  if (voiceState === "recording") {
+    clearTimeout(voiceChunkTimer);
+    voiceChunkTimer = null;
+    setVoiceState("processing");
+    if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+    return;
+  }
+  startVoiceRecording();
 }
 
 function applyComposerHeight() {
@@ -6797,6 +6918,7 @@ function bindEvents() {
   });
 
   els.sendButton.addEventListener("click", sendPrompt);
+  els.voiceButton?.addEventListener("click", toggleVoiceRecording);
   els.stopButton.addEventListener("click", () => {
     if (state.activeResearchId) {
       cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));

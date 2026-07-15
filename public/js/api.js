@@ -125,6 +125,17 @@ export async function fetchModels(session) {
   return response.json();
 }
 
+export async function transcribeSpeech(session, audio) {
+  const response = await apiFetch("/api/speech-to-text", {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function listConversations(session) {
   const response = await apiFetch("/api/conversations", { session });
   if (!response.ok) throw new Error(await readProblem(response));

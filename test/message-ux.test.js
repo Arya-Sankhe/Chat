@@ -146,6 +146,19 @@ test("temporary chat reuses the image upload path but keeps documents blocked", 
   assert.match(appJs, /if \(String\(url\)\.startsWith\("blob:"\)\) URL\.revokeObjectURL\(url\)/);
 });
 
+test("voice input rolls native recorder chunks through the shared composer", () => {
+  const appJs = readPublic("js/app.js");
+  const html = readPublic("index.html");
+  const css = readStylesheet();
+  assert.match(html, /id="voiceButton"/);
+  assert.match(appJs, /const SPEECH_CHUNK_MS = 28_000/);
+  assert.match(appJs, /voiceChunkTimer = setTimeout/);
+  assert.match(appJs, /if \(voiceState === "recording" && voiceStream\) startVoiceChunk\(\)/);
+  assert.match(appJs, /voiceTranscriptParts\.filter\(Boolean\)\.join\(" "\)/);
+  assert.match(css, /\.voice-btn\.is-recording \.voice-dot/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
 test("conversation switches restore only that chat's pending documents", () => {
   const appJs = readPublic("js/app.js");
   const open = appJs.match(/async function openConversation\(conversationId\)\s*\{[\s\S]*?\n\}/);
