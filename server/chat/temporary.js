@@ -19,6 +19,7 @@ import { requireChatContext } from "../routes/context.js";
 import { requireServerCrofKey } from "../routes/meta.js";
 import {
   buildMeteredWebsearch,
+  loadUploadedAttachments,
   normalizeAgentMode,
   normalizeCouncilFlag,
   resolveWebSearchMode,
@@ -47,9 +48,6 @@ export async function handleTemporaryChat(req, res, config) {
   const context = await requireChatContext(req, config);
   const includeReasoning = context.profile?.role === "admin";
   const body = await parseJsonBody(req, 1024 * 1024);
-  if (Array.isArray(body.attachments) && body.attachments.length) {
-    throw new HttpError(400, "Temporary chat does not support attachments yet.");
-  }
   if (Array.isArray(body.models) && body.models.length) {
     throw new HttpError(400, "Temporary chat does not support compare or council mode yet.");
   }
@@ -57,12 +55,29 @@ export async function handleTemporaryChat(req, res, config) {
     throw new HttpError(400, "Temporary chat does not support council mode yet.");
   }
 
+  const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
+  if (attachments.some((attachment) => attachment.category === "document")) {
+    throw new HttpError(400, "Temporary chat supports images only.");
+  }
+  let cleanupPromise = null;
+  const cleanupImages = () => cleanupPromise ||= (async () => {
+    for (const attachment of attachments) {
+      try {
+        await context.r2.deleteObjects([attachment.object_key]);
+        await context.db.deleteAttachment(context.user.id, attachment.id);
+      } catch (error) {
+        console.error("Temporary image cleanup failed:", error?.message || error);
+      }
+    }
+  })();
+  res.on("close", () => { void cleanupImages(); });
+
   const settings = normalizeMessageSettings(body);
   settings.systemPrompt = withWritingStyleSystemPrompt(
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
   );
-  const userContent = buildStoredUserContent(body.text, []);
+  const userContent = buildStoredUserContent(body.text, attachments);
   const promptText = contentText(userContent);
   const historyMessages = [
     ...normalizeTemporaryHistory(body.messages),
@@ -74,7 +89,7 @@ export async function handleTemporaryChat(req, res, config) {
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
-    imageCount: 0,
+    imageCount: attachments.length,
     signal: req.signal
   });
   const summarizeHistory = createConversationSummarizer({
@@ -163,5 +178,7 @@ export async function handleTemporaryChat(req, res, config) {
       return;
     }
     throw error;
+  } finally {
+    await cleanupImages();
   }
 }

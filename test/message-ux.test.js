@@ -137,6 +137,15 @@ test("temporary chat toggle only shows on empty home or active temp chat outside
   );
 });
 
+test("temporary chat reuses the image upload path but keeps documents blocked", () => {
+  const appJs = readPublic("js/app.js");
+  assert.doesNotMatch(appJs, /Temporary chat is text-only for now/);
+  assert.match(appJs, /state\.temporaryChat\s*\?\s*fileCategory\(file\)\s*===\s*"image"/);
+  assert.match(appJs, /for \(const img of images\)/);
+  assert.match(appJs, /Temporary chat supports images only/);
+  assert.match(appJs, /if \(String\(url\)\.startsWith\("blob:"\)\) URL\.revokeObjectURL\(url\)/);
+});
+
 test("conversation switches restore only that chat's pending documents", () => {
   const appJs = readPublic("js/app.js");
   const open = appJs.match(/async function openConversation\(conversationId\)\s*\{[\s\S]*?\n\}/);

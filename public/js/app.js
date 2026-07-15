@@ -636,7 +636,7 @@ function renderTemporaryChatMode() {
     els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
     els.temporaryChatToggle.setAttribute("title", state.temporaryChat ? "Temporary chat is on" : "Temporary chat");
   }
-  if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat;
+  if (els.imageToggle) els.imageToggle.disabled = state.running;
 }
 
 function renderResearchMode() {
@@ -646,7 +646,7 @@ function renderResearchMode() {
   els.deepResearchToggle?.classList.toggle("active", state.researchMode);
   els.deepResearchToggle?.setAttribute("aria-pressed", String(state.researchMode));
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = state.running || !available;
-  if (els.imageToggle) els.imageToggle.disabled = state.running || state.temporaryChat || state.researchMode;
+  if (els.imageToggle) els.imageToggle.disabled = state.running || state.researchMode;
 }
 
 function normalizeWritingStyle(value) {
@@ -701,6 +701,13 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   state.temporaryChat = next;
   if (next) state.researchMode = false;
   if (resetChat) {
+    for (const message of state.messages) {
+      if (!Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        const url = part?.type === "image_url" ? part.image_url?.url : "";
+        if (String(url).startsWith("blob:")) URL.revokeObjectURL(url);
+      }
+    }
     state.activeConversationId = "";
     state.messages = [];
     for (const item of state.images) forgetPendingDocument(item);
@@ -4051,10 +4058,6 @@ async function startDocumentUpload(item) {
 
 function acceptPendingFiles(files) {
   if (!requireAuth()) return;
-  if (state.temporaryChat) {
-    showToast("Temporary chat is text-only for now.");
-    return;
-  }
   if (state.researchMode) {
     showToast("Turn off Deep Research before adding attachments.");
     return;
@@ -4062,7 +4065,12 @@ function acceptPendingFiles(files) {
   const draft = els.promptInput.value;
   const plan = state.me?.plan || {};
   const allFiles = [...files];
-  const accepted = allFiles.filter((file) => state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
+  const accepted = allFiles.filter((file) => state.temporaryChat
+    ? fileCategory(file) === "image"
+    : state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
+  if (state.temporaryChat && accepted.length < allFiles.length) {
+    showToast("Temporary chat supports images only.");
+  }
   if (state.running && allFiles.length && !accepted.length) {
     showToast("Follow-up attachments can only be images while Klui is working.");
     return;
@@ -4088,7 +4096,7 @@ function acceptPendingFiles(files) {
     }
   }
   if (accepted.length > chosen.length) showToast(state.running ? `Attach up to ${maxImages} images.` : `Attach up to ${maxImages} images and ${maxDocs} documents.`);
-  if (allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
+  if (!state.temporaryChat && allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
 
   for (const file of chosen) {
     const category = fileCategory(file);
@@ -5096,10 +5104,6 @@ async function sendPrompt() {
     return;
   }
   const compareModels = compareController.activeCompareModelIds();
-  if (state.temporaryChat && state.images.length) {
-    showToast("Temporary chat is text-only for now.");
-    return;
-  }
   if (state.temporaryChat && compareModels.length) {
     showToast("Temporary chat uses one model for now.");
     return;
@@ -5477,7 +5481,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   try {
     const uploaded = [];
-    for (const img of temporaryChat ? [] : images) {
+    for (const img of images) {
       if (img.category === "document" && img.attachmentId) {
         uploaded.push(img.uploaded || {
           id: img.attachmentId,
@@ -6532,10 +6536,6 @@ function bindEvents() {
   els.imageToggle.addEventListener("click", () => {
     closeActionMenu();
     if (!requireAuth()) return;
-    if (state.temporaryChat) {
-      showToast("Temporary chat is text-only for now.");
-      return;
-    }
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {
@@ -6545,10 +6545,6 @@ function bindEvents() {
   els.cameraAction?.addEventListener("click", () => {
     closeActionMenu();
     if (!requireAuth()) return;
-    if (state.temporaryChat) {
-      showToast("Temporary chat is text-only for now.");
-      return;
-    }
     els.cameraFileInput?.click();
   });
   els.cameraFileInput?.addEventListener("change", (e) => {
@@ -6560,7 +6556,7 @@ function bindEvents() {
   els.composer?.addEventListener("dragover", (event) => {
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
-    if (state.temporaryChat || state.researchMode) return;
+    if (state.researchMode) return;
     event.dataTransfer.dropEffect = "copy";
     els.composer.classList.add("drag-over");
   });

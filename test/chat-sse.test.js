@@ -294,6 +294,9 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
     async getSearchCache() { return cachedSearch; },
     async upsertSearchCache() { return {}; },
     async updateAttachment() { return {}; },
+    async deleteAttachment(userId, id) {
+      calls.push({ op: "deleteAttachment", userId, id });
+    },
     async checkApiBudget(payload) {
       calls.push({ op: "checkApiBudget", payload });
       return { allowed: true };
@@ -328,7 +331,8 @@ function overridesFor(db) {
   return {
     createDb: () => db,
     createR2: () => ({
-      readUrl(key) { return `https://signed.example/${key}`; }
+      readUrl(key) { return `https://signed.example/${key}`; },
+      async deleteObjects(keys) { db.calls.push({ op: "deleteObjects", keys }); }
     }),
     verifyUser: async () => ({ id: "user-1", email: "user@example.com", raw: {} })
   };
@@ -643,6 +647,41 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
     db.calls.map((call) => call.op),
     ["checkApiBudget", "recordApiUsageCost", "responseEnd"]
   );
+});
+
+test("temporary chat sends an uploaded image without persisting it", async (t) => {
+  t.after(restoreFetch);
+  let providerBody = null;
+  installProviderFetch({
+    streamFor: (body) => {
+      providerBody = body;
+      return [contentDelta("I can see it."), usageChunk()];
+    }
+  });
+
+  const attachment = {
+    id: "00000000-0000-4000-8000-000000000301",
+    category: "image",
+    status: "uploaded",
+    file_name: "photo.png",
+    content_type: "image/png",
+    size_bytes: 512,
+    object_key: "users/user-1/photo.png"
+  };
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  db.getAttachment = async (_userId, id) => id === attachment.id ? attachment : null;
+  const res = await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "What is in this image?", model: VISION_MODEL, attachments: [attachment.id] }
+  });
+
+  assert.equal(res.statusCode, 200);
+  const userMessage = providerBody.messages.find((message) => message.role === "user");
+  assert.equal(userMessage.content[1].image_url.url, "https://signed.example/users/user-1/photo.png");
+  assert.equal(db.calls.some((call) => call.op === "insertMessage"), false);
+  assert.deepEqual(db.calls.find((call) => call.op === "deleteObjects")?.keys, [attachment.object_key]);
+  assert.equal(db.calls.some((call) => call.op === "deleteAttachment" && call.id === attachment.id), true);
 });
 
 test("writing styles reach normal and temporary provider prompts without leaking provider fields", async (t) => {

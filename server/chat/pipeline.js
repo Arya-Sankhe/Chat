@@ -167,7 +167,7 @@ async function resolveCachedModelMetadata({ context, config, modelId, provider, 
   }
 }
 
-async function loadUploadedAttachments(context, attachmentIds, req, plan, { requireCapability = true } = {}) {
+export async function loadUploadedAttachments(context, attachmentIds, req, plan, { requireCapability = true } = {}) {
   const maxUploads = (plan.maxImagesPerMessage || 0) + (plan.maxDocumentsPerMessage || 0) + 1;
   const ids = Array.isArray(attachmentIds) ? attachmentIds.filter(Boolean).slice(0, maxUploads) : [];
 
