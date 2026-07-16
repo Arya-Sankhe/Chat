@@ -401,7 +401,7 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(res.json().document.id, "doc-1");
 });
 
-test("XLSX view returns extracted sheets without creating a PDF preview", async () => {
+test("XLSX view queues a faithful PDF preview and keeps extracted sheets as fallback", async () => {
   let previewJobCreated = false;
   const overrides = stubbedDeps({
     db: {
@@ -439,6 +439,8 @@ test("XLSX view returns extracted sheets without creating a PDF preview", async 
           }
         ];
       },
+      async getReadyPdfPreviewForDocument() { return null; },
+      async getActivePdfPreviewJob() { return null; },
       async createDocumentJob() {
         previewJobCreated = true;
         return { id: "job-1" };
@@ -451,9 +453,16 @@ test("XLSX view returns extracted sheets without creating a PDF preview", async 
     overrides
   });
 
-  assert.equal(res.statusCode, 200);
-  assert.equal(previewJobCreated, false);
-  assert.deepEqual(res.json().sheets, [{
+  assert.equal(res.statusCode, 202);
+  assert.equal(previewJobCreated, true);
+  assert.equal(res.json().status, "processing");
+
+  const fallback = await dispatch(documentReadyConfig, {
+    path: "/api/attachments/sheet-1/view?fallback=sheet",
+    overrides
+  });
+  assert.equal(fallback.statusCode, 200);
+  assert.deepEqual(fallback.json().sheets, [{
     name: "Budget",
     rows: [
       ["Item", "Cost", "Owner"],

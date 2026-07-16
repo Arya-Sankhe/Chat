@@ -521,6 +521,15 @@ export function createDocumentViewer({
           return;
         }
         if (["failed", "expired"].includes(payload?.job?.status)) {
+          if (state.viewer.sourceKind === "xlsx") {
+            await loadDocumentViewerUrl(state.viewer.downloadAttachmentId || state.viewer.attachmentId, {
+              downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
+              fileName: state.viewer.fileName,
+              sourceKind: "xlsx",
+              sheetFallback: true
+            });
+            return;
+          }
           setDocumentViewerState({ loading: false, error: "The preview could not be generated." });
           return;
         }
@@ -537,12 +546,17 @@ export function createDocumentViewer({
     documentViewerPoll = setTimeout(tick, 1200);
   }
 
-  async function loadDocumentViewerUrl(attachmentId, { downloadAttachmentId = "", fileName = "", sourceKind = "" } = {}) {
+  async function loadDocumentViewerUrl(attachmentId, {
+    downloadAttachmentId = "",
+    fileName = "",
+    sourceKind = "",
+    sheetFallback = false
+  } = {}) {
     if (!state.session?.access_token) {
       setDocumentViewerState({ loading: false, error: "Sign in to view files." });
       return;
     }
-    const payload = await fetchAttachmentView(state.session, attachmentId);
+    const payload = await fetchAttachmentView(state.session, attachmentId, { sheetFallback });
     if (payload.status === "processing" && payload.jobId) {
       setDocumentViewerState({
         open: true,

@@ -358,7 +358,9 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   const documentFile = doc || await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
   if (!documentFile) throw new HttpError(404, "Document metadata not found.");
 
-  if (kind === "xlsx" && documentFile.text_ready_at) {
+  const sheetFallback = kind === "xlsx"
+    && new URL(req.url, "http://localhost").searchParams.get("fallback") === "sheet";
+  if (sheetFallback && documentFile.text_ready_at) {
     let chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
       sourceType: "sheet_range",
       limit: 1000,

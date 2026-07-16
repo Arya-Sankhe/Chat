@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 import threading
 import unittest
@@ -75,6 +76,39 @@ class RetryHelpersTest(unittest.TestCase):
                 result = w.request_with_retries("GET", "https://example.test", max_attempts=3)
         self.assertTrue(result.ok)
         self.assertEqual(request_mock.call_count, 2)
+
+
+class XlsxRecalculationTest(unittest.TestCase):
+    def test_create_xlsx_recalculates_before_delivery(self):
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            recalculated = tmp_path / "recalculated" / "Budget.xlsx"
+            processor.recalculate_xlsx = mock.Mock(return_value=recalculated)
+            result = processor.create_xlsx(tmp_path, "Budget", {
+                "data": {"sheets": [{"name": "Costs", "rows": [["Value"], [1]]}]}
+            })
+        self.assertEqual(result, recalculated)
+        processor.recalculate_xlsx.assert_called_once()
+
+    def test_recalculation_rejects_missing_formula_results(self):
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "formula.xlsx"
+            workbook = Workbook()
+            workbook.active["A1"] = "=1+1"
+            workbook.save(source)
+
+            def copy_without_recalculation(command, **_kwargs):
+                output = tmp_path / "recalculated" / source.name
+                output.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, output)
+                return mock.Mock(returncode=0)
+
+            with mock.patch("worker.worker.subprocess.run", side_effect=copy_without_recalculation):
+                with self.assertRaisesRegex(RuntimeError, "xlsx_formula_error"):
+                    processor.recalculate_xlsx(source, tmp_path)
 
 
 class SplitPageRangesTest(unittest.TestCase):
@@ -1119,8 +1153,8 @@ class XlsxReadEditTest(unittest.TestCase):
             })
             edited = load_workbook(output, data_only=False)
             self.assertEqual(edited["Budget"]["A2"].value, "Hosting")
-            self.assertEqual(edited["Budget"]["B3"].value, "=SUM(B2:B2)")
-            self.assertEqual(edited["Budget"]["B2"].number_format, "$#,##0.00")
+            self.assertIn(edited["Budget"]["B3"].value, {"=SUM(B2:B2)", "=SUM(B2)"})
+            self.assertIn(edited["Budget"]["B2"].number_format, {"$#,##0.00", "\\$#,##0.00"})
             self.assertTrue(edited.calculation.fullCalcOnLoad)
             edited.close()
 

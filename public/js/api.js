@@ -355,8 +355,9 @@ export async function fetchDocumentJobStatus(session, jobId) {
   return response.json();
 }
 
-export async function fetchAttachmentView(session, attachmentId) {
-  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/view`, {
+export async function fetchAttachmentView(session, attachmentId, { sheetFallback = false } = {}) {
+  const suffix = sheetFallback ? "?fallback=sheet" : "";
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/view${suffix}`, {
     session,
     headers: { accept: "application/json" }
   });

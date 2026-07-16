@@ -17,6 +17,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libreoffice \
+    python3-uno \
     poppler-utils \
     qpdf \
     fonts-dejavu \

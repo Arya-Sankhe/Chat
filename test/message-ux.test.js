@@ -170,7 +170,7 @@ test("conversation switches restore only that chat's pending documents", () => {
   assert.doesNotMatch(poll[0], /if \(doc\.usable\) \{\s*forgetPendingDocument/);
 });
 
-test("XLSX viewer prefers escaped HTML sheets and retains the PDF URL fallback", () => {
+test("XLSX viewer retains an escaped HTML fallback behind the PDF preview", () => {
   const source = readPublic("js/documentViewer.js");
   assert.match(source, /function renderSheetViewer\(\)/);
   assert.match(source, /escapeHtml\(row\[columnIndex\] \|\| ""\)/);

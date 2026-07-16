@@ -2124,7 +2124,8 @@ class Processor:
         path = tmp / f"{safe_name(title)}.xlsx"
         payload = dict(input_data or {})
         payload["title"] = title
-        return Path(create_xlsx_workbook(path, payload))
+        create_xlsx_workbook(path, payload)
+        return self.recalculate_xlsx(path, tmp)
 
     def create_pptx(self, tmp, title, input_data):
         prs = Presentation()
@@ -2448,8 +2449,36 @@ class Processor:
         wb.calculation.calcMode = "auto"
         wb.save(output)
         wb.close()
-        check = load_workbook(str(output), read_only=True, data_only=False)
-        check.close()
+        return self.recalculate_xlsx(output, tmp)
+
+    def recalculate_xlsx(self, source, tmp):
+        output = tmp / "recalculated" / source.name
+        profile = tmp / f"lo-calc-{uuid.uuid4()}"
+        script = Path(__file__).with_name("recalculate_xlsx.py")
+        subprocess.run(
+            ["/usr/bin/python3", str(script), str(source), str(output), str(profile)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=90,
+        )
+        formulas = load_workbook(str(output), read_only=True, data_only=False)
+        values = load_workbook(str(output), read_only=True, data_only=True)
+        try:
+            for sheet_name in formulas.sheetnames:
+                value_sheet = values[sheet_name]
+                for row in formulas[sheet_name].iter_rows():
+                    for cell in row:
+                        if cell.data_type != "f":
+                            continue
+                        result = value_sheet[cell.coordinate]
+                        if result.value is None or result.data_type == "e":
+                            raise RuntimeError(
+                                f"xlsx_formula_error: {sheet_name}!{cell.coordinate}"
+                            )
+        finally:
+            formulas.close()
+            values.close()
         return output
 
     def export_job(self, job, tmp):
