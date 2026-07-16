@@ -401,7 +401,7 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(res.json().document.id, "doc-1");
 });
 
-test("XLSX view queues a faithful PDF preview and keeps extracted sheets as fallback", async () => {
+test("XLSX view never enters the PDF preview queue and keeps extracted sheets as fallback", async () => {
   let previewJobCreated = false;
   const overrides = stubbedDeps({
     db: {
@@ -453,9 +453,9 @@ test("XLSX view queues a faithful PDF preview and keeps extracted sheets as fall
     overrides
   });
 
-  assert.equal(res.statusCode, 202);
-  assert.equal(previewJobCreated, true);
-  assert.equal(res.json().status, "processing");
+  assert.equal(res.statusCode, 200);
+  assert.equal(previewJobCreated, false);
+  assert.equal(res.json().kind, "xlsx");
 
   const fallback = await dispatch(documentReadyConfig, {
     path: "/api/attachments/sheet-1/view?fallback=sheet",
@@ -470,6 +470,50 @@ test("XLSX view queues a faithful PDF preview and keeps extracted sheets as fall
       ["Storage", "10", "Finance"]
     ]
   }]);
+});
+
+test("XLSX view returns a signed read-only ONLYOFFICE session when configured", async () => {
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    R2_ACCOUNT_ID: "account-1",
+    R2_ACCESS_KEY_ID: "r2-key",
+    R2_SECRET_ACCESS_KEY: "r2-secret",
+    R2_BUCKET: "uploads",
+    ONLYOFFICE_PUBLIC_URL: "https://office.example.com",
+    ONLYOFFICE_JWT_SECRET: "test-secret"
+  });
+  const overrides = stubbedDeps({
+    db: {
+      async getAttachment() {
+        return {
+          id: "sheet-1",
+          status: "uploaded",
+          object_key: "users/user-1/budget.xlsx",
+          etag: "v1",
+          file_name: "budget.xlsx",
+          content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        };
+      },
+      async getDocumentFileByAttachment() {
+        return { id: "doc-1", kind: "xlsx", text_ready_at: "2026-07-13T00:00:00Z" };
+      }
+    }
+  });
+  overrides.createR2 = () => ({ readUrl: () => "https://signed.example/budget.xlsx" });
+
+  const res = await dispatch(config, {
+    path: "/api/attachments/sheet-1/view",
+    overrides
+  });
+  const payload = res.json();
+  assert.equal(res.statusCode, 200);
+  assert.equal(payload.kind, "office");
+  assert.equal(payload.officeUrl, "https://office.example.com");
+  assert.equal(payload.officeConfig.documentType, "cell");
+  assert.equal(payload.officeConfig.editorConfig.mode, "view");
+  assert.equal(payload.officeConfig.editorConfig.user.id, "user-1");
+  assert.equal(payload.officeConfig.document.permissions.edit, false);
+  assert.match(payload.officeConfig.token, /^[^.]+\.[^.]+\.[^.]+$/);
 });
 
 test("generated prose document view returns its editable source", async () => {

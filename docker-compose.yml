@@ -9,11 +9,24 @@ services:
     environment:
       PORT: 3000
       HOST: 0.0.0.0
+      ONLYOFFICE_PUBLIC_URL: ${ONLYOFFICE_PUBLIC_URL:-http://localhost:8082}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
       WEBSEARCH_PRIMARY_PROVIDER: searxng
       SEARXNG_BASE_URL: http://searxng:8080
     depends_on:
       searxng:
         condition: service_healthy
+    restart: unless-stopped
+
+  onlyoffice:
+    image: onlyoffice/documentserver:9.3.1
+    ports:
+      - "${ONLYOFFICE_PORT:-8082}:80"
+    environment:
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
+      JWT_ENABLED: "true"
+      # R2/S3 signed URLs break if DS attaches Authorization: Bearer on download.
+      JWT_HEADER: AuthorizationJwt
     restart: unless-stopped
 
   searxng:

@@ -170,10 +170,10 @@ test("conversation switches restore only that chat's pending documents", () => {
   assert.doesNotMatch(poll[0], /if \(doc\.usable\) \{\s*forgetPendingDocument/);
 });
 
-test("XLSX viewer retains an escaped HTML fallback behind the PDF preview", () => {
+test("XLSX viewer retains an escaped HTML fallback behind the native workbook viewer", () => {
   const source = readPublic("js/documentViewer.js");
   assert.match(source, /function renderSheetViewer\(\)/);
   assert.match(source, /escapeHtml\(row\[columnIndex\] \|\| ""\)/);
+  assert.match(source, /new window\.DocsAPI\.DocEditor\("klui-office-viewer", config\)/);
   assert.match(source, /if \(viewer\.sheets\?\.length\) \{[\s\S]*?renderSheetViewer\(\)/);
-  assert.match(source, /if \(viewer\.url\) \{[\s\S]*?renderCleanPdfViewer\(viewer\.url\)/);
 });

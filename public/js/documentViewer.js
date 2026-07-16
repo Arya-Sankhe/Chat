@@ -28,6 +28,9 @@ export function createDocumentViewer({
   let documentViewerPoll = null;
   let pdfJsPromise = null;
   let pdfRenderToken = 0;
+  let officeScriptPromise = null;
+  let officeEditor = null;
+  let officeAttachmentId = "";
   let editorController = null;
   let editorAttachmentId = "";
   let editorSaveTimer = null;
@@ -245,6 +248,58 @@ export function createDocumentViewer({
       </div>`;
   }
 
+  function destroyOfficeViewer() {
+    officeEditor?.destroyEditor?.();
+    officeEditor = null;
+    officeAttachmentId = "";
+  }
+
+  function loadOnlyOffice(url) {
+    if (window.DocsAPI?.DocEditor) return Promise.resolve();
+    if (!officeScriptPromise) {
+      officeScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = `${String(url).replace(/\/+$/, "")}/web-apps/apps/api/documents/api.js`;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Spreadsheet viewer is unavailable."));
+        document.head.appendChild(script);
+      }).catch((error) => {
+        officeScriptPromise = null;
+        throw error;
+      });
+    }
+    return officeScriptPromise;
+  }
+
+  async function showSheetFallback() {
+    try {
+      await loadDocumentViewerUrl(state.viewer.downloadAttachmentId || state.viewer.attachmentId, {
+        downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
+        fileName: state.viewer.fileName,
+        sourceKind: "xlsx",
+        sheetFallback: true
+      });
+    } catch (error) {
+      setDocumentViewerState({ loading: false, error: error.message || "Workbook preview is unavailable." });
+    }
+  }
+
+  function renderOfficeViewer() {
+    if (officeEditor && officeAttachmentId === state.viewer.attachmentId) return;
+    destroyOfficeViewer();
+    const attachmentId = state.viewer.attachmentId;
+    officeAttachmentId = attachmentId;
+    elements.documentViewerBody.innerHTML = '<div id="klui-office-viewer" class="office-viewer"><div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>Loading workbook…</div></div>';
+    loadOnlyOffice(state.viewer.officeUrl)
+      .then(() => {
+        if (!state.viewer.open || state.viewer.attachmentId !== attachmentId) return;
+        const config = structuredClone(state.viewer.officeConfig);
+        config.events = { onError: showSheetFallback };
+        officeEditor = new window.DocsAPI.DocEditor("klui-office-viewer", config);
+      })
+      .catch(showSheetFallback);
+  }
+
   function renderDocumentViewer() {
     if (!elements.documentViewer) return;
     const viewer = state.viewer;
@@ -276,26 +331,35 @@ export function createDocumentViewer({
     if (!viewer.open) {
       if (isFullscreen) setFullscreen(false, { animate: false });
       destroyEditor();
+      destroyOfficeViewer();
       delete elements.documentViewerBody.dataset.pdfUrl;
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Select a generated document to preview.</div>`;
       return;
     }
     if (viewer.error) {
+      destroyOfficeViewer();
       delete elements.documentViewerBody.dataset.pdfUrl;
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">${escapeHtml(viewer.error)}</div>`;
       return;
     }
     if (viewer.loading) {
+      destroyOfficeViewer();
       delete elements.documentViewerBody.dataset.pdfUrl;
       const label = viewer.jobId ? "Preparing preview…" : "Loading preview…";
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty"><span class="artifact-spinner" aria-hidden="true"></span>${label}</div>`;
       return;
     }
     if (editable) {
+      destroyOfficeViewer();
       renderEditableDocument();
       return;
     }
     destroyEditor();
+    if (viewer.officeUrl && viewer.officeConfig) {
+      renderOfficeViewer();
+      return;
+    }
+    destroyOfficeViewer();
     if (viewer.sheets?.length) {
       renderSheetViewer();
       return;
@@ -573,7 +637,7 @@ export function createDocumentViewer({
       pollDocumentPreviewJob(payload.jobId);
       return;
     }
-    if (!payload.url && !payload.sheets?.length && !payload.markdown) throw new Error("Preview was not returned.");
+    if (!payload.url && !payload.sheets?.length && !payload.markdown && !payload.officeConfig) throw new Error("Preview was not returned.");
     stopDocumentPreviewPoll();
     setDocumentViewerState({
       open: true,
@@ -584,6 +648,8 @@ export function createDocumentViewer({
       kind: payload.kind || "pdf",
       sourceKind: sourceKind || payload.sourceKind || payload.kind || "pdf",
       url: payload.url || "",
+      officeUrl: String(payload.officeUrl || ""),
+      officeConfig: payload.officeConfig || null,
       sheets: Array.isArray(payload.sheets) ? payload.sheets : [],
       activeSheet: 0,
       markdown: String(payload.markdown || ""),
@@ -605,6 +671,8 @@ export function createDocumentViewer({
       kind: "pdf",
       sourceKind: format.toLowerCase(),
       url: "",
+      officeUrl: "",
+      officeConfig: null,
       sheets: [],
       activeSheet: 0,
       markdown: "",
@@ -632,6 +700,7 @@ export function createDocumentViewer({
     await Promise.all([exitAnimation, savePromise]);
     if (transitionToken !== viewerTransitionToken) return;
     destroyEditor();
+    destroyOfficeViewer();
     if (isFullscreen) setFullscreen(false, { animate: false });
     stopDocumentPreviewPoll();
     pdfRenderToken += 1;
@@ -645,6 +714,8 @@ export function createDocumentViewer({
       kind: "",
       sourceKind: "",
       url: "",
+      officeUrl: "",
+      officeConfig: null,
       sheets: [],
       activeSheet: 0,
       markdown: "",

@@ -200,6 +200,8 @@ const state = {
     kind: "",
     sourceKind: "",
     url: "",
+    officeUrl: "",
+    officeConfig: null,
     sheets: [],
     activeSheet: 0,
     markdown: "",

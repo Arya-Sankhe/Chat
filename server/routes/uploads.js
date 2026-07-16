@@ -1,3 +1,4 @@
+import { createHash, createHmac } from "node:crypto";
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
@@ -302,6 +303,69 @@ function sheetViewPayload(attachment, chunks) {
   };
 }
 
+function signOnlyOfficeConfig(payload, secret) {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
+  return `${header}.${body}.${signature}`;
+}
+
+function onlyOfficeViewPayload(context, attachment, config) {
+  const officeConfig = {
+    document: {
+      fileType: "xlsx",
+      key: createHash("sha256")
+        .update(`${attachment.id}:${attachment.etag || attachment.object_key}`)
+        .digest("hex"),
+      title: attachment.file_name,
+      url: context.r2.readUrl(attachment.object_key, {
+        fileName: attachment.file_name,
+        disposition: "inline",
+        contentType: attachment.content_type
+      }),
+      permissions: { download: false, edit: false, print: false }
+    },
+    documentType: "cell",
+    editorConfig: {
+      mode: "view",
+      user: { id: context.user.id, name: "Klui" },
+      customization: {
+        compactHeader: true,
+        compactToolbar: true,
+        hideRightMenu: true,
+        toolbarNoTabs: true
+      }
+    },
+    type: "desktop"
+  };
+  return {
+    status: "ready",
+    fileName: attachment.file_name,
+    contentType: attachment.content_type,
+    kind: "office",
+    sourceKind: "xlsx",
+    attachmentId: attachment.id,
+    officeUrl: config.onlyoffice.publicUrl,
+    officeConfig: { ...officeConfig, token: signOnlyOfficeConfig(officeConfig, config.onlyoffice.jwtSecret) }
+  };
+}
+
+async function loadSheetView(context, attachment, documentFile, config, signal) {
+  let chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
+    sourceType: "sheet_range",
+    limit: 1000,
+    signal
+  });
+  if (!chunks.length) {
+    chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
+      sourceType: "sheet",
+      limit: config.documents.maxXlsxSheets,
+      signal
+    });
+  }
+  return chunks.length ? sheetViewPayload(attachment, chunks) : null;
+}
+
 function editableViewPayload(attachment, doc) {
   return {
     status: "ready",
@@ -358,25 +422,20 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   const documentFile = doc || await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
   if (!documentFile) throw new HttpError(404, "Document metadata not found.");
 
-  const sheetFallback = kind === "xlsx"
-    && new URL(req.url, "http://localhost").searchParams.get("fallback") === "sheet";
-  if (sheetFallback && documentFile.text_ready_at) {
-    let chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
-      sourceType: "sheet_range",
-      limit: 1000,
-      signal: req.signal
-    });
-    if (!chunks.length) {
-      chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
-        sourceType: "sheet",
-        limit: config.documents.maxXlsxSheets,
-        signal: req.signal
-      });
-    }
-    if (chunks.length) {
-      sendJson(res, 200, sheetViewPayload(attachment, chunks));
+  if (kind === "xlsx") {
+    const sheetFallback = new URL(req.url, "http://localhost").searchParams.get("fallback") === "sheet";
+    if (!sheetFallback && config.onlyoffice?.publicUrl && config.onlyoffice?.jwtSecret) {
+      sendJson(res, 200, onlyOfficeViewPayload(context, attachment, config));
       return;
     }
+    if (documentFile.text_ready_at) {
+      const payload = await loadSheetView(context, attachment, documentFile, config, req.signal);
+      if (payload) {
+        sendJson(res, 200, payload);
+        return;
+      }
+    }
+    throw new HttpError(409, "The workbook preview is still being prepared.");
   }
 
   const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, documentFile.id, { signal: req.signal });
