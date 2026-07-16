@@ -79,8 +79,7 @@ def create_xlsx_workbook(path, input_data):
     cover = data.get("cover") if isinstance(data.get("cover"), dict) else None
     plans = _sheet_plans(input_data, data)
     if not plans:
-        plans = [{"name": "Summary", "rows": [["Title"], [str(input_data.get("title") or "Workbook")]],
-                  "description": "", "columns": [], "charts": [], "conditional_formats": [], "freeze": True}]
+        raise ValueError("xlsx_requires_sheet_data")
 
     used_names = set()
     if cover is not None:

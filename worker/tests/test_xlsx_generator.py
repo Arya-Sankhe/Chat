@@ -96,6 +96,15 @@ class XlsxGeneratorTest(unittest.TestCase):
         self.assertIn("Total", values)
         self.assertIn("First", values)
 
+    def test_empty_payload_is_rejected_instead_of_creating_fake_summary(self):
+        with self.assertRaisesRegex(ValueError, "xlsx_requires_sheet_data"):
+            create_xlsx_workbook(self.path, {
+                "title": "Promised workbook",
+                "instructions": "Create pricing and scenario tables",
+                "data": {"sheets": [{"name": "Summary", "rows": []}]},
+            })
+        self.assertFalse(self.path.exists())
+
     def test_unique_names_including_cover_collision(self):
         create_xlsx_workbook(self.path, {
             "title": "Clash",

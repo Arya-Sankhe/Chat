@@ -900,6 +900,17 @@ export class DocumentService {
     if (!["docx", "xlsx", "pptx", "pdf"].includes(normalizedFormat)) {
       throw new HttpError(400, "create_document format must be md, docx, xlsx, pptx, or pdf.");
     }
+    if (normalizedFormat === "xlsx") {
+      const sheets = Array.isArray(data?.sheets) ? data.sheets : [];
+      const hasRows = sheets.some((sheet) => Array.isArray(sheet?.rows) && sheet.rows.length > 0)
+        || (Array.isArray(data?.rows) && data.rows.length > 0)
+        || (Array.isArray(tables) && tables.some((table) =>
+          (Array.isArray(table?.headers) && table.headers.length > 0)
+          || (Array.isArray(table?.rows) && table.rows.length > 0)));
+      if (!hasRows) {
+        throw new HttpError(400, "Excel creation requires data.sheets with complete, non-empty rows. Retry create_document with the worksheet data you described.");
+      }
+    }
     const resolvedContent = await this.resolveCreateContent({ content, instructions, sections, data });
     const editorMarkdown = ["docx", "pdf"].includes(normalizedFormat)
       ? buildEditableMarkdown({ title, content: resolvedContent.content, sections, tables })

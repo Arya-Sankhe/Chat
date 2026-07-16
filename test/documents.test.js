@@ -757,6 +757,26 @@ test("DocumentService fills vague create-document requests from the previous ass
   assert.doesNotMatch(capturedJob.input.content, /Create a concise PDF/);
 });
 
+test("DocumentService rejects title-only Excel before queuing a fake workbook", async () => {
+  let queued = false;
+  const service = documentServiceWithDb({
+    async createDocumentJob() {
+      queued = true;
+    }
+  });
+
+  await assert.rejects(
+    service.createDocument({
+      format: "xlsx",
+      title: "Concise cost estimate",
+      instructions: "Put pricing and scenarios on one sheet.",
+      data: { sheets: [{ name: "Summary", rows: [] }] }
+    }),
+    /complete, non-empty rows/
+  );
+  assert.equal(queued, false);
+});
+
 test("DocumentService honors Word intent when the model passes the wrong create format", async () => {
   let capturedJob;
   const service = documentServiceWithDb({
