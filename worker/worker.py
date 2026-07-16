@@ -24,6 +24,7 @@ from charset_normalizer import from_path
 from docx import Document
 from docx.shared import Inches as DocxInches
 from openpyxl import load_workbook
+from openpyxl.utils.cell import get_column_letter, range_boundaries
 from pypdf import PdfReader
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -38,9 +39,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 try:
-    from worker.xlsx_generator import create_xlsx_workbook
+    from worker.xlsx_generator import create_xlsx_workbook, validate_formula
 except ImportError:  # running as a loose script rather than the worker package
-    from xlsx_generator import create_xlsx_workbook
+    from xlsx_generator import create_xlsx_workbook, validate_formula
 
 
 def env(name, default=""):
@@ -1143,6 +1144,7 @@ class Processor:
         self.assert_job_active(job["id"])
         ready_at = now_iso()
         meta_out = {
+            **(doc.get("metadata") or {}),
             **meta,
             "progress": 100,
             "stage": "text_ready",
@@ -1519,6 +1521,7 @@ class Processor:
         self.assert_job_active(job["id"])
         enriched_at = now_iso() if enriched else None
         meta = {
+            **(doc.get("metadata") or {}),
             "mode": "visual_pages",
             "progress": 100,
             "stage": "visual_ready" if enriched else "visual_ready_embeddings_degraded",
@@ -1840,32 +1843,133 @@ class Processor:
 
     def extract_xlsx(self, path, user_id, document_file_id, limits):
         wb = load_workbook(str(path), read_only=True, data_only=False)
+        values_wb = load_workbook(str(path), read_only=True, data_only=True)
         max_sheets = self.limit(limits, "max_xlsx_sheets", 25)
         max_cells = self.limit(limits, "max_xlsx_cells", 250000)
-        if len(wb.worksheets) > max_sheets:
-            raise RuntimeError(f"too_many_sheets: workbook has {len(wb.worksheets)} sheets; limit is {max_sheets}")
-        chunks = []
-        used_cells = 0
-        for sheet in wb.worksheets:
-            rows = []
-            for row in sheet.iter_rows(max_row=200, max_col=50, values_only=False):
-                values = []
-                empty = True
-                for cell in row:
-                    value = cell.value
-                    if value is not None:
-                        empty = False
-                        used_cells += 1
-                        if used_cells > max_cells:
-                            raise RuntimeError(f"too_many_cells: workbook exceeds {max_cells} non-empty cells")
-                    values.append("" if value is None else str(value))
-                if not empty:
-                    rows.append("\t".join(values).rstrip())
-                if len(rows) >= 200:
-                    break
-            if rows:
-                chunks.append(self.chunk(user_id, document_file_id, len(chunks), "sheet", sheet.title, "\n".join(rows), {"sheet": sheet.title}))
-        return chunks, {"sheet_count": len(wb.worksheets), "used_cell_count": used_cells}
+        try:
+            if len(wb.worksheets) > max_sheets:
+                raise RuntimeError(f"too_many_sheets: workbook has {len(wb.worksheets)} sheets; limit is {max_sheets}")
+
+            chunks = []
+            used_cells = 0
+            word_count = 0
+            calculation = getattr(wb, "calculation", None)
+            full_recalc = bool(
+                getattr(calculation, "fullCalcOnLoad", False)
+                or getattr(calculation, "forceFullCalc", False)
+            )
+            column_block_size = 25
+            chunk_chars = 5500
+
+            for sheet in wb.worksheets:
+                values_sheet = values_wb[sheet.title]
+                max_row = max(0, int(sheet.max_row or 0))
+                max_column = max(0, int(sheet.max_column or 0))
+                if not max_row or not max_column:
+                    continue
+                if max_row * max_column > max_cells * 20:
+                    raise RuntimeError(
+                        f"too_large_used_range: sheet {sheet.title!r} declares {max_row}x{max_column} cells"
+                    )
+
+                header_row = 1
+                for row_index, row in enumerate(
+                    sheet.iter_rows(min_row=1, max_row=min(max_row, 20), min_col=1, max_col=max_column),
+                    start=1,
+                ):
+                    if sum(cell.value is not None for cell in row) >= 2:
+                        header_row = row_index
+                        break
+
+                for column_start in range(1, max_column + 1, column_block_size):
+                    column_end = min(max_column, column_start + column_block_size - 1)
+                    formula_rows = sheet.iter_rows(min_row=1, max_row=max_row, min_col=column_start, max_col=column_end)
+                    cached_rows = values_sheet.iter_rows(min_row=1, max_row=max_row, min_col=column_start, max_col=column_end)
+                    header_line = ""
+                    buffered_lines = []
+                    buffered_rows = []
+                    buffered_chars = 0
+
+                    def flush_range():
+                        nonlocal buffered_lines, buffered_rows, buffered_chars
+                        if not buffered_rows:
+                            return
+                        repeat_header = bool(header_line and header_row not in buffered_rows)
+                        text_lines = ([header_line] if repeat_header else []) + buffered_lines
+                        row_start = min(buffered_rows)
+                        row_end = max(buffered_rows)
+                        cell_range = (
+                            f"{get_column_letter(column_start)}{row_start}:"
+                            f"{get_column_letter(column_end)}{row_end}"
+                        )
+                        chunks.append(self.chunk(
+                            user_id,
+                            document_file_id,
+                            len(chunks),
+                            "sheet_range",
+                            f"{sheet.title} — {cell_range}",
+                            "\n".join(text_lines),
+                            {
+                                "sheet": sheet.title,
+                                "range": cell_range,
+                                "row_start": row_start,
+                                "row_end": row_end,
+                                "row_numbers": list(buffered_rows),
+                                "column_start": column_start,
+                                "column_end": column_end,
+                                "header_row": header_row,
+                                "header_repeated": repeat_header,
+                                "sheet_state": sheet.sheet_state,
+                                "extractor": "openpyxl_ranges_v2",
+                            },
+                        ))
+                        buffered_lines = []
+                        buffered_rows = []
+                        buffered_chars = 0
+
+                    for row_index, (formula_row, cached_row) in enumerate(zip(formula_rows, cached_rows), start=1):
+                        rendered = []
+                        nonempty = False
+                        for formula_cell, cached_cell in zip(formula_row, cached_row):
+                            raw = formula_cell.value
+                            if raw is not None:
+                                nonempty = True
+                                used_cells += 1
+                                if used_cells > max_cells:
+                                    raise RuntimeError(f"too_many_cells: workbook exceeds {max_cells} non-empty cells")
+                            if isinstance(raw, str) and raw.startswith("="):
+                                cached = cached_cell.value
+                                value = raw if full_recalc or cached is None else f"{raw} => {cached}"
+                            else:
+                                value = "" if raw is None else str(raw)
+                            value = truncate(value, 2000)
+                            if value:
+                                word_count += len(value.split())
+                            rendered.append(value)
+                        line = "\t".join(rendered).rstrip()
+                        if row_index == header_row:
+                            header_line = line
+                        if not nonempty:
+                            continue
+                        added_chars = len(line) + 1
+                        if buffered_rows and buffered_chars + added_chars > chunk_chars:
+                            flush_range()
+                        buffered_lines.append(line)
+                        buffered_rows.append(row_index)
+                        buffered_chars += added_chars
+                    flush_range()
+
+            return chunks, {
+                "sheet_count": len(wb.worksheets),
+                "used_cell_count": used_cells,
+                "word_count": word_count,
+                "range_count": len(chunks),
+                "extractor": "openpyxl_ranges_v2",
+                "formula_cache_trusted": not full_recalc,
+            }
+        finally:
+            wb.close()
+            values_wb.close()
 
     def extract_pptx(self, path, user_id, document_file_id, limits):
         prs = Presentation(str(path))
@@ -2513,19 +2617,110 @@ class Processor:
     def edit_xlsx(self, source, tmp, input_data):
         wb = load_workbook(str(source))
         operations = input_data.get("operations") or []
+        if not operations:
+            raise RuntimeError("xlsx_edit_requires_operations")
+        if len(operations) > 100:
+            raise RuntimeError("xlsx_edit_too_many_operations")
+        changed_cells = 0
+
+        def require_sheet(op):
+            sheet_name = str(op.get("sheet") or "").strip()
+            if not sheet_name or sheet_name not in wb.sheetnames:
+                raise RuntimeError(f"xlsx_sheet_not_found: {sheet_name or '(missing)'}")
+            return wb[sheet_name]
+
+        def bounds(op, key="range"):
+            reference = str(op.get(key) or "").strip().upper()
+            if not reference:
+                raise RuntimeError(f"xlsx_edit_missing_{key}")
+            try:
+                return reference, range_boundaries(reference)
+            except ValueError as exc:
+                raise RuntimeError(f"xlsx_edit_invalid_{key}: {reference}") from exc
+
+        def safe_value(value):
+            return validate_formula(value) if isinstance(value, str) and value.startswith("=") else value
+
         for op in operations:
-            sheet_name = op.get("sheet") or wb.sheetnames[0]
-            cell = op.get("cell")
-            value = op.get("value", op.get("formula"))
-            if not cell:
+            if not isinstance(op, dict):
+                raise RuntimeError("xlsx_edit_operation_must_be_object")
+            operation = str(op.get("type") or "").strip().lower()
+
+            if operation == "add_sheet":
+                name = str(op.get("name") or "").strip()
+                if not name or len(name) > 31 or name in wb.sheetnames:
+                    raise RuntimeError(f"xlsx_invalid_new_sheet: {name or '(missing)'}")
+                wb.create_sheet(name)
                 continue
-            ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
-            ws[str(cell)] = value
-        if not operations and input_data.get("instructions"):
-            ws = wb.create_sheet("Requested edits")
-            ws["A1"] = input_data.get("instructions")
+
+            ws = require_sheet(op)
+            if operation == "rename_sheet":
+                name = str(op.get("new_name") or "").strip()
+                if not name or len(name) > 31 or name in wb.sheetnames:
+                    raise RuntimeError(f"xlsx_invalid_new_sheet: {name or '(missing)'}")
+                ws.title = name
+            elif operation == "delete_sheet":
+                if len(wb.sheetnames) == 1:
+                    raise RuntimeError("xlsx_cannot_delete_last_sheet")
+                wb.remove(ws)
+            elif operation in ("set_cell", "set_formula"):
+                reference, (min_col, min_row, max_col, max_row) = bounds(op, "cell")
+                if min_col != max_col or min_row != max_row:
+                    raise RuntimeError(f"xlsx_edit_cell_must_be_single: {reference}")
+                if operation == "set_cell" and "value" not in op:
+                    raise RuntimeError("xlsx_edit_missing_value")
+                value = op.get("formula") if operation == "set_formula" else op.get("value")
+                ws.cell(min_row, min_col).value = safe_value(value)
+                changed_cells += 1
+            elif operation == "set_range":
+                reference, (min_col, min_row, max_col, max_row) = bounds(op)
+                values = op.get("values")
+                expected_rows = max_row - min_row + 1
+                expected_columns = max_col - min_col + 1
+                if not isinstance(values, list) or len(values) != expected_rows:
+                    raise RuntimeError(f"xlsx_edit_range_row_mismatch: {reference}")
+                for row_offset, row in enumerate(values):
+                    if not isinstance(row, list) or len(row) != expected_columns:
+                        raise RuntimeError(f"xlsx_edit_range_column_mismatch: {reference}")
+                    for column_offset, value in enumerate(row):
+                        ws.cell(min_row + row_offset, min_col + column_offset).value = safe_value(value)
+                        changed_cells += 1
+            elif operation == "append_rows":
+                rows = op.get("rows")
+                if not rows or not isinstance(rows, list) or not all(isinstance(row, list) for row in rows):
+                    raise RuntimeError("xlsx_edit_rows_must_be_arrays")
+                for row in rows:
+                    ws.append([safe_value(value) for value in row])
+                    changed_cells += len(row)
+            elif operation == "clear_range":
+                reference, (min_col, min_row, max_col, max_row) = bounds(op)
+                for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
+                    for cell in row:
+                        cell.value = None
+                        changed_cells += 1
+            elif operation == "set_number_format":
+                reference, (min_col, min_row, max_col, max_row) = bounds(op)
+                number_format = str(op.get("format") or "").strip()
+                if not number_format or len(number_format) > 100:
+                    raise RuntimeError("xlsx_edit_invalid_number_format")
+                for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
+                    for cell in row:
+                        cell.number_format = number_format
+                        changed_cells += 1
+            else:
+                raise RuntimeError(f"xlsx_edit_unknown_operation: {operation or '(missing)'}")
+
+            if changed_cells > 250000:
+                raise RuntimeError("xlsx_edit_too_many_cells")
+
         output = tmp / f"edited-{source.name}"
+        wb.calculation.fullCalcOnLoad = True
+        wb.calculation.forceFullCalc = True
+        wb.calculation.calcMode = "auto"
         wb.save(output)
+        wb.close()
+        check = load_workbook(str(output), read_only=True, data_only=False)
+        check.close()
         return output
 
     def export_job(self, job, tmp):

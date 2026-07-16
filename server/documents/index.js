@@ -191,7 +191,39 @@ function documentIsUsable(documentFile) {
 function documentUsesVisualPages(documentFile) {
   const kind = clean(documentFile?.kind).toLowerCase();
   return kind === "pdf"
-    || (["docx", "xlsx", "pptx"].includes(kind) && Boolean(documentFile?.visual_ready_at));
+    || (["docx", "pptx"].includes(kind) && Boolean(documentFile?.visual_ready_at));
+}
+
+function spreadsheetVisualPagesRequested(documentFile, pageStart, pageEnd) {
+  return clean(documentFile?.kind).toLowerCase() === "xlsx"
+    && Boolean(documentFile?.visual_ready_at)
+    && ((pageStart !== null && pageStart !== undefined) || (pageEnd !== null && pageEnd !== undefined));
+}
+
+function spreadsheetRange(value) {
+  const match = clean(value).toUpperCase().match(/^([A-Z]+)([1-9]\d*):([A-Z]+)([1-9]\d*)$/);
+  if (!match) return null;
+  const column = (letters) => [...letters].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0);
+  const startColumn = column(match[1]);
+  const startRow = Number(match[2]);
+  const endColumn = column(match[3]);
+  const endRow = Number(match[4]);
+  if (startColumn > endColumn || startRow > endRow) return null;
+  return { startColumn, startRow, endColumn, endRow };
+}
+
+function spreadsheetChunkOverlaps(chunk, requested) {
+  if (!requested) return true;
+  const metadata = chunk?.metadata || {};
+  const startColumn = Number(metadata.column_start || 0);
+  const endColumn = Number(metadata.column_end || 0);
+  const startRow = Number(metadata.row_start || 0);
+  const endRow = Number(metadata.row_end || 0);
+  if (!startColumn || !endColumn || !startRow || !endRow) return true;
+  return startColumn <= requested.endColumn
+    && endColumn >= requested.startColumn
+    && startRow <= requested.endRow
+    && endRow >= requested.startRow;
 }
 
 function pageHasUsableImage(page) {
@@ -630,10 +662,53 @@ export class DocumentService {
     };
   }
 
-  async read({ attachmentId, query = "", maxChars, pageStart = null, pageEnd = null } = {}) {
+  async readSpreadsheetRanges(documentFile, { sheet = "", cellRange = "", maxChars } = {}) {
+    const requestedRange = cellRange ? spreadsheetRange(cellRange) : null;
+    if (cellRange && !requestedRange) throw new HttpError(400, "Spreadsheet range must look like A1:D20.");
+    const requestedSheet = clean(sheet);
+    let chunks = await this.db.listDocumentChunks(this.userId, documentFile.id, {
+      limit: requestedSheet || requestedRange ? 1000 : 12,
+      sourceType: "sheet_range",
+      sheet: requestedSheet,
+      signal: this.signal
+    });
+    chunks = (chunks || []).filter((chunk) => spreadsheetChunkOverlaps(chunk, requestedRange));
+    if (!chunks.length) {
+      chunks = await this.db.listDocumentChunks(this.userId, documentFile.id, {
+        limit: 12,
+        sourceType: "sheet",
+        signal: this.signal
+      });
+      if (requestedSheet) {
+        chunks = chunks.filter((chunk) => clean(chunk?.metadata?.sheet || chunk?.source_label) === requestedSheet);
+      }
+    }
+    chunks = chunks.slice(0, 12);
+    const perChunk = clampInt(maxChars, 6000, 500, 6000);
+    const results = chunks.map((chunk, index) => resultFromChunk({
+      index: index + 1,
+      documentFile,
+      chunk,
+      maxChars: perChunk
+    }));
+    const citations = chunks.map((chunk, index) => citationFromChunk({
+      index: index + 1,
+      documentFile,
+      chunk
+    }));
+    return {
+      ok: true,
+      provider: "documents",
+      results,
+      citations,
+      notice: buildUntrustedNotice()
+    };
+  }
+
+  async read({ attachmentId, query = "", maxChars, pageStart = null, pageEnd = null, sheet = "", cellRange = "" } = {}) {
+    const doc = await this.requireDocumentByAttachment(attachmentId);
     if (query) {
-      const doc = await this.requireDocumentByAttachment(attachmentId);
-      if (documentUsesVisualPages(doc)) {
+      if (documentUsesVisualPages(doc) || spreadsheetVisualPagesRequested(doc, pageStart, pageEnd)) {
         await this.consume({ toolCount: 1 });
         const pageResult = await this.pageResultsForDocs([doc], {
           query,
@@ -651,11 +726,14 @@ export class DocumentService {
           notice: buildUntrustedNotice()
         };
       }
+      if (clean(doc.kind).toLowerCase() === "xlsx" && (sheet || cellRange)) {
+        await this.consume({ toolCount: 1 });
+        return this.readSpreadsheetRanges(doc, { sheet, cellRange, maxChars });
+      }
       return this.search({ attachmentIds: attachmentId ? [attachmentId] : [], query, maxResults: 5 });
     }
     await this.consume({ toolCount: 1 });
-    const doc = await this.requireDocumentByAttachment(attachmentId);
-    if (documentUsesVisualPages(doc)) {
+    if (documentUsesVisualPages(doc) || spreadsheetVisualPagesRequested(doc, pageStart, pageEnd)) {
       const pageResult = await this.pageResultsForDocs([doc], {
         maxResults: this.pageLimit(null),
         pageStart,
@@ -670,6 +748,9 @@ export class DocumentService {
         visualPages: pageResult.visualPages,
         notice: buildUntrustedNotice()
       };
+    }
+    if (clean(doc.kind).toLowerCase() === "xlsx") {
+      return this.readSpreadsheetRanges(doc, { sheet, cellRange, maxChars });
     }
     const limit = 12;
     const perChunk = clampInt(maxChars, 2500, 500, 6000);
@@ -708,7 +789,11 @@ export class DocumentService {
       };
     }
     const limit = clampInt(maxResults, 5, 1, 8);
-    let chunks = await this.db.listDocumentChunks(this.userId, doc.id, { limit, sourceType: "table", signal: this.signal });
+    let chunks = await this.db.listDocumentChunks(this.userId, doc.id, {
+      limit,
+      sourceType: clean(doc.kind).toLowerCase() === "xlsx" ? "sheet_range" : "table",
+      signal: this.signal
+    });
     if (!chunks.length) {
       chunks = await this.db.listDocumentChunks(this.userId, doc.id, { limit, sourceType: "sheet", signal: this.signal });
     }
@@ -850,6 +935,12 @@ export class DocumentService {
     if (versionNo !== undefined && Number(versionNo) !== Number(doc.version_no)) {
       throw new HttpError(409, "Document changed since the edit was prepared.");
     }
+    if (doc.kind === "xlsx" && (!Array.isArray(operations) || operations.length === 0)) {
+      throw new HttpError(400, "Excel edits require explicit operations.");
+    }
+    if (doc.kind === "xlsx" && operations.length > 100) {
+      throw new HttpError(400, "Excel edits are limited to 100 operations at a time.");
+    }
     return this.enqueueAndWait({
       jobType: `document.edit.${doc.kind}`,
       documentFileId: doc.id,
@@ -860,7 +951,7 @@ export class DocumentService {
         source_etag: doc.source_etag,
         version_no: doc.version_no,
         instructions: clean(instructions).slice(0, 30_000),
-        operations: Array.isArray(operations) ? operations.slice(0, 100) : []
+        operations: Array.isArray(operations) ? operations : []
       }
     });
   }

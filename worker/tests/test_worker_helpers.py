@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from openpyxl import Workbook, load_workbook
+
 from worker import worker as w
 
 
@@ -1026,6 +1028,72 @@ class RenewJobLeaseTest(unittest.TestCase):
             processor._lease_heartbeat_loop("job-1", stop_event, lost_event)
 
         self.assertTrue(lost_event.is_set())
+
+
+class XlsxReadEditTest(unittest.TestCase):
+    def test_extract_xlsx_reads_past_row_200_and_emits_bounded_ranges(self):
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "large.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Data"
+            sheet.append(["Name", "Value"])
+            sheet.append(["Formula", "=SUM(B3:B4)"])
+            for row_number in range(3, 261):
+                sheet.append([f"row-{row_number}-" + ("x" * 40), row_number])
+            workbook.calculation.fullCalcOnLoad = True
+            workbook.save(source)
+            workbook.close()
+
+            chunks, metadata = processor.extract_xlsx(
+                source,
+                "user-1",
+                "doc-1",
+                {"max_xlsx_sheets": 25, "max_xlsx_cells": 250000},
+            )
+
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(chunk["source_type"] == "sheet_range" for chunk in chunks))
+        self.assertTrue(any(260 in chunk["metadata"]["row_numbers"] for chunk in chunks))
+        self.assertTrue(all(len(chunk["text"]) < 6000 for chunk in chunks))
+        self.assertIn("=SUM(B3:B4)", "\n".join(chunk["text"] for chunk in chunks))
+        self.assertNotIn("=> 0", "\n".join(chunk["text"] for chunk in chunks))
+        self.assertEqual(metadata["extractor"], "openpyxl_ranges_v2")
+        self.assertFalse(metadata["formula_cache_trusted"])
+        self.assertGreater(metadata["word_count"], 0)
+
+    def test_edit_xlsx_uses_explicit_operations_and_rejects_unknown_sheets(self):
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            source = directory / "book.xlsx"
+            workbook = Workbook()
+            workbook.active.title = "Budget"
+            workbook.save(source)
+            workbook.close()
+
+            output = processor.edit_xlsx(source, directory, {
+                "operations": [
+                    {"type": "set_range", "sheet": "Budget", "range": "A1:B2", "values": [["Item", "Cost"], ["Hosting", 20]]},
+                    {"type": "set_formula", "sheet": "Budget", "cell": "B3", "formula": "=SUM(B2:B2)"},
+                    {"type": "set_number_format", "sheet": "Budget", "range": "B2:B3", "format": "$#,##0.00"},
+                ]
+            })
+            edited = load_workbook(output, data_only=False)
+            self.assertEqual(edited["Budget"]["A2"].value, "Hosting")
+            self.assertEqual(edited["Budget"]["B3"].value, "=SUM(B2:B2)")
+            self.assertEqual(edited["Budget"]["B2"].number_format, "$#,##0.00")
+            self.assertTrue(edited.calculation.fullCalcOnLoad)
+            edited.close()
+
+            with self.assertRaisesRegex(RuntimeError, "xlsx_sheet_not_found"):
+                processor.edit_xlsx(source, directory, {
+                    "operations": [{"type": "set_cell", "sheet": "Missing", "cell": "A1", "value": "wrong"}]
+                })
+            original = load_workbook(source)
+            self.assertIsNone(original["Budget"]["A1"].value)
+            original.close()
 
 
 class SupabaseRetrySafetyTest(unittest.TestCase):

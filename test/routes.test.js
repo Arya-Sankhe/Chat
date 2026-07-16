@@ -330,3 +330,29 @@ test("buildDirectPdfVisualContext includes visually enriched Office documents", 
   assert.equal(result.pageCount, 1);
   assert.match(result.message.content[0].text, /uploaded document pages/);
 });
+
+test("buildDirectPdfVisualContext leaves XLSX pages for explicit visual reads", async () => {
+  let pageCalls = 0;
+  const result = await buildDirectPdfVisualContext({
+    documents: {
+      async pageResultsForDocs() {
+        pageCalls += 1;
+        return { citations: [], visualPages: [] };
+      }
+    },
+    readyDocuments: [{
+      id: "doc-xlsx",
+      kind: "xlsx",
+      attachment_id: "00000000-0000-4000-8000-000000000010",
+      visual_ready_at: "2026-07-16T00:00:00.000Z"
+    }],
+    attachments: [{ id: "00000000-0000-4000-8000-000000000010", category: "document" }],
+    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 2 } },
+    supportsVision: true,
+    signal: new AbortController().signal
+  });
+
+  assert.equal(pageCalls, 0);
+  assert.equal(result.documentCount, 0);
+  assert.equal(result.message, null);
+});

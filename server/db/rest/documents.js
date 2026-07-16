@@ -197,12 +197,13 @@ export async function getDocumentJob(client, userId, jobId, { signal } = {}) {
   return single(rows);
 }
 
-export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, sourceType = "", signal } = {}) {
+export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, sourceType = "", sheet = "", signal } = {}) {
   return client.request("document_chunks", {
     query: {
       user_id: `eq.${userId}`,
       document_file_id: `eq.${documentFileId}`,
       ...(sourceType ? { source_type: `eq.${sourceType}` } : {}),
+      ...(sheet ? { "metadata->>sheet": `eq.${sheet}` } : {}),
       select: "id,document_file_id,chunk_index,source_type,source_label,text,metadata",
       order: "chunk_index.asc",
       limit: String(limit)

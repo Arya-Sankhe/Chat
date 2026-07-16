@@ -416,8 +416,28 @@ test("XLSX view returns extracted sheets without creating a PDF preview", async 
       async getDocumentFileByAttachment() {
         return { id: "doc-1", kind: "xlsx", text_ready_at: "2026-07-13T00:00:00Z" };
       },
-      async listDocumentChunks() {
-        return [{ source_label: "Budget", text: "Item\tCost\nHosting\t20" }];
+      async listDocumentChunks(_userId, _documentId, options) {
+        if (options.sourceType !== "sheet_range") return [];
+        return [
+          {
+            source_type: "sheet_range",
+            source_label: "Budget — A1:B2",
+            text: "Item\tCost\nHosting\t20",
+            metadata: { sheet: "Budget", row_numbers: [1, 2], column_start: 1 }
+          },
+          {
+            source_type: "sheet_range",
+            source_label: "Budget — A3:B3",
+            text: "Item\tCost\nStorage\t10",
+            metadata: { sheet: "Budget", row_numbers: [3], column_start: 1, header_repeated: true }
+          },
+          {
+            source_type: "sheet_range",
+            source_label: "Budget — C1:C3",
+            text: "Owner\nOps\nFinance",
+            metadata: { sheet: "Budget", row_numbers: [1, 2, 3], column_start: 3 }
+          }
+        ];
       },
       async createDocumentJob() {
         previewJobCreated = true;
@@ -435,7 +455,11 @@ test("XLSX view returns extracted sheets without creating a PDF preview", async 
   assert.equal(previewJobCreated, false);
   assert.deepEqual(res.json().sheets, [{
     name: "Budget",
-    rows: [["Item", "Cost"], ["Hosting", "20"]]
+    rows: [
+      ["Item", "Cost", "Owner"],
+      ["Hosting", "20", "Ops"],
+      ["Storage", "10", "Finance"]
+    ]
   }]);
 });
 

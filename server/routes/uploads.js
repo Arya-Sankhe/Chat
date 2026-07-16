@@ -254,6 +254,43 @@ function inlineViewPayload(context, attachment, { sourceKind = "", status = "rea
 }
 
 function sheetViewPayload(attachment, chunks) {
+  const usesRanges = chunks.some((chunk) => (
+    chunk.source_type === "sheet_range"
+    || Array.isArray(chunk.metadata?.row_numbers)
+  ));
+  let sheets;
+  if (!usesRanges) {
+    sheets = chunks.map((chunk, index) => ({
+      name: chunk.source_label || `Sheet ${index + 1}`,
+      rows: String(chunk.text || "").split("\n").map((row) => row.split("\t"))
+    }));
+  } else {
+    const grouped = new Map();
+    for (const chunk of chunks) {
+      const metadata = chunk.metadata || {};
+      const name = String(metadata.sheet || chunk.source_label || "Sheet").trim();
+      if (!grouped.has(name)) grouped.set(name, new Map());
+      const rows = grouped.get(name);
+      const lines = String(chunk.text || "").split("\n");
+      if (metadata.header_repeated) lines.shift();
+      const rowNumbers = Array.isArray(metadata.row_numbers) ? metadata.row_numbers : [];
+      const columnStart = Math.max(1, Number(metadata.column_start || 1));
+      lines.forEach((line, index) => {
+        const rowNumber = Number(rowNumbers[index] || metadata.row_start || index + 1);
+        const row = rows.get(rowNumber) || [];
+        line.split("\t").forEach((cell, offset) => {
+          row[columnStart - 1 + offset] = cell;
+        });
+        rows.set(rowNumber, row);
+      });
+    }
+    sheets = [...grouped.entries()].map(([name, rows]) => ({
+      name,
+      rows: [...rows.entries()].sort(([a], [b]) => a - b).map(([, row]) => (
+        Array.from({ length: row.length }, (_, index) => row[index] ?? "")
+      ))
+    }));
+  }
   return {
     status: "ready",
     fileName: attachment.file_name,
@@ -261,10 +298,7 @@ function sheetViewPayload(attachment, chunks) {
     kind: "xlsx",
     sourceKind: "xlsx",
     attachmentId: attachment.id,
-    sheets: chunks.map((chunk, index) => ({
-      name: chunk.source_label || `Sheet ${index + 1}`,
-      rows: String(chunk.text || "").split("\n").map((row) => row.split("\t"))
-    }))
+    sheets
   };
 }
 
@@ -325,11 +359,18 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   if (!documentFile) throw new HttpError(404, "Document metadata not found.");
 
   if (kind === "xlsx" && documentFile.text_ready_at) {
-    const chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
-      sourceType: "sheet",
-      limit: config.documents.maxXlsxSheets,
+    let chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
+      sourceType: "sheet_range",
+      limit: 1000,
       signal: req.signal
     });
+    if (!chunks.length) {
+      chunks = await context.db.listDocumentChunks(context.user.id, documentFile.id, {
+        sourceType: "sheet",
+        limit: config.documents.maxXlsxSheets,
+        signal: req.signal
+      });
+    }
     if (chunks.length) {
       sendJson(res, 200, sheetViewPayload(attachment, chunks));
       return;

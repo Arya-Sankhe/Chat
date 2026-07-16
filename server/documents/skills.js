@@ -55,8 +55,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksGenericDocument = /\b(document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
   const hasReadyVisualDocument = (readyDocuments || []).some((doc) => (
     doc?.kind === "pdf"
-    || (["docx", "xlsx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
+    || (["docx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
   ));
+  const hasReadySpreadsheet = (readyDocuments || []).some((doc) => doc?.kind === "xlsx" && Boolean(doc?.text_ready_at));
   const wordOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?(word|docx)\b/i.test(prompt)
     || (fileDeliveryAction && /\b(word\s+(doc|document|file)|docx\s+(file|document)|\.docx)\b/i.test(prompt));
   const pdfOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?pdf\b/i.test(prompt)
@@ -78,11 +79,10 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const createFromExistingDocument = wantsArtifactOutput
     && /\b(from|based\s+on|using)\b[\s\S]{0,60}\b(this|that|it|attached|uploaded|document|file|pdf|docx|spreadsheet|attachment|upload)\b/i.test(prompt);
 
-  /* Any visual document in this chat gets the established visual-reading
-     skill so the model inspects page images instead of guessing from text. */
-  if (hasReadyVisualDocument) {
+  if (hasReadyVisualDocument || hasReadySpreadsheet) {
     skills.add("document-read");
-    skills.add("pdf-read");
+    if (hasReadyVisualDocument) skills.add("pdf-read");
+    if (hasReadySpreadsheet) skills.add("xlsx-read");
     addAll(tools, READ_TOOLS);
   } else {
     const shouldRead = readyCount > 0 && (

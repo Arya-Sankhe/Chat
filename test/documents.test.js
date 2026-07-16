@@ -64,6 +64,16 @@ test("buildDocumentTools can expose only relevant document tools", () => {
   assert.deepEqual(buildDocumentTools({ toolNames: [] }), []);
 });
 
+test("buildDocumentTools exposes spreadsheet range reads and explicit edit operations", () => {
+  const tools = buildDocumentTools();
+  const read = tools.find((tool) => tool.function.name === "read_document");
+  const edit = tools.find((tool) => tool.function.name === "edit_document");
+  assert.ok(read.function.parameters.properties.sheet);
+  assert.ok(read.function.parameters.properties.cell_range);
+  assert.ok(edit.function.parameters.properties.operations.items.properties.type.enum.includes("set_range"));
+  assert.ok(edit.function.parameters.properties.operations.items.properties.type.enum.includes("set_number_format"));
+});
+
 test("selectDocumentSkills routes only the relevant document skills", () => {
   const readyDocuments = [{
     id: documentFileId,
@@ -178,6 +188,22 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     messageHasDocuments: true
   });
   assert.deepEqual(attachedNoKeywords.skills, ["document-read", "pdf-read"]);
+});
+
+test("selectDocumentSkills routes ready spreadsheets to structured reading", () => {
+  const selection = selectDocumentSkills({
+    text: "analyze the workbook",
+    readyDocuments: [{
+      id: documentFileId,
+      attachment_id: attachmentId,
+      kind: "xlsx",
+      text_ready_at: "2026-07-16T00:00:00Z",
+      visual_ready_at: "2026-07-16T00:01:00Z"
+    }]
+  });
+  assert.ok(selection.skills.includes("document-read"));
+  assert.ok(selection.skills.includes("xlsx-read"));
+  assert.ok(!selection.skills.includes("pdf-read"));
 });
 
 test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the chat", () => {
@@ -437,6 +463,65 @@ test("DocumentService searches visually enriched Office pages", async () => {
   assert.equal(result.results[0].source_type, "page_image");
   assert.equal(result.visualPages[0].page_number, 2);
   assert.equal(result.citations[0].title, "Roadmap.pptx - Page 2");
+});
+
+test("DocumentService reads XLSX ranges first and images only when pages are requested", async () => {
+  let pageReads = 0;
+  const db = {
+    async getDocumentFileByAttachment() {
+      return {
+        id: documentFileId,
+        attachment_id: attachmentId,
+        conversation_id: conversationId,
+        text_ready_at: "2026-07-16T00:00:00Z",
+        visual_ready_at: "2026-07-16T00:01:00Z",
+        kind: "xlsx",
+        page_count: 3,
+        attachments: { file_name: "Budget.xlsx" }
+      };
+    },
+    async listDocumentChunks(_userId, _documentId, options) {
+      assert.equal(options.sourceType, "sheet_range");
+      assert.equal(options.sheet, "Budget");
+      return [{
+        id: "chunk_1",
+        source_type: "sheet_range",
+        source_label: "Budget — A1:B20",
+        text: "Item\tCost\nHosting\t20",
+        metadata: { sheet: "Budget", row_start: 1, row_end: 20, column_start: 1, column_end: 2 }
+      }];
+    },
+    async listDocumentPagesByNumbers() {
+      pageReads += 1;
+      return [{
+        id: "page_1",
+        document_file_id: documentFileId,
+        page_number: 1,
+        source_label: "Page 1",
+        image_key: "users/user/documents/doc/pages/page-0001.jpg",
+        text: ""
+      }];
+    }
+  };
+  const service = new DocumentService({
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    db,
+    r2: { readUrl: (key) => `https://signed.example/${key}` },
+    userId,
+    conversationId,
+    plan: { id: "pro" },
+    signal: new AbortController().signal
+  });
+
+  const structured = await service.read({ attachmentId, sheet: "Budget", cellRange: "A1:B20" });
+  assert.equal(structured.results[0].source_type, "sheet_range");
+  assert.equal(structured.visualPages, undefined);
+  assert.equal(pageReads, 0);
+
+  const visual = await service.read({ attachmentId, pageStart: 1, pageEnd: 1 });
+  assert.equal(visual.results[0].source_type, "page_image");
+  assert.equal(visual.visualPages[0].page_number, 1);
+  assert.equal(pageReads, 1);
 });
 
 test("DocumentService hides internal preview exports from automatic ready documents", async () => {

@@ -9,6 +9,7 @@
     "start": "node --env-file=.env server/index.js",
     "dev": "node --env-file=.env --watch server/index.js",
     "research:worker": "node --env-file=.env server/research/worker.js",
+    "documents:reindex-xlsx": "node --env-file=.env scripts/reindex-xlsx.mjs",
     "test": "node --test",
     "check:syntax": "node scripts/check-syntax.mjs",
     "check:css-split": "node scripts/verify-css-split.mjs",

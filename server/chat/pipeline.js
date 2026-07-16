@@ -555,7 +555,7 @@ function directPdfDocsForContext(readyDocuments = [], attachments = []) {
     : readyDocuments;
   return scoped.filter((doc) => (
     doc?.kind === "pdf"
-    || (["docx", "xlsx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
+    || (["docx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
   ));
 }
 
