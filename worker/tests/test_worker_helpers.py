@@ -853,6 +853,43 @@ class PdftoppmCommandTest(unittest.TestCase):
 
 
 class DispatchRoutingTest(unittest.TestCase):
+    def test_pdf_creation_uses_docx_renderer_then_libreoffice(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.create_js_artifact = mock.Mock()
+        processor.create_docx = mock.Mock()
+        processor.libreoffice_convert = mock.Mock()
+        processor.store_generated = mock.Mock(return_value={"document_file_id": "doc-1"})
+        job = {
+            "id": "job-1",
+            "user_id": "user-1",
+            "conversation_id": "conversation-1",
+            "job_type": "document.create.pdf",
+            "input": {
+                "format": "pdf",
+                "title": "Report",
+                "editor_markdown": "# Report\n\nEditable body.",
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            docx_path = tmp_path / "Report.docx"
+            pdf_path = tmp_path / "out" / "Report.pdf"
+            processor.create_js_artifact.return_value = docx_path
+            processor.libreoffice_convert.return_value = pdf_path
+
+            result = processor.create_job(job, tmp_path)
+
+        self.assertEqual(result, {"document_file_id": "doc-1"})
+        processor.create_js_artifact.assert_called_once_with(
+            tmp_path, "Report", job["input"], "docx"
+        )
+        processor.create_docx.assert_not_called()
+        processor.libreoffice_convert.assert_called_once_with(docx_path, tmp_path, "pdf")
+        processor.store_generated.assert_called_once_with(
+            job, tmp_path, pdf_path, "pdf", "application/pdf", "generated", None
+        )
+
     def test_store_generated_keeps_editable_markdown_for_prose_documents(self):
         processor = w.Processor.__new__(w.Processor)
         processor.r2 = mock.Mock()

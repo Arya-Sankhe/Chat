@@ -432,7 +432,7 @@ Use open-source local tools to avoid per-document vendor costs. Avoid defaulting
 | DOCX read/write | `python-docx`, `mammoth`, direct OOXML only for advanced features |
 | PDF text/tables | `pdfplumber`, `pypdf` |
 | PDF validation/structure | `pypdf`, `pikepdf`, `qpdf` |
-| PDF create | `reportlab` |
+| PDF create | Shared DOCX renderer, then LibreOffice conversion |
 | PDF merge/split/rotate | `pypdf`, `qpdf`, optionally `pikepdf` |
 | PDF/page previews | Poppler tools such as `pdftoppm` or `pdf2image` |
 | XLSX read/write | `openpyxl` |

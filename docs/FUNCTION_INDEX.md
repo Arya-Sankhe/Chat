@@ -988,10 +988,11 @@ through the database.
     uploads the generated file to R2; calls `store_generated` to
     write the `attachments` + `document_files` rows and link them.
   - `create_js_artifact(tmp, title, input_data, fmt)` /
-    `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf` —
-    per-format creator. DOCX/PPTX shell out to Node when
+    `create_docx`, `create_xlsx`, `create_pptx` — per-format creator.
+    DOCX/PPTX shell out to Node when
     `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default), XLSX uses
-    the Python `xlsx_generator`, and PDF uses `reportlab` directly.
+    the Python `xlsx_generator`, and PDF converts a temporary DOCX
+    through LibreOffice so Word and PDF share one layout renderer.
   - `edit_job(job, tmp)` / `edit_docx`, `edit_xlsx` — produce a
     new version of an existing document. Always bumps
     `version_no`; never overwrites the source.
@@ -1004,7 +1005,7 @@ through the database.
     version chain.
 - **Callers**: `if __name__ == "__main__":` entry.
 - **Major dependencies**: `boto3`, `edgeparse`, `pypdf`, `python-docx`,
-  `openpyxl`, `XlsxWriter`, `python-pptx`, `reportlab`, `requests`,
+  `openpyxl`, `XlsxWriter`, `python-pptx`, `requests`,
   `charset_normalizer`, `poppler-utils` (via `pdftoppm` /
   `pdfinfo`).
 
@@ -1062,8 +1063,6 @@ through the database.
   Python counterparts.
 - `find_existing_file(candidates)` — picks the first existing
   file from a list.
-- `register_pdf_fonts()` — registers DejaVu/Liberation fonts in
-  ReportLab for non-ASCII text.
 
 ### `worker.healthcheck` (`main`)
 - **Path**: `worker/healthcheck.py`

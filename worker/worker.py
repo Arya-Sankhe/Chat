@@ -13,12 +13,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from xml.sax.saxutils import escape as xml_escape
-
 import boto3
 import edgeparse
 import requests
-import reportlab
 from botocore.config import Config as BotoConfig
 from charset_normalizer import from_path
 from docx import Document
@@ -31,12 +28,6 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches as PptxInches
 from pptx.util import Pt
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 try:
     from worker.xlsx_generator import create_xlsx_workbook, validate_formula
@@ -585,55 +576,6 @@ def collect_markdown_table(lines, start):
         index += 1
 
     return {"headers": headers, "rows": rows}, index
-
-
-def find_existing_file(candidates):
-    for candidate in candidates:
-        path = Path(candidate)
-        if path.exists():
-            return str(path)
-    return None
-
-
-def register_pdf_fonts():
-    reportlab_fonts = Path(reportlab.__file__).resolve().parent / "fonts"
-    regular = find_existing_file([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSans.ttf",
-        reportlab_fonts / "Vera.ttf",
-    ])
-    bold = find_existing_file([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSans-Bold.ttf",
-        reportlab_fonts / "VeraBd.ttf",
-    ])
-    mono = find_existing_file([
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        Path(__file__).resolve().parent.parent / "fonts" / "DejaVuSansMono.ttf",
-        reportlab_fonts / "Vera.ttf",
-    ])
-
-    fonts = {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
-    try:
-        if regular:
-            pdfmetrics.registerFont(TTFont("KluiSans", regular))
-            fonts["regular"] = "KluiSans"
-        if bold:
-            pdfmetrics.registerFont(TTFont("KluiSans-Bold", bold))
-            fonts["bold"] = "KluiSans-Bold"
-        elif regular:
-            fonts["bold"] = "KluiSans"
-        if mono:
-            pdfmetrics.registerFont(TTFont("KluiMono", mono))
-            fonts["mono"] = "KluiMono"
-    except Exception:
-        return {"regular": "Helvetica", "bold": "Helvetica-Bold", "mono": "Courier"}
-    return fonts
 
 
 class Supabase:
@@ -2023,15 +1965,17 @@ class Processor:
         input_data = job.get("input") or {}
         fmt = input_data.get("format") or job["job_type"].split(".")[-1]
         title = input_data.get("title") or "Generated document"
-        if fmt == "docx":
-            path = self.create_js_artifact(tmp, title, input_data, "docx") or self.create_docx(tmp, title, input_data)
-            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if fmt in ("docx", "pdf"):
+            docx = self.create_js_artifact(tmp, title, input_data, "docx") or self.create_docx(tmp, title, input_data)
+            path = docx if fmt == "docx" else self.libreoffice_convert(docx, tmp, "pdf")
+            content_type = (
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                if fmt == "docx"
+                else "application/pdf"
+            )
         elif fmt == "xlsx":
             path = self.create_xlsx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        elif fmt == "pdf":
-            path = self.create_pdf(tmp, title, input_data)
-            content_type = "application/pdf"
         elif fmt == "pptx":
             path = self.create_js_artifact(tmp, title, input_data, "pptx") or self.create_pptx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -2360,221 +2304,6 @@ class Processor:
         for paragraph in shape.text_frame.paragraphs:
             paragraph.font.size = Pt(size)
             paragraph.font.color.rgb = color or RGBColor(45, 45, 45)
-
-    def create_pdf(self, tmp, title, input_data):
-        path = tmp / f"{safe_name(title)}.pdf"
-        fonts = register_pdf_fonts()
-        doc = SimpleDocTemplate(
-            str(path),
-            pagesize=letter,
-            leftMargin=54,
-            rightMargin=54,
-            topMargin=54,
-            bottomMargin=54,
-        )
-        styles = getSampleStyleSheet()
-        styles["Title"].fontName = fonts["bold"]
-        styles["Title"].fontSize = 20
-        styles["Title"].leading = 24
-        styles["Title"].spaceAfter = 12
-        styles["Heading1"].fontName = fonts["bold"]
-        styles["Heading1"].fontSize = 15
-        styles["Heading1"].leading = 19
-        styles["Heading1"].spaceBefore = 10
-        styles["Heading1"].spaceAfter = 6
-        styles["Heading2"].fontName = fonts["bold"]
-        styles["Heading2"].fontSize = 13
-        styles["Heading2"].leading = 16
-        styles["Heading2"].spaceBefore = 8
-        styles["Heading2"].spaceAfter = 5
-        styles["Normal"].fontName = fonts["regular"]
-        styles["Normal"].fontSize = 10.5
-        styles["Normal"].leading = 14
-        callout_style = ParagraphStyle(
-            "KluiCallout",
-            parent=styles["Normal"],
-            fontName=fonts["regular"],
-            fontSize=10.5,
-            leading=14,
-            leftIndent=10,
-            rightIndent=10,
-            spaceBefore=4,
-            spaceAfter=10,
-            borderColor=colors.HexColor("#CBD5E1"),
-            borderWidth=0.5,
-            borderPadding=8,
-            backColor=colors.HexColor("#F8FAFC"),
-        )
-        story = [Paragraph(title, styles["Title"]), Spacer(1, 12)]
-        summary = (input_data.get("data") or {}).get("summary") or (input_data.get("data") or {}).get("recommendation") or input_data.get("recommendation")
-        if summary:
-            story.append(Paragraph(f"<b>Key takeaway:</b> {xml_escape(clean_markdown(str(summary)))}", callout_style))
-            story.append(Spacer(1, 8))
-        body = strip_duplicate_title_heading(artifact_content(input_data), title)
-        if body:
-            self.append_pdf_markdown(story, body, styles, fonts)
-        else:
-            for block in (input_data.get("instructions") or "").split("\n\n"):
-                if block.strip():
-                    story.append(Paragraph(xml_escape(clean_markdown(block)).replace("\n", "<br/>"), styles["Normal"]))
-                    story.append(Spacer(1, 8))
-        for section in input_data.get("sections") or []:
-            heading = section.get("heading") or section.get("title")
-            content = section.get("content") or section.get("text") or ""
-            if heading:
-                story.append(Paragraph(xml_escape(str(heading)), styles["Heading2"]))
-                story.append(Spacer(1, 6))
-            if content:
-                self.append_pdf_markdown(story, str(content), styles, fonts)
-        for table in input_data.get("tables") or []:
-            self.append_pdf_table(story, table, styles, fonts)
-        def draw_footer(canvas, document):
-            canvas.saveState()
-            canvas.setFont(fonts["regular"], 8)
-            canvas.setFillColor(colors.grey)
-            canvas.drawRightString(letter[0] - 54, 24, f"Page {document.page}")
-            canvas.restoreState()
-
-        doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
-        return path
-
-    def append_pdf_markdown(self, story, text, styles, fonts):
-        code_style = ParagraphStyle(
-            "KluiCode",
-            parent=styles["Code"],
-            fontName=fonts["mono"],
-            fontSize=9,
-            leading=12,
-            backColor=colors.whitesmoke,
-            borderColor=colors.lightgrey,
-            borderWidth=0.25,
-            borderPadding=6,
-            leftIndent=8,
-            rightIndent=8,
-            spaceBefore=4,
-            spaceAfter=8,
-        )
-        in_code = False
-        code_lines = []
-        lines = str(text or "").splitlines()
-        index = 0
-        while index < len(lines):
-            raw_line = lines[index]
-            line = raw_line.strip()
-            if line.startswith("```"):
-                if in_code:
-                    story.append(Preformatted(xml_escape(normalize_math_symbols("\n".join(code_lines)).strip()), code_style))
-                    story.append(Spacer(1, 6))
-                    code_lines = []
-                    in_code = False
-                else:
-                    in_code = True
-                    code_lines = []
-                index += 1
-                continue
-            if in_code:
-                code_lines.append(raw_line.rstrip())
-                index += 1
-                continue
-            if not line:
-                story.append(Spacer(1, 6))
-                index += 1
-                continue
-            table_data, next_index = collect_markdown_table(lines, index)
-            if table_data:
-                self.append_pdf_table(story, table_data, styles, fonts)
-                index = next_index
-                continue
-            if re.match(r"^-{3,}$", line):
-                story.append(Spacer(1, 8))
-                index += 1
-                continue
-            heading = re.match(r"^(#{1,3})\s+(.+)$", line)
-            if heading:
-                style = styles["Heading1"] if len(heading.group(1)) == 1 else styles["Heading2"]
-                story.append(Paragraph(xml_escape(clean_markdown(heading.group(2))), style))
-                story.append(Spacer(1, 6))
-                index += 1
-                continue
-            bullet = re.match(r"^[-*]\s+(.+)$", line)
-            if bullet:
-                story.append(Paragraph(f"- {xml_escape(clean_markdown(bullet.group(1)))}", styles["Normal"]))
-                story.append(Spacer(1, 4))
-                index += 1
-                continue
-            numbered = re.match(r"^(\d+[.)])\s+(.+)$", line)
-            if numbered:
-                story.append(Paragraph(f"{xml_escape(numbered.group(1))} {xml_escape(clean_markdown(numbered.group(2)))}", styles["Normal"]))
-                story.append(Spacer(1, 4))
-                index += 1
-                continue
-            story.append(Paragraph(xml_escape(clean_markdown(line)), styles["Normal"]))
-            story.append(Spacer(1, 6))
-            index += 1
-        if in_code and code_lines:
-            story.append(Preformatted(xml_escape(normalize_math_symbols("\n".join(code_lines)).strip()), code_style))
-            story.append(Spacer(1, 6))
-
-    def append_pdf_table(self, story, table_data, styles, fonts):
-        title = table_data.get("title") or table_data.get("caption")
-        if title:
-            story.append(Paragraph(xml_escape(str(title)), styles["Heading2"]))
-            story.append(Spacer(1, 6))
-        rows = table_data.get("rows") or table_data.get("data") or []
-        headers = table_data.get("headers") or []
-        if headers:
-            rows = [headers] + rows
-        if not rows:
-            return
-        width = max(len(row) if isinstance(row, list) else 1 for row in rows)
-        table_style = ParagraphStyle(
-            "KluiTableCell",
-            parent=styles["Normal"],
-            fontName=fonts["regular"],
-            fontSize=8.5,
-            leading=11,
-            wordWrap="CJK",
-        )
-        clean_rows = [
-            [
-                Paragraph(xml_escape(clean_markdown(str(cell))).replace("\n", "<br/>"), table_style)
-                for cell in normalize_table_row_width(row if isinstance(row, list) else [row], width)
-            ]
-            for row in rows[:50]
-        ]
-        col_widths = self.pdf_table_col_widths(rows[:50], width)
-        table = Table(clean_rows, colWidths=col_widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
-        table.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
-            ("FONTNAME", (0, 0), (-1, 0), fonts["bold"]),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAFA")]),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 5),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        story.append(table)
-        story.append(Spacer(1, 10))
-
-    def pdf_table_col_widths(self, rows, width):
-        if width <= 0:
-            return None
-        max_width = letter[0] - 108
-        samples = []
-        for col in range(width):
-            lengths = []
-            for row in rows:
-                values = normalize_table_row_width(row if isinstance(row, list) else [row], width)
-                lengths.append(min(len(str(values[col] or "")), 80))
-            samples.append(max([8] + lengths))
-        total = sum(samples) or width
-        raw = [max_width * (sample / total) for sample in samples]
-        min_width = min(72, max_width / width)
-        widths = [max(min_width, value) for value in raw]
-        scale = max_width / sum(widths)
-        return [value * scale for value in widths]
 
     def edit_job(self, job, tmp):
         source_doc = self.db.get_document_file(job["document_file_id"])
