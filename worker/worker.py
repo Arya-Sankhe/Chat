@@ -23,7 +23,7 @@ from botocore.config import Config as BotoConfig
 from charset_normalizer import from_path
 from docx import Document
 from docx.shared import Inches as DocxInches
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 from pypdf import PdfReader
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -36,6 +36,11 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
+
+try:
+    from worker.xlsx_generator import create_xlsx_workbook
+except ImportError:  # running as a loose script rather than the worker package
+    from xlsx_generator import create_xlsx_workbook
 
 
 def env(name, default=""):
@@ -1918,7 +1923,7 @@ class Processor:
             path = self.create_js_artifact(tmp, title, input_data, "docx") or self.create_docx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif fmt == "xlsx":
-            path = self.create_js_artifact(tmp, title, input_data, "xlsx") or self.create_xlsx(tmp, title, input_data)
+            path = self.create_xlsx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         elif fmt == "pdf":
             path = self.create_pdf(tmp, title, input_data)
@@ -2068,17 +2073,10 @@ class Processor:
                 cells[i].text = clean_markdown(str(value))
 
     def create_xlsx(self, tmp, title, input_data):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Sheet1"
-        rows = input_data.get("data", {}).get("rows") if isinstance(input_data.get("data"), dict) else None
-        if not rows:
-            rows = [["Title", title], ["Instructions", input_data.get("instructions") or ""]]
-        for row in rows[:1000]:
-            ws.append(row if isinstance(row, list) else [row])
         path = tmp / f"{safe_name(title)}.xlsx"
-        wb.save(path)
-        return path
+        payload = dict(input_data or {})
+        payload["title"] = title
+        return Path(create_xlsx_workbook(path, payload))
 
     def create_pptx(self, tmp, title, input_data):
         prs = Presentation()

@@ -984,15 +984,14 @@ through the database.
   - `chunk(user_id, document_file_id, index, source_type, label, text, metadata)` —
     builds a `document_chunks` row with `char_count` and
     `token_estimate`.
-  - `create_job(job, tmp)` — invokes `create_js_artifact` (which
-    shells out to `node artifact_generator.mjs`); uploads the
-    generated file to R2; calls `store_generated` to write the
-    `attachments` + `document_files` rows and link them.
+  - `create_job(job, tmp)` — dispatches to the per-format creator;
+    uploads the generated file to R2; calls `store_generated` to
+    write the `attachments` + `document_files` rows and link them.
   - `create_js_artifact(tmp, title, input_data, fmt)` /
     `create_docx`, `create_xlsx`, `create_pptx`, `create_pdf` —
-    per-format creator. DOCX/XLSX/PPTX shell out to Node when
-    `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default); PDF
-    uses `reportlab` directly.
+    per-format creator. DOCX/PPTX shell out to Node when
+    `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default), XLSX uses
+    the Python `xlsx_generator`, and PDF uses `reportlab` directly.
   - `edit_job(job, tmp)` / `edit_docx`, `edit_xlsx` — produce a
     new version of an existing document. Always bumps
     `version_no`; never overwrites the source.
@@ -1005,7 +1004,7 @@ through the database.
     version chain.
 - **Callers**: `if __name__ == "__main__":` entry.
 - **Major dependencies**: `boto3`, `edgeparse`, `pypdf`, `python-docx`,
-  `openpyxl`, `python-pptx`, `reportlab`, `requests`,
+  `openpyxl`, `XlsxWriter`, `python-pptx`, `reportlab`, `requests`,
   `charset_normalizer`, `poppler-utils` (via `pdftoppm` /
   `pdfinfo`).
 
@@ -1077,7 +1076,7 @@ through the database.
 - **Path**: `worker/artifact_generator.mjs`
 - **Responsibility**: Stand-alone Node CLI that takes a JSON input
   path and an output directory on argv, reads the input, dispatches
-  on `input.format` (`docx` / `xlsx` / `pptx`), and writes the
+  on `input.format` (`docx` / `pptx`), and writes the
   generated file to `output_dir/{safe_name(title)}.{format}`. The
   path of the generated file is emitted to stdout as JSON
   `{path, content_type}`. The Python worker spawns this CLI via
@@ -1086,10 +1085,6 @@ through the database.
     paragraphs, code blocks, tables, and callouts from a
     markdown body, with `academic` / `business` / `clean` themes
     (`theme.colors`, `theme.fonts`).
-  - `createXlsx(input, outputPath)` — XLSX via `exceljs`. Converts
-    `data.sheets` / `data.rows` / `tables` into a workbook with
-    styled headers, frozen panes, filters, and conditional
-    formatting.
   - `createPptx(input, outputPath)` — PPTX via `pptxgenjs`. Builds
     slides from `data.slides` with title, subtitle, bullets,
     tables, KPIs, and a recommendation slide. Includes a
@@ -1104,4 +1099,13 @@ through the database.
     constants and helpers.
 - **Callers**: `Processor.create_js_artifact` (via
   `subprocess.run(["node", "artifact_generator.mjs", …])`).
-- **Major dependencies**: `docx`, `exceljs`, `pptxgenjs`.
+- **Major dependencies**: `docx`, `pptxgenjs`.
+
+### `xlsx_generator.py` (`create_xlsx_workbook`)
+- **Path**: `worker/xlsx_generator.py`
+- **Responsibility**: Creates XLSX files in one `XlsxWriter` pass from
+  `data.sheets`, legacy rows/tables, and an optional explicit cover.
+  Writes typed cells, formulas, native tables, charts, and conditional
+  formats, then reopens the result with `openpyxl` for validation.
+- **Callers**: `Processor.create_xlsx`.
+- **Major dependencies**: `XlsxWriter`, `openpyxl` (validation only).

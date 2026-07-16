@@ -263,9 +263,10 @@ between `localStorage` and `@capacitor/preferences`/`@capacitor/secure-storage`)
 | Path | Owns |
 |---|---|
 | `worker/worker.py` | The Python worker entry point. `Processor` polls `klui_claim_document_job`, downloads from R2, and dispatches text extraction, visual enrichment, on-demand page rendering, create, edit, and export jobs. Office visual enrichment converts to a job-local temporary PDF before reusing the PDF renderer; only page JPEGs persist. The `Supabase`/`R2`/`JinaEmbeddings` helper classes live inside this file. |
-| `worker/artifact_generator.mjs` | JS fallback for `create_docx`/`create_xlsx`/`create_pptx` (the `docx`, `ExcelJS`, `PptxGenJS` libraries). Called via `node` from the Python worker when `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default). |
+| `worker/artifact_generator.mjs` | JS generator for `create_docx` and `create_pptx` (the `docx` and `PptxGenJS` libraries). Called via `node` from the Python worker when `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default). |
+| `worker/xlsx_generator.py` | Single XLSX writer for structured sheets, formulas, native tables, charts, number formats, and conditional formatting. Uses `XlsxWriter`; `openpyxl` only reopens the finished file for validation. |
 | `worker/Dockerfile` | Multi-stage build: `node:24-bookworm-slim` for the JS deps, `python:3.12-slim` with `libreoffice`, `poppler-utils`, `qpdf`, and the Python deps. Healthcheck runs `python -m worker.healthcheck`. |
-| `worker/requirements.txt` | `boto3`, `charset-normalizer`, `edgeparse`, `openpyxl`, `pypdf`, `python-pptx`, `python-docx`, `reportlab`, `requests`. OCR/Tesseract is intentionally absent. |
+| `worker/requirements.txt` | `boto3`, `charset-normalizer`, `edgeparse`, `openpyxl`, `XlsxWriter`, `pypdf`, `python-pptx`, `python-docx`, `reportlab`, `requests`. OCR/Tesseract is intentionally absent. |
 | `worker/healthcheck.py` | Verifies EdgeParse plus `soffice`, `pdftotext`, `pdftoppm`, and `qpdf` are present. |
 
 ## 4. Data model and external services

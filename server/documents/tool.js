@@ -106,7 +106,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
             content: { type: "string", description: "Complete text that must be written into the generated document or presentation. Required for PDF/DOCX/PPTX prose documents." },
             sections: { type: "array", items: { type: "object" } },
             tables: { type: "array", items: { type: "object" } },
-            data: { type: "object" }
+            data: { type: "object", description: "Structured document data. For xlsx: {sheets:[{name, description, rows, columns:[{format:currency|percent|integer|number|date|text, symbol, width}], charts:[{type:bar|line|pie|area, title, categories_column, series_columns}], conditional_formats:[{column, type:data_bar|color_scale|icon_set}]}], cover?:{subtitle, metrics:[{label,value}], notes}}. rows[0] is the header; data starts on row 2; percentages are decimal fractions." }
           },
           required: ["format"]
         }

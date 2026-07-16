@@ -251,8 +251,9 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   const excelSelection = selectDocumentSkills({ text: "create an excel tracker", readyDocuments: [] });
   const excelHint = buildDocumentSystemHint({ readyDocuments: [], selection: excelSelection });
   assert.match(excelHint, /Professional XLSX workbook creation skill/);
-  assert.match(excelHint, /Infer the workbook purpose first/);
-  assert.match(excelHint, /formulas for derived values/);
+  assert.match(excelHint, /Formula-first/);
+  assert.match(excelHint, /conditional_formats/);
+  assert.match(excelHint, /data\.cover/);
   assert.match(excelHint, /Do not offer CSV text, Python scripts, or manual spreadsheet instructions as a substitute/);
   assert.match(excelHint, /create_document can create downloadable DOCX, XLSX, PPTX, and PDF files/);
   assert.doesNotMatch(excelHint, /Professional Word document creation skill/);

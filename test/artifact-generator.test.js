@@ -6,7 +6,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import ExcelJS from "../worker/node_modules/exceljs/excel.js";
 import JSZip from "../worker/node_modules/jszip/lib/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -57,40 +56,6 @@ test("DOCX generator promotes plain section labels into real document structure"
   assert.match(text, /Executive Summary/);
   assert.match(text, /Recommendation/);
   assert.match(text, /MiMo is cheaper/);
-});
-
-test("XLSX generator splits sectioned rows into clean worksheets", async () => {
-  const { result } = await runArtifact({
-    format: "xlsx",
-    title: "Model Price Workbook",
-    instructions: "Compare model pricing.",
-    data: {
-      recommendation: "Use MiMo when cost matters."
-    },
-    rows: [
-      ["Per-Token Pricing (per 1M tokens)", "", "", ""],
-      ["Model", "Input Price", "Output Price", ""],
-      ["MiMo-V2.5", "$0.14", "$0.28", ""],
-      ["Qwen 3.7 Plus", "$0.40", "$1.60", ""],
-      ["Blended Cost (60/40)", "", "", ""],
-      ["Model", "Input Price", "Output Price", "Blended Cost"],
-      ["MiMo-V2.5", "$0.14", "$0.28", "$0.196"],
-      ["Qwen 3.7 Plus", "$0.40", "$1.60", "$0.880"],
-      ["Scenario Analysis", "", "", ""],
-      ["Volume", "MiMo Total", "Qwen Total", "Savings"],
-      ["1", "$0.20", "$0.88", "$0.68"]
-    ]
-  }, "klui-xlsx-quality-");
-
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(result.path);
-  assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), [
-    "Per-Token-Pricing-per-1M-tokens",
-    "Blended-Cost-60-40",
-    "Scenario-Analysis"
-  ]);
-  assert.equal(workbook.getWorksheet("Per-Token-Pricing-per-1M-tokens").getCell("A1").value, "Model");
-  assert.equal(workbook.getWorksheet("Blended-Cost-60-40").getCell("D1").value, "Blended Cost");
 });
 
 test("PPTX generator repairs title-only and one-line slide plans", async () => {

@@ -14,12 +14,10 @@ import {
   TextRun,
   WidthType
 } from "docx";
-import ExcelJS from "exceljs";
 import pptxgen from "pptxgenjs";
 
 const MIME = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
 
@@ -76,16 +74,6 @@ function safeName(value, fallback = "document") {
   const base = path.basename(String(value || fallback));
   const cleaned = base.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "");
   return (cleaned || fallback).slice(0, 120);
-}
-
-function safeSheetName(value, fallback = "Sheet") {
-  const cleaned = String(value || fallback)
-    .replace(/[\[\]:*?/\\]+/g, " ")
-    .replace(/[^a-z0-9._ -]+/gi, " ")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return (cleaned || fallback).slice(0, 31);
 }
 
 function cleanText(value) {
@@ -481,261 +469,6 @@ async function createDocx(input, outputPath) {
     }]
   });
   await fs.writeFile(outputPath, await Packer.toBuffer(doc));
-}
-
-function rowsFromInput(input) {
-  const data = input && typeof input.data === "object" && input.data ? input.data : {};
-  if (Array.isArray(data.rows)) return data.rows;
-  if (Array.isArray(input.rows)) return input.rows;
-  if (Array.isArray(input.tables) && input.tables.length) return tableRows(input.tables[0], 1000);
-  return [["Title", input.title || "Generated workbook"], ["Instructions", input.instructions || ""]];
-}
-
-function excelColumn(index) {
-  let value = index;
-  let out = "";
-  while (value > 0) {
-    const mod = (value - 1) % 26;
-    out = String.fromCharCode(65 + mod) + out;
-    value = Math.floor((value - mod) / 26);
-  }
-  return out;
-}
-
-function cleanCellValue(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return cleanText(value);
-  return value;
-}
-
-function normalizeXlsxRows(rows) {
-  return rows
-    .map((row) => (Array.isArray(row) ? row : [row]).map(cleanCellValue))
-    .filter((row) => row.some((cell) => cell !== ""));
-}
-
-function splitSparseNotes(rows) {
-  const mainRows = [];
-  const notes = [];
-  let inNotes = false;
-  for (const row of rows) {
-    const first = cleanText(row[0] || "");
-    const filled = row.filter((cell) => cell !== "").length;
-    if (/^notes?$/i.test(first)) {
-      inNotes = true;
-      continue;
-    }
-    if (inNotes || (filled === 1 && mainRows.length > 3 && first.length > 35)) {
-      if (first) notes.push([first]);
-      continue;
-    }
-    mainRows.push(row);
-  }
-  return { mainRows, notes };
-}
-
-function isSingleCellSection(row) {
-  const values = (row || []).filter((cell) => cell !== "");
-  const label = cleanText(values[0] || "");
-  return values.length === 1 && label.length >= 3 && label.length <= 80 && !/[.!?]$/.test(label);
-}
-
-function rowsLookTabular(rows) {
-  if (!rows.length) return false;
-  const widths = rows.map((row) => row.filter((cell) => cell !== "").length);
-  return widths.filter((width) => width >= 2).length >= Math.min(2, rows.length);
-}
-
-function splitSectionedSheetPlans(rows) {
-  const plans = [];
-  let current = null;
-  for (const row of rows) {
-    if (isSingleCellSection(row)) {
-      if (current?.rows?.length) plans.push(current);
-      current = { name: cleanText(row[0]), rows: [] };
-      continue;
-    }
-    if (!current) current = { name: "Summary", rows: [] };
-    current.rows.push(row);
-  }
-  if (current?.rows?.length) plans.push(current);
-  const useful = plans.filter((plan) => rowsLookTabular(plan.rows));
-  return useful.length >= 2 ? useful : [];
-}
-
-function sheetPlansFromInput(input) {
-  const data = input && typeof input.data === "object" && input.data ? input.data : {};
-  const explicitSheets = Array.isArray(data.sheets) ? data.sheets : Array.isArray(input.sheets) ? input.sheets : [];
-  const plans = [];
-  for (const [index, sheet] of explicitSheets.slice(0, 12).entries()) {
-    const rows = normalizeXlsxRows(sheet.rows || tableRows(sheet, 5000));
-    if (rows.length) plans.push({ name: sheet.name || sheet.title || `Sheet ${index + 1}`, rows });
-  }
-  if (plans.length) return plans;
-
-  const primaryRows = normalizeXlsxRows(rowsFromInput(input).slice(0, 5000));
-  const sectioned = splitSectionedSheetPlans(primaryRows);
-  if (sectioned.length) return sectioned;
-  return [{ name: "Summary", rows: primaryRows }];
-}
-
-function parseTokenSplit(rows) {
-  const row = rows.find((values) => /token split|ratio/i.test(String(values[0] || "")));
-  const text = row ? row.join(" ") : "";
-  const match = text.match(/(\d+(?:\.\d+)?)\s*%\s*input.*?(\d+(?:\.\d+)?)\s*%\s*output/i);
-  if (match) return { input: Number(match[1]) / 100, output: Number(match[2]) / 100 };
-  return { input: 0.6, output: 0.4 };
-}
-
-function rowIndexByLabel(rows, pattern) {
-  return rows.findIndex((row) => pattern.test(String(row[0] || "")));
-}
-
-function enrichMetricComparisonRows(rows, tableStartRow) {
-  if (!rows.length || !/^metric$/i.test(String(rows[0][0] || ""))) return rows;
-  const split = parseTokenSplit(rows);
-  const notesCol = rows[0].findIndex((cell) => /^notes?$/i.test(String(cell || "")));
-  const lastMetricCol = notesCol > 0 ? notesCol - 1 : rows[0].length - 1;
-  const inputPrice = rowIndexByLabel(rows, /input price/i);
-  const outputPrice = rowIndexByLabel(rows, /output price/i);
-  const inputCost = rowIndexByLabel(rows, /input cost/i);
-  const outputCost = rowIndexByLabel(rows, /output cost/i);
-  const totalCost = rowIndexByLabel(rows, /total cost/i);
-  const savings = rowIndexByLabel(rows, /savings with/i);
-  const savingsPct = rowIndexByLabel(rows, /savings\s*%/i);
-  const enriched = rows.map((row) => [...row]);
-  for (let col = 2; col <= lastMetricCol + 1; col += 1) {
-    const letter = excelColumn(col);
-    if (inputPrice >= 0 && inputCost >= 0 && enriched[inputCost][col - 1] === "") {
-      enriched[inputCost][col - 1] = { formula: `${letter}${tableStartRow + inputPrice}*${split.input}` };
-    }
-    if (outputPrice >= 0 && outputCost >= 0 && enriched[outputCost][col - 1] === "") {
-      enriched[outputCost][col - 1] = { formula: `${letter}${tableStartRow + outputPrice}*${split.output}` };
-    }
-    if (inputCost >= 0 && outputCost >= 0 && totalCost >= 0 && enriched[totalCost][col - 1] === "") {
-      enriched[totalCost][col - 1] = { formula: `${letter}${tableStartRow + inputCost}+${letter}${tableStartRow + outputCost}` };
-    }
-  }
-  if (lastMetricCol >= 2 && totalCost >= 0 && savings >= 0 && enriched[savings][1] !== "" && enriched[savings][2] === "") {
-    enriched[savings][2] = { formula: `${excelColumn(3)}${tableStartRow + totalCost}-${excelColumn(2)}${tableStartRow + totalCost}` };
-  }
-  if (lastMetricCol >= 2 && totalCost >= 0 && savingsPct >= 0 && enriched[savingsPct][1] !== "" && enriched[savingsPct][2] === "") {
-    enriched[savingsPct][2] = { formula: `${excelColumn(3)}${tableStartRow + totalCost}/${excelColumn(2)}${tableStartRow + totalCost}-1` };
-  }
-  return enriched;
-}
-
-function setCellValue(cell, value) {
-  if (value && typeof value === "object" && value.formula) {
-    cell.value = { formula: value.formula };
-    return;
-  }
-  if (typeof value === "string" && /^=/.test(value)) {
-    cell.value = { formula: value.slice(1) };
-    return;
-  }
-  cell.value = value;
-}
-
-function styleWorksheet(ws, theme, { tableStartRow = 1 } = {}) {
-  if (ws.rowCount >= tableStartRow) {
-    const header = ws.getRow(tableStartRow);
-    header.font = { bold: true, color: { argb: argb(theme.body) }, name: theme.font };
-    header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
-    header.alignment = { vertical: "middle", wrapText: true };
-    header.border = { bottom: { style: "thin", color: { argb: argb(theme.accent) } } };
-  }
-  ws.eachRow((row) => {
-    if (row.number > tableStartRow && row.number % 2 === 0) {
-      row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableStripe) } };
-    }
-    const rowLabel = String(row.getCell(1).value || "");
-    row.eachCell((cell) => {
-      cell.font = { ...(cell.font || {}), name: theme.font, color: { argb: argb(theme.body) } };
-      cell.alignment = { vertical: "top", wrapText: true };
-      cell.border = { bottom: { style: "hair", color: { argb: argb(theme.border) } } };
-      if (cell.col > 1 && /%|ratio/i.test(rowLabel)) cell.numFmt = "0.0%";
-      else if (cell.col > 1 && /price|cost|savings/i.test(rowLabel)) cell.numFmt = "$0.000";
-      else if (typeof cell.value === "number" && !Number.isInteger(cell.value)) cell.numFmt = "0.00";
-    });
-  });
-  for (let index = 1; index <= ws.columnCount; index += 1) {
-    const column = ws.getColumn(index);
-    let width = 10;
-    column.eachCell({ includeEmpty: false }, (cell) => {
-      const value = typeof cell.value === "object" && cell.value?.formula ? cell.value.formula : cell.value;
-      width = Math.max(width, Math.min(48, String(value ?? "").length + 2));
-    });
-    column.width = width;
-  }
-  if (ws.rowCount >= tableStartRow && ws.columnCount > 1) {
-    ws.autoFilter = {
-      from: { row: tableStartRow, column: 1 },
-      to: { row: ws.rowCount, column: ws.columnCount }
-    };
-  }
-}
-
-async function createXlsx(input, outputPath) {
-  const theme = resolveTheme(input);
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Klui";
-  workbook.created = new Date();
-  const sheetPlans = sheetPlansFromInput(input);
-  if (sheetPlans.length > 1) {
-    for (const [index, plan] of sheetPlans.entries()) {
-      const ws = workbook.addWorksheet(safeSheetName(plan.name || `Table ${index + 1}`), {
-        views: [{ state: "frozen", ySplit: 1 }]
-      });
-      const rows = enrichMetricComparisonRows(plan.rows, 1);
-      rows.forEach((row) => ws.addRow(row));
-      styleWorksheet(ws, theme, { tableStartRow: 1 });
-    }
-    await workbook.xlsx.writeFile(outputPath);
-    return;
-  }
-  const sheet = workbook.addWorksheet("Summary", {
-    views: [{ state: "frozen", ySplit: 4 }]
-  });
-  const { mainRows, notes } = splitSparseNotes(sheetPlans[0]?.rows || normalizeXlsxRows(rowsFromInput(input).slice(0, 5000)));
-  const tableStartRow = input.title || input.instructions ? 4 : 1;
-  if (input.title) {
-    sheet.mergeCells(1, 1, 1, Math.max(4, mainRows[0]?.length || 4));
-    const titleCell = sheet.getCell(1, 1);
-    titleCell.value = cleanText(input.title);
-    titleCell.font = { bold: true, size: 16, color: { argb: argb(theme.accent) }, name: theme.headingFont };
-  }
-  if (input.instructions) {
-    sheet.mergeCells(2, 1, 2, Math.max(4, mainRows[0]?.length || 4));
-    const subtitleCell = sheet.getCell(2, 1);
-    subtitleCell.value = cleanText(input.instructions);
-    subtitleCell.font = { italic: true, size: 10.5, color: { argb: argb(theme.muted) }, name: theme.font };
-  }
-  const rows = enrichMetricComparisonRows(mainRows, tableStartRow);
-  rows.forEach((row, rowOffset) => {
-    row.forEach((value, colOffset) => setCellValue(sheet.getCell(tableStartRow + rowOffset, colOffset + 1), value));
-  });
-  styleWorksheet(sheet, theme, { tableStartRow });
-  if (notes.length) {
-    const notesSheet = workbook.addWorksheet("Notes");
-    notesSheet.addRow(["Notes"]);
-    notes.forEach((row) => notesSheet.addRow(row));
-    notesSheet.getRow(1).font = { bold: true, name: theme.font, color: { argb: argb(theme.body) } };
-    notesSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
-    notesSheet.getColumn(1).width = 84;
-    notesSheet.eachRow((row) => row.eachCell((cell) => {
-      cell.font = { name: theme.font, color: { argb: argb(theme.body) } };
-      cell.alignment = { vertical: "top", wrapText: true };
-    }));
-  }
-  for (const [index, tableData] of (Array.isArray(input.tables) ? input.tables.slice(1, 8) : []).entries()) {
-    const ws = workbook.addWorksheet(safeSheetName(tableData.title || tableData.caption || `Table ${index + 2}`));
-    tableRows(tableData, 5000).forEach((row) => ws.addRow(row));
-    ws.getRow(1).font = { bold: true, name: theme.font, color: { argb: argb(theme.body) } };
-    ws.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(theme.tableHeader) } };
-    ws.views = [{ state: "frozen", ySplit: 1 }];
-  }
-  await workbook.xlsx.writeFile(outputPath);
 }
 
 function textToBullets(text) {
@@ -1330,11 +1063,10 @@ async function main() {
   if (!inputPath || !outputDir) throw new Error("Usage: node artifact_generator.mjs <input.json> <output-dir>");
   const input = JSON.parse(await fs.readFile(inputPath, "utf8"));
   const format = String(input.format || "").toLowerCase();
-  if (!["docx", "xlsx", "pptx"].includes(format)) throw new Error(`Unsupported format: ${format}`);
+  if (!["docx", "pptx"].includes(format)) throw new Error(`Unsupported format: ${format}`);
   await fs.mkdir(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, `${safeName(input.title || "Generated document")}.${format}`);
   if (format === "docx") await createDocx(input, outputPath);
-  if (format === "xlsx") await createXlsx(input, outputPath);
   if (format === "pptx") await createPptx(input, outputPath);
   process.stdout.write(JSON.stringify({ path: outputPath, content_type: MIME[format] }));
 }

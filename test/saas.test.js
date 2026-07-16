@@ -319,6 +319,7 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   const npmrc = fs.readFileSync(new URL("../.npmrc", import.meta.url), "utf8");
   const lock = JSON.parse(fs.readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
   const workerLock = JSON.parse(fs.readFileSync(new URL("../worker/package-lock.json", import.meta.url), "utf8"));
+  const workerRequirements = fs.readFileSync(new URL("../worker/requirements.txt", import.meta.url), "utf8");
 
   assert.match(npmrc, /min-release-age=7/);
   assert.match(npmrc, /ignore-scripts=true/);
@@ -328,9 +329,9 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   });
   assert.deepEqual(workerLock.packages[""].dependencies, {
     docx: "9.7.1",
-    exceljs: "4.4.0",
     pptxgenjs: "4.0.1"
   });
+  assert.match(workerRequirements, /^XlsxWriter==3\.2\.9$/m);
 });
 
 test("deleteConversation hard-deletes chat data in Supabase", async () => {
