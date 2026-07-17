@@ -2713,6 +2713,7 @@ function reasoningSummaryLabel(message, { streaming = false } = {}) {
 
 function toolStatusLabel(tool = {}) {
   const name = String(tool.name || "").toLowerCase();
+  if (name === "get_weather") return "Checking weather";
   if (name === "web_search") return "Searching web";
   if (name === "read_url") return "Reading page";
   if (name === "search_document") return "Searching documents";
@@ -2845,6 +2846,7 @@ function artifactKey(artifact) {
     artifact?.attachment_id
     || artifact?.document_file_id
     || artifact?.download_url
+    || artifact?.weather_id
     || (artifact?.pending && artifact?.job_id ? `job:${artifact.job_id}` : "")
     || ""
   );
@@ -2855,6 +2857,8 @@ function artifactListFromMessage(message) {
   if (Array.isArray(message?.artifacts)) combined.push(...message.artifacts);
   const docs = message?.metadata?.documents;
   if (docs && Array.isArray(docs.artifacts)) combined.push(...docs.artifacts);
+  const weather = message?.metadata?.weather;
+  if (weather && Array.isArray(weather.artifacts)) combined.push(...weather.artifacts);
   const seen = new Set();
   const out = [];
   for (const artifact of combined) {
@@ -3458,10 +3462,79 @@ function pendingArtifactStatusLabel(artifact) {
   return "Generating…";
 }
 
+function weatherSymbol(icon = "") {
+  if (icon.startsWith("01")) return "&#9728;";
+  if (icon.startsWith("02")) return "&#9925;";
+  if (icon.startsWith("03") || icon.startsWith("04")) return "&#9729;";
+  if (icon.startsWith("09") || icon.startsWith("10")) return "&#9730;";
+  if (icon.startsWith("11")) return "&#9889;";
+  if (icon.startsWith("13")) return "&#10052;";
+  if (icon.startsWith("50")) return "&#8776;";
+  return "&#9675;";
+}
+
+function weatherTemperature(value, unit) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Math.round(number)}${unit}` : "--";
+}
+
+function renderWeatherArtifact(artifact) {
+  const current = artifact.current || {};
+  const unit = String(artifact.unit_symbol || (artifact.units === "imperial" ? "°F" : "°C"));
+  const windUnit = artifact.units === "imperial" ? "mph" : "m/s";
+  const location = [artifact.location?.name, artifact.location?.country].filter(Boolean).join(", ");
+  const condition = String(current.label || "Current conditions").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const hourly = (artifact.hourly || []).slice(0, 7).map((hour) => `
+    <div class="weather-hour">
+      <span>${escapeHtml(hour.label || "")}</span>
+      <span class="weather-symbol" aria-hidden="true">${weatherSymbol(hour.icon)}</span>
+      <strong>${escapeHtml(weatherTemperature(hour.temperature, unit))}</strong>
+    </div>
+  `).join("");
+  const days = (artifact.daily || []).slice(0, 5);
+  const allTemperatures = days.flatMap((day) => [Number(day.min), Number(day.max)]).filter(Number.isFinite);
+  const scaleMin = allTemperatures.length ? Math.min(...allTemperatures) : 0;
+  const scaleMax = allTemperatures.length ? Math.max(...allTemperatures) : 1;
+  const span = Math.max(1, scaleMax - scaleMin);
+  const daily = days.map((day) => {
+    const left = Math.max(0, Math.min(100, ((Number(day.min) - scaleMin) / span) * 100));
+    const width = Math.max(8, Math.min(100 - left, ((Number(day.max) - Number(day.min)) / span) * 100));
+    return `
+      <div class="weather-day">
+        <strong>${escapeHtml(day.label || "")}</strong>
+        <span class="weather-symbol" aria-hidden="true">${weatherSymbol(day.icon)}</span>
+        <span class="weather-low">${escapeHtml(weatherTemperature(day.min, unit))}</span>
+        <span class="weather-range" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></i></span>
+        <span>${escapeHtml(weatherTemperature(day.max, unit))}</span>
+      </div>
+    `;
+  }).join("");
+  const attribution = artifact.attribution || {};
+  return `
+    <section class="weather-card" aria-label="Weather for ${escapeHtml(location)}">
+      <header class="weather-card-header"><strong>${escapeHtml(location)}</strong><span>Now</span></header>
+      <div class="weather-current">
+        <span class="weather-current-icon weather-symbol" aria-hidden="true">${weatherSymbol(current.icon)}</span>
+        <div><strong class="weather-temperature">${escapeHtml(weatherTemperature(current.temperature, unit))}</strong><span>${escapeHtml(condition)}</span></div>
+        <dl>
+          <div><dt>High / low</dt><dd>${escapeHtml(weatherTemperature(current.high, unit))} / ${escapeHtml(weatherTemperature(current.low, unit))}</dd></div>
+          <div><dt>Feels like</dt><dd>${escapeHtml(weatherTemperature(current.feels_like, unit))}</dd></div>
+          <div><dt>Humidity</dt><dd>${escapeHtml(String(current.humidity ?? "--"))}%</dd></div>
+          <div><dt>Wind</dt><dd>${escapeHtml(String(current.wind_speed ?? "--"))} ${windUnit}</dd></div>
+        </dl>
+      </div>
+      ${hourly ? `<div class="weather-hourly">${hourly}</div>` : ""}
+      ${daily ? `<div class="weather-daily">${daily}</div>` : ""}
+      ${attribution.url ? `<a class="weather-attribution" href="${escapeHtml(attribution.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(attribution.label || "OpenWeather")}</a>` : ""}
+    </section>
+  `;
+}
+
 function renderArtifacts(message) {
   const artifacts = artifactListFromMessage(message);
   if (!artifacts.length) return "";
   const rows = artifacts.map((artifact) => {
+    if (artifact?.type === "weather") return renderWeatherArtifact(artifact);
     const fileName = artifactLabel(artifact);
     const badge = escapeHtml(artifactFormat(artifact));
 

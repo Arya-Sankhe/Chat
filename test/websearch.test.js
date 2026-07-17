@@ -18,6 +18,7 @@ import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatW
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
 import { estimateContextTokens } from "../server/saas/messages.js";
+import { buildWeatherTool } from "../server/weather.js";
 
 const realFetch = globalThis.fetch;
 
@@ -962,6 +963,55 @@ describe("WebSearchOrchestrator", () => {
 });
 
 describe("tool", () => {
+  test("weather tool returns a durable current and forecast artifact", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const calls = [];
+    installFetch(async (input) => {
+      const url = new URL(String(input));
+      calls.push(url.pathname);
+      if (url.pathname === "/geo/1.0/direct") {
+        return jsonResponse([{ name: "Dubai", country: "AE", lat: 25.2, lon: 55.3 }]);
+      }
+      if (url.pathname === "/data/2.5/weather") {
+        return jsonResponse({
+          dt: now,
+          timezone: 14400,
+          main: { temp: 41, feels_like: 45, humidity: 31, temp_min: 34, temp_max: 42 },
+          wind: { speed: 5 },
+          weather: [{ description: "clear sky", icon: "01d" }],
+          sys: { country: "AE" }
+        });
+      }
+      if (url.pathname === "/data/2.5/forecast") {
+        return jsonResponse({
+          city: { timezone: 14400 },
+          list: Array.from({ length: 16 }, (_, index) => ({
+            dt: now + (index + 1) * 10800,
+            main: { temp: 40 - index / 2, temp_min: 34, temp_max: 42 },
+            pop: 0,
+            weather: [{ description: "clear sky", icon: "01d" }]
+          }))
+        });
+      }
+      return jsonResponse({ message: "not found" }, { status: 404 });
+    });
+    try {
+      assert.equal(buildWeatherTool().function.name, "get_weather");
+      const result = await executeToolCall({
+        toolCall: { function: { name: "get_weather", arguments: JSON.stringify({ location: "Dubai", units: "metric" }) } },
+        weather: { apiKey: "test", baseUrl: "https://api.openweathermap.org" }
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.artifacts[0].type, "weather");
+      assert.equal(result.artifacts[0].current.temperature, 41);
+      assert.equal(result.artifacts[0].hourly.length, 7);
+      assert.ok(result.artifacts[0].daily.length >= 2);
+      assert.deepEqual(calls.sort(), ["/data/2.5/forecast", "/data/2.5/weather", "/geo/1.0/direct"].sort());
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("buildWebSearchTools exposes web_search and read_url", () => {
     const tools = buildWebSearchTools({ maxResults: 5 });
     assert.equal(tools.length, 2);

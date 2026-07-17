@@ -216,6 +216,11 @@ export function loadConfig(env = process.env) {
         apiKey: clean(env.BRAVE_SEARCH_API_KEY)
       }
     },
+    weather: {
+      apiKey: clean(env.OPENWEATHER_API_KEY),
+      baseUrl: cleanUrl(env.OPENWEATHER_BASE_URL) || "https://api.openweathermap.org",
+      timeoutMs: readInt(env.OPENWEATHER_TIMEOUT_MS, 8000)
+    },
     research: {
       enabled: readBoolean(env.RESEARCH_ENABLED, true),
       cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash",
@@ -252,6 +257,7 @@ export function configuredServices(config) {
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
     websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
+    weather: Boolean(config.weather?.apiKey),
     documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
     research: Boolean(config.research?.enabled && config.websearch?.searxng?.baseUrl && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)
   };

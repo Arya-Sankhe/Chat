@@ -45,6 +45,7 @@ import {
   visualDocumentMessage,
   visualImageInputLimit
 } from "../websearch/tool.js";
+import { buildWeatherTool } from "../weather.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
 import {
@@ -388,11 +389,16 @@ export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, doc
 export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null }) {
   const tools = [];
   const hints = [];
-  const enabled = { websearch: false, documents: false };
+  const enabled = { websearch: false, weather: false, documents: false };
   if (webMode !== "off") {
     tools.push(...buildWebSearchTools({ maxResults: config.websearch.maxResults }));
     if (webHint) hints.push(webHint);
     enabled.websearch = true;
+  }
+  if (config.weather?.apiKey) {
+    tools.push(buildWeatherTool());
+    hints.push("For weather conditions or forecasts, use get_weather instead of web_search.");
+    enabled.weather = true;
   }
   if (documentSkills?.enabled) {
     tools.push(...buildDocumentTools({ toolNames: documentSkills.toolNames || [] }));
@@ -1124,7 +1130,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         readyDocuments,
         documentSkills
       })
-    : { request: chatRequest, augmented: false, enabled: { websearch: false, documents: false } };
+    : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;
   const { augmented, enabled: toolEnabled } = toolSetup;
   let directPdfContext = { message: null, citations: [], documentCount: 0, pageCount: 0 };
@@ -1200,6 +1206,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           provider,
           signal: controller.signal,
           websearch,
+          weather: config.weather,
           documents,
           visualDocuments: selectedModelSupportsVision,
           onUpstreamEvent: (event) => {
@@ -1248,6 +1255,13 @@ async function executeConversationMessage(req, res, config, conversationId, {
             tools: documentSkills?.toolNames || [],
             citations: documentCitations,
             artifacts: artifacts || [],
+            toolCallCount
+          }
+        } : {}),
+        ...(toolEnabled.weather ? {
+          weather: {
+            provider: "openweather",
+            artifacts: (artifacts || []).filter((artifact) => artifact?.type === "weather"),
             toolCallCount
           }
         } : {})

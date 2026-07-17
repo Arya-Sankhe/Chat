@@ -10,6 +10,7 @@ import { executeDocumentToolCall, isDocumentToolName } from "../../documents/too
 import { estimateContextTokens } from "../../saas/messages.js";
 import { applyToolFallback, isToolsUnsupportedError } from "./unsupported.js";
 import { prepareVisualPagesForModel, visualDocumentMessage, visualImageInputLimit } from "./visual.js";
+import { lookupWeather } from "../../weather.js";
 
 function textFromContent(content) {
   if (typeof content === "string") return content;
@@ -175,7 +176,7 @@ function safeParseArgs(rawArgs) {
  * @returns {Promise<{ ok: boolean, name: string, toolResultJson: string,
  *                     citations: Array, query?: string, error?: object }>}
  */
-export async function executeToolCall({ toolCall, websearch, documents, maxToolResultChars, signal }) {
+export async function executeToolCall({ toolCall, websearch, weather, documents, maxToolResultChars, signal }) {
   const name = toolCall?.function?.name || "";
   const args = safeParseArgs(toolCall?.function?.arguments);
 
@@ -200,6 +201,44 @@ export async function executeToolCall({ toolCall, websearch, documents, maxToolR
       };
     }
     return executeDocumentToolCall({ toolCall, documents, maxToolResultChars });
+  }
+
+  if (name === "get_weather") {
+    try {
+      const result = await lookupWeather({
+        config: weather,
+        location: args.location,
+        units: args.units,
+        signal
+      });
+      const artifact = result.artifact;
+      return {
+        ok: true,
+        name,
+        provider: artifact.provider,
+        cached: result.cached,
+        artifacts: [artifact],
+        citations: [],
+        toolResultJson: JSON.stringify({
+          location: artifact.location,
+          units: artifact.units,
+          current: artifact.current,
+          hourly: artifact.hourly,
+          daily: artifact.daily,
+          attribution: artifact.attribution,
+          instruction: "Answer directly from this weather data. Do not perform a web search for the same conditions."
+        })
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return {
+        ok: false,
+        name,
+        toolResultJson: JSON.stringify({ error: error?.message || "Weather lookup failed." }),
+        citations: [],
+        error: { message: error?.message || "Weather lookup failed." }
+      };
+    }
   }
 
   if (name === "web_search") {
@@ -354,6 +393,7 @@ export async function runChatWithToolLoop({
   provider,
   signal,
   websearch,
+  weather = null,
   documents = null,
   visualDocuments = false,
   onUpstreamEvent,
@@ -527,6 +567,7 @@ export async function runChatWithToolLoop({
       const result = await executeToolCall({
         toolCall: call,
         websearch,
+        weather,
         documents,
         maxToolResultChars: config.documents?.maxToolResultChars,
         signal
@@ -542,8 +583,8 @@ export async function runChatWithToolLoop({
       if (result.ok && result.provider) providers.add(result.provider);
       if (result.ok && Array.isArray(result.artifacts) && result.artifacts.length) {
         for (const artifact of result.artifacts) {
-          const key = artifact.attachment_id || artifact.document_file_id || artifact.download_url;
-          if (!key || artifacts.some((entry) => (entry.attachment_id || entry.document_file_id || entry.download_url) === key)) continue;
+          const key = artifact.attachment_id || artifact.document_file_id || artifact.download_url || artifact.weather_id;
+          if (!key || artifacts.some((entry) => (entry.attachment_id || entry.document_file_id || entry.download_url || entry.weather_id) === key)) continue;
           artifacts.push(artifact);
         }
       }

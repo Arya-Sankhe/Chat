@@ -178,7 +178,7 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.equal(healthBody.app, "klui-chat");
   assert.deepEqual(
     Object.keys(healthBody.services).sort(),
-    ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "websearch"]
+    ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
   );
 
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
