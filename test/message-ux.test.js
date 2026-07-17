@@ -50,6 +50,9 @@ test("assistant responses expose length controls and desktop selection reuses te
   assert.match(appJs, /streamTemporaryChat\(state\.session/);
   assert.match(appJs, /renderAssistantActivity\(message, \{ streaming \}\)/);
   assert.match(appJs, /const beforePinned = sideChatState\.autoScroll && isNearBottom\(els\.sideChatMessages/);
+  assert.match(appJs, /sideChatState\.running \|\| !sideChatState\.context/);
+  assert.match(appJs, /els\.sideChatInput\?\.value\.trim\(\) \|\| "Explain this\."/);
+  assert.match(appJs, /streamTemporaryChat\(state\.session,\s*\{[\s\S]*?writingStyle:\s*"concise"/);
   assert.match(appJs, /els\.sideChatMessages\?\.addEventListener\("wheel"/);
   assert.match(appJs, /if \(event\.deltaY < 0\) sideChatState\.autoScroll = false/);
   assert.match(appJs, /els\.sideChatMessages\?\.addEventListener\("touchmove"/);

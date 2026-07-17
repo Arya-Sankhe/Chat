@@ -3170,7 +3170,8 @@ function renderSideChat() {
       : "";
     return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
   }).join("");
-  els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
+  // Context is always attached — empty prompt is still sendable.
+  els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
   if (beforePinned) {
     els.sideChatMessages.scrollTop = els.sideChatMessages.scrollHeight;
   } else {
@@ -3213,8 +3214,9 @@ function openSideChat(context, anchorRect) {
 }
 
 async function sendSideChatMessage() {
-  const text = els.sideChatInput?.value.trim() || "";
-  if (!text || sideChatState.running || !sideChatState.context) return;
+  if (sideChatState.running || !sideChatState.context) return;
+  // Highlighted context is enough — empty input still asks about the selection.
+  const text = els.sideChatInput?.value.trim() || "Explain this.";
 
   const history = [
     { role: "user", content: `Use this selected excerpt from the main chat as context for my questions:\n\n${sideChatState.context}` },
@@ -3242,7 +3244,7 @@ async function sendSideChatMessage() {
       model,
       provider,
       settings: { ...state.settings, reasoning_effort: DEFAULT_REASONING_EFFORT },
-      writingStyle: normalizeWritingStyle(state.settings.writingStyle),
+      writingStyle: "concise",
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
     }, {
@@ -6042,7 +6044,7 @@ function bindEvents() {
   els.sideChatContext?.addEventListener("click", () => openPastedTextDialog(sideChatState.context));
   els.sideChatSend?.addEventListener("click", () => { void sendSideChatMessage(); });
   els.sideChatInput?.addEventListener("input", () => {
-    els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
+    els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
   });
   els.sideChatInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
