@@ -240,7 +240,9 @@ const sideChatState = {
   context: "",
   messages: [],
   running: false,
-  abortController: null
+  abortController: null,
+  autoScroll: true,
+  touchY: 0
 };
 
 /** One in-flight client run per conversation (or temporary chat). */
@@ -3151,6 +3153,8 @@ function showSelectionActionsFromCurrentSelection() {
 
 function renderSideChat() {
   if (!els.sideChatMessages) return;
+  const beforePinned = sideChatState.autoScroll && isNearBottom(els.sideChatMessages, 60);
+  const beforeScrollTop = els.sideChatMessages.scrollTop;
   els.sideChatMessages.innerHTML = sideChatState.messages.map((message, index) => {
     const text = rawTextContent(message.content);
     const body = message.role === "assistant" ? renderContent(text) : renderPlainText(text);
@@ -3163,9 +3167,11 @@ function renderSideChat() {
     return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
   }).join("");
   els.sideChatSend.disabled = sideChatState.running || !els.sideChatInput.value.trim();
-  requestAnimationFrame(() => {
+  if (beforePinned) {
     els.sideChatMessages.scrollTop = els.sideChatMessages.scrollHeight;
-  });
+  } else {
+    els.sideChatMessages.scrollTop = beforeScrollTop;
+  }
 }
 
 function closeSideChat() {
@@ -3174,6 +3180,7 @@ function closeSideChat() {
   sideChatState.running = false;
   sideChatState.context = "";
   sideChatState.messages = [];
+  sideChatState.autoScroll = true;
   els.sideChatPanel?.classList.add("hidden");
   if (els.sideChatInput) els.sideChatInput.value = "";
 }
@@ -3185,6 +3192,7 @@ function openSideChat(context, anchorRect) {
   sideChatState.messages = [];
   sideChatState.running = false;
   sideChatState.abortController = null;
+  sideChatState.autoScroll = true;
   els.sideChatContext.textContent = sideChatState.context.replace(/\s+/g, " ").slice(0, 180);
   els.sideChatPanel.classList.remove("hidden");
   const panelWidth = els.sideChatPanel.offsetWidth || 380;
@@ -3216,6 +3224,7 @@ async function sendSideChatMessage() {
   sideChatState.messages.push(userMessage, assistantMessage);
   els.sideChatInput.value = "";
   sideChatState.running = true;
+  sideChatState.autoScroll = true;
   const controller = new AbortController();
   sideChatState.abortController = controller;
   renderSideChat();
@@ -5968,6 +5977,19 @@ function bindEvents() {
       void sendSideChatMessage();
     }
   });
+  els.sideChatMessages?.addEventListener("wheel", (event) => {
+    if (event.deltaY < 0) sideChatState.autoScroll = false;
+    else if (event.deltaY > 0 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
+  }, { passive: true });
+  els.sideChatMessages?.addEventListener("touchstart", (event) => {
+    sideChatState.touchY = event.touches?.[0]?.clientY ?? 0;
+  }, { passive: true });
+  els.sideChatMessages?.addEventListener("touchmove", (event) => {
+    const y = event.touches?.[0]?.clientY ?? sideChatState.touchY;
+    if (y > sideChatState.touchY + 2) sideChatState.autoScroll = false;
+    else if (y < sideChatState.touchY - 2 && isNearBottom(els.sideChatMessages, 40)) sideChatState.autoScroll = true;
+    sideChatState.touchY = y;
+  }, { passive: true });
   let sideChatDrag = null;
   els.sideChatHeader?.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || event.target.closest("button")) return;
