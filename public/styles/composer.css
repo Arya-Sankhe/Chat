@@ -797,7 +797,7 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
-.composer-action-menu-item svg {
+.composer-action-menu-item > svg {
 
   flex: 0 0 19px;
 
