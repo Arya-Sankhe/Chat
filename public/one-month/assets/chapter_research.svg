@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <defs>
+    <!-- 3D Puffed Rim Gradient -->
+    <linearGradient id="cooeeRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#ffffff"/>
+      <stop offset="85%" stop-color="#f1f5f9"/>
+      <stop offset="100%" stop-color="#d1d5db"/>
+    </linearGradient>
+    
+    <!-- 3D Inner Face Radial Gradient -->
+    <radialGradient id="cooeeFace" cx="50%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#f0f9ff"/>
+      <stop offset="85%" stop-color="#bae6fd"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </radialGradient>
+
+    <!-- 3D Inset Eye Gradient -->
+    <linearGradient id="eyeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="45%" stop-color="#2563eb"/>
+      <stop offset="80%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </linearGradient>
+
+    <!-- Soft diffuse blue drop-shadow -->
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <!-- Magnifying Glass -->
+  <circle cx="42" cy="130" r="18" fill="#e0f2fe" stroke="#1e3a8a" stroke-width="3.5"/>
+  <line x1="55" y1="143" x2="75" y2="163" stroke="#1e3a8a" stroke-width="5" stroke-linecap="round"/>
+  <!-- Highlight on lens -->
+  <path d="M 32 122 A 14 14 0 0 1 52 122" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.8"/>
+
+  <!-- Squaricle Mascot with Detective Glasses -->
+  <g transform="translate(10, 15)">
+    <!-- 1. Soft blue diffuse glow -->
+    <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#softGlow)"/>
+
+    <!-- 2. Puffed Rim -->
+    <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#cooeeRim)"/>
+    
+    <!-- 3. Inner face -->
+    <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#cooeeFace)"/>
+
+    <!-- 4. Eyes (vertical rounded pills) -->
+    <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#eyeGrad)"/>
+    <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#eyeGrad)"/>
+
+    <!-- Round Glasses Frame -->
+    <circle cx="80" cy="94" r="23" fill="none" stroke="#1e3a8a" stroke-width="3"/>
+    <circle cx="120" cy="94" r="23" fill="none" stroke="#1e3a8a" stroke-width="3"/>
+    <line x1="98" y1="94" x2="102" y2="94" stroke="#1e3a8a" stroke-width="3"/>
+
+    <!-- Smile -->
+    <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#eyeGrad)" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Detective Hat resting on top -->
+  <g transform="translate(68, 38)">
+    <path d="M 10 20 L 70 20 L 60 0 L 20 0 Z" fill="#92400e" stroke="#1e3a8a" stroke-width="2.5"/>
+    <line x1="0" y1="20" x2="80" y2="20" stroke="#1e3a8a" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

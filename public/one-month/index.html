@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A playful Duolingo-style scrapbook celebrating the first month of the Cluee Closed Beta. Explore our milestones, stats, chapters, and stickers.">
+  <meta name="theme-color" content="#ffffff">
+  <title>Klui · One Month Beta Scrapbook</title>
+  
+  <!-- Preconnect to Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="./index.css">
+  <link rel="stylesheet" href="./mail-world.css">
+</head>
+<body>
+  <!-- Floating Mail World -->
+  <div class="mail-world" id="mailWorld" aria-hidden="true">
+    <div class="mail-world__base"></div>
+    <div class="mail-world__pattern"></div>
+
+    <div class="mail-layer mail-layer--back">
+      <div class="mail-obj mail-obj--bubble is-idle mail-world-animated">
+        <svg viewBox="0 0 180 140" xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 18 H148 Q166 18 166 38 V88 Q166 108 148 108 H78 L48 128 L56 108 H24 Q8 108 8 88 V38 Q8 18 24 18 Z"
+            fill="var(--mail-light-violet)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <circle cx="58" cy="64" r="7" fill="var(--mail-ink)"/>
+          <circle cx="86" cy="64" r="7" fill="var(--mail-ink)"/>
+          <circle cx="114" cy="64" r="7" fill="var(--mail-ink)"/>
+          <path d="M138 42 C134 36, 126 36, 126 42 C126 48, 138 54, 138 54 C138 54, 150 48, 150 42 C150 36, 142 36, 138 42 Z"
+            fill="var(--mail-pink)" stroke="var(--mail-ink)" stroke-width="3"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--env-lr is-idle mail-world-animated">
+        <svg viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg">
+          <rect x="18" y="28" width="150" height="110" rx="10"
+            fill="var(--mail-cream)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <path d="M26 36 L92 86 L158 36" fill="none" stroke="var(--mail-ink)" stroke-width="4"/>
+          <rect x="78" y="12" width="100" height="78" rx="8"
+            fill="var(--mail-white)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <path d="M90 36 H166 M90 52 H150 M90 68 H140"
+            stroke="var(--mail-ink-soft)" stroke-width="3.5"/>
+          <circle cx="92" cy="96" r="12" fill="var(--mail-red)" stroke="var(--mail-ink)" stroke-width="4"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--motion is-idle mail-world-animated">
+        <svg viewBox="0 0 80 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M6 22 C22 8, 40 26, 56 12 C64 20, 72 14, 76 16"
+            stroke="rgba(33,63,150,0.28)" stroke-width="4"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="mail-layer mail-layer--mid">
+      <div class="mail-obj mail-obj--flight-path mail-world-animated" id="mailFlightPath">
+        <svg viewBox="0 0 1400 420" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <path class="flight-dash" id="mailFlightDash"
+            d="M 1180 210 C 980 70, 760 90, 520 180"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--card-mr is-idle mail-world-animated" id="mailCard">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="8" width="84" height="84" rx="10"
+            fill="var(--mail-cream)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <rect x="18" y="18" width="64" height="44" rx="6"
+            fill="var(--mail-light-blue)" stroke="var(--mail-ink)" stroke-width="4"/>
+          <circle cx="50" cy="72" r="10" fill="var(--mail-yellow)" stroke="var(--mail-ink)" stroke-width="3.5"/>
+          <path d="M28 14 L28 8 M40 14 L40 8 M52 14 L52 8 M64 14 L64 8 M76 14 L76 8"
+            stroke="var(--mail-ink)" stroke-width="3"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--heart is-idle mail-world-animated" id="mailHeart">
+        <svg viewBox="0 0 40 38" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 34 C8 24, 2 18, 4 10 C6 4, 14 2, 20 8 C24 2, 32 2, 36 10 C38 18, 32 24, 20 34 Z"
+            fill="var(--mail-pink)" stroke="var(--mail-ink)" stroke-width="3.5"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--spark-ur is-idle is-twinkle mail-world-animated">
+        <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 2 L11.2 8 L18 9.2 L11.2 10.4 L10 17 L8.8 10.4 L2 9.2 L8.8 8 Z"
+            fill="var(--mail-yellow)" stroke="var(--mail-ink)" stroke-width="2.5"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="mail-layer mail-layer--front">
+      <div class="mail-obj mail-obj--stamp-ul is-idle mail-world-animated" id="mailStamp">
+        <svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 28
+            Q28 20 36 28 Q44 20 52 28 Q60 20 68 28 Q76 20 84 28
+            Q92 20 100 28 Q108 20 116 28 Q124 20 132 28
+            L140 36
+            Q132 44 140 52 Q132 60 140 68 Q132 76 140 84
+            Q132 92 140 100 Q132 108 140 116 Q132 124 140 132
+            L132 140
+            Q124 132 116 140 Q108 132 100 140 Q92 132 84 140
+            Q76 132 68 140 Q60 132 52 140 Q44 132 36 140 Q28 132 20 140
+            L12 132
+            Q20 124 12 116 Q20 108 12 100 Q20 92 12 84
+            Q20 76 12 68 Q20 60 12 52 Q20 44 12 36 Z"
+            fill="var(--mail-cream)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <rect x="36" y="42" width="88" height="76" rx="8"
+            fill="var(--mail-light-blue)" stroke="var(--mail-ink)" stroke-width="4"/>
+          <path d="M80 98 C58 82, 48 70, 52 56 C56 46, 70 44, 80 56 C88 44, 104 44, 108 56 C112 70, 102 82, 80 98 Z"
+            fill="var(--mail-red)" stroke="var(--mail-ink)" stroke-width="4"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--spark-ul-a is-idle is-twinkle mail-world-animated">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2 L13.4 9 L21 10.4 L13.4 11.8 L12 19 L10.6 11.8 L3 10.4 L10.6 9 Z"
+            fill="var(--mail-yellow)" stroke="var(--mail-ink)" stroke-width="3"/>
+        </svg>
+      </div>
+      <div class="mail-obj mail-obj--spark-ul-b is-idle is-twinkle mail-world-animated">
+        <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 2 L10 7.5 L16 8.5 L10 9.5 L9 15 L8 9.5 L2 8.5 L8 7.5 Z"
+            fill="var(--mail-light-blue)" stroke="var(--mail-ink)" stroke-width="2.5"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--env-ml is-idle mail-world-animated" id="mailEnv">
+        <svg viewBox="0 0 100 84" xmlns="http://www.w3.org/2000/svg">
+          <rect x="10" y="28" width="80" height="48" rx="8"
+            fill="var(--mail-cream)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <path d="M16 34 L50 56 L84 34" fill="none" stroke="var(--mail-ink)" stroke-width="4"/>
+          <g class="env-flap">
+            <path d="M12 30 L50 8 L88 30 L50 48 Z"
+              fill="var(--mail-light-blue)" stroke="var(--mail-ink)" stroke-width="5"/>
+          </g>
+          <circle cx="50" cy="52" r="8" fill="var(--mail-red)" stroke="var(--mail-ink)" stroke-width="3.5"/>
+          <path class="env-heart"
+            d="M50 22 C46 16, 38 16, 38 22 C38 28, 50 34, 50 34 C50 34, 62 28, 62 22 C62 16, 54 16, 50 22 Z"
+            fill="var(--mail-pink)" stroke="var(--mail-ink)" stroke-width="3"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--plane mail-world-animated" id="mailPlane">
+        <svg viewBox="0 0 120 100" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 52 L108 18 L72 82 L58 56 Z"
+            fill="var(--mail-white)" stroke="var(--mail-ink)" stroke-width="5"/>
+          <path d="M58 56 L108 18 L68 48" fill="var(--mail-light-blue)" stroke="var(--mail-ink)" stroke-width="4"/>
+          <path d="M58 56 L72 82" stroke="var(--mail-ink)" stroke-width="4"/>
+        </svg>
+      </div>
+
+      <div class="mail-obj mail-obj--star is-idle mail-world-animated" id="mailStar">
+        <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 4 L28 18 L42 19 L30 28 L34 42 L24 34 L14 42 L18 28 L6 19 L20 18 Z"
+            fill="var(--mail-yellow)" stroke="var(--mail-ink)" stroke-width="3.5"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confetti Canvas -->
+  <canvas class="confetti-canvas" id="confetti" aria-hidden="true"></canvas>
+
+  <!-- Navigation Dots (Duolingo side menu style) -->
+  <nav class="nav-dots" aria-label="Scrapbook Sections">
+    <a href="#top" class="is-active">Top</a>
+    <a href="#letter">Letter</a>
+    <a href="#messages">Messages</a>
+    <a href="#pocket">Pocket</a>
+    <a href="#research">Research</a>
+    <a href="#docs">Documents</a>
+    <a href="#projects">Projects</a>
+    <a href="#bits">Stickers</a>
+    <a href="#thanks">Thanks</a>
+  </nav>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <a href="#top" class="brand" id="brandLink">Klui</a>
+  </header>
+
+  <!-- Main Scrapbook Container -->
+  <main class="scrapbook-container" id="top">
+    
+    <!-- Hero Section -->
+    <section id="hero" class="reveal hero-section">
+      <div class="text-block">
+        <div class="eyebrow">June 18 → July 18</div>
+        <h1>One month of Klui, with you.</h1>
+        <p class="hero-lead">
+          A tiny thank-you scrapbook for the close beta crew — not a changelog, more like “look what we built together.”
+        </p>
+        <div class="scroll-indicator" id="scrollIndicator" onclick="document.getElementById('letter').scrollIntoView({ behavior: 'smooth' })">
+          <span class="scroll-text">Scroll below</span>
+          <svg class="scroll-arrow" viewBox="0 0 24 24" width="24" height="24">
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" fill="#1cb0f6"/>
+          </svg>
+        </div>
+      </div>
+      <div class="image-block hero-stage">
+        <svg class="hero-art" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Klui bursting out of cracked ground">
+          <defs>
+            <linearGradient id="heroRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="40%" stop-color="#ffffff"/>
+              <stop offset="85%" stop-color="#f1f5f9"/>
+              <stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="heroFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="60%" stop-color="#f0f9ff"/>
+              <stop offset="85%" stop-color="#bae6fd"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="heroEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/>
+              <stop offset="45%" stop-color="#2563eb"/>
+              <stop offset="80%" stop-color="#3b82f6"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <linearGradient id="groundGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#e8e4da"/>
+              <stop offset="100%" stop-color="#d5d0c4"/>
+            </linearGradient>
+            <filter id="heroGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <!-- Ground plate -->
+          <g class="hero-ground">
+            <ellipse cx="100" cy="158" rx="72" ry="18" fill="url(#groundGrad)" stroke="#c4beb0" stroke-width="2"/>
+            <!-- Center fissure / hole (revealed as cracks open) -->
+            <ellipse class="hero-hole" cx="100" cy="158" rx="18" ry="7" fill="#9a9488"/>
+
+            <!-- Crack lines -->
+            <g class="hero-cracks" fill="none" stroke="#8a8478" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path class="crack c1" d="M100 158 L78 148 L58 142"/>
+              <path class="crack c2" d="M100 158 L122 146 L145 138"/>
+              <path class="crack c3" d="M100 158 L88 168 L70 176"/>
+              <path class="crack c4" d="M100 158 L116 170 L138 178"/>
+              <path class="crack c5" d="M100 158 L100 140"/>
+            </g>
+
+            <!-- Shattered shards that split outward -->
+            <g class="hero-shards">
+              <path class="shard s1" d="M100 158 L78 148 L86 158 Z" fill="#ddd7cb" stroke="#b7b0a2" stroke-width="1"/>
+              <path class="shard s2" d="M100 158 L122 146 L114 158 Z" fill="#e4dfd3" stroke="#b7b0a2" stroke-width="1"/>
+              <path class="shard s3" d="M100 158 L88 168 L96 166 Z" fill="#d2ccc0" stroke="#b7b0a2" stroke-width="1"/>
+              <path class="shard s4" d="M100 158 L116 170 L108 164 Z" fill="#e8e3d7" stroke="#b7b0a2" stroke-width="1"/>
+              <path class="shard s5" d="M100 158 L92 150 L100 146 L108 150 Z" fill="#cfc8bb" stroke="#b7b0a2" stroke-width="1"/>
+            </g>
+          </g>
+
+          <!-- Klui bursting out -->
+          <g class="hero-cluey">
+            <g transform="translate(10, 8)">
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#heroGlow)"/>
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#heroRim)"/>
+              <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#heroFace)"/>
+              <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#heroEye)"/>
+              <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#heroEye)"/>
+              <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#heroEye)" stroke-width="4.5" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <!-- Sparkles after landing -->
+          <g class="hero-sparkles">
+            <path class="spark sp1" d="M 25 40 L 29 48 L 37 52 L 29 56 L 25 64 L 21 56 L 13 52 L 21 48 Z" fill="#60a5fa"/>
+            <path class="spark sp2" d="M 175 60 L 178 66 L 185 69 L 178 72 L 175 78 L 172 72 L 165 69 L 172 66 Z" fill="#ffc800"/>
+            <path class="spark sp3" d="M 30 150 L 33 154 L 39 156 L 33 158 L 30 162 L 27 158 L 21 156 L 27 154 Z" fill="#ffc800"/>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Letter Section -->
+    <section id="letter" class="reveal alt-reverse">
+      <div class="text-block">
+        <!-- Envelope Wrapper with fly-in and unfold animations -->
+        <div class="envelope-wrapper" id="envelopeWrapper">
+          
+          <!-- Closed/Opening Envelope Container -->
+          <div class="envelope" id="envelope">
+            <!-- Flap of the envelope -->
+            <div class="envelope-flap" id="envelopeFlap"></div>
+            <!-- Pocket front of the envelope -->
+            <div class="envelope-front"></div>
+          </div>
+
+          <!-- Sibling Letter Sheet (so it does not disappear when envelope drops!) -->
+          <div class="envelope-paper" id="envelopePaper">
+            <div class="letter-box">
+              <h2>Hey, beta user. Yes, you.</h2>
+              <p class="body-text">
+                Thirty-ish days ago we cracked open the doors, carefully, nervously, excitedly, and you walked in. You poked at things. You broke a few. You sent messages at weird hours. You made Klui feel less like a prototype and more like a place.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <div class="image-block">
+        <img src="./assets/letter.svg" alt="Mascot reading a scrapbook note" id="letterImage" />
+      </div>
+    </section>
+
+    <!-- Messages / Stats Section -->
+    <section id="messages" class="reveal">
+      <div class="text-block">
+        <div class="stat-container">
+          <div class="eyebrow">Across the whole beta</div>
+          <div class="stat-number" id="msgCount" data-target="2000">0</div>
+          <div class="stat-sub">messages and counting — every one a tiny vote of “keep going.”</div>
+        </div>
+      </div>
+      <div class="image-block">
+        <svg class="messages-art" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Mascot with chat message bubbles">
+          <defs>
+            <linearGradient id="cooeeRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="40%" stop-color="#ffffff"/>
+              <stop offset="85%" stop-color="#f1f5f9"/>
+              <stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="cooeeFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="60%" stop-color="#f0f9ff"/>
+              <stop offset="85%" stop-color="#bae6fd"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="eyeGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/>
+              <stop offset="45%" stop-color="#2563eb"/>
+              <stop offset="80%" stop-color="#3b82f6"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <!-- Blue typing bubble -->
+          <g class="bubble bubble-blue">
+            <path d="M 25 50 C 25 35, 65 35, 65 50 C 65 65, 50 65, 45 73 L 43 65 C 25 65, 25 50, 25 50 Z" fill="#1cb0f6" stroke="#1e3a8a" stroke-width="2.5" stroke-linejoin="round"/>
+            <circle class="dot d1" cx="37" cy="50" r="2.5" fill="#ffffff"/>
+            <circle class="dot d2" cx="45" cy="50" r="2.5" fill="#ffffff"/>
+            <circle class="dot d3" cx="53" cy="50" r="2.5" fill="#ffffff"/>
+          </g>
+
+          <!-- Green text bubble -->
+          <g class="bubble bubble-green">
+            <path d="M 135 45 C 135 30, 175 30, 175 45 C 175 60, 160 60, 155 68 L 153 60 C 135 60, 135 45, 135 45 Z" fill="#58cc02" stroke="#1e3a8a" stroke-width="2.5" stroke-linejoin="round"/>
+            <g class="text-lines">
+              <path class="line line-a" d="M 147 44 L 163 44" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+              <path class="line line-b" d="M 150 51 L 160 51" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <!-- Cooee Mascot -->
+          <g transform="translate(10, 30)">
+            <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#softGlow)"/>
+            <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#cooeeRim)"/>
+            <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#cooeeFace)"/>
+            <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#eyeGrad)"/>
+            <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#eyeGrad)"/>
+            <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#eyeGrad)" stroke-width="4.5" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Pocket Chapter Section -->
+    <section id="pocket" class="reveal alt-reverse">
+      <div class="text-block">
+        <div class="tag-container">
+          <span class="tag blue">Late June</span>
+          <span class="tag" id="androidTag">Android</span>
+        </div>
+        <h2>Klui left the browser and hopped in your pocket</h2>
+      </div>
+      <div class="image-block">
+        <div class="pocket-scene" id="pocketScene">
+          <svg class="pocket-phone" viewBox="0 0 200 200" width="100%" height="100%" aria-hidden="true">
+            <defs>
+              <linearGradient id="pocketRim" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ffffff"/>
+                <stop offset="40%" stop-color="#ffffff"/>
+                <stop offset="85%" stop-color="#f1f5f9"/>
+                <stop offset="100%" stop-color="#d1d5db"/>
+              </linearGradient>
+              <radialGradient id="pocketFace" cx="50%" cy="35%" r="65%">
+                <stop offset="0%" stop-color="#ffffff"/>
+                <stop offset="60%" stop-color="#f0f9ff"/>
+                <stop offset="85%" stop-color="#bae6fd"/>
+                <stop offset="100%" stop-color="#93c5fd"/>
+              </radialGradient>
+              <linearGradient id="pocketEye" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#1e3a8a"/>
+                <stop offset="45%" stop-color="#2563eb"/>
+                <stop offset="80%" stop-color="#3b82f6"/>
+                <stop offset="100%" stop-color="#93c5fd"/>
+              </linearGradient>
+              <filter id="pocketGlow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#3b82f6" flood-opacity="0.2"/>
+              </filter>
+            </defs>
+            <!-- Smartphone -->
+            <rect x="55" y="25" width="90" height="150" rx="14" fill="#3c3c3c" stroke="#1e3a8a" stroke-width="3"/>
+            <rect class="phone-screen" x="60" y="32" width="80" height="122" rx="8" fill="#e0f2fe" stroke="#1e3a8a" stroke-width="1.5"/>
+            <circle cx="100" cy="164" r="4" fill="#afafaf"/>
+            <line x1="90" y1="28" x2="110" y2="28" stroke="#afafaf" stroke-width="2" stroke-linecap="round"/>
+            <!-- Home-screen dock hint -->
+            <rect class="phone-dock" x="68" y="128" width="64" height="18" rx="5" fill="#ffffff" opacity="0.55"/>
+          </svg>
+          <!-- Final app-icon landing marker (measured by JS) -->
+          <div class="pocket-app-slot" id="pocketAppSlot" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- Traveling Klui actor (absolute within #pocket) -->
+      <div class="pocket-actor" id="pocketActor" aria-hidden="true">
+        <svg viewBox="0 0 116 116" width="100%" height="100%">
+          <defs>
+            <linearGradient id="actorRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="40%" stop-color="#ffffff"/>
+              <stop offset="85%" stop-color="#f1f5f9"/>
+              <stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="actorFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="60%" stop-color="#f0f9ff"/>
+              <stop offset="85%" stop-color="#bae6fd"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="actorEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/>
+              <stop offset="45%" stop-color="#2563eb"/>
+              <stop offset="80%" stop-color="#3b82f6"/>
+              <stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <filter id="actorGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+          <rect class="actor-glow" x="0" y="0" width="116" height="116" rx="36" fill="#ffffff" filter="url(#actorGlow)"/>
+          <rect x="0" y="0" width="116" height="116" rx="36" fill="url(#actorRim)"/>
+          <rect x="8" y="8" width="100" height="100" rx="28" fill="url(#actorFace)"/>
+          <rect class="eye eye-left" x="32" y="40" width="12" height="28" rx="6" fill="url(#actorEye)"/>
+          <rect class="eye eye-right-open" x="72" y="40" width="12" height="28" rx="6" fill="url(#actorEye)"/>
+          <path class="eye eye-right-wink" d="M 70 53 Q 78 55 86 53" fill="none" stroke="url(#actorEye)" stroke-width="5.5" stroke-linecap="round"/>
+          <path d="M 46 80 Q 58 90 70 80" fill="none" stroke="url(#actorEye)" stroke-width="4.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Research Chapter Section -->
+    <section id="research" class="reveal">
+      <div class="text-block">
+        <div class="tag-container">
+          <span class="tag blue">June 29</span>
+          <span class="tag">Deep Research</span>
+        </div>
+        <h2>Deep Research arrived (and it meant business)</h2>
+      </div>
+      <div class="image-block">
+        <svg class="research-art" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Detective Cluey with glasses, hat, and magnifying glass">
+          <defs>
+            <linearGradient id="researchRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="85%" stop-color="#f1f5f9"/><stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="researchFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f0f9ff"/><stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="researchEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/><stop offset="50%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <filter id="researchGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <g class="research-cluey">
+            <g transform="translate(10, 15)">
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#researchGlow)"/>
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#researchRim)"/>
+              <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#researchFace)"/>
+              <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#researchEye)"/>
+              <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#researchEye)"/>
+              <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#researchEye)" stroke-width="4.5" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <g class="research-glasses">
+            <g transform="translate(10, 15)">
+              <circle cx="80" cy="94" r="23" fill="none" stroke="#1e3a8a" stroke-width="3"/>
+              <circle cx="120" cy="94" r="23" fill="none" stroke="#1e3a8a" stroke-width="3"/>
+              <line x1="98" y1="94" x2="102" y2="94" stroke="#1e3a8a" stroke-width="3"/>
+            </g>
+          </g>
+
+          <g class="research-hat">
+            <g transform="translate(68, 38)">
+              <path d="M 10 20 L 70 20 L 60 0 L 20 0 Z" fill="#92400e" stroke="#1e3a8a" stroke-width="2.5"/>
+              <line x1="0" y1="20" x2="80" y2="20" stroke="#1e3a8a" stroke-width="3" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <g class="research-mag">
+            <g>
+              <circle cx="42" cy="130" r="18" fill="#e0f2fe" stroke="#1e3a8a" stroke-width="3.5"/>
+              <line x1="55" y1="143" x2="75" y2="163" stroke="#1e3a8a" stroke-width="5" stroke-linecap="round"/>
+              <path d="M 32 122 A 14 14 0 0 1 52 122" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.8"/>
+              <circle class="research-spark" cx="42" cy="130" r="6" fill="#1cb0f6" opacity="0.35"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Documents Chapter Section -->
+    <section id="docs" class="reveal alt-reverse">
+      <div class="text-block">
+        <div class="tag-container">
+          <span class="tag blue">July</span>
+          <span class="tag">Documents</span>
+        </div>
+        <h2>Documents grew up — from “view” to “edit”</h2>
+      </div>
+      <div class="image-block">
+        <svg class="docs-art" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Cluey editing a document with a pencil">
+          <defs>
+            <linearGradient id="docsRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="85%" stop-color="#f1f5f9"/><stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="docsFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f0f9ff"/><stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="docsEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/><stop offset="50%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <filter id="docsGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <g class="docs-sheet">
+            <g transform="translate(20, 95) rotate(-5)">
+              <rect x="0" y="0" width="55" height="70" rx="4" fill="#ffffff" stroke="#1e3a8a" stroke-width="3"/>
+              <line class="doc-line l1" x1="10" y1="15" x2="45" y2="15" stroke="#afafaf" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="doc-line l2" x1="10" y1="28" x2="35" y2="28" stroke="#afafaf" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="doc-line l3" x1="10" y1="41" x2="45" y2="41" stroke="#afafaf" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="doc-line l4 edit" x1="10" y1="54" x2="30" y2="54" stroke="#58cc02" stroke-width="2.5" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <g class="docs-cluey">
+            <g transform="translate(35, 10)">
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#docsGlow)"/>
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#docsRim)"/>
+              <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#docsFace)"/>
+              <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#docsEye)"/>
+              <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#docsEye)"/>
+              <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#docsEye)" stroke-width="4.5" stroke-linecap="round"/>
+            </g>
+          </g>
+
+          <g class="docs-pencil">
+            <g transform="translate(130, 110) rotate(25)">
+              <rect x="0" y="0" width="10" height="35" fill="#ffc800" stroke="#1e3a8a" stroke-width="3"/>
+              <polygon points="0,35 5,45 10,35" fill="#ff9600" stroke="#1e3a8a" stroke-width="3" stroke-linejoin="round"/>
+              <rect x="0" y="-5" width="10" height="5" fill="#ff4b4b" stroke="#1e3a8a" stroke-width="2.5"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Projects Chapter Section -->
+    <section id="projects" class="reveal">
+      <div class="text-block">
+        <div class="tag-container">
+          <span class="tag blue">Mid July</span>
+          <span class="tag">Projects</span>
+        </div>
+        <h2>Projects: a home for chats that belong together</h2>
+      </div>
+      <div class="image-block">
+        <svg class="projects-art" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Cluey hopping out of a project folder">
+          <defs>
+            <linearGradient id="projectsRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="85%" stop-color="#f1f5f9"/><stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="projectsFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f0f9ff"/><stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="projectsEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/><stop offset="50%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <linearGradient id="folderBody" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ffd54f"/><stop offset="100%" stop-color="#ffb300"/>
+            </linearGradient>
+            <filter id="projectsGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <!-- Project folder -->
+          <g class="project-folder">
+            <path d="M 48 78 H 78 L 90 90 H 152 C 158 90 162 94 162 100 V 158 C 162 164 158 168 152 168 H 48 C 42 168 38 164 38 158 V 88 C 38 82 42 78 48 78 Z" fill="url(#folderBody)" stroke="#1e3a8a" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M 48 78 H 78 L 90 90 H 48 Z" fill="#ffe082" stroke="#1e3a8a" stroke-width="3" stroke-linejoin="round"/>
+            <rect class="folder-label" x="70" y="118" width="60" height="18" rx="6" fill="#ffffff" opacity="0.55"/>
+          </g>
+
+          <!-- Cluey pops out of folder -->
+          <g class="project-cluey">
+            <g transform="translate(42, 18) scale(0.72)">
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="#ffffff" filter="url(#projectsGlow)"/>
+              <rect x="42" y="42" width="116" height="116" rx="36" fill="url(#projectsRim)"/>
+              <rect x="50" y="50" width="100" height="100" rx="28" fill="url(#projectsFace)"/>
+              <rect x="74" y="82" width="12" height="28" rx="6" fill="url(#projectsEye)"/>
+              <rect x="114" y="82" width="12" height="28" rx="6" fill="url(#projectsEye)"/>
+              <path d="M 88 122 Q 100 132 112 122" fill="none" stroke="url(#projectsEye)" stroke-width="4.5" stroke-linecap="round"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Stickers / Bits Section -->
+    <div id="bits" class="full-width-section reveal">
+      <div class="section-intro">
+        <div class="eyebrow">Bonus stickers</div>
+        <h2>
+          <span class="bits-line">Not every win needs a press release.</span>
+          <span class="bits-line">Some just make <span class="scribble-wrap">Monday’s nicer<span class="scribble" aria-hidden="true"><svg viewBox="0 0 200 28" preserveAspectRatio="none"><path class="scribble-crayon" d="M4 18 C28 8, 52 24, 78 14 S120 22, 148 12 S180 20, 196 16" fill="none" stroke="#ff9600" stroke-width="4.5" stroke-linecap="round"/><path class="scribble-pen" d="M8 22 C36 12, 60 26, 92 16 S140 24, 196 18" fill="none" stroke="#1cb0f6" stroke-width="2.2" stroke-linecap="round"/></svg></span></span>.</span>
+        </h2>
+      </div>
+      <div class="sticky-board">
+        <article class="sticky-note sticky-yellow" style="--tilt: -2.5deg">
+          <span class="sticky-tape" aria-hidden="true"></span>
+          <div class="sticky-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48" width="36" height="36">
+              <rect x="10" y="8" width="28" height="34" rx="4" fill="#fff" stroke="#1e3a8a" stroke-width="2.5"/>
+              <path d="M16 18h16M16 25h12M16 32h14" stroke="#1cb0f6" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="34" cy="34" r="8" fill="#58cc02" stroke="#1e3a8a" stroke-width="2"/>
+              <path d="M31 34h6M34 31v6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h3>Writing styles</h3>
+        </article>
+
+        <article class="sticky-note sticky-blue" style="--tilt: 2deg">
+          <span class="sticky-tape" aria-hidden="true"></span>
+          <div class="sticky-icon" aria-hidden="true">
+            <svg viewBox="0 0 48 48" width="36" height="36">
+              <path d="M8 14c0-3 3-6 8-6h16c5 0 8 3 8 6v12c0 3-3 6-8 6H22l-8 8v-8c-5 0-6-3-6-6V14z" fill="#ddf4ff" stroke="#1e3a8a" stroke-width="2.5" stroke-linejoin="round"/>
+              <circle cx="20" cy="20" r="2.2" fill="#1cb0f6"/>
+              <circle cx="28" cy="20" r="2.2" fill="#1cb0f6"/>
+              <circle cx="36" cy="20" r="2.2" fill="#1cb0f6"/>
+            </svg>
+          </div>
+          <h3>Ask in Side chat</h3>
+        </article>
+
+        <article class="sticky-note sticky-wide sticky-mint" style="--tilt: -1deg">
+          <span class="sticky-tape tape-left" aria-hidden="true"></span>
+          <span class="sticky-tape tape-right" aria-hidden="true"></span>
+          <div class="sticky-wide-inner">
+            <div class="sticky-icon" aria-hidden="true">
+              <svg viewBox="0 0 56 56" width="44" height="44">
+                <defs>
+                  <linearGradient id="hoodRim" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#d1d5db"/>
+                  </linearGradient>
+                  <radialGradient id="hoodFace" cx="50%" cy="35%" r="65%">
+                    <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#93c5fd"/>
+                  </radialGradient>
+                </defs>
+                <!-- Halo -->
+                <ellipse cx="28" cy="8" rx="14" ry="5" fill="none" stroke="#ffc800" stroke-width="3"/>
+                <ellipse cx="28" cy="8" rx="10" ry="3.2" fill="none" stroke="#ffe082" stroke-width="1.5" opacity="0.9"/>
+                <!-- Klui -->
+                <rect x="10" y="14" width="36" height="36" rx="12" fill="url(#hoodRim)" stroke="#1e3a8a" stroke-width="2"/>
+                <rect x="13" y="17" width="30" height="30" rx="9" fill="url(#hoodFace)"/>
+                <rect x="20" y="26" width="4" height="10" rx="2" fill="#2563eb"/>
+                <rect x="32" y="26" width="4" height="10" rx="2" fill="#2563eb"/>
+                <path d="M22 38 Q28 42 34 38" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h3>Under the hood, still cute</h3>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <!-- Thanks Section -->
+    <section id="thanks" class="reveal alt-reverse">
+      <div class="text-block">
+        <div class="thanks-box">
+          <div class="eyebrow">From the Klui team</div>
+          <h2 id="thanksTitle">Thank you for making one month real.<span class="thanks-hearts" id="thanksHearts" aria-hidden="true"></span></h2>
+          <p class="body-text">
+            You weren’t just testers. You were the reason this thing has a heartbeat. Here’s to month two — louder, softer, weirder, and somehow even more Klui.
+          </p>
+          <button class="btn btn-primary" type="button" id="celebrateBtn">Celebrate again ✦</button>
+        </div>
+      </div>
+      <div class="image-block thanks-stage">
+        <svg class="thanks-art" id="thanksArt" viewBox="0 0 200 200" width="100%" height="100%" role="img" aria-label="Klui blowing hearts">
+          <defs>
+            <linearGradient id="thanksRim" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="40%" stop-color="#ffffff"/><stop offset="100%" stop-color="#d1d5db"/>
+            </linearGradient>
+            <radialGradient id="thanksFace" cx="50%" cy="35%" r="65%">
+              <stop offset="0%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f0f9ff"/><stop offset="100%" stop-color="#93c5fd"/>
+            </radialGradient>
+            <linearGradient id="thanksEye" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#1e3a8a"/><stop offset="50%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#93c5fd"/>
+            </linearGradient>
+            <filter id="thanksGlow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#3b82f6" flood-opacity="0.22"/>
+            </filter>
+          </defs>
+
+          <g class="thanks-cluey" transform="translate(10, 20)">
+            <rect x="42" y="32" width="116" height="116" rx="36" fill="#ffffff" filter="url(#thanksGlow)"/>
+            <rect x="42" y="32" width="116" height="116" rx="36" fill="url(#thanksRim)"/>
+            <rect x="50" y="40" width="100" height="100" rx="28" fill="url(#thanksFace)"/>
+            <!-- Happy eyes -->
+            <path d="M 68 80 Q 78 68 88 80" fill="none" stroke="url(#thanksEye)" stroke-width="4.5" stroke-linecap="round"/>
+            <path d="M 112 80 Q 122 68 132 80" fill="none" stroke="url(#thanksEye)" stroke-width="4.5" stroke-linecap="round"/>
+            <!-- Smile (default) -->
+            <path class="mouth-smile" d="M 88 112 Q 100 122 112 112" fill="none" stroke="url(#thanksEye)" stroke-width="4.5" stroke-linecap="round"/>
+            <!-- Blow O mouth -->
+            <circle class="mouth-blow" cx="100" cy="116" r="8" fill="none" stroke="url(#thanksEye)" stroke-width="4.5"/>
+          </g>
+
+          <!-- Cheek heart badge (static accent) -->
+          <path class="thanks-badge-heart" d="M132 78 C128 70 116 70 116 80 C116 90 132 100 132 100 C132 100 148 90 148 80 C148 70 136 70 132 78 Z" fill="#ff4b4b" stroke="#1e3a8a" stroke-width="2.5" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Paper Airplane: viewport-fixed, arcs in from top-left to letter section -->
+  <div class="paper-airplane" id="paperAirplane" aria-hidden="true">
+    <svg viewBox="0 0 160 120" width="220" height="165" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="plWingLight" x1="20" y1="20" x2="120" y2="90" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="100%" stop-color="#f1f5f9"/>
+        </linearGradient>
+        <linearGradient id="plWingShade" x1="40" y1="10" x2="140" y2="100" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#e2e8f0"/>
+          <stop offset="100%" stop-color="#cbd5e1"/>
+        </linearGradient>
+        <linearGradient id="plBody" x1="30" y1="40" x2="140" y2="70" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#f8fafc"/>
+          <stop offset="100%" stop-color="#e2e8f0"/>
+        </linearGradient>
+        <filter id="plSoft" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="2" dy="6" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.14"/>
+        </filter>
+      </defs>
+      <!-- Classic origami plane, nose pointing right -->
+      <g filter="url(#plSoft)">
+        <!-- Lower / far wing (shaded) -->
+        <path d="M12 58 L148 48 L72 78 Z" fill="url(#plWingShade)" stroke="#94a3b8" stroke-width="1.25" stroke-linejoin="round"/>
+        <!-- Upper / near wing (bright paper) -->
+        <path d="M12 58 L148 48 L64 28 Z" fill="url(#plWingLight)" stroke="#cbd5e1" stroke-width="1.25" stroke-linejoin="round"/>
+        <!-- Body / fuselage fold -->
+        <path d="M12 58 L148 48 L96 66 Z" fill="url(#plBody)" stroke="#94a3b8" stroke-width="1" stroke-linejoin="round"/>
+        <!-- Center crease highlight -->
+        <path d="M18 57.5 L142 49" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.9"/>
+        <!-- Wing fold line -->
+        <path d="M42 48 L96 66" stroke="#94a3b8" stroke-width="1" stroke-linecap="round" opacity="0.55"/>
+        <!-- Nose tip accent -->
+        <circle cx="148" cy="48" r="2.2" fill="#64748b" opacity="0.35"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Green Footer Band -->
+  <footer class="footer-band">
+    <div class="footer-text">Klui · Closed beta · Jun 18 – Jul 18, 2026</div>
+  </footer>
+
+  <!-- JS Scripts -->
+  <script src="./index.js"></script>
+</body>
+</html>

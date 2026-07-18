@@ -15,39 +15,51 @@ const contentTypes = new Map([
   [".apk", "application/vnd.android.package-archive"]
 ]);
 
+const directoryIndexes = new Map([
+  ["/download/android", "/download/android/index.html"],
+  ["/download/android/", "/download/android/index.html"],
+  ["/one-month", "/one-month/index.html"],
+  ["/one-month/", "/one-month/index.html"]
+]);
+
+async function resolvePublicFile(pathname) {
+  const mapped = directoryIndexes.get(pathname);
+  const candidates = mapped
+    ? [mapped]
+    : pathname.endsWith("/")
+      ? [`${pathname}index.html`]
+      : [pathname, `${pathname}/index.html`];
+
+  for (const candidate of candidates) {
+    const filePath = path.resolve(publicDir, `.${candidate}`);
+    if (!filePath.startsWith(publicDir)) continue;
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (stat.isFile()) return filePath;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
 export async function serveStatic(req, res, url, { allowedOrigins = [] } = {}) {
   const requestedPath = decodeURIComponent(url.pathname);
   const pathname = requestedPath === "/"
     ? "/index.html"
-    : ["/download/android", "/download/android/"].includes(requestedPath)
-      ? "/download/android/index.html"
-      : requestedPath;
+    : requestedPath;
   if (pathname === "/downloads/android/latest.json") {
     applyApiCors(req, res, allowedOrigins);
   }
-  const filePath = path.resolve(publicDir, `.${pathname}`);
 
-  if (!filePath.startsWith(publicDir)) {
-    res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-    res.end("Forbidden");
-    return;
-  }
+  const filePath = await resolvePublicFile(pathname);
 
-  let stat;
-  try {
-    stat = await fs.promises.stat(filePath);
-  } catch {
+  if (!filePath) {
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-cache"
     });
     fs.createReadStream(path.join(publicDir, "index.html")).pipe(res);
-    return;
-  }
-
-  if (!stat.isFile()) {
-    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("Not found");
     return;
   }
 

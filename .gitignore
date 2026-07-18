@@ -12,3 +12,6 @@ artifacts/
 *.keystore
 *.jks
 keystore.properties
+klui-one-month/
+klui-duolingo/
+.cursor/rules/klui-month-sites.mdc

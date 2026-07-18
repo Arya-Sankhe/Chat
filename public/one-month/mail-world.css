@@ -1,0 +1,560 @@
+/* Floating Mail World — playful messaging environment */
+
+:root {
+  --mail-bg-blue: #6f91f7;
+  --mail-bg-violet: #887ae8;
+
+  --mail-ink: #213f96;
+  --mail-ink-soft: #4b65b2;
+
+  --mail-white: #ffffff;
+  --mail-cream: #fff8e8;
+
+  --mail-red: #ff5d73;
+  --mail-pink: #ff91ac;
+
+  --mail-yellow: #ffd65c;
+  --mail-mint: #74ddb9;
+
+  --mail-light-blue: #b9dbff;
+  --mail-light-violet: #d7ccff;
+
+  --mail-shadow: rgba(28, 51, 130, 0.16);
+  --mail-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mail-world {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mail-world__base {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #ffffff;
+}
+
+.mail-world__pattern {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0.45;
+  background-image: radial-gradient(
+    rgba(33, 63, 150, 0.07) 1px,
+    transparent 1px
+  );
+  background-size: 32px 32px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 52% 48% at 50% 42%,
+    transparent 40%,
+    #000 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 52% 48% at 50% 42%,
+    transparent 40%,
+    #000 78%
+  );
+}
+
+.mail-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mail-layer--back {
+  z-index: 2;
+}
+
+.mail-layer--mid {
+  z-index: 3;
+}
+
+.mail-layer--front {
+  z-index: 4;
+}
+
+.mail-obj {
+  position: absolute;
+  display: block;
+  transform-origin: center center;
+  filter: drop-shadow(0 12px 18px rgba(28, 51, 130, 0.14));
+}
+
+.mail-obj svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mail-obj path,
+.mail-obj circle,
+.mail-obj ellipse,
+.mail-obj rect,
+.mail-obj polygon,
+.mail-obj line,
+.mail-obj polyline {
+  stroke: var(--mail-ink);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ─── Depth defaults (tuned for white ground) ─── */
+.mail-layer--back .mail-obj {
+  opacity: 0.72;
+  filter: drop-shadow(0 10px 16px rgba(28, 51, 130, 0.1));
+}
+
+.mail-layer--mid .mail-obj {
+  opacity: 0.9;
+}
+
+.mail-layer--front .mail-obj {
+  opacity: 1;
+}
+
+/* ─── Placement ─── */
+
+/* UL postage stamp — cropped */
+.mail-obj--stamp-ul {
+  left: -2vw;
+  top: 7vh;
+  width: 155px;
+  height: 155px;
+  --rotation-start: -8deg;
+  --rotation-end: -6deg;
+  transform: rotate(var(--rotation-start));
+}
+
+.mail-obj--spark-ul-a {
+  left: 11vw;
+  top: 9vh;
+  width: 22px;
+  height: 22px;
+  filter: none;
+  opacity: 0.9;
+  --rotation-start: -6deg;
+  --rotation-end: 8deg;
+}
+
+.mail-obj--spark-ul-b {
+  left: 14vw;
+  top: 18vh;
+  width: 16px;
+  height: 16px;
+  filter: none;
+  opacity: 0.85;
+  --rotation-start: 10deg;
+  --rotation-end: -4deg;
+}
+
+/* Mid-left closed envelope */
+.mail-obj--env-ml {
+  left: 10vw;
+  top: 55vh;
+  width: 92px;
+  height: 78px;
+  --rotation-start: 5deg;
+  --rotation-end: 7deg;
+  transform: rotate(var(--rotation-start));
+}
+
+/* Lower-left speech bubble — cropped */
+.mail-obj--bubble {
+  left: -4vw;
+  bottom: 5vh;
+  width: 170px;
+  height: 130px;
+  --rotation-start: 4deg;
+  --rotation-end: 6deg;
+  transform: rotate(var(--rotation-start));
+}
+
+/* Paper plane (home / flight) */
+.mail-obj--plane {
+  right: 7vw;
+  top: 10vh;
+  width: 110px;
+  height: 90px;
+  transform: rotate(-12deg);
+  z-index: 5;
+}
+
+.mail-obj--plane.is-flying {
+  right: auto;
+  top: auto;
+  left: 0;
+  filter: drop-shadow(0 10px 14px rgba(28, 51, 130, 0.18));
+  offset-path: var(--plane-path, path("M 1180 210 C 980 70, 760 90, 520 180"));
+  offset-rotate: auto 90deg;
+  animation: mail-plane-fly 3200ms var(--mail-ease) 1 forwards;
+}
+
+/* Flight path */
+.mail-obj--flight-path {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 42vh;
+  filter: none !important;
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.mail-obj--flight-path.is-visible {
+  opacity: 1 !important;
+}
+
+.mail-obj--flight-path .flight-dash {
+  fill: none;
+  stroke: rgba(33, 63, 150, 0.28);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 14;
+  stroke-dashoffset: var(--flight-len, 800);
+  transition: stroke-dashoffset 2.4s var(--mail-ease);
+}
+
+.mail-obj--flight-path.is-drawing .flight-dash,
+.mail-obj--flight-path.is-drawn .flight-dash {
+  stroke-dashoffset: 0;
+}
+
+/* Mid-right message card / stamp */
+.mail-obj--card-mr {
+  right: 4vw;
+  top: 44vh;
+  width: 98px;
+  height: 98px;
+  --rotation-start: 7deg;
+  --rotation-end: 9deg;
+  transform: rotate(var(--rotation-start));
+}
+
+/* Lower-right large envelope — cropped */
+.mail-obj--env-lr {
+  right: -2vw;
+  bottom: -3vh;
+  width: 210px;
+  height: 170px;
+  --rotation-start: -7deg;
+  --rotation-end: -5deg;
+  transform: rotate(var(--rotation-start));
+}
+
+/* Supporting accents */
+.mail-obj--star {
+  right: 20vw;
+  left: auto;
+  top: 26vh;
+  width: 42px;
+  height: 42px;
+  --rotation-start: -2deg;
+  --rotation-end: 1deg;
+  transform: rotate(var(--rotation-start));
+}
+
+.mail-obj--heart {
+  right: 18vw;
+  bottom: 22vh;
+  width: 36px;
+  height: 34px;
+  --rotation-start: 8deg;
+  --rotation-end: 11deg;
+  transform: rotate(var(--rotation-start));
+}
+
+.mail-obj--spark-ur {
+  right: 16vw;
+  top: 28vh;
+  width: 18px;
+  height: 18px;
+  filter: none;
+  opacity: 0.9;
+  --rotation-start: 0deg;
+  --rotation-end: 12deg;
+}
+
+.mail-obj--motion {
+  right: 28vw;
+  top: 16vh;
+  width: 70px;
+  height: 28px;
+  filter: none;
+  opacity: 0.7;
+  --rotation-start: -4deg;
+  --rotation-end: 2deg;
+}
+
+/* ─── Idle float (paused while a gesture class is active) ─── */
+.mail-obj.is-idle:not(.is-sparkle):not(.is-pulse):not(.is-open):not(.is-flying):not(.is-twinkle) {
+  animation: mail-float var(--float-dur, 8s) ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s);
+}
+
+/* Sparkles: float + twinkle together */
+.mail-obj.is-idle.is-twinkle:not(.is-sparkle):not(.is-pulse):not(.is-open):not(.is-flying) {
+  animation:
+    mail-float var(--float-dur, 8s) ease-in-out infinite,
+    mail-twinkle var(--twinkle-dur, 2.4s) ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s), var(--twinkle-delay, 0s);
+}
+
+@keyframes mail-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(var(--rotation-start, 0deg));
+  }
+  50% {
+    transform: translate3d(0, -9px, 0) rotate(var(--rotation-end, 0deg));
+  }
+}
+
+@keyframes mail-twinkle {
+  0%,
+  100% {
+    opacity: 0.55;
+    filter: drop-shadow(0 6px 10px rgba(28, 51, 130, 0.08));
+  }
+  40% {
+    opacity: 1;
+    filter: drop-shadow(0 8px 12px rgba(28, 51, 130, 0.14));
+  }
+  70% {
+    opacity: 0.7;
+  }
+}
+
+.mail-obj--stamp-ul.is-idle { --float-dur: 5.5s; --float-delay: 0.1s; }
+.mail-obj--env-ml.is-idle { --float-dur: 4.2s; --float-delay: 0.4s; }
+.mail-obj--card-mr.is-idle { --float-dur: 6s; --float-delay: 0.25s; }
+.mail-obj--star.is-idle { --float-dur: 3.8s; --float-delay: 0.6s; }
+.mail-obj--bubble.is-idle { --float-dur: 6.5s; --float-delay: 0.35s; }
+.mail-obj--env-lr.is-idle { --float-dur: 7s; --float-delay: 0.5s; }
+.mail-obj--heart.is-idle { --float-dur: 3.4s; --float-delay: 0.15s; }
+.mail-obj--motion.is-idle { --float-dur: 5s; --float-delay: 0.8s; }
+.mail-obj--spark-ul-a.is-idle {
+  --float-dur: 3s;
+  --float-delay: 0.2s;
+  --twinkle-dur: 1.4s;
+  --twinkle-delay: 0.1s;
+}
+.mail-obj--spark-ul-b.is-idle {
+  --float-dur: 3.6s;
+  --float-delay: 0.55s;
+  --twinkle-dur: 1.7s;
+  --twinkle-delay: 0.4s;
+}
+.mail-obj--spark-ur.is-idle {
+  --float-dur: 2.8s;
+  --float-delay: 0.7s;
+  --twinkle-dur: 1.5s;
+  --twinkle-delay: 0.25s;
+}
+
+/* ─── Gestures ─── */
+.mail-obj--star.is-sparkle {
+  animation: mail-star-sparkle 650ms var(--mail-ease) 1;
+}
+
+@keyframes mail-star-sparkle {
+  0% { transform: scale(1) rotate(-2deg); }
+  45% { transform: scale(1.13) rotate(3deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.mail-obj--heart.is-pulse {
+  animation: mail-heart-pulse 800ms var(--mail-ease) 1;
+}
+
+@keyframes mail-heart-pulse {
+  0%,
+  100% { transform: rotate(8deg) scale(1); }
+  50% { transform: rotate(8deg) scale(1.08); }
+}
+
+/* Envelope open */
+.mail-obj--env-ml .env-flap {
+  transform-box: fill-box;
+  transform-origin: 50% 92%;
+  transition: transform 400ms var(--mail-ease);
+}
+
+.mail-obj--env-ml .env-heart {
+  opacity: 0;
+  transform: translateY(0) scale(0.75);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mail-obj--env-ml.is-open {
+  animation: mail-env-rise 1400ms var(--mail-ease) 1;
+}
+
+.mail-obj--env-ml.is-open .env-flap {
+  transform: rotate(-28deg);
+}
+
+.mail-obj--env-ml.is-open .env-heart {
+  animation: mail-env-heart 1000ms var(--mail-ease) 180ms 1 forwards;
+}
+
+@keyframes mail-env-rise {
+  0%,
+  100% { transform: translate3d(0, 0, 0) rotate(5deg); }
+  20%,
+  80% { transform: translate3d(0, -3px, 0) rotate(5deg); }
+}
+
+@keyframes mail-env-heart {
+  0% {
+    opacity: 0;
+    transform: translateY(2px) scale(0.75);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.95);
+  }
+}
+
+@keyframes mail-plane-fly {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* Tablet */
+@media (max-width: 1024px) and (min-width: 761px) {
+  .mail-obj--stamp-ul { width: 124px; height: 124px; left: -4vw; }
+  .mail-obj--env-ml { width: 78px; height: 66px; }
+  .mail-obj--bubble { width: 140px; height: 110px; }
+  .mail-obj--plane { width: 90px; height: 74px; }
+  .mail-obj--card-mr { display: none; }
+  .mail-obj--env-lr { width: 170px; height: 138px; }
+  .mail-obj--star { width: 36px; height: 36px; }
+  .mail-obj--motion { display: none; }
+}
+
+/* Mobile */
+@media (max-width: 760px) {
+  .mail-obj--card-mr,
+  .mail-obj--env-ml,
+  .mail-obj--star,
+  .mail-obj--spark-ul-b,
+  .mail-obj--spark-ur,
+  .mail-obj--motion,
+  .mail-obj--flight-path {
+    display: none;
+  }
+
+  .mail-obj--stamp-ul {
+    left: -8vw;
+    top: 6vh;
+    width: 110px;
+    height: 110px;
+  }
+
+  .mail-obj--spark-ul-a {
+    left: 18vw;
+    top: 8vh;
+  }
+
+  .mail-obj--plane {
+    right: 4vw;
+    top: 8vh;
+    width: 72px;
+    height: 60px;
+  }
+
+  .mail-obj--bubble {
+    left: -10vw;
+    bottom: 4vh;
+    width: 120px;
+    height: 95px;
+  }
+
+  .mail-obj--env-lr {
+    right: -10vw;
+    bottom: -6vh;
+    width: 140px;
+    height: 114px;
+  }
+
+  .mail-obj--heart {
+    right: 8vw;
+    bottom: 18vh;
+    width: 28px;
+    height: 26px;
+  }
+
+  @keyframes mail-float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(var(--rotation-start, 0deg));
+    }
+    50% {
+      transform: translate3d(0, -5px, 0) rotate(var(--rotation-end, 0deg));
+    }
+  }
+
+  .mail-obj--plane.is-flying {
+    offset-path: path("M 360 70 C 280 40, 200 45, 110 75");
+    animation-duration: 2400ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-world-animated,
+  .mail-obj.is-idle,
+  .mail-obj.is-twinkle,
+  .mail-obj.is-sparkle,
+  .mail-obj.is-pulse,
+  .mail-obj.is-open,
+  .mail-obj.is-flying,
+  .mail-obj--flight-path {
+    animation: none !important;
+    transition: none !important;
+    offset-distance: initial !important;
+  }
+
+  .mail-obj--flight-path {
+    opacity: 0 !important;
+  }
+
+  .mail-obj--env-ml .env-flap {
+    transform: none !important;
+  }
+
+  .mail-obj--env-ml .env-heart {
+    opacity: 0 !important;
+  }
+
+  .mail-obj--plane {
+    right: 7vw !important;
+    top: 10vh !important;
+    left: auto !important;
+    opacity: 1 !important;
+    transform: rotate(-12deg) !important;
+  }
+}
