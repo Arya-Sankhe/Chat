@@ -121,7 +121,8 @@ export async function handleTemporaryChat(req, res, config) {
         webMode: webSearchMode,
         webHint: hint,
         readyDocuments: [],
-        documentSkills: null
+        documentSkills: null,
+        userText: promptText
       })
     : { request: baseChatRequest, augmented: false };
   const chatRequest = toolSetup.request;
@@ -138,7 +139,7 @@ export async function handleTemporaryChat(req, res, config) {
       "x-accel-buffering": "no",
       "x-klui-temporary-chat": "1"
     });
-    const { accumulated } = toolSetup.augmented
+    const { accumulated, artifacts = [] } = toolSetup.augmented
       ? await runChatWithToolLoop({
           chatRequest,
           crofai,
@@ -146,6 +147,7 @@ export async function handleTemporaryChat(req, res, config) {
           provider,
           signal: controller.signal,
           websearch,
+          weather: config.weather,
           documents: null,
           visualDocuments: false,
           onUpstreamEvent: (event) => {
@@ -162,7 +164,7 @@ export async function handleTemporaryChat(req, res, config) {
           res,
           includeReasoning
         });
-    if (!hasAssistantOutput(accumulated)) {
+    if (!hasAssistantOutput(accumulated, artifacts)) {
       throw new HttpError(502, "Klui returned an empty response.");
     }
     if (accumulated.usage) {

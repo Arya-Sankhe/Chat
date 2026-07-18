@@ -45,7 +45,7 @@ import {
   visualDocumentMessage,
   visualImageInputLimit
 } from "../websearch/tool.js";
-import { buildWeatherTool } from "../weather.js";
+import { buildWeatherTool, isWeatherQuery } from "../weather.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
 import {
@@ -386,11 +386,12 @@ export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, doc
   return Number(detection?.score || 0) === 0;
 }
 
-export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null }) {
+export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, userText = "" }) {
   const tools = [];
   const hints = [];
   const enabled = { websearch: false, weather: false, documents: false };
-  if (webMode !== "off") {
+  const weatherRequest = Boolean(config.weather?.apiKey && isWeatherQuery(userText));
+  if (webMode !== "off" && !weatherRequest) {
     tools.push(...buildWebSearchTools({ maxResults: config.websearch.maxResults }));
     if (webHint) hints.push(webHint);
     enabled.websearch = true;
@@ -1128,7 +1129,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
         webMode: effectiveWebSearchMode,
         webHint: hint,
         readyDocuments,
-        documentSkills
+        documentSkills,
+        userText: promptText
       })
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;

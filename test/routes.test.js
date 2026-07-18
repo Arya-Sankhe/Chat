@@ -144,6 +144,22 @@ test("withAvailableTools gives MiniMax M3 strict native tool-call instructions",
   assert.match(result.request.messages[0].content, /complete final answer/);
 });
 
+test("weather prompts expose weather without web search", () => {
+  const result = withAvailableTools({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "what's the temp in Dubai" }]
+  }, {
+    config: loadConfig({ OPENWEATHER_API_KEY: "weather-key" }),
+    webMode: "auto",
+    webHint: "Use web search.",
+    readyDocuments: [],
+    userText: "what's the temp in Dubai"
+  });
+
+  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["get_weather"]);
+  assert.deepEqual(result.enabled, { websearch: false, weather: true, documents: false });
+});
+
 test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups cheap", () => {
   const documentSkills = { toolNames: ["create_document"] };
 
