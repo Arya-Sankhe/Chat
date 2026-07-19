@@ -146,6 +146,7 @@ const defaultSettings = {
   appearance: "system",
   colorPreset: "default",
   showModelReasoning: true,
+  weatherUnits: "metric",
   uiTextScale: 100
 };
 
@@ -3378,7 +3379,7 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderUserContent(msg);
-  return `${renderAssistantActivity(msg, { streaming })}${renderAssistantContent(content, msg)}${renderArtifacts(msg)}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
+  return `${renderAssistantActivity(msg, { streaming })}${renderArtifacts(msg, (artifact) => artifact?.type === "weather")}${renderAssistantContent(content, msg)}${renderArtifacts(msg, (artifact) => artifact?.type !== "weather")}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
 }
 
 function renderCitations(message) {
@@ -3464,15 +3465,55 @@ function pendingArtifactStatusLabel(artifact) {
   return "Generating…";
 }
 
-function weatherSymbol(icon = "") {
-  if (icon.startsWith("01")) return "&#9728;";
-  if (icon.startsWith("02")) return "&#9925;";
-  if (icon.startsWith("03") || icon.startsWith("04")) return "&#9729;";
-  if (icon.startsWith("09") || icon.startsWith("10")) return "&#9730;";
-  if (icon.startsWith("11")) return "&#9889;";
-  if (icon.startsWith("13")) return "&#10052;";
-  if (icon.startsWith("50")) return "&#8776;";
-  return "&#9675;";
+function weatherSymbol(icon, className = "weather-symbol") {
+  const code = String(icon || "").trim();
+  const night = code.endsWith("n");
+  const kind = code.slice(0, 2);
+  let body = '<circle cx="12" cy="12" r="4"/>';
+  let tone = "sun";
+  if (kind === "01" && night) {
+    body = '<path d="M20.2 15.1A8.2 8.2 0 1 1 9.6 3.9 5.1 5.1 0 0 0 20.2 15.1z"/>';
+    tone = "moon";
+  } else if (kind === "01") {
+    body = '<circle cx="12" cy="12" r="3.6"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/>';
+    tone = "sun";
+  } else if (kind === "02" || kind === "03" || kind === "04") {
+    body = '<path d="M7 16h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.5-1.2A3.8 3.8 0 0 0 7 16z"/>';
+    tone = "cloud";
+  } else if (kind === "09" || kind === "10") {
+    body = '<path d="M7 14h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.5-1.2A3.8 3.8 0 0 0 7 14z"/><path d="m9 17-1 3M12 17l-1 3M15 17l-1 3"/>';
+    tone = "rain";
+  } else if (kind === "11") {
+    body = '<path d="M7 14h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.5-1.2A3.8 3.8 0 0 0 7 14z"/><path d="m11 15-2 4h3l-2 4"/>';
+    tone = "storm";
+  } else if (kind === "13") {
+    body = '<path d="M12 4v16M6.5 7.5l11 9M6.5 16.5l11-9"/>';
+    tone = "snow";
+  } else if (night) {
+    body = '<path d="M20.2 15.1A8.2 8.2 0 1 1 9.6 3.9 5.1 5.1 0 0 0 20.2 15.1z"/>';
+    tone = "moon";
+  }
+  return `<svg class="${className} weather-symbol--${tone}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
+function weatherDisplayUnits(artifact) {
+  const preferred = state.settings?.weatherUnits;
+  if (preferred === "metric" || preferred === "imperial") return preferred;
+  return artifact.units === "imperial" ? "imperial" : "metric";
+}
+
+function weatherConvertTemp(value, fromUnits, toUnits) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  if (fromUnits === toUnits) return Math.round(number);
+  return toUnits === "imperial" ? Math.round(number * 9 / 5 + 32) : Math.round((number - 32) * 5 / 9);
+}
+
+function weatherConvertWind(value, fromUnits, toUnits) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  if (fromUnits === toUnits) return Math.round(number);
+  return toUnits === "imperial" ? Math.round(number * 2.23694) : Math.round(number / 2.23694);
 }
 
 function weatherTemperature(value, unit) {
@@ -3480,50 +3521,100 @@ function weatherTemperature(value, unit) {
   return Number.isFinite(number) ? `${Math.round(number)}${unit}` : "--";
 }
 
+function weatherHourLabel(hour) {
+  const label = String(hour?.label || "").trim();
+  if (label && !/cloud|sky|rain|snow|mist|clear|overcast|thunder|haze|fog|drizzle/i.test(label)) return label;
+  if (!hour?.timestamp) return label || "";
+  return new Intl.DateTimeFormat("en", { hour: "numeric" }).format(new Date(Number(hour.timestamp) * 1000));
+}
+
+function weatherDayName(day) {
+  const label = String(day?.label || "").trim();
+  if (label && !/cloud|sky|rain|snow|mist|clear|overcast|thunder|haze|fog|drizzle/i.test(label)) return label;
+  if (!day?.date) return label || "";
+  const today = new Date().toISOString().slice(0, 10);
+  if (day.date === today) return "Today";
+  return new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "UTC" }).format(new Date(`${day.date}T12:00:00Z`));
+}
+
 function renderWeatherArtifact(artifact) {
   const current = artifact.current || {};
-  const unit = String(artifact.unit_symbol || (artifact.units === "imperial" ? "°F" : "°C"));
-  const windUnit = artifact.units === "imperial" ? "mph" : "m/s";
-  const location = [artifact.location?.name, artifact.location?.country].filter(Boolean).join(", ");
+  const sourceUnits = artifact.units === "imperial" ? "imperial" : "metric";
+  const displayUnits = weatherDisplayUnits(artifact);
+  const unit = "°";
+  const unitLabel = displayUnits === "imperial" ? "°F" : "°C";
+  const windUnit = displayUnits === "imperial" ? "mph" : "m/s";
+  const temp = (value) => weatherConvertTemp(value, sourceUnits, displayUnits);
+  const wind = weatherConvertWind(current.wind_speed, sourceUnits, displayUnits);
+  const city = String(artifact.location?.name || "").trim();
+  const country = String(artifact.location?.country || "").trim();
   const condition = String(current.label || "Current conditions").replace(/\b\w/g, (letter) => letter.toUpperCase());
-  const hourly = (artifact.hourly || []).slice(0, 7).map((hour) => `
+  const currentTemp = temp(current.temperature);
+  const high = temp(current.high);
+  const low = temp(current.low);
+  const feels = temp(current.feels_like);
+  const hours = [
+    { label: "Now", icon: current.icon, temperature: current.temperature },
+    ...(artifact.hourly || []).slice(0, 6).map((hour) => ({ ...hour, label: weatherHourLabel(hour) }))
+  ];
+  const hourly = hours.map((hour) => `
     <div class="weather-hour">
       <span>${escapeHtml(hour.label || "")}</span>
-      <span class="weather-symbol" aria-hidden="true">${weatherSymbol(hour.icon)}</span>
-      <strong>${escapeHtml(weatherTemperature(hour.temperature, unit))}</strong>
+      ${weatherSymbol(hour.icon, "weather-symbol")}
+      <strong>${escapeHtml(weatherTemperature(temp(hour.temperature), unit))}</strong>
     </div>
   `).join("");
   const days = (artifact.daily || []).slice(0, 5);
-  const allTemperatures = days.flatMap((day) => [Number(day.min), Number(day.max)]).filter(Number.isFinite);
+  const allTemperatures = days.flatMap((day) => [temp(day.min), temp(day.max)]).filter(Number.isFinite);
   const scaleMin = allTemperatures.length ? Math.min(...allTemperatures) : 0;
   const scaleMax = allTemperatures.length ? Math.max(...allTemperatures) : 1;
   const span = Math.max(1, scaleMax - scaleMin);
   const daily = days.map((day) => {
-    const left = Math.max(0, Math.min(100, ((Number(day.min) - scaleMin) / span) * 100));
-    const width = Math.max(8, Math.min(100 - left, ((Number(day.max) - Number(day.min)) / span) * 100));
+    const dayMin = temp(day.min);
+    const dayMax = temp(day.max);
+    const left = Math.max(0, Math.min(100, ((Number(dayMin) - scaleMin) / span) * 100));
+    const width = Math.max(8, Math.min(100 - left, ((Number(dayMax) - Number(dayMin)) / span) * 100));
     return `
       <div class="weather-day">
-        <strong>${escapeHtml(day.label || "")}</strong>
-        <span class="weather-symbol" aria-hidden="true">${weatherSymbol(day.icon)}</span>
-        <span class="weather-low">${escapeHtml(weatherTemperature(day.min, unit))}</span>
+        <strong>${escapeHtml(weatherDayName(day))}</strong>
+        ${weatherSymbol(day.icon, "weather-symbol")}
+        <span class="weather-low">${escapeHtml(weatherTemperature(dayMin, unit))}</span>
         <span class="weather-range" aria-hidden="true"><i style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%"></i></span>
-        <span>${escapeHtml(weatherTemperature(day.max, unit))}</span>
+        <span class="weather-high">${escapeHtml(weatherTemperature(dayMax, unit))}</span>
       </div>
     `;
   }).join("");
   const attribution = artifact.attribution || {};
+  const placeLabel = [city, country].filter(Boolean).join(", ");
   return `
-    <section class="weather-card" aria-label="Weather for ${escapeHtml(location)}">
-      <header class="weather-card-header"><strong>${escapeHtml(location)}</strong><span>Now</span></header>
+    <section class="weather-card" aria-label="Weather for ${escapeHtml(placeLabel)}">
+      <header class="weather-card-header">
+        <div class="weather-place">
+          <strong>${escapeHtml(city || placeLabel || "Weather")}</strong>
+          ${country ? `<span class="weather-country">${escapeHtml(country)}</span>` : ""}
+        </div>
+        <div class="weather-header-end">
+          <div class="weather-unit-toggle" role="group" aria-label="Temperature unit">
+            <button type="button" data-weather-units="metric" class="${displayUnits === "metric" ? "is-active" : ""}" aria-pressed="${displayUnits === "metric"}">°C</button>
+            <button type="button" data-weather-units="imperial" class="${displayUnits === "imperial" ? "is-active" : ""}" aria-pressed="${displayUnits === "imperial"}">°F</button>
+          </div>
+          <span class="weather-now-label">now</span>
+        </div>
+      </header>
       <div class="weather-current">
-        <span class="weather-current-icon weather-symbol" aria-hidden="true">${weatherSymbol(current.icon)}</span>
-        <div><strong class="weather-temperature">${escapeHtml(weatherTemperature(current.temperature, unit))}</strong><span>${escapeHtml(condition)}</span></div>
-        <dl>
-          <div><dt>High / low</dt><dd>${escapeHtml(weatherTemperature(current.high, unit))} / ${escapeHtml(weatherTemperature(current.low, unit))}</dd></div>
-          <div><dt>Feels like</dt><dd>${escapeHtml(weatherTemperature(current.feels_like, unit))}</dd></div>
-          <div><dt>Humidity</dt><dd>${escapeHtml(String(current.humidity ?? "--"))}%</dd></div>
-          <div><dt>Wind</dt><dd>${escapeHtml(String(current.wind_speed ?? "--"))} ${windUnit}</dd></div>
-        </dl>
+        ${weatherSymbol(current.icon, "weather-current-icon")}
+        <div class="weather-current-main">
+          <strong class="weather-temperature">${escapeHtml(weatherTemperature(currentTemp, unitLabel))}</strong>
+          <span>${escapeHtml(condition)}</span>
+        </div>
+        <div class="weather-current-meta">
+          <div class="weather-hi-lo"><strong>${escapeHtml(weatherTemperature(high, unit))}</strong> <span>${escapeHtml(weatherTemperature(low, unit))}</span></div>
+          <div class="weather-feels">feels like ${escapeHtml(weatherTemperature(feels, unit))}</div>
+          <div class="weather-stats">
+            <span title="Humidity"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 2.7c.5 1.7 4.8 7.2 4.8 10.4a4.8 4.8 0 1 1-9.6 0C7.2 9.9 11.5 4.4 12 2.7z"/></svg>${escapeHtml(String(current.humidity ?? "--"))}%</span>
+            <span title="Wind"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h15a3 3 0 1 1-3 3"/><path d="M3 16h7"/></svg>${escapeHtml(wind == null ? "--" : String(wind))} ${windUnit}</span>
+          </div>
+        </div>
       </div>
       ${hourly ? `<div class="weather-hourly">${hourly}</div>` : ""}
       ${daily ? `<div class="weather-daily">${daily}</div>` : ""}
@@ -3532,8 +3623,9 @@ function renderWeatherArtifact(artifact) {
   `;
 }
 
-function renderArtifacts(message) {
-  const artifacts = artifactListFromMessage(message);
+function renderArtifacts(message, predicate = null) {
+  let artifacts = artifactListFromMessage(message);
+  if (typeof predicate === "function") artifacts = artifacts.filter(predicate);
   if (!artifacts.length) return "";
   const rows = artifacts.map((artifact) => {
     if (artifact?.type === "weather") return renderWeatherArtifact(artifact);
@@ -6871,6 +6963,16 @@ function bindEvents() {
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
   els.messages.addEventListener("click", async (e) => {
+    const weatherUnit = e.target.closest("[data-weather-units]");
+    if (weatherUnit) {
+      e.preventDefault();
+      const next = weatherUnit.dataset.weatherUnits === "imperial" ? "imperial" : "metric";
+      if (state.settings.weatherUnits !== next) {
+        updateSetting("weatherUnits", next);
+        queueRenderMessages();
+      }
+      return;
+    }
     const pastedCard = e.target.closest("[data-open-pasted-text]");
     if (pastedCard) {
       const message = state.messages.find((item) => String(item.id) === pastedCard.dataset.openPastedText);

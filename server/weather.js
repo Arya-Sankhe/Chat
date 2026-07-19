@@ -82,11 +82,11 @@ function forecastDays(items, offsetSeconds) {
   }
   return [...grouped.values()].slice(0, 5).map((day) => ({
     date: day.date,
-    label: dayLabel(day.date, today),
     min: Math.round(day.min),
     max: Math.round(day.max),
     precipitation_probability: Math.round(day.pop * 100),
-    ...condition(day.sample)
+    ...condition(day.sample),
+    label: dayLabel(day.date, today)
   }));
 }
 
@@ -140,12 +140,12 @@ export async function lookupWeather({ config, location, units = "metric", signal
       low: days[0]?.min ?? Math.round(Number(current.main?.temp_min)),
       ...currentCondition
     },
-    hourly: (forecast.list || []).slice(0, 7).map((item, index) => ({
+    hourly: (forecast.list || []).slice(0, 7).map((item) => ({
       timestamp: item.dt,
-      label: index === 0 ? "Next" : localHour(item.dt, offsetSeconds),
       temperature: Math.round(Number(item.main?.temp)),
       precipitation_probability: Math.round(Number(item.pop || 0) * 100),
-      ...condition(item)
+      ...condition(item),
+      label: localHour(item.dt, offsetSeconds)
     })),
     daily: days,
     attribution: { label: "Weather data © OpenWeather", url: "https://openweathermap.org/" }
