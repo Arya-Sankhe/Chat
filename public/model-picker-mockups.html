@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Klui — model picker (spectrum + heat)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Orbitron:wght@600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+<style>
+  @font-face {
+    font-family: "Korataki";
+    src:
+      local("Korataki"),
+      local("Korataki Regular"),
+      url("/fonts/Korataki.woff2") format("woff2"),
+      url("/fonts/Korataki.woff") format("woff"),
+      url("/fonts/Korataki.ttf") format("truetype");
+    font-weight: 400 700;
+    font-display: swap;
+  }
+  :root {
+    --bg: #121212;
+    --panel: #1c1c1c;
+    --line: #2e2e2e;
+    --text: #f2f2f2;
+    --muted: #8a8a8a;
+    --blue: #3b82f6;
+    --blue-deep: #2563eb;
+    --blue-soft: #93c5fd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "DM Sans", system-ui, sans-serif;
+    background:
+      radial-gradient(900px 480px at 15% -10%, rgba(59,130,246,.12), transparent 55%),
+      radial-gradient(700px 400px at 90% 0%, rgba(249,115,22,.06), transparent 50%),
+      var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 {
+    font-family: Syne, sans-serif;
+    font-size: clamp(26px, 4vw, 34px);
+    font-weight: 800;
+    letter-spacing: -.03em;
+    margin: 0 0 8px;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 36px;
+    max-width: 52ch;
+  }
+
+  /* ===== Composer ===== */
+  .composer-wrap {
+    position: relative;
+    max-width: 640px;
+  }
+  .composer {
+    background: var(--panel);
+    border: 1px solid #3a3a3a;
+    border-radius: 22px;
+    padding: 14px 14px 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  }
+  .composer textarea {
+    width: 100%;
+    border: 0;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: var(--text);
+    font: 400 15px/1.45 "DM Sans", sans-serif;
+    min-height: 48px;
+    padding: 2px 4px 14px;
+  }
+  .composer textarea::placeholder { color: #666; }
+  .composer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-btn, .pill {
+    height: 32px;
+    border-radius: 999px;
+    border: 1px solid #3a3a3a;
+    background: #2c2c2c;
+    color: #ddd;
+    font: 500 13px "DM Sans", sans-serif;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+    flex: 0 0 auto;
+  }
+  .icon-btn { width: 32px; padding: 0; }
+  .icon-btn:hover, .pill:hover { background: #333; }
+  .pill { padding: 0 10px; }
+  .pill svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* model wrap anchors the spectrum popover above the heat pill */
+  .model-wrap {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  /* closed state: normal-size pill; heat tube fills most of it */
+  .model-btn {
+    width: 132px;
+    height: 32px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid #3a3a3a;
+    background: #2c2c2c;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .model-btn:hover { background: #333; }
+  .model-btn[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--blue) 55%, #3a3a3a);
+    background: #303030;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent);
+  }
+  .heat-bar {
+    position: relative;
+    container-type: inline-size;
+    width: 92%;
+    height: 80%;
+    border-radius: 999px;
+    border: 0;
+    background: #171717;
+    padding: 0;
+    display: block;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .heat-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 50%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--blue-soft), var(--blue-deep));
+    box-shadow: 0 0 12px color-mix(in srgb, var(--blue) 28%, transparent);
+    transition: width 150ms ease;
+    overflow: hidden;
+    z-index: 1;
+  }
+  .heat-name {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    font-family: "Korataki", "Orbitron", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    line-height: 1;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+  }
+  /* visible on the empty (black) track */
+  .heat-bar > .heat-name {
+    color: rgba(186, 210, 255, 0.78);
+    z-index: 0;
+  }
+  /* over the heat fill: letters sit in the blue */
+  .heat-fill .heat-name {
+    width: 100cqw;
+    color: #fff;
+  }
+
+  .send {
+    flex: 0 0 auto;
+    margin-left: auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--blue);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .send svg { width: 14px; height: 14px; fill: currentColor; }
+
+  /* ===== Spectrum popover — plain box above the model button ===== */
+  .spectrum-pop {
+    position: absolute;
+    left: 0;
+    right: auto;
+    bottom: calc(100% + 8px);
+    width: 300px;
+    background: #fff;
+    color: #111;
+    border-radius: 16px;
+    padding: 16px 16px 14px;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,.04),
+      0 18px 50px rgba(0,0,0,.35),
+      0 4px 14px rgba(0,0,0,.12);
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+    transform-origin: 24px 100%;
+    pointer-events: none;
+    transition: opacity 160ms ease, transform 160ms cubic-bezier(.2,.8,.2,1);
+    z-index: 20;
+  }
+  .spectrum-pop.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  .spectrum-head {
+    font-size: 14px;
+    font-weight: 650;
+    color: #5c5c5c;
+    margin: 0 0 14px;
+    letter-spacing: -.01em;
+  }
+
+  .spectrum-track {
+    position: relative;
+    height: 18px;
+    border-radius: 999px;
+    background: #e7e7e7;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .spectrum-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #4f8cff, var(--blue-deep));
+    transition: width 130ms ease-out;
+  }
+  .spectrum-steps {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    pointer-events: none;
+  }
+  .spectrum-steps i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #c8c8c8;
+    transition: background 120ms ease;
+  }
+  .spectrum-steps i.lit {
+    background: rgba(255,255,255,.92);
+  }
+  /* bigger thumb that envelops the step dots */
+  .spectrum-thumb {
+    position: absolute;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow:
+      0 1px 2px rgba(0,0,0,.06),
+      0 4px 12px rgba(0,0,0,.18),
+      0 0 0 1px rgba(0,0,0,.06);
+    transform: translate(-50%, -50%);
+    transition: left 130ms ease-out;
+    pointer-events: none;
+  }
+
+  .spectrum-ends {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 650;
+    color: #7a7a7a;
+  }
+
+  .note {
+    margin-top: 48px;
+    color: #555;
+    font-size: 12px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spectrum-pop, .spectrum-fill, .spectrum-thumb, .heat-fill { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Model picking — spectrum + heat</h1>
+  <p class="lede">
+    Click the heat pill in the composer to open Spectrum. Pick a level, then the pill shows a horizontal thinking-heat bar.
+  </p>
+
+  <div class="composer-wrap" id="wrap">
+    <div class="composer">
+      <textarea id="prompt" rows="2" placeholder="Message Klui"></textarea>
+      <div class="composer-row">
+        <button class="icon-btn" type="button" aria-label="Add" tabindex="-1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+
+        <div class="model-wrap" id="modelWrap">
+          <div class="spectrum-pop" id="spectrumPop" role="dialog" aria-label="Model" hidden>
+            <div class="spectrum-head">Model</div>
+            <div class="spectrum-track" id="spectrumTrack" role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="2" aria-label="Faster to smarter">
+              <div class="spectrum-fill" id="spectrumFill"></div>
+              <div class="spectrum-steps" id="spectrumSteps"></div>
+              <div class="spectrum-thumb" id="spectrumThumb"></div>
+            </div>
+            <div class="spectrum-ends">
+              <span>Faster</span>
+              <span>Smarter</span>
+            </div>
+          </div>
+
+          <button class="model-btn" id="modelBtn" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="spectrumPop" title="Think" aria-label="Think">
+            <span class="heat-bar" id="heatBar" aria-hidden="true">
+              <span class="heat-name">Think</span>
+              <span class="heat-fill" id="heatFill">
+                <span class="heat-name">Think</span>
+              </span>
+            </span>
+          </button>
+        </div>
+
+        <button class="pill" type="button" tabindex="-1">
+          <svg viewBox="0 0 24 24"><path d="M4 7h7v10H4zM13 7h7v10h-7z"/></svg>
+          Compare
+        </button>
+        <button class="pill" type="button" tabindex="-1">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="10" r="2.2"/><circle cx="15" cy="10" r="2.2"/><path d="M5.5 17c1-2.2 2.8-3.2 5.5-3.2S15.5 14.8 16.5 17"/></svg>
+          Council
+        </button>
+
+        <button class="send" type="button" aria-label="Send" tabindex="-1">
+          <svg viewBox="0 0 24 24"><path d="M5 12l14-7-5 14-2.5-5.5L5 12z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">Mockup only · 5 snap levels · click outside or press Esc to close</p>
+</div>
+
+<script>
+const N = 5;
+let level = 2;
+let open = false;
+
+const pop = document.getElementById("spectrumPop");
+const btn = document.getElementById("modelBtn");
+const track = document.getElementById("spectrumTrack");
+const fill = document.getElementById("spectrumFill");
+const thumb = document.getElementById("spectrumThumb");
+const steps = document.getElementById("spectrumSteps");
+const heatFill = document.getElementById("heatFill");
+
+for (let i = 0; i < N; i++) steps.appendChild(document.createElement("i"));
+
+function paint(n) {
+  const t = n / (N - 1);
+  const pct = t * 100;
+  fill.style.width = `${pct}%`;
+  thumb.style.left = `${pct}%`;
+  track.setAttribute("aria-valuenow", String(n));
+  [...steps.children].forEach((d, i) => d.classList.toggle("lit", i <= n));
+
+  // heat tube length mirrors the spectrum selection
+  heatFill.style.width = `${18 + t * 82}%`;
+}
+
+function setLevel(n) {
+  level = Math.max(0, Math.min(N - 1, n));
+  paint(level);
+}
+
+function setOpen(next) {
+  open = next;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  pop.hidden = false;
+  requestAnimationFrame(() => pop.classList.toggle("open", open));
+  if (!open) {
+    // allow exit animation then hide from a11y tree
+    setTimeout(() => {
+      if (!open) pop.hidden = true;
+    }, 180);
+  }
+}
+
+btn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setOpen(!open);
+});
+
+function fromPointer(e) {
+  const rect = track.getBoundingClientRect();
+  const x = ("touches" in e ? e.touches[0].clientX : e.clientX) - rect.left;
+  const t = Math.max(0, Math.min(1, x / rect.width));
+  setLevel(Math.round(t * (N - 1)));
+}
+
+track.addEventListener("pointerdown", (e) => {
+  track.setPointerCapture(e.pointerId);
+  fromPointer(e);
+});
+track.addEventListener("pointermove", (e) => {
+  if (track.hasPointerCapture(e.pointerId)) fromPointer(e);
+});
+
+document.addEventListener("pointerdown", (e) => {
+  if (!open) return;
+  const wrap = document.getElementById("modelWrap");
+  if (wrap.contains(e.target)) return;
+  setOpen(false);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && open) setOpen(false);
+  if (!open) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+    e.preventDefault();
+    setLevel(level + 1);
+  }
+  if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+    e.preventDefault();
+    setLevel(level - 1);
+  }
+});
+
+setLevel(2);
+pop.hidden = true;
+</script>
+</body>
+</html>

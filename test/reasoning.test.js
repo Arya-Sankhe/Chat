@@ -130,6 +130,24 @@ test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to high",
   assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
 });
 
+test("adaptChatRequestForProvider maps xhigh reasoning effort for OpenRouter", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "xhigh"
+  }, "openrouter");
+  assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
+});
+
+test("adaptChatRequestForProvider maps max reasoning effort to xhigh", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "max"
+  }, "openrouter");
+  assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
+});
+
 test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias", async () => {
   const { normalizeMessageSettings } = await import("../server/saas/messages.js");
   assert.deepEqual(

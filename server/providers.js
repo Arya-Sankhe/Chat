@@ -82,11 +82,10 @@ export function providerAvailability(config) {
   };
 }
 
-const OPENROUTER_REASONING_EFFORTS = new Set(["low", "medium", "high"]);
-
 export function resolveOpenRouterReasoningEffort(value) {
   const effort = String(value || "high").trim().toLowerCase();
-  return OPENROUTER_REASONING_EFFORTS.has(effort) ? effort : "high";
+  if (effort === "max" || effort === "xhigh") return "xhigh";
+  return effort === "low" || effort === "medium" || effort === "high" ? effort : "high";
 }
 
 /**

@@ -12,8 +12,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260722-klui-no-stutter">
+    <link rel="stylesheet" href="/styles.css?v=20260722-heat-morph">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
     <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
@@ -280,12 +283,30 @@
                       </div>
                     </div>
                     <div class="composer-model-wrap" id="composerModelWrap">
-                      <button class="composer-model-btn" id="modelButton" type="button" aria-haspopup="listbox" aria-expanded="false">
-                        <span class="composer-model-label" id="modelLabel">Model</span>
-                        <span class="composer-model-price hidden" id="modelPriceBadge">4x</span>
-                        <svg class="composer-model-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                      <div class="spectrum-pop" id="spectrumPop" role="dialog" aria-label="Model" hidden>
+                        <div class="spectrum-head">Model</div>
+                        <div class="spectrum-track" id="spectrumTrack" role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="2" aria-label="Faster to smarter">
+                          <div class="spectrum-fill" id="spectrumFill"></div>
+                          <div class="spectrum-steps" id="spectrumSteps"></div>
+                          <div class="spectrum-thumb" id="spectrumThumb"></div>
+                        </div>
+                        <div class="spectrum-ends">
+                          <span>Faster</span>
+                          <span>Smarter</span>
+                        </div>
+                      </div>
+                      <button class="composer-model-btn heat-btn" id="modelButton" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="spectrumPop" title="Think" aria-label="Think">
+                        <span class="heat-bar" aria-hidden="true">
+                          <span class="heat-name">Think</span>
+                          <span class="heat-fill" id="heatFill">
+                            <span class="heat-name">Think</span>
+                          </span>
+                        </span>
                       </button>
-                      <div class="composer-model-dropdown hidden" id="modelDropdown" role="listbox" aria-label="Models">
+                      <!-- stubs so legacy selectors stay non-null -->
+                      <span class="composer-model-label hidden" id="modelLabel" hidden>Think</span>
+                      <span class="composer-model-price hidden" id="modelPriceBadge" hidden>4x</span>
+                      <div class="composer-model-dropdown hidden" id="modelDropdown" hidden role="listbox" aria-hidden="true">
                         <div class="model-catalog" id="modelCatalog"></div>
                       </div>
                     </div>
@@ -673,7 +694,7 @@
       </section>
     </div>
 
-    <script type="module" src="/js/app.js?v=20260722-klui-no-stutter"></script>
+    <script type="module" src="/js/app.js?v=20260722-heat-morph"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

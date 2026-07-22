@@ -181,8 +181,9 @@ export function normalizeChatRequest(input) {
   const stop = normalizeStop(input.stop);
   const tools = normalizeTools(input.tools);
 
-  const validEfforts = new Set(["low", "medium", "high"]);
-  const reasoningEffort = validEfforts.has(input.reasoning_effort) ? input.reasoning_effort : undefined;
+  const validEfforts = new Set(["low", "medium", "high", "xhigh", "max"]);
+  const rawEffort = validEfforts.has(input.reasoning_effort) ? input.reasoning_effort : undefined;
+  const reasoningEffort = rawEffort === "max" ? "xhigh" : rawEffort;
 
   if (maxTokens !== undefined) normalized.max_tokens = maxTokens;
   if (temperature !== undefined) normalized.temperature = temperature;

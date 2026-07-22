@@ -109,6 +109,8 @@ const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
 const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
+const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
+const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
@@ -117,6 +119,91 @@ const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_VISION_PRO_MODEL
 ];
 const DEFAULT_REASONING_EFFORT = "high";
+const SPECTRUM_N = 5;
+// Levels 1–5 (indices 0–4). PRO UI only on last step.
+const SPECTRUM_STEPS = [
+  { mode: "thinking", model: OPENROUTER_LAGUNA_XS, effort: "high" },
+  { mode: "thinking", model: OPENROUTER_LAGUNA_S, effort: "high" },
+  { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "high" },
+  { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "xhigh" },
+  { mode: "pro", model: OPENROUTER_PRO_MODEL, effort: "xhigh" }
+];
+
+function normalizeThinkingEffort(value) {
+  const effort = String(value || "").trim().toLowerCase();
+  if (effort === "max") return "xhigh";
+  return effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh"
+    ? effort
+    : DEFAULT_REASONING_EFFORT;
+}
+
+function currentReasoningEffort() {
+  return normalizeThinkingEffort(state.settings.thinkingEffort);
+}
+
+function spectrumLevelFromSettings() {
+  const stored = Number(state.settings.spectrumLevel);
+  if (Number.isInteger(stored) && stored >= 0 && stored < SPECTRUM_N) return stored;
+  const model = state.settings.model;
+  const effort = currentReasoningEffort();
+  const idx = SPECTRUM_STEPS.findIndex((s) => s.model === model && s.effort === effort);
+  if (idx >= 0) return idx;
+  return selectedModelMode() === "pro" ? SPECTRUM_N - 1 : 2;
+}
+
+function applySpectrumLevel(level) {
+  const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  const step = SPECTRUM_STEPS[n];
+  updateSetting("spectrumLevel", n);
+  updateSetting("modelMode", step.mode);
+  updateSetting("provider", "openrouter");
+  updateSetting("thinkingEffort", step.effort);
+  updateSetting("model", step.model);
+  paintSpectrum(n);
+  renderModelOptions();
+  if (typeof renderTopBarMode === "function") renderTopBarMode();
+}
+
+function paintSpectrum(level = spectrumLevelFromSettings()) {
+  const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  const sliderT = n / (SPECTRUM_N - 1);
+  const sliderPct = `${sliderT * 100}%`;
+  // fill hits 100% at level 4 (index 3); level 5 keeps full fill, only hue/label change
+  const heatPct = n >= 3 ? 100 : 18 + (n / 3) * 82;
+  if (els.spectrumSteps && !els.spectrumSteps.children.length) {
+    for (let i = 0; i < SPECTRUM_N; i++) els.spectrumSteps.appendChild(document.createElement("i"));
+  }
+  if (els.spectrumFill) els.spectrumFill.style.width = sliderPct;
+  if (els.spectrumThumb) els.spectrumThumb.style.left = sliderPct;
+  if (els.spectrumTrack) els.spectrumTrack.setAttribute("aria-valuenow", String(n));
+  if (els.spectrumSteps) {
+    [...els.spectrumSteps.children].forEach((dot, i) => dot.classList.toggle("lit", i <= n));
+  }
+  if (els.heatFill) els.heatFill.style.width = `${heatPct}%`;
+  const isPro = n === SPECTRUM_N - 1;
+  const heatLabel = isPro ? "PRO" : "Think";
+  const names = document.querySelectorAll(".heat-name");
+  const labelChanged = [...names].some((el) => el.textContent !== heatLabel);
+  if (labelChanged) {
+    names.forEach((el) => {
+      el.style.filter = "blur(2px)";
+      el.style.opacity = "0.55";
+    });
+    requestAnimationFrame(() => {
+      names.forEach((el) => { el.textContent = heatLabel; });
+      requestAnimationFrame(() => {
+        names.forEach((el) => {
+          el.style.filter = "";
+          el.style.opacity = "";
+        });
+      });
+    });
+  } else {
+    names.forEach((el) => { el.textContent = heatLabel; });
+  }
+  els.modelButton?.setAttribute("title", heatLabel);
+  els.modelButton?.classList.toggle("pro-active", isPro);
+}
 const CONTEXT_LIMIT_TOKENS = 256000;
 const LONG_PASTE_MIN_CHARS = 1000;
 const LONG_PASTE_MIN_LINES = 8;
@@ -142,6 +229,7 @@ const defaultSettings = {
   seed: "",
   systemPrompt: "",
   thinkingEffort: DEFAULT_REASONING_EFFORT,
+  spectrumLevel: 2,
   compareEnabled: false,
   compareModels: [],
   compareMode: "compare",
@@ -520,6 +608,12 @@ const els = {
   modelDropdown: document.querySelector("#modelDropdown"),
   modelInput: document.querySelector("#modelInput"),
   modelCatalog: document.querySelector("#modelCatalog"),
+  spectrumPop: document.querySelector("#spectrumPop"),
+  spectrumTrack: document.querySelector("#spectrumTrack"),
+  spectrumFill: document.querySelector("#spectrumFill"),
+  spectrumSteps: document.querySelector("#spectrumSteps"),
+  spectrumThumb: document.querySelector("#spectrumThumb"),
+  heatFill: document.querySelector("#heatFill"),
   compareWrap: document.querySelector("#compareWrap"),
   compareButton: document.querySelector("#compareButton"),
   compareLabel: document.querySelector("#compareLabel"),
@@ -944,11 +1038,19 @@ function followUpBatchImages(queued) {
 }
 
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
-  if (selectedModelMode() === "pro") return OPENROUTER_PRO_MODEL;
   const needsVision = pendingPromptNeedsVision(images)
     || chatHistoryNeedsVision()
     || contentHasVisualOrDocument(userContent);
-  return needsVision ? OPENROUTER_VISION_MODEL : OPENROUTER_TEXT_MODEL;
+  // Images/docs → MiMo; Pro (L5) → MiMo Pro. Otherwise spectrum model.
+  if (needsVision) {
+    return spectrumLevelFromSettings() === SPECTRUM_N - 1
+      ? OPENROUTER_VISION_PRO_MODEL
+      : OPENROUTER_VISION_MODEL;
+  }
+  if (state.settings.model) return state.settings.model;
+  return spectrumLevelFromSettings() === SPECTRUM_N - 1
+    ? OPENROUTER_PRO_MODEL
+    : OPENROUTER_TEXT_MODEL;
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
@@ -986,11 +1088,7 @@ function applyNativeTopBarMode(mode) {
   }
   if (state.settings.compareEnabled) compareController.cancelCompareMode();
   const modelMode = mode === "pro" ? "pro" : "thinking";
-  updateSetting("modelMode", modelMode);
-  updateSetting("provider", "openrouter");
-  updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
-  updateSetting("model", modelMode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
-  renderModelOptions();
+  applySpectrumLevel(modelMode === "pro" ? 4 : 2);
 }
 
 function clampTextScale(value) {
@@ -1010,7 +1108,12 @@ function loadSettings() {
     loaded.writingStyle = normalizeWritingStyle(loaded.writingStyle);
     loaded.provider = "openrouter";
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
-    loaded.thinkingEffort = DEFAULT_REASONING_EFFORT;
+    loaded.thinkingEffort = normalizeThinkingEffort(loaded.thinkingEffort);
+    const lvl = Number(loaded.spectrumLevel);
+    loaded.spectrumLevel = Number.isInteger(lvl) && lvl >= 0 && lvl < SPECTRUM_N ? lvl : 2;
+    loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
+    loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
+    loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
     loaded.temperature = 0.7;
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
@@ -1019,7 +1122,6 @@ function loadSettings() {
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
-  loaded.model = loaded.modelMode === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL;
   return loaded;
   } catch {
     return { ...defaultSettings };
@@ -2433,20 +2535,29 @@ function modelDisplayName(id) {
 }
 
 function toggleModelDropdown() {
-  const isOpen = !els.modelDropdown.classList.contains("hidden");
-  els.modelDropdown.classList.toggle("hidden", isOpen);
-  const nowOpen = !els.modelDropdown.classList.contains("hidden");
-  els.modelButton.setAttribute("aria-expanded", String(nowOpen));
-  els.composerModelWrap.classList.toggle("is-open", nowOpen);
-  if (!isOpen) {
-    renderModelCatalog();
-  }
+  const open = !els.composerModelWrap.classList.contains("is-open");
+  setSpectrumOpen(open);
 }
 
 function closeModelDropdown() {
-  els.modelDropdown.classList.add("hidden");
-  els.modelButton.setAttribute("aria-expanded", "false");
-  els.composerModelWrap.classList.remove("is-open");
+  setSpectrumOpen(false);
+}
+
+function setSpectrumOpen(open) {
+  const pop = els.spectrumPop;
+  els.modelButton?.setAttribute("aria-expanded", String(open));
+  els.composerModelWrap?.classList.toggle("is-open", open);
+  if (!pop) return;
+  if (open) {
+    paintSpectrum();
+    pop.hidden = false;
+    requestAnimationFrame(() => pop.classList.add("open"));
+  } else {
+    pop.classList.remove("open");
+    setTimeout(() => {
+      if (!els.composerModelWrap?.classList.contains("is-open")) pop.hidden = true;
+    }, 180);
+  }
 }
 
 function toggleActionMenu() {
@@ -2490,41 +2601,17 @@ function toggleSidebar() {
 }
 
 function renderModelCatalog() {
-  const mode = selectedModelMode();
-  els.modelCatalog.innerHTML = `
-    <button class="model-option mode-option ${mode === "thinking" ? "active" : ""}" type="button" data-model-mode="thinking" aria-selected="${mode === "thinking"}">
-      <span class="model-option-main">
-        <span class="model-option-copy">
-          <span class="model-option-name">Thinking</span>
-          <span class="model-option-desc">Best model for most tasks.</span>
-        </span>
-      </span>
-      <span class="model-option-check">${mode === "thinking" ? "✓" : ""}</span>
-    </button>
-    <button class="model-option mode-option ${mode === "pro" ? "active" : ""}" type="button" data-model-mode="pro" aria-selected="${mode === "pro"}">
-      <span class="model-option-main">
-        <span class="model-option-copy">
-          <span class="model-option-name">Pro <span class="model-price-note">4x</span></span>
-          <span class="model-option-desc">Use for the most complex tasks.</span>
-        </span>
-      </span>
-      <span class="model-option-check">${mode === "pro" ? "✓" : ""}</span>
-    </button>
-  `;
+  // ponytail: Thinking/Pro list replaced by spectrum popover
 }
 
 function renderModelOptions() {
   const mode = selectedModelMode();
-  const displayName = modelModeLabel(mode);
-
-  els.modelButton.setAttribute("aria-label", `Model: ${displayName}`);
-  els.modelButton.classList.remove("has-brand-logo");
-  els.modelButton.classList.toggle("pro-active", mode === "pro");
-  els.modelLabel.classList.remove("hidden");
-  els.modelPriceBadge?.classList.toggle("hidden", mode !== "pro");
-
-  els.modelLabel.textContent = displayName;
-  renderModelCatalog();
+  const isPro = spectrumLevelFromSettings() === SPECTRUM_N - 1;
+  els.modelButton?.setAttribute("aria-label", isPro ? "PRO" : "Think");
+  els.modelButton?.classList.toggle("pro-active", isPro);
+  if (els.modelLabel) els.modelLabel.textContent = modelModeLabel(mode);
+  els.modelPriceBadge?.classList.add("hidden");
+  paintSpectrum();
   compareController.renderCompareControls();
 }
 
@@ -3253,7 +3340,7 @@ async function sendSideChatMessage() {
       messages: history,
       model,
       provider,
-      settings: { ...state.settings, reasoning_effort: DEFAULT_REASONING_EFFORT },
+      settings: { ...state.settings, reasoning_effort: currentReasoningEffort() },
       writingStyle: "concise",
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -5641,7 +5728,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
       provider: retryProvider,
       settings: {
         ...state.settings,
-        reasoning_effort: DEFAULT_REASONING_EFFORT
+        reasoning_effort: currentReasoningEffort()
       },
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
@@ -5866,7 +5953,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       provider,
       settings: {
         ...state.settings,
-        reasoning_effort: DEFAULT_REASONING_EFFORT
+        reasoning_effort: currentReasoningEffort()
       },
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
@@ -6542,7 +6629,7 @@ function bindEvents() {
     if (state.viewer.open) { closeDocumentViewer(); return; }
     if (!els.composerActionMenu.classList.contains("hidden") || !els.writingStyleMenu?.classList.contains("hidden")) { closeActionMenu(); return; }
     if (!els.compareDropdown.classList.contains("hidden")) { compareController.closeCompareDropdown(); return; }
-    if (!els.modelDropdown.classList.contains("hidden")) { closeModelDropdown(); return; }
+    if (els.composerModelWrap?.classList.contains("is-open")) { closeModelDropdown(); return; }
     if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
     if (els.settingsDrawer.classList.contains("open")) { closeSettings(); return; }
@@ -6553,18 +6640,40 @@ function bindEvents() {
     closeActionMenu();
     compareController.closeCompareDropdown();
     if (document.body.classList.contains("capacitor-native")) {
-      const mode = selectedModelMode() === "pro" ? "thinking" : "pro";
-      updateSetting("modelMode", mode);
-      updateSetting("provider", "openrouter");
-      updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
-      updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
+      applySpectrumLevel(selectedModelMode() === "pro" ? 2 : 4);
       closeModelDropdown();
-      renderModelOptions();
-      if (typeof renderTopBarMode === "function") renderTopBarMode();
       return;
     }
     toggleModelDropdown();
   });
+
+  if (els.spectrumSteps && !els.spectrumSteps.children.length) {
+    for (let i = 0; i < SPECTRUM_N; i++) els.spectrumSteps.appendChild(document.createElement("i"));
+  }
+
+  function spectrumFromPointer(e) {
+    const track = els.spectrumTrack;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const t = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    applySpectrumLevel(Math.round(t * (SPECTRUM_N - 1)));
+  }
+
+  if (els.spectrumTrack) {
+    els.spectrumTrack.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      spectrumFromPointer(e);
+      const move = (ev) => spectrumFromPointer(ev);
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
+  }
 
   els.compareButton.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -6595,7 +6704,7 @@ function bindEvents() {
   }
 
   document.addEventListener("click", (e) => {
-    if (!els.modelDropdown.contains(e.target) && !els.composerModelWrap.contains(e.target)) {
+    if (!els.composerModelWrap?.contains(e.target)) {
       closeModelDropdown();
     }
     if (!els.composerActionMenu.contains(e.target) && !els.composerActionMenuWrap.contains(e.target)) {
@@ -6604,35 +6713,6 @@ function bindEvents() {
     if (!els.compareDropdown.contains(e.target) && !els.compareWrap.contains(e.target)) {
       compareController.closeCompareDropdown();
     }
-  });
-
-  els.modelCatalog.addEventListener("click", (e) => {
-    const modeItem = e.target.closest("[data-model-mode]");
-    if (modeItem) {
-      const mode = modeItem.dataset.modelMode === "pro" ? "pro" : "thinking";
-      updateSetting("modelMode", mode);
-      updateSetting("provider", "openrouter");
-      updateSetting("thinkingEffort", DEFAULT_REASONING_EFFORT);
-      updateSetting("model", mode === "pro" ? OPENROUTER_PRO_MODEL : resolveRoutedModel());
-      closeModelDropdown();
-      renderModelOptions();
-      if (typeof renderTopBarMode === "function") renderTopBarMode();
-      els.promptInput.focus();
-      return;
-    }
-
-    const item = e.target.closest("[data-model-id]");
-    if (!item) return;
-    if (activeProvider() === "openrouter") {
-      /* Picking a Klui model from the dropdown is an implicit
-         "switch back to Klui" — keep the chosen id and route through Klui. */
-      updateSetting("provider", "klui");
-      renderProviderToggle();
-    }
-    updateSetting("model", item.dataset.modelId);
-    closeModelDropdown();
-    renderModelOptions();
-    els.promptInput.focus();
   });
 
   els.compareCatalog.addEventListener("click", (e) => {
