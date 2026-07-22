@@ -4704,7 +4704,7 @@ function syncSettingsInputs() {
 
 /* Composer border-beam: md while generating, pulse-inner ocean while mic. */
 const BEAM_PULSE_ROWS = [["--bw1-mic",0.72,1.308,2.34,0,""],["--bh1-mic",1.252,0.762,3.276,0,""],["--bx1-mic",-33,29.7,3.04,0,"px"],["--by1-mic",18.15,-23.1,3.04,0,"px"],["--bw2-mic",1.28,0.762,2.86,0,""],["--bh2-mic",0.776,1.294,2.106,0,""],["--bx2-mic",26.4,-29.7,3.572,0,"px"],["--by2-mic",-33,21.45,3.572,0,"px"],["--bw3-mic",0.832,1.322,2.548,0,""],["--bh3-mic",1.21,0.72,3.64,0,""],["--bx3-mic",-19.8,33,2.755,0,"px"],["--by3-mic",-28.05,14.85,2.755,0,"px"],["--bgh-mic",0.66,1.34,2.4,0,""],["--bop-tl-mic",0.52,1,1.9,0,""],["--bop-tr-mic",0.52,1,2.508,0.532,""],["--bop-bl-mic",0.52,1,1.596,1.045,""],["--bop-br-mic",0.52,1,3.002,1.577,""]];
-const BEAM_PULSE_HUE = { prop: "--beam-hue-mic", range: 360, period: 16 };
+const BEAM_PULSE_HUE = { prop: "--beam-hue-mic", range: 28, period: 16 };
 let beamPulseRaf = null;
 let beamPulseLast = 0;
 let beamPulseEl = null;
@@ -4747,7 +4747,8 @@ function setMicPulseActive(el, on) {
     }
     beamPulseEl.style.setProperty(
       BEAM_PULSE_HUE.prop,
-      `${(((t / BEAM_PULSE_HUE.period) % 1) * BEAM_PULSE_HUE.range).toFixed(2)}deg`
+      // ponytail: ping-pong ±range so ocean stays blue/purple (no full-spectrum spin).
+      `${(-BEAM_PULSE_HUE.range + 2 * BEAM_PULSE_HUE.range * ease(t / BEAM_PULSE_HUE.period)).toFixed(2)}deg`
     );
   };
   beamPulseRaf = requestAnimationFrame(tick);
