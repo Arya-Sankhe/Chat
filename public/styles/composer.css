@@ -595,9 +595,9 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   border: 1px solid var(--border);
 
-  border-radius: var(--radius-lg);
+  border-radius: 28px;
 
-  padding: 16px 18px 12px;
+  padding: 12px 14px 10px;
 
   box-shadow: var(--shadow-md);
 
@@ -627,13 +627,13 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   padding: 0;
 
-  min-height: 30px;
+  min-height: 26px;
 
   max-height: 260px;
 
-  font-size: 17px;
+  font-size: 15px;
 
-  line-height: 1.5;
+  line-height: 1.45;
 
 }
 
@@ -651,7 +651,7 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   justify-content: space-between;
 
-  margin-top: 12px;
+  margin-top: 8px;
 
 }
 

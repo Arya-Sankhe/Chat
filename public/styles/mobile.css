@@ -736,36 +736,6 @@ body.chat-empty .empty-state h1 {
 
 }
 
-body.chat-empty .composer-wrap {
-
-  max-width: min(820px, calc(100vw - 48px));
-
-}
-
-body.chat-empty .composer {
-
-  padding: 12px 14px 10px;
-
-  border-radius: 28px;
-
-}
-
-body.chat-empty .composer textarea {
-
-  min-height: 26px;
-
-  font-size: 15px;
-
-  line-height: 1.45;
-
-}
-
-body.chat-empty .composer-bottom {
-
-  margin-top: 8px;
-
-}
-
 body.chat-empty .composer-area {
 
   top: max(142px, calc(50dvh - 72px));
@@ -802,7 +772,7 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
 
     --content-max: 860px;
 
-    --composer-max: 860px;
+    --composer-max: 820px;
 
     --document-viewer-w: min(520px, 44vw);
 

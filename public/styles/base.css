@@ -46,7 +46,7 @@
 
   --content-max: 1040px;
 
-  --composer-max: 1040px;
+  --composer-max: 820px;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
@@ -164,7 +164,7 @@ body[data-chat-theme="cyber"] {
 
   --content-max: 1040px;
 
-  --composer-max: 1040px;
+  --composer-max: 820px;
 
   --code-bg: #ffffff;
 
@@ -242,7 +242,7 @@ body[data-chat-theme="doodle"] {
 
   --content-max: 1040px;
 
-  --composer-max: 1040px;
+  --composer-max: 820px;
 
   --code-bg: #ffffff;
 
