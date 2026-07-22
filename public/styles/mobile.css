@@ -1025,8 +1025,6 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
 
     justify-content: space-between;
 
-    padding: 0 12px;
-
   }
 
   body.sidebar-open .sidebar-brand,
@@ -1034,6 +1032,14 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
   body.guest-mode.sidebar-open .sidebar-brand {
 
     display: block;
+
+  }
+
+  body.sidebar-open .sidebar-quick,
+
+  body.guest-mode.sidebar-open .sidebar-quick {
+
+    padding: 0 12px 4px;
 
   }
 
@@ -1045,9 +1051,13 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
 
   }
 
-  body.sidebar-open .sidebar-nav-item,
+  body.sidebar-open .sidebar-nav > .sidebar-nav-item,
 
-  body.guest-mode.sidebar-open .sidebar-nav-item {
+  body.guest-mode.sidebar-open .sidebar-nav > .sidebar-nav-item,
+
+  body.sidebar-open .sidebar-pin-trigger,
+
+  body.guest-mode.sidebar-open .sidebar-pin-trigger {
 
     justify-content: flex-start;
 
