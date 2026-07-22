@@ -86,6 +86,13 @@ import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
+import {
+  hydrateKluiBars,
+  renderHomeGreetingHtml,
+  renderKluiThinkingStatus,
+  startHomeGreeting,
+  stopHomeGreeting
+} from "./klui.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -2752,7 +2759,7 @@ function renderThinkingStatus(message, { streaming = false } = {}) {
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
   const active = streaming && !isFinalFinishReason(message?.finishReason);
-  return `<div class="thinking-status ${active ? "is-active" : "is-done"}" role="status" aria-live="polite"><span data-label="${escapeHtml(label)}">${escapeHtml(label)}</span></div>`;
+  return renderKluiThinkingStatus(message, { label, active });
 }
 
 function renderReasoning(message, { streaming = false } = {}) {
@@ -3171,6 +3178,7 @@ function renderSideChat() {
       : "";
     return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
   }).join("");
+  hydrateKluiBars(els.sideChatMessages);
   // Context is always attached — empty prompt is still sendable.
   els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;
   if (beforePinned) {
@@ -3822,12 +3830,16 @@ function renderMessages() {
   document.body.classList.toggle("chat-empty", !state.messages.length);
   renderTemporaryChatMode();
   if (!state.messages.length) {
-    const title = state.session ? getGreeting() : "What can I help you with?";
-    els.messages.innerHTML = `<div class="empty-state"><h1>${escapeHtml(title)}</h1></div>`;
+    stopHomeGreeting();
+    const guest = !state.session;
+    els.messages.innerHTML = renderHomeGreetingHtml({ guest });
+    startHomeGreeting({ guest });
     els.chatPromptNav?.classList.add("hidden");
     els.chatJumpBottom?.classList.remove("visible");
     return;
   }
+
+  stopHomeGreeting();
 
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
   const beforeScrollTop = els.messages.scrollTop;
@@ -3841,6 +3853,8 @@ function renderMessages() {
       return renderStandardMessage(view.message);
     })
     .join("");
+
+  hydrateKluiBars(els.messages);
 
   if (beforePinned) {
     pinMessagesToBottom();
@@ -3986,6 +4000,7 @@ function renderStreamingMessageSurface(message) {
       }
     } else {
       contentEl.innerHTML = renderAssistantMessageContent(message);
+      hydrateKluiBars(contentEl);
     }
   });
   syncPendingArtifactPolls();
