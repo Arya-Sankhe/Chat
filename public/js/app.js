@@ -547,6 +547,7 @@ const els = {
   sideChatInput: document.querySelector("#sideChatInput"),
   sideChatSend: document.querySelector("#sideChatSend"),
   composer: document.querySelector(".composer"),
+  composerBeam: document.querySelector(".composer-beam"),
   composerArea: document.querySelector(".composer-area"),
   composerHomeAnchor: document.querySelector("#composerHomeAnchor"),
   followupQueue: document.querySelector("#followupQueue"),
@@ -4701,6 +4702,76 @@ function syncSettingsInputs() {
   syncAppearanceControls();
 }
 
+/* Composer border-beam: md while generating, pulse-inner ocean while mic. */
+const BEAM_PULSE_ROWS = [["--bw1-mic",0.72,1.308,2.34,0,""],["--bh1-mic",1.252,0.762,3.276,0,""],["--bx1-mic",-33,29.7,3.04,0,"px"],["--by1-mic",18.15,-23.1,3.04,0,"px"],["--bw2-mic",1.28,0.762,2.86,0,""],["--bh2-mic",0.776,1.294,2.106,0,""],["--bx2-mic",26.4,-29.7,3.572,0,"px"],["--by2-mic",-33,21.45,3.572,0,"px"],["--bw3-mic",0.832,1.322,2.548,0,""],["--bh3-mic",1.21,0.72,3.64,0,""],["--bx3-mic",-19.8,33,2.755,0,"px"],["--by3-mic",-28.05,14.85,2.755,0,"px"],["--bgh-mic",0.66,1.34,2.4,0,""],["--bop-tl-mic",0.52,1,1.9,0,""],["--bop-tr-mic",0.52,1,2.508,0.532,""],["--bop-bl-mic",0.52,1,1.596,1.045,""],["--bop-br-mic",0.52,1,3.002,1.577,""]];
+const BEAM_PULSE_HUE = { prop: "--beam-hue-mic", range: 360, period: 16 };
+let beamPulseRaf = null;
+let beamPulseLast = 0;
+let beamPulseEl = null;
+
+function setComposerBeamActive(el, on) {
+  if (!el) return;
+  if (on) {
+    el.removeAttribute("data-fading");
+    el.setAttribute("data-active", "");
+    return;
+  }
+  if (!el.hasAttribute("data-active") && !el.hasAttribute("data-fading")) return;
+  el.removeAttribute("data-active");
+  el.setAttribute("data-fading", "");
+  setTimeout(() => el.removeAttribute("data-fading"), 600);
+}
+
+function setMicPulseActive(el, on) {
+  if (!on) {
+    beamPulseEl = null;
+    if (beamPulseRaf != null) {
+      cancelAnimationFrame(beamPulseRaf);
+      beamPulseRaf = null;
+    }
+    return;
+  }
+  if (!el || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  beamPulseEl = el;
+  if (beamPulseRaf != null) return;
+  beamPulseLast = 0;
+  const tick = (ts) => {
+    beamPulseRaf = requestAnimationFrame(tick);
+    if (!beamPulseEl || ts - beamPulseLast < 1000 / 30 - 2) return;
+    beamPulseLast = ts;
+    const t = ts / 1000;
+    const ease = (phase) => (1 - Math.cos(Math.PI * 2 * phase)) / 2;
+    for (const [prop, a, b, period, delay, unit] of BEAM_PULSE_ROWS) {
+      const v = a + (b - a) * ease((t - delay) / period);
+      beamPulseEl.style.setProperty(prop, unit === "px" ? `${v.toFixed(2)}px` : v.toFixed(4));
+    }
+    beamPulseEl.style.setProperty(
+      BEAM_PULSE_HUE.prop,
+      `${(((t / BEAM_PULSE_HUE.period) % 1) * BEAM_PULSE_HUE.range).toFixed(2)}deg`
+    );
+  };
+  beamPulseRaf = requestAnimationFrame(tick);
+}
+
+function syncComposerBeam() {
+  const el = els.composerBeam;
+  if (!el) return;
+  const voiceOn = voiceState === "recording" || voiceState === "processing";
+  const mode = voiceOn ? "mic" : state.running ? "gen" : "";
+  if (!mode) {
+    setComposerBeamActive(el, false);
+    setMicPulseActive(el, false);
+    return;
+  }
+  if (el.getAttribute("data-beam") !== mode) {
+    el.removeAttribute("data-active");
+    el.removeAttribute("data-fading");
+    el.setAttribute("data-beam", mode);
+  }
+  setComposerBeamActive(el, true);
+  setMicPulseActive(el, mode === "mic");
+}
+
 function setRunning(running) {
   state.running = running;
   els.stopButton.classList.toggle("hidden", !running);
@@ -4713,6 +4784,7 @@ function setRunning(running) {
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = running || !state.config?.services?.research;
   updateComposerPlaceholder();
   updateSendButton();
+  syncComposerBeam();
 }
 
 function trackPendingTurnEvent(event, run = getConversationRun()) {
@@ -4859,15 +4931,17 @@ function updateSendButton() {
 
 function setVoiceState(next) {
   voiceState = next;
-  if (!els.voiceButton) return;
-  const recording = next === "recording";
-  const processing = next === "processing";
-  els.voiceButton.classList.toggle("is-recording", recording);
-  els.voiceButton.classList.toggle("is-processing", processing);
-  els.voiceButton.setAttribute("aria-pressed", String(recording));
-  els.voiceButton.setAttribute("aria-label", recording ? "Stop voice input" : processing ? "Transcribing voice input" : "Start voice input");
-  els.voiceButton.title = recording ? "Stop recording" : processing ? "Transcribing…" : "Voice input";
+  if (els.voiceButton) {
+    const recording = next === "recording";
+    const processing = next === "processing";
+    els.voiceButton.classList.toggle("is-recording", recording);
+    els.voiceButton.classList.toggle("is-processing", processing);
+    els.voiceButton.setAttribute("aria-pressed", String(recording));
+    els.voiceButton.setAttribute("aria-label", recording ? "Stop voice input" : processing ? "Transcribing voice input" : "Start voice input");
+    els.voiceButton.title = recording ? "Stop recording" : processing ? "Transcribing…" : "Voice input";
+  }
   updateSendButton();
+  syncComposerBeam();
 }
 
 function preferredRecordingType() {
