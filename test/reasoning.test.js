@@ -356,6 +356,6 @@ test("client defers clearing provisional tool-loop prose until the final answer 
   );
   assert.match(
     applyStreamEventSource,
-    /if \(message\.resetContentOnNextTextDelta\)[\s\S]*?message\.content = "";[\s\S]*?delete message\.resetContentOnNextTextDelta;/
+    /if \(message\.resetContentOnNextTextDelta\)[\s\S]*?message\.content = "";[\s\S]*?message\.finishReason = "";[\s\S]*?message\.toolCalls = \[\];[\s\S]*?delete message\.resetContentOnNextTextDelta;/
   );
 });

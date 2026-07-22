@@ -113,7 +113,10 @@ export function createStreamReducer({
     }
     if (typeof delta.content === "string" && delta.content) {
       if (message.resetContentOnNextTextDelta) {
+        // Final answer started — drop provisional tool-loop prose + stale finish state.
         message.content = "";
+        message.finishReason = "";
+        message.toolCalls = [];
         delete message.resetContentOnNextTextDelta;
       }
       markReasoningEnded(message);

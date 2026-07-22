@@ -2716,6 +2716,20 @@ function isAssistantMessageStreaming(message) {
   return Boolean(message?.id);
 }
 
+// Tool-loop "Let me look…" prose is not the final answer yet.
+function isProvisionalToolProse(message) {
+  if (message?.resetContentOnNextTextDelta) return true;
+  if (message?.finishReason === "tool_calls") return true;
+  if (
+    isAssistantMessageStreaming(message)
+    && (message?.toolCalls || []).some((tc) => tc?.function?.name || tc?.id)
+    && !isFinalFinishReason(message?.finishReason)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isFinalFinishReason(reason) {
   return Boolean(reason && reason !== "tool_calls");
 }
@@ -2843,7 +2857,7 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
 }
 
 function renderThinkingStatus(message, { streaming = false } = {}) {
-  if (rawTextContent(message?.content).trim()) return "";
+  if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return "";
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
   const active = streaming && !isFinalFinishReason(message?.finishReason);
@@ -3823,6 +3837,8 @@ function messageCopyButton(msg, { iconOnly = false } = {}) {
 function renderMessageFooter(msg, role) {
   if (role === "user") return renderUserMessageFooter(msg);
   if (role !== "assistant") return "";
+  // Hide copy/sources while tools are still running or prose is provisional.
+  if (isAssistantMessageStreaming(msg) || isProvisionalToolProse(msg)) return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
   const retry = renderMessageRetry(msg);
   const adjust = renderResponseAdjustmentMenu(msg);
@@ -4067,6 +4083,7 @@ function renderStreamingMessageSurface(message) {
     surface.dataset.rawText = rawText;
     const statusEl = contentEl.querySelector(".thinking-status");
     const hasContent = rawText.trim().length > 0;
+    const provisional = isProvisionalToolProse(message);
 
     if (statusEl && hasContent) {
       // Keep the live status node so opacity can fade out while answer HTML updates.
@@ -4077,7 +4094,17 @@ function renderStreamingMessageSurface(message) {
         if (node !== statusEl) node.remove();
       }
       while (tmp.firstChild) contentEl.appendChild(tmp.firstChild);
-      if (!statusEl.classList.contains("is-leaving")) {
+      if (provisional) {
+        // Interim tool-loop prose: keep Klui visible alongside the one-liner.
+        statusEl.classList.remove("is-leaving");
+        const label = currentThinkingStatus(message, { streaming: true });
+        if (label) {
+          updateKluiBar(statusEl, {
+            label,
+            active: !isFinalFinishReason(message?.finishReason)
+          });
+        }
+      } else if (!statusEl.classList.contains("is-leaving")) {
         void statusEl.offsetWidth;
         statusEl.classList.add("is-leaving");
         const removeStatus = () => {
@@ -4954,7 +4981,8 @@ function isStreamDeltaEvent(event) {
 
 function patchKluiThinkingInPlace(message) {
   const id = message?.id ? String(message.id) : "";
-  if (!id || rawTextContent(message?.content).trim()) return false;
+  if (!id) return false;
+  if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return false;
   const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
   const contentEl = surface?.querySelector(".message-content");
   if (!contentEl) return false;
