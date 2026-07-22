@@ -1,4 +1,4 @@
-import { slotText, chromatic } from "../vendor/slot-text/dist/index.js";
+import { slotText } from "../vendor/slot-text/dist/index.js";
 import { escapeHtml } from "./render.js";
 
 const PHRASES = {
@@ -35,8 +35,18 @@ const GUEST_LINES = [
   ...GREETING_LINES.slice(1),
 ];
 
-const hydrated = new WeakSet();
+const controllers = new WeakMap();
 let greetingRun = 0;
+
+/** Slot-text flash colors follow the user's selected Klui accent (`--accent`). */
+function accentFlash() {
+  const accent = (getComputedStyle(document.body).getPropertyValue("--accent") || "").trim() || "#6366f1";
+  return (index, total) => {
+    const t = total <= 1 ? 0.5 : index / (total - 1);
+    const pct = Math.round(55 + t * 45);
+    return `color-mix(in srgb, ${accent} ${pct}%, white)`;
+  };
+}
 
 export function labelToKluiState(label) {
   const l = String(label || "").toLowerCase();
@@ -156,28 +166,33 @@ export function renderKluiThinkingStatus(message, { label, active }) {
 }
 
 function mountBar(bar) {
-  if (hydrated.has(bar)) return;
-  hydrated.add(bar);
+  if (controllers.has(bar)) return controllers.get(bar);
 
   const stateEl = bar.querySelector(".klui-state");
   const phraseEl = bar.querySelector(".klui-phrase");
-  if (!stateEl || !phraseEl) return;
+  if (!stateEl || !phraseEl) return null;
 
   const initialState = bar.dataset.state || "thinking";
   const initialLabel = bar.dataset.label || "Thinking";
+  const firstPhrase = (PHRASES[initialState] || PHRASES.thinking)[0];
   const stateSlot = slotText(stateEl, initialLabel);
-  const phraseSlot = slotText(phraseEl, PHRASES[initialState]?.[0] || "");
+  const phraseSlot = slotText(phraseEl, firstPhrase);
   let phraseIdx = 0;
   let phraseTimer = null;
   let dirUp = true;
   let state = initialState;
+  let pendingLabel = null;
+  let coalesce = false;
 
   function rollPhrase(text, { flash = false } = {}) {
     dirUp = !dirUp;
+    // interrupt:false — finish the current roll before starting the next so
+    // rapid phrase/state updates can't snap glyphs mid-transform.
     phraseSlot.set(text, {
       direction: dirUp ? "up" : "down",
-      skipUnchanged: false,
-      color: flash ? chromatic({ from: 200, range: 80 }) : undefined,
+      skipUnchanged: true,
+      interrupt: false,
+      color: flash ? accentFlash() : undefined,
     });
   }
 
@@ -186,19 +201,70 @@ function mountBar(bar) {
     phraseIdx = 0;
     const list = PHRASES[state] || PHRASES.thinking;
     rollPhrase(list[0], { flash: true });
+    // 2.4s > typical roll (stagger*len + duration) so cycles don't overlap.
     phraseTimer = setInterval(() => {
       if (!bar.isConnected || bar.classList.contains("is-leaving")) {
         clearInterval(phraseTimer);
         return;
       }
       phraseIdx = (phraseIdx + 1) % list.length;
-      rollPhrase(list[phraseIdx]);
-    }, 1700);
+      rollPhrase(list[phraseIdx], { flash: true });
+    }, 2400);
+  }
+
+  function applyNow(label, { active = true, animate = true } = {}) {
+    const next = labelToKluiState(label);
+    const labelChanged = label !== (bar.dataset.label || "");
+    const stateChanged = next !== state;
+    bar.dataset.state = next;
+    bar.dataset.label = label;
+    bar.classList.toggle("is-active", active);
+    bar.classList.toggle("is-done", !active);
+    setFaceExtras(bar, next);
+    if (animate && labelChanged) {
+      stateSlot.set(label, {
+        direction: "up",
+        skipUnchanged: true,
+        interrupt: false,
+        color: accentFlash(),
+      });
+    } else if (labelChanged) {
+      stateSlot.set(label, { skipUnchanged: true, interrupt: false });
+    }
+    if (stateChanged || !phraseTimer) {
+      state = next;
+      startPhraseCycle();
+    }
+  }
+
+  function apply(label, { active = true, animate = true } = {}) {
+    pendingLabel = { label, active, animate };
+    if (coalesce) return;
+    coalesce = true;
+    requestAnimationFrame(() => {
+      coalesce = false;
+      const next = pendingLabel;
+      pendingLabel = null;
+      if (next) applyNow(next.label, next);
+    });
   }
 
   setFaceExtras(bar, state);
-  stateSlot.set(initialLabel, { direction: "up", skipUnchanged: true });
-  startPhraseCycle();
+  // First paint: settle label, start phrase cycle once (via !phraseTimer).
+  applyNow(initialLabel, { active: !bar.classList.contains("is-done"), animate: false });
+
+  const api = {
+    apply,
+    stop() { clearInterval(phraseTimer); },
+  };
+  controllers.set(bar, api);
+  return api;
+}
+
+export function updateKluiBar(bar, { label, active = true } = {}) {
+  if (!bar || !label) return;
+  const api = controllers.get(bar) || mountBar(bar);
+  api?.apply(label, { active, animate: true });
 }
 
 export function hydrateKluiBars(root = document) {

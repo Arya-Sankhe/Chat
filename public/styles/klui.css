@@ -16,10 +16,7 @@
   display: none;
 }
 
-.thinking-status.klui-bar.is-active span::after {
-  content: none;
-  animation: none;
-}
+/* Old shimmer targeted all descendant spans; klui-bar uses nested slot-text spans. */
 
 .klui-bar .klui {
   position: relative;
@@ -173,9 +170,13 @@
   color: var(--text);
 }
 
-.klui-state.slot-text,
-.klui-state .char-face {
+.klui-state.slot-text {
   color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.klui-state .char-face {
   font-weight: 700;
   font-size: 14px;
 }
@@ -188,9 +189,13 @@
   min-height: 1.3em;
 }
 
-.klui-phrase.slot-text,
-.klui-phrase .char-face {
+.klui-phrase.slot-text {
   color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.klui-phrase .char-face {
   font-size: 12px;
   font-weight: 500;
 }

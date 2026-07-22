@@ -91,7 +91,8 @@ import {
   renderHomeGreetingHtml,
   renderKluiThinkingStatus,
   startHomeGreeting,
-  stopHomeGreeting
+  stopHomeGreeting,
+  updateKluiBar
 } from "./klui.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
@@ -3998,6 +3999,16 @@ function renderStreamingMessageSurface(message) {
         statusEl.addEventListener("transitionend", removeStatus, { once: true });
         setTimeout(removeStatus, 200);
       }
+    } else if (statusEl?.classList.contains("klui-bar") && !hasContent) {
+      // Root fix: reasoning/tool-adjacent deltas used to innerHTML-replace this node
+      // mid-roll (old shimmer stutter). Patch the live bar instead of remounting.
+      const label = currentThinkingStatus(message, { streaming: true });
+      if (label) {
+        updateKluiBar(statusEl, {
+          label,
+          active: !isFinalFinishReason(message?.finishReason)
+        });
+      }
     } else {
       contentEl.innerHTML = renderAssistantMessageContent(message);
       hydrateKluiBars(contentEl);
@@ -4854,9 +4865,35 @@ function isStreamDeltaEvent(event) {
   );
 }
 
+function patchKluiThinkingInPlace(message) {
+  const id = message?.id ? String(message.id) : "";
+  if (!id || rawTextContent(message?.content).trim()) return false;
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
+  const contentEl = surface?.querySelector(".message-content");
+  if (!contentEl) return false;
+  const label = currentThinkingStatus(message, { streaming: true });
+  if (!label) return false;
+  const active = !isFinalFinishReason(message?.finishReason);
+  let bar = contentEl.querySelector(".klui-bar");
+  if (!bar) {
+    contentEl.insertAdjacentHTML("afterbegin", renderKluiThinkingStatus(message, { label, active }));
+    hydrateKluiBars(contentEl);
+    return true;
+  }
+  updateKluiBar(bar, { label, active });
+  return true;
+}
+
 function queueStreamRenderForEvent(message, event) {
-  if (isStreamDeltaEvent(event)) queueStreamingMessageRender(message);
-  else queueRenderMessages();
+  if (isStreamDeltaEvent(event)) {
+    // While still thinking (no answer text), keep the Klui bar alive — reasoning
+    // deltas previously remounted it every chunk and chopped slot-text mid-roll.
+    if (!rawTextContent(message?.content).trim() && patchKluiThinkingInPlace(message)) return;
+    queueStreamingMessageRender(message);
+    return;
+  }
+  if (patchKluiThinkingInPlace(message)) return;
+  queueRenderMessages();
 }
 
 /* ─── API data loading ─── */

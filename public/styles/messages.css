@@ -1498,7 +1498,7 @@ body.capacitor-native .side-chat-panel {
 
 }
 
-.thinking-status.is-active span {
+.thinking-status.is-active > span {
 
   position: relative;
 
@@ -1508,7 +1508,7 @@ body.capacitor-native .side-chat-panel {
 
 }
 
-.thinking-status.is-active span::after {
+.thinking-status.is-active > span::after {
 
   content: attr(data-label);
 
