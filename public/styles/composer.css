@@ -2060,6 +2060,21 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
   color: #d94646;
 }
 
+.voice-icon-cancel,
+.send-icon-confirm {
+  display: none;
+}
+
+.voice-btn.is-recording .voice-icon-mic,
+.send-btn.is-voice-confirm .send-icon-arrow {
+  display: none;
+}
+
+.voice-btn.is-recording .voice-icon-cancel,
+.send-btn.is-voice-confirm .send-icon-confirm {
+  display: block;
+}
+
 .voice-dot {
   position: absolute;
   top: 7px;
@@ -2073,9 +2088,7 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 }
 
 .voice-btn.is-recording .voice-dot {
-  opacity: 1;
-  transform: scale(1);
-  animation: voice-pulse 1.35s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+  display: none;
 }
 
 .voice-btn.is-processing .voice-dot {

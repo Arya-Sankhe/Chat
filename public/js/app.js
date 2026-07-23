@@ -328,6 +328,7 @@ let voiceQueue = Promise.resolve();
 let voiceTranscriptParts = [];
 let voiceError = null;
 let voiceState = "idle";
+let voiceCommit = true;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
 let researchController;
@@ -4944,6 +4945,13 @@ function updateSendButton() {
     els.voiceButton.disabled = voiceState === "processing"
       || (!state.config?.services?.speech && voiceState !== "recording");
   }
+  if (voiceState === "recording" || voiceState === "processing") {
+    els.sendButton.classList.toggle("active", voiceState === "recording");
+    els.sendButton.disabled = voiceState !== "recording";
+    els.sendButton.classList.toggle("is-voice-confirm", true);
+    return;
+  }
+  els.sendButton.classList.toggle("is-voice-confirm", false);
   const hasText = Boolean(els.promptInput.value.trim() || state.pastedText);
   if (state.running) {
     const hasContent = hasText || state.images.some((item) => item.category === "image");
@@ -4960,14 +4968,25 @@ function updateSendButton() {
 
 function setVoiceState(next) {
   voiceState = next;
+  const recording = next === "recording";
+  const processing = next === "processing";
+  els.composer?.classList.toggle("is-voice-recording", recording || processing);
   if (els.voiceButton) {
-    const recording = next === "recording";
-    const processing = next === "processing";
     els.voiceButton.classList.toggle("is-recording", recording);
     els.voiceButton.classList.toggle("is-processing", processing);
     els.voiceButton.setAttribute("aria-pressed", String(recording));
-    els.voiceButton.setAttribute("aria-label", recording ? "Stop voice input" : processing ? "Transcribing voice input" : "Start voice input");
-    els.voiceButton.title = recording ? "Stop recording" : processing ? "Transcribing…" : "Voice input";
+    els.voiceButton.setAttribute(
+      "aria-label",
+      recording ? "Cancel voice input" : processing ? "Transcribing voice input" : "Start voice input"
+    );
+    els.voiceButton.title = recording ? "Cancel recording" : processing ? "Transcribing…" : "Voice input";
+  }
+  if (els.sendButton) {
+    els.sendButton.setAttribute(
+      "aria-label",
+      recording ? "Confirm and transcribe" : processing ? "Transcribing…" : "Send"
+    );
+    els.sendButton.title = recording ? "Transcribe into message" : processing ? "Transcribing…" : "Send";
   }
   updateSendButton();
   syncComposerBeam();
@@ -5012,18 +5031,22 @@ function finishVoiceRecording() {
   voiceStream = null;
   voiceRecorder = null;
   setVoiceState("processing");
+  const commit = voiceCommit;
   voiceQueue.finally(() => {
     const transcript = voiceTranscriptParts.filter(Boolean).join(" ").trim();
-    if (transcript) {
-      const current = els.promptInput.value;
-      els.promptInput.value = `${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`;
-      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
-      els.promptInput.focus();
+    if (commit) {
+      if (transcript) {
+        const current = els.promptInput.value;
+        els.promptInput.value = `${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`;
+        els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+        els.promptInput.focus();
+      }
+      if (voiceError) showToast(transcript ? "Part of the recording could not be transcribed." : voiceError.message);
+      else if (!transcript) showToast("No speech was detected.");
     }
-    if (voiceError) showToast(transcript ? "Part of the recording could not be transcribed." : voiceError.message);
-    else if (!transcript) showToast("No speech was detected.");
     voiceTranscriptParts = [];
     voiceError = null;
+    voiceCommit = true;
     setVoiceState("idle");
   });
 }
@@ -5043,6 +5066,7 @@ async function startVoiceRecording() {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     voiceTranscriptParts = [];
     voiceError = null;
+    voiceCommit = true;
     voiceQueue = Promise.resolve();
     setVoiceState("recording");
     startVoiceChunk();
@@ -5055,13 +5079,20 @@ async function startVoiceRecording() {
   }
 }
 
+function stopVoiceRecording({ commit }) {
+  if (voiceState !== "recording") return;
+  voiceCommit = Boolean(commit);
+  clearTimeout(voiceChunkTimer);
+  voiceChunkTimer = null;
+  setVoiceState("processing");
+  if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+  else finishVoiceRecording();
+}
+
 function toggleVoiceRecording() {
   if (voiceState === "processing") return;
   if (voiceState === "recording") {
-    clearTimeout(voiceChunkTimer);
-    voiceChunkTimer = null;
-    setVoiceState("processing");
-    if (voiceRecorder?.state === "recording") voiceRecorder.stop();
+    stopVoiceRecording({ commit: false });
     return;
   }
   startVoiceRecording();
@@ -5628,6 +5659,11 @@ async function removeConversation(id) {
 }
 
 async function sendPrompt() {
+  if (voiceState === "recording") {
+    stopVoiceRecording({ commit: true });
+    return;
+  }
+  if (voiceState === "processing") return;
   if (state.session && !hasChatAccess()) {
     openUpgradePlans();
     return;
@@ -7381,7 +7417,13 @@ function bindEvents() {
     if (input) autoSizeEditInput(input);
   });
 
-  els.sendButton.addEventListener("click", sendPrompt);
+  els.sendButton.addEventListener("click", () => {
+    if (voiceState === "recording") {
+      stopVoiceRecording({ commit: true });
+      return;
+    }
+    sendPrompt();
+  });
   els.voiceButton?.addEventListener("click", toggleVoiceRecording);
   els.stopButton.addEventListener("click", () => {
     if (state.activeResearchId) {
@@ -7410,7 +7452,14 @@ function bindEvents() {
 
   els.promptInput.addEventListener("input", () => { els.composer?.classList.remove("compact"); applyComposerHeight(); updateSendButton(); renderContextMeter(); });
   els.promptInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (voiceState === "recording") {
+        stopVoiceRecording({ commit: true });
+        return;
+      }
+      sendPrompt();
+    }
   });
   els.promptInput.addEventListener("paste", (e) => {
     const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));

@@ -158,11 +158,16 @@ test("voice input rolls native recorder chunks through the shared composer", () 
   const html = readPublic("index.html");
   const css = readStylesheet();
   assert.match(html, /id="voiceButton"/);
+  assert.match(html, /voice-icon-cancel/);
+  assert.match(html, /send-icon-confirm/);
   assert.match(appJs, /const SPEECH_CHUNK_MS = 28_000/);
   assert.match(appJs, /voiceChunkTimer = setTimeout/);
   assert.match(appJs, /if \(voiceState === "recording" && voiceStream\) startVoiceChunk\(\)/);
   assert.match(appJs, /voiceTranscriptParts\.filter\(Boolean\)\.join\(" "\)/);
-  assert.match(css, /\.voice-btn\.is-recording \.voice-dot/);
+  assert.match(appJs, /stopVoiceRecording\(\{ commit: false \}\)/);
+  assert.match(appJs, /stopVoiceRecording\(\{ commit: true \}\)/);
+  assert.match(css, /\.voice-btn\.is-recording \.voice-icon-cancel/);
+  assert.match(css, /\.send-btn\.is-voice-confirm \.send-icon-confirm/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
