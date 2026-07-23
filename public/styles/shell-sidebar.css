@@ -84,6 +84,52 @@ body.guest-mode .sidebar {
 
 }
 
+@media (min-width: 901px) {
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar {
+    align-self: start;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    padding: 0;
+    border-bottom: 1px solid var(--border-light);
+    border-radius: 0 14px 14px 0;
+  }
+
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-top {
+    padding: 12px 8px;
+  }
+
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-mid {
+    display: none;
+  }
+
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
+    position: fixed;
+    inset: auto auto 10px 0;
+    display: block;
+    box-sizing: border-box;
+    width: 56px;
+    height: 52px;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    border-left: 0;
+    border-radius: 0 14px 14px 0;
+    background: var(--bg);
+    z-index: 21;
+  }
+
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-profile-btn {
+    border-radius: 9px;
+  }
+
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-profile-avatar,
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar-profile-btn[aria-expanded="true"] .sidebar-profile-avatar {
+    border-radius: 8px;
+    box-shadow: none;
+  }
+}
+
 .sidebar-top {
 
   display: flex;
@@ -176,67 +222,50 @@ body.sidebar-expanded .sidebar-brand {
 
 }
 
-/* Expanded: vivid JPEG header + search pill + new-chat chip (collapsed unchanged). */
+/* Expanded header stays clear when no wallpaper is selected. */
 body.sidebar-expanded .sidebar-header,
 body.guest-mode .sidebar-header,
 body.sidebar-open .sidebar-header {
-  position: relative;
-  isolate: isolate;
   min-height: 64px;
   margin: 0 0 8px;
   padding: 10px 8px 10px 10px;
   border-radius: 14px;
-  overflow: hidden;
-  color: #fff;
-  /* Image sits on ::before so we can saturate without washing the brand/toggle. */
-  background: var(--bg);
+  color: var(--text);
+  background: transparent;
 }
 
-body.sidebar-expanded .sidebar-header::before,
-body.guest-mode .sidebar-header::before,
-body.sidebar-open .sidebar-header::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background:
-    linear-gradient(180deg, rgba(8, 16, 28, 0.08) 0%, rgba(8, 16, 28, 0.28) 100%),
-    url("/images/sidebar-header.jpg") center / cover no-repeat;
-  filter: saturate(1.2) brightness(1.06) contrast(1.04);
-  pointer-events: none;
+/* With a wallpaper, the header is its own unfiltered window onto that artwork. */
+body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header,
+body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-header,
+body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  background-color: transparent;
+  background-image: var(--home-wallpaper-image), var(--home-wallpaper-base, none);
+  background-position: center bottom;
+  background-size: cover;
+  background-repeat: no-repeat;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 12%, transparent);
 }
 
 body.sidebar-expanded .sidebar-brand,
 body.guest-mode .sidebar-brand,
 body.sidebar-open .sidebar-brand {
-  position: relative;
-  z-index: 1;
-  color: #fff;
+  color: var(--text);
   font-family: "Korataki", "Orbitron", sans-serif;
   font-size: 16px;
   font-weight: 900;
   letter-spacing: 0.05em;
   text-transform: none;
-  -webkit-text-stroke: 0.35px rgba(255, 255, 255, 0.35);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 10px rgba(0, 0, 0, 0.25);
   padding: 2px 5px;
   margin: -2px -2px -2px -4px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.03);
-  backdrop-filter: blur(0.75px);
-  -webkit-backdrop-filter: blur(0.75px);
 }
 
 body.sidebar-expanded .sidebar-header .sidebar-toggle,
 body.guest-mode .sidebar-header .sidebar-toggle,
 body.sidebar-open .sidebar-header .sidebar-toggle {
-  position: relative;
-  z-index: 1;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.03);
-  backdrop-filter: blur(0.75px);
-  -webkit-backdrop-filter: blur(0.75px);
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+  color: var(--text);
+  background: transparent;
   opacity: 0.95;
   transition: opacity var(--transition), background var(--transition);
 }
@@ -244,7 +273,7 @@ body.sidebar-open .sidebar-header .sidebar-toggle {
 body.sidebar-expanded .sidebar-header .sidebar-toggle:hover,
 body.guest-mode .sidebar-header .sidebar-toggle:hover,
 body.sidebar-open .sidebar-header .sidebar-toggle:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
   opacity: 1;
 }
 
@@ -1315,4 +1344,3 @@ body:not(.sidebar-expanded) .conversation-row {
   color: var(--danger);
 
 }
-

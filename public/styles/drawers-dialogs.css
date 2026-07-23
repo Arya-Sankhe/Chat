@@ -166,6 +166,124 @@
 
 }
 
+.wallpaper-picker {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(88px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.wallpaper-option {
+  min-width: 88px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease-out,
+    color 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+.wallpaper-option:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.wallpaper-option:active {
+  transform: scale(0.98);
+}
+
+.wallpaper-option[aria-checked="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.wallpaper-thumb {
+  display: block;
+  height: 52px;
+  margin-bottom: 5px;
+  border-radius: 5px;
+  background-color: var(--surface-muted);
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: contain;
+}
+
+.wallpaper-option[data-wallpaper="none"] .wallpaper-thumb {
+  background-image: none;
+}
+
+.wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+  background-image: url("/images/home-clouds.webp");
+}
+
+body[data-mode="dark"] .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+  background-image:
+    url("/images/home-clouds.webp"),
+    url("/images/home-night-sky.webp?v=20260723-1");
+  background-size: contain, cover;
+}
+
+body[data-mode="light"] .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+  background-image: url("/images/home-clouds-light.webp?v=20260723-3");
+}
+
+.wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+  background-image: url("/images/home-alpine.webp");
+}
+
+body[data-mode="dark"] .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+  background-image:
+    url("/images/home-alpine.webp"),
+    url("/images/home-night-sky.webp?v=20260723-1");
+  background-size: contain, cover;
+}
+
+body[data-mode="light"] .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+  background-image: url("/images/home-alpine-light.webp?v=20260723-3");
+}
+
+.wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+  background-image: url("/images/home-valley.webp");
+}
+
+body[data-mode="dark"] .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+  background-image:
+    url("/images/home-valley.webp"),
+    url("/images/home-night-sky.webp?v=20260723-1");
+  background-size: contain, cover;
+}
+
+body[data-mode="light"] .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+  background-image: url("/images/home-valley-light.webp?v=20260723-4");
+}
+
+.wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
+  background-image: url("/images/home-launch.webp?v=20260723-4");
+}
+
+body[data-mode="light"] .wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
+  background-image: url("/images/home-launch-light.webp?v=20260723-4");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallpaper-option {
+    transition: none;
+  }
+
+  .wallpaper-option:hover,
+  .wallpaper-option:active {
+    transform: none;
+  }
+}
+
 .settings-switch-row {
   display: flex;
   align-items: center;
@@ -1997,4 +2115,3 @@
   font-size: 14px;
 
 }
-

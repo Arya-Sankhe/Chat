@@ -12,8 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260723-sidebar-hover-exp">
-    <link rel="preload" as="image" href="/images/sidebar-header.jpg" type="image/jpeg">
+    <link rel="stylesheet" href="/styles.css?v=20260723-home-wallpapers-v5">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,6 +53,7 @@
       </section>
 
       <div class="app-shell" id="chatView">
+        <img class="home-wallpaper" id="homeWallpaper" src="/images/home-clouds.webp" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
         <button class="native-nav-backdrop" id="nativeNavBackdrop" type="button" aria-label="Close navigation"></button>
         <aside class="sidebar" aria-label="Navigation">
           <nav class="sidebar-top">
@@ -454,6 +454,32 @@
                 <button type="button" data-appearance="light" role="radio" aria-checked="false">Light</button>
                 <button type="button" data-appearance="system" role="radio" aria-checked="true">System</button>
                 <button type="button" data-appearance="dark" role="radio" aria-checked="false">Dark</button>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h2>Wallpaper</h2>
+              <div class="wallpaper-picker" id="wallpaperPicker" role="radiogroup" aria-label="Home wallpaper">
+                <button type="button" class="wallpaper-option" data-wallpaper="none" role="radio" aria-checked="false">
+                  <span class="wallpaper-thumb" aria-hidden="true"></span>
+                  <span>None</span>
+                </button>
+                <button type="button" class="wallpaper-option" data-wallpaper="clouds" role="radio" aria-checked="true">
+                  <span class="wallpaper-thumb" aria-hidden="true"></span>
+                  <span>Clouds</span>
+                </button>
+                <button type="button" class="wallpaper-option" data-wallpaper="alpine" role="radio" aria-checked="false">
+                  <span class="wallpaper-thumb" aria-hidden="true"></span>
+                  <span>Alpine</span>
+                </button>
+                <button type="button" class="wallpaper-option" data-wallpaper="valley" role="radio" aria-checked="false">
+                  <span class="wallpaper-thumb" aria-hidden="true"></span>
+                  <span>Valley</span>
+                </button>
+                <button type="button" class="wallpaper-option" data-wallpaper="launch" role="radio" aria-checked="false">
+                  <span class="wallpaper-thumb" aria-hidden="true"></span>
+                  <span>Launch</span>
+                </button>
               </div>
             </section>
 

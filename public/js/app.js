@@ -212,6 +212,7 @@ const SPEECH_CHUNK_MS = 28_000;
 const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
+const HOME_WALLPAPERS = new Set(["none", "clouds", "alpine", "valley", "launch"]);
 const WRITING_STYLE_LABELS = Object.freeze({
   normal: "Normal",
   learning: "Learning",
@@ -241,6 +242,7 @@ const defaultSettings = {
   theme: "classic",
   appearance: "system",
   colorPreset: "default",
+  wallpaper: "clouds",
   showModelReasoning: true,
   weatherUnits: "metric",
   uiTextScale: 100
@@ -593,6 +595,8 @@ const els = {
   textScaleValue: document.querySelector("#textScaleValue"),
   themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
+  wallpaperPicker: document.querySelector("#wallpaperPicker"),
+  homeWallpaper: document.querySelector("#homeWallpaper"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
@@ -1121,6 +1125,7 @@ function loadSettings() {
     loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
+    loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
   return loaded;
@@ -1153,6 +1158,24 @@ function applyChatTheme() {
   document.body.dataset.chatTheme = theme;
   document.body.dataset.accent = preset;
   document.body.dataset.mode = mode;
+  const wallpaper = HOME_WALLPAPERS.has(state.settings.wallpaper) ? state.settings.wallpaper : "clouds";
+  document.body.dataset.wallpaper = wallpaper;
+  const hasLightWallpaper = mode === "light" && ["clouds", "alpine", "valley", "launch"].includes(wallpaper);
+  if (wallpaper !== "none") {
+    const wallpaperSrc = `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp?v=20260723-4`;
+    const usesNightSky = mode === "dark" && ["clouds", "alpine", "valley"].includes(wallpaper);
+    document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
+    document.body.style.setProperty(
+      "--home-wallpaper-base",
+      usesNightSky ? 'url("/images/home-night-sky.webp?v=20260723-1")' : "none",
+    );
+    if (els.homeWallpaper && !els.homeWallpaper.src.endsWith(wallpaperSrc)) {
+      els.homeWallpaper.src = wallpaperSrc;
+    }
+  } else {
+    document.body.style.removeProperty("--home-wallpaper-image");
+    document.body.style.removeProperty("--home-wallpaper-base");
+  }
   applyCodeHighlightTheme(mode);
   syncAppearanceControls();
   // Match the Android notification panel color to the chat surface so the
@@ -1179,6 +1202,11 @@ function syncAppearanceControls() {
   if (els.appearancePill) {
     els.appearancePill.querySelectorAll("[data-appearance]").forEach((btn) => {
       btn.setAttribute("aria-checked", btn.dataset.appearance === appearance ? "true" : "false");
+    });
+  }
+  if (els.wallpaperPicker) {
+    els.wallpaperPicker.querySelectorAll("[data-wallpaper]").forEach((btn) => {
+      btn.setAttribute("aria-checked", btn.dataset.wallpaper === state.settings.wallpaper ? "true" : "false");
     });
   }
   if (els.colorPresetRow) {
@@ -1287,7 +1315,7 @@ function saveSettings() {
 function updateSetting(key, value) {
   state.settings[key] = value;
   saveSettings();
-  if (key === "theme" || key === "appearance" || key === "colorPreset") applyChatTheme();
+  if (key === "theme" || key === "appearance" || key === "colorPreset" || key === "wallpaper") applyChatTheme();
   if (key === "uiTextScale") applyTextScale();
 }
 
@@ -7425,6 +7453,11 @@ function bindEvents() {
     const btn = e.target.closest("[data-appearance]");
     if (!btn) return;
     updateSetting("appearance", APPEARANCES.has(btn.dataset.appearance) ? btn.dataset.appearance : "system");
+  });
+  els.wallpaperPicker?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-wallpaper]");
+    if (!btn) return;
+    updateSetting("wallpaper", HOME_WALLPAPERS.has(btn.dataset.wallpaper) ? btn.dataset.wallpaper : "clouds");
   });
   els.colorPresetRow?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-accent]");

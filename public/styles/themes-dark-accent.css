@@ -56,6 +56,26 @@ body[data-mode="dark"] {
 
 }
 
+body[data-mode="dark"][data-chat-theme="classic"][data-wallpaper="none"] {
+
+  --bg: #000000;
+
+  --bg-secondary: #212121;
+
+  --border: #303030;
+
+  --border-light: #1f1f1f;
+
+  background: #000000;
+
+}
+
+body[data-mode="dark"][data-chat-theme="classic"][data-wallpaper="none"] .composer {
+
+  background: var(--bg-secondary);
+
+}
+
 body[data-mode="dark"][data-chat-theme="cyber"] {
 
   --ink: #f4ecdd;
@@ -275,4 +295,3 @@ button { cursor: pointer; border: none; background: none; }
 .hidden { display: none !important; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-
