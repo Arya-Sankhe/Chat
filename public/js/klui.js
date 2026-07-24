@@ -27,7 +27,7 @@ const GREETING_LINES = [
   { text: "what we working on?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
   { text: "drop it here", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
   { text: "no pressure, just vibes", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
-  { text: "your move", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "awaiting input...", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
   { text: "got something on your mind?", mood: "think", mouth: "M33 51 Q40 55 47 51" },
   { text: "let's cook", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
 ];
