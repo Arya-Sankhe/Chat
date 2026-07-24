@@ -54,6 +54,7 @@ import {
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
   OPENROUTER_VISION_PRO_MODEL,
+  OPENROUTER_VISION_L2,
   resolveProvider
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
@@ -83,7 +84,9 @@ import {
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
+// Text-only compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_TEXT_PRO_MODEL,
@@ -311,10 +314,27 @@ function normalizeCompareModels(value) {
   return models;
 }
 
-function normalizeCompareModelsForRequest(value) {
+function contentHasCompareMedia(content) {
+  return Array.isArray(content) && content.some((part) => part?.type === "image_url" || part?.type === "file");
+}
+
+function requestHasCompareMedia({ userContent, existingMessages = [], attachments = [] } = {}) {
+  if ((attachments || []).some((attachment) => {
+    const category = attachment?.category || "image";
+    return category === "image" || category === "document";
+  })) return true;
+  if (contentHasCompareMedia(userContent)) return true;
+  return (existingMessages || []).some((message) => message?.role === "user" && contentHasCompareMedia(message.content));
+}
+
+function normalizeCompareModelsForRequest(value, { hasMedia = false } = {}) {
   const models = normalizeCompareModels(value);
   if (!models.length) return [];
-  return DEFAULT_COMPARE_MODELS;
+  return hasMedia ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
+}
+
+export function resolveFixedCompareModels(value, { hasMedia = false } = {}) {
+  return normalizeCompareModelsForRequest(value, { hasMedia });
 }
 
 function normalizeCouncilModelsForRequest(value) {
@@ -722,11 +742,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : null;
 
   const councilEnabled = normalizeCouncilFlag(body.council);
-  const compareModels = councilEnabled
-    ? normalizeCouncilModelsForRequest(body.models)
-    : normalizeCompareModelsForRequest(body.models);
+  const requestedCompareModels = normalizeCompareModels(body.models);
   const agentMode = normalizeAgentMode(body.agentMode);
-  const provider = resolveProvider(compareModels.length ? "openrouter" : body.provider, config);
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
     : "";
@@ -734,7 +751,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const editUserMessageId = typeof body.editUserMessageId === "string"
     ? body.editUserMessageId.trim()
     : "";
-  if (retryAssistantMessageId && (compareModels.length || councilEnabled)) {
+  if (retryAssistantMessageId && (requestedCompareModels.length || councilEnabled)) {
     throw new HttpError(400, "Retry is not supported for compare or council chats yet.");
   }
   if (retryAssistantMessageId && editUserMessageId) {
@@ -794,6 +811,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
     attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
     userContent = buildStoredUserContent(body.text, attachments);
   }
+
+  const hasCompareMedia = requestHasCompareMedia({ userContent, existingMessages, attachments });
+  const compareModels = councilEnabled
+    ? normalizeCouncilModelsForRequest(body.models)
+    : normalizeCompareModelsForRequest(body.models, { hasMedia: hasCompareMedia });
+  const provider = resolveProvider(compareModels.length ? "openrouter" : body.provider, config);
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;
@@ -1330,11 +1353,11 @@ export function filterCurrentTurnMessages(messages, turnRunId, userMessageId = "
   ));
 }
 
-function persistedTurnRequest(body, conversation, config) {
+function persistedTurnRequest(body, conversation, config, { hasMedia = false } = {}) {
   const council = normalizeCouncilFlag(body.council);
   const models = council
     ? normalizeCouncilModelsForRequest(body.models)
-    : normalizeCompareModelsForRequest(body.models);
+    : normalizeCompareModelsForRequest(body.models, { hasMedia });
   if (council && (models.length < COUNCIL_MIN_MODELS || models.length > COUNCIL_MAX_MODELS)) {
     throw new HttpError(400, `Council supports ${COUNCIL_MIN_MODELS} to ${COUNCIL_MAX_MODELS} models.`);
   }
@@ -1375,7 +1398,8 @@ async function submitDocumentTurn({ req, config, context, conversation, body, at
   if (!UUID_LIKE.test(clientTurnKey)) throw new HttpError(400, "clientTurnKey must be a UUID.");
   const userContent = buildStoredUserContent(body.text, attachments);
   const paste = normalizePastedTextRange(body.paste, contentText(userContent));
-  const { mode, payload } = persistedTurnRequest(body, conversation, config);
+  const hasMedia = requestHasCompareMedia({ userContent, attachments });
+  const { mode, payload } = persistedTurnRequest(body, conversation, config, { hasMedia });
   const submitted = await context.db.submitDocumentTurn({
     userId: context.user.id,
     conversationId: conversation.id,

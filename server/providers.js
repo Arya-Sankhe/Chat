@@ -18,6 +18,7 @@ export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
 export const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 export const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 export const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
+export const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_TEXT_MODEL;
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 

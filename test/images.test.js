@@ -10,6 +10,12 @@ import {
   substituteImagesWithDescriptions
 } from "../server/saas/images.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "../server/saas/models.js";
+import { resolveFixedCompareModels } from "../server/chat/pipeline.js";
+import {
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_VISION_L2
+} from "../server/providers.js";
 
 test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision({ id: "moonshot/kimi-k2.6", name: "Kimi K2.6" }), true);
@@ -36,6 +42,15 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
     name: "Plain Model",
     architecture: { input_modalities: ["text", "image"] }
   }), true);
+});
+
+test("compare picks MiMo+Gemma for media and Flash+MiMo for text", () => {
+  const seed = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+  assert.deepEqual(resolveFixedCompareModels(seed), [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL]);
+  assert.deepEqual(
+    resolveFixedCompareModels(seed, { hasMedia: true }),
+    [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2]
+  );
 });
 
 test("modelSupportsVision does not flag image-generation-only models on output modalities", () => {
