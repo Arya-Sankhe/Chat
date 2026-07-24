@@ -113,7 +113,9 @@ const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
 const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 const OPENROUTER_VISION_L1 = "google/gemma-4-26b-a4b-it";
 const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
+// Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_TEXT_PRO_MODEL,
@@ -1065,6 +1067,16 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
 
 function compareIncludesTextOnlyModels(modelIds) {
   return modelIds.some((id) => !modelSupportsVision(modelById(id) || { id }));
+}
+
+function resolveCompareModelsForSend({ images = state.images, userContent = null, keepAttachments = [] } = {}) {
+  const base = compareController.activeCompareModelIds();
+  if (!base.length || isCouncilMode()) return base;
+  const needsVision = pendingPromptNeedsVision(images)
+    || chatHistoryNeedsVision()
+    || contentHasVisualOrDocument(userContent)
+    || keepAttachments.some((item) => item.category === "image" || item.category === "document");
+  return needsVision ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
 }
 
 function shouldPromptCompareImageContext(modelIds) {
@@ -5714,7 +5726,14 @@ async function sendPrompt() {
     await researchController.startDeepResearch(text);
     return;
   }
-  const compareModels = compareController.activeCompareModelIds();
+  const pendingImages = state.images.map((img) => ({
+    file: img.file,
+    category: img.category,
+    previewUrl: img.previewUrl,
+    attachmentId: img.attachmentId,
+    uploaded: img.uploaded
+  }));
+  const compareModels = resolveCompareModelsForSend({ images: pendingImages });
   if (state.temporaryChat && compareModels.length) {
     showToast("Temporary chat uses one model for now.");
     return;
@@ -5733,18 +5752,10 @@ async function sendPrompt() {
 
   await executeSend({
     text,
-    images: state.images.map((img) => ({
-      file: img.file,
-      category: img.category,
-      previewUrl: img.previewUrl,
-      attachmentId: img.attachmentId,
-      uploaded: img.uploaded
-    })),
+    images: pendingImages,
     compareModels,
     council: Boolean(compareModels.length && isCouncilMode()),
-    describeImages: Boolean(
-      compareModels.length
-    ),
+    describeImages: Boolean(compareModels.length && compareIncludesTextOnlyModels(compareModels)),
     paste
   });
 }
@@ -5838,13 +5849,13 @@ async function editUserMessage(id) {
   state.messages = state.messages.slice(0, index);
   renderMessages();
 
-  const compareModels = compareController.activeCompareModelIds();
+  const compareModels = resolveCompareModelsForSend({ images: [], keepAttachments });
   await executeSend({
     text,
     images: [],
     compareModels,
     council: Boolean(compareModels.length && isCouncilMode()),
-    describeImages: Boolean(compareModels.length),
+    describeImages: Boolean(compareModels.length && compareIncludesTextOnlyModels(compareModels)),
     editMessageId: String(id),
     keepAttachments
   });
@@ -5944,12 +5955,14 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
       setMessagesScrollTop(completedScrollTop);
     }
     if (queuedFollowUps.length) {
+      const followUpImages = followUpBatchImages(queuedFollowUps);
+      const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
-        images: followUpBatchImages(queuedFollowUps),
-        compareModels: compareController.activeCompareModelIds(),
-        council: Boolean(compareController.activeCompareModelIds().length && isCouncilMode()),
-        describeImages: Boolean(compareController.activeCompareModelIds().length)
+        images: followUpImages,
+        compareModels: followUpCompareModels,
+        council: Boolean(followUpCompareModels.length && isCouncilMode()),
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels))
       });
     }
   }
@@ -6253,12 +6266,14 @@ async function executeSend({ text, images, compareModels, council = false, descr
       loadConversations().catch(() => {});
     }
     if (queuedFollowUps.length) {
+      const followUpImages = followUpBatchImages(queuedFollowUps);
+      const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
       await executeSend({
         text: followUpBatchText(queuedFollowUps),
-        images: followUpBatchImages(queuedFollowUps),
-        compareModels: compareController.activeCompareModelIds(),
-        council: Boolean(compareController.activeCompareModelIds().length && isCouncilMode()),
-        describeImages: Boolean(compareController.activeCompareModelIds().length)
+        images: followUpImages,
+        compareModels: followUpCompareModels,
+        council: Boolean(followUpCompareModels.length && isCouncilMode()),
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels))
       });
     }
   }
