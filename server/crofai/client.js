@@ -17,9 +17,9 @@ function isAbortError(error) {
 function retryDelayMs(attempt, retryAfterHeader) {
   const seconds = Number(retryAfterHeader);
   if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+    return Math.min(Math.max(seconds * 1000, 1000), MAX_RETRY_DELAY_MS);
   }
-  const base = Math.min(400 * 2 ** attempt, MAX_RETRY_DELAY_MS);
+  const base = Math.min(800 * 2 ** attempt, MAX_RETRY_DELAY_MS);
   return base + Math.floor(Math.random() * 250);
 }
 
@@ -111,7 +111,11 @@ async function crofaiError(response) {
   if (contentType.includes("application/json")) {
     try {
       const json = JSON.parse(text);
-      return new HttpError(response.status, json?.error?.message || json?.error || `Klui request failed with ${response.status}.`, json);
+      const message = json?.error?.metadata?.raw
+        || json?.error?.message
+        || json?.error
+        || `Klui request failed with ${response.status}.`;
+      return new HttpError(response.status, message, json);
     } catch {
       return new HttpError(response.status, `Klui request failed with ${response.status}.`, text.slice(0, 2000));
     }

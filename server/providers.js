@@ -19,6 +19,7 @@ export const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 export const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 export const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
 export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_TEXT_MODEL;
+export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 
 const PROVIDER_LABELS = {
   klui: "Klui",
@@ -138,6 +139,11 @@ export function adaptChatRequestForProvider(body, providerId) {
 
   if (!openRouterModelSupportsTopP(rest.model) && "top_p" in adapted) {
     delete adapted.top_p;
+  }
+
+  if (String(rest.model || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S) {
+    // ponytail: S is often rate-limited; one fallback to DeepSeek Flash.
+    adapted.models = [OPENROUTER_LAGUNA_S, OPENROUTER_TEXT_MODEL];
   }
 
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;

@@ -56,11 +56,11 @@ body[data-mode="dark"] {
 
 }
 
-body[data-mode="dark"][data-chat-theme="classic"][data-wallpaper="none"] {
+body[data-mode="dark"][data-chat-theme="classic"] {
 
   --bg: #000000;
 
-  --bg-secondary: #212121;
+  --bg-secondary: #1a1a1a;
 
   --border: #303030;
 
@@ -70,7 +70,7 @@ body[data-mode="dark"][data-chat-theme="classic"][data-wallpaper="none"] {
 
 }
 
-body[data-mode="dark"][data-chat-theme="classic"][data-wallpaper="none"] .composer {
+body[data-mode="dark"][data-chat-theme="classic"] .composer {
 
   background: var(--bg-secondary);
 

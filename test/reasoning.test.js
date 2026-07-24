@@ -56,6 +56,23 @@ test("adaptChatRequestForProvider enables reasoning without effort for Laguna", 
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
   assert.deepEqual(adapted.provider, { require_parameters: true });
   assert.equal(adapted.top_p, undefined);
+  assert.equal(adapted.models, undefined);
+});
+
+test("adaptChatRequestForProvider adds Laguna S model fallbacks", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "poolside/laguna-s-2.1",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "high",
+    top_p: 0.95
+  }, "openrouter");
+
+  assert.deepEqual(adapted.models, [
+    "poolside/laguna-s-2.1",
+    "deepseek/deepseek-v4-flash"
+  ]);
+  assert.equal(adapted.top_p, undefined);
+  assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
 });
 
 test("adaptChatRequestForProvider keeps top_p for DeepSeek", () => {
@@ -241,7 +258,7 @@ test("streamChatCompletion enables Laguna reasoning without effort", async () =>
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "poolside/laguna-s-2.1",
+        model: "poolside/laguna-xs-2.1",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "high",
         tools: [{ type: "function", function: { name: "web_search" } }]
@@ -251,6 +268,41 @@ test("streamChatCompletion enables Laguna reasoning without effort", async () =>
 
     assert.deepEqual(requestBody.reasoning, { enabled: true, exclude: false });
     assert.deepEqual(requestBody.provider, { require_parameters: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    requestBody = JSON.parse(options.body);
+    return new Response("", {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: {
+        model: "poolside/laguna-s-2.1",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "high",
+        tools: [{ type: "function", function: { name: "web_search" } }]
+      },
+      signal: AbortSignal.timeout(1000)
+    });
+
+    assert.deepEqual(requestBody.models, [
+      "poolside/laguna-s-2.1",
+      "deepseek/deepseek-v4-flash"
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
