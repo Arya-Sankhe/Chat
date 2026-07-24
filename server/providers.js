@@ -89,6 +89,23 @@ export function resolveOpenRouterReasoningEffort(value) {
 }
 
 /**
+ * OpenRouter only accepts `reasoning.effort` when the model exposes
+ * supported efforts (DeepSeek today). Laguna / MiniMax / MiMo expose
+ * on/off reasoning only — sending `effort` with `require_parameters`
+ * yields "No endpoints found that can handle the requested parameters."
+ */
+export function openRouterModelSupportsReasoningEffort(model) {
+  const id = String(model || "").trim().toLowerCase();
+  return id.startsWith("deepseek/");
+}
+
+/** Poolside Laguna endpoints omit top_p; with require_parameters that 404s. */
+export function openRouterModelSupportsTopP(model) {
+  const id = String(model || "").trim().toLowerCase();
+  return !id.startsWith("poolside/");
+}
+
+/**
  * Map our shared chat request shape to provider-specific fields.
  * OpenRouter expects `reasoning: { effort }` instead of `reasoning_effort`.
  *
@@ -104,13 +121,13 @@ export function adaptChatRequestForProvider(body, providerId) {
 
   const { reasoning_effort: reasoningEffort, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
+  const reasoning = openRouterModelSupportsReasoningEffort(rest.model)
+    ? { effort, exclude: false }
+    : { enabled: true, exclude: false };
 
   const adapted = {
     ...rest,
-    reasoning: {
-      effort,
-      exclude: false
-    },
+    reasoning,
     /* OpenRouter reports token usage on streamed responses only when
        explicitly opted in. Mirrors `stream_options.include_usage`. */
     usage: {
@@ -118,6 +135,10 @@ export function adaptChatRequestForProvider(body, providerId) {
       include: true
     }
   };
+
+  if (!openRouterModelSupportsTopP(rest.model) && "top_p" in adapted) {
+    delete adapted.top_p;
+  }
 
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
   const isDeepSeekModel = String(rest.model || "").trim().toLowerCase().startsWith("deepseek/");

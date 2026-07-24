@@ -22,6 +22,9 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   // MiMo v2.5 is omnimodal (image input); the -pro variant is text-only.
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5"), true);
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5-pro"), false);
+  assert.equal(modelSupportsVision("google/gemma-4-26b-a4b-it"), true);
+  assert.equal(modelSupportsVision("google/gemma-4-31b-it"), true);
+  assert.equal(modelSupportsVision("minimax/minimax-m3"), true);
   // Metadata (input modalities) still wins when available.
   assert.equal(modelSupportsVision({
     id: "xiaomi/mimo-v2.5",

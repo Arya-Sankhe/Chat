@@ -111,6 +111,8 @@ const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
 const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
 const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
+const OPENROUTER_VISION_L1 = "google/gemma-4-26b-a4b-it";
+const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
@@ -1047,11 +1049,13 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
   const needsVision = pendingPromptNeedsVision(images)
     || chatHistoryNeedsVision()
     || contentHasVisualOrDocument(userContent);
-  // Images/docs → MiMo; Pro (L5) → MiMo Pro. Otherwise spectrum model.
+  // Vision/docs by spectrum level. Text uses SPECTRUM_STEPS model.
   if (needsVision) {
-    return spectrumLevelFromSettings() === SPECTRUM_N - 1
-      ? OPENROUTER_VISION_PRO_MODEL
-      : OPENROUTER_VISION_MODEL;
+    const level = spectrumLevelFromSettings();
+    if (level === 0) return OPENROUTER_VISION_L1;
+    if (level === 1) return OPENROUTER_VISION_L2;
+    if (level === SPECTRUM_N - 1) return OPENROUTER_PRO_MODEL;
+    return OPENROUTER_VISION_MODEL;
   }
   if (state.settings.model) return state.settings.model;
   return spectrumLevelFromSettings() === SPECTRUM_N - 1
@@ -2560,6 +2564,8 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "MiniMax M3";
+  if (id === OPENROUTER_VISION_L1) return "Gemma 26B";
+  if (id === OPENROUTER_VISION_L2) return "Gemma 31B";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }

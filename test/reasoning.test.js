@@ -33,7 +33,7 @@ test("extractReasoningDelta ignores encrypted reasoning details", () => {
 
 test("adaptChatRequestForProvider maps reasoning_effort to OpenRouter reasoning", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "deepseek/deepseek-v4-flash",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high",
     temperature: 0.7
@@ -42,6 +42,40 @@ test("adaptChatRequestForProvider maps reasoning_effort to OpenRouter reasoning"
   assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
   assert.equal(adapted.reasoning_effort, undefined);
   assert.equal(adapted.temperature, 0.7);
+});
+
+test("adaptChatRequestForProvider enables reasoning without effort for Laguna", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "poolside/laguna-xs-2.1",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "high",
+    top_p: 0.95,
+    tools: [{ type: "function", function: { name: "web_search" } }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
+  assert.deepEqual(adapted.provider, { require_parameters: true });
+  assert.equal(adapted.top_p, undefined);
+});
+
+test("adaptChatRequestForProvider keeps top_p for DeepSeek", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "deepseek/deepseek-v4-flash",
+    messages: [{ role: "user", content: "hi" }],
+    top_p: 0.95
+  }, "openrouter");
+
+  assert.equal(adapted.top_p, 0.95);
+});
+
+test("adaptChatRequestForProvider enables reasoning without effort for MiMo", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "xiaomi/mimo-v2.5",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "high"
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
 });
 
 test("adaptChatRequestForProvider pins OpenRouter routing to tool-capable endpoints when tools are present", () => {
@@ -113,7 +147,7 @@ test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
 
 test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "deepseek/deepseek-v4-flash",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
@@ -122,7 +156,7 @@ test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
 
 test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "deepseek/deepseek-v4-flash",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "turbo"
   }, "openrouter");
@@ -174,7 +208,7 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "xiaomi/mimo-v2.5",
+        model: "deepseek/deepseek-v4-flash",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "low"
       },
@@ -184,6 +218,39 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
     assert.deepEqual(requestBody.reasoning, { effort: "low", exclude: false });
     assert.equal(requestBody.reasoning_effort, undefined);
     assert.equal(requestBody.stream, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChatCompletion enables Laguna reasoning without effort", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (_url, options = {}) => {
+    requestBody = JSON.parse(options.body);
+    return new Response("", {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: {
+        model: "poolside/laguna-s-2.1",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "high",
+        tools: [{ type: "function", function: { name: "web_search" } }]
+      },
+      signal: AbortSignal.timeout(1000)
+    });
+
+    assert.deepEqual(requestBody.reasoning, { enabled: true, exclude: false });
+    assert.deepEqual(requestBody.provider, { require_parameters: true });
   } finally {
     globalThis.fetch = originalFetch;
   }
