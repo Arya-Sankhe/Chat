@@ -374,6 +374,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   }
 
   async function typeText(text) {
+    caret.classList.remove("is-hidden");
     caret.classList.add("is-solid");
     for (let n = 1; n <= text.length; n++) {
       if (run !== greetingRun || !root.isConnected) return;
@@ -384,6 +385,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   }
 
   async function deleteText() {
+    caret.classList.remove("is-hidden");
     caret.classList.add("is-solid");
     let text = typeEl.textContent;
     while (text.length) {
@@ -398,13 +400,15 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
     setMood(line.mood, line.mouth);
     await typeText(line.text);
     if (run !== greetingRun) return;
+    if (!erase) {
+      caret.classList.add("is-hidden");
+      return;
+    }
     await sleep(hold);
     if (run !== greetingRun) return;
-    if (erase) {
-      await deleteText();
-      if (run !== greetingRun) return;
-      await sleep(420);
-    }
+    await deleteText();
+    if (run !== greetingRun) return;
+    await sleep(420);
   }
 
   (async () => {
