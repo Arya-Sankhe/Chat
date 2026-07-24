@@ -22,17 +22,30 @@ const MOUTHS = {
 const GREETING_LINES = [
   { text: "how can i help you?", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
   { text: "what's cooking?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
-  { text: "ready when you are_", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
-  { text: "got something on your mind?", mood: "think", mouth: "M33 51 Q40 55 47 51" },
-  { text: "let's figure this out", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
-  { text: "what are we working on?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
-  { text: "awaiting input...", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
+  { text: "spill the tea_", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
+  { text: "say less, i'm ready", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
+  { text: "what we working on?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
+  { text: "drop it here", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "no pressure, just vibes", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
   { text: "your move", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "got something on your mind?", mood: "think", mouth: "M33 51 Q40 55 47 51" },
+  { text: "let's cook", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
 ];
 
 const GUEST_LINES = [
   { text: "what can i help you with?", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
   ...GREETING_LINES.slice(1),
+];
+
+const TEMP_LINES = [
+  { text: "staying lowkey", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
+  { text: "this never happened_", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
+  { text: "between us", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
+  { text: "leave no receipts", mood: "think", mouth: "M33 51 Q40 55 47 51" },
+  { text: "ghost mode on", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
+  { text: "off the record", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
+  { text: "no cap, you're safe here", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "incognito vibes only", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
 ];
 
 const controllers = new WeakMap();
@@ -48,6 +61,19 @@ function accentFlash() {
   };
 }
 
+function shuffle(list) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function pickOne(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 export function labelToKluiState(label) {
   const l = String(label || "").toLowerCase();
   if (l.includes("search")) return "searching";
@@ -60,13 +86,41 @@ export function labelToKluiState(label) {
   return "thinking";
 }
 
-function kluiSvgMarkup(prefix, { greeting = false } = {}) {
+function fedoraMarkup(prefix) {
+  const felt = `${prefix}-felt`;
+  const band = `${prefix}-band`;
+  return `
+    <defs>
+      <linearGradient id="${felt}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#3a3a42"/>
+        <stop offset="55%" stop-color="#2a2a30"/>
+        <stop offset="100%" stop-color="#1c1c22"/>
+      </linearGradient>
+      <linearGradient id="${band}" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#6b1f2a"/>
+        <stop offset="50%" stop-color="#9a2f3d"/>
+        <stop offset="100%" stop-color="#6b1f2a"/>
+      </linearGradient>
+    </defs>
+    <g class="klui-fedora" aria-hidden="true">
+      <ellipse cx="40" cy="14.2" rx="34" ry="5.2" fill="#000" opacity=".18"/>
+      <path d="M8 13.5 C12 10.2, 22 8.4, 40 8.4 C58 8.4, 68 10.2, 72 13.5 C68.5 16.2, 55 17.8, 40 17.8 C25 17.8, 11.5 16.2, 8 13.5 Z" fill="url(#${felt})"/>
+      <path d="M8 13.5 C12 11.2, 22 9.6, 40 9.6 C58 9.6, 68 11.2, 72 13.5" fill="none" stroke="#4a4a55" stroke-width="1.1" opacity=".55"/>
+      <path d="M24 10.2 C26 3.2, 32 -.2, 40 -.2 C48 -.2, 54 3.2, 56 10.2 L54.2 11.6 C52.2 6.2, 47.2 3.6, 40 3.6 C32.8 3.6, 27.8 6.2, 25.8 11.6 Z" fill="url(#${felt})"/>
+      <path d="M26.2 9.4 C28.2 4.8, 33.2 2.4, 40 2.4 C46.8 2.4, 51.8 4.8, 53.8 9.4" fill="none" stroke="#555560" stroke-width="1" opacity=".4"/>
+      <rect x="25.4" y="8.8" width="29.2" height="3.4" rx="1.2" fill="url(#${band})"/>
+      <rect x="36.4" y="8.5" width="7.2" height="4" rx="0.9" fill="#c9a227" opacity=".92"/>
+      <rect x="37.2" y="9.1" width="5.6" height="2.8" rx="0.6" fill="none" stroke="#f0d878" stroke-width="0.7" opacity=".65"/>
+    </g>`;
+}
+
+function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
   const face = `${prefix}-face`;
   const rim = `${prefix}-rim`;
   const hi = `${prefix}-hi`;
   const shade = `${prefix}-shade`;
   const aura = `${prefix}-aura`;
-  return `<svg class="klui-svg" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  return `<svg class="klui-svg${fedora ? " has-fedora" : ""}" viewBox="${fedora ? "0 -6 80 86" : "0 0 80 80"}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <defs>
       <radialGradient id="${face}" cx="40%" cy="30%" r="68%">
         <stop offset="0%" stop-color="#ffffff"/><stop offset="62%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e8f1fc"/>
@@ -96,6 +150,7 @@ function kluiSvgMarkup(prefix, { greeting = false } = {}) {
       <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#${shade})"/>
       <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" ry="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
     </g>
+    ${fedora ? fedoraMarkup(prefix) : ""}
     <g class="face">
       <g class="eyes">
         <rect class="eye eye-l" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
@@ -148,7 +203,7 @@ function setFaceExtras(bar, state) {
 }
 
 function idPrefixFromMessage(message) {
-  const raw = String(message?.id || "x").replace(/[^a-zA-Z0-9]/g, "");
+  const raw = String(message?.id || "x").replace(/[^a-zA-Z0-9_-]/g, "");
   return `k${raw.slice(0, 14) || "x"}`;
 }
 
@@ -274,11 +329,12 @@ export function hydrateKluiBars(root = document) {
   });
 }
 
-export function renderHomeGreetingHtml({ guest = false } = {}) {
-  const first = guest ? GUEST_LINES[0] : GREETING_LINES[0];
-  return `<div class="empty-state">
+export function renderHomeGreetingHtml({ guest = false, temporary = false } = {}) {
+  const lines = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const first = lines[0];
+  return `<div class="empty-state${temporary ? " is-temporary" : ""}">
     <div class="hero-line">
-      <div class="klui" data-mood="${first.mood}" aria-hidden="true">${kluiSvgMarkup("home", { greeting: true })}</div>
+      <div class="klui" data-mood="${first.mood}" aria-hidden="true">${kluiSvgMarkup("home", { greeting: true, fedora: temporary })}</div>
       <h1 class="type-line"><span class="type-text"></span><span class="caret is-solid"></span></h1>
     </div>
   </div>`;
@@ -288,7 +344,7 @@ export function stopHomeGreeting() {
   greetingRun += 1;
 }
 
-export function startHomeGreeting({ guest = false } = {}) {
+export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   const root = document.querySelector(".empty-state .hero-line");
   if (!root) return;
   const typeEl = root.querySelector(".type-text");
@@ -297,9 +353,8 @@ export function startHomeGreeting({ guest = false } = {}) {
   const mouth = root.querySelector(".mouth-normal, .mouth");
   if (!typeEl || !caret || !klui) return;
 
-  const lines = guest ? GUEST_LINES : GREETING_LINES;
+  const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
   const run = ++greetingRun;
-  let i = 0;
   let timer = null;
 
   const sleep = (ms) =>
@@ -339,18 +394,36 @@ export function startHomeGreeting({ guest = false } = {}) {
     }
   }
 
-  (async () => {
-    while (run === greetingRun && root.isConnected) {
-      const line = lines[i % lines.length];
-      setMood(line.mood, line.mouth);
-      await typeText(line.text);
-      if (run !== greetingRun) return;
-      await sleep(2600);
-      if (run !== greetingRun) return;
+  async function playLine(line, { hold = 2600, erase = true } = {}) {
+    setMood(line.mood, line.mouth);
+    await typeText(line.text);
+    if (run !== greetingRun) return;
+    await sleep(hold);
+    if (run !== greetingRun) return;
+    if (erase) {
       await deleteText();
       if (run !== greetingRun) return;
       await sleep(420);
-      i += 1;
     }
+  }
+
+  (async () => {
+    if (temporary) {
+      // One random incognito line — type once and stay.
+      const line = pickOne(pool);
+      await playLine(line, { hold: 0, erase: false });
+      return;
+    }
+
+    // Fresh load: two type/delete cycles, then land on a different final line.
+    const order = shuffle(pool);
+    const first = order[0];
+    const second = order[1 % order.length];
+    await playLine(first);
+    if (run !== greetingRun) return;
+    await playLine(second);
+    if (run !== greetingRun) return;
+    const rest = pool.filter((line) => line !== first && line !== second);
+    await playLine(pickOne(rest.length ? rest : pool), { hold: 0, erase: false });
   })();
 }

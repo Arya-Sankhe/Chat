@@ -12,7 +12,7 @@
 
 }
 
-body.temporary-chat .messages {
+body.temporary-chat:not(.chat-empty) .messages {
 
   padding-top: 72px;
 

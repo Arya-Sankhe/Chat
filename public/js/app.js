@@ -3972,8 +3972,8 @@ function renderMessages() {
   if (!state.messages.length) {
     stopHomeGreeting();
     const guest = !state.session;
-    els.messages.innerHTML = renderHomeGreetingHtml({ guest });
-    startHomeGreeting({ guest });
+    els.messages.innerHTML = renderHomeGreetingHtml({ guest, temporary: state.temporaryChat });
+    startHomeGreeting({ guest, temporary: state.temporaryChat });
     els.chatPromptNav?.classList.add("hidden");
     els.chatJumpBottom?.classList.remove("visible");
     return;
