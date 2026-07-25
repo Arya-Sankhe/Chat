@@ -941,17 +941,21 @@ through the database.
 ### `class Processor` ← mixed
 - **Path**: `worker/worker.py`
 - **Responsibility**: The work loop and dispatch. Methods:
-  - `__init__` — builds `db` (`Supabase`), `r2` (`R2`), `embeddings`
-    (`JinaEmbeddings`); reads `DOCUMENT_JOB_TIMEOUT_MS` (divided by
-    1000 to set `lease_seconds`), `DOCUMENT_WORKER_POLL_SECONDS`,
+  - `__init__(index, concurrency)` — builds `db` (`Supabase`), `r2` (`R2`),
+    `embeddings` (`JinaEmbeddings`); reads `DOCUMENT_JOB_TIMEOUT_MS` (divided by
+    1000 to set `lease_seconds`), `DOCUMENT_WORKER_MAX_IDLE_SECONDS`,
+    `DOCUMENT_WORKER_ERROR_BACKOFF_SECONDS`,
     `DOCUMENT_WORKER_MAX_BACKOFF_SECONDS`, `DOCUMENT_MAX_EXTRACTED_CHARS`,
     `DOCUMENT_VISUAL_PAGE_DPI`, heartbeat, render, Jina batch, and page-upload
-    concurrency knobs, plus the per-kind `DOCUMENT_MAX_*` limits.
+    concurrency knobs, plus the per-kind `DOCUMENT_MAX_*` limits. `index` and
+    `concurrency` set this loop's idle clock slot via
+    `worker_idle_offset_seconds`.
   - `object_key(user_id, file_name)` — `users/{user_id}/{uuid}/{safe_name}`.
-  - `run` — claims jobs in a forever loop. On
-    `requests.exceptions.RequestException` it backs off with
-    exponential delay up to `max_backoff_seconds` (the
-    `claim_failures` counter resets on success).
+  - `run` — claims jobs in a forever loop. An empty queue sleeps for
+    `idle_sleep_seconds` (1s → 2s → 5s → `max_idle_seconds`, then pinned to this
+    loop's clock slot). Any failure backs off exponentially from
+    `error_backoff_seconds` up to `max_backoff_seconds` (the
+    `consecutive_failures` counter resets on a successful claim).
   - `handle_job(job)` — creates a temp dir, renews the owned lease in a
     heartbeat thread, dispatches, then completes or fails through the
     lease-fenced stage-aware RPCs. Cleans up in `finally`.

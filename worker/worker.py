@@ -70,6 +70,20 @@ def default_lease_heartbeat_seconds(lease_seconds):
     return max(5.0, min(float(lease) / 3.0, 30.0))
 
 
+def idle_sleep_seconds(empty_claims, max_idle_seconds, slot_offset, now):
+    ramp = (1.0, 2.0, 5.0)
+    index = max(1, empty_claims) - 1
+    if index < len(ramp) and ramp[index] < max_idle_seconds:
+        return ramp[index]
+    # Steady state wakes on a shared clock grid so sibling loops keep their slots
+    # apart forever, instead of drifting into lockstep after each job.
+    return (slot_offset - now) % max_idle_seconds or max_idle_seconds
+
+
+def worker_idle_offset_seconds(index, concurrency, max_idle_seconds):
+    return 0.0 if concurrency <= 1 else float(index) * float(max_idle_seconds) / float(concurrency)
+
+
 def is_retryable_http_status(status_code):
     try:
         code = int(status_code)
@@ -896,13 +910,17 @@ class R2:
 
 
 class Processor:
-    def __init__(self):
+    def __init__(self, index=0, concurrency=1):
         self.db = Supabase()
         self.r2 = R2()
         self.embeddings = JinaEmbeddings()
         self.worker_id = f"document-worker-{uuid.uuid4()}"
         self.lease_seconds = max(30, int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000)
-        self.poll_seconds = float(env("DOCUMENT_WORKER_POLL_SECONDS", "1.5"))
+        self.error_backoff_seconds = env_float(
+            "DOCUMENT_WORKER_ERROR_BACKOFF_SECONDS", 0.5, minimum=0.1
+        )
+        self.max_idle_seconds = env_float("DOCUMENT_WORKER_MAX_IDLE_SECONDS", 10.0, minimum=1.0)
+        self.idle_slot_offset = worker_idle_offset_seconds(index, concurrency, self.max_idle_seconds)
         self.max_backoff_seconds = float(env("DOCUMENT_WORKER_MAX_BACKOFF_SECONDS", "30"))
         self.heartbeat_seconds = env_float(
             "DOCUMENT_LEASE_HEARTBEAT_SECONDS",
@@ -935,26 +953,36 @@ class Processor:
 
     def run(self):
         print(f"{self.worker_id} started", flush=True)
-        claim_failures = 0
+        consecutive_failures = 0
+        empty_claims = 0
         while True:
             try:
                 job = self.db.claim_job(self.worker_id, self.lease_seconds)
-                claim_failures = 0
+                consecutive_failures = 0
                 if not job:
-                    time.sleep(self.poll_seconds)
+                    empty_claims += 1
+                    time.sleep(
+                        idle_sleep_seconds(
+                            empty_claims,
+                            self.max_idle_seconds,
+                            self.idle_slot_offset,
+                            time.monotonic(),
+                        )
+                    )
                     continue
+                empty_claims = 0
                 self.handle_job(job)
-            except requests.exceptions.RequestException as exc:
-                claim_failures += 1
+            except Exception as exc:
+                consecutive_failures += 1
                 sleep_for = min(
                     self.max_backoff_seconds,
-                    self.poll_seconds * (2 ** min(claim_failures - 1, 5)),
+                    self.error_backoff_seconds * (2 ** min(consecutive_failures - 1, 5)),
                 )
-                print(f"worker claim network error; retrying in {sleep_for:.1f}s: {exc}", flush=True)
+                print(
+                    f"worker loop error ({type(exc).__name__}); retrying in {sleep_for:.1f}s: {exc}",
+                    flush=True,
+                )
                 time.sleep(sleep_for)
-            except Exception as exc:
-                print(f"worker loop error: {exc}", flush=True)
-                time.sleep(self.poll_seconds)
 
     def _lease_heartbeat_loop(self, job_id, stop_event, lost_event):
         last_renewed = time.monotonic()
@@ -2593,8 +2621,8 @@ def main():
 
     print(f"starting {concurrency} document worker loops", flush=True)
     threads = []
-    for _ in range(concurrency):
-        processor = Processor()
+    for index in range(concurrency):
+        processor = Processor(index, concurrency)
         thread = threading.Thread(target=processor.run, name=processor.worker_id, daemon=True)
         thread.start()
         threads.append(thread)

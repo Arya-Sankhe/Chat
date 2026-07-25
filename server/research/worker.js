@@ -16,6 +16,13 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const IDLE_POLL_MS = [1_000, 2_000, 5_000, 10_000];
+
+function idlePollMs(emptyClaims) {
+  const index = Math.min(Math.max(emptyClaims - 1, 0), IDLE_POLL_MS.length - 1);
+  return Math.min(config.research.maxPollMs, IDLE_POLL_MS[index]);
+}
+
 function leaseUntil() {
   return new Date(Date.now() + config.research.leaseSeconds * 1000).toISOString();
 }
@@ -188,6 +195,7 @@ async function loop() {
   await failExpiredRuns();
   console.log(`${workerId} started`);
   const active = new Set();
+  let emptyClaims = 0;
   while (!stopping) {
     if (Date.now() - lastExpiredCleanupAt >= 60_000) await failExpiredRuns();
     while (!stopping && active.size < config.research.workerConcurrency) {
@@ -196,11 +204,13 @@ async function loop() {
         return null;
       });
       if (!run) break;
+      emptyClaims = 0;
       const task = processRun(run).finally(() => active.delete(task));
       active.add(task);
     }
     if (!active.size) {
-      await sleep(config.research.pollMs);
+      emptyClaims += 1;
+      await sleep(idlePollMs(emptyClaims));
       continue;
     }
     await Promise.race([

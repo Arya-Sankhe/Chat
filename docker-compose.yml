@@ -58,7 +58,7 @@ services:
         required: false
     environment:
       DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
-      DOCUMENT_WORKER_POLL_SECONDS: ${DOCUMENT_WORKER_POLL_SECONDS:-0.5}
+      DOCUMENT_WORKER_MAX_IDLE_SECONDS: ${DOCUMENT_WORKER_MAX_IDLE_SECONDS:-10}
     mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-3g}
     healthcheck:
       test: ["CMD", "python", "-m", "worker.healthcheck"]
@@ -78,6 +78,8 @@ services:
       WEBSEARCH_PRIMARY_PROVIDER: searxng
       SEARXNG_BASE_URL: http://searxng:8080
       RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
+      RESEARCH_WORKER_POLL_MS: ${RESEARCH_WORKER_POLL_MS:-5000}
+      RESEARCH_WORKER_MAX_POLL_MS: ${RESEARCH_WORKER_MAX_POLL_MS:-10000}
     depends_on:
       searxng:
         condition: service_healthy

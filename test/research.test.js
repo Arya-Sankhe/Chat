@@ -16,6 +16,8 @@ test("research config uses bounded VPS-friendly defaults", () => {
   const config = loadConfig({});
   assert.equal(config.research.workerConcurrency, 3);
   assert.equal(config.research.fetchConcurrency, 3);
+  assert.equal(config.research.pollMs, 5000);
+  assert.equal(config.research.maxPollMs, 10_000);
   assert.equal(config.research.maxPages, 18);
   assert.equal(config.research.maxRunMs, 1_200_000);
   assert.equal(config.research.maxExtractedChars, 18_000);
@@ -405,6 +407,9 @@ test("research cancellation and lease cleanup remain durable", () => {
 
   assert.match(worker, /const cancelled = Boolean\(current\?\.cancel_requested\)/);
   assert.match(worker, /Date\.now\(\) - lastExpiredCleanupAt >= 60_000/);
+  assert.match(worker, /const IDLE_POLL_MS = \[1_000, 2_000, 5_000, 10_000\]/);
+  assert.match(worker, /emptyClaims \+= 1/);
+  assert.match(worker, /emptyClaims = 0/);
   assert.match(researchJs, /failedAttempts < 1/);
   assert.match(researchJs, /researchPollGeneration/);
   assert.match(schema, /where status = 'queued' and cancel_requested = false/);

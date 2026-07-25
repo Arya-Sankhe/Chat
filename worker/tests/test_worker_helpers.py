@@ -33,6 +33,25 @@ class EnvHelpersTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DOCUMENT_WORKER_CONCURRENCY": "100"}, clear=False):
             self.assertEqual(w.worker_concurrency(), w.WORKER_CONCURRENCY_CAP)
 
+    def test_idle_backoff_ramps_then_holds_its_clock_slot(self):
+        self.assertEqual(
+            [w.idle_sleep_seconds(n, 10.0, 0.0, 0.0) for n in range(1, 4)], [1, 2, 5]
+        )
+        self.assertEqual(w.worker_idle_offset_seconds(0, 2, 10), 0)
+        self.assertEqual(w.worker_idle_offset_seconds(1, 2, 10), 5)
+
+        # Two loops that went idle at unrelated times (any job duration) must still land on
+        # their own slot, so the pair stays half a period apart instead of drifting into
+        # lockstep. 20s covers a configured maximum above the 1 -> 2 -> 5 ramp.
+        for max_idle in (10.0, 20.0):
+            offsets = [w.worker_idle_offset_seconds(i, 2, max_idle) for i in range(2)]
+            for went_idle_at in (0.0, 7.0, 13.5, 37.0, 90.3):
+                for offset in offsets:
+                    sleep_for = w.idle_sleep_seconds(4, max_idle, offset, went_idle_at)
+                    self.assertGreater(sleep_for, 0.0)
+                    self.assertLessEqual(sleep_for, max_idle)
+                    self.assertAlmostEqual((went_idle_at + sleep_for) % max_idle, offset)
+
 
 class RetryHelpersTest(unittest.TestCase):
     def test_is_retryable_http_status(self):
