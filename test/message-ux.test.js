@@ -73,15 +73,15 @@ test("flashCopySuccess swaps the button SVG to a checkmark on success", () => {
   assert.match(flash[0], /current\.outerHTML\s*=\s*btn\._copyIconHtml/);
 });
 
-test("thinking status is block-level and omitted once answer text exists", () => {
+test("thinking status is block-level and omitted once final answer text exists", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
   const render = appJs.match(/function renderThinkingStatus\(message[\s\S]*?\n\}/);
   assert.ok(render, "renderThinkingStatus not found");
   assert.match(
     render[0],
-    /if\s*\(\s*rawTextContent\(message\?\.content\)\.trim\(\)\s*\)\s*return\s*""/,
-    "status must return empty once content exists"
+    /if\s*\(\s*rawTextContent\(message\?\.content\)\.trim\(\)\s*&&\s*!isProvisionalToolProse\(message\)\s*\)\s*return\s*""/,
+    "status must stay for provisional tool prose and disappear for final answer text"
   );
   assert.doesNotMatch(appJs, /return\s*"Answering"/);
   assert.match(

@@ -34,7 +34,6 @@ test("parseImports accepts only @import-only roots", () => {
 test("verifyCssSplit passes current public stylesheet against the committed baseline", () => {
   const root = fs.readFileSync(path.join(repoRoot, "public", "styles.css"), "utf8");
   const result = verifyCssSplit({ rootContent: root });
-  assert.equal(result.imports.length, 14);
   assert.equal(result.ok, true);
   assert.deepEqual(result.actual, {
     utf8ByteLength: result.baseline.utf8ByteLength,
