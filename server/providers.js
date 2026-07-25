@@ -123,9 +123,17 @@ export function adaptChatRequestForProvider(body, providerId) {
 
   const { reasoning_effort: reasoningEffort, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
+  const modelId = String(rest.model || "").trim().toLowerCase();
+  const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
+  const isLagunaS = modelId === OPENROUTER_LAGUNA_S;
+  // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
+  // this reasoning object — pin low effort so the fallback stays cheap. With
+  // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
   const reasoning = openRouterModelSupportsReasoningEffort(rest.model)
     ? { effort, exclude: false }
-    : { enabled: true, exclude: false };
+    : isLagunaS && !hasTools
+      ? { effort: "low", exclude: false }
+      : { enabled: true, exclude: false };
 
   const adapted = {
     ...rest,
@@ -142,13 +150,12 @@ export function adaptChatRequestForProvider(body, providerId) {
     delete adapted.top_p;
   }
 
-  if (String(rest.model || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S) {
+  if (isLagunaS) {
     // ponytail: S is often rate-limited; one fallback to DeepSeek Flash.
     adapted.models = [OPENROUTER_LAGUNA_S, OPENROUTER_TEXT_MODEL];
   }
 
-  const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
-  const isDeepSeekModel = String(rest.model || "").trim().toLowerCase().startsWith("deepseek/");
+  const isDeepSeekModel = modelId.startsWith("deepseek/");
   const providerPrefs = {
     ...(rest.provider && typeof rest.provider === "object" ? rest.provider : {})
   };

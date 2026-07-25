@@ -185,7 +185,8 @@ function paintSpectrum(level = spectrumLevelFromSettings()) {
   }
   if (els.heatFill) els.heatFill.style.width = `${heatPct}%`;
   const isPro = n === SPECTRUM_N - 1;
-  const heatLabel = isPro ? "PRO" : "Think";
+  // L1–L2 (Laguna) → Nitro; L3–L4 stay Think; L5 → PRO
+  const heatLabel = isPro ? "PRO" : n <= 1 ? "Nitro" : "Think";
   const names = document.querySelectorAll(".heat-name");
   const labelChanged = [...names].some((el) => el.textContent !== heatLabel);
   if (labelChanged) {
@@ -2655,7 +2656,9 @@ function renderModelCatalog() {
 function renderModelOptions() {
   const mode = selectedModelMode();
   const isPro = spectrumLevelFromSettings() === SPECTRUM_N - 1;
-  els.modelButton?.setAttribute("aria-label", isPro ? "PRO" : "Think");
+  const level = spectrumLevelFromSettings();
+  const heatLabel = isPro ? "PRO" : level <= 1 ? "Nitro" : "Think";
+  els.modelButton?.setAttribute("aria-label", heatLabel);
   els.modelButton?.classList.toggle("pro-active", isPro);
   if (els.modelLabel) els.modelLabel.textContent = modelModeLabel(mode);
   els.modelPriceBadge?.classList.add("hidden");

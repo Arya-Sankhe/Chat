@@ -72,7 +72,24 @@ test("adaptChatRequestForProvider adds Laguna S model fallbacks", () => {
     "deepseek/deepseek-v4-flash"
   ]);
   assert.equal(adapted.top_p, undefined);
+  // Shared with DeepSeek fallback — L2 pins low (OpenRouter can't set per-fallback effort).
+  assert.deepEqual(adapted.reasoning, { effort: "low", exclude: false });
+});
+
+test("adaptChatRequestForProvider keeps Laguna S enabled-only reasoning when tools force require_parameters", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "poolside/laguna-s-2.1",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "high",
+    tools: [{ type: "function", function: { name: "web_search" } }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.models, [
+    "poolside/laguna-s-2.1",
+    "deepseek/deepseek-v4-flash"
+  ]);
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
+  assert.equal(adapted.provider.require_parameters, true);
 });
 
 test("adaptChatRequestForProvider keeps top_p for DeepSeek", () => {
