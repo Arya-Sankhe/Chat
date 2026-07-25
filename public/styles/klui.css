@@ -228,7 +228,8 @@
   animation: klui-idle-bob 4.4s ease-in-out infinite;
 }
 
-.empty-state .klui-fedora {
+.empty-state .klui-fedora,
+.empty-state .klui-shades {
   pointer-events: none;
 }
 

@@ -114,6 +114,22 @@ function fedoraMarkup(prefix) {
     </g>`;
 }
 
+function shadesMarkup() {
+  // Pitch-black square spy shades — sit over the eyes when temporary chat is on.
+  return `
+    <g class="klui-shades" aria-hidden="true">
+      <rect x="20.6" y="24.4" width="16.4" height="18.2" rx="2.4" fill="#000" opacity=".16"/>
+      <rect x="43" y="24.4" width="16.4" height="18.2" rx="2.4" fill="#000" opacity=".16"/>
+      <rect x="20.2" y="23.4" width="16.4" height="18" rx="2.3" fill="#0a0a0c"/>
+      <rect x="43.4" y="23.4" width="16.4" height="18" rx="2.3" fill="#0a0a0c"/>
+      <path d="M36.6 32.4 H43.4" stroke="#0a0a0c" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M20.2 31.2 H15.4" stroke="#0a0a0c" stroke-width="2.1" stroke-linecap="round"/>
+      <path d="M59.8 31.2 H64.6" stroke="#0a0a0c" stroke-width="2.1" stroke-linecap="round"/>
+      <rect x="21.8" y="25.2" width="5.6" height="2.2" rx="1" fill="#fff" opacity=".2"/>
+      <rect x="45" y="25.2" width="5.6" height="2.2" rx="1" fill="#fff" opacity=".2"/>
+    </g>`;
+}
+
 function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
   const face = `${prefix}-face`;
   const rim = `${prefix}-rim`;
@@ -167,6 +183,7 @@ function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
       <path class="mouth mouth-normal" d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
       ${greeting ? "" : `<path class="fx fx-tongue" d="M40 52.5 q2.8 0 2.8 2.8 q0 2.8 -2.8 2.8 q-2.8 0 -2.8 -2.8 q0 -2.8 2.8 -2.8z" fill="#f19ab6"/>`}
     </g>
+    ${fedora ? shadesMarkup() : ""}
     <g class="fx fx-think" fill="#a8c4ef">
       <circle cx="64" cy="14" r="2.2"/><circle cx="70" cy="7" r="3"/><circle cx="77" cy="-1" r="3.8"/>
     </g>
