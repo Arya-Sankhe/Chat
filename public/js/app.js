@@ -214,9 +214,8 @@ const LONG_PASTE_MIN_CHARS = 1000;
 const LONG_PASTE_MIN_LINES = 8;
 const LONG_PASTE_MAX_CHARS = 95000;
 const SPEECH_CHUNK_MS = 28_000;
-const CHAT_THEMES = new Set(["classic", "cyber", "doodle"]);
 const APPEARANCES = new Set(["light", "dark", "system"]);
-const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean"]);
+const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean", "violet", "teal", "amber"]);
 const HOME_WALLPAPERS = new Set(["none", "clouds", "alpine", "valley", "launch"]);
 const WRITING_STYLE_LABELS = Object.freeze({
   normal: "Normal",
@@ -244,7 +243,6 @@ const defaultSettings = {
   writingStyle: "normal",
   provider: "openrouter",
   kluiModel: "",
-  theme: "classic",
   appearance: "system",
   colorPreset: "default",
   wallpaper: "clouds",
@@ -602,7 +600,6 @@ const els = {
   saveSystemPromptButton: document.querySelector("#saveSystemPromptButton"),
   textScaleInput: document.querySelector("#textScaleInput"),
   textScaleValue: document.querySelector("#textScaleValue"),
-  themePreviewGrid: document.querySelector("#themePreviewGrid"),
   appearancePill: document.querySelector("#appearancePill"),
   wallpaperPicker: document.querySelector("#wallpaperPicker"),
   homeWallpaper: document.querySelector("#homeWallpaper"),
@@ -1125,7 +1122,9 @@ function clampTextScale(value) {
 
 function loadSettings() {
   try {
-    const loaded = { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    const hadLegacyTheme = Object.hasOwn(stored, "theme");
+    const loaded = { ...defaultSettings, ...stored };
     loaded.compareModels = Array.isArray(loaded.compareModels) ? loaded.compareModels.slice(0, 4) : [];
     loaded.compareEnabled = false;
     loaded.compareMode = loaded.compareMode === "council" ? "council" : "compare";
@@ -1143,12 +1142,13 @@ function loadSettings() {
     loaded.temperature = 0.7;
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
-    loaded.theme = CHAT_THEMES.has(loaded.theme) ? loaded.theme : "classic";
+    delete loaded.theme;
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
     loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
+  if (hadLegacyTheme) localStorage.setItem(SETTINGS_KEY, JSON.stringify(loaded));
   return loaded;
   } catch {
     return { ...defaultSettings };
@@ -1172,11 +1172,9 @@ function applyCodeHighlightTheme(mode) {
   if (dark) dark.disabled = mode !== "dark";
 }
 
-function applyChatTheme() {
-  const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
+function applyAppearance() {
   const preset = COLOR_PRESETS.has(state.settings.colorPreset) ? state.settings.colorPreset : "default";
   const mode = resolvedAppearance();
-  document.body.dataset.chatTheme = theme;
   document.body.dataset.accent = preset;
   document.body.dataset.mode = mode;
   const wallpaper = HOME_WALLPAPERS.has(state.settings.wallpaper) ? state.settings.wallpaper : "clouds";
@@ -1201,7 +1199,7 @@ function applyChatTheme() {
   syncAppearanceControls();
   // Match the Android notification panel color to the chat surface so the
   // status bar visually merges into the top bar. We read the resolved
-  // --bg from CSS so the StatusBar tracks every color preset / theme.
+  // --bg from CSS so the StatusBar tracks every appearance and color preset.
   const nativeBg = (getComputedStyle(document.body).getPropertyValue("--bg") || "").trim()
     || (mode === "dark" ? "#1f1f1f" : "#ffffff");
   void configureNativeChrome({ dark: mode === "dark", background: nativeBg });
@@ -1212,14 +1210,8 @@ function applyTextScale() {
 }
 
 function syncAppearanceControls() {
-  const theme = CHAT_THEMES.has(state.settings.theme) ? state.settings.theme : "classic";
   const preset = COLOR_PRESETS.has(state.settings.colorPreset) ? state.settings.colorPreset : "default";
   const appearance = APPEARANCES.has(state.settings.appearance) ? state.settings.appearance : "system";
-  if (els.themePreviewGrid) {
-    els.themePreviewGrid.querySelectorAll("[data-theme]").forEach((btn) => {
-      btn.setAttribute("aria-checked", btn.dataset.theme === theme ? "true" : "false");
-    });
-  }
   if (els.appearancePill) {
     els.appearancePill.querySelectorAll("[data-appearance]").forEach((btn) => {
       btn.setAttribute("aria-checked", btn.dataset.appearance === appearance ? "true" : "false");
@@ -1336,7 +1328,7 @@ function saveSettings() {
 function updateSetting(key, value) {
   state.settings[key] = value;
   saveSettings();
-  if (key === "theme" || key === "appearance" || key === "colorPreset" || key === "wallpaper") applyChatTheme();
+  if (key === "appearance" || key === "colorPreset" || key === "wallpaper") applyAppearance();
   if (key === "uiTextScale") applyTextScale();
 }
 
@@ -6337,7 +6329,7 @@ async function hydrateNativeSettings() {
 
 async function bootstrap() {
   await hydrateNativeSettings();
-  applyChatTheme();
+  applyAppearance();
   applyTextScale();
   try {
     state.config = await fetchConfig();
@@ -7542,11 +7534,6 @@ function bindEvents() {
     updateSetting("uiTextScale", clampTextScale(e.target.value));
   });
   els.saveSystemPromptButton?.addEventListener("click", () => { void adminPanel.saveGlobalSystemPrompt(); });
-  els.themePreviewGrid?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-theme]");
-    if (!btn) return;
-    updateSetting("theme", CHAT_THEMES.has(btn.dataset.theme) ? btn.dataset.theme : "classic");
-  });
   els.appearancePill?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-appearance]");
     if (!btn) return;
@@ -7563,7 +7550,7 @@ function bindEvents() {
     updateSetting("colorPreset", COLOR_PRESETS.has(btn.dataset.accent) ? btn.dataset.accent : "default");
   });
   window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
-    if (state.settings.appearance === "system") applyChatTheme();
+    if (state.settings.appearance === "system") applyAppearance();
   });
 
   els.loadAdminButton.addEventListener("click", () => { void adminPanel.loadAdminDashboard(); });

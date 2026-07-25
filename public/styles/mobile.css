@@ -202,11 +202,7 @@ body.capacitor-native.chat-empty .empty-state h1 {
 
 body.capacitor-native .composer-area,
 
-body.capacitor-native.chat-empty .composer-area,
-
-body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer-area,
-
-body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer-area {
+body.capacitor-native.chat-empty .composer-area {
 
   top: auto;
 
@@ -746,24 +742,6 @@ body.chat-empty .composer-area {
 
 }
 
-body.chat-empty[data-chat-theme="doodle"] .empty-state h1::after {
-
-  display: none;
-
-}
-
-body.chat-empty[data-chat-theme="cyber"] .composer-area,
-
-body.chat-empty[data-chat-theme="doodle"] .composer-area {
-
-  top: max(142px, calc(50dvh - 72px));
-
-  bottom: auto;
-
-  padding-inline: 24px;
-
-}
-
 /* ─── Responsive ─── */
 
 @media (max-width: 1180px) {
@@ -1223,16 +1201,6 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
 
   }
 
-  body[data-chat-theme="doodle"] .sidebar {
-
-    margin: 0;
-
-    height: 100dvh;
-
-    border-radius: 0 28px 28px 0;
-
-  }
-
   body.sidebar-expanded:not(.guest-mode) {
 
     --sidebar-active-w: var(--sidebar-w);
@@ -1651,282 +1619,6 @@ body.chat-empty[data-chat-theme="doodle"] .composer-area {
 
   }
 
-  body[data-chat-theme="cyber"] .sidebar-top,
-
-  body[data-chat-theme="cyber"] .sidebar-bottom {
-
-    padding: 4px 8px;
-
-    align-items: flex-start;
-
-  }
-
-  body[data-chat-theme="cyber"] .sidebar {
-
-    margin: 0;
-
-    height: 100dvh;
-
-    box-shadow: var(--cyber-drop-md);
-
-  }
-
-  body[data-chat-theme="cyber"] .chat-panel {
-
-    margin: 0;
-
-    height: 100dvh;
-
-    border-width: 0;
-
-    box-shadow: none;
-
-  }
-
-  body[data-chat-theme="cyber"] .chat-panel::before {
-
-    height: 0;
-
-    border-bottom-width: 1px;
-
-  }
-
-  body[data-chat-theme="cyber"] .topbar {
-
-    height: 48px;
-
-    padding: 0 12px;
-
-  }
-
-  body[data-chat-theme="cyber"] .topbar::before {
-
-    content: "BUFFER: READY";
-
-    font-size: 10px;
-
-  }
-
-  body[data-chat-theme="cyber"] .messages {
-
-    margin: 0;
-
-    padding: 76px 16px 140px;
-
-  }
-
-  body[data-chat-theme="cyber"] .compare-message,
-
-  body[data-chat-theme="cyber"] .council-message {
-
-    max-width: calc(100vw - 40px);
-
-  }
-
-  body[data-chat-theme="cyber"] .message:not(.compare-message):not(.council-message) .message-content {
-
-    max-width: 100%;
-
-  }
-
-  body[data-chat-theme="cyber"] .composer-area {
-
-    padding: 24px 12px 6px;
-
-  }
-
-  body[data-chat-theme="cyber"] .compare-context-banner:not(.hidden) {
-
-    bottom: 108px;
-
-    padding: 0 12px;
-
-  }
-
-  body[data-chat-theme="cyber"] .composer {
-
-    box-shadow: var(--cyber-drop-md);
-
-  }
-
-  body[data-chat-theme="doodle"] .sidebar-top,
-
-  body[data-chat-theme="doodle"] .sidebar-bottom {
-
-    padding: 4px 8px;
-
-    align-items: flex-start;
-
-  }
-
-  body[data-chat-theme="doodle"] .sidebar {
-
-    margin: 0;
-
-    height: 100dvh;
-
-    border-radius: 0 28px 28px 0;
-
-  }
-
-  body[data-chat-theme="doodle"] .messages {
-
-    padding: 76px 16px 140px;
-
-  }
-
-  body[data-chat-theme="doodle"] .compare-message,
-
-  body[data-chat-theme="doodle"] .council-message {
-
-    max-width: calc(100vw - 40px);
-
-  }
-
-  body[data-chat-theme="doodle"] .empty-state h1 {
-
-    font-size: 28px;
-
-  }
-
-  body[data-chat-theme="doodle"] .message:not(.compare-message):not(.council-message) .message-content {
-
-    max-width: 100%;
-
-  }
-
-  body[data-chat-theme="doodle"] .composer-area {
-
-    padding: 0 12px 12px;
-
-    background: transparent !important;
-
-    backdrop-filter: none;
-
-  }
-
-  body[data-chat-theme="doodle"] .composer {
-
-    border-radius: 24px;
-
-    padding: 16px 16px 12px;
-
-  }
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .app-shell,
-
-body.chat-empty[data-chat-theme="doodle"] .chat-panel {
-
-  background: var(--paper);
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .app-shell::before,
-
-body.chat-empty[data-chat-theme="doodle"] .chat-panel::before,
-
-body.chat-empty[data-chat-theme="doodle"] .chat-panel::after {
-
-  display: none;
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .composer-area {
-
-  position: absolute;
-
-  top: max(120px, calc(50dvh - 94px));
-
-  right: 0;
-
-  bottom: auto;
-
-  left: 0;
-
-  z-index: 8;
-
-  display: block;
-
-  visibility: visible;
-
-  opacity: 1;
-
-  padding: 0 24px;
-
-  pointer-events: none;
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .composer-wrap {
-
-  pointer-events: auto;
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .composer {
-
-  background: var(--glass);
-
-  backdrop-filter: blur(16px);
-
-  -webkit-backdrop-filter: blur(16px);
-
-  border-color: var(--border);
-
-  box-shadow: var(--shadow-md);
-
-}
-
-body.chat-empty[data-chat-theme="cyber"] .empty-state h1,
-
-body.chat-empty[data-chat-theme="doodle"] .empty-state h1 {
-
-  font-family: var(--font-sans);
-
-  font-size: clamp(24px, 2.2vw, 30px);
-
-  font-weight: 400;
-
-  line-height: 1.25;
-
-  letter-spacing: 0;
-
-  text-transform: none;
-
-}
-
-body.chat-empty[data-chat-theme="doodle"] .composer {
-
-  border-radius: 28px;
-
-  padding: 12px 14px 10px;
-
-}
-
-@media (max-width: 768px) {
-
-  body[data-chat-theme="doodle"] .chat-panel > .temporary-chat-bar {
-
-    top: 64px;
-
-    right: 14px;
-
-    left: 64px;
-
-    gap: 10px;
-
-  }
-
-  body.chat-empty[data-chat-theme="doodle"] .composer-area {
-
-    top: max(108px, calc(50dvh - 90px));
-
-    padding: 0 12px;
-
-  }
-
 }
 
 /* Keep native app rules authoritative after the website breakpoints above. */
@@ -2005,11 +1697,7 @@ body.capacitor-native .composer-actions {
 
 }
 
-body.capacitor-native.chat-empty .composer,
-
-body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer,
-
-body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer {
+body.capacitor-native.chat-empty .composer {
 
   padding: 14px 14px 10px;
 
@@ -3664,15 +3352,9 @@ body.capacitor-native .composer.compact {
   opacity: 1 !important;
 }
 
-/* ── APK: keep the typing composer fully opaque on every theme. The doodle and
-   cyber themes use a translucent "glass" composer on the web, which makes typed
-   text hard to read inside the app. The mini pill keeps its own styling. */
+/* Keep the native typing composer opaque. The mini pill keeps its own styling. */
 body.capacitor-native .composer:not(.compact),
-body.capacitor-native.chat-empty .composer:not(.compact),
-body.capacitor-native[data-chat-theme="doodle"] .composer:not(.compact),
-body.capacitor-native.chat-empty[data-chat-theme="doodle"] .composer:not(.compact),
-body.capacitor-native[data-chat-theme="cyber"] .composer:not(.compact),
-body.capacitor-native.chat-empty[data-chat-theme="cyber"] .composer:not(.compact) {
+body.capacitor-native.chat-empty .composer:not(.compact) {
   background: var(--bg) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;

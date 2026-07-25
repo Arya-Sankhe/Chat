@@ -329,12 +329,6 @@ test("desktop browser shows the temporary chat icon without mobile controls", as
   assert.match(source, /body:not\(\.capacitor-native\) \.temporary-chat-toggle \{[\s\S]*display: inline-flex;[\s\S]*pointer-events: auto;/);
 });
 
-test("Doodle composer chrome stays transparent around the input", async () => {
-  const source = readStylesheet();
-  assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-area \{[\s\S]*background: transparent !important;[\s\S]*backdrop-filter: none;[\s\S]*box-shadow: none;/);
-  assert.match(source, /body\[data-chat-theme="doodle"\] \.composer-wrap \{[\s\S]*background: transparent !important;[\s\S]*box-shadow: none;/);
-});
-
 test("secure storage wrapper is not thenable", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
@@ -591,11 +585,8 @@ test("native sidebar login starts Google OAuth instead of opening auth behind th
   assert.doesNotMatch(source, /els\.guestLoginButton\.addEventListener\("click", openAuthDialog\)/);
 });
 
-test("capacitor doodle theme keeps temporary chat toggle aligned to native header", async () => {
+test("capacitor temporary chat toggle stays aligned to the native header", async () => {
   const source = readStylesheet();
-  // The mobile website doodle breakpoint moves the temporary chat bar below
-  // the topbar. Native rules appear later and must win so the icon stays in
-  // the same header position as every other theme.
   assert.match(source, /body\.capacitor-native \.chat-panel > \.temporary-chat-bar\s*\{[\s\S]*?top:\s*calc\(var\(--safe-area-inset-top, env\(safe-area-inset-top\)\) \+ 8px\);[\s\S]*?right:\s*18px;[\s\S]*?left:\s*auto/);
 });
 
@@ -714,6 +705,24 @@ test("settings has an APK-only text size slider that is hidden on the web", asyn
   assert.match(java, /if \(percent > 130\) percent = 130;/);
 });
 
+test("settings uses appearance and wallpapers without legacy chat themes", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [html, js, css] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8"),
+    readStylesheet()
+  ]);
+
+  assert.match(html, /<h2>Appearance<\/h2>[\s\S]*?<h2>Wallpaper<\/h2>[\s\S]*?<h2>Accent color<\/h2>/);
+  assert.doesNotMatch(html, /Cyber Mind|Doodle Luxe|themePreviewGrid/);
+  assert.doesNotMatch(js, /data\.chatTheme|settings\.theme|CHAT_THEMES/);
+  assert.match(js, /"violet", "teal", "amber"/);
+  assert.match(js, /if \(hadLegacyTheme\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
+  assert.match(css, /\.preview-remove\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?pointer-events:\s*none;/);
+  assert.match(css, /\.preview-thumb:hover \.preview-remove\s*\{[\s\S]*?pointer-events:\s*auto;/);
+  assert.match(css, /@keyframes preview-spin\s*\{[\s\S]*?rotate\(360deg\)/);
+});
+
 test("native top-bar mode picker activates compare and council modes", async () => {
   const [appJs, compareJs, councilJs] = await Promise.all([
     import("node:fs/promises").then(({ readFile }) =>
@@ -783,5 +792,4 @@ test("desktop chat navigation stays out of mobile and tracks prompt position", a
   assert.match(css, /\.chat-prompt-nav \{[\s\S]*?right:\s*18px/);
   assert.match(css, /\.chat-prompt-panel \{[\s\S]*?max-height:\s*min\(248px,\s*calc\(100vh - 160px\)\);[\s\S]*?overflow-y:\s*auto/);
   assert.match(css, /\.chat-prompt-list button \{[\s\S]*?height:\s*36px;[\s\S]*?padding:\s*0 9px/);
-  assert.match(css, /body\[data-chat-theme="cyber"\] \.chat-panel > \.chat-prompt-nav,[\s\S]*?body\[data-chat-theme="doodle"\] \.chat-panel > \.chat-prompt-nav \{[\s\S]*?position:\s*absolute;[\s\S]*?z-index:\s*12;/);
 });
