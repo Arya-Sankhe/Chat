@@ -916,7 +916,7 @@ body.capacitor-native .side-chat-panel {
 
   overflow-wrap: anywhere;
 
-  font-size: 16px;
+  font-size: 17px;
 
 }
 
@@ -1035,7 +1035,7 @@ body.capacitor-native .side-chat-panel {
 
 .message-content h6 {
 
-  margin: 20px 0 8px;
+  margin: 28px 0 10px;
 
   line-height: 1.3;
 
@@ -1043,11 +1043,11 @@ body.capacitor-native .side-chat-panel {
 
 }
 
-.message-content h1 { font-size: 1.4em; }
+.message-content h1 { font-size: 1.5em; }
 
-.message-content h2 { font-size: 1.25em; }
+.message-content h2 { font-size: 1.32em; }
 
-.message-content h3 { font-size: 1.1em; }
+.message-content h3 { font-size: 1.16em; }
 
 .message-content h4,
 
@@ -1069,7 +1069,7 @@ body.capacitor-native .side-chat-panel {
 
 .message-content ol {
 
-  margin: 8px 0;
+  margin: 12px 0;
 
   padding-left: 24px;
 
@@ -1077,7 +1077,13 @@ body.capacitor-native .side-chat-panel {
 
 .message-content li {
 
-  margin-bottom: 4px;
+  margin-bottom: 8px;
+
+}
+
+.message-content li:last-child {
+
+  margin-bottom: 0;
 
 }
 
@@ -1085,7 +1091,7 @@ body.capacitor-native .side-chat-panel {
 
 .message-content li > ol {
 
-  margin: 4px 0;
+  margin: 8px 0 0;
 
 }
 
@@ -1202,7 +1208,7 @@ body.capacitor-native .side-chat-panel {
 
 .message-content p {
 
-  margin: 8px 0;
+  margin: 14px 0;
 
 }
 
@@ -1363,6 +1369,48 @@ body.capacitor-native .side-chat-panel {
   margin: 10px 0;
 
   cursor: zoom-in;
+
+}
+
+.user-image-strip {
+
+  display: flex;
+
+  gap: 8px;
+
+  width: max-content;
+
+  max-width: min(352px, calc(100vw - 48px));
+
+  margin-bottom: 10px;
+
+  overflow-x: auto;
+
+  overscroll-behavior-inline: contain;
+
+  scrollbar-width: thin;
+
+}
+
+.message.user .user-image-strip .message-image {
+
+  width: 64px;
+
+  height: 64px;
+
+  max-width: none;
+
+  max-height: none;
+
+  flex: 0 0 64px;
+
+  margin: 0;
+
+  object-fit: cover;
+
+  border-radius: 10px;
+
+  background: var(--bg-secondary);
 
 }
 

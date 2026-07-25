@@ -3527,7 +3527,7 @@ function renderUserContent(message) {
   const content = message?.content;
   const paste = pastedTextFromMessage(message);
   const attachments = Array.isArray(content)
-    ? content.filter((part) => part?.type === "image_url" || part?.type === "file").map((part) => renderContent([part])).join("")
+    ? content.filter((part) => part?.type === "file").map((part) => renderContent([part])).join("")
     : "";
   if (!paste) {
     const text = rawTextContent(content);
@@ -3536,6 +3536,15 @@ function renderUserContent(message) {
   const fullText = rawTextContent(content);
   const visibleText = `${fullText.slice(0, paste.start)}${fullText.slice(paste.start + paste.length)}`.trim();
   return `${renderPastedTextCard(paste.text, message?.id)}${visibleText ? `<div class="user-plain-text">${renderPlainText(visibleText)}</div>` : ""}${attachments}`;
+}
+
+function renderUserImages(message) {
+  if (!Array.isArray(message?.content)) return "";
+  const images = message.content
+    .filter((part) => part?.type === "image_url")
+    .map((part) => renderContent([part]))
+    .join("");
+  return images ? `<div class="user-image-strip">${images}</div>` : "";
 }
 
 function renderAssistantMessageContent(message, role = "assistant") {
@@ -3966,12 +3975,13 @@ function renderStandardMessage(raw) {
   const rawText = rawTextContent(msg.content);
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
+  const userImages = role === "user" ? renderUserImages(msg) : "";
 
   const inner = role === "assistant" && researchController.researchMeta(msg)
     ? researchController.renderResearchCard(msg)
     : editing
-    ? renderUserEditForm(msg, rawText)
-    : `<div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
+    ? `${userImages}${renderUserEditForm(msg, rawText)}`
+    : `${userImages}<div class="message-content">${renderAssistantMessageContent(msg, role)}</div>
         ${renderMessageFooter(msg, role)}`;
 
   return `

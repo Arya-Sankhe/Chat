@@ -112,6 +112,16 @@ test("message tables are wrapped for horizontal scroll", () => {
   assert.match(css, /overflow-wrap:\s*normal/, "cells override message overflow-wrap");
 });
 
+test("sent images render in a compact horizontal strip above the user bubble", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  assert.match(appJs, /function renderUserImages\(/);
+  assert.match(appJs, /class="user-image-strip"/);
+  assert.match(appJs, /\$\{userImages\}<div class="message-content">/);
+  assert.match(css, /\.user-image-strip\s*\{[^}]*display:\s*flex[^}]*overflow-x:\s*auto/s);
+  assert.match(css, /\.message\.user \.user-image-strip \.message-image\s*\{[^}]*width:\s*64px[^}]*height:\s*64px/s);
+});
+
 test("code block copy button reuses the message compare copy control", () => {
   const renderJs = readPublic("js/render.js");
   const markup = renderJs.match(/class="msg-copy-btn compare-copy-btn code-copy-btn"[\s\S]*?<\/button>/);
