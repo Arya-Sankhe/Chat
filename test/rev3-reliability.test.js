@@ -5,6 +5,7 @@ import test from "node:test";
 const migrationPath = new URL("../supabase/migrations/2026_07_11_rev3_document_pipeline.sql", import.meta.url);
 const officeVisualMigrationPath = new URL("../supabase/migrations/20260712215913_add_office_visual_enrichment.sql", import.meta.url);
 const outputFenceMigrationPath = new URL("../supabase/migrations/20260712232232_fence_pending_turn_output_writes.sql", import.meta.url);
+const cancelRestoreMigrationPath = new URL("../supabase/migrations/20260725095500_restore_stopped_turn_to_composer.sql", import.meta.url);
 const schemaPath = new URL("../supabase/schema.sql", import.meta.url);
 
 function functionBlock(sql, name) {
@@ -67,5 +68,14 @@ for (const [label, path] of [["migration", migrationPath], ["schema", schemaPath
     const queue = functionBlock(sql, "klui_queue_document_page_render");
     assert.match(queue, /length\(trim\(v_page\.image_key\)\) > 0/);
     assert.match(queue, /delete from public\.document_pages where id = v_page\.id/);
+  });
+}
+
+for (const [label, path] of [["cancel restore migration", cancelRestoreMigrationPath], ["schema", schemaPath]]) {
+  test(`${label} removes a stopped turn even after its provider starts`, () => {
+    const cancel = latestFunctionBlock(readFileSync(path, "utf8"), "klui_cancel_pending_document_turn");
+    assert.match(cancel, /if v_run\.status in \('waiting_documents', 'running'\) then/);
+    assert.match(cancel, /status = 'cancelled'[\s\S]*delete from public\.messages where turn_run_id = v_run\.id/);
+    assert.doesNotMatch(cancel, /elsif v_run\.status = 'running'/);
   });
 }

@@ -139,6 +139,16 @@ test("streaming callbacks are scoped to the active conversation run", async () =
   assert.match(source, /els\.stopButton\.addEventListener\("click"[\s\S]*?const run = getConversationRun\(\)/);
 });
 
+test("stopping a sent message restores its draft and removes its local turn", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /activeRun\.userMessage = localUser;[\s\S]*activeRun\.draft = \{ text, images \};/);
+  assert.match(source, /function restoreCancelledTurnDraft[\s\S]*state\.messages = state\.messages\.filter/);
+  assert.match(source, /cancelPendingDocumentTurn[\s\S]*restoreCancelledTurnDraft\(result, run\)/);
+  assert.match(source, /restoreCancelledTurnDraft\(\{ run: \{ status: "cancelled" \} \}, run\);/);
+});
+
 test("mobile bundle includes the shared Deep Research controls", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/index.html", import.meta.url), "utf8")

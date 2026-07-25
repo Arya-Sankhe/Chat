@@ -411,7 +411,10 @@ function beginConversationRun(key, {
     turnRunId: "",
     turnWaiting: false,
     cancelRequested: false,
-    cancelResult: null
+    cancelResult: null,
+    userMessage: null,
+    assistantMessage: null,
+    draft: null
   };
   conversationRuns.set(key, run);
   if (isRunKeyActive(key)) syncActiveRunningUi();
@@ -5430,12 +5433,18 @@ function restoredTurnAttachment(part) {
   return item;
 }
 
-function restoreCancelledTurnDraft(result) {
-  if (result?.run?.status !== "cancelled" || !result.user_message) return false;
+function restoreCancelledTurnDraft(result, run = getConversationRun()) {
+  if (result?.run?.status !== "cancelled") return false;
   if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
-  els.promptInput.value = textFromMessageContent(result.user_message.content);
-  const parts = Array.isArray(result.user_message.content) ? result.user_message.content : [];
-  state.images = parts.map(restoredTurnAttachment).filter(Boolean);
+  const content = result.user_message?.content;
+  els.promptInput.value = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
+  const parts = Array.isArray(content) ? content : [];
+  state.images = parts.length
+    ? parts.map(restoredTurnAttachment).filter(Boolean)
+    : (run?.draft?.images || []);
+  state.messages = state.messages.filter((message) =>
+    message !== run?.userMessage && message !== run?.assistantMessage);
+  if (run) run.messages = state.messages;
   for (const item of state.images) {
     if (item.category !== "document") continue;
     rememberPendingDocument(item);
@@ -5449,6 +5458,8 @@ function restoreCancelledTurnDraft(result) {
   }
   renderImages();
   applyComposerHeight();
+  renderMessages();
+  els.promptInput.focus();
   return true;
 }
 
@@ -6095,6 +6106,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
     mode: council ? "council" : (compareModels.length ? "compare" : "chat")
   });
   activeRun.messages = state.messages;
+  activeRun.userMessage = localUser;
+  activeRun.assistantMessage = localAssistant;
+  activeRun.draft = { text, images };
   setAutoScroll(true);
   syncActiveRunningUi();
   if (createdConversation) renderShell();
@@ -7466,11 +7480,12 @@ function bindEvents() {
       ).then((result) => {
         run.cancelResult = result;
         state.activeTurnCancelResult = result;
-        restoreCancelledTurnDraft(result);
+        restoreCancelledTurnDraft(result, run);
       }).catch((error) => showToast(error.message || "The pending turn could not be cancelled."))
         .finally(() => run.abortController?.abort());
       return;
     }
+    restoreCancelledTurnDraft({ run: { status: "cancelled" } }, run);
     run.abortController?.abort();
   });
 

@@ -1956,8 +1956,16 @@ begin
   from public.attachments a
   where a.user_id = p_user_id and a.message_id = v_run.user_message_id;
 
-  if v_run.status = 'waiting_documents'
-     or (v_run.status = 'running' and v_run.provider_started_at is null) then
+  if v_run.status in ('waiting_documents', 'running') then
+    update public.pending_document_turns
+    set status = 'cancelled',
+        cancel_requested = true,
+        lease_until = null,
+        finished_at = now(),
+        updated_at = now()
+    where id = v_run.id
+    returning * into v_run;
+
     delete from public.messages where turn_run_id = v_run.id;
 
     update public.attachments
@@ -1968,21 +1976,7 @@ begin
     set conversation_id = null, message_id = null, updated_at = now()
     where user_id = p_user_id and message_id = v_run.user_message_id;
 
-    update public.pending_document_turns
-    set status = 'cancelled',
-        cancel_requested = true,
-        lease_until = null,
-        finished_at = now(),
-        updated_at = now()
-    where id = v_run.id
-    returning * into v_run;
-
     delete from public.messages where id = v_message.id;
-  elsif v_run.status = 'running' then
-    update public.pending_document_turns
-    set cancel_requested = true, updated_at = now()
-    where id = v_run.id
-    returning * into v_run;
   end if;
 
   return jsonb_build_object(
