@@ -251,7 +251,7 @@ body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header {
 body.sidebar-expanded .sidebar-brand,
 body.guest-mode .sidebar-brand,
 body.sidebar-open .sidebar-brand {
-  color: #fff;
+  color: var(--text);
   font-family: "Korataki", "Orbitron", sans-serif;
   font-size: 16px;
   font-weight: 900;
@@ -264,7 +264,7 @@ body.sidebar-open .sidebar-brand {
 body.sidebar-expanded .sidebar-header .sidebar-toggle,
 body.guest-mode .sidebar-header .sidebar-toggle,
 body.sidebar-open .sidebar-header .sidebar-toggle {
-  color: #fff;
+  color: var(--text);
   background: transparent;
   opacity: 0.95;
   transition: opacity var(--transition), background var(--transition);
@@ -275,6 +275,16 @@ body.guest-mode .sidebar-header .sidebar-toggle:hover,
 body.sidebar-open .sidebar-header .sidebar-toggle:hover {
   background: var(--hover);
   opacity: 1;
+}
+
+/* White brand + toggle only when the header shows the home wallpaper. */
+body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-brand,
+body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-brand,
+body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-brand,
+body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
+body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
+body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle {
+  color: #fff;
 }
 
 body.sidebar-expanded .sidebar-quick,
