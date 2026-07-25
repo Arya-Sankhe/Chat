@@ -251,7 +251,7 @@ body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header {
 body.sidebar-expanded .sidebar-brand,
 body.guest-mode .sidebar-brand,
 body.sidebar-open .sidebar-brand {
-  color: var(--text);
+  color: #fff;
   font-family: "Korataki", "Orbitron", sans-serif;
   font-size: 16px;
   font-weight: 900;
@@ -264,7 +264,7 @@ body.sidebar-open .sidebar-brand {
 body.sidebar-expanded .sidebar-header .sidebar-toggle,
 body.guest-mode .sidebar-header .sidebar-toggle,
 body.sidebar-open .sidebar-header .sidebar-toggle {
-  color: var(--text);
+  color: #fff;
   background: transparent;
   opacity: 0.95;
   transition: opacity var(--transition), background var(--transition);
@@ -669,9 +669,9 @@ body.sidebar-expanded .sidebar-section-label {
 
 .sidebar-bottom {
 
-  padding: 4px 8px;
+  padding: 12px 8px 4px;
 
-  border-top: 1px solid var(--border-light);
+  border-top: none;
 
   display: flex;
 
