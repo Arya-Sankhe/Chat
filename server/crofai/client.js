@@ -1,5 +1,6 @@
 import { HttpError } from "../http/responses.js";
 import { adaptChatRequestForProvider } from "../providers.js";
+import { stripLeakedReasoningMarkup } from "../saas/messages/content.js";
 
 /* Transient upstream failures we auto-retry. These are connection or
    capacity errors that typically succeed on a second attempt — unlike
@@ -155,5 +156,5 @@ export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId
   const response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
   const payload = await response.json();
   if (typeof onResponsePayload === "function") onResponsePayload(payload);
-  return payload?.choices?.[0]?.message?.content || "";
+  return stripLeakedReasoningMarkup(payload?.choices?.[0]?.message?.content || "", requestBody.model);
 }

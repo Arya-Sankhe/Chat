@@ -1,4 +1,5 @@
 import { HttpError } from "../../http/responses.js";
+import { OPENROUTER_LAGUNA_XS } from "../../providers.js";
 
 function cleanString(value, label, { max = 100000, required = false } = {}) {
   if (value === undefined || value === null) {
@@ -540,4 +541,21 @@ export function stripLeakedToolMarkup(value) {
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+// Keep in sync with the mirrored copy in public/js/app.js (client/server bundles are separate).
+export function stripLeakedReasoningMarkup(value, model) {
+  const text = String(value ?? "");
+  if (model !== OPENROUTER_LAGUNA_XS) return text;
+
+  let inCodeFence = false;
+  let leakedTagEnd = -1;
+  for (const match of text.matchAll(/```|~~~|<\/think\s*>/gi)) {
+    if (match[0] === "```" || match[0] === "~~~") {
+      inCodeFence = !inCodeFence;
+    } else if (!inCodeFence) {
+      leakedTagEnd = match.index + match[0].length;
+    }
+  }
+  return leakedTagEnd < 0 ? text : text.slice(leakedTagEnd).trimStart();
 }

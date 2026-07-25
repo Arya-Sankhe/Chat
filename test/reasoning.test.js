@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { adaptChatRequestForProvider } from "../server/providers.js";
-import { applyStreamEvent, stripLeakedToolMarkup } from "../server/saas/messages.js";
+import {
+  applyStreamEvent,
+  stripLeakedReasoningMarkup,
+  stripLeakedToolMarkup
+} from "../server/saas/messages.js";
 import { extractReasoningDelta } from "../server/saas/reasoning.js";
 
 test("extractReasoningDelta reads Klui reasoning_content", () => {
@@ -440,6 +444,24 @@ test("applyStreamEvent still accumulates reasoning_content for Klui streams", ()
   });
 
   assert.equal(message.reasoning, "legacy reasoning");
+});
+
+test("stripLeakedReasoningMarkup keeps only content after the last closing think tag", () => {
+  assert.equal(
+    stripLeakedReasoningMarkup(
+      "First answer.\n</think>Your goal: improve positioning.",
+      "poolside/laguna-xs-2.1"
+    ),
+    "Your goal: improve positioning."
+  );
+});
+
+test("stripLeakedReasoningMarkup only strips Laguna XS leaks outside code fences", () => {
+  const prose = "Models sometimes emit a stray </think> tag. Here is why.";
+  const fenced = "Example:\n```html\n</think>\n```\nKeep this.";
+
+  assert.equal(stripLeakedReasoningMarkup(prose, "deepseek/deepseek-v4-pro"), prose);
+  assert.equal(stripLeakedReasoningMarkup(fenced, "poolside/laguna-xs-2.1"), fenced);
 });
 
 test("stripLeakedToolMarkup removes provider DSML tool-call blocks", () => {

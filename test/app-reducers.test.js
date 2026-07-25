@@ -77,6 +77,22 @@ function stripLeakedToolMarkup(value) {
     .trim();
 }
 
+function stripLeakedReasoningMarkup(value, model) {
+  const text = String(value ?? "");
+  if (model !== "poolside/laguna-xs-2.1") return text;
+
+  let inCodeFence = false;
+  let leakedTagEnd = -1;
+  for (const match of text.matchAll(/```|~~~|<\/think\s*>/gi)) {
+    if (match[0] === "```" || match[0] === "~~~") {
+      inCodeFence = !inCodeFence;
+    } else if (!inCodeFence) {
+      leakedTagEnd = match.index + match[0].length;
+    }
+  }
+  return leakedTagEnd < 0 ? text : text.slice(leakedTagEnd).trimStart();
+}
+
 function isFinalFinishReason(reason) {
   return Boolean(reason && reason !== "tool_calls");
 }
@@ -114,6 +130,7 @@ const reducers = createStreamReducer({
   markReasoningStarted,
   markReasoningEnded,
   normalizeClientUsage,
+  stripLeakedReasoningMarkup,
   stripLeakedToolMarkup,
   isFinalFinishReason,
   isPlaceholderPeerReason
@@ -217,4 +234,18 @@ test("response:reset keeps every mini-reasoning chunk through tool work and clea
 
   assert.equal(message.content, "Here is what I found.");
   assert.equal(message.resetContentOnNextTextDelta, undefined);
+});
+
+test("stream reducer drops leaked Laguna reasoning before the real answer", () => {
+  const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
+
+  reducers.applyStreamEvent(message, {
+    model: "poolside/laguna-xs-2.1",
+    choices: [{ delta: { content: "Draft answer that should not be shown.\n</thi" } }]
+  });
+  reducers.applyStreamEvent(message, {
+    choices: [{ delta: { content: "nk>Your goal: use Caitlyn's range advantage." } }]
+  });
+
+  assert.equal(message.content, "Your goal: use Caitlyn's range advantage.");
 });

@@ -1,5 +1,9 @@
 import { extractReasoningDelta } from "../reasoning.js";
-import { normalizeUsage, stripLeakedToolMarkup } from "./content.js";
+import {
+  normalizeUsage,
+  stripLeakedReasoningMarkup,
+  stripLeakedToolMarkup
+} from "./content.js";
 
 function markReasoningStarted(message) {
   if (!message.reasoningStartedAt) message.reasoningStartedAt = Date.now();
@@ -27,6 +31,7 @@ function isFinalFinishReason(reason) {
 
 export function applyStreamEvent(message, event) {
   if (event?.id && !message.generationId) message.generationId = String(event.id);
+  if (event?.model && !message.model) message.model = String(event.model);
 
   /* Usage arrives in a trailing chunk (often with an empty `choices`
      array), so capture it before bailing on the missing choice. */
@@ -79,7 +84,7 @@ function finalizeAccumulatedAssistant(assistant) {
   if (assistant?.activityStartedAt && !assistant.activityEndedAt) {
     markActivityEnded(assistant);
   }
-  assistant.content = stripLeakedToolMarkup(assistant.content);
+  assistant.content = stripLeakedToolMarkup(stripLeakedReasoningMarkup(assistant.content, assistant.model));
 }
 
 function stripReasoningFields(target) {

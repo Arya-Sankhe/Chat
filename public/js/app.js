@@ -3233,6 +3233,23 @@ function stripLeakedToolMarkup(value) {
     .trim();
 }
 
+// Keep in sync with the mirrored copy in server/saas/messages/content.js.
+function stripLeakedReasoningMarkup(value, model) {
+  const text = String(value ?? "");
+  if (model !== OPENROUTER_LAGUNA_XS) return text;
+
+  let inCodeFence = false;
+  let leakedTagEnd = -1;
+  for (const match of text.matchAll(/```|~~~|<\/think\s*>/gi)) {
+    if (match[0] === "```" || match[0] === "~~~") {
+      inCodeFence = !inCodeFence;
+    } else if (!inCodeFence) {
+      leakedTagEnd = match.index + match[0].length;
+    }
+  }
+  return leakedTagEnd < 0 ? text : text.slice(leakedTagEnd).trimStart();
+}
+
 function isPlaceholderPeerReason(value) {
   return /^<?\s*reason\s*>?$/i.test(String(value || "").trim());
 }
@@ -3251,6 +3268,7 @@ const {
   markReasoningStarted,
   markReasoningEnded,
   normalizeClientUsage,
+  stripLeakedReasoningMarkup,
   stripLeakedToolMarkup,
   isFinalFinishReason,
   isPlaceholderPeerReason

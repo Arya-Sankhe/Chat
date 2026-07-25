@@ -8,6 +8,7 @@ export function createStreamReducer({
   markReasoningStarted,
   markReasoningEnded,
   normalizeClientUsage,
+  stripLeakedReasoningMarkup,
   stripLeakedToolMarkup,
   isFinalFinishReason,
   isPlaceholderPeerReason
@@ -62,6 +63,8 @@ export function createStreamReducer({
   }
 
   function applyStreamEvent(message, event) {
+    if (event?.model && !message.model) message.model = String(event.model);
+
     if (event?.type === "error") {
       message.error = event.error || "Model request failed.";
       message.finishReason = "error";
@@ -120,7 +123,7 @@ export function createStreamReducer({
         delete message.resetContentOnNextTextDelta;
       }
       markReasoningEnded(message);
-      message.content += delta.content;
+      message.content = stripLeakedReasoningMarkup(message.content + delta.content, message.model);
     }
 
     if (Array.isArray(delta.tool_calls)) {
