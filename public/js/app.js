@@ -156,7 +156,11 @@ function spectrumLevelFromSettings() {
 }
 
 function applySpectrumLevel(level) {
-  const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  let n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  if (n < 2 && pendingPromptNeedsVision()) {
+    n = 2;
+    showAttachmentModelNotice();
+  }
   const step = SPECTRUM_STEPS[n];
   updateSetting("spectrumLevel", n);
   updateSetting("modelMode", step.mode);
@@ -541,6 +545,8 @@ const els = {
   temporaryChatToggle: document.querySelector("#temporaryChatToggle"),
   temporaryChatLabel: document.querySelector("#temporaryChatLabel"),
   imagePreviews: document.querySelector("#imagePreviews"),
+  attachmentModelNotice: document.querySelector("#attachmentModelNotice"),
+  attachmentModelNoticeClose: document.querySelector("#attachmentModelNoticeClose"),
   pastedTextDialog: document.querySelector("#pastedTextDialog"),
   pastedTextDialogBody: document.querySelector("#pastedTextDialogBody"),
   pastedTextDialogMeta: document.querySelector("#pastedTextDialogMeta"),
@@ -4518,10 +4524,30 @@ function acceptPendingFiles(files) {
       startDocumentUpload(item);
     }
   }
+  if (chosen.length && spectrumLevelFromSettings() < 2) {
+    applySpectrumLevel(2);
+    showAttachmentModelNotice();
+  }
   renderImages();
   els.promptInput.value = draft;
   applyComposerHeight();
   compareController.syncCompareContextBanner();
+}
+
+let attachmentModelNoticeTimer = null;
+
+function hideAttachmentModelNotice() {
+  clearTimeout(attachmentModelNoticeTimer);
+  attachmentModelNoticeTimer = null;
+  els.attachmentModelNotice?.classList.remove("visible");
+  els.attachmentModelNotice?.setAttribute("aria-hidden", "true");
+}
+
+function showAttachmentModelNotice() {
+  clearTimeout(attachmentModelNoticeTimer);
+  els.attachmentModelNotice?.classList.add("visible");
+  els.attachmentModelNotice?.setAttribute("aria-hidden", "false");
+  attachmentModelNoticeTimer = setTimeout(hideAttachmentModelNotice, 4500);
 }
 
 function openLightbox(src) {
@@ -5711,6 +5737,7 @@ async function removeConversation(id) {
 }
 
 async function sendPrompt() {
+  hideAttachmentModelNotice();
   if (voiceState === "recording") {
     stopVoiceRecording({ commit: true });
     return;
@@ -7482,6 +7509,7 @@ function bindEvents() {
     }
     sendPrompt();
   });
+  els.attachmentModelNoticeClose?.addEventListener("click", hideAttachmentModelNotice);
   els.voiceButton?.addEventListener("click", toggleVoiceRecording);
   els.stopButton.addEventListener("click", () => {
     if (state.activeResearchId) {

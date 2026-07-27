@@ -287,6 +287,15 @@ test("composer drag and drop reuses the shared attachment acceptance path", asyn
   assert.match(source, /imageFileInput\.addEventListener\("change"[\s\S]*?acceptPendingFiles\(e\.target\.files \|\| \[\]\)/);
 });
 
+test("attachments move Nitro to Think through the shared acceptance path", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) < 2\) \{\s*applySpectrumLevel\(2\);\s*showAttachmentModelNotice\(\);/);
+  assert.match(source, /if \(n < 2 && pendingPromptNeedsVision\(\)\) \{\s*n = 2;\s*showAttachmentModelNotice\(\);/);
+  assert.match(source, /async function sendPrompt\(\) \{\s*hideAttachmentModelNotice\(\);/);
+});
+
 test("document enrichment cannot reactivate the composer progress ring", async () => {
   const appJs = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
