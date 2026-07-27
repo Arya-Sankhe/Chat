@@ -110,8 +110,6 @@ const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
 const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
-const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
-const OPENROUTER_VISION_L1 = "google/gemma-4-26b-a4b-it";
 const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 // Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
@@ -123,12 +121,9 @@ const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_VISION_PRO_MODEL
 ];
 const DEFAULT_REASONING_EFFORT = "high";
-const SPECTRUM_N = 5;
-// Levels 1–5 (indices 0–4). PRO UI only on last step.
+const SPECTRUM_N = 3;
 const SPECTRUM_STEPS = [
   { mode: "thinking", model: OPENROUTER_LAGUNA_XS, effort: "high" },
-  { mode: "thinking", model: OPENROUTER_LAGUNA_S, effort: "high" },
-  { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "high" },
   { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "xhigh" },
   { mode: "pro", model: OPENROUTER_PRO_MODEL, effort: "xhigh" }
 ];
@@ -152,16 +147,17 @@ function spectrumLevelFromSettings() {
   const effort = currentReasoningEffort();
   const idx = SPECTRUM_STEPS.findIndex((s) => s.model === model && s.effort === effort);
   if (idx >= 0) return idx;
-  return selectedModelMode() === "pro" ? SPECTRUM_N - 1 : 2;
+  return selectedModelMode() === "pro" ? SPECTRUM_N - 1 : 1;
 }
 
 function applySpectrumLevel(level) {
   let n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
-  if (n < 2 && pendingPromptNeedsVision()) {
-    n = 2;
+  if (n === 0 && pendingPromptNeedsVision()) {
+    n = 1;
     showAttachmentModelNotice();
   }
   const step = SPECTRUM_STEPS[n];
+  updateSetting("spectrumScale", 3);
   updateSetting("spectrumLevel", n);
   updateSetting("modelMode", step.mode);
   updateSetting("provider", "openrouter");
@@ -176,8 +172,6 @@ function paintSpectrum(level = spectrumLevelFromSettings()) {
   const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
   const sliderT = n / (SPECTRUM_N - 1);
   const sliderPct = `${sliderT * 100}%`;
-  // fill hits 100% at level 4 (index 3); level 5 keeps full fill, only hue/label change
-  const heatPct = n >= 3 ? 100 : 18 + (n / 3) * 82;
   if (els.spectrumSteps && !els.spectrumSteps.children.length) {
     for (let i = 0; i < SPECTRUM_N; i++) els.spectrumSteps.appendChild(document.createElement("i"));
   }
@@ -187,10 +181,12 @@ function paintSpectrum(level = spectrumLevelFromSettings()) {
   if (els.spectrumSteps) {
     [...els.spectrumSteps.children].forEach((dot, i) => dot.classList.toggle("lit", i <= n));
   }
-  if (els.heatFill) els.heatFill.style.width = `${heatPct}%`;
+  if (els.heatFill) els.heatFill.style.width = "100%";
   const isPro = n === SPECTRUM_N - 1;
-  // L1–L2 (Laguna) → Nitro; L3–L4 stay Think; L5 → PRO
-  const heatLabel = isPro ? "PRO" : n <= 1 ? "Nitro" : "Think";
+  const heatLabel = isPro ? "PRO" : n === 0 ? "Nitro" : "Think";
+  els.modelButton?.classList.toggle("nitro-active", n === 0);
+  els.modelButton?.classList.toggle("think-active", n === 1);
+  els.modelButton?.classList.toggle("pro-active", isPro);
   const names = document.querySelectorAll(".heat-name");
   const labelChanged = [...names].some((el) => el.textContent !== heatLabel);
   if (labelChanged) {
@@ -211,7 +207,6 @@ function paintSpectrum(level = spectrumLevelFromSettings()) {
     names.forEach((el) => { el.textContent = heatLabel; });
   }
   els.modelButton?.setAttribute("title", heatLabel);
-  els.modelButton?.classList.toggle("pro-active", isPro);
 }
 const CONTEXT_LIMIT_TOKENS = 256000;
 const LONG_PASTE_MIN_CHARS = 1000;
@@ -238,7 +233,8 @@ const defaultSettings = {
   seed: "",
   systemPrompt: "",
   thinkingEffort: DEFAULT_REASONING_EFFORT,
-  spectrumLevel: 2,
+  spectrumLevel: 1,
+  spectrumScale: 3,
   compareEnabled: false,
   compareModels: [],
   compareMode: "compare",
@@ -1061,8 +1057,6 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
   // Vision/docs by spectrum level. Text uses SPECTRUM_STEPS model.
   if (needsVision) {
     const level = spectrumLevelFromSettings();
-    if (level === 0) return OPENROUTER_VISION_L1;
-    if (level === 1) return OPENROUTER_VISION_L2;
     if (level === SPECTRUM_N - 1) return OPENROUTER_PRO_MODEL;
     return OPENROUTER_VISION_MODEL;
   }
@@ -1141,7 +1135,10 @@ function loadSettings() {
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
     loaded.thinkingEffort = normalizeThinkingEffort(loaded.thinkingEffort);
     const lvl = Number(loaded.spectrumLevel);
-    loaded.spectrumLevel = Number.isInteger(lvl) && lvl >= 0 && lvl < SPECTRUM_N ? lvl : 2;
+    loaded.spectrumLevel = stored.spectrumScale === 3
+      ? (Number.isInteger(lvl) && lvl >= 0 && lvl < SPECTRUM_N ? lvl : 1)
+      : ([0, 0, 1, 1, 2][lvl] ?? 1);
+    loaded.spectrumScale = 3;
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
     loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
@@ -2578,7 +2575,6 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "MiniMax M3";
-  if (id === OPENROUTER_VISION_L1) return "Gemma 26B";
   if (id === OPENROUTER_VISION_L2) return "Gemma 31B";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
@@ -2658,7 +2654,7 @@ function renderModelOptions() {
   const mode = selectedModelMode();
   const isPro = spectrumLevelFromSettings() === SPECTRUM_N - 1;
   const level = spectrumLevelFromSettings();
-  const heatLabel = isPro ? "PRO" : level <= 1 ? "Nitro" : "Think";
+  const heatLabel = isPro ? "PRO" : level === 0 ? "Nitro" : "Think";
   els.modelButton?.setAttribute("aria-label", heatLabel);
   els.modelButton?.classList.toggle("pro-active", isPro);
   if (els.modelLabel) els.modelLabel.textContent = modelModeLabel(mode);
@@ -4524,8 +4520,8 @@ function acceptPendingFiles(files) {
       startDocumentUpload(item);
     }
   }
-  if (chosen.length && spectrumLevelFromSettings() < 2) {
-    applySpectrumLevel(2);
+  if (chosen.length && spectrumLevelFromSettings() === 0) {
+    applySpectrumLevel(1);
     showAttachmentModelNotice();
   }
   renderImages();
@@ -6892,7 +6888,7 @@ function bindEvents() {
     closeActionMenu();
     compareController.closeCompareDropdown();
     if (document.body.classList.contains("capacitor-native")) {
-      applySpectrumLevel(selectedModelMode() === "pro" ? 2 : 4);
+      applySpectrumLevel(selectedModelMode() === "pro" ? 1 : 2);
       closeModelDropdown();
       return;
     }

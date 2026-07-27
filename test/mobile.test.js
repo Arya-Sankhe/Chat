@@ -287,12 +287,14 @@ test("composer drag and drop reuses the shared attachment acceptance path", asyn
   assert.match(source, /imageFileInput\.addEventListener\("change"[\s\S]*?acceptPendingFiles\(e\.target\.files \|\| \[\]\)/);
 });
 
-test("attachments move Nitro to Think through the shared acceptance path", async () => {
+test("three-step spectrum keeps Nitro text-only and moves attachments to Think", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
-  assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) < 2\) \{\s*applySpectrumLevel\(2\);\s*showAttachmentModelNotice\(\);/);
-  assert.match(source, /if \(n < 2 && pendingPromptNeedsVision\(\)\) \{\s*n = 2;\s*showAttachmentModelNotice\(\);/);
+  assert.match(source, /const SPECTRUM_N = 3;/);
+  assert.match(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
+  assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) === 0\) \{\s*applySpectrumLevel\(1\);\s*showAttachmentModelNotice\(\);/);
+  assert.match(source, /if \(n === 0 && pendingPromptNeedsVision\(\)\) \{\s*n = 1;\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /async function sendPrompt\(\) \{\s*hideAttachmentModelNotice\(\);/);
 });
 
