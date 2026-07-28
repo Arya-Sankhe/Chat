@@ -72,6 +72,18 @@ body[data-mode="dark"] .composer {
 
 }
 
+body[data-mode="dark"] .spectrum-pop {
+
+  background: var(--bg-secondary);
+
+}
+
+body[data-mode="dark"] .spectrum-thumb {
+
+  background: #f4f4f5;
+
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
 
    ACCENT COLOR PRESETS
