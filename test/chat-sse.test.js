@@ -347,6 +347,33 @@ async function dispatchChat(config, db, { path, body }) {
 
 const conversationRow = { id: "conv-1", title: "Existing chat", model: TEXT_MODEL };
 
+test("Pro ignores a Klui provider request and sends Luna through OpenAI at max reasoning", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: (body) => {
+      assert.equal(body.model, "openai/gpt-5.6-luna");
+      assert.deepEqual(body.reasoning, { effort: "xhigh", exclude: false });
+      assert.deepEqual(body.provider, { order: ["openai"], allow_fallbacks: false });
+      return [contentDelta("Pro response."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      text: "Use Pro",
+      model: "openai/gpt-5.6-luna",
+      provider: "klui",
+      settings: { reasoning_effort: "low" },
+      agentMode: false
+    }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+});
+
 test("pending turn execution excludes its user row and output shells from provider history", () => {
   const messages = [
     { id: "older-user", role: "user", content: "Earlier" },

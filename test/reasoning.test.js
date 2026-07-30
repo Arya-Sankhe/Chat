@@ -220,6 +220,23 @@ test("adaptChatRequestForProvider maps max reasoning effort to xhigh", () => {
   assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
 });
 
+test("Pro pins GPT-5.6 Luna to OpenAI at max reasoning", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "openai/gpt-5.6-luna",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "low",
+    provider: { order: ["Other"] },
+    tools: [{ type: "function", function: { name: "web_search" } }]
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
+  assert.deepEqual(adapted.provider, {
+    order: ["openai"],
+    allow_fallbacks: false,
+    require_parameters: true
+  });
+});
+
 test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias", async () => {
   const { normalizeMessageSettings } = await import("../server/saas/messages.js");
   assert.deepEqual(
@@ -408,6 +425,46 @@ test("streamChatCompletion stops retrying after the attempt cap", async () => {
       maxAttempts: 2
     }));
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, options = {}) => {
+    const body = JSON.parse(options.body);
+    requests.push(body);
+    if (requests.length === 1) {
+      return new Response(JSON.stringify({ error: { message: "Luna unavailable" } }), {
+        status: 404,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: {
+        model: "openai/gpt-5.6-luna",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "low"
+      },
+      signal: AbortSignal.timeout(1000),
+      maxAttempts: 1
+    });
+
+    assert.equal(requests[0].model, "openai/gpt-5.6-luna");
+    assert.deepEqual(requests[0].provider, { order: ["openai"], allow_fallbacks: false });
+    assert.deepEqual(requests[0].reasoning, { effort: "xhigh", exclude: false });
+    assert.equal(requests[1].model, "minimax/minimax-m3");
+    assert.equal(requests[1].provider, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

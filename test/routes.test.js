@@ -126,10 +126,10 @@ test("normalizeAgentMode only enables tools for explicit opt-in values", () => {
   assert.equal(normalizeAgentMode("off"), false);
 });
 
-test("withAvailableTools gives MiniMax M3 strict native tool-call instructions", () => {
+test("withAvailableTools gives GPT-5.6 Luna strict native tool-call instructions", () => {
   const config = loadConfig({});
   const result = withAvailableTools({
-    model: "minimax/minimax-m3",
+    model: "openai/gpt-5.6-luna",
     messages: [{ role: "system", content: "base" }, { role: "user", content: "search" }]
   }, {
     config,

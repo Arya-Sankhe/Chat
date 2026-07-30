@@ -13,7 +13,7 @@ import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
-import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
+import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import { requireServerCrofKey } from "../routes/meta.js";
 import {
@@ -83,7 +83,7 @@ export async function handleTemporaryChat(req, res, config) {
     ...normalizeTemporaryHistory(body.messages),
     { role: "user", content: userContent }
   ];
-  const provider = resolveProvider(body.provider, config);
+  const provider = resolveProvider(body.model === OPENROUTER_PRO_MODEL ? "openrouter" : body.provider, config);
   const crofai = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,

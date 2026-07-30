@@ -1,5 +1,9 @@
 import { HttpError } from "../http/responses.js";
-import { adaptChatRequestForProvider } from "../providers.js";
+import {
+  adaptChatRequestForProvider,
+  OPENROUTER_PRO_FALLBACK_MODEL,
+  OPENROUTER_PRO_MODEL
+} from "../providers.js";
 import { stripLeakedReasoningMarkup } from "../saas/messages/content.js";
 
 /* Transient upstream failures we auto-retry. These are connection or
@@ -140,7 +144,7 @@ export async function listModels({ apiKey, baseUrl, signal }) {
 }
 
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
-  const requestBody = {
+  let requestBody = {
     ...adaptChatRequestForProvider(body, providerId),
     stream: true,
     /* Ask the provider to emit a final usage chunk so we record the
@@ -148,12 +152,34 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
        instead of relying on a client-side char estimate. */
     stream_options: { include_usage: true }
   };
-  return postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  try {
+    return await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  } catch (error) {
+    if (error?.name === "AbortError" || providerId !== "openrouter" || body?.model !== OPENROUTER_PRO_MODEL) throw error;
+    const { provider: _provider, ...fallbackBody } = body;
+    requestBody = {
+      ...adaptChatRequestForProvider({ ...fallbackBody, model: OPENROUTER_PRO_FALLBACK_MODEL }, providerId),
+      stream: true,
+      stream_options: { include_usage: true }
+    };
+    return postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  }
 }
 
 export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponsePayload }) {
-  const requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: false };
-  const response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  let requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: false };
+  let response;
+  try {
+    response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  } catch (error) {
+    if (error?.name === "AbortError" || providerId !== "openrouter" || body?.model !== OPENROUTER_PRO_MODEL) throw error;
+    const { provider: _provider, ...fallbackBody } = body;
+    requestBody = {
+      ...adaptChatRequestForProvider({ ...fallbackBody, model: OPENROUTER_PRO_FALLBACK_MODEL }, providerId),
+      stream: false
+    };
+    response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
+  }
   const payload = await response.json();
   if (typeof onResponsePayload === "function") onResponsePayload(payload);
   return stripLeakedReasoningMarkup(payload?.choices?.[0]?.message?.content || "", requestBody.model);

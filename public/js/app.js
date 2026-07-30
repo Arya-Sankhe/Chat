@@ -109,7 +109,7 @@ const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
 const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
 const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
-const OPENROUTER_PRO_MODEL = "minimax/minimax-m3";
+const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
 const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
 const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 // Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
@@ -2709,7 +2709,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_PRO_MODEL) return "DeepSeek Pro";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
-  if (id === OPENROUTER_PRO_MODEL) return "MiniMax M3";
+  if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Gemma 31B";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;

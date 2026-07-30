@@ -816,7 +816,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const compareModels = councilEnabled
     ? normalizeCouncilModelsForRequest(body.models)
     : normalizeCompareModelsForRequest(body.models, { hasMedia: hasCompareMedia });
-  const provider = resolveProvider(compareModels.length ? "openrouter" : body.provider, config);
+  const requestedModel = body.model || conversation.model;
+  const provider = resolveProvider(
+    compareModels.length || requestedModel === OPENROUTER_PRO_MODEL ? "openrouter" : body.provider,
+    config
+  );
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;

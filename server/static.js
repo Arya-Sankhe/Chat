@@ -17,9 +17,7 @@ const contentTypes = new Map([
 
 const directoryIndexes = new Map([
   ["/download/android", "/download/android/index.html"],
-  ["/download/android/", "/download/android/index.html"],
-  ["/one-month", "/one-month/index.html"],
-  ["/one-month/", "/one-month/index.html"]
+  ["/download/android/", "/download/android/index.html"]
 ]);
 
 async function resolvePublicFile(pathname) {
