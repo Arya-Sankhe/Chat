@@ -1,10 +1,8 @@
 import { HttpError } from "../http/responses.js";
 import {
-  contentText,
   reasoningDurationMetadata,
   sanitizeProviderEvent,
-  streamProviderAndAccumulate,
-  titleFromText
+  streamProviderAndAccumulate
 } from "../saas/messages.js";
 import {
   hasAssistantOutput,
@@ -23,7 +21,6 @@ export async function handleCompareConversationMessage({
   config,
   context,
   conversation,
-  userContent,
   chatRequests,
   crofai,
   provider,
@@ -65,17 +62,6 @@ export async function handleCompareConversationMessage({
       tool_calls: [],
       metadata: baseMeta
     }, { signal: req.signal, turnRun, outputSlot: `compare:${index}` }));
-  }
-
-  if (!conversation.title || conversation.title === "New chat") {
-    await context.db.updateConversation(context.user.id, conversation.id, {
-      title: titleFromText(contentText(userContent)),
-      model: chatRequests.map((request) => request.model).join(", ")
-    }, { signal: req.signal });
-  } else if (!conversation.model) {
-    await context.db.updateConversation(context.user.id, conversation.id, {
-      model: chatRequests.map((request) => request.model).join(", ")
-    }, { signal: req.signal });
   }
 
   const controller = req.turnController || new AbortController();

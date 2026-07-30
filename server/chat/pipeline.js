@@ -16,14 +16,14 @@ import {
   buildStoredUserContent,
   contentText,
   createConversationSummarizer,
+  generateConversationTitle,
   hydrateMessagesForClient,
   imageCountFromContent,
   normalizeMessageSettings,
   normalizePastedTextRange,
   reasoningDurationMetadata,
   sanitizeProviderEvent,
-  streamProviderAndAccumulate,
-  titleFromText
+  streamProviderAndAccumulate
 } from "../saas/messages.js";
 import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
@@ -987,6 +987,27 @@ async function executeConversationMessage(req, res, config, conversationId, {
         ...settings
       })];
 
+  const conversationModel = chatRequests.map((request) => request.model).join(", ");
+  const titlePromise = (!conversation.title || conversation.title === "New chat")
+    ? generateConversationTitle({
+        content: userContent,
+        crofai,
+        config,
+        r2: context.r2,
+        signal: req.signal
+      })
+    : Promise.resolve(null);
+  const shouldUpdateModel = !conversation.model || compareModels.length > 0;
+  const updateConversationIdentity = async () => {
+    const title = await titlePromise;
+    if (title || shouldUpdateModel) {
+      await context.db.updateConversation(context.user.id, conversation.id, {
+        ...(title ? { title } : {}),
+        ...(shouldUpdateModel ? { model: conversationModel } : {})
+      }, { signal: req.signal });
+    }
+  };
+
   if (compareModels.length && imageDescriptions && Object.keys(imageDescriptions).length) {
     for (const request of chatRequests) {
       injectImageEvidenceForVisionCompare(request, imageDescriptions);
@@ -1085,7 +1106,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
         config,
         context,
         conversation,
-        userContent,
         chatRequests,
         panelModels: compareModels,
         originalPrompt: promptText,
@@ -1102,6 +1122,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         documentSearch: compareDocumentSearch,
         turnRun
       });
+      await updateConversationIdentity().catch(() => {});
       return { status: req.turnController?.signal.aborted ? "cancelled" : "done" };
     }
 
@@ -1111,7 +1132,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
       config,
       context,
       conversation,
-      userContent,
       chatRequests,
       crofai,
       provider,
@@ -1119,6 +1139,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       documentSearch: compareDocumentSearch,
       turnRun
     });
+    await updateConversationIdentity().catch(() => {});
     return { status: req.turnController?.signal.aborted ? "cancelled" : "done" };
   }
 
@@ -1198,15 +1219,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
       ...(directPdfContext.pageCount ? { documents: { mode: "direct-context", ready: readyDocuments.length, pdfPages: directPdfContext.pageCount, pdfDocuments: directPdfContext.documentCount } } : {})
     }
   }, { signal: req.signal, turnRun, outputSlot: "single" });
-
-  if (!conversation.title || conversation.title === "New chat") {
-    await context.db.updateConversation(context.user.id, conversation.id, {
-      title: titleFromText(contentText(userContent)),
-      model: chatRequest.model
-    }, { signal: req.signal });
-  } else if (!conversation.model) {
-    await context.db.updateConversation(context.user.id, conversation.id, { model: chatRequest.model }, { signal: req.signal });
-  }
 
   const controller = req.turnController || new AbortController();
   if (!turnRun?.id) {
@@ -1320,9 +1332,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
+    await updateConversationIdentity().catch(() => {});
     if (!turnRun?.id) res.end();
     return { status: "done" };
   } catch (error) {
+    await updateConversationIdentity().catch(() => {});
     const aborted = error?.name === "AbortError";
     const message = aborted ? "Stopped by user." : error?.message || "Model request failed.";
     const partial = aborted ? error.partial : null;

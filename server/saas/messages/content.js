@@ -1,5 +1,5 @@
 import { HttpError } from "../../http/responses.js";
-import { OPENROUTER_LAGUNA_XS } from "../../providers.js";
+import { OPENROUTER_LAGUNA_XS, OPENROUTER_VISION_MODEL } from "../../providers.js";
 
 function cleanString(value, label, { max = 100000, required = false } = {}) {
   if (value === undefined || value === null) {
@@ -21,6 +21,84 @@ function cleanString(value, label, { max = 100000, required = false } = {}) {
 export function titleFromText(text) {
   const clean = String(text || "New chat").trim().replace(/\s+/g, " ");
   return clean.length > 48 ? `${clean.slice(0, 45)}...` : clean || "New chat";
+}
+
+export async function generateConversationTitle({ content, crofai, config, r2, signal }) {
+  const text = contentText(content).trim();
+  const parts = Array.isArray(content) ? content : [];
+  const images = parts.filter((part) => part?.type === "image_url");
+  const files = parts.filter((part) => part?.type === "file");
+  const vagueWithImage = images.length > 0 && (
+    !text
+    || text.length < 24
+    || /^(help|solve|explain|summari[sz]e|analy[sz]e|review|look at|what is|what's|who is|where is|read)( (this|that|it|these|those|image|photo|picture))?[?.!]*$/i.test(text)
+  );
+  const fileNames = files.map((part) => part.file?.file_name).filter(Boolean);
+  const fallback = text
+    ? titleFromText(text)
+    : fileNames.length
+      ? titleFromText(`Review ${fileNames[0]}`)
+      : images.length
+        ? "Review uploaded image"
+        : "New chat";
+  const provider = config?.providers?.openrouter;
+  if (!crofai?.chatCompletion || !provider?.apiKey) return fallback;
+  const titleSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(8_000)])
+    : AbortSignal.timeout(8_000);
+
+  const excerpt = text.length > 3000
+    ? `${text.slice(0, 2500)}\n...\n${text.slice(-500)}`
+    : text;
+  const context = [
+    excerpt && `User request: ${excerpt}`,
+    fileNames.length && `Uploaded files: ${fileNames.join(", ")}`,
+    images.length > 1 && `${images.length} images were uploaded.`
+  ].filter(Boolean).join("\n") || "The user uploaded an image without text.";
+  try {
+    const userContent = vagueWithImage
+      ? [
+          { type: "text", text: context },
+          // ponytail: one low-detail representative image keeps titles cheap; expand only if multi-image titles prove ambiguous.
+          {
+            type: "image_url",
+            image_url: {
+              url: r2.readUrl(images[0].image_url?.object_key || String(images[0].image_url?.url || "").replace(/^r2:\/\//, "")),
+              detail: "low"
+            }
+          }
+        ]
+      : context;
+    const result = await crofai.chatCompletion({
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      providerId: "openrouter",
+      signal: titleSignal,
+      body: {
+        model: vagueWithImage ? OPENROUTER_VISION_MODEL : OPENROUTER_LAGUNA_XS,
+        messages: [
+          {
+            role: "system",
+            content: "Write a specific chat-history title that captures what the user wanted accomplished. Return only 3-7 words, at most 42 characters. Never use generic titles such as Chat, Help, Solve, Summarize, Image, or New Chat. No label, quotes, markdown, or ending punctuation."
+          },
+          { role: "user", content: userContent }
+        ],
+        temperature: 0.1,
+        max_tokens: 32
+      }
+    });
+    const clean = String(result || "")
+      .trim()
+      .split(/\r?\n/, 1)[0]
+      .replace(/^title\s*:\s*/i, "")
+      .replace(/^["'`*_]+|["'`*_.!?]+$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const concise = clean.length > 42 ? clean.slice(0, 42).replace(/\s+\S*$/, "").trim() : clean;
+    return concise && !/^new chat$/i.test(concise) ? concise : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function normalizeMessageSettings(input = {}) {

@@ -447,6 +447,44 @@ test("single chat with a web-search tool call: canonical transcript, persistence
   assert.equal(recorded.payload.status, "completed");
 });
 
+test("first message stores a generated intent title without delaying the response model", async (t) => {
+  t.after(restoreFetch);
+  let titleBody;
+  installProviderFetch({
+    streamFor: () => [contentDelta("Here is the comparison."), usageChunk()],
+    completionFor: (body) => {
+      titleBody = body;
+      return {
+        id: "title-gen",
+        choices: [{ message: { content: "Compare VPS Hosting Costs" } }],
+        usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, cost: 0.00001 }
+      };
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const conversation = { id: "conv-1", title: "New chat", model: TEXT_MODEL };
+  const db = makeDb({ conversation });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Can you compare VPS hosting costs for deployment?", model: TEXT_MODEL, agentMode: false }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(titleBody.model, "poolside/laguna-xs-2.1");
+  assert.equal(
+    db.calls.find((call) => call.op === "updateConversation" && call.patch.title)?.patch.title,
+    "Compare VPS Hosting Costs"
+  );
+  const titleUsage = db.calls.find((call) => (
+    call.op === "recordApiUsageCost"
+    && call.payload.model === "poolside/laguna-xs-2.1"
+  ));
+  assert.equal(titleUsage.payload.provider, "openrouter");
+  assert.equal(titleUsage.payload.costCredits, 0.00001);
+  assert.ok(db.calls.filter((call) => call.op === "checkApiBudget").length >= 2);
+});
+
 /* ── (b) two-model compare ── */
 
 test("compare: server substitutes the default pair and streams per-index start/delta/done", async (t) => {
