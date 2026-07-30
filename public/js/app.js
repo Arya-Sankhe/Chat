@@ -32,6 +32,7 @@ import {
   listProjects,
   saveEditableDocument,
   rejectAdminPayment,
+  requestClarifications,
   completeUpload,
   presignUpload,
   putUploadContent,
@@ -269,6 +270,9 @@ const state = {
   activeConversationId: "",
   temporaryChat: false,
   researchMode: false,
+  clarification: null,
+  clarificationChecking: false,
+  clarificationRequestId: 0,
   activeResearchId: "",
   researchReport: null,
   messages: [],
@@ -543,6 +547,7 @@ const els = {
   imagePreviews: document.querySelector("#imagePreviews"),
   attachmentModelNotice: document.querySelector("#attachmentModelNotice"),
   attachmentModelNoticeClose: document.querySelector("#attachmentModelNoticeClose"),
+  clarificationCard: document.querySelector("#clarificationCard"),
   pastedTextDialog: document.querySelector("#pastedTextDialog"),
   pastedTextDialogBody: document.querySelector("#pastedTextDialogBody"),
   pastedTextDialogMeta: document.querySelector("#pastedTextDialogMeta"),
@@ -779,6 +784,150 @@ function renderResearchMode() {
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.researchMode;
 }
 
+function clearClarification() {
+  state.clarification = null;
+  state.clarificationChecking = false;
+  state.clarificationRequestId += 1;
+  els.clarificationCard?.classList.add("hidden");
+  if (els.clarificationCard) els.clarificationCard.innerHTML = "";
+  updateSendButton();
+}
+
+function renderClarification() {
+  const card = els.clarificationCard;
+  if (!card) return;
+  if (state.clarificationChecking && !state.clarification) {
+    card.classList.remove("hidden");
+    card.innerHTML = `<div class="clarification-loading"><span></span>Checking whether one detail would help…</div>`;
+    return;
+  }
+  const flow = state.clarification;
+  if (!flow?.questions?.length) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+    return;
+  }
+  const question = flow.questions[flow.index];
+  const selected = flow.selections[flow.index];
+  const custom = selected === question.options.length;
+  const optionMarkup = question.options.map((option, index) => `
+    <button class="clarification-option${selected === index ? " selected" : ""}" type="button" data-clarification-option="${index}" aria-pressed="${selected === index}">
+      <span class="clarification-key">${String.fromCharCode(65 + index)}</span>
+      <span class="clarification-option-copy">${index === 0 ? "<small>Recommended</small>" : ""}${escapeHtml(option)}</span>
+    </button>`).join("");
+  const customIndex = question.options.length;
+  card.classList.remove("hidden");
+  card.innerHTML = `
+    <header class="clarification-header">
+      <span>Questions</span>
+      <nav aria-label="Question navigation">
+        <button type="button" data-clarification-back aria-label="Previous question" ${flow.index === 0 ? "disabled" : ""}>‹</button>
+        <span>${flow.index + 1} of ${flow.questions.length}</span>
+        <button type="button" data-clarification-next aria-label="Next question">›</button>
+      </nav>
+    </header>
+    <div class="clarification-body">
+      <h2>${escapeHtml(question.question)}</h2>
+      <div class="clarification-options" role="group" aria-label="${escapeHtml(question.question)}">
+        ${optionMarkup}
+        <button class="clarification-option${custom ? " selected" : ""}" type="button" data-clarification-option="${customIndex}" aria-pressed="${custom}">
+          <span class="clarification-key">${String.fromCharCode(65 + customIndex)}</span>
+          <span class="clarification-option-copy">No, tell it differently</span>
+        </button>
+      </div>
+      ${custom ? `<textarea class="clarification-custom" rows="2" placeholder="Tell Klui what you prefer…" aria-label="Your own answer">${escapeHtml(flow.answers[flow.index] || "")}</textarea>` : ""}
+    </div>
+    <footer class="clarification-footer">
+      <button class="clarification-skip" type="button" data-clarification-skip>Skip</button>
+      <button class="clarification-continue" type="button" data-clarification-continue ${custom && !flow.answers[flow.index]?.trim() ? "disabled" : ""}>Continue <span aria-hidden="true">↵</span></button>
+    </footer>`;
+  if (custom) window.requestAnimationFrame(() => card.querySelector(".clarification-custom")?.focus());
+}
+
+function normalPromptMayNeedClarification(text) {
+  const query = String(text || "").trim();
+  if (!query || query.length > 120 || query.split(/\s+/).length > 12) return false;
+  return /^(help|help me|do this|fix|solve|make|create|write|build|plan|research|compare|recommend|review|analy[sz]e|explain|summari[sz]e)\b/i.test(query)
+    && (!/[.:/@#\d]/.test(query) || /\b(this|that|it|something)\b/i.test(query));
+}
+
+async function maybeRequestClarifications(text) {
+  const imageOnly = !text && state.images.some((item) => item.category === "image");
+  if (!state.researchMode && !imageOnly && !normalPromptMayNeedClarification(text)) return false;
+  if (imageOnly) {
+    state.clarification = {
+      text,
+      questions: [{
+        question: "What would you like Klui to do with the image?",
+        options: ["Describe what it shows", "Extract its text or data", "Review it for issues"]
+      }],
+      index: 0,
+      selections: [0],
+      answers: ["Describe what it shows"]
+    };
+    renderClarification();
+    return true;
+  }
+
+  const requestId = ++state.clarificationRequestId;
+  state.clarificationChecking = true;
+  renderClarification();
+  updateSendButton();
+  try {
+    const payload = await requestClarifications(state.session, {
+      query: text,
+      mode: state.researchMode ? "research" : "chat"
+    });
+    if (requestId !== state.clarificationRequestId) return true;
+    const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+    state.clarificationChecking = false;
+    if (!questions.length) {
+      renderClarification();
+      updateSendButton();
+      return false;
+    }
+    state.clarification = {
+      text,
+      questions,
+      index: 0,
+      selections: questions.map(() => 0),
+      answers: questions.map((question) => question.options[0])
+    };
+    renderClarification();
+    updateSendButton();
+    return true;
+  } catch {
+    if (requestId === state.clarificationRequestId) clearClarification();
+    return false;
+  }
+}
+
+function selectClarificationOption(index) {
+  const flow = state.clarification;
+  const question = flow?.questions?.[flow.index];
+  if (!question || index < 0 || index > question.options.length) return;
+  flow.selections[flow.index] = index;
+  flow.answers[flow.index] = index < question.options.length ? question.options[index] : "";
+  renderClarification();
+}
+
+function continueClarification() {
+  const flow = state.clarification;
+  if (!flow) return;
+  if (!flow.answers[flow.index]?.trim()) return;
+  if (flow.index < flow.questions.length - 1) {
+    flow.index += 1;
+    renderClarification();
+    return;
+  }
+  const details = flow.questions
+    .map((question, index) => `- ${question.question} ${flow.answers[index]}`)
+    .join("\n");
+  const text = [flow.text, `Clarifications:\n${details}`].filter(Boolean).join("\n\n");
+  clearClarification();
+  void sendPrompt({ textOverride: text, skipClarification: true });
+}
+
 function normalizeWritingStyle(value) {
   const style = String(value || "normal").trim().toLowerCase();
   return Object.hasOwn(WRITING_STYLE_LABELS, style) ? style : "normal";
@@ -812,6 +961,7 @@ function setResearchMode(enabled) {
     showToast("Remove attachments before starting Deep Research.");
     return;
   }
+  clearClarification();
   state.researchMode = next;
   if (next && state.settings.compareEnabled) compareController.cancelCompareMode();
   renderResearchMode();
@@ -5027,7 +5177,7 @@ function updateSendButton() {
     return;
   }
   const hasContent = hasText || state.images.length || state.followUps.length;
-  const blocked = pendingDocumentUploads().length > 0;
+  const blocked = pendingDocumentUploads().length > 0 || state.clarificationChecking;
   els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
   els.sendButton.disabled = blocked;
 }
@@ -5732,8 +5882,13 @@ async function removeConversation(id) {
   }
 }
 
-async function sendPrompt() {
+async function sendPrompt({ textOverride = null, skipClarification = false } = {}) {
   hideAttachmentModelNotice();
+  if (state.clarificationChecking) return;
+  if (state.clarification && textOverride == null) {
+    continueClarification();
+    return;
+  }
   if (voiceState === "recording") {
     stopVoiceRecording({ commit: true });
     return;
@@ -5743,7 +5898,7 @@ async function sendPrompt() {
     openUpgradePlans();
     return;
   }
-  let text = els.promptInput.value.trim();
+  let text = textOverride == null ? els.promptInput.value.trim() : String(textOverride).trim();
   if (state.running) {
     if (state.activeResearchId) {
       showToast("Wait for Deep Research to finish or cancel it first.");
@@ -5753,18 +5908,18 @@ async function sendPrompt() {
     addFollowUpFromInput();
     return;
   }
-  if (!text && state.followUps.length) {
+  if (textOverride == null && !text && state.followUps.length) {
     const queued = drainFollowUps();
     text = followUpBatchText(queued);
     state.images = [...followUpBatchImages(queued), ...state.images];
     renderImages();
-  } else if (text && state.followUps.length) {
+  } else if (textOverride == null && text && state.followUps.length) {
     const queued = drainFollowUps();
     text = [followUpBatchText(queued), text].filter(Boolean).join("\n\n");
     state.images = [...followUpBatchImages(queued), ...state.images];
     renderImages();
   }
-  const pastedText = state.pastedText.trim();
+  const pastedText = textOverride == null ? state.pastedText.trim() : "";
   const paste = pastedText
     ? { start: text ? text.length + 2 : 0, length: pastedText.length }
     : null;
@@ -5775,6 +5930,7 @@ async function sendPrompt() {
   }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
+  if (!skipClarification && await maybeRequestClarifications(text)) return;
   if (state.researchMode) {
     if (state.images.length) {
       showToast("Deep Research currently supports text questions only.");
@@ -7505,6 +7661,39 @@ function bindEvents() {
     }
     sendPrompt();
   });
+  els.clarificationCard?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-clarification-option]");
+    if (option) {
+      selectClarificationOption(Number(option.dataset.clarificationOption));
+      return;
+    }
+    if (event.target.closest("[data-clarification-back]")) {
+      if (state.clarification?.index > 0) {
+        state.clarification.index -= 1;
+        renderClarification();
+      }
+      return;
+    }
+    if (event.target.closest("[data-clarification-skip]")) {
+      const text = state.clarification?.text || "";
+      clearClarification();
+      void sendPrompt({ textOverride: text, skipClarification: true });
+      return;
+    }
+    if (event.target.closest("[data-clarification-next], [data-clarification-continue]")) continueClarification();
+  });
+  els.clarificationCard?.addEventListener("input", (event) => {
+    if (!event.target.matches(".clarification-custom") || !state.clarification) return;
+    state.clarification.answers[state.clarification.index] = event.target.value;
+    const button = els.clarificationCard.querySelector("[data-clarification-continue]");
+    if (button) button.disabled = !event.target.value.trim();
+  });
+  els.clarificationCard?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && event.target.matches(".clarification-custom")) {
+      event.preventDefault();
+      continueClarification();
+    }
+  });
   els.attachmentModelNoticeClose?.addEventListener("click", hideAttachmentModelNotice);
   els.voiceButton?.addEventListener("click", toggleVoiceRecording);
   els.stopButton.addEventListener("click", () => {
@@ -7533,7 +7722,13 @@ function bindEvents() {
     run.abortController?.abort();
   });
 
-  els.promptInput.addEventListener("input", () => { els.composer?.classList.remove("compact"); applyComposerHeight(); updateSendButton(); renderContextMeter(); });
+  els.promptInput.addEventListener("input", () => {
+    if (state.clarification || state.clarificationChecking) clearClarification();
+    els.composer?.classList.remove("compact");
+    applyComposerHeight();
+    updateSendButton();
+    renderContextMeter();
+  });
   els.promptInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

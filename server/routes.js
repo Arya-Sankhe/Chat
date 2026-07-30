@@ -1,6 +1,7 @@
 import { HttpError, sendProblem } from "./http/responses.js";
 import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
+import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversations, handleMessageById } from "./routes/conversations.js";
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
@@ -119,6 +120,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/models" && req.method === "GET") {
       await handleModels(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/clarifications" && req.method === "POST") {
+      await handleClarifications(req, res, config);
       return;
     }
 

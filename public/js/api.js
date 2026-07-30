@@ -233,6 +233,17 @@ export async function createResearch(session, body) {
   return response.json();
 }
 
+export async function requestClarifications(session, body) {
+  const response = await apiFetch("/api/clarifications", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchResearchStatus(session, id) {
   const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/status`, { session });
   if (!response.ok) throw new Error(await readProblem(response));
