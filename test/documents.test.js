@@ -139,6 +139,15 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.ok(followUpPpt.skills.includes("presentation-create"));
   assert.ok(followUpPpt.toolNames.includes("create_document"));
 
+  const genericDoc = selectDocumentSkills({ text: "make those changes and create a doc", readyDocuments });
+  assert.ok(genericDoc.skills.includes("word-create"));
+  assert.ok(genericDoc.toolNames.includes("create_document"));
+
+  for (const text of ["regenerate it", "do it again with my given parameters", "where is it"]) {
+    const retryArtifact = selectDocumentSkills({ text, readyDocuments });
+    assert.ok(retryArtifact.toolNames.includes("create_document"), text);
+  }
+
   const summaryWithFormat = selectDocumentSkills({ text: "read this pdf and give me a summary", readyDocuments: [] });
   assert.equal(summaryWithFormat.enabled, true);
   assert.ok(summaryWithFormat.skills.includes("artifact-planner"));
@@ -179,8 +188,9 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     text: "u do have the ability try again",
     readyDocuments
   });
-  assert.deepEqual(tryAgain.skills, ["document-read", "pdf-read"]);
+  assert.deepEqual(tryAgain.skills, ["document-read", "pdf-read", "artifact-planner"]);
   assert.ok(tryAgain.toolNames.includes("read_document"));
+  assert.ok(tryAgain.toolNames.includes("create_document"));
 
   const attachedNoKeywords = selectDocumentSkills({
     text: "please help",

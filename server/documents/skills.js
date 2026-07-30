@@ -39,8 +39,8 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const mentionsExisting = /\b(this|that|it|them|above|previous|attached|uploaded|source|original)\b/i.test(prompt);
   const readAction = /\b(summarize|summarise|summary|explain|analyze|analyse|review|read|search|find|extract|pull|compare|answer|solve|homework|questions?|what|where|which|how)\b/i.test(prompt);
   const taskOnUploadedDocs = /\b(solve|homework|assignment|worksheet|problem\s?set|exercise|quiz|exam)\b/i.test(prompt);
-  const followUpOnDocs = /\b(try again|retry|use (the )?(document )?tools?|read (it|them|the (document|file|pdf)))\b/i.test(prompt);
-  const createAction = /\b(create|make|generate|draft|write|build|produce|turn|convert|put)\b/i.test(prompt);
+  const followUpOnDocs = /\b(try again|retry|do (it|that) again|regenerate|recreate|redo|where is (it|the (document|file|pdf|docx))|use (the )?(document )?tools?|read (it|them|the (document|file|pdf)))\b/i.test(prompt);
+  const createAction = /\b(create|make|generate|regenerate|recreate|redo|draft|write|build|produce|turn|convert|put)\b/i.test(prompt);
   const fileDeliveryAction = /\b(give|send|provide|prepare|share|attach|deliver|download|export|add)\b/i.test(prompt)
     || /\b(can|could|may)\s+(i|we)\s+get\b/i.test(prompt)
     || /\bi(?:'d| would)?\s+(like|need|want)\b/i.test(prompt);
@@ -52,7 +52,7 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksExcel = /\b(excel|xlsx|spreadsheet|workbook|worksheet|csv|tsv|\.xlsx|\.csv|\.tsv)\b/i.test(prompt);
   const asksPpt = /\b(powerpoint|ppt|pptx|slides?|deck|presentation)\b/i.test(prompt);
   const asksMarkdown = /\b(markdown|\.md)\b/i.test(prompt);
-  const asksGenericDocument = /\b(document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
+  const asksGenericDocument = /\b(doc|document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
   const hasReadyVisualDocument = (readyDocuments || []).some((doc) => (
     doc?.kind === "pdf"
     || (["docx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
@@ -71,7 +71,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     || (fileDeliveryAction && /\b(markdown\s+(file|document)|\.md)\b/i.test(prompt));
   const explicitArtifactFormat = asksPdf || asksWord || asksExcel || asksPpt || asksMarkdown;
   const artifactTaskIntent = createAction || fileDeliveryAction || mentionsExisting || readAction;
-  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || markdownOutput || (explicitArtifactFormat && artifactTaskIntent);
+  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || markdownOutput
+    || (explicitArtifactFormat && artifactTaskIntent)
+    || (readyCount > 0 && followUpOnDocs);
 
   const skills = new Set();
   const tools = new Set();
@@ -115,6 +117,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     }
     if (asksPpt || pptOutput) {
       skills.add("presentation-create");
+      tools.add("create_document");
+    }
+    if (readyCount > 0 && followUpOnDocs && !explicitArtifactFormat) {
       tools.add("create_document");
     }
   }

@@ -10,6 +10,7 @@ import { requireChatContext } from "./context.js";
 const REVISE_SELECTION_MAX = 24_000;
 const REVISE_DOC_MAX = 120_000;
 const REVISE_INSTRUCTION_MAX = 4_000;
+const REVISE_TIMEOUT_MS = 60_000;
 
 export function documentKindFromUpload({ fileName, contentType }) {
   const fromName = documentKindFromFileName(fileName);
@@ -568,9 +569,6 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
   if (instruction.length > REVISE_INSTRUCTION_MAX) throw new HttpError(413, "Change request is too long.");
 
   const provider = resolveProvider("openrouter", config);
-  const model = typeof body.model === "string" && body.model.trim()
-    ? body.model.trim()
-    : OPENROUTER_TEXT_MODEL;
   const meter = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,
@@ -579,43 +577,50 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
     signal: req.signal
   });
 
-  const content = await meter.chatCompletion({
-    apiKey: provider.apiKey,
-    baseUrl: provider.baseUrl,
-    providerId: provider.id,
-    signal: req.signal,
-    body: {
-      model,
-      temperature: 0.2,
-      max_tokens: 4000,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You revise a selected portion of a markdown document.",
-            "Return ONLY the replacement markdown for that selection.",
-            "No preface, no explanation, no markdown fences.",
-            "Keep the rest of the document unchanged by only rewriting the selection.",
-            "Preserve structure (headings, lists, tables, emphasis) unless the instruction asks to change it.",
-            "Match the document's tone and formatting."
-          ].join(" ")
-        },
-        {
-          role: "user",
-          content: [
-            "Full document:",
-            markdown,
-            "",
-            "Selected portion to revise:",
-            selection,
-            "",
-            "Instruction:",
-            instruction
-          ].join("\n")
-        }
-      ]
-    }
-  });
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(REVISE_TIMEOUT_MS)]);
+  let content;
+  try {
+    content = await meter.chatCompletion({
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      providerId: provider.id,
+      signal,
+      body: {
+        model: OPENROUTER_TEXT_MODEL,
+        temperature: 0.2,
+        max_tokens: 4000,
+        messages: [
+          {
+            role: "system",
+            content: [
+              "You revise a selected portion of a markdown document.",
+              "Return ONLY the replacement markdown for that selection.",
+              "No preface, no explanation, no markdown fences.",
+              "Keep the rest of the document unchanged by only rewriting the selection.",
+              "Preserve structure (headings, lists, tables, emphasis) unless the instruction asks to change it.",
+              "Match the document's tone and formatting."
+            ].join(" ")
+          },
+          {
+            role: "user",
+            content: [
+              "Full document:",
+              markdown,
+              "",
+              "Selected portion to revise:",
+              selection,
+              "",
+              "Instruction:",
+              instruction
+            ].join("\n")
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    if (signal.aborted && !req.signal.aborted) throw new HttpError(504, "Document revision timed out. Try again.");
+    throw error;
+  }
 
   const replacement = stripReviseFences(content);
   if (!replacement) throw new HttpError(502, "The model returned an empty revision.");

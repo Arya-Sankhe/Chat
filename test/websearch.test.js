@@ -1109,15 +1109,15 @@ describe("tool", () => {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
-          return streamResponse([contentDelta("Here you go - the PPTX is ready: [Price Comparison.pptx](Price Comparison.pptx)")]);
+          return streamResponse([contentDelta("The document is regenerated with your parameters. The PDF should appear as an artifact card above.")]);
         }
         if (bodies.length === 2) {
           return streamResponse([toolCallDelta({
             name: "create_document",
             args: {
-              format: "pptx",
-              title: "Price Comparison",
-              content: "Complete deck content."
+              format: "pdf",
+              title: "Project Proposal",
+              content: "Complete proposal content."
             }
           })]);
         }
@@ -1128,7 +1128,7 @@ describe("tool", () => {
     const result = await runChatWithToolLoop({
       chatRequest: {
         model: "test",
-        messages: [{ role: "user", content: "make the ppt more concise and send the pptx" }],
+        messages: [{ role: "user", content: "regenerate the pdf" }],
         tools: buildDocumentTools({ toolNames: ["create_document"] }),
         tool_choice: "auto"
       },
@@ -1148,8 +1148,8 @@ describe("tool", () => {
             output: {
               attachment_id: "att-pptx",
               document_file_id: "doc-pptx",
-              file_name: "Price Comparison.pptx",
-              kind: "pptx",
+              file_name: "Project Proposal.pdf",
+              kind: "pdf",
               status: "ready"
             }
           };
@@ -1160,6 +1160,7 @@ describe("tool", () => {
 
     assert.equal(bodies.length, 3);
     assert.match(latestUserTextFromBody(bodies[1]), /no document tool returned a real artifact card/);
+    assert.equal(bodies[1].tool_choice, "required");
     assert.equal(result.accumulated.content, "Done.");
     assert.equal(result.toolCallCount, 1);
     assert.equal(result.artifacts.length, 1);
@@ -1384,6 +1385,61 @@ describe("tool", () => {
     assert.equal("tool_choice" in bodies[2], false);
     assert.equal("tools" in bodies[2], false);
     assert.deepEqual(toolEvents.map((event) => event.type), ["tool:degraded", "tool:degraded"]);
+  });
+
+  test("runChatWithToolLoop keeps document tools by falling back to the tool-capable model", async () => {
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (body.model !== "deepseek/deepseek-v4-flash") {
+          throw new Error("This model does not support tools.");
+        }
+        if (bodies.filter((entry) => entry.model === "deepseek/deepseek-v4-flash").length === 1) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: { format: "pdf", title: "Report", content: "Body" }
+          })]);
+        }
+        return streamResponse([contentDelta("Done.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "poolside/laguna-xs-2.1",
+        messages: [{ role: "user", content: "create a pdf" }],
+        tools: buildDocumentTools({ toolNames: ["create_document"] }),
+        tool_choice: "auto"
+      },
+      crofai,
+      config: {
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
+      },
+      provider: { id: "openrouter", apiKey: "k", baseUrl: "https://openrouter.ai/api/v1" },
+      signal: new AbortController().signal,
+      websearch: {},
+      documents: {
+        async createDocument() {
+          return {
+            ok: true,
+            output: {
+              attachment_id: "att-pdf",
+              document_file_id: "doc-pdf",
+              file_name: "Report.pdf",
+              kind: "pdf",
+              status: "ready"
+            }
+          };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(result.artifacts.length, 1);
+    assert.equal(bodies.slice(0, -1).some((body) => !body.tools), false);
+    assert.equal(bodies.at(-1).model, "deepseek/deepseek-v4-flash");
   });
 
   test("runChatWithToolLoop drops only tool_choice when the provider still supports tools", async () => {

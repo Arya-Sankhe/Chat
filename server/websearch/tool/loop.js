@@ -7,6 +7,7 @@
 
 import { citationsFromResults, filterCitationsForAnswer } from "../index.js";
 import { executeDocumentToolCall, isDocumentToolName } from "../../documents/tool.js";
+import { OPENROUTER_TEXT_MODEL } from "../../providers.js";
 import { estimateContextTokens } from "../../saas/messages.js";
 import { applyToolFallback, isToolsUnsupportedError } from "./unsupported.js";
 import { prepareVisualPagesForModel, visualDocumentMessage, visualImageInputLimit } from "./visual.js";
@@ -83,24 +84,15 @@ function hasDocumentArtifactTool(chatRequest) {
     && chatRequest.tools.some((tool) => artifactTools.has(tool?.function?.name));
 }
 
-function requestLikelyNeedsDocumentArtifact(messages = []) {
-  const text = latestUserText(messages).toLowerCase();
-  if (!text) return false;
-  const wantsFileAction = /\b(create|make|generate|write|build|edit|update|change|modify|revise|export|convert|download|send|attach)\b/.test(text);
-  const namesArtifact = /\b(docx?|word|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck|presentation|document|file)\b/.test(text);
-  return wantsFileAction && namesArtifact;
-}
-
 function assistantLooksLikeDocumentArtifactHandoff(content) {
   const text = textFromContent(content).trim();
   if (!text) return false;
   const lower = text.toLowerCase();
-  const claimsReady = /\b(ready|created|updated|edited|exported|converted|download|downloadable|here you go|attached|proper download card)\b/.test(lower);
+  const claimsReady = /\b(ready|created|generated|regenerated|updated|edited|exported|converted|download|downloadable|here you go|attached|artifact card|download card)\b/.test(lower);
+  const deniesAvailableCapability = /\b(can(?:not|'t)|unable to|do not have|don't have)\b[^.]{0,80}\b(create|generate|attach|provide|edit|export)\b/.test(lower);
   const namesArtifact = /\.(docx|pdf|xlsx|xls|pptx)\b/i.test(text)
-    || /\b(docx?|word document|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck)\b/.test(lower);
-  const hasMarkdownLink = /\[[^\]]+\]\([^)]+\)/.test(text)
-    || /^\s*\*{0,2}[^*\n]+\.(?:docx|pdf|xlsx|xls|pptx)\b/im.test(text);
-  return claimsReady && namesArtifact && hasMarkdownLink;
+    || /\b(docx?|word document|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck|document)\b/.test(lower);
+  return namesArtifact && (claimsReady || deniesAvailableCapability);
 }
 
 /* ── Tool schema ── */
@@ -435,6 +427,8 @@ export async function runChatWithToolLoop({
   let limitEventSent = false;
   let toolFallbackLevel = 0;
   let artifactHandoffCorrectionSent = false;
+  let requireArtifactTool = false;
+  let documentFallbackModel = "";
   let emptyAnswerRetrySent = false;
   let forcedToolRetrySent = false;
   let finalInstructionSent = false;
@@ -447,13 +441,19 @@ export async function runChatWithToolLoop({
     let upstream;
     for (;;) {
       const requestMessages = [...messages];
+      const request = {
+        ...chatRequest,
+        ...(documentFallbackModel ? { model: documentFallbackModel } : {}),
+        messages: requestMessages,
+        ...(requireArtifactTool ? { tool_choice: "required" } : {})
+      };
       let body;
       if (forceFinalWithoutTools) {
         // Removing the schemas is more reliable than asking inconsistent
         // providers to honor `tool_choice: "none"` on the final turn.
-        body = applyToolFallback({ ...chatRequest, messages: requestMessages }, 2);
+        body = applyToolFallback(request, 2);
       } else {
-        body = applyToolFallback({ ...chatRequest, messages: requestMessages }, toolFallbackLevel);
+        body = applyToolFallback(request, toolFallbackLevel);
       }
       try {
         upstream = await crofai.streamChatCompletion({
@@ -469,7 +469,25 @@ export async function runChatWithToolLoop({
            honor tools/tool_choice. Degrade one step and retry instead of
            failing the whole turn. (Skipped once we've already tool-called
            successfully, i.e. forceFinalWithoutTools.) */
+        const needsDocumentArtifact = documents && hasDocumentArtifactTool(chatRequest);
+        if (
+          !forceFinalWithoutTools
+          && toolFallbackLevel === 1
+          && needsDocumentArtifact
+          && provider?.id === "openrouter"
+          && !documentFallbackModel
+          && chatRequest.model !== OPENROUTER_TEXT_MODEL
+          && isToolsUnsupportedError(error)
+        ) {
+          documentFallbackModel = OPENROUTER_TEXT_MODEL;
+          toolFallbackLevel = 0;
+          onToolEvent({ type: "tool:degraded", reason: "document-model-fallback" });
+          continue;
+        }
         if (!forceFinalWithoutTools && toolFallbackLevel < 2 && isToolsUnsupportedError(error)) {
+          if (needsDocumentArtifact && toolFallbackLevel === 1) {
+            throw new Error("The model provider could not run the document tools required for this request.");
+          }
           toolFallbackLevel += 1;
           onToolEvent({
             type: "tool:degraded",
@@ -512,10 +530,10 @@ export async function runChatWithToolLoop({
         && !artifactHandoffCorrectionSent
         && artifacts.length === 0
         && hasDocumentArtifactTool(chatRequest)
-        && requestLikelyNeedsDocumentArtifact(messages)
         && assistantLooksLikeDocumentArtifactHandoff(accumulated.content)
       ) {
         artifactHandoffCorrectionSent = true;
+        requireArtifactTool = true;
         onToolEvent({ type: "response:reset" });
         messages.push({ role: "assistant", content: accumulated.content || "" });
         messages.push({
@@ -554,6 +572,7 @@ export async function runChatWithToolLoop({
 
     // Any prose emitted alongside a tool call is provisional. The browser
     // keeps it visible during tool work and replaces it when answer text starts.
+    requireArtifactTool = false;
     onToolEvent({ type: "response:reset" });
     const toolCalls = normalizedToolCallsForMessage(accumulated.toolCalls, iteration);
     const visualPages = [];

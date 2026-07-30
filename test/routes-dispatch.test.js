@@ -550,6 +550,7 @@ test("editable document revise returns replacement markdown without a chat messa
     if (String(url).includes("/chat/completions")) {
       chatCalls += 1;
       const body = JSON.parse(String(init.body || "{}"));
+      assert.equal(body.model, "deepseek/deepseek-v4-flash");
       assert.match(body.messages?.[1]?.content || "", /Selected portion to revise/);
       assert.match(body.messages?.[1]?.content || "", /Make it warmer/);
       return {
@@ -603,7 +604,8 @@ test("editable document revise returns replacement markdown without a chat messa
       body: {
         markdown: "# Hello\n\nWorld",
         selection: "World",
-        instruction: "Make it warmer"
+        instruction: "Make it warmer",
+        model: "poolside/laguna-xs-2.1"
       },
       overrides
     });
@@ -613,6 +615,51 @@ test("editable document revise returns replacement markdown without a chat messa
     assert.equal(chatCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("editable document revise stops a hung provider request", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  const keepAlive = setTimeout(() => {}, 100);
+  AbortSignal.timeout = () => originalTimeout(1);
+  globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+  });
+
+  try {
+    const config = loadConfig({
+      ...SUPABASE_ENV,
+      OPENROUTER_API_KEY: "or-key",
+      R2_ACCOUNT_ID: "account-1",
+      R2_ACCESS_KEY_ID: "r2-key",
+      R2_SECRET_ACCESS_KEY: "r2-secret",
+      R2_BUCKET: "uploads"
+    });
+    const overrides = stubbedDeps({
+      db: {
+        async getDocumentFileByAttachment() {
+          return { id: "doc-1", metadata: { editable: true, editor_markdown: "# Hello", editor_revision: 1 } };
+        },
+        async checkApiBudget() {
+          return { allowed: true };
+        }
+      }
+    });
+
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/attachments/doc-attachment/editor/revise",
+      body: { markdown: "# Hello", selection: "Hello", instruction: "Improve it" },
+      overrides
+    });
+
+    assert.equal(res.statusCode, 504);
+    assert.equal(res.json().error, "Document revision timed out. Try again.");
+  } finally {
+    clearTimeout(keepAlive);
+    globalThis.fetch = originalFetch;
+    AbortSignal.timeout = originalTimeout;
   }
 });
 
