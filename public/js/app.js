@@ -846,16 +846,19 @@ function renderClarification() {
 
 function normalPromptMayNeedClarification(text) {
   const query = String(text || "").trim();
-  if (!query || query.length > 120 || query.split(/\s+/).length > 12) return false;
-  return /^(help|help me|do this|fix|solve|make|create|write|build|plan|research|compare|recommend|review|analy[sz]e|explain|summari[sz]e)\b/i.test(query)
-    && (!/[.:/@#\d]/.test(query) || /\b(this|that|it|something)\b/i.test(query));
+  if (!query || query.length > 80 || query.split(/\s+/).length > 8) return false;
+  if (/^(help|help me|what should i do)\??$/i.test(query)) return true;
+  return /^(do|fix|solve|make|create|write|build|plan|research|review|analy[sz]e|explain|summari[sz]e)\b/i.test(query)
+    && /\b(this|that|it|something)\b/i.test(query);
 }
 
 async function maybeRequestClarifications(text, paste) {
+  const firstTurn = state.messages.length === 0;
   const imageOnly = !text
-    && state.messages.length === 0
+    && firstTurn
     && state.images.some((item) => item.category === "image");
-  if (!state.researchMode && !imageOnly && !normalPromptMayNeedClarification(text)) return false;
+  const normalVague = firstTurn && normalPromptMayNeedClarification(text);
+  if (!state.researchMode && !imageOnly && !normalVague) return false;
   if (imageOnly) {
     state.clarification = {
       text,

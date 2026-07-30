@@ -19,7 +19,9 @@ test("clarification card stays optional and supports recommended, custom, back, 
   const css = readStylesheet();
   assert.match(html, /id="clarificationCard"/);
   assert.match(appJs, /normalPromptMayNeedClarification/);
-  assert.match(appJs, /const imageOnly = !text\s*&& state\.messages\.length === 0/);
+  assert.match(appJs, /const firstTurn = state\.messages\.length === 0/);
+  assert.match(appJs, /const normalVague = firstTurn && normalPromptMayNeedClarification\(text\)/);
+  assert.match(appJs, /if \(!state\.researchMode && !imageOnly && !normalVague\) return false/);
   assert.match(appJs, /state\.researchMode \? "research" : "chat"/);
   assert.match(appJs, />Recommended</);
   assert.match(appJs, /No, tell it differently/);
