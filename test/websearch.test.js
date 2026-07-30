@@ -11,9 +11,12 @@ import {
 } from "../server/websearch/deny-domains.js";
 import {
   WebSearchOrchestrator,
+  citationsFromResults,
+  filterCitationsForAnswer,
   formatResultsForModel
 } from "../server/websearch/index.js";
-import { searxngSearch } from "../server/websearch/searxng.js";
+import { searxngSearch, selectRelevantResults } from "../server/websearch/searxng.js";
+import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
 import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
@@ -244,7 +247,7 @@ describe("deny domains", () => {
       data: [
         { title: "Adult", url: "https://xvideos.tube/a", description: "x", content: "x" },
         { title: "Blocked", url: "https://blocked.test/page", description: "b", content: "b" },
-        { title: "Ok", url: "https://example.com/ok", description: "ok", content: "ok" }
+        { title: "Ok", url: "https://example.com/ok", description: "test query result", content: "test query result" }
       ]
     }));
     try {
@@ -343,7 +346,7 @@ describe("deny domains", () => {
             { title: "Adult", url: "https://xvideos.tube/a", snippet: "x" },
             { title: "Blocked", url: "https://blocked.test/page", snippet: "b" },
             { title: "Malformed", url: "://broken" },
-            { title: "Ok", url: "https://example.com/ok", snippet: "ok" }
+            { title: "Ok", url: "https://example.com/ok", snippet: "legacy query ok" }
           ],
           tokens: null,
           fetchedAt: "2026-01-01T00:00:00.000Z"
@@ -456,7 +459,7 @@ describe("WebSearchOrchestrator", () => {
     const config = loadConfig({});
     assert.equal(config.websearch.primaryProvider, "searxng");
     assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
-    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo", "bing"]);
+    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo", "bing", "mojeek"]);
   });
 
   test("SearXNG search success returns normalized snippet-only results", async () => {
@@ -508,7 +511,7 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(capturedOptions.headers["x-real-ip"], "127.0.0.1");
   });
 
-  test("SearXNG raw mode also sends safesearch=2", async () => {
+  test("SearXNG sends the query through unchanged with safesearch=2", async () => {
     let capturedUrl;
     installFetch(async (input) => {
       capturedUrl = new URL(String(input));
@@ -518,8 +521,7 @@ describe("WebSearchOrchestrator", () => {
       await searxngSearch({
         query: "deep research query about climate",
         baseUrl: "http://searxng:8080",
-        engines: ["duckduckgo"],
-        raw: true
+        engines: ["duckduckgo"]
       });
       assert.equal(capturedUrl.searchParams.get("safesearch"), "2");
       assert.equal(capturedUrl.searchParams.get("format"), "json");
@@ -567,7 +569,7 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(
       result.results.map((entry) => new URL(entry.url).hostname.replace(/^www\./, "")),
-      ["cntravellerme.com", "seafoodslurps.com"]
+      ["seafoodslurps.com", "cntravellerme.com"]
     );
     assert.deepEqual(result.results.map((entry) => entry.index), [1, 2]);
   });
@@ -695,17 +697,21 @@ describe("WebSearchOrchestrator", () => {
     });
 
     assert.equal(result.ok, true);
-    assert.equal(capturedUrl.searchParams.get("q"), "skill github repository android app ios design code quality ai");
+    assert.equal(capturedUrl.searchParams.get("q"), "Can you find me the best skills on a GitHub repo for making an Android app or iOS app, just like an app in general? The best GitHub skills to have the best design and code quality for making and building apps through AI agents.");
     assert.deepEqual(new Set(result.results.map((entry) => entry.url)), new Set([
       "https://github.com/capacitor-community/awesome-capacitor",
       "https://github.com/topics/mobile-app-development",
       "https://docs.expo.dev/",
-      "https://capacitorjs.com/docs"
+      "https://capacitorjs.com/docs",
+      // Kept: with the query sent unchanged, github.dev genuinely matches github+repo+code.
+      // The word noise (restaurants, synonyms, font icons) and generic GitHub/LinkedIn
+      // landing pages are still rejected. Excluding github.dev would need a reranker (skipped).
+      "https://github.dev/"
     ]));
-    assert.equal(result.results.length, 4);
+    assert.equal(result.results.length, 5);
   });
 
-  test("SearXNG still returns weakly-relevant results instead of nothing", async () => {
+  test("SearXNG rejects filler that matches too few query terms instead of returning it", async () => {
     installFetch(async () => jsonResponse({
       results: [
         { url: "https://example.com/a", title: "Kettle overview", content: "Product page." },
@@ -722,13 +728,10 @@ describe("WebSearchOrchestrator", () => {
       numResults: 5
     });
 
+    // Each result matches only one of four query terms (< the 2-term floor for
+    // a 4-term query), so the filter returns nothing rather than filler.
     assert.equal(result.ok, true);
-    assert.deepEqual(new Set(result.results.map((entry) => entry.url)), new Set([
-      "https://example.com/a",
-      "https://example.org/b",
-      "https://sample.net/c",
-      "https://demo.io/d"
-    ]));
+    assert.deepEqual(result.results, []);
   });
 
   test("Jina search success returns normalized results", async () => {
@@ -739,8 +742,8 @@ describe("WebSearchOrchestrator", () => {
       capturedOptions = options;
       return jsonResponse({
         data: [
-          { url: "https://a.example/1", title: "Result A", description: "snippet A", content: "page content A" },
-          { url: "https://b.example/2", title: "Result B", description: "snippet B", content: "page content B" }
+          { url: "https://a.example/1", title: "Result A", description: "latest ai news snippet A", content: "page content A" },
+          { url: "https://b.example/2", title: "Result B", description: "latest ai news snippet B", content: "page content B" }
         ]
       });
     });
@@ -787,7 +790,7 @@ describe("WebSearchOrchestrator", () => {
       });
     });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
-    const result = await orchestrator.search({ query: "anything" });
+    const result = await orchestrator.search({ query: "brave" });
     assert.equal(result.ok, true);
     assert.equal(result.provider, "brave");
     assert.equal(stage, "brave");
@@ -809,7 +812,7 @@ describe("WebSearchOrchestrator", () => {
 
     const config = { ...baseConfig, primaryProvider: "searxng" };
     const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({ query: "anything" });
+    const result = await orchestrator.search({ query: "jina" });
     assert.equal(result.ok, true);
     assert.equal(result.provider, "jina");
     assert.equal(stage, "jina");
@@ -880,7 +883,7 @@ describe("WebSearchOrchestrator", () => {
     }));
     const config = { ...baseConfig, primaryProvider: "brave" };
     const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({ query: "brave schema" });
+    const result = await orchestrator.search({ query: "relevant chunk" });
     assert.equal(result.ok, true);
     assert.equal(result.provider, "brave");
     assert.equal(result.results.length, 1);
@@ -1041,12 +1044,15 @@ describe("tool", () => {
     };
     const result = await executeToolCall({
       toolCall: { function: { name: "web_search", arguments: JSON.stringify({ query: "abc" }) } },
-      websearch
+      websearch,
+      citationOffset: 2
     });
     assert.equal(result.ok, true);
     assert.equal(result.citations.length, 1);
+    assert.equal(result.citations[0].index, 3);
     const parsed = JSON.parse(result.toolResultJson);
     assert.equal(parsed.results[0].url, "https://u");
+    assert.equal(parsed.results[0].index, 3);
     assert.equal(parsed.formatted_for_reference, undefined);
   });
 
@@ -1885,6 +1891,194 @@ describe("tool", () => {
 
       assert.equal(fetchCounts.get("https://signed.example/page-0001.jpg"), 1);
     } finally {
+      restoreFetch();
+    }
+  });
+});
+
+describe("Phase 5 relevance and reader regression", () => {
+  after(() => restoreFetch());
+
+  const searxngPayload = (results) => jsonResponse({ results });
+
+  test("original-question relevance outranks a query-only match", () => {
+    const candidates = [
+      { index: 1, title: "Durasol news", url: "https://x.example/news", snippet: "durasol", score: null, engines: [] },
+      { index: 2, title: "Durasol facade coating", url: "https://y.example/facade", snippet: "durasol facade aluminium coating", score: null, engines: [] }
+    ];
+    // Same search query for both; only the original question carries the extra intent.
+    const ranked = selectRelevantResults(candidates, "durasol", "durasol facade aluminium coating for buildings", 8);
+    assert.deepEqual(ranked.map((r) => r.url), ["https://y.example/facade", "https://x.example/news"]);
+  });
+
+  test("selectRelevantResults caps a single domain at two results", () => {
+    const candidates = [
+      { index: 1, title: "Durasol coating A", url: "https://example.com/a", snippet: "durasol coating guide", score: null, engines: [] },
+      { index: 2, title: "Durasol coating B", url: "https://example.com/b", snippet: "durasol coating guide", score: null, engines: [] },
+      { index: 3, title: "Durasol coating C", url: "https://example.com/c", snippet: "durasol coating guide", score: null, engines: [] },
+      { index: 4, title: "Durasol coating D", url: "https://other.com/d", snippet: "durasol coating guide", score: null, engines: [] }
+    ];
+    const ranked = selectRelevantResults(candidates, "durasol coating", "durasol coating", 8);
+    const urls = ranked.map((r) => r.url);
+    assert.equal(urls.filter((u) => u.includes("example.com")).length, 2);
+    assert.equal(urls.includes("https://example.com/c"), false);
+    assert.equal(urls.includes("https://other.com/d"), true);
+  });
+
+  test("readUrl uses the self-hosted Jina Reader first and never leaks the API key to it", async () => {
+    const calls = [];
+    installFetch(async (url, options) => {
+      calls.push({ url: String(url), auth: options?.headers?.authorization || null });
+      if (String(url).startsWith("http://jina-reader:8081/")) {
+        return jsonResponse({ data: { title: "Local Read", content: "local page content" } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const config = { ...baseConfig, jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081", readerFallbackUrl: "https://r.jina.ai" } };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const read = await orchestrator.readUrl({ url: "https://example.com/page" });
+    assert.equal(read.ok, true);
+    assert.equal(read.content, "local page content");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://jina-reader:8081/https://example.com/page");
+    assert.equal(calls[0].auth, null);
+  });
+
+  test("readUrl falls back to the hosted reader when the self-hosted reader errors", async () => {
+    const calls = [];
+    installFetch(async (url, options) => {
+      calls.push({ url: String(url), auth: options?.headers?.authorization || null });
+      if (String(url).startsWith("http://jina-reader:8081/")) return new Response("reader crashed", { status: 502 });
+      if (String(url).startsWith("https://r.jina.ai/")) return jsonResponse({ data: { title: "Hosted Read", content: "hosted page content" } });
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const config = { ...baseConfig, jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081", readerFallbackUrl: "https://r.jina.ai" } };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    const read = await orchestrator.readUrl({ url: "https://example.com/page" });
+    assert.equal(read.ok, true);
+    assert.equal(read.content, "hosted page content");
+    assert.equal(calls[0].url, "http://jina-reader:8081/https://example.com/page");
+    assert.equal(calls[1].url, "https://r.jina.ai/https://example.com/page");
+    assert.equal(calls[1].auth, "Bearer test-jina-key");
+  });
+
+  test("readUrl rejects private, loopback, and link-local targets before any network call", async () => {
+    let fetched = false;
+    installFetch(async () => { fetched = true; return jsonResponse({}); });
+    const config = { ...baseConfig, jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081" } };
+    const orchestrator = new WebSearchOrchestrator({ config });
+    for (const url of [
+      "http://169.254.169.254/latest/meta-data/",
+      "http://localhost:9000/admin",
+      "http://10.0.0.5/",
+      "http://192.168.1.1/"
+    ]) {
+      const read = await orchestrator.readUrl({ url });
+      assert.equal(read.ok, false);
+      assert.match(read.error.message, /private or internal|blocked/i);
+    }
+    assert.equal(fetched, false);
+  });
+
+  test("isPrivateHostname classifies internal hosts and allows public ones", () => {
+    for (const host of ["localhost", "foo.local", "svc.internal", "metadata", "10.1.2.3", "127.0.0.1", "192.168.0.1", "172.16.5.5", "172.31.9.9", "169.254.1.1", "::1"]) {
+      assert.equal(isPrivateHostname(host), true, `expected private: ${host}`);
+    }
+    for (const host of ["example.com", "jina.ai", "8.8.8.8", "172.15.0.1", "172.32.0.1", "sub.domain.co.uk"]) {
+      assert.equal(isPrivateHostname(host), false, `expected public: ${host}`);
+    }
+  });
+
+  test("acceptance: durasol/facade query rejects CNKI, speakers, and YouTube filler", async () => {
+    installFetch(async (url) => {
+      if (String(url).includes("searxng:8080")) {
+        return searxngPayload([
+          { url: "https://www.jotun.com/durasol-pvdf-facade", title: "Durasol PVDF vs SDF coatings for aluminium facades", content: "Comparison of PVDF, SDF and Durasol coil coatings for aluminium facade cladding." },
+          { url: "https://coatings.example/durasol-4003-tds", title: "Jotun Durasol 4003 TDS", content: "Durasol 4003 PVDF facade coating technical data sheet for aluminium." },
+          { url: "https://kns.cnki.net/kcms/detail/123", title: "PVDF ultrafiltration membrane study", content: "Academic research paper on PVDF separation membranes." },
+          { url: "https://audiogear.example/pvdf-tweeters", title: "PVDF piezo speakers and tweeters", content: "Best PVDF film speaker drivers for home audio in 2026." },
+          { url: "https://support.google.com/youtube/answer/123", title: "Fix YouTube playback issues", content: "Troubleshoot streaming and video quality on YouTube." }
+        ]);
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
+    const result = await orchestrator.search({ query: "pvdf vs sdf vs durasol for alu, imiu, facade" });
+    const urls = result.results.map((r) => r.url);
+    assert.equal(result.ok, true);
+    assert.equal(urls.includes("https://www.jotun.com/durasol-pvdf-facade"), true);
+    assert.equal(urls.includes("https://coatings.example/durasol-4003-tds"), true);
+    assert.equal(urls.some((u) => u.includes("cnki") || u.includes("audiogear") || u.includes("youtube")), false);
+  });
+
+  test("acceptance: Jotun Durasol 4003 TDS query returns the data sheet, not academic or video noise", async () => {
+    installFetch(async (url) => {
+      if (String(url).includes("searxng:8080")) {
+        return searxngPayload([
+          { url: "https://www.jotun.com/durasol-4003", title: "Jotun Durasol 4003 Technical Data Sheet", content: "Durasol 4003 PVDF coating TDS from Jotun for aluminium facades." },
+          { url: "https://kns.cnki.net/durasol-study", title: "Durasol coating academic study", content: "Research on coil coating durability." },
+          { url: "https://support.google.com/youtube/answer/999", title: "YouTube help", content: "Fix playback issues." },
+          { url: "https://audiogear.example/4003-amp", title: "Model 4003 stereo amplifier", content: "4003 series speaker amplifier review." }
+        ]);
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
+    const result = await orchestrator.search({ query: "Jotun Durasol 4003 TDS" });
+    const urls = result.results.map((r) => r.url);
+    assert.equal(result.ok, true);
+    assert.deepEqual(urls, ["https://www.jotun.com/durasol-4003"]);
+  });
+
+  test("filterCitationsForAnswer keeps only cited or read sources and caps at eight", () => {
+    const results = [
+      { index: 1, title: "A", url: "https://a.example/1", snippet: "" },
+      { index: 2, title: "B", url: "https://b.example/2", snippet: "" },
+      { index: 3, title: "C", url: "https://c.example/3", snippet: "" },
+      { index: 4, title: "D", url: "https://d.example/4", snippet: "" }
+    ];
+    const citations = citationsFromResults(results);
+    citations[2].read = true; // the model deep-read source 3 via read_url
+    const panel = filterCitationsForAnswer(citations, "The spec is in [2].");
+    assert.deepEqual(panel.map((c) => c.url), ["https://b.example/2", "https://c.example/3"]);
+
+    // No source supports the answer -> empty panel (caller omits the Sources block).
+    assert.deepEqual(filterCitationsForAnswer(citations.map(({ read, ...c }) => c), "No citations here."), []);
+
+    // Cap at eight even when the answer cites more.
+    const many = Array.from({ length: 10 }, (_, i) => ({ index: i + 1, title: `S${i + 1}`, url: `https://s${i + 1}.example/` }));
+    const cited = many.map((c) => `[${c.index}]`).join(" ");
+    assert.equal(filterCitationsForAnswer(many, cited).length, 8);
+  });
+
+  test("read timeout covers a stalled response body, not just headers", async () => {
+    // Regression: a reader that returns 200 headers then never sends the body
+    // (throttled r.jina.ai) used to hang response.json() — and the whole chat
+    // turn — forever, because the old timeout was cleared once headers arrived.
+    installFetch(async (url, options) => {
+      const signal = options?.signal;
+      assert.ok(signal, "fetch must receive an abort signal");
+      const body = new ReadableStream({
+        start(controller) {
+          signal.addEventListener("abort", () => {
+            controller.error(signal.reason || new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        }
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+    });
+    // AbortSignal.timeout timers are unref'd; hold the test event loop open
+    // until the timeout can fire (the real server always has ref'd handles).
+    const keepAlive = setTimeout(() => {}, 5000);
+    try {
+      const started = Date.now();
+      await assert.rejects(
+        jinaRead({ url: "https://example.com/stalled", apiKey: "k", timeoutMs: 500 }),
+        /timed out/i
+      );
+      assert.ok(Date.now() - started < 5000, "read must fail within the timeout, not hang");
+    } finally {
+      clearTimeout(keepAlive);
       restoreFetch();
     }
   });

@@ -13,9 +13,24 @@ services:
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
       WEBSEARCH_PRIMARY_PROVIDER: searxng
       SEARXNG_BASE_URL: http://searxng:8080
+      JINA_READER_BASE_URL: http://jina-reader:8081
     depends_on:
       searxng:
         condition: service_healthy
+    restart: unless-stopped
+
+  # Self-hosted Jina Reader for read_url. Private-only: no published ports;
+  # klui-chat falls back to hosted r.jina.ai when this service fails.
+  jina-reader:
+    image: ghcr.io/jina-ai/reader:oss
+    expose:
+      - "8081"
+    environment:
+      NODE_ENV: production
+      # Reader enables DNS/private-IP rejection for production GCP-shaped deployments.
+      GCLOUD_PROJECT: klui-self-hosted
+    mem_limit: 2g
+    cpus: "1.0"
     restart: unless-stopped
 
   onlyoffice:
@@ -77,6 +92,7 @@ services:
     environment:
       WEBSEARCH_PRIMARY_PROVIDER: searxng
       SEARXNG_BASE_URL: http://searxng:8080
+      JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
       RESEARCH_WORKER_POLL_MS: ${RESEARCH_WORKER_POLL_MS:-5000}
       RESEARCH_WORKER_MAX_POLL_MS: ${RESEARCH_WORKER_MAX_POLL_MS:-10000}

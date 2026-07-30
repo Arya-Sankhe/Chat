@@ -206,11 +206,13 @@ export function loadConfig(env = process.env) {
       dailyLimits: loadSearchLimits(env),
       searxng: {
         baseUrl: cleanUrl(env.SEARXNG_BASE_URL) || "http://searxng:8080",
-        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo", "bing"])
+        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo", "bing", "mojeek"])
       },
       jina: {
         apiKey: clean(env.JINA_API_KEY),
-        engine: readJinaEngine(env.JINA_SEARCH_ENGINE)
+        engine: readJinaEngine(env.JINA_SEARCH_ENGINE),
+        readerBaseUrl: cleanUrl(env.JINA_READER_BASE_URL),
+        readerFallbackUrl: cleanUrl(env.JINA_READER_FALLBACK_URL) || "https://r.jina.ai"
       },
       brave: {
         apiKey: clean(env.BRAVE_SEARCH_API_KEY)

@@ -508,7 +508,7 @@ export async function runSharedPreSearch({ websearch, userText, mode, signal }) 
   }
 
   const searchQuery = (userText || "").trim().split(/\n/)[0].slice(0, 200);
-  const result = await websearch.search({ query: searchQuery, signal });
+  const result = await websearch.search({ query: searchQuery, originalQuestion: userText, signal });
   if (!result.ok || !Array.isArray(result.results) || !result.results.length) {
     return { contextMessage: "", citations: [], providers: [], detection };
   }

@@ -1,24 +1,16 @@
-import { WebSearchError } from "./jina.js";
+import { WebSearchError, isAbortError, requestSignal } from "./jina.js";
+
+const STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for", "from", "how",
+  "i", "in", "is", "it", "me", "of", "on", "or", "the", "this", "to", "what", "with", "you"
+]);
 
 function cleanUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function isAbortError(error) {
-  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
-}
-
-async function withTimeout(timeoutMs, fn, signal) {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  if (signal) signal.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
-  try {
-    return await fn(controller.signal);
-  } finally {
-    clearTimeout(timer);
-    if (signal) signal.removeEventListener("abort", onAbort);
-  }
+function normalizeQuery(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 400);
 }
 
 function normalizePublishedAt(item) {
@@ -27,220 +19,80 @@ function normalizePublishedAt(item) {
 }
 
 function freshnessToTimeRange(freshness) {
-  if (!freshness || freshness === "any") return "";
-  const normalized = String(freshness).toLowerCase();
-  return ["day", "week", "month", "year"].includes(normalized) ? normalized : "";
+  const value = String(freshness || "").toLowerCase();
+  return ["day", "week", "month", "year"].includes(value) ? value : "";
 }
 
 function normalizeEngines(engines) {
-  if (Array.isArray(engines)) return engines.map((entry) => String(entry || "").trim()).filter(Boolean);
-  return String(engines || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const values = Array.isArray(engines) ? engines : String(engines || "").split(",");
+  return values.map((entry) => String(entry || "").trim()).filter(Boolean);
 }
 
-const QUERY_STOPWORDS = new Set([
-  "about", "again", "also", "and", "any", "are", "around", "based", "best", "build", "building", "can",
-  "could", "find", "for", "from", "general", "get", "give", "good", "great", "have", "help", "how",
-  "just", "like", "look", "looking", "make", "making", "me", "more", "near", "now", "of", "on", "or",
-  "please", "quick", "quickly", "show", "some", "stuff", "tell", "the", "these", "this", "those", "through",
-  "to", "top", "tops", "want", "what", "where", "who", "with", "you", "your"
-]);
-
-const TOKEN_ALIASES = new Map([
-  ["agents", "agent"],
-  ["apps", "app"],
-  ["applications", "app"],
-  ["coding", "code"],
-  ["designing", "design"],
-  ["restaraunt", "restaurant"],
-  ["restaraunts", "restaurant"],
-  ["restuarent", "restaurant"],
-  ["restuarents", "restaurant"],
-  ["resturant", "restaurant"],
-  ["resturants", "restaurant"],
-  ["restaurants", "restaurant"],
-  ["restos", "restaurant"],
-  ["repositories", "repository"],
-  ["repos", "repository"],
-  ["repo", "repository"],
-  ["skills", "skill"],
-  ["perfumes", "perfume"],
-  ["fragrances", "fragrance"]
-]);
-
-const NOISY_SOURCE_HOSTS = [
-  "bestbuy.com",
-  "bestbuy.ca",
-  "cdnjs.com",
-  "dictionary.cambridge.org",
-  "facebook.com",
-  "fontawesome.com",
-  "linkedin.com",
-  "merriam-webster.com",
-  "mrmrsenglish.com",
-  "oed.com",
-  "thesaurus.com",
-  "wordreference.com",
-  "topsmarkets.com",
-  "shop.topsmarkets.com",
-  "canva.com"
-];
-
-const SHORT_QUERY_TOKENS = new Set(["ai", "ui", "ux"]);
-const HIGH_QUALITY_HOSTS = [
-  "developer.android.com",
-  "developer.apple.com",
-  "docs.github.com",
-  "github.com",
-  "reactnative.dev",
-  "expo.dev",
-  "capacitorjs.com",
-  "ionicframework.com",
-  "vite.dev",
-  "web.dev"
-];
-
-function normalizeToken(value) {
-  let token = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!token) return "";
-  token = TOKEN_ALIASES.get(token) || token;
-  if (token.length > 4 && token.endsWith("s") && !token.endsWith("ss")) {
-    token = TOKEN_ALIASES.get(token.slice(0, -1)) || token.slice(0, -1);
-  }
-  return TOKEN_ALIASES.get(token) || token;
+function terms(value) {
+  return [...new Set(
+    String(value || "").toLowerCase().match(/[\p{L}\p{N}]+/gu)
+      ?.filter((token) => token.length >= 2 && !STOPWORDS.has(token)) || []
+  )];
 }
 
-function tokenize(value, { keepStopwords = false } = {}) {
-  return String(value || "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/i)
-    .map(normalizeToken)
-    .filter((token) => token.length >= 3 || SHORT_QUERY_TOKENS.has(token))
-    .filter((token) => keepStopwords || !QUERY_STOPWORDS.has(token));
-}
-
-function queryTerms(query) {
-  return [...new Set(tokenize(query))].slice(0, 12);
-}
-
-function urlParts(value) {
+function resultHost(url) {
   try {
-    const parsed = new URL(value);
-    return {
-      host: parsed.hostname.replace(/^www\./, "").toLowerCase(),
-      path: parsed.pathname.replace(/[/-]+/g, " "),
-      pathParts: parsed.pathname.split("/").filter(Boolean).map((part) => part.toLowerCase())
-    };
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
   } catch {
-    return { host: "", path: "", pathParts: [] };
+    return "";
   }
 }
 
-function hostMatches(host, entries) {
-  return entries.some((entry) => host === entry || host.endsWith(`.${entry}`));
+function overlapScore(result, queryTerms, questionTerms, exactQuery) {
+  const title = String(result.title || "").toLowerCase();
+  const body = `${result.title || ""} ${result.snippet || ""} ${result.url || ""}`.toLowerCase();
+  const queryHits = queryTerms.filter((term) => body.includes(term)).length;
+  const questionHits = questionTerms.filter((term) => body.includes(term)).length;
+  const titleHits = queryTerms.filter((term) => title.includes(term)).length;
+  // Cross-engine agreement is a ranking boost, never a requirement.
+  const engineBoost = Array.isArray(result.engines) && result.engines.length > 1 ? 1 : 0;
+  return {
+    queryHits,
+    score: queryHits * 3 + titleHits * 2 + Math.min(questionHits, 3) + engineBoost + (exactQuery && body.includes(exactQuery) ? 4 : 0)
+  };
 }
 
-function isHighQualityHost(host) {
-  return hostMatches(host, HIGH_QUALITY_HOSTS);
-}
+export function selectRelevantResults(candidates, query, originalQuestion = query, limit = 8) {
+  const queryTerms = terms(query).slice(0, 16);
+  const questionTerms = terms(originalQuestion).slice(0, 24);
+  const exactQuery = normalizeQuery(query).toLowerCase();
+  // Queries made of stopwords/short tokens produce no terms; don't filter on them.
+  const minHits = queryTerms.length ? (queryTerms.length >= 3 ? 2 : 1) : 0;
+  const perHost = new Map();
 
-function resultRelevance({ title, snippet }, parts, terms) {
-  if (!terms.length) return 1;
-  const { host, path } = parts;
-  const haystackText = `${title} ${snippet} ${host.replace(/\./g, " ")} ${path}`;
-  const haystack = haystackText.toLowerCase();
-  const tokens = new Set(tokenize(haystackText, { keepStopwords: true }));
-  let score = 0;
-  for (const term of terms) {
-    if (tokens.has(term) || haystack.includes(term)) score += 1;
-  }
-  return score;
-}
-
-function isNoisyResult({ title }, parts, score, terms) {
-  const { host, pathParts } = parts;
-  const titleLower = String(title || "").toLowerCase();
-  const noisyHost = hostMatches(host, NOISY_SOURCE_HOSTS);
-  if (host === "github.dev") return true;
-  const dictionaryResult = /\b(dictionary|definition|meaning|synonyms?|thesaurus|etymology)\b/.test(titleLower);
-  if (dictionaryResult && !terms.some((term) => ["definition", "dictionary", "meaning"].includes(term))) return true;
-  if (/\b(sign in|sign up|log in|login)\b/.test(titleLower)) return true;
-  if (/\brestaurants?\b/.test(titleLower) && !terms.includes("restaurant")) return true;
-  if (/\bfont awesome\b|\bcdnjs\b/.test(titleLower) && !terms.includes("font")) return true;
-  if (host === "github.com") {
-    const firstPart = pathParts[0] || "";
-    const genericPath = !pathParts.length
-      || ["about", "features", "join", "login", "pricing", "signup"].includes(firstPart);
-    const genericTitle = titleLower === "github"
-      || titleLower.includes("github keeps you ahead")
-      || titleLower.startsWith("github ·");
-    if (genericPath || genericTitle) return true;
-  }
-  return noisyHost && score < Math.min(2, Math.max(1, terms.length));
-}
-
-function buildSearchQuery(query) {
-  const original = String(query || "").trim().replace(/\s+/g, " ");
-  const terms = queryTerms(original);
-  if (terms.length >= 3) return terms.slice(0, 10).join(" ");
-  return original.slice(0, 400);
-}
-
-function selectRelevantResults(candidates, query, limit) {
-  const terms = queryTerms(query);
-  if (!candidates.length) return [];
-
-  const scored = candidates.map((result, originalIndex) => {
-    const parts = urlParts(result.url);
-    const score = resultRelevance(result, parts, terms);
-    return {
-      result,
-      originalIndex,
-      score,
-      qualityBonus: isHighQualityHost(parts.host) ? 1 : 0,
-      noisy: isNoisyResult(result, parts, score, terms)
-    };
-  });
-
-  const minScore = terms.length >= 4 ? 2 : 1;
-  const clean = scored.filter((entry) => !entry.noisy);
-  const pool = clean.filter((entry) => entry.score >= minScore);
-
-  // Too few strong matches: top up with weaker but still relevant results.
-  if (pool.length < Math.min(3, limit)) {
-    for (const entry of clean) {
-      if (pool.length >= limit) break;
-      if (entry.score >= 1 && !pool.includes(entry)) pool.push(entry);
-    }
-  }
-
-  // Never starve the model: if filtering removed everything, return the best we have.
-  const ranked = pool.length ? pool : (clean.length ? clean : scored);
-
-  return ranked
-    .sort((a, b) => (b.score + b.qualityBonus) - (a.score + a.qualityBonus) || a.originalIndex - b.originalIndex)
-    .slice(0, limit)
+  return candidates
+    .map((result, order) => ({ result, order, ...overlapScore(result, queryTerms, questionTerms, exactQuery) }))
+    .filter((entry) => entry.queryHits >= minHits || (exactQuery.length >= 8 && String(entry.result.title || "").toLowerCase().includes(exactQuery)))
+    .sort((a, b) => b.score - a.score || Number(b.result.score || 0) - Number(a.result.score || 0) || a.order - b.order)
+    .filter(({ result }) => {
+      const host = resultHost(result.url);
+      const count = perHost.get(host) || 0;
+      if (count >= 2) return false;
+      perHost.set(host, count + 1);
+      return true;
+    })
+    .slice(0, Math.min(8, Math.max(1, Number(limit) || 5)))
     .map((entry, index) => ({ ...entry.result, index: index + 1 }));
 }
 
-/**
- * Search through an internal SearXNG instance. This is intentionally a
- * SERP/snippet provider only; exact page extraction stays with read_url.
- */
 export async function searxngSearch({
   query,
+  originalQuestion = query,
   numResults = 5,
   lang = "en",
   freshness,
   baseUrl,
   engines = [],
   timeoutMs = 8000,
-  signal,
-  raw = false
+  signal
 }) {
-  if (typeof query !== "string" || !query.trim()) {
+  const searchQuery = normalizeQuery(query);
+  if (!searchQuery) {
     throw new WebSearchError("Search query is required.", { status: 400, provider: "searxng" });
   }
 
@@ -249,67 +101,59 @@ export async function searxngSearch({
     throw new WebSearchError("SearXNG base URL is not configured.", { status: 503, provider: "searxng" });
   }
 
-  // Deep research supplies its own LLM-written, natural-language queries and
-  // does its own relevance filtering downstream. The chat-tuned keyword
-  // tokenizer and result re-ranker below would mangle those queries and drop
-  // good sources, so raw mode passes the query through and returns the
-  // de-duplicated SERP results untouched.
-  const searchQuery = raw ? String(query).trim().slice(0, 400) : buildSearchQuery(query);
   const params = new URLSearchParams({
     q: searchQuery,
     format: "json",
     categories: "general",
     language: lang || "en",
-    // Engine-level adult filtering (strict) — first layer of defense.
     safesearch: "2"
   });
-
   const selectedEngines = normalizeEngines(engines);
   if (selectedEngines.length) params.set("engines", selectedEngines.join(","));
-
   const timeRange = freshnessToTimeRange(freshness);
   if (timeRange) params.set("time_range", timeRange);
 
   let response;
   try {
-    response = await withTimeout(timeoutMs, (innerSignal) => fetch(`${root}/search?${params.toString()}`, {
-      method: "GET",
+    response = await fetch(`${root}/search?${params}`, {
       headers: {
         accept: "application/json",
         "user-agent": "Klui/1.0 (+https://klui.ai)",
         "x-forwarded-for": "127.0.0.1",
         "x-real-ip": "127.0.0.1"
       },
-      signal: innerSignal
-    }), signal);
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new WebSearchError("SearXNG search timed out.", { status: 504, provider: "searxng", retryable: true });
-    }
-    throw new WebSearchError(`SearXNG search request failed: ${error?.message || error}`, {
-      provider: "searxng",
-      retryable: true,
-      details: error
+      signal: requestSignal(timeoutMs, signal)
     });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new WebSearchError(
+      isAbortError(error) ? "SearXNG search timed out." : `SearXNG search request failed: ${error?.message || error}`,
+      { status: isAbortError(error) ? 504 : 502, provider: "searxng", retryable: true, details: error }
+    );
   }
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const message = response.status === 403
-      ? "SearXNG rejected JSON search. Enable `search.formats: [html, json]` in settings.yml."
-      : `SearXNG search returned ${response.status}.`;
-    throw new WebSearchError(message, {
-      status: response.status,
-      provider: "searxng",
-      retryable: response.status >= 500 || response.status === 429,
-      details: text.slice(0, 2000)
-    });
+    throw new WebSearchError(
+      response.status === 403
+        ? "SearXNG rejected JSON search. Enable `search.formats: [html, json]` in settings.yml."
+        : `SearXNG search returned ${response.status}.`,
+      {
+        status: response.status,
+        provider: "searxng",
+        retryable: response.status >= 500 || response.status === 429,
+        details: text.slice(0, 2000)
+      }
+    );
   }
 
   let payload;
   try {
     payload = await response.json();
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new WebSearchError("SearXNG search timed out.", { status: 504, provider: "searxng", retryable: true });
+    }
     throw new WebSearchError("SearXNG search returned non-JSON.", {
       status: response.status,
       provider: "searxng",
@@ -317,36 +161,31 @@ export async function searxngSearch({
     });
   }
 
-  const data = Array.isArray(payload?.results) ? payload.results : [];
   const candidates = [];
   const seenUrls = new Set();
-  const limit = Math.max(1, Math.min(20, Number(numResults) || 5));
-  const scanLimit = Math.min(40, Math.max(limit * 4, limit));
-
-  for (const item of data) {
-    if (candidates.length >= scanLimit) break;
+  const limit = Math.min(8, Math.max(1, Number(numResults) || 5));
+  for (const item of Array.isArray(payload?.results) ? payload.results : []) {
+    if (candidates.length >= Math.max(24, limit * 4)) break;
     const url = typeof item?.url === "string" ? item.url.trim() : "";
     if (!url || seenUrls.has(url)) continue;
     seenUrls.add(url);
-
-    const title = String(item.title || url).replace(/\s+/g, " ").trim();
-    const snippet = String(item.content || item.snippet || "").replace(/\s+/g, " ").trim();
     candidates.push({
       index: candidates.length + 1,
-      title: title.slice(0, 300),
+      title: String(item.title || url).replace(/\s+/g, " ").trim().slice(0, 300),
       url,
-      snippet: snippet.slice(0, 500),
+      snippet: String(item.content || item.snippet || "").replace(/\s+/g, " ").trim().slice(0, 500),
       content: "",
-      publishedAt: normalizePublishedAt(item)
+      publishedAt: normalizePublishedAt(item),
+      score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
+      engine: String(item.engine || "").trim() || null,
+      engines: Array.isArray(item.engines) ? item.engines.map(String) : []
     });
   }
 
   return {
     provider: "searxng",
-    query: params.get("q"),
-    results: raw
-      ? candidates.slice(0, limit).map((entry, index) => ({ ...entry, index: index + 1 }))
-      : selectRelevantResults(candidates, params.get("q"), limit),
+    query: searchQuery,
+    results: selectRelevantResults(candidates, searchQuery, originalQuestion, limit),
     tokens: null
   };
 }

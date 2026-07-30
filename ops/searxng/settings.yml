@@ -3,6 +3,7 @@ use_default_settings:
     keep_only:
       - duckduckgo
       - bing
+      - mojeek
 
 search:
   safe_search: 1
@@ -25,4 +26,8 @@ engines:
   - name: duckduckgo
     disabled: false
   - name: bing
+    disabled: false
+  # Trial engine: keyless and stable. Agreement across engines only boosts
+  # ranking in Klui's relevance filter; it is never required.
+  - name: mojeek
     disabled: false

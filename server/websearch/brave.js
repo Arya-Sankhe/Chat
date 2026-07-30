@@ -8,7 +8,7 @@
  * Pricing: $5 / 1,000 requests, $5/month free credit (Search plan).
  */
 
-import { WebSearchError } from "./jina.js";
+import { WebSearchError, isAbortError, requestSignal } from "./jina.js";
 
 const LLM_CONTEXT_ENDPOINT = "https://api.search.brave.com/res/v1/llm/context";
 
@@ -18,23 +18,6 @@ function buildHeaders({ apiKey }) {
     "accept-encoding": "gzip",
     "x-subscription-token": apiKey
   };
-}
-
-function isAbortError(error) {
-  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
-}
-
-async function withTimeout(timeoutMs, fn, signal) {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  if (signal) signal.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
-  try {
-    return await fn(controller.signal);
-  } finally {
-    clearTimeout(timer);
-    if (signal) signal.removeEventListener("abort", onAbort);
-  }
 }
 
 function clampContent(text, maxChars) {
@@ -146,11 +129,11 @@ export async function braveSearch({
 
   let response;
   try {
-    response = await withTimeout(timeoutMs, (innerSignal) => fetch(`${LLM_CONTEXT_ENDPOINT}?${params.toString()}`, {
+    response = await fetch(`${LLM_CONTEXT_ENDPOINT}?${params.toString()}`, {
       method: "GET",
       headers: buildHeaders({ apiKey }),
-      signal: innerSignal
-    }), signal);
+      signal: requestSignal(timeoutMs, signal)
+    });
   } catch (error) {
     if (isAbortError(error)) {
       throw new WebSearchError("Brave search timed out.", { status: 504, provider: "brave", retryable: true });
@@ -176,6 +159,9 @@ export async function braveSearch({
   try {
     payload = await response.json();
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new WebSearchError("Brave search timed out.", { status: 504, provider: "brave", retryable: true });
+    }
     throw new WebSearchError("Brave search returned non-JSON.", {
       status: response.status,
       provider: "brave",

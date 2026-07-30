@@ -20,7 +20,7 @@ import {
   mergeDenyDomains
 } from "./deny-domains.js";
 import { jinaRead, jinaSearch, WebSearchError } from "./jina.js";
-import { searxngSearch } from "./searxng.js";
+import { searxngSearch, selectRelevantResults } from "./searxng.js";
 
 export {
   BUILTIN_ADULT_DENY_DOMAINS,
@@ -119,7 +119,7 @@ export class WebSearchOrchestrator {
    * Always returns a result object — never throws to the caller. Failures
    * surface as { ok: false, error }.
    */
-  async search({ query, numResults, freshness, country, lang, location, signal }) {
+  async search({ query, originalQuestion = query, numResults, freshness, country, lang, location, signal }) {
     if (!this.hasAnyProvider) {
       return {
         ok: false,
@@ -128,6 +128,8 @@ export class WebSearchOrchestrator {
     }
 
     const normalizedQuery = typeof query === "string" ? query.trim() : "";
+    const normalizedQuestion = typeof originalQuestion === "string" ? originalQuestion.trim() : normalizedQuery;
+    const resultLimit = Math.min(8, numResults || this.config.maxResults);
     if (!normalizedQuery) {
       return {
         ok: false,
@@ -137,10 +139,11 @@ export class WebSearchOrchestrator {
 
     const cacheKey = hashKey({
       kind: "search",
-      qualityVersion: 4,
+      qualityVersion: 5,
       providers: this.resolveChain().filter((provider) => this.providerAvailable(provider)).join(",") || "none",
       query: normalizedQuery.toLowerCase(),
-      numResults: numResults || this.config.maxResults,
+      originalQuestion: normalizedQuestion.toLowerCase(),
+      numResults: resultLimit,
       freshness: freshness || null,
       country: country || "us",
       lang: lang || "en"
@@ -154,7 +157,12 @@ export class WebSearchOrchestrator {
         ok: true,
         cached: true,
         ...cached,
-        results: this.filterDeniedDomains(cached.results || [])
+        results: selectRelevantResults(
+          this.filterDeniedDomains(cached.results || []),
+          normalizedQuery,
+          normalizedQuestion,
+          resultLimit
+        )
       };
     }
 
@@ -193,7 +201,8 @@ export class WebSearchOrchestrator {
       try {
         const raw = await this.callProvider(providerName, {
           query: normalizedQuery,
-          numResults: numResults || this.config.maxResults,
+          originalQuestion: normalizedQuestion,
+          numResults: resultLimit,
           freshness,
           country,
           lang,
@@ -201,7 +210,12 @@ export class WebSearchOrchestrator {
           signal
         });
 
-        const cleanResults = this.filterDeniedDomains(raw.results || []);
+        const cleanResults = selectRelevantResults(
+          this.filterDeniedDomains(raw.results || []),
+          normalizedQuery,
+          normalizedQuestion,
+          resultLimit
+        );
         const payload = {
           query: raw.query,
           provider: providerName,
@@ -277,6 +291,8 @@ export class WebSearchOrchestrator {
       const data = await jinaRead({
         url,
         apiKey: this.config.jina.apiKey,
+        baseUrl: this.config.jina.readerBaseUrl,
+        fallbackUrl: this.config.jina.readerFallbackUrl,
         pageContentChars: this.config.pageContentChars,
         timeoutMs: this.config.fetchTimeoutMs,
         signal
@@ -381,4 +397,24 @@ export function citationsFromResults(results) {
     snippet: entry.snippet || "",
     publishedAt: entry.publishedAt || null
   }));
+}
+
+export function filterCitationsForAnswer(citations, content, limit = 8) {
+  const cited = new Set(
+    [...String(content || "").matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]))
+  );
+  const seen = new Set();
+  return (Array.isArray(citations) ? citations : [])
+    .filter((citation) => citation?.read === true || cited.has(Number(citation?.index)))
+    .filter((citation) => {
+      try {
+        const url = new URL(citation.url);
+        if (!["http:", "https:"].includes(url.protocol) || seen.has(url.href)) return false;
+        seen.add(url.href);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, Math.min(8, Math.max(0, Number(limit) || 0)));
 }

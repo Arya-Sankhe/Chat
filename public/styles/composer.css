@@ -1952,6 +1952,10 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   max-width: min(100%, 520px);
 
+  max-height: 340px;
+
+  overflow-y: auto;
+
 }
 
 .sources-row {

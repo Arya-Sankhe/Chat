@@ -57,21 +57,18 @@ function clampContent(text, maxChars) {
   return `${text.slice(0, maxChars)}\n…[truncated for context budget]`;
 }
 
-function isAbortError(error) {
-  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
+export function isAbortError(error) {
+  return error?.name === "AbortError" || error?.name === "TimeoutError" || error?.code === "ABORT_ERR";
 }
 
-async function withTimeout(timeoutMs, fn, signal) {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  if (signal) signal.addEventListener("abort", onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
-  try {
-    return await fn(controller.signal);
-  } finally {
-    clearTimeout(timer);
-    if (signal) signal.removeEventListener("abort", onAbort);
-  }
+/* One signal bounding the WHOLE request — connect, headers, AND body read.
+   The previous per-fetch timer was cleared the moment headers arrived, so a
+   server that sent 200 and then stalled the body (hosted r.jina.ai under
+   throttling does exactly this) hung `response.json()` — and the chat turn —
+   forever. AbortSignal.timeout stays attached to the body stream. */
+export function requestSignal(timeoutMs, signal) {
+  const timeout = AbortSignal.timeout(Math.max(500, timeoutMs));
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
 /**
@@ -129,12 +126,12 @@ export async function jinaSearch({
 
   let response;
   try {
-    response = await withTimeout(timeoutMs, (innerSignal) => fetch(S_JINA_ENDPOINT, {
+    response = await fetch(S_JINA_ENDPOINT, {
       method: "POST",
       headers: buildSearchHeaders({ apiKey, engine }),
       body: JSON.stringify(body),
-      signal: innerSignal
-    }), signal);
+      signal: requestSignal(timeoutMs, signal)
+    });
   } catch (error) {
     if (isAbortError(error)) {
       throw new WebSearchError("Jina search timed out.", { status: 504, provider: "jina", retryable: true });
@@ -160,6 +157,9 @@ export async function jinaSearch({
   try {
     payload = await response.json();
   } catch (error) {
+    if (isAbortError(error)) {
+      throw new WebSearchError("Jina search timed out.", { status: 504, provider: "jina", retryable: true });
+    }
     throw new WebSearchError("Jina search returned non-JSON.", {
       status: response.status,
       provider: "jina",
@@ -202,12 +202,34 @@ export async function jinaSearch({
 }
 
 /**
- * Fetch a single URL through r.jina.ai. Returns plain Markdown content.
+ * Reject URLs that resolve to obviously internal hosts before handing them
+ * to a reader we run inside our own network.
+ * ponytail: hostname check only — a public DNS name pointing at a private IP
+ * (DNS rebinding) still passes; add resolved-IP validation if that matters.
+ */
+export function isPrivateHostname(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || !host.includes(".")) return true;
+  if (host === "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true;
+  const octets = host.split(".").map(Number);
+  if (octets.length === 4 && octets.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = octets;
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+  return false;
+}
+
+/**
+ * Fetch a single URL through a Jina-Reader-compatible endpoint. Tries the
+ * self-hosted reader (`baseUrl`) first when configured, then falls back to
+ * the hosted `fallbackUrl` (default r.jina.ai) on timeout/blocked/server error.
  * Used by the `read_url` tool.
  */
 export async function jinaRead({
   url,
   apiKey,
+  baseUrl,
+  fallbackUrl,
   pageContentChars = 4000,
   timeoutMs = 8000,
   signal
@@ -225,25 +247,53 @@ export async function jinaRead({
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new WebSearchError("Only http(s) URLs are supported.", { status: 400, provider: "jina" });
   }
-
-  const target = `${R_JINA_PREFIX}${parsed.toString()}`;
-  let response;
-  try {
-    response = await withTimeout(timeoutMs, (innerSignal) => fetch(target, {
-      method: "GET",
-      headers: buildReadHeaders({ apiKey }),
-      signal: innerSignal
-    }), signal);
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new WebSearchError("Jina read timed out.", { status: 504, provider: "jina", retryable: true });
-    }
-    throw new WebSearchError(`Jina read request failed: ${error?.message || error}`, {
-      provider: "jina",
-      retryable: true,
-      details: error
-    });
+  if (isPrivateHostname(parsed.hostname)) {
+    throw new WebSearchError("URL points to a private or internal address.", { status: 400, provider: "jina" });
   }
+
+  const prefixes = [];
+  const local = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (local) prefixes.push(`${local}/`);
+  const hosted = String(fallbackUrl || "").trim().replace(/\/+$/, "");
+  prefixes.push(hosted ? `${hosted}/` : R_JINA_PREFIX);
+
+  let response;
+  let lastError = null;
+  for (const prefix of prefixes) {
+    const isLocal = prefix !== prefixes[prefixes.length - 1];
+    const target = `${prefix}${parsed.toString()}`;
+    try {
+      response = await fetch(target, {
+        method: "GET",
+        // Never leak the hosted API key to the self-hosted reader.
+        headers: buildReadHeaders({ apiKey: isLocal ? undefined : apiKey }),
+        signal: requestSignal(timeoutMs, signal)
+      });
+      // Local reader failed on this page (blocked, crashed, upstream error):
+      // retry through the hosted reader before giving up.
+      if (isLocal && !response.ok) {
+        lastError = new WebSearchError(`Local reader returned ${response.status}.`, {
+          status: response.status,
+          provider: "jina",
+          retryable: true
+        });
+        response = null;
+        continue;
+      }
+      break;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      lastError = isAbortError(error)
+        ? new WebSearchError("Jina read timed out.", { status: 504, provider: "jina", retryable: true })
+        : new WebSearchError(`Jina read request failed: ${error?.message || error}`, {
+          provider: "jina",
+          retryable: true,
+          details: error
+        });
+      response = null;
+    }
+  }
+  if (!response) throw lastError || new WebSearchError("Jina read failed.", { provider: "jina" });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -258,7 +308,13 @@ export async function jinaRead({
   let payload;
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    payload = await response.json().catch(() => null);
+    payload = await response.json().catch((error) => {
+      // A body stall must fail loudly, not become an empty-content "success".
+      if (isAbortError(error)) {
+        throw new WebSearchError("Jina read timed out.", { status: 504, provider: "jina", retryable: true });
+      }
+      return null;
+    });
   } else {
     const text = await response.text();
     payload = { data: { content: text, url: parsed.toString() } };
