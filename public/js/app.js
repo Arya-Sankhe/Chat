@@ -851,12 +851,15 @@ function normalPromptMayNeedClarification(text) {
     && (!/[.:/@#\d]/.test(query) || /\b(this|that|it|something)\b/i.test(query));
 }
 
-async function maybeRequestClarifications(text) {
-  const imageOnly = !text && state.images.some((item) => item.category === "image");
+async function maybeRequestClarifications(text, paste) {
+  const imageOnly = !text
+    && state.messages.length === 0
+    && state.images.some((item) => item.category === "image");
   if (!state.researchMode && !imageOnly && !normalPromptMayNeedClarification(text)) return false;
   if (imageOnly) {
     state.clarification = {
       text,
+      paste,
       questions: [{
         question: "What would you like Klui to do with the image?",
         options: ["Describe what it shows", "Extract its text or data", "Review it for issues"]
@@ -888,6 +891,7 @@ async function maybeRequestClarifications(text) {
     }
     state.clarification = {
       text,
+      paste,
       questions,
       index: 0,
       selections: questions.map(() => 0),
@@ -925,7 +929,7 @@ function continueClarification() {
     .join("\n");
   const text = [flow.text, `Clarifications:\n${details}`].filter(Boolean).join("\n\n");
   clearClarification();
-  void sendPrompt({ textOverride: text, skipClarification: true });
+  void sendPrompt({ textOverride: text, pasteOverride: flow.paste, skipClarification: true });
 }
 
 function normalizeWritingStyle(value) {
@@ -981,6 +985,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
   state.temporaryChat = next;
   if (next) state.researchMode = false;
   if (resetChat) {
+    clearClarification();
     for (const message of state.messages) {
       if (!Array.isArray(message.content)) continue;
       for (const part of message.content) {
@@ -2163,6 +2168,7 @@ async function openProjects({ replace = false } = {}) {
     return;
   }
   parkActiveConversationRun();
+  clearClarification();
   state.temporaryChat = false;
   state.projectsOpen = true;
   state.activeProjectId = "";
@@ -2185,6 +2191,7 @@ async function openProject(projectId, { replace = false } = {}) {
     return;
   }
   parkActiveConversationRun();
+  clearClarification();
   state.temporaryChat = false;
   state.projectsOpen = true;
   state.activeProjectId = projectId;
@@ -2644,6 +2651,7 @@ async function openConversation(conversationId) {
     return;
   }
   parkActiveConversationRun();
+  clearClarification();
   researchController.stopResearchPolling();
   state.images = state.images.filter((item) => item.category !== "document");
   state.temporaryChat = false;
@@ -5766,6 +5774,7 @@ function openNewChat({ replaceUrl = false } = {}) {
     return;
   }
   parkActiveConversationRun();
+  clearClarification();
   researchController.stopResearchPolling();
   state.activeConversationId = "";
   state.projectsOpen = false;
@@ -5882,7 +5891,7 @@ async function removeConversation(id) {
   }
 }
 
-async function sendPrompt({ textOverride = null, skipClarification = false } = {}) {
+async function sendPrompt({ textOverride = null, pasteOverride = null, skipClarification = false } = {}) {
   hideAttachmentModelNotice();
   if (state.clarificationChecking) return;
   if (state.clarification && textOverride == null) {
@@ -5920,9 +5929,11 @@ async function sendPrompt({ textOverride = null, skipClarification = false } = {
     renderImages();
   }
   const pastedText = textOverride == null ? state.pastedText.trim() : "";
-  const paste = pastedText
-    ? { start: text ? text.length + 2 : 0, length: pastedText.length }
-    : null;
+  const paste = textOverride == null
+    ? pastedText
+      ? { start: text ? text.length + 2 : 0, length: pastedText.length }
+      : null
+    : pasteOverride;
   if (pastedText) text = text ? `${text}\n\n${pastedText}` : pastedText;
   if (text.length > 100000) {
     showToast("Message is too long. Shorten the typed text or pasted content.");
@@ -5930,7 +5941,7 @@ async function sendPrompt({ textOverride = null, skipClarification = false } = {
   }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
-  if (!skipClarification && await maybeRequestClarifications(text)) return;
+  if (!skipClarification && await maybeRequestClarifications(text, paste)) return;
   if (state.researchMode) {
     if (state.images.length) {
       showToast("Deep Research currently supports text questions only.");
@@ -6506,6 +6517,7 @@ async function signOutAndReset() {
   state.messages = [];
   state.pastedText = "";
   state.temporaryChat = false;
+  clearClarification();
   clearFollowUps();
   state.activeConversationId = "";
   closeDocumentViewer();
@@ -7675,9 +7687,10 @@ function bindEvents() {
       return;
     }
     if (event.target.closest("[data-clarification-skip]")) {
-      const text = state.clarification?.text || "";
+      const flow = state.clarification;
+      const text = flow?.text || "";
       clearClarification();
-      void sendPrompt({ textOverride: text, skipClarification: true });
+      void sendPrompt({ textOverride: text, pasteOverride: flow?.paste, skipClarification: true });
       return;
     }
     if (event.target.closest("[data-clarification-next], [data-clarification-continue]")) continueClarification();

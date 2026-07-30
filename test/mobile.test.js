@@ -295,7 +295,7 @@ test("three-step spectrum keeps Nitro text-only and moves attachments to Think",
   assert.match(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
   assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) === 0\) \{\s*applySpectrumLevel\(1\);\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /if \(n === 0 && pendingPromptNeedsVision\(\)\) \{\s*n = 1;\s*showAttachmentModelNotice\(\);/);
-  assert.match(source, /async function sendPrompt\(\) \{\s*hideAttachmentModelNotice\(\);/);
+  assert.match(source, /async function sendPrompt\([^)]*\) \{\s*hideAttachmentModelNotice\(\);/);
 });
 
 test("document enrichment cannot reactivate the composer progress ring", async () => {

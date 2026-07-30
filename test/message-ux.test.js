@@ -13,6 +13,23 @@ function readPublic(path) {
   return readFileSync(resolve(publicDir, path), "utf8");
 }
 
+test("clarification card stays optional and supports recommended, custom, back, skip, and continue paths", () => {
+  const html = readPublic("index.html");
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  assert.match(html, /id="clarificationCard"/);
+  assert.match(appJs, /normalPromptMayNeedClarification/);
+  assert.match(appJs, /const imageOnly = !text\s*&& state\.messages\.length === 0/);
+  assert.match(appJs, /state\.researchMode \? "research" : "chat"/);
+  assert.match(appJs, />Recommended</);
+  assert.match(appJs, /No, tell it differently/);
+  assert.match(appJs, /data-clarification-back/);
+  assert.match(appJs, /data-clarification-skip/);
+  assert.match(appJs, /data-clarification-continue/);
+  assert.match(css, /\.clarification-card\s*\{[^}]*max-height:[^;}]+/);
+  assert.match(css, /\.clarification-body\s*\{[^}]*overflow-y:\s*auto/);
+});
+
 test("user message footer always offers copy; edit stays gated behind canEditUserMessage", () => {
   const appJs = readPublic("js/app.js");
   const footer = appJs.match(/function renderUserMessageFooter\(msg\)\s*\{[\s\S]*?\n\}/);

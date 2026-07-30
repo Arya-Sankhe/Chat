@@ -129,6 +129,7 @@ const ROUTES = [
     path: "/api/models", method: "GET", authKind: "chat",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
   },
+  { path: "/api/clarifications", method: "POST", authKind: "chat" },
   { path: "/api/uploads/presign", method: "POST", authKind: "chat" },
   { path: "/api/uploads/upload-1/content", method: "PUT", authKind: "chat" },
   { path: "/api/uploads/complete", method: "POST", authKind: "chat" },
