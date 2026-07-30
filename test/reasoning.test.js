@@ -225,11 +225,15 @@ test("Pro pins GPT-5.6 Luna to OpenAI at max reasoning", () => {
     model: "openai/gpt-5.6-luna",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "low",
+    temperature: 0.7,
+    top_p: 0.95,
     provider: { order: ["Other"] },
     tools: [{ type: "function", function: { name: "web_search" } }]
   }, "openrouter");
 
   assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
+  assert.equal(adapted.temperature, undefined);
+  assert.equal(adapted.top_p, undefined);
   assert.deepEqual(adapted.provider, {
     order: ["openai"],
     allow_fallbacks: false,
@@ -464,6 +468,8 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
     assert.deepEqual(requests[0].provider, { order: ["openai"], allow_fallbacks: false });
     assert.deepEqual(requests[0].reasoning, { effort: "xhigh", exclude: false });
     assert.equal(requests[1].model, "minimax/minimax-m3");
+    assert.equal(requests[1].temperature, 1);
+    assert.equal(requests[1].top_p, 0.95);
     assert.equal(requests[1].provider, undefined);
   } finally {
     globalThis.fetch = originalFetch;

@@ -129,6 +129,7 @@ export function adaptChatRequestForProvider(body, providerId) {
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
   const isLagunaS = modelId === OPENROUTER_LAGUNA_S;
   const isProModel = modelId === OPENROUTER_PRO_MODEL;
+  const isProFallbackModel = modelId === OPENROUTER_PRO_FALLBACK_MODEL;
   // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
   // this reasoning object — pin low effort so the fallback stays cheap. With
   // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
@@ -148,6 +149,15 @@ export function adaptChatRequestForProvider(body, providerId) {
       include: true
     }
   };
+
+  if (isProModel) {
+    delete adapted.temperature;
+    delete adapted.top_p;
+  }
+  if (isProFallbackModel) {
+    adapted.temperature = 1;
+    adapted.top_p = 0.95;
+  }
 
   if (!openRouterModelSupportsTopP(rest.model) && "top_p" in adapted) {
     delete adapted.top_p;
