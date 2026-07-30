@@ -23,6 +23,8 @@ services:
   # klui-chat falls back to hosted r.jina.ai when this service fails.
   jina-reader:
     image: ghcr.io/jina-ai/reader:oss
+    cap_add:
+      - SYS_ADMIN
     expose:
       - "8081"
     environment:
