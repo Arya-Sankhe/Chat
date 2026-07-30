@@ -320,6 +320,7 @@ test("narrow browser layout uses a drawer header and unclipped model menu", asyn
   const source = readStylesheet();
   assert.match(source, /@media \(max-width: 860px\)/);
   assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-menu \{[\s\S]*display: inline-flex !important/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.sidebar,[\s\S]*transition: transform 260ms cubic-bezier\(\.32, \.72, 0, 1\), visibility 0s linear 260ms/);
   assert.match(source, /body:not\(\.capacitor-native\) \.native-nav-backdrop \{[\s\S]*transition: opacity 160ms var\(--ease-out\)/);
   assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
   assert.match(source, /body\.sidebar-open \.sidebar-nav-label/);

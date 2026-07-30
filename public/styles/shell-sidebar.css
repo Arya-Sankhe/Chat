@@ -24,6 +24,13 @@ body.sidebar-expanded {
 
 }
 
+body:not(.sidebar-expanded):not(.guest-mode) .app-shell,
+body:not(.sidebar-expanded):not(.guest-mode) .sidebar {
+
+  transition-duration: 260ms;
+
+}
+
 body.guest-mode {
 
   --sidebar-active-w: var(--sidebar-w-expanded);

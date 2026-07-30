@@ -496,7 +496,7 @@ body.temporary-chat:not(.chat-empty) .messages {
 
 .side-chat-composer {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
   flex: 0 0 auto;
   margin: 0 12px 12px;
@@ -1137,11 +1137,17 @@ body.capacitor-native .side-chat-panel {
 
   margin: 12px 0;
 
+  border: 1px solid var(--border);
+
+  border-radius: 12px;
+
 }
 
 .message-content table {
 
-  border-collapse: collapse;
+  border-collapse: separate;
+
+  border-spacing: 0;
 
   /* Size to content so wide tables scroll; min-width keeps small ones full-bleed. */
   width: max-content;
@@ -1158,9 +1164,11 @@ body.capacitor-native .side-chat-panel {
 
 .message-content td {
 
-  padding: 8px 12px;
+  padding: 10px 14px;
 
-  border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+
+  border-bottom: 1px solid var(--border);
 
   text-align: left;
 
@@ -1174,13 +1182,27 @@ body.capacitor-native .side-chat-panel {
 
 }
 
+.message-content tr > :last-child {
+
+  border-right: 0;
+
+}
+
+.message-content tbody tr:last-child > * {
+
+  border-bottom: 0;
+
+}
+
 .message-content th {
 
   background: var(--bg-secondary);
 
-  font-weight: 650;
+  font-weight: 700;
 
-  font-size: 13px;
+  font-size: 14px;
+
+  padding-block: 12px;
 
 }
 

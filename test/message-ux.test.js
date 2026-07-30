@@ -79,8 +79,9 @@ test("assistant responses expose length controls and desktop selection reuses te
   assert.match(html, /id="selectionAddToChat"/);
   assert.match(html, /id="selectionAskSideChat"/);
   assert.match(html, /id="sideChatPanel"/);
+  assert.match(html, /id="sideChatInput"[^>]*placeholder="Ask about this"/);
   assert.match(css, /\.side-chat-panel\s*\{[^}]*resize:\s*both/);
-  assert.match(css, /\.side-chat-composer\s*\{[^}]*border:\s*1px solid var\(--border\)/);
+  assert.match(css, /\.side-chat-composer\s*\{[^}]*align-items:\s*center[^}]*border:\s*1px solid var\(--border\)/);
   assert.match(css, /body\.capacitor-native \.side-chat-panel\s*\{[^}]*display:\s*none\s*!important/);
 });
 
@@ -128,6 +129,8 @@ test("message tables are wrapped for horizontal scroll", () => {
     /\.message-content\s+table\s*\{[^}]*width:\s*max-content/,
     "tables should size to content so wide ones scroll"
   );
+  assert.match(css, /\.message-content\s+\.table-scroll\s*\{[^}]*border-radius:\s*12px/s);
+  assert.match(css, /\.message-content\s+th\s*\{[^}]*font-weight:\s*700[^}]*font-size:\s*14px/s);
   assert.match(css, /white-space:\s*nowrap/, "cells must not wrap mid-word");
   assert.match(css, /overflow-wrap:\s*normal/, "cells override message overflow-wrap");
 });

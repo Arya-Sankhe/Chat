@@ -3430,7 +3430,7 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
 
   body:not(.capacitor-native) .sidebar,
   body:not(.capacitor-native).guest-mode .sidebar {
-    transition: transform 220ms cubic-bezier(.32, .72, 0, 1), visibility 0s linear 220ms;
+    transition: transform 260ms cubic-bezier(.32, .72, 0, 1), visibility 0s linear 260ms;
   }
 
   body:not(.capacitor-native).sidebar-open .sidebar,
