@@ -135,6 +135,14 @@ test("message tables are wrapped for horizontal scroll", () => {
   assert.match(css, /overflow-wrap:\s*normal/, "cells override message overflow-wrap");
 });
 
+test("document artifact cards open the viewer without a separate download action", () => {
+  const appJs = readPublic("js/app.js");
+  const renderer = appJs.match(/function renderArtifacts\(message[\s\S]*?\n\}/);
+  assert.ok(renderer, "renderArtifacts not found");
+  assert.match(renderer[0], />Open<\/button>/);
+  assert.doesNotMatch(renderer[0], />View<\/button>|>Download<\/a>/);
+});
+
 test("sent images render in a compact horizontal strip above the user bubble", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();

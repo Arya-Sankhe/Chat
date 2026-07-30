@@ -265,7 +265,7 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   assert.match(hint, /complete final PDF body/);
   assert.match(hint, /Available document tools this turn: create_document/);
   assert.match(hint, /without including a URL or markdown link/);
-  assert.match(hint, /artifact card for viewing and download/);
+  assert.match(hint, /artifact card that opens the document viewer/);
   assert.doesNotMatch(hint, /Professional XLSX workbook creation skill/);
   assert.doesNotMatch(hint, /Professional Word document creation skill/);
   assert.doesNotMatch(hint, /Professional PPTX presentation skill/);

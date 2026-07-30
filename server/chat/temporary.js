@@ -1,5 +1,4 @@
 import { normalizeChatRequest } from "../crofai/normalize.js";
-import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody } from "../http/responses.js";
 import {
   buildProviderMessages,
@@ -77,6 +76,7 @@ export async function handleTemporaryChat(req, res, config) {
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
   );
+  settings.systemPrompt += "\n\nTemporary chat cannot create, edit, or export documents. If the user asks for a document, tell them: “I can’t create documents in temporary chat. I can only create documents in a normal chat.” Do not claim document tools are generally unavailable or list unrelated capabilities.";
   const userContent = buildStoredUserContent(body.text, attachments);
   const promptText = contentText(userContent);
   const historyMessages = [

@@ -3972,7 +3972,6 @@ function renderArtifacts(message, predicate = null) {
     }
 
     const attachmentId = artifactAttachmentId(artifact);
-    const href = artifact.download_url || (attachmentId ? attachmentDownloadHref(attachmentId) : "#");
     const status = String(artifact.status || "ready").trim();
     const canView = artifactCanView(artifact);
     const format = artifactFormat(artifact).toLowerCase();
@@ -3984,8 +3983,7 @@ function renderArtifacts(message, predicate = null) {
           ${status ? `<div class="artifact-status">${escapeHtml(status)}</div>` : ""}
         </div>
         <div class="artifact-actions">
-          ${canView ? `<button class="artifact-download" type="button" data-view-attachment-id="${escapeHtml(attachmentId)}" data-file-name="${escapeHtml(fileName)}" data-format="${escapeHtml(format)}">View</button>` : ""}
-          <a class="artifact-download" href="${escapeHtml(href)}" download="${escapeHtml(fileName)}" data-file-name="${escapeHtml(fileName)}">Download</a>
+          ${canView ? `<button class="artifact-download" type="button" data-view-attachment-id="${escapeHtml(attachmentId)}" data-file-name="${escapeHtml(fileName)}" data-format="${escapeHtml(format)}">Open</button>` : ""}
         </div>
       </div>
     `;

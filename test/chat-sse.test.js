@@ -722,6 +722,32 @@ test("temporary chat sends an uploaded image without persisting it", async (t) =
   assert.equal(db.calls.some((call) => call.op === "deleteAttachment" && call.id === attachment.id), true);
 });
 
+test("temporary chat keeps document tools disabled and explains the limitation", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: (body) => {
+      assert.equal(body.tools?.some((tool) => tool.function.name === "create_document"), false);
+      assert.match(
+        body.messages.find((message) => message.role === "system")?.content || "",
+        /I can’t create documents in temporary chat\. I can only create documents in a normal chat\./
+      );
+      return [contentDelta("I can’t create documents in temporary chat. I can only create documents in a normal chat."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+
+  const res = await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "Create a PDF report", model: TEXT_MODEL, agentMode: true }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.match(res.body, /I can’t create documents in temporary chat/);
+  assert.equal(db.calls.some((call) => call.op === "insertMessage"), false);
+});
+
 test("writing styles reach normal and temporary provider prompts without leaking provider fields", async (t) => {
   t.after(restoreFetch);
   const requests = [];
