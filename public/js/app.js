@@ -844,45 +844,14 @@ function renderClarification() {
   if (custom) window.requestAnimationFrame(() => card.querySelector(".clarification-custom")?.focus());
 }
 
-function normalPromptMayNeedClarification(text) {
-  const query = String(text || "").trim();
-  if (!query || query.length > 80 || query.split(/\s+/).length > 8) return false;
-  if (/^(help|help me|what should i do)\??$/i.test(query)) return true;
-  return /^(do|fix|solve|make|create|write|build|plan|research|review|analy[sz]e|explain|summari[sz]e)\b/i.test(query)
-    && /\b(this|that|it|something)\b/i.test(query);
-}
-
 async function maybeRequestClarifications(text, paste) {
-  const firstTurn = state.messages.length === 0;
-  const imageOnly = !text
-    && firstTurn
-    && state.images.some((item) => item.category === "image");
-  const normalVague = firstTurn && normalPromptMayNeedClarification(text);
-  if (!state.researchMode && !imageOnly && !normalVague) return false;
-  if (imageOnly) {
-    state.clarification = {
-      text,
-      paste,
-      questions: [{
-        question: "What would you like Klui to do with the image?",
-        options: ["Describe what it shows", "Extract its text or data", "Review it for issues"]
-      }],
-      index: 0,
-      selections: [0],
-      answers: ["Describe what it shows"]
-    };
-    renderClarification();
-    return true;
-  }
-
   const requestId = ++state.clarificationRequestId;
   state.clarificationChecking = true;
   renderClarification();
   updateSendButton();
   try {
     const payload = await requestClarifications(state.session, {
-      query: text,
-      mode: state.researchMode ? "research" : "chat"
+      query: text
     });
     if (requestId !== state.clarificationRequestId) return true;
     const questions = Array.isArray(payload?.questions) ? payload.questions : [];
@@ -932,7 +901,12 @@ function continueClarification() {
     .join("\n");
   const text = [flow.text, `Clarifications:\n${details}`].filter(Boolean).join("\n\n");
   clearClarification();
-  void sendPrompt({ textOverride: text, pasteOverride: flow.paste, skipClarification: true });
+  void sendPrompt({
+    textOverride: text,
+    displayTextOverride: flow.text,
+    pasteOverride: flow.paste,
+    skipClarification: true
+  });
 }
 
 function normalizeWritingStyle(value) {
@@ -5894,7 +5868,12 @@ async function removeConversation(id) {
   }
 }
 
-async function sendPrompt({ textOverride = null, pasteOverride = null, skipClarification = false } = {}) {
+async function sendPrompt({
+  textOverride = null,
+  displayTextOverride = null,
+  pasteOverride = null,
+  skipClarification = false
+} = {}) {
   hideAttachmentModelNotice();
   if (state.clarificationChecking) return;
   if (state.clarification && textOverride == null) {
@@ -5944,13 +5923,13 @@ async function sendPrompt({ textOverride = null, pasteOverride = null, skipClari
   }
   if (!text && !state.images.length) return;
   if (!requireAuth()) return;
-  if (!skipClarification && await maybeRequestClarifications(text, paste)) return;
+  if (state.researchMode && !skipClarification && await maybeRequestClarifications(text, paste)) return;
   if (state.researchMode) {
     if (state.images.length) {
       showToast("Deep Research currently supports text questions only.");
       return;
     }
-    await researchController.startDeepResearch(text);
+    await researchController.startDeepResearch(text, displayTextOverride || text);
     return;
   }
   const pendingImages = state.images.map((img) => ({

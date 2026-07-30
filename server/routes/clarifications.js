@@ -7,13 +7,11 @@ export async function handleClarifications(req, res, config) {
   const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req, 16 * 1024);
   const query = String(body.query || "").trim();
-  const mode = body.mode === "research" ? "research" : "chat";
   if (!query) throw new HttpError(400, "Enter a question.");
   if (query.length > 6000) throw new HttpError(400, "Question is too long.");
 
   const questions = await generateClarifications({
     query,
-    mode,
     config,
     signal: req.signal,
     crofai: createCrofaiUsageMeter({

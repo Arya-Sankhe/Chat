@@ -40,8 +40,10 @@ export async function handleCreateResearch(req, res, config) {
   const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req, 64 * 1024);
   const query = String(body.query || "").trim();
+  const displayQuery = String(body.displayQuery || query).trim();
   if (!query) throw new HttpError(400, "Enter a research question.");
   if (query.length > 6000) throw new HttpError(400, "Research question is too long.");
+  if (!displayQuery || displayQuery.length > 6000) throw new HttpError(400, "Displayed research question is invalid.");
   if (body.temporary || body.compare || body.council || body.hasAttachments) {
     throw new HttpError(400, "Deep Research currently works in a normal text chat only.");
   }
@@ -61,7 +63,7 @@ export async function handleCreateResearch(req, res, config) {
     if (!conversation) throw new HttpError(404, "Conversation not found.");
   } else {
     conversation = await context.db.createConversation(context.user.id, {
-      title: titleFromText(query),
+      title: titleFromText(displayQuery),
       model
     }, { signal: req.signal });
   }
@@ -77,7 +79,7 @@ export async function handleCreateResearch(req, res, config) {
     conversation_id: conversation.id,
     role: "user",
     model: null,
-    content: query,
+    content: displayQuery,
     reasoning: "",
     tool_calls: [],
     metadata: { research: { mode: "deep" } }
@@ -118,7 +120,7 @@ export async function handleCreateResearch(req, res, config) {
     metadata: { research: { runId: run.id, status: "queued" } }
   }, { signal: req.signal });
   await context.db.updateConversation(context.user.id, conversation.id, {
-    title: conversation.title === "New chat" ? titleFromText(query) : conversation.title,
+    title: conversation.title === "New chat" ? titleFromText(displayQuery) : conversation.title,
     model
   }, { signal: req.signal });
 

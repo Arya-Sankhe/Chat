@@ -16,13 +16,14 @@ function readPublic(path) {
 test("clarification card stays optional and supports recommended, custom, back, skip, and continue paths", () => {
   const html = readPublic("index.html");
   const appJs = readPublic("js/app.js");
+  const researchJs = readPublic("js/research.js");
   const css = readStylesheet();
   assert.match(html, /id="clarificationCard"/);
-  assert.match(appJs, /normalPromptMayNeedClarification/);
-  assert.match(appJs, /const firstTurn = state\.messages\.length === 0/);
-  assert.match(appJs, /const normalVague = firstTurn && normalPromptMayNeedClarification\(text\)/);
-  assert.match(appJs, /if \(!state\.researchMode && !imageOnly && !normalVague\) return false/);
-  assert.match(appJs, /state\.researchMode \? "research" : "chat"/);
+  assert.doesNotMatch(appJs, /normalPromptMayNeedClarification|imageOnly|normalVague/);
+  assert.match(appJs, /if \(state\.researchMode && !skipClarification && await maybeRequestClarifications\(text, paste\)\) return/);
+  assert.match(appJs, /displayTextOverride:\s*flow\.text/);
+  assert.match(researchJs, /startDeepResearch\(query, displayQuery = query\)/);
+  assert.match(researchJs, /query,\s*displayQuery,/);
   assert.match(appJs, />Recommended</);
   assert.match(appJs, /No, tell it differently/);
   assert.match(appJs, /data-clarification-back/);

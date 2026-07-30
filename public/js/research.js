@@ -324,7 +324,7 @@ export function createResearchController({
     resumeResearchPolling();
   }
 
-  async function startDeepResearch(query) {
+  async function startDeepResearch(query, displayQuery = query) {
     if (state.temporaryChat || state.images.length || state.settings.compareEnabled) {
       showToast("Deep Research requires a normal text chat.");
       return;
@@ -332,6 +332,7 @@ export function createResearchController({
     try {
       const payload = await createResearch(state.session, {
         query,
+        displayQuery,
         conversationId: state.activeConversationId || undefined,
         model: selectedModelMode() === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL,
         temporary: false,

@@ -25,7 +25,7 @@ export function normalizeClarifications(value) {
   });
 }
 
-export async function generateClarifications({ query, mode, crofai, config, signal }) {
+export async function generateClarifications({ query, crofai, config, signal }) {
   const provider = config?.providers?.openrouter;
   if (!provider?.apiKey || !crofai?.chatCompletion) return [];
   const callSignal = signal
@@ -41,11 +41,10 @@ export async function generateClarifications({ query, mode, crofai, config, sign
       messages: [
         {
           role: "system",
-          content: `Decide whether the user's ${mode === "research" ? "Deep Research" : "chat"} request needs clarification before work starts.
+          content: `Decide whether the user's Deep Research request needs clarification before work starts.
 Return JSON only: {"questions":[{"question":"...","options":["recommended first","alternative"]}]}.
 Ask 1-3 short, decision-changing questions with 2-4 mutually exclusive, concise options each. Put the safest useful default first.
-For Deep Research, usually ask about scope, timeframe, geography, audience, or desired comparison—but only where the request leaves it open.
-For normal chat, return {"questions":[]} unless the request is too vague to answer usefully without guessing.
+Usually ask about scope, timeframe, geography, audience, or desired comparison—but only where the request leaves it open.
 Never ask for information already present. Never ask cosmetic preferences the assistant can infer.`
         },
         { role: "user", content: String(query || "").slice(0, 6000) }

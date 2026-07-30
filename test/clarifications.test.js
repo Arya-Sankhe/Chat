@@ -6,7 +6,6 @@ test("clarifications stay small, valid, and use the metered cheap model path", a
   let request;
   const questions = await generateClarifications({
     query: "research batteries",
-    mode: "research",
     config: { providers: { openrouter: { apiKey: "key", baseUrl: "https://openrouter.test" } } },
     crofai: {
       async chatCompletion(value) {
