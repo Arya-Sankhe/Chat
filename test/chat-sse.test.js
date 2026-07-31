@@ -354,6 +354,8 @@ test("Pro ignores a Klui provider request and sends Luna through OpenAI at max r
       assert.equal(body.model, "openai/gpt-5.6-luna");
       assert.deepEqual(body.reasoning, { effort: "xhigh", exclude: false });
       assert.deepEqual(body.provider, { order: ["openai"], allow_fallbacks: false });
+      assert.equal(body.messages.filter((message) => message.role === "system").length, 1);
+      assert.match(body.messages[0].content, /Conversation style for this model:/);
       return [contentDelta("Pro response."), usageChunk()];
     }
   });

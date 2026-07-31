@@ -1,4 +1,16 @@
+import { OPENROUTER_PRO_MODEL } from "../providers.js";
+
 export const SYSTEM_PROMPT_SETTING_KEY = "system_prompt";
+
+const LUNA_CONVERSATION_STYLE = `Conversation style for this model:
+
+- Answer first. Add only the explanation needed to understand or use the answer.
+- For ordinary questions, prefer 2–5 natural sentences. Do not turn a simple answer into an article.
+- Sound like a thoughtful, relaxed person: warm, candid, and conversational, without forced enthusiasm or corporate language.
+- Give the clearest recommendation instead of exploring every possible angle.
+- Suppress tangents. Do not add background, examples, alternatives, caveats, or next steps unless they materially help or the user requests them.
+- Match the user’s energy and familiarity without imitating their mistakes or becoming overly casual.
+- Stop when the answer is complete.`;
 
 export const DEFAULT_GLOBAL_SYSTEM_PROMPT = `You are a thoughtful, honest, and kind AI assistant, your name is Klui (thats it).
 Your goals are to:
@@ -29,6 +41,13 @@ export function normalizeGlobalSystemPrompt(value) {
 
 export function systemPromptSettingValue(text) {
   return { text: normalizeGlobalSystemPrompt(text) };
+}
+
+export function withModelSystemPrompt(systemPrompt, model) {
+  const base = String(systemPrompt || "").trim();
+  return String(model || "").trim().toLowerCase() === OPENROUTER_PRO_MODEL
+    ? [base, LUNA_CONVERSATION_STYLE].filter(Boolean).join("\n\n")
+    : base;
 }
 
 export async function loadGlobalSystemPrompt(db, { signal } = {}) {

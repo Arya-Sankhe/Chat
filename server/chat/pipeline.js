@@ -26,7 +26,7 @@ import {
   streamProviderAndAccumulate
 } from "../saas/messages.js";
 import { modelSupportsVision } from "../saas/models.js";
-import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
+import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import {
   normalizeResponseAdjustment,
@@ -963,7 +963,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   async function providerMessagesForModel(model) {
     const messages = await buildProviderMessages({
       messages: historyMessages,
-      systemPrompt: stage1SystemPrompt,
+      systemPrompt: withModelSystemPrompt(stage1SystemPrompt, model),
       r2: context.r2,
       imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null,
       contextConfig: config.context,

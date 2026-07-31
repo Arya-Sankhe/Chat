@@ -8,7 +8,7 @@ import {
   normalizeMessageSettings,
   sanitizeProviderEvent
 } from "../saas/messages.js";
-import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
+import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
@@ -101,7 +101,7 @@ export async function handleTemporaryChat(req, res, config) {
     model: body.model || OPENROUTER_TEXT_MODEL,
     messages: await buildProviderMessages({
       messages: historyMessages,
-      systemPrompt: settings.systemPrompt || "",
+      systemPrompt: withModelSystemPrompt(settings.systemPrompt, body.model || OPENROUTER_TEXT_MODEL),
       r2: context.r2,
       contextConfig: config.context,
       summarizeHistory

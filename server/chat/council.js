@@ -11,6 +11,7 @@ import {
   sanitizeProviderEvent,
   streamProviderAndAccumulate
 } from "../saas/messages.js";
+import { withModelSystemPrompt } from "../saas/systemPrompt.js";
 import {
   hasAssistantOutput,
   injectWebContextMessage,
@@ -339,7 +340,7 @@ export async function handleCouncilConversationMessage({
     const chairmanPromptWithContext = sharedContexts
       ? `${sharedContexts}\n\n${chairmanPrompt}`
       : chairmanPrompt;
-    const chairmanSystemPrompt = settings?.systemPrompt || "";
+    const chairmanSystemPrompt = withModelSystemPrompt(settings?.systemPrompt, chairmanModel);
 
     const accumulated = await runChairmanSynthesis({
       chairmanModel,
