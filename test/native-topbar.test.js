@@ -125,8 +125,9 @@ test("the temporary chat toggle clears the press highlight synchronously when to
 test("website-only controls and greeting stay separate from the APK", () => {
   const html = readPublic("index.html");
   const kluiJs = readPublic("js/klui.js");
-  assert.match(html, /id="sidebarCloseButton"[^>]*hidden/);
-  assert.match(html, /querySelector\("#sidebarCloseButton"\)\?\.removeAttribute\("hidden"\)/);
+  const sharedMarkup = html.slice(0, html.indexOf("<script>"));
+  assert.doesNotMatch(sharedMarkup, /id="sidebarCloseButton"/);
+  assert.match(html, /if \(window\.androidBridge\)[\s\S]*?insertAdjacentHTML\("afterend", `<button class="sidebar-icon sidebar-close" id="sidebarCloseButton"/);
   assert.match(html, /id="homeWallpaper"[^>]*decoding="async"/);
   assert.match(html, /querySelector\("#homeWallpaper"\)\.decoding = "sync"/);
   assert.match(kluiJs, /native \? "" : `<div class="klui"/);

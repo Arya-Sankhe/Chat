@@ -1,13 +1,13 @@
 {
   "published": true,
-  "versionName": "1.0.9",
-  "versionCode": 9,
+  "versionName": "1.0.10",
+  "versionCode": 10,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.9.apk",
+  "apkUrl": "https://klui.tech/downloads/android/klui-1.0.10.apk",
   "releaseNotes": [
-    "Added Deep Research, Android text sizing, and improved native layout behavior"
+    "Improved Android immersive layout, keyboard behavior, navigation, and home screen"
   ],
-  "sizeBytes": 4459526,
-  "sha256": "1437d8a316b100dce67985cf85f8c0d3dff79e378a53523741e62426edd5cb39",
-  "releasedAt": "2026-06-30T23:59:22.625Z"
+  "sizeBytes": 7834440,
+  "sha256": "9e17716101c7a9a43b524036c50a6f364b9ecad4de73018e5ccd4816ae3b2acf",
+  "releasedAt": "2026-08-07T11:27:12.276Z"
 }
