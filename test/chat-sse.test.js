@@ -20,10 +20,10 @@ import { filterCurrentTurnMessages } from "../server/chat/pipeline.js";
  * change any expectation here.
  */
 
-const TEXT_MODEL = "deepseek/deepseek-v4-flash";
+const TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 const VISION_MODEL = "xiaomi/mimo-v2.5";
 const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, VISION_MODEL];
-const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "deepseek/deepseek-v4-pro", VISION_MODEL, "xiaomi/mimo-v2.5-pro"];
+const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "xiaomi/mimo-v2.5-pro"];
 
 const CONFIG_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -512,6 +512,44 @@ test("first message stores a generated intent title without delaying the respons
   assert.equal(titleUsage.payload.provider, "openrouter");
   assert.equal(titleUsage.payload.costCredits, 0.00001);
   assert.ok(db.calls.filter((call) => call.op === "checkApiBudget").length >= 2);
+});
+
+test("a raw fallback title is retried using the first user message", async (t) => {
+  t.after(restoreFetch);
+  let titleBody;
+  installProviderFetch({
+    streamFor: () => [contentDelta("Done."), usageChunk()],
+    completionFor: (body) => {
+      titleBody = body;
+      return {
+        id: "title-retry",
+        choices: [{ message: { content: "Rewrite Recent Chat Heading" } }],
+        usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, cost: 0.00001 }
+      };
+    }
+  });
+
+  const firstPrompt = "hi i need you to rewrite the recent chat heading because it failed";
+  const config = loadConfig(CONFIG_ENV);
+  const conversation = { id: "conv-1", title: "hi i need you to rewrite the recent chat head...", model: TEXT_MODEL };
+  const db = makeDb({
+    conversation,
+    messages: [
+      { id: "old-user", role: "user", content: firstPrompt },
+      { id: "old-assistant", role: "assistant", content: "Sure." }
+    ]
+  });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Please try the title again", model: TEXT_MODEL, agentMode: false }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.match(titleBody.messages[1].content, new RegExp(firstPrompt));
+  assert.equal(
+    db.calls.find((call) => call.op === "updateConversation" && call.patch.title)?.patch.title,
+    "Rewrite Recent Chat Heading"
+  );
 });
 
 /* ── (b) two-model compare ── */

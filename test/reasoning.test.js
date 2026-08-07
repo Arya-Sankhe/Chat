@@ -37,7 +37,7 @@ test("extractReasoningDelta ignores encrypted reasoning details", () => {
 
 test("adaptChatRequestForProvider maps reasoning_effort to OpenRouter reasoning", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high",
     temperature: 0.7
@@ -48,9 +48,9 @@ test("adaptChatRequestForProvider maps reasoning_effort to OpenRouter reasoning"
   assert.equal(adapted.temperature, 0.7);
 });
 
-test("adaptChatRequestForProvider enables reasoning without effort for Laguna", () => {
+test("adaptChatRequestForProvider enables reasoning without effort for Ling", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "poolside/laguna-xs-2.1",
+    model: "inclusionai/ling-3.0-flash",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high",
     top_p: 0.95,
@@ -59,8 +59,28 @@ test("adaptChatRequestForProvider enables reasoning without effort for Laguna", 
 
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
   assert.deepEqual(adapted.provider, { require_parameters: true });
-  assert.equal(adapted.top_p, undefined);
+  assert.equal(adapted.top_p, 0.95);
   assert.equal(adapted.models, undefined);
+});
+
+test("adaptChatRequestForProvider honors explicitly disabled reasoning", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "poolside/laguna-xs-2.1",
+    messages: [{ role: "user", content: "title this" }],
+    reasoning: { enabled: false }
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { enabled: false });
+});
+
+test("adaptChatRequestForProvider always pins HY3 reasoning to high", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "tencent/hy3",
+    messages: [{ role: "user", content: "review these answers" }],
+    reasoning_effort: "low"
+  }, "openrouter");
+
+  assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
 });
 
 test("adaptChatRequestForProvider adds Laguna S model fallbacks", () => {
@@ -73,7 +93,7 @@ test("adaptChatRequestForProvider adds Laguna S model fallbacks", () => {
 
   assert.deepEqual(adapted.models, [
     "poolside/laguna-s-2.1",
-    "deepseek/deepseek-v4-flash"
+    "deepseek/deepseek-v4-flash-0731"
   ]);
   assert.equal(adapted.top_p, undefined);
   // Shared with DeepSeek fallback — L2 pins low (OpenRouter can't set per-fallback effort).
@@ -90,7 +110,7 @@ test("adaptChatRequestForProvider keeps Laguna S enabled-only reasoning when too
 
   assert.deepEqual(adapted.models, [
     "poolside/laguna-s-2.1",
-    "deepseek/deepseek-v4-flash"
+    "deepseek/deepseek-v4-flash-0731"
   ]);
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
   assert.equal(adapted.provider.require_parameters, true);
@@ -98,7 +118,7 @@ test("adaptChatRequestForProvider keeps Laguna S enabled-only reasoning when too
 
 test("adaptChatRequestForProvider keeps top_p for DeepSeek", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }],
     top_p: 0.95
   }, "openrouter");
@@ -139,7 +159,7 @@ test("adaptChatRequestForProvider does not force require_parameters without tool
 
 test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
@@ -151,7 +171,7 @@ test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback",
 
 test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "search" }],
     tools: [{ type: "function", function: { name: "web_search" } }]
   }, "openrouter");
@@ -185,7 +205,7 @@ test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
 
 test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
@@ -194,7 +214,7 @@ test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
 
 test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "turbo"
   }, "openrouter");
@@ -204,7 +224,7 @@ test("adaptChatRequestForProvider normalizes invalid OpenRouter effort to high",
 
 test("adaptChatRequestForProvider maps xhigh reasoning effort for OpenRouter", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "xhigh"
   }, "openrouter");
@@ -213,7 +233,7 @@ test("adaptChatRequestForProvider maps xhigh reasoning effort for OpenRouter", (
 
 test("adaptChatRequestForProvider maps max reasoning effort to xhigh", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "max"
   }, "openrouter");
@@ -267,7 +287,7 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "deepseek/deepseek-v4-flash",
+        model: "deepseek/deepseek-v4-flash-0731",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "low"
       },
@@ -282,7 +302,7 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
   }
 });
 
-test("streamChatCompletion enables Laguna reasoning without effort", async () => {
+test("streamChatCompletion enables Ling reasoning without effort", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody;
   globalThis.fetch = async (_url, options = {}) => {
@@ -300,7 +320,7 @@ test("streamChatCompletion enables Laguna reasoning without effort", async () =>
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "poolside/laguna-xs-2.1",
+        model: "inclusionai/ling-3.0-flash",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "high",
         tools: [{ type: "function", function: { name: "web_search" } }]
@@ -343,7 +363,7 @@ test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
 
     assert.deepEqual(requestBody.models, [
       "poolside/laguna-s-2.1",
-      "deepseek/deepseek-v4-flash"
+      "deepseek/deepseek-v4-flash-0731"
     ]);
   } finally {
     globalThis.fetch = originalFetch;
@@ -513,18 +533,18 @@ test("stripLeakedReasoningMarkup keeps only content after the last closing think
   assert.equal(
     stripLeakedReasoningMarkup(
       "First answer.\n</think>Your goal: improve positioning.",
-      "poolside/laguna-xs-2.1"
+      "inclusionai/ling-3.0-flash"
     ),
     "Your goal: improve positioning."
   );
 });
 
-test("stripLeakedReasoningMarkup only strips Laguna XS leaks outside code fences", () => {
+test("stripLeakedReasoningMarkup only strips Nitro leaks outside code fences", () => {
   const prose = "Models sometimes emit a stray </think> tag. Here is why.";
   const fenced = "Example:\n```html\n</think>\n```\nKeep this.";
 
   assert.equal(stripLeakedReasoningMarkup(prose, "deepseek/deepseek-v4-pro"), prose);
-  assert.equal(stripLeakedReasoningMarkup(fenced, "poolside/laguna-xs-2.1"), fenced);
+  assert.equal(stripLeakedReasoningMarkup(fenced, "inclusionai/ling-3.0-flash"), fenced);
 });
 
 test("stripLeakedToolMarkup removes provider DSML tool-call blocks", () => {

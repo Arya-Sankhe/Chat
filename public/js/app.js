@@ -106,26 +106,27 @@ const PIN_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><line x1="12" y1="17" x2="12"
 const RENAME_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
 const DELETE_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>`;
 
-const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
+const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
-const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
-const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
+const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
+// Text-only; used only as a Council panelist.
+const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
-const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
+const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 // Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
-  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_VISION_PRO_MODEL
+  OPENROUTER_COUNCIL_MIMO_PRO_MODEL
 ];
 const DEFAULT_REASONING_EFFORT = "high";
 const SPECTRUM_N = 3;
 const SPECTRUM_STEPS = [
-  { mode: "thinking", model: OPENROUTER_LAGUNA_XS, effort: "high" },
+  { mode: "thinking", model: OPENROUTER_NITRO_MODEL, effort: "high" },
   { mode: "thinking", model: OPENROUTER_TEXT_MODEL, effort: "xhigh" },
   { mode: "pro", model: OPENROUTER_PRO_MODEL, effort: "xhigh" }
 ];
@@ -2711,9 +2712,9 @@ function modelById(id) {
 
 function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_MODEL) return "DeepSeek";
-  if (id === OPENROUTER_TEXT_PRO_MODEL) return "DeepSeek Pro";
+  if (id === OPENROUTER_COUNCIL_HY3_MODEL) return "Hy3";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
-  if (id === OPENROUTER_VISION_PRO_MODEL) return "MiMo Pro";
+  if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Gemma 31B";
   const model = modelById(id);
@@ -3378,7 +3379,7 @@ function stripLeakedToolMarkup(value) {
 // Keep in sync with the mirrored copy in server/saas/messages/content.js.
 function stripLeakedReasoningMarkup(value, model) {
   const text = String(value ?? "");
-  if (model !== OPENROUTER_LAGUNA_XS) return text;
+  if (model !== OPENROUTER_NITRO_MODEL) return text;
 
   let inCodeFence = false;
   let leakedTagEnd = -1;

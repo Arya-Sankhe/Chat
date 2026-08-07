@@ -15,7 +15,8 @@ test("clarifications stay small, valid, and use the metered cheap model path", a
     }
   });
 
-  assert.equal(request.body.model, "poolside/laguna-xs-2.1");
+  assert.equal(request.body.model, "inclusionai/ling-3.0-flash");
+  assert.deepEqual(request.body.reasoning, { enabled: false });
   assert.equal(request.body.max_tokens, 420);
   assert.deepEqual(questions, [{ question: "Which market?", options: ["Global", "India"] }]);
   assert.deepEqual(normalizeClarifications('{"questions":[{"question":"One?","options":["A"]}]}'), []);

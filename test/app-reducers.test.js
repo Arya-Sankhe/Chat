@@ -79,7 +79,7 @@ function stripLeakedToolMarkup(value) {
 
 function stripLeakedReasoningMarkup(value, model) {
   const text = String(value ?? "");
-  if (model !== "poolside/laguna-xs-2.1") return text;
+  if (model !== "inclusionai/ling-3.0-flash") return text;
 
   let inCodeFence = false;
   let leakedTagEnd = -1;
@@ -236,11 +236,11 @@ test("response:reset keeps every mini-reasoning chunk through tool work and clea
   assert.equal(message.resetContentOnNextTextDelta, undefined);
 });
 
-test("stream reducer drops leaked Laguna reasoning before the real answer", () => {
+test("stream reducer drops leaked Nitro reasoning before the real answer", () => {
   const message = { content: "", reasoning: "", toolCalls: [], finishReason: "" };
 
   reducers.applyStreamEvent(message, {
-    model: "poolside/laguna-xs-2.1",
+    model: "inclusionai/ling-3.0-flash",
     choices: [{ delta: { content: "Draft answer that should not be shown.\n</thi" } }]
   });
   reducers.applyStreamEvent(message, {

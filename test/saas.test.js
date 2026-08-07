@@ -218,7 +218,7 @@ test("SupabaseRest records API usage cost with the active weekly window", async 
       userId: "user_1",
       subscriptionId: "sub_1",
       planId: "pro",
-      model: "deepseek/deepseek-v4-flash",
+      model: "deepseek/deepseek-v4-flash-0731",
       provider: "openrouter",
       generationId: "gen_1",
       periodStart: "2026-02-02",

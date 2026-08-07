@@ -46,7 +46,12 @@ test("conversation titles use Laguna for text and MiMo only when an image carrie
   assert.equal(requests[1].body.model, "xiaomi/mimo-v2.5");
   assert.equal(requests[1].body.messages[1].content[1].image_url.url, "https://signed.example/traffic.png");
   assert.equal(requests[1].body.messages[1].content[1].image_url.detail, "low");
-  assert.equal(requests[1].body.max_tokens, 32);
+  assert.deepEqual(requests[0].body.models, [
+    "poolside/laguna-xs-2.1",
+    "deepseek/deepseek-v4-flash-0731"
+  ]);
+  assert.deepEqual(requests[0].body.reasoning, { enabled: false });
+  assert.equal(requests[1].body.max_tokens, 64);
 });
 
 test("specific image prompts stay text-only and title failures have a usable fallback", async () => {

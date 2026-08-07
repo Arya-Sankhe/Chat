@@ -1392,10 +1392,10 @@ describe("tool", () => {
     const crofai = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
-        if (body.model !== "deepseek/deepseek-v4-flash") {
+        if (body.model !== "deepseek/deepseek-v4-flash-0731") {
           throw new Error("This model does not support tools.");
         }
-        if (bodies.filter((entry) => entry.model === "deepseek/deepseek-v4-flash").length === 1) {
+        if (bodies.filter((entry) => entry.model === "deepseek/deepseek-v4-flash-0731").length === 1) {
           return streamResponse([toolCallDelta({
             name: "create_document",
             args: { format: "pdf", title: "Report", content: "Body" }
@@ -1407,7 +1407,7 @@ describe("tool", () => {
 
     const result = await runChatWithToolLoop({
       chatRequest: {
-        model: "poolside/laguna-xs-2.1",
+        model: "inclusionai/ling-3.0-flash",
         messages: [{ role: "user", content: "create a pdf" }],
         tools: buildDocumentTools({ toolNames: ["create_document"] }),
         tool_choice: "auto"
@@ -1439,7 +1439,7 @@ describe("tool", () => {
 
     assert.equal(result.artifacts.length, 1);
     assert.equal(bodies.slice(0, -1).some((body) => !body.tools), false);
-    assert.equal(bodies.at(-1).model, "deepseek/deepseek-v4-flash");
+    assert.equal(bodies.at(-1).model, "deepseek/deepseek-v4-flash-0731");
   });
 
   test("runChatWithToolLoop drops only tool_choice when the provider still supports tools", async () => {

@@ -551,7 +551,7 @@ test("editable document revise returns replacement markdown without a chat messa
     if (String(url).includes("/chat/completions")) {
       chatCalls += 1;
       const body = JSON.parse(String(init.body || "{}"));
-      assert.equal(body.model, "deepseek/deepseek-v4-flash");
+      assert.equal(body.model, "deepseek/deepseek-v4-flash-0731");
       assert.match(body.messages?.[1]?.content || "", /Selected portion to revise/);
       assert.match(body.messages?.[1]?.content || "", /Make it warmer/);
       return {

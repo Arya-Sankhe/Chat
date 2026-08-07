@@ -1,5 +1,5 @@
 import { HttpError } from "../../http/responses.js";
-import { OPENROUTER_LAGUNA_XS, OPENROUTER_VISION_MODEL } from "../../providers.js";
+import { OPENROUTER_NITRO_MODEL, OPENROUTER_TEXT_MODEL, OPENROUTER_TITLE_MODEL, OPENROUTER_VISION_MODEL } from "../../providers.js";
 
 function cleanString(value, label, { max = 100000, required = false } = {}) {
   if (value === undefined || value === null) {
@@ -23,6 +23,21 @@ export function titleFromText(text) {
   return clean.length > 48 ? `${clean.slice(0, 45)}...` : clean || "New chat";
 }
 
+export function conversationTitleFallback(content) {
+  const text = contentText(content).trim();
+  const parts = Array.isArray(content) ? content : [];
+  const files = parts.filter((part) => part?.type === "file");
+  const images = parts.filter((part) => part?.type === "image_url");
+  const fileNames = files.map((part) => part.file?.file_name).filter(Boolean);
+  return text
+    ? titleFromText(text)
+    : fileNames.length
+      ? titleFromText(`Review ${fileNames[0]}`)
+      : images.length
+        ? "Review uploaded image"
+        : "New chat";
+}
+
 export async function generateConversationTitle({ content, crofai, config, r2, signal }) {
   const text = contentText(content).trim();
   const parts = Array.isArray(content) ? content : [];
@@ -34,13 +49,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
     || /^(help|solve|explain|summari[sz]e|analy[sz]e|review|look at|what is|what's|who is|where is|read)( (this|that|it|these|those|image|photo|picture))?[?.!]*$/i.test(text)
   );
   const fileNames = files.map((part) => part.file?.file_name).filter(Boolean);
-  const fallback = text
-    ? titleFromText(text)
-    : fileNames.length
-      ? titleFromText(`Review ${fileNames[0]}`)
-      : images.length
-        ? "Review uploaded image"
-        : "New chat";
+  const fallback = conversationTitleFallback(content);
   const provider = config?.providers?.openrouter;
   if (!crofai?.chatCompletion || !provider?.apiKey) return fallback;
   const titleSignal = signal
@@ -75,7 +84,9 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
       providerId: "openrouter",
       signal: titleSignal,
       body: {
-        model: vagueWithImage ? OPENROUTER_VISION_MODEL : OPENROUTER_LAGUNA_XS,
+        model: vagueWithImage ? OPENROUTER_VISION_MODEL : OPENROUTER_TITLE_MODEL,
+        ...(!vagueWithImage ? { models: [OPENROUTER_TITLE_MODEL, OPENROUTER_TEXT_MODEL] } : {}),
+        reasoning: { enabled: false },
         messages: [
           {
             role: "system",
@@ -84,7 +95,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
           { role: "user", content: userContent }
         ],
         temperature: 0.1,
-        max_tokens: 32
+        max_tokens: 64
       }
     });
     const clean = String(result || "")
@@ -624,7 +635,7 @@ export function stripLeakedToolMarkup(value) {
 // Keep in sync with the mirrored copy in public/js/app.js (client/server bundles are separate).
 export function stripLeakedReasoningMarkup(value, model) {
   const text = String(value ?? "");
-  if (model !== OPENROUTER_LAGUNA_XS) return text;
+  if (model !== OPENROUTER_NITRO_MODEL) return text;
 
   let inCodeFence = false;
   let leakedTagEnd = -1;

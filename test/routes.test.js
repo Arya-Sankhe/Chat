@@ -146,7 +146,7 @@ test("withAvailableTools gives GPT-5.6 Luna strict native tool-call instructions
 
 test("weather prompts expose weather without web search", () => {
   const result = withAvailableTools({
-    model: "deepseek/deepseek-v4-flash",
+    model: "deepseek/deepseek-v4-flash-0731",
     messages: [{ role: "user", content: "what's the temp in Dubai" }]
   }, {
     config: loadConfig({ OPENWEATHER_API_KEY: "weather-key" }),

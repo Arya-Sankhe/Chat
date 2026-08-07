@@ -13,15 +13,17 @@ export const DEFAULT_PROVIDER_ID = "openrouter";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
+export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
-export const OPENROUTER_TEXT_PRO_MODEL = "deepseek/deepseek-v4-pro";
-export const OPENROUTER_VISION_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
+export const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
+// Text-only; used only as a Council panelist.
+export const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 export const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
 export const OPENROUTER_PRO_FALLBACK_MODEL = "minimax/minimax-m3";
 export const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
 export const OPENROUTER_DEFAULT_MODEL = OPENROUTER_TEXT_MODEL;
-export const OPENROUTER_LAGUNA_XS = "poolside/laguna-xs-2.1";
+export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
+export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 
 const PROVIDER_LABELS = {
@@ -94,13 +96,13 @@ export function resolveOpenRouterReasoningEffort(value) {
 
 /**
  * OpenRouter only accepts `reasoning.effort` when the model exposes
- * supported efforts (DeepSeek today). Laguna / MiniMax / MiMo expose
+ * supported efforts (DeepSeek, Luna, and HY3). Ling / Laguna / MiniMax / MiMo expose
  * on/off reasoning only — sending `effort` with `require_parameters`
  * yields "No endpoints found that can handle the requested parameters."
  */
 export function openRouterModelSupportsReasoningEffort(model) {
   const id = String(model || "").trim().toLowerCase();
-  return id.startsWith("deepseek/") || id === OPENROUTER_PRO_MODEL;
+  return id.startsWith("deepseek/") || id === OPENROUTER_PRO_MODEL || id === OPENROUTER_COUNCIL_HY3_MODEL;
 }
 
 /** Poolside Laguna endpoints omit top_p; with require_parameters that 404s. */
@@ -130,14 +132,17 @@ export function adaptChatRequestForProvider(body, providerId) {
   const isLagunaS = modelId === OPENROUTER_LAGUNA_S;
   const isProModel = modelId === OPENROUTER_PRO_MODEL;
   const isProFallbackModel = modelId === OPENROUTER_PRO_FALLBACK_MODEL;
+  const isHy3 = modelId === OPENROUTER_COUNCIL_HY3_MODEL;
   // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
   // this reasoning object — pin low effort so the fallback stays cheap. With
   // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
-  const reasoning = openRouterModelSupportsReasoningEffort(rest.model)
-    ? { effort: isProModel ? "xhigh" : effort, exclude: false }
-    : isLagunaS && !hasTools
-      ? { effort: "low", exclude: false }
-      : { enabled: true, exclude: false };
+  const reasoning = rest.reasoning && typeof rest.reasoning === "object"
+    ? rest.reasoning
+    : openRouterModelSupportsReasoningEffort(rest.model)
+      ? { effort: isProModel ? "xhigh" : isHy3 ? "high" : effort, exclude: false }
+      : isLagunaS && !hasTools
+        ? { effort: "low", exclude: false }
+        : { enabled: true, exclude: false };
 
   const adapted = {
     ...rest,

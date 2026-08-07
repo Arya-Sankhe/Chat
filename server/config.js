@@ -156,7 +156,7 @@ export function loadConfig(env = process.env) {
         readInt(env.CONTEXT_RESERVE_TOKENS, 32_000),
         Math.max(1, contextMaxTokens - 1)
       ),
-      summaryModel: clean(env.CONTEXT_SUMMARY_MODEL) || "deepseek/deepseek-v4-flash",
+      summaryModel: clean(env.CONTEXT_SUMMARY_MODEL) || "deepseek/deepseek-v4-flash-0731",
       summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 2000)
     },
     documents: {
@@ -225,7 +225,7 @@ export function loadConfig(env = process.env) {
     },
     research: {
       enabled: readBoolean(env.RESEARCH_ENABLED, true),
-      cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash",
+      cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash-0731",
       workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 3),
       leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),
       pollMs: readInt(env.RESEARCH_WORKER_POLL_MS, 5000),

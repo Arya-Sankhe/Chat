@@ -1,4 +1,9 @@
 import { HttpError } from "../http/responses.js";
+import { OPENROUTER_COUNCIL_HY3_MODEL, OPENROUTER_NITRO_MODEL, OPENROUTER_TEXT_MODEL } from "../providers.js";
+
+const LEGACY_OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash";
+const LEGACY_OPENROUTER_NITRO_MODEL = "poolside/laguna-xs-2.1";
+const LEGACY_OPENROUTER_COUNCIL_MODEL = "deepseek/deepseek-v4-pro";
 
 const roles = new Set(["system", "user", "assistant", "tool"]);
 
@@ -169,7 +174,13 @@ export function normalizeChatRequest(input) {
   }
 
   const normalized = {
-    model: cleanString(input.model, "model", { max: 300 }),
+    model: cleanString(input.model, "model", { max: 300 }) === LEGACY_OPENROUTER_TEXT_MODEL
+      ? OPENROUTER_TEXT_MODEL
+      : input.model === LEGACY_OPENROUTER_NITRO_MODEL
+        ? OPENROUTER_NITRO_MODEL
+        : input.model === LEGACY_OPENROUTER_COUNCIL_MODEL
+          ? OPENROUTER_COUNCIL_HY3_MODEL
+          : input.model,
     messages: messages.map(normalizeMessage),
     stream: true
   };

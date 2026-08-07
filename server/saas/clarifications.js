@@ -1,4 +1,4 @@
-import { OPENROUTER_LAGUNA_XS } from "../providers.js";
+import { OPENROUTER_NITRO_MODEL } from "../providers.js";
 
 const MAX_QUESTIONS = 3;
 const MAX_OPTIONS = 4;
@@ -37,7 +37,8 @@ export async function generateClarifications({ query, crofai, config, signal }) 
     providerId: "openrouter",
     signal: callSignal,
     body: {
-      model: OPENROUTER_LAGUNA_XS,
+      model: OPENROUTER_NITRO_MODEL,
+      reasoning: { enabled: false },
       messages: [
         {
           role: "system",

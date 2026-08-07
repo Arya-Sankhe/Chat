@@ -17,7 +17,7 @@ function smallContext(overrides = {}) {
     compactAtTokens: 100,
     keepRecentTokens: 45,
     reserveTokens: 20,
-    summaryModel: "deepseek/deepseek-v4-flash",
+    summaryModel: "deepseek/deepseek-v4-flash-0731",
     summaryMaxTokens: 60,
     ...overrides
   };
@@ -29,7 +29,7 @@ test("context defaults compact around 140k while preserving hard-limit headroom"
   assert.equal(config.context.compactAtTokens, 140_000);
   assert.equal(config.context.keepRecentTokens, 80_000);
   assert.equal(config.context.reserveTokens, 32_000);
-  assert.equal(config.context.summaryModel, "deepseek/deepseek-v4-flash");
+  assert.equal(config.context.summaryModel, "deepseek/deepseek-v4-flash-0731");
 });
 
 test("buildProviderMessages summarizes older turns and keeps recent turns verbatim", async () => {
@@ -187,7 +187,7 @@ test("createConversationSummarizer makes one metered OpenRouter call for concurr
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].providerId, "openrouter");
-  assert.equal(calls[0].body.model, "deepseek/deepseek-v4-flash");
+  assert.equal(calls[0].body.model, "deepseek/deepseek-v4-flash-0731");
   assert.equal(calls[0].body.reasoning_effort, "low");
   assert.match(first[1].content, /shared summary/);
   assert.deepEqual(first, second);

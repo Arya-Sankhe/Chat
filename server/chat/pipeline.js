@@ -14,6 +14,7 @@ import {
 import {
   buildProviderMessages,
   buildStoredUserContent,
+  conversationTitleFallback,
   contentText,
   createConversationSummarizer,
   generateConversationTitle,
@@ -50,10 +51,10 @@ import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js"
 import { sanitizeResearchPublicView } from "../research/public.js";
 import {
   OPENROUTER_TEXT_MODEL,
-  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_VISION_PRO_MODEL,
+  OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
   OPENROUTER_VISION_L2,
   resolveProvider
 } from "../providers.js";
@@ -89,9 +90,9 @@ const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
-  OPENROUTER_TEXT_PRO_MODEL,
+  OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_VISION_PRO_MODEL
+  OPENROUTER_COUNCIL_MIMO_PRO_MODEL
 ];
 
 const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
@@ -992,9 +993,13 @@ async function executeConversationMessage(req, res, config, conversationId, {
       })];
 
   const conversationModel = chatRequests.map((request) => request.model).join(", ");
-  const titlePromise = (!conversation.title || conversation.title === "New chat")
+  const titleContent = existingMessages.find((message) => message.role === "user")?.content || userContent;
+  const titleNeedsGeneration = !conversation.title
+    || conversation.title === "New chat"
+    || conversation.title === conversationTitleFallback(titleContent);
+  const titlePromise = titleNeedsGeneration
     ? generateConversationTitle({
-        content: userContent,
+        content: titleContent,
         crofai,
         config,
         r2: context.r2,

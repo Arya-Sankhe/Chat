@@ -3,8 +3,9 @@ import { HttpError } from "../http/responses.js";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const OPENROUTER_FALLBACK_PRICING = {
-  "deepseek/deepseek-v4-flash": { prompt: 0.28, completion: 0.42 },
-  "deepseek/deepseek-v4-pro": { prompt: 1.20, completion: 2.40 },
+  "inclusionai/ling-3.0-flash": { prompt: 0.021, completion: 0.063 },
+  "deepseek/deepseek-v4-flash-0731": { prompt: 0.09, completion: 0.18 },
+  "tencent/hy3": { prompt: 0.132, completion: 0.528 },
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },
   "xiaomi/mimo-v2.5-pro": { prompt: 1.20, completion: 3.60 },
   "qwen/qwen3.7-plus": { prompt: 0.32, completion: 1.28 },
