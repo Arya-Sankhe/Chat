@@ -200,6 +200,10 @@ body.capacitor-native.chat-empty .empty-state h1 {
 
 }
 
+body.capacitor-native.chat-empty .empty-state .hero-line.is-long h1.type-line {
+  font-size: clamp(16px, 5vw, 22px);
+}
+
 body.capacitor-native .composer-area,
 
 body.capacitor-native.chat-empty .composer-area {
@@ -3465,4 +3469,74 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
   body:not(.capacitor-native) .native-nav-backdrop {
     transition-duration: 100ms;
   }
+}
+
+/* Native navigation is a full-screen sheet. */
+body.capacitor-native .sidebar,
+body.capacitor-native.sidebar-open .sidebar {
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  border-radius: 0;
+}
+
+body.capacitor-native .sidebar-header .sidebar-toggle {
+  display: none !important;
+}
+
+body.capacitor-native .sidebar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+}
+
+body.capacitor-native .sidebar-new-item {
+  width: 44px !important;
+  min-width: 44px;
+  max-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
+  border-radius: 12px;
+}
+
+body.capacitor-native .sidebar-new-item .sidebar-nav-icon {
+  width: 44px;
+  height: 44px;
+}
+
+/* Projects and pinned chats are plain navigation rows in the Android sheet. */
+body.capacitor-native.sidebar-open #projectsButton,
+body.capacitor-native.sidebar-open #pinnedChatsButton,
+body.capacitor-native.sidebar-open #projectsButton:hover,
+body.capacitor-native.sidebar-open #pinnedChatsButton:hover,
+body.capacitor-native.sidebar-open #projectsButton:active,
+body.capacitor-native.sidebar-open #pinnedChatsButton:active {
+  background: transparent !important;
+}
+
+/* The IME overlays the native app. Keep the wallpaper/layout at full height
+   and lift only the composer to the keyboard edge. */
+body.capacitor-native {
+  --native-keyboard-height: 0px;
+}
+
+body.capacitor-native .app-shell,
+body.capacitor-native .chat-panel {
+  height: 100vh;
+  min-height: 100vh;
+}
+
+body.capacitor-native .composer-area,
+body.capacitor-native.chat-empty .composer-area {
+  top: auto !important;
+  bottom: var(--native-keyboard-height) !important;
 }

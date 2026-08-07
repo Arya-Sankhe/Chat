@@ -65,6 +65,7 @@ import {
   preferences,
   registerBackButton,
   setTextZoom,
+  showNativeKeyboard as showNativeKeyboardInstant,
   signInWithGoogle as nativeSignInWithGoogle
 } from "./platform/index.js";
 import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
@@ -504,6 +505,7 @@ const els = {
   compactNewChatButton: document.querySelector("#compactNewChatButton"),
   nativeNavBackdrop: document.querySelector("#nativeNavBackdrop"),
   sidebarButton: document.querySelector("#sidebarButton"),
+  sidebarCloseButton: document.querySelector("#sidebarCloseButton"),
   newChatButton: document.querySelector("#newChatButton"),
   searchChatsButton: document.querySelector("#searchChatsButton"),
   projectsButton: document.querySelector("#projectsButton"),
@@ -1032,7 +1034,7 @@ function selectedModelMode() {
 }
 
 function modelModeLabel(mode = selectedModelMode()) {
-  return mode === "pro" ? "Pro" : "Thinking";
+  return mode === "pro" ? "Pro" : "Think";
 }
 
 function composerPlaceholder() {
@@ -1243,7 +1245,7 @@ function applyNativeTopBarMode(mode) {
   }
   if (state.settings.compareEnabled) compareController.cancelCompareMode();
   const modelMode = mode === "pro" ? "pro" : "thinking";
-  applySpectrumLevel(modelMode === "pro" ? 4 : 2);
+  applySpectrumLevel(modelMode === "pro" ? 2 : 1);
 }
 
 function clampTextScale(value) {
@@ -1316,14 +1318,17 @@ function applyAppearance() {
   document.body.dataset.wallpaper = wallpaper;
   const hasLightWallpaper = mode === "light" && ["clouds", "alpine", "valley", "launch"].includes(wallpaper);
   if (wallpaper !== "none") {
-    const wallpaperSrc = `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp?v=20260723-4`;
+    const version = isNative() ? "" : "?v=20260723-4";
+    const wallpaperSrc = `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
     const usesNightSky = mode === "dark" && ["clouds", "alpine", "valley"].includes(wallpaper);
     document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
     document.body.style.setProperty(
       "--home-wallpaper-base",
-      usesNightSky ? 'url("/images/home-night-sky.webp?v=20260723-1")' : "none",
+      usesNightSky ? `url("/images/home-night-sky.webp${isNative() ? "" : "?v=20260723-1"}")` : "none",
     );
-    if (els.homeWallpaper && !els.homeWallpaper.src.endsWith(wallpaperSrc)) {
+    const currentWallpaperPath = els.homeWallpaper ? new URL(els.homeWallpaper.src).pathname : "";
+    const wallpaperStem = `/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}`;
+    if (els.homeWallpaper && !currentWallpaperPath.includes(wallpaperStem)) {
       els.homeWallpaper.src = wallpaperSrc;
     }
   } else {
@@ -5771,7 +5776,8 @@ function openNewChat({ replaceUrl = false } = {}) {
   syncConversationUrl({ replace: replaceUrl });
   syncActiveRunningUi();
   renderShell();
-  els.promptInput?.focus();
+  if (isNative()) focusPromptInput();
+  else els.promptInput?.focus();
 }
 
 async function addConversation() {
@@ -6603,11 +6609,15 @@ function composerHasFocus() {
 async function showNativeKeyboard() {
   if (!isNative()) return;
   try {
-    const { Keyboard } = await import("@capacitor/keyboard");
-    await Keyboard.show();
+    await showNativeKeyboardInstant();
   } catch {
-    // Some Android WebView/IME combinations only allow showing the keyboard
-    // after a user gesture. The input focus still remains correct.
+    try {
+      const { Keyboard } = await import("@capacitor/keyboard");
+      await Keyboard.show();
+    } catch {
+      // The input focus still remains correct if an older Android build cannot
+      // show the IME programmatically.
+    }
   }
 }
 
@@ -6631,13 +6641,12 @@ function focusPromptInput() {
   if (els.chatView?.classList.contains("hidden") || !els.researchReportView?.classList.contains("hidden")) return;
   els.composer?.classList.remove("compact");
   els.promptInput.focus({ preventScroll: true });
-  void showNativeKeyboard();
+  if (!document.body.classList.contains("keyboard-open")) void showNativeKeyboard();
 }
 
 function focusPromptInputSoon() {
   if (!isNative()) return;
-  setTimeout(() => focusPromptInput(), 120);
-  setTimeout(() => focusPromptInput(), 450);
+  focusPromptInput();
 }
 
 function setAutoScroll(enabled) {
@@ -6880,6 +6889,14 @@ function bindEvents() {
   els.signOutButton.addEventListener("click", signOutAndReset);
 
   els.sidebarButton.addEventListener("click", toggleSidebar);
+  els.sidebarCloseButton?.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+  });
+  els.promptInput?.addEventListener("click", () => {
+    if (!isNative()) return;
+    els.promptInput.focus({ preventScroll: true });
+    void showNativeKeyboard();
+  });
   els.nativeMobileMenu?.addEventListener("click", toggleSidebar);
   els.compactNewChatButton?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
@@ -7178,7 +7195,7 @@ function bindEvents() {
     // ring on the icon. (transitionend-based removal has a perceptible
     // gap that the user noticed.)
     els.temporaryChatToggle?.classList.remove("pressed");
-    els.promptInput?.focus();
+    focusPromptInput();
   });
 
   // ── Mode chip dropdown (APK only) ──────────────────────────────────
@@ -7188,7 +7205,7 @@ function bindEvents() {
     const mode = currentNativeTopBarMode();
     const label = els.nativeMobileModeLabel;
     if (label) {
-      const display = mode === "thinking" ? "Thinking"
+      const display = mode === "thinking" ? "Think"
         : mode === "pro" ? "Pro"
         : mode === "compare" ? "Compare"
         : mode === "council" ? "Council"

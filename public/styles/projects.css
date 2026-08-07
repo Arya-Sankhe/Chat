@@ -869,3 +869,24 @@ body.projects-open .project-composer-slot .app-footer {
     transition: none;
   }
 }
+
+/* APK project pages own the header space; keep the chat mode picker out of it. */
+body.capacitor-native.projects-open .native-mobile-mode-wrap {
+  display: none !important;
+}
+
+body.capacitor-native.projects-open .native-mobile-menu {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  margin: 0;
+}
+
+body.capacitor-native.projects-open .project-view,
+body.capacitor-native.projects-open .project-view.project-view--detail {
+  padding-top: 68px;
+}
+
+body.capacitor-native.projects-open .project-back-button {
+  margin-left: 0;
+}

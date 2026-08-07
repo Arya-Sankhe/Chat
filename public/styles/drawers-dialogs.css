@@ -220,56 +220,56 @@
   background-image: none;
 }
 
-.wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+.settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
   background-image: url("/images/home-clouds.webp");
 }
 
-body[data-mode="dark"] .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
   background-image:
     url("/images/home-clouds.webp"),
     url("/images/home-night-sky.webp?v=20260723-1");
   background-size: contain, cover;
 }
 
-body[data-mode="light"] .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
+body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
   background-image: url("/images/home-clouds-light.webp?v=20260723-3");
 }
 
-.wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+.settings-drawer.open .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
   background-image: url("/images/home-alpine.webp");
 }
 
-body[data-mode="dark"] .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
   background-image:
     url("/images/home-alpine.webp"),
     url("/images/home-night-sky.webp?v=20260723-1");
   background-size: contain, cover;
 }
 
-body[data-mode="light"] .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
+body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
   background-image: url("/images/home-alpine-light.webp?v=20260723-3");
 }
 
-.wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+.settings-drawer.open .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
   background-image: url("/images/home-valley.webp");
 }
 
-body[data-mode="dark"] .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
   background-image:
     url("/images/home-valley.webp"),
     url("/images/home-night-sky.webp?v=20260723-1");
   background-size: contain, cover;
 }
 
-body[data-mode="light"] .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
+body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {
   background-image: url("/images/home-valley-light.webp?v=20260723-4");
 }
 
-.wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
+.settings-drawer.open .wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
   background-image: url("/images/home-launch.webp?v=20260723-4");
 }
 
-body[data-mode="light"] .wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
+body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="launch"] .wallpaper-thumb {
   background-image: url("/images/home-launch-light.webp?v=20260723-4");
 }
 

@@ -118,6 +118,8 @@ test("the temporary chat toggle clears the press highlight synchronously when to
     /temporaryChatToggle\??\.classList\.remove\(\s*"pressed"\s*\)/,
     "click handler should clear the .pressed class"
   );
+  assert.match(clickBlock[0], /focusPromptInput\(\)/, "temporary chat must refocus without scrolling the WebView");
+  assert.doesNotMatch(clickBlock[0], /promptInput\?*\.focus\(/, "temporary chat must not use scrolling focus");
 });
 
 test("the mode chip has a subtle translucent surface while the top bar remains transparent", () => {
@@ -248,4 +250,37 @@ test("the document viewer overlays the whole screen on the APK (sidebar offset i
     css,
     /body\.capacitor-native\.document-viewer-open \.document-viewer\s*\{[\s\S]*?inset:\s*0/
   );
+});
+
+test("the APK greeting is present on first paint and long lines stay compact", () => {
+  const html = readPublic("index.html");
+  const kluiJs = readPublic("js/klui.js");
+  const css = readStylesheet();
+  assert.match(html, /window\.__kluiLaunchGreeting = greeting/);
+  assert.match(html, /greetings\[Math\.floor\(Math\.random\(\) \* greetings\.length\)\]/);
+  assert.match(kluiJs, /launchText \|\| pickOne\(pool\)\.text/);
+  assert.match(kluiJs, /document\.body\.classList\.contains\("capacitor-native"\) && initialText/);
+  assert.match(kluiJs, /if \(initialText\) \{[\s\S]*?await sleep\(2600\);[\s\S]*?await deleteText\(\)/);
+  assert.match(kluiJs, /text\.length > 22/);
+  assert.match(
+    css,
+    /body\.capacitor-native\.chat-empty \.empty-state \.hero-line\.is-long h1\.type-line\s*\{[^}]*font-size:\s*clamp\(16px, 5vw, 22px\)/
+  );
+});
+
+test("the APK uses one IME layout path so the composer is never lifted twice", () => {
+  const config = readFileSync(resolve(here, "..", "capacitor.config.ts"), "utf8");
+  const platform = readPublic("js/platform/index.js");
+  assert.match(config, /Keyboard:\s*\{[\s\S]*?resize:\s*"none"/);
+  assert.match(platform, /Keyboard\.setResizeMode\(\{ mode: KeyboardResize\.None \}\)/);
+});
+
+test("new chat and repeated composer focus cannot scroll or reanimate the native viewport", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  const newChat = appJs.match(/function openNewChat[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(newChat, /if \(isNative\(\)\) focusPromptInput\(\)/);
+  assert.doesNotMatch(newChat, /renderShell\(\);\s*els\.promptInput\?\.focus\(\)/);
+  assert.match(appJs, /if \(!document\.body\.classList\.contains\("keyboard-open"\)\) void showNativeKeyboard\(\)/);
+  assert.doesNotMatch(css, /bottom:\s*var\(--native-keyboard-height\)\s*!important;\s*transition:\s*bottom/);
 });

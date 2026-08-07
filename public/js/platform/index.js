@@ -316,7 +316,7 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
     // safe-area padding still keeps the top bar icons clear of the clock.
     StatusBar.setBackgroundColor({ color: "#00000000" }),
     StatusBar.setOverlaysWebView({ overlay: true }),
-    Keyboard.setResizeMode({ mode: KeyboardResize.Native })
+    Keyboard.setResizeMode({ mode: KeyboardResize.None })
   ]).catch(() => {});
 }
 
@@ -333,6 +333,20 @@ export async function setTextZoom(percent) {
   } catch {
     // Older Android builds without the native TextZoom plugin simply
     // keep the default 100% size — never block the UI on this.
+  }
+}
+
+export async function showNativeKeyboard() {
+  if (!isNative()) return;
+  try {
+    if (!textZoomPlugin) {
+      const { registerPlugin } = await import("@capacitor/core");
+      textZoomPlugin = registerPlugin("TextZoom");
+    }
+    await textZoomPlugin.showKeyboard();
+  } catch {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    await Keyboard.show();
   }
 }
 

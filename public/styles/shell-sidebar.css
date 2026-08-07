@@ -177,6 +177,10 @@ body.sidebar-expanded .sidebar-header {
 
 }
 
+.sidebar-close {
+  display: none;
+}
+
 .sidebar-brand {
 
   display: none;

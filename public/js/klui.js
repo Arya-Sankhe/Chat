@@ -347,12 +347,14 @@ export function hydrateKluiBars(root = document) {
 }
 
 export function renderHomeGreetingHtml({ guest = false, temporary = false } = {}) {
-  const lines = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
-  const first = lines[0];
+  const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const launchText = temporary ? "" : window.__kluiLaunchGreeting;
+  const initialText = document.body.classList.contains("capacitor-native")
+    ? launchText || pickOne(pool).text
+    : "";
   return `<div class="empty-state${temporary ? " is-temporary" : ""}">
-    <div class="hero-line">
-      <div class="klui" data-mood="${first.mood}" aria-hidden="true">${kluiSvgMarkup("home", { greeting: true, fedora: temporary })}</div>
-      <h1 class="type-line"><span class="type-text"></span><span class="caret is-solid"></span></h1>
+    <div class="hero-line${initialText.length > 22 ? " is-long" : ""}">
+      <h1 class="type-line"><span class="type-text">${initialText}</span><span class="caret${initialText ? "" : " is-solid"}"></span></h1>
     </div>
   </div>`;
 }
@@ -368,9 +370,12 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   const caret = root.querySelector(".caret");
   const klui = root.querySelector(".klui");
   const mouth = root.querySelector(".mouth-normal, .mouth");
-  if (!typeEl || !caret || !klui) return;
-
+  if (!typeEl || !caret) return;
   const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const initialText = typeEl.textContent;
+  if (document.body.classList.contains("capacitor-native") && initialText) {
+    caret.classList.add("is-hidden");
+  }
   const run = ++greetingRun;
   let timer = null;
 
@@ -381,6 +386,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
     });
 
   function setMood(mood, mouthPath) {
+    if (!klui) return;
     klui.dataset.mood = mood;
     if (mouthPath) mouth?.setAttribute("d", mouthPath);
     if (mood === "hello") {
@@ -391,6 +397,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   }
 
   async function typeText(text) {
+    root.classList.toggle("is-long", text.length > 22);
     caret.classList.remove("is-hidden");
     caret.classList.add("is-solid");
     for (let n = 1; n <= text.length; n++) {
@@ -430,6 +437,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
 
   (async () => {
     if (temporary) {
+      if (initialText) return;
       // One random incognito line — type once and stay.
       const line = pickOne(pool);
       await playLine(line, { hold: 0, erase: false });
@@ -437,6 +445,19 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
     }
 
     // Fresh load: two type/delete cycles, then land on a different final line.
+    if (initialText) {
+      await sleep(2600);
+      if (run !== greetingRun) return;
+      await deleteText();
+      if (run !== greetingRun) return;
+      await sleep(420);
+      const rest = shuffle(pool.filter((line) => line.text !== initialText));
+      await playLine(rest[0] || pickOne(pool));
+      if (run !== greetingRun) return;
+      await playLine(rest[1] || pickOne(pool), { hold: 0, erase: false });
+      return;
+    }
+
     const order = shuffle(pool);
     const first = order[0];
     const second = order[1 % order.length];

@@ -18,19 +18,24 @@ const config: CapacitorConfig = {
   },
   plugins: {
     App: {
-      disableBackButtonHandler: true
+      disableBackButtonHandler: false
     },
     Keyboard: {
-      resize: "native"
+      resize: "none",
+      resizeOnFullScreen: false
     },
     SplashScreen: {
-      launchShowDuration: 700,
-      backgroundColor: "#ffffff",
+      launchShowDuration: 0,
+      backgroundColor: "#020611",
       showSpinner: false
     },
     StatusBar: {
       overlaysWebView: true,
       backgroundColor: "#00000000"
+    },
+    SystemBars: {
+      // The Android plugin otherwise pads the WebView below the hidden status bar.
+      insetsHandling: "disable"
     }
   }
 };
