@@ -118,8 +118,24 @@ test("the temporary chat toggle clears the press highlight synchronously when to
     /temporaryChatToggle\??\.classList\.remove\(\s*"pressed"\s*\)/,
     "click handler should clear the .pressed class"
   );
-  assert.match(clickBlock[0], /focusPromptInput\(\)/, "temporary chat must refocus without scrolling the WebView");
-  assert.doesNotMatch(clickBlock[0], /promptInput\?*\.focus\(/, "temporary chat must not use scrolling focus");
+  assert.match(clickBlock[0], /if \(!isNative\(\)\) els\.promptInput\?\.focus\(\)/, "website temporary chat must refocus the composer");
+  assert.doesNotMatch(clickBlock[0], /focusPromptInput\(\)/, "Android temporary chat must not refocus the composer");
+});
+
+test("website-only controls and greeting stay separate from the APK", () => {
+  const html = readPublic("index.html");
+  const kluiJs = readPublic("js/klui.js");
+  assert.match(html, /id="sidebarCloseButton"[^>]*hidden/);
+  assert.match(html, /querySelector\("#sidebarCloseButton"\)\?\.removeAttribute\("hidden"\)/);
+  assert.match(html, /id="homeWallpaper"[^>]*decoding="async"/);
+  assert.match(html, /querySelector\("#homeWallpaper"\)\.decoding = "sync"/);
+  assert.match(kluiJs, /native \? "" : `<div class="klui"/);
+});
+
+test("appearance changes compare the complete wallpaper path", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /currentWallpaperPath !== nextWallpaperPath/);
+  assert.doesNotMatch(appJs, /currentWallpaperPath\.includes\(wallpaperStem\)/);
 });
 
 test("the mode chip has a subtle translucent surface while the top bar remains transparent", () => {

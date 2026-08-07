@@ -348,12 +348,13 @@ export function hydrateKluiBars(root = document) {
 
 export function renderHomeGreetingHtml({ guest = false, temporary = false } = {}) {
   const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const native = document.body.classList.contains("capacitor-native");
+  const first = pool[0];
   const launchText = temporary ? "" : window.__kluiLaunchGreeting;
-  const initialText = document.body.classList.contains("capacitor-native")
-    ? launchText || pickOne(pool).text
-    : "";
+  const initialText = native ? launchText || pickOne(pool).text : "";
   return `<div class="empty-state${temporary ? " is-temporary" : ""}">
     <div class="hero-line${initialText.length > 22 ? " is-long" : ""}">
+      ${native ? "" : `<div class="klui" data-mood="${first.mood}" aria-hidden="true">${kluiSvgMarkup("home", { greeting: true, fedora: temporary })}</div>`}
       <h1 class="type-line"><span class="type-text">${initialText}</span><span class="caret${initialText ? "" : " is-solid"}"></span></h1>
     </div>
   </div>`;

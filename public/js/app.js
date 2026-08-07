@@ -1327,8 +1327,8 @@ function applyAppearance() {
       usesNightSky ? `url("/images/home-night-sky.webp${isNative() ? "" : "?v=20260723-1"}")` : "none",
     );
     const currentWallpaperPath = els.homeWallpaper ? new URL(els.homeWallpaper.src).pathname : "";
-    const wallpaperStem = `/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}`;
-    if (els.homeWallpaper && !currentWallpaperPath.includes(wallpaperStem)) {
+    const nextWallpaperPath = new URL(wallpaperSrc, window.location.href).pathname;
+    if (els.homeWallpaper && currentWallpaperPath !== nextWallpaperPath) {
       els.homeWallpaper.src = wallpaperSrc;
     }
   } else {
@@ -7195,7 +7195,7 @@ function bindEvents() {
     // ring on the icon. (transitionend-based removal has a perceptible
     // gap that the user noticed.)
     els.temporaryChatToggle?.classList.remove("pressed");
-    focusPromptInput();
+    if (!isNative()) els.promptInput?.focus();
   });
 
   // ── Mode chip dropdown (APK only) ──────────────────────────────────
