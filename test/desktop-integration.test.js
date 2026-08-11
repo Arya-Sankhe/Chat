@@ -356,6 +356,15 @@ test("the Windows release publisher fails closed and keeps large installers outs
   assert.match(ignore, /^artifacts\/$/m);
 });
 
+test("the Windows download page keeps unsigned beta artifacts behind an unlisted token", async () => {
+  const page = await readFile(new URL("../public/download/windows/index.html", import.meta.url), "utf8");
+  assert.match(page, /\^\[a-f0-9\]\{32\}\$/);
+  assert.match(page, /\/downloads\/windows\/private\/\$\{betaToken\}\/latest\.json/);
+  assert.match(page, /release\.installerUrl\.startsWith\(privateInstallerPrefix\)/);
+  assert.match(page, /This private beta is not code-signed yet/);
+  assert.match(page, /'\/downloads\/windows\/latest\.json'/);
+});
+
 test("backend identity-sensitive RPCs are service-role only", async () => {
   const source = await readFile(new URL("../supabase/migrations/20260811185500_harden_backend_rpc_permissions.sql", import.meta.url), "utf8");
   for (const name of ["klui_search_document_chunks", "klui_search_document_pages", "smartyfy_consume_usage"]) {

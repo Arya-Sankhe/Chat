@@ -12,7 +12,7 @@
   </head>
   <body>
     <main>
-      <div class="nav"><img src="/icons/icon-192.png" alt=""><strong>Klui Anything</strong><span class="beta">Windows beta</span></div>
+      <div class="nav"><img src="/icons/icon-192.png" alt=""><strong>Klui Anything</strong><span class="beta" id="channel">Windows beta</span></div>
       <section class="hero">
         <div>
           <p class="eyebrow">Klui, wherever you work</p>
@@ -26,14 +26,41 @@
           <div class="feature"><span class="icon">✦</span><div><strong>Klui chat</strong><p>Server-funded AI with no provider keys to configure.</p></div></div>
           <div class="feature"><span class="icon">◉</span><div><strong>Voice and inline</strong><p>Speak a request or bring Klui into the field you are already using.</p></div></div>
           <div class="feature"><span class="icon">↗</span><div><strong>One shared allowance</strong><p>Website chat, desktop chat, and voice all use the same Klui balance.</p></div></div>
-          <div class="trust">Computer control is intentionally not included in this beta. Install only the signed Klui Anything installer published on this page; no portable ZIP is distributed.</div>
+          <div class="trust" id="trust">Computer control is intentionally not included in this beta. Install only the signed Klui Anything installer published on this page; no portable ZIP is distributed.</div>
         </aside>
       </section>
       <footer class="foot">Klui Anything for Windows · Beta software may change as we learn from testers.</footer>
     </main>
     <script type="module">
-      const button=document.querySelector('#download');const version=document.querySelector('#version');
-      try{const response=await fetch('/downloads/windows/latest.json',{cache:'no-store'});const release=response.ok?await response.json():null;if(release?.published&&release.installerUrl){button.href=release.installerUrl;button.textContent='Download for Windows';button.removeAttribute('aria-disabled');version.textContent=`Version ${release.version} · SHA-256 available in release metadata`;}else{button.textContent='Windows beta is not published yet';version.textContent='Final signing and release checks are still in progress.'}}catch{button.textContent='Release information unavailable';version.textContent='Please try again shortly.'}
+      const button=document.querySelector('#download');
+      const version=document.querySelector('#version');
+      const channel=document.querySelector('#channel');
+      const trust=document.querySelector('#trust');
+      const betaToken=new URLSearchParams(location.search).get('beta')||'';
+      const privateBeta=/^[a-f0-9]{32}$/i.test(betaToken);
+      const metadataUrl=privateBeta?`/downloads/windows/private/${betaToken}/latest.json`:'/downloads/windows/latest.json';
+      try{
+        const response=await fetch(metadataUrl,{cache:'no-store'});
+        const release=response.ok?await response.json():null;
+        const privateInstallerPrefix=`/downloads/windows/private/${betaToken}/`;
+        const validInstaller=release?.published&&release.installerUrl&&(!privateBeta||release.installerUrl.startsWith(privateInstallerPrefix));
+        if(validInstaller){
+          button.href=release.installerUrl;
+          button.textContent=privateBeta?'Download private beta':'Download for Windows';
+          button.removeAttribute('aria-disabled');
+          version.textContent=`Version ${release.version} · SHA-256 ${release.sha256||'available in release metadata'}`;
+          if(privateBeta){
+            channel.textContent='Private Windows beta';
+            trust.textContent='This private beta is not code-signed yet. Windows may show an Unknown publisher or SmartScreen warning. Install it only if this link came directly from Klui. Computer control is not included, and no portable ZIP is distributed.';
+          }
+        }else{
+          button.textContent='Windows beta is not published yet';
+          version.textContent='Final signing and release checks are still in progress.';
+        }
+      }catch{
+        button.textContent='Release information unavailable';
+        version.textContent='Please try again shortly.';
+      }
     </script>
   </body>
 </html>
