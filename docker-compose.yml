@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "3000:3000"
+    volumes:
+      - ${WINDOWS_DOWNLOADS_DIR:-./public/downloads/windows}:/app/public/downloads/windows:ro
     env_file:
       - path: .env
         required: false
