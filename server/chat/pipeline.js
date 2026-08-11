@@ -861,6 +861,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     plan: context.plan,
     imageCount,
     signal: req.signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: config.desktop.chatReservationCredits,
     chatCompletionFn: providerCrofai.chatCompletion,
     streamChatCompletionFn: providerCrofai.streamChatCompletion
   });

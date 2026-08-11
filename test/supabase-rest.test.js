@@ -56,6 +56,49 @@ test("getProfile issues a scoped profiles GET and returns the first row", async 
   });
 });
 
+test("getAccountIdentity resolves only an explicit provider subject mapping", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "GET");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/account_identities");
+    assert.equal(parsed.searchParams.get("provider"), "eq.clerk");
+    assert.equal(parsed.searchParams.get("provider_subject"), "eq.user_external");
+    assert.equal(parsed.searchParams.get("limit"), "1");
+    assert.equal(parsed.searchParams.has("email"), false);
+    expectServiceHeaders(options.headers);
+    return jsonResponse([{ account_id: "account_1", provider: "clerk", provider_subject: "user_external" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const identity = await db.getAccountIdentity({ provider: "clerk", providerSubject: "user_external" });
+    assert.equal(identity.account_id, "account_1");
+  });
+});
+
+test("resolveAccountIdentity ignores insert conflicts then verifies the winning mapping", async () => {
+  const methods = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    methods.push(options.method);
+    if (options.method === "POST") {
+      assert.match(url, /on_conflict=provider%2Cprovider_subject/);
+      assert.equal(options.headers.prefer, "resolution=ignore-duplicates,return=minimal");
+      return new Response("", { status: 201 });
+    }
+    if (options.method === "GET") {
+      return jsonResponse([{ account_id: "account_1", provider: "supabase", provider_subject: "account_1" }]);
+    }
+    assert.equal(options.method, "PATCH");
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.equal(await db.resolveAccountIdentity({
+      provider: "supabase",
+      providerSubject: "account_1",
+      accountId: "account_1"
+    }), "account_1");
+  });
+  assert.deepEqual(methods, ["POST", "GET", "PATCH"]);
+});
+
 test("getLatestSubscription orders subscriptions by updated_at desc", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");

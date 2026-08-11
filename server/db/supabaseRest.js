@@ -5,6 +5,7 @@ import * as billing from "./rest/billing.js";
 import * as caches from "./rest/caches.js";
 import * as chat from "./rest/chat.js";
 import * as documents from "./rest/documents.js";
+import * as desktop from "./rest/desktop.js";
 import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
 import * as projects from "./rest/projects.js";
@@ -380,6 +381,17 @@ export class SupabaseRest {
   async getApiWeeklyUsage(userId, options) {
     return billing.getApiWeeklyUsage(this, userId, options);
   }
+
+  async reserveApiUsage(params, options) { return billing.reserveApiUsage(this, params, options); }
+  async markApiUsageSubmitted(params, options) { return billing.markApiUsageSubmitted(this, params, options); }
+  async settleApiUsage(params, options) { return billing.settleApiUsage(this, params, options); }
+  async releaseApiUsage(params, options) { return billing.releaseApiUsage(this, params, options); }
+  async reconcileApiUsage(options) { return billing.reconcileApiUsage(this, options); }
+  async listSubmittedApiUsage(options) { return billing.listSubmittedApiUsage(this, options); }
+  async getAccountIdentity(params, options) { return desktop.getAccountIdentity(this, params, options); }
+  async resolveAccountIdentity(params, options) { return desktop.resolveAccountIdentity(this, params, options); }
+  async acceptDesktopPrivacy(params, options) { return desktop.acceptDesktopPrivacy(this, params, options); }
+  async getDesktopPrivacyConsent(params, options) { return desktop.getDesktopPrivacyConsent(this, params, options); }
 
   async adminSummary(options) {
     return admin.adminSummary(this, options);

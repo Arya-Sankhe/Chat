@@ -574,7 +574,9 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
-    signal: req.signal
+    signal: req.signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: config.desktop.chatReservationCredits
   });
 
   const signal = AbortSignal.any([req.signal, AbortSignal.timeout(REVISE_TIMEOUT_MS)]);

@@ -44,7 +44,7 @@ export async function adminSummary(client, { signal } = {}) {
     }),
     client.request("usage_api_weekly", {
       query: {
-        select: "user_id,plan_id,period_start,period_end,week_index,week_start,week_end,api_credit_used,api_credit_limit,updated_at",
+        select: "user_id,plan_id,period_start,period_end,week_index,week_start,week_end,api_credit_used,api_credit_reserved,api_credit_limit,updated_at",
         order: "updated_at.desc",
         limit: "2000"
       },

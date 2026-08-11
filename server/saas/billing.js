@@ -9,7 +9,10 @@ const OPENROUTER_FALLBACK_PRICING = {
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },
   "xiaomi/mimo-v2.5-pro": { prompt: 1.20, completion: 3.60 },
   "qwen/qwen3.7-plus": { prompt: 0.32, completion: 1.28 },
-  "minimax/minimax-m3": { prompt: 0.30, completion: 1.20 }
+  "minimax/minimax-m3": { prompt: 0.30, completion: 1.20 },
+  // Conservative ceiling for the pinned desktop route. Exact OpenRouter
+  // usage/generation cost wins whenever it is available.
+  "openai/gpt-5.6-luna": { prompt: 0.20, completion: 1.20 }
 };
 
 function dateOnly(date) {
@@ -158,6 +161,9 @@ export async function assertApiBudgetAvailable({ db, userId, subscription, plan,
     ...window
   }, { signal });
   if (!usage?.allowed) {
+    if (usage?.reason === "usage_metering_disabled") {
+      throw new HttpError(503, "Usage metering is temporarily unavailable.");
+    }
     throw new HttpError(429, usage?.reason || "Weekly API limit reached.", usage);
   }
   return usage;

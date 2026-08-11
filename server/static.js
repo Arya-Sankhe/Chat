@@ -12,12 +12,15 @@ const contentTypes = new Map([
   [".svg", "image/svg+xml"],
   [".png", "image/png"],
   [".webmanifest", "application/manifest+json"],
-  [".apk", "application/vnd.android.package-archive"]
+  [".apk", "application/vnd.android.package-archive"],
+  [".exe", "application/vnd.microsoft.portable-executable"]
 ]);
 
 const directoryIndexes = new Map([
   ["/download/android", "/download/android/index.html"],
-  ["/download/android/", "/download/android/index.html"]
+  ["/download/android/", "/download/android/index.html"],
+  ["/download/windows", "/download/windows/index.html"],
+  ["/download/windows/", "/download/windows/index.html"]
 ]);
 
 async function resolvePublicFile(pathname) {
@@ -41,7 +44,7 @@ async function resolvePublicFile(pathname) {
   return null;
 }
 
-export async function serveStatic(req, res, url, { allowedOrigins = [] } = {}) {
+export async function serveStatic(req, res, url, { allowedOrigins = [], supabaseUrl = "" } = {}) {
   const requestedPath = decodeURIComponent(url.pathname);
   const pathname = requestedPath === "/"
     ? "/index.html"
@@ -65,9 +68,15 @@ export async function serveStatic(req, res, url, { allowedOrigins = [] } = {}) {
   const cacheControl = type.includes("text/html") || type.includes("text/javascript") || type.includes("text/css")
     ? "no-cache"
     : "public, max-age=300";
+  const consentHeaders = pathname.startsWith("/oauth/consent") ? {
+    "content-security-policy": `default-src 'self'; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' ${supabaseUrl}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    "referrer-policy": "no-referrer",
+    "x-frame-options": "DENY"
+  } : {};
   res.writeHead(200, {
     "content-type": type,
-    "cache-control": cacheControl
+    "cache-control": cacheControl,
+    ...consentHeaders
   });
   fs.createReadStream(filePath).pipe(res);
 }

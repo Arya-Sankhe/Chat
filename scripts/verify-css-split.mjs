@@ -54,7 +54,9 @@ export function concatenateImports(imports, { publicDirectory = publicDir, readF
     if (!fs.existsSync(filePath)) {
       throw new Error(`Missing imported file: ${rel} (${filePath})`);
     }
-    out += readFile(filePath, "utf8");
+    // The approved snapshot is content-based. Git may check files out with
+    // CRLF on Windows, so normalize line endings before hashing.
+    out += readFile(filePath, "utf8").replace(/\r\n/g, "\n");
   }
   return out;
 }

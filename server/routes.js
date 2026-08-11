@@ -34,6 +34,14 @@ import {
 import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
 import { handleTemporaryChat } from "./chat/temporary.js";
 import { handleSpeechToText } from "./routes/speech.js";
+import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
+import {
+  handleDesktopChat,
+  handleDesktopLogout,
+  handleDesktopMe,
+  handleDesktopSpeech,
+  sendDesktopProblem
+} from "./routes/desktop.js";
 
 export function installStableRequestSignal(req) {
   const controller = new AbortController();
@@ -59,7 +67,7 @@ function pathParts(url) {
 
 export function createApiHandler(config, overrides = {}) {
   const validOverrides = Object.fromEntries(
-    ["createDb", "createR2", "verifyUser"]
+    ["createDb", "createR2", "verifyUser", "verifyDesktopUser"]
       .filter((key) => typeof overrides[key] === "function")
       .map((key) => [key, overrides[key]])
   );
@@ -115,6 +123,36 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/me" && req.method === "GET") {
       await handleMe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/oauth/desktop/authorization") {
+      await handleDesktopAuthorizationDetails(req, res, url, config);
+      return;
+    }
+
+    if (url.pathname === "/api/oauth/desktop/decision") {
+      await handleDesktopAuthorizationDecision(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/desktop/v1/me") {
+      await handleDesktopMe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/desktop/v1/chat/completions") {
+      await handleDesktopChat(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/desktop/v1/speech-to-text") {
+      await handleDesktopSpeech(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/desktop/v1/logout") {
+      await handleDesktopLogout(req, res, config);
       return;
     }
 
@@ -275,6 +313,7 @@ export async function handleApiRequest(req, res, url, config) {
 
     throw new HttpError(404, "API route not found.");
   } catch (error) {
-    sendProblem(res, error);
+    if (url.pathname.startsWith("/api/desktop/")) sendDesktopProblem(res, error, config);
+    else sendProblem(res, error);
   }
 }

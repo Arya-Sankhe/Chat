@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const roots = ["server", "public/js", "scripts", "test"];
 const extensions = new Set([".js", ".mjs"]);
@@ -30,7 +31,7 @@ function collect(dir, files = []) {
   return files;
 }
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(repoRoot);
 
 const files = roots

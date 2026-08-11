@@ -1,20 +1,31 @@
 import http from "node:http";
-import { loadConfig } from "./config.js";
+import { loadConfig, validateRuntimeConfig } from "./config.js";
 import { handleApiRequest } from "./routes.js";
+import { handleDesktopOAuthFacade } from "./routes/desktopOAuth.js";
 import { serveStatic } from "./static.js";
+import { startUsageReconciler } from "./saas/usageReconciler.js";
 
-const config = loadConfig();
+const config = validateRuntimeConfig(loadConfig());
+startUsageReconciler(config);
 
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+    if (url.pathname.startsWith("/oauth/desktop/")) {
+      await handleDesktopOAuthFacade(req, res, url, config);
+      return;
+    }
 
     if (url.pathname.startsWith("/api/")) {
       await handleApiRequest(req, res, url, config);
       return;
     }
 
-    await serveStatic(req, res, url, { allowedOrigins: config.mobile?.allowedOrigins || [] });
+    await serveStatic(req, res, url, {
+      allowedOrigins: config.mobile?.allowedOrigins || [],
+      supabaseUrl: config.supabase.url
+    });
   } catch (error) {
     console.error(error);
     if (!res.headersSent) {

@@ -90,7 +90,9 @@ export async function handleTemporaryChat(req, res, config) {
     subscription: context.subscription,
     plan: context.plan,
     imageCount: attachments.length,
-    signal: req.signal
+    signal: req.signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: config.desktop.chatReservationCredits
   });
   const summarizeHistory = createConversationSummarizer({
     crofai,
