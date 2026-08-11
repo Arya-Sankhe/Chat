@@ -149,6 +149,14 @@ test("enforced metering fails fast without a positive LLM reservation ceiling", 
   })), /must be at least/);
   assert.throws(
     () => validateRuntimeConfig(loadConfig({ DESKTOP_CHAT_ENABLED: "true" })),
+    /API_USAGE_METERING_MODE/
+  );
+  assert.throws(
+    () => validateRuntimeConfig(loadConfig({
+      DESKTOP_CHAT_ENABLED: "true",
+      API_USAGE_METERING_MODE: "enforce",
+      DESKTOP_CHAT_RESERVATION_CREDITS: "0.25"
+    })),
     /DESKTOP_OAUTH_ENABLED/
   );
 });

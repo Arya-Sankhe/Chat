@@ -310,6 +310,9 @@ export function configuredServices(config) {
 }
 
 export function validateRuntimeConfig(config) {
+  if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && config.desktop?.meteringMode !== "enforce") {
+    throw new Error("API_USAGE_METERING_MODE must be enforce before enabling desktop chat or STT.");
+  }
   if (config.desktop?.meteringMode === "enforce") {
     if (!(config.desktop.chatReservationCredits > 0)) {
       throw new Error("DESKTOP_CHAT_RESERVATION_CREDITS must be positive when API_USAGE_METERING_MODE=enforce.");
