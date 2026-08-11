@@ -9,6 +9,8 @@ android/.gradle/
 android/app/build/
 android/local.properties
 artifacts/
+__pycache__/
+*.pyc
 *.keystore
 *.jks
 keystore.properties

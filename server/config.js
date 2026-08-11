@@ -83,6 +83,8 @@ function readList(value, fallback = []) {
   return entries.length ? entries : fallback;
 }
 
+const ACCOUNT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function loadConfig(env = process.env) {
   const port = readPort(env.PORT);
   const defaultBaseUrl = normalizeBaseUrl(env.CROFAI_BASE_URL || DEFAULT_CROFAI_BASE_URL);
@@ -124,6 +126,7 @@ export function loadConfig(env = process.env) {
       oauthEnabled: readBoolean(env.DESKTOP_OAUTH_ENABLED, false),
       chatEnabled: readBoolean(env.DESKTOP_CHAT_ENABLED, false),
       sttEnabled: readBoolean(env.DESKTOP_STT_ENABLED, false),
+      betaAccountIds: readList(env.DESKTOP_BETA_ACCOUNT_IDS).map((id) => id.toLowerCase()),
       meteringMode: readMeteringMode(env.API_USAGE_METERING_MODE),
       privacyPolicyVersion: clean(env.DESKTOP_PRIVACY_POLICY_VERSION) || "2026-08-11",
       model: clean(env.DESKTOP_CHAT_MODEL) || "openai/gpt-5.6-luna",
@@ -333,6 +336,12 @@ export function validateRuntimeConfig(config) {
   }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.desktop.oauthEnabled) {
     throw new Error("DESKTOP_OAUTH_ENABLED must be true before enabling desktop chat or STT.");
+  }
+  if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.desktop?.betaAccountIds?.length) {
+    throw new Error("DESKTOP_BETA_ACCOUNT_IDS must list canonical account UUIDs before enabling desktop chat or STT. Use * only for an intentional all-paid-plan rollout.");
+  }
+  if (config.desktop?.betaAccountIds?.some((id) => id !== "*" && !ACCOUNT_ID_PATTERN.test(id))) {
+    throw new Error("DESKTOP_BETA_ACCOUNT_IDS must contain only canonical account UUIDs or *.");
   }
   if (config.desktop?.oauthEnabled && !(config.supabase?.url && config.supabase?.anonKey && config.supabase?.serviceRoleKey && config.desktop.clients?.["klui-desktop-windows"]?.providerClientId)) {
     throw new Error("Desktop OAuth requires Supabase URL/keys and SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID.");

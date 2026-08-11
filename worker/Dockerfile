@@ -4,7 +4,13 @@ WORKDIR /app
 
 COPY .npmrc ./
 COPY worker/package.json worker/package-lock.json ./
-RUN npm ci --omit=dev
+# PptxGenJS 4.0.1 declares image-size but does not call it. All published
+# image-size versions currently have parser DoS advisories, so exclude the
+# unreachable package from the production image until upstream ships a fix.
+RUN npm ci --omit=dev \
+  && rm -rf node_modules/pptxgenjs/node_modules/image-size \
+  && node --input-type=module -e "import pptxgen from 'pptxgenjs'; const deck = new pptxgen(); deck.addSlide().addText('ok'); await deck.writeFile({ fileName: '/tmp/pptxgen-smoke.pptx' })" \
+  && rm -f /tmp/pptxgen-smoke.pptx
 
 
 FROM python:3.12-slim
