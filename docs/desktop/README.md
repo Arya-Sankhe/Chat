@@ -10,11 +10,11 @@ Create separate staging and production public OAuth applications. The production
 
 - Logical client: `klui-desktop-windows`
 - Provider client mapping: `SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID`
-- Exact redirect URI: `tech.klui.anything.windows:/oauth/callback`
+- Exact redirect URI: `tech.klui.anything.windows://oauth/callback`
 - Consent URI: `https://klui.tech/oauth/consent`
 - PKCE: required, S256
 
-Reserve `klui-desktop-macos` and `tech.klui.anything.macos:/oauth/callback`; do not enable it until the macOS implementation exists.
+Reserve `klui-desktop-macos` and `tech.klui.anything.macos://oauth/callback`; do not enable it until the macOS implementation exists.
 
 The server flags default off. Desktop chat and STT additionally fail closed unless `API_USAGE_METERING_MODE=enforce`, the chat reservation ceiling is positive, and the STT per-second rate is positive.
 

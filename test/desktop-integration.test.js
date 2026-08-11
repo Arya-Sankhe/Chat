@@ -85,7 +85,7 @@ test("OAuth facade validates PKCE and maps logical client ids without exposing p
   const authorize = new URL("https://klui.tech/oauth/desktop/authorize");
   authorize.search = new URLSearchParams({
     client_id: "klui-desktop-windows",
-    redirect_uri: "tech.klui.anything.windows:/oauth/callback",
+    redirect_uri: "tech.klui.anything.windows://oauth/callback",
     response_type: "code",
     code_challenge: "a".repeat(43),
     code_challenge_method: "S256",
@@ -96,7 +96,7 @@ test("OAuth facade validates PKCE and maps logical client ids without exposing p
   assert.equal(redirect.status, 302);
   const providerUrl = new URL(redirect.headers.location);
   assert.equal(providerUrl.searchParams.get("client_id"), "provider-client");
-  assert.equal(providerUrl.searchParams.get("redirect_uri"), "tech.klui.anything.windows:/oauth/callback");
+  assert.equal(providerUrl.searchParams.get("redirect_uri"), "tech.klui.anything.windows://oauth/callback");
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
@@ -108,7 +108,7 @@ test("OAuth facade validates PKCE and maps logical client ids without exposing p
     const token = responseRecorder();
     const form = new URLSearchParams({
       grant_type: "authorization_code", client_id: "klui-desktop-windows",
-      redirect_uri: "tech.klui.anything.windows:/oauth/callback",
+      redirect_uri: "tech.klui.anything.windows://oauth/callback",
       code_verifier: "v".repeat(43), code: "code"
     }).toString();
     await handleDesktopOAuthFacade(request("POST", form), token, new URL("https://klui.tech/oauth/desktop/token"), config);

@@ -5,7 +5,7 @@
 1. Apply `20260811000000_desktop_auth_and_atomic_usage.sql` to staging, then production.
 2. Run Supabase security and performance advisors. Resolve all critical/high findings and save the reports.
 3. Complete the hosted OAuth conformance matrix.
-4. Confirm the OpenAPI hash in both repositories is `a4e765b5f10bf8a4b796c353551f7f96e1b842fc87f68246d5bc534978ad03d5`.
+4. Confirm the OpenAPI hash in both repositories is `976b40de9c5f664ff5badfa124893caefcc631bc764b8b175a0e4f1f27e73bb1`.
 5. Configure edge limits in addition to the process-local limiter. Restrict origin traffic so `CF-Connecting-IP` is trustworthy.
 6. Confirm OpenRouter/Sarvam keys exist only in the website deployment.
 7. Confirm `funded_inference_disabled.value.disabled` is `false` in `app_settings`.

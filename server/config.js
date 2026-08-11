@@ -141,12 +141,12 @@ export function loadConfig(env = process.env) {
       clients: {
         "klui-desktop-windows": {
           providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID),
-          redirectUri: "tech.klui.anything.windows:/oauth/callback",
+          redirectUri: "tech.klui.anything.windows://oauth/callback",
           surface: "desktop_windows"
         },
         "klui-desktop-macos": {
           providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_MACOS_CLIENT_ID),
-          redirectUri: "tech.klui.anything.macos:/oauth/callback",
+          redirectUri: "tech.klui.anything.macos://oauth/callback",
           surface: "desktop_macos",
           reserved: true
         }
