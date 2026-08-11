@@ -20,6 +20,16 @@ function readInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readPositiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readMeteringMode(value) {
+  const mode = clean(value || "legacy").toLowerCase();
+  return ["legacy", "observe", "enforce"].includes(mode) ? mode : "legacy";
+}
+
 function readAccessMode(value) {
   const mode = clean(value || "testing").toLowerCase();
   return mode === "subscription" ? "subscription" : "testing";
@@ -107,7 +117,40 @@ export function loadConfig(env = process.env) {
     },
     speech: {
       apiKey: clean(env.SARVAM_API_KEY),
-      baseUrl: cleanUrl(env.SARVAM_BASE_URL) || "https://api.sarvam.ai"
+      baseUrl: cleanUrl(env.SARVAM_BASE_URL) || "https://api.sarvam.ai",
+      creditsPerSecond: readPositiveNumber(env.SARVAM_STT_CREDITS_PER_SECOND, 0)
+    },
+    desktop: {
+      oauthEnabled: readBoolean(env.DESKTOP_OAUTH_ENABLED, false),
+      chatEnabled: readBoolean(env.DESKTOP_CHAT_ENABLED, false),
+      sttEnabled: readBoolean(env.DESKTOP_STT_ENABLED, false),
+      meteringMode: readMeteringMode(env.API_USAGE_METERING_MODE),
+      privacyPolicyVersion: clean(env.DESKTOP_PRIVACY_POLICY_VERSION) || "2026-08-11",
+      model: clean(env.DESKTOP_CHAT_MODEL) || "openai/gpt-5.6-luna",
+      maxCompletionTokens: Math.min(readInt(env.DESKTOP_MAX_COMPLETION_TOKENS, 8192), 8192),
+      // These are enforceable OpenRouter routing ceilings, not pricing
+      // estimates. If an endpoint becomes more expensive, OpenRouter rejects
+      // the request instead of letting it exceed the reserved allowance.
+      maxInputTokens: Math.min(readInt(env.DESKTOP_MAX_INPUT_TOKENS, 1_050_000), 1_050_000),
+      maxPromptPricePerMillion: readPositiveNumber(env.DESKTOP_MAX_PROMPT_PRICE_PER_MILLION, 0.20),
+      maxCompletionPricePerMillion: readPositiveNumber(env.DESKTOP_MAX_COMPLETION_PRICE_PER_MILLION, 1.20),
+      chatReservationCredits: readPositiveNumber(env.DESKTOP_CHAT_RESERVATION_CREDITS, 0),
+      minimumWindowsVersion: clean(env.DESKTOP_MINIMUM_WINDOWS_VERSION) || "0.1.0",
+      latestWindowsVersion: clean(env.DESKTOP_LATEST_WINDOWS_VERSION) || "0.1.0",
+      windowsDownloadUrl: cleanUrl(env.DESKTOP_WINDOWS_DOWNLOAD_URL) || "https://klui.tech/download/windows",
+      clients: {
+        "klui-desktop-windows": {
+          providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID),
+          redirectUri: "tech.klui.anything.windows:/oauth/callback",
+          surface: "desktop_windows"
+        },
+        "klui-desktop-macos": {
+          providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_MACOS_CLIENT_ID),
+          redirectUri: "tech.klui.anything.macos:/oauth/callback",
+          surface: "desktop_macos",
+          reserved: true
+        }
+      }
     },
     visionDescribeModel: clean(env.VISION_DESCRIBE_MODEL),
     plans,
@@ -264,4 +307,38 @@ export function configuredServices(config) {
     documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
     research: Boolean(config.research?.enabled && config.websearch?.searxng?.baseUrl && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)
   };
+}
+
+export function validateRuntimeConfig(config) {
+  if (config.desktop?.meteringMode === "enforce") {
+    if (!(config.desktop.chatReservationCredits > 0)) {
+      throw new Error("DESKTOP_CHAT_RESERVATION_CREDITS must be positive when API_USAGE_METERING_MODE=enforce.");
+    }
+    const requiredDesktopReservation = (
+      (config.desktop.maxInputTokens * config.desktop.maxPromptPricePerMillion)
+      + (config.desktop.maxCompletionTokens * config.desktop.maxCompletionPricePerMillion)
+    ) / 1_000_000;
+    if (config.desktop.chatReservationCredits + Number.EPSILON < requiredDesktopReservation) {
+      throw new Error(
+        `DESKTOP_CHAT_RESERVATION_CREDITS must be at least ${requiredDesktopReservation.toFixed(6)} `
+        + "for the configured desktop token and OpenRouter price ceilings."
+      );
+    }
+    if (config.speech?.apiKey && !(config.speech.creditsPerSecond > 0)) {
+      throw new Error("SARVAM_STT_CREDITS_PER_SECOND must be positive when metering is enforced and Sarvam is enabled.");
+    }
+  }
+  if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.desktop.oauthEnabled) {
+    throw new Error("DESKTOP_OAUTH_ENABLED must be true before enabling desktop chat or STT.");
+  }
+  if (config.desktop?.oauthEnabled && !(config.supabase?.url && config.supabase?.anonKey && config.supabase?.serviceRoleKey && config.desktop.clients?.["klui-desktop-windows"]?.providerClientId)) {
+    throw new Error("Desktop OAuth requires Supabase URL/keys and SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID.");
+  }
+  if (config.desktop?.chatEnabled && !config.providers?.openrouter?.apiKey) {
+    throw new Error("OPENROUTER_API_KEY is required when desktop chat is enabled.");
+  }
+  if (config.desktop?.sttEnabled && !config.speech?.apiKey) {
+    throw new Error("SARVAM_API_KEY is required when desktop STT is enabled.");
+  }
+  return config;
 }

@@ -22,7 +22,7 @@ import { createApiHandler, handleApiRequest } from "../server/routes.js";
 function makeReq({ method = "GET", path = "/api/health", headers = {}, body = null } = {}) {
   const chunks = body == null
     ? []
-    : [Buffer.from(typeof body === "string" ? body : JSON.stringify(body))];
+    : [Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body))];
   const req = Readable.from(chunks);
   req.method = method;
   req.url = path;
@@ -303,6 +303,90 @@ test("speech route forwards fixed Sarvam settings and returns the transcript", {
     assert.equal(request.options.body.get("model"), "saaras:v3");
     assert.equal(request.options.body.get("mode"), "codemix");
     assert.equal(request.options.body.get("language_code"), "unknown");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("enforced speech records but does not bill a provider attempt that fails", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError("network lost"); };
+  const events = [];
+  const dataBytes = 16_000 * 2;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write("RIFF", 0); wav.writeUInt32LE(36 + dataBytes, 4); wav.write("WAVE", 8);
+  wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16_000, 24); wav.writeUInt32LE(32_000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(dataBytes, 40);
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    SARVAM_API_KEY: "sarvam-key",
+    API_USAGE_METERING_MODE: "enforce",
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
+    SARVAM_STT_CREDITS_PER_SECOND: "0.1"
+  });
+  const overrides = stubbedDeps({ db: {
+    async reserveApiUsage() { events.push("reserve"); return { allowed: true }; },
+    async markApiUsageSubmitted() { events.push("submitted"); },
+    async settleApiUsage(params) { events.push(["settled", params]); },
+    async releaseApiUsage() { events.push("released"); }
+  } });
+  try {
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/speech-to-text",
+      headers: { "content-type": "audio/wav" },
+      body: wav,
+      overrides
+    });
+    assert.equal(res.statusCode, 502);
+    assert.deepEqual(events.map((event) => Array.isArray(event) ? event[0] : event), ["reserve", "submitted", "settled"]);
+    assert.equal(events[2][1].estimated, true);
+    assert.equal(events[2][1].costCredits, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("desktop logout revokes the OAuth client grant and current session", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push([String(url), options?.method]);
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    DESKTOP_OAUTH_ENABLED: "true",
+    SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID: "provider-client"
+  });
+  const overrides = {
+    ...stubbedDeps({ db: {
+      async getAccountIdentity() { return { account_id: "user-1" }; },
+      async getProfile() { return { id: "user-1", role: "user" }; }
+    } }),
+    verifyDesktopUser: async () => ({
+      id: "user-1",
+      email: "user@example.com",
+      identityProvider: "supabase",
+      oauthClientId: "klui-desktop-windows",
+      providerClientId: "provider-client",
+      surface: "desktop_windows"
+    })
+  };
+  try {
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/desktop/v1/logout",
+      headers: {
+        authorization: "Bearer desktop-token",
+        "x-klui-client-version": "0.1.0"
+      },
+      overrides
+    });
+    assert.equal(res.statusCode, 200);
+    assert.ok(calls.some(([url, method]) => method === "DELETE" && url.includes("/user/oauth/grants?client_id=provider-client")));
+    assert.ok(calls.some(([url, method]) => method === "POST" && url.includes("/logout?scope=local")));
   } finally {
     globalThis.fetch = originalFetch;
   }

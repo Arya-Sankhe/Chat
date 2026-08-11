@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07111f">
+    <title>Klui Anything for Windows</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <style>
+      *{box-sizing:border-box}body{margin:0;min-height:100dvh;background:radial-gradient(circle at 75% 12%,#12395a 0,transparent 36%),linear-gradient(145deg,#050a12,#0a1727 58%,#07111f);color:#f7fbff;font-family:Inter,"Segoe UI",system-ui,sans-serif}main{width:min(1060px,100%);margin:auto;padding:clamp(34px,7vw,92px) 24px}.nav{display:flex;align-items:center;gap:12px;margin-bottom:clamp(58px,9vw,112px)}.nav img{width:38px;height:38px;border-radius:11px}.nav strong{font-size:15px;letter-spacing:.01em}.beta{margin-left:auto;padding:6px 10px;border:1px solid #78e7ff55;border-radius:999px;background:#78e7ff12;color:#9cefff;font-size:12px;font-weight:700}.hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:clamp(32px,7vw,92px);align-items:center}.eyebrow{margin:0 0 18px;color:#83e8ff;font-size:13px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}h1{max-width:720px;margin:0;font-size:clamp(42px,7vw,78px);line-height:.98;letter-spacing:-.055em}h1 span{color:#8deaff}.lead{max-width:620px;margin:26px 0 32px;color:#b7c7d9;font-size:clamp(17px,2vw,20px);line-height:1.65}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px}.download{display:inline-flex;min-height:52px;align-items:center;justify-content:center;padding:0 22px;border-radius:12px;background:#f5fbff;color:#08111d;text-decoration:none;font-weight:800;box-shadow:0 12px 34px #0007;transition:transform .18s ease,box-shadow .18s ease}.download:hover{transform:translateY(-2px);box-shadow:0 16px 40px #0009}.download[aria-disabled=true]{opacity:.48;pointer-events:none}.requirements{color:#879bb2;font-size:13px}.card{padding:26px;border:1px solid #bdefff25;border-radius:22px;background:linear-gradient(155deg,#ffffff12,#ffffff07);box-shadow:inset 0 1px #ffffff18,0 30px 80px #0006;backdrop-filter:blur(16px)}.card h2{margin:0 0 18px;font-size:18px}.feature{display:grid;grid-template-columns:34px 1fr;gap:12px;padding:15px 0;border-top:1px solid #ffffff12}.feature:first-of-type{border-top:0}.icon{display:grid;width:32px;height:32px;place-items:center;border-radius:9px;background:#7ee9ff16;color:#8feaff}.feature strong{display:block;margin-bottom:4px;font-size:14px}.feature p{margin:0;color:#90a4ba;font-size:13px;line-height:1.5}.trust{margin-top:26px;padding:14px 16px;border:1px solid #ffffff14;border-radius:12px;background:#02070d66;color:#9fb1c5;font-size:13px;line-height:1.55}#version{margin:14px 0 0;color:#7f94aa;font-size:12px}.foot{margin-top:clamp(64px,9vw,108px);padding-top:24px;border-top:1px solid #ffffff12;color:#6f8297;font-size:12px}@media(max-width:760px){.hero{grid-template-columns:1fr}.card{margin-top:12px}.nav{margin-bottom:58px}}@media(prefers-reduced-motion:reduce){.download{transition:none}}
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="nav"><img src="/icons/icon-192.png" alt=""><strong>Klui Anything</strong><span class="beta">Windows beta</span></div>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Klui, wherever you work</p>
+          <h1>Ask anything.<br><span>Right from Windows.</span></h1>
+          <p class="lead">Use Klui chat, voice, and inline workflows from your desktop. Log in with your existing Klui account—your paid plan and weekly allowance carry over automatically.</p>
+          <div class="actions"><a class="download" id="download" aria-disabled="true">Checking release…</a><span class="requirements">Windows 10 2004+ · 64-bit</span></div>
+          <p id="version" aria-live="polite"></p>
+        </div>
+        <aside class="card">
+          <h2>What is in this beta</h2>
+          <div class="feature"><span class="icon">✦</span><div><strong>Klui chat</strong><p>Server-funded AI with no provider keys to configure.</p></div></div>
+          <div class="feature"><span class="icon">◉</span><div><strong>Voice and inline</strong><p>Speak a request or bring Klui into the field you are already using.</p></div></div>
+          <div class="feature"><span class="icon">↗</span><div><strong>One shared allowance</strong><p>Website chat, desktop chat, and voice all use the same Klui balance.</p></div></div>
+          <div class="trust">Computer control is intentionally not included in this beta. Install only the signed Klui Anything installer published on this page; no portable ZIP is distributed.</div>
+        </aside>
+      </section>
+      <footer class="foot">Klui Anything for Windows · Beta software may change as we learn from testers.</footer>
+    </main>
+    <script type="module">
+      const button=document.querySelector('#download');const version=document.querySelector('#version');
+      try{const response=await fetch('/downloads/windows/latest.json',{cache:'no-store'});const release=response.ok?await response.json():null;if(release?.published&&release.installerUrl){button.href=release.installerUrl;button.textContent='Download for Windows';button.removeAttribute('aria-disabled');version.textContent=`Version ${release.version} · SHA-256 available in release metadata`;}else{button.textContent='Windows beta is not published yet';version.textContent='Final signing and release checks are still in progress.'}}catch{button.textContent='Release information unavailable';version.textContent='Please try again shortly.'}
+    </script>
+  </body>
+</html>

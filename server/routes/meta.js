@@ -98,11 +98,14 @@ export async function handleMe(req, res, config) {
       signal: req.signal
     }).catch(() => null);
     const used = Number(row?.api_credit_used || 0);
+    const reserved = Number(row?.api_credit_reserved || 0);
     const limit = Number(row?.api_credit_limit || window.weeklyLimit || 0);
     apiUsage = {
       used,
+      reserved,
+      remaining: Math.max(0, limit - used - reserved),
       limit,
-      percent: limit > 0 ? Math.max(0, Math.floor((used / limit) * 100)) : 0,
+      percent: limit > 0 ? Math.max(0, Math.floor(((used + reserved) / limit) * 100)) : 0,
       periodStart: window.periodStart,
       periodEnd: window.periodEnd,
       weekStart: window.weekStart,

@@ -19,7 +19,9 @@ export async function handleClarifications(req, res, config) {
       userId: context.user.id,
       subscription: context.subscription,
       plan: context.plan,
-      signal: req.signal
+      signal: req.signal,
+      meteringMode: config.desktop.meteringMode,
+      reservationCredits: config.desktop.chatReservationCredits
     })
   });
   sendJson(res, 200, { questions });

@@ -166,7 +166,7 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
   }
 }
 
-export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponsePayload }) {
+export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponseStarted, onResponsePayload }) {
   let requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: false };
   let response;
   try {
@@ -180,6 +180,7 @@ export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId
     };
     response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
   }
+  if (typeof onResponseStarted === "function") await onResponseStarted(response);
   const payload = await response.json();
   if (typeof onResponsePayload === "function") onResponsePayload(payload);
   return stripLeakedReasoningMarkup(payload?.choices?.[0]?.message?.content || "", requestBody.model);

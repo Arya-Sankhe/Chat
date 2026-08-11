@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
-import { loadConfig } from "../config.js";
+import { loadConfig, validateRuntimeConfig } from "../config.js";
 import { SupabaseRest } from "../db/supabaseRest.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { resolveProvider } from "../providers.js";
 import { partialReport, runDeepResearch } from "./engine.js";
 
-const config = loadConfig();
+const config = validateRuntimeConfig(loadConfig());
 const db = new SupabaseRest(config);
 const workerId = `research-${crypto.randomUUID()}`;
 let stopping = false;
@@ -64,7 +64,9 @@ async function processRun(run) {
       userId: run.user_id,
       subscription: entitlement.subscription,
       plan: entitlement.plan,
-      signal: controller.signal
+      signal: controller.signal,
+      meteringMode: config.desktop.meteringMode,
+      reservationCredits: config.desktop.chatReservationCredits
     });
     const callModel = ({ model, system, prompt, maxTokens = 2500, temperature = 0.2 }) => meter.chatCompletion({
       apiKey: provider.apiKey,
