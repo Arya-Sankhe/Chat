@@ -8,7 +8,7 @@ import { requireDesktopUser } from "../server/auth/desktop.js";
 import { loadConfig, validateRuntimeConfig } from "../server/config.js";
 import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
-import { validatedChatBody } from "../server/routes/desktop.js";
+import { desktopBetaAllowed, validatedChatBody } from "../server/routes/desktop.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { validatedAudioDuration } from "../server/speech/audio.js";
 
@@ -159,6 +159,27 @@ test("enforced metering fails fast without a positive LLM reservation ceiling", 
     })),
     /DESKTOP_OAUTH_ENABLED/
   );
+});
+
+test("funded desktop features fail closed without a canonical account allowlist", () => {
+  const accountId = "00000000-0000-4000-8000-000000000001";
+  const base = {
+    DESKTOP_OAUTH_ENABLED: "true",
+    DESKTOP_CHAT_ENABLED: "true",
+    API_USAGE_METERING_MODE: "enforce",
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
+    SUPABASE_URL: "https://project.supabase.co",
+    SUPABASE_ANON_KEY: "anon",
+    SUPABASE_SERVICE_ROLE_KEY: "service",
+    SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID: "provider-client",
+    OPENROUTER_API_KEY: "provider-key"
+  };
+  assert.throws(() => validateRuntimeConfig(loadConfig(base)), /DESKTOP_BETA_ACCOUNT_IDS/);
+  assert.throws(() => validateRuntimeConfig(loadConfig({ ...base, DESKTOP_BETA_ACCOUNT_IDS: "user@example.com" })), /canonical account UUIDs/);
+  assert.doesNotThrow(() => validateRuntimeConfig(loadConfig({ ...base, DESKTOP_BETA_ACCOUNT_IDS: accountId })));
+  assert.equal(desktopBetaAllowed(loadConfig({ DESKTOP_BETA_ACCOUNT_IDS: accountId }), accountId), true);
+  assert.equal(desktopBetaAllowed(loadConfig({ DESKTOP_BETA_ACCOUNT_IDS: accountId }), "00000000-0000-4000-8000-000000000002"), false);
+  assert.equal(desktopBetaAllowed(loadConfig({ DESKTOP_BETA_ACCOUNT_IDS: "*" }), "any-account"), true);
 });
 
 test("desktop chat pins OpenRouter price ceilings and rejects oversized screenshots", () => {

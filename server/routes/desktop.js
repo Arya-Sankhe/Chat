@@ -187,6 +187,20 @@ async function requirePrivacy(context, config, signal) {
   if (!consent) throw new HttpError(403, "Desktop privacy consent is required.", { code: "privacy_consent_required", retryable: false });
 }
 
+export function desktopBetaAllowed(config, accountId) {
+  const allowed = config.desktop?.betaAccountIds || [];
+  return allowed.includes("*") || allowed.includes(String(accountId || "").toLowerCase());
+}
+
+function requireDesktopBetaAccess(context, config) {
+  if (!desktopBetaAllowed(config, context.user.id)) {
+    throw new HttpError(403, "This account is not enabled for the Klui Anything beta yet.", {
+      code: "desktop_beta_not_enabled",
+      retryable: false
+    });
+  }
+}
+
 export async function handleDesktopMe(req, res, config) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   requireDesktopFeature(config, "oauthEnabled");
@@ -205,6 +219,7 @@ export async function handleDesktopMe(req, res, config) {
   }
   const eligible = Boolean(entitlement.active && entitlement.plan);
   const consented = Boolean(consent);
+  const betaAllowed = desktopBetaAllowed(config, context.user.id);
   sendJson(res, 200, {
     account: { id: context.user.id, email: context.user.email },
     subscription: entitlement.subscription ? {
@@ -216,8 +231,8 @@ export async function handleDesktopMe(req, res, config) {
     usage,
     privacy: { policyVersion: config.desktop.privacyPolicyVersion, consentRequired: !consented },
     capabilities: {
-      chat: eligible && consented && config.desktop.chatEnabled,
-      voice: eligible && consented && config.desktop.sttEnabled,
+      chat: betaAllowed && eligible && consented && config.desktop.chatEnabled,
+      voice: betaAllowed && eligible && consented && config.desktop.sttEnabled,
       // Windows beta intentionally ships without the CUA driver. Keep the
       // capability explicit so a stale or modified client cannot advertise it.
       computerUse: false,
@@ -238,6 +253,7 @@ export async function handleDesktopChat(req, res, config) {
   enforceRateLimit(req, "desktop-chat", 60);
   const { requestId } = requireClientHeaders(req, config, { requestId: true });
   const context = await requireDesktopContext(req, config);
+  requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), config);
   const provider = resolveProvider("openrouter", config);
@@ -279,6 +295,7 @@ export async function handleDesktopSpeech(req, res, config) {
   enforceRateLimit(req, "desktop-stt", 30);
   const { requestId } = requireClientHeaders(req, config, { requestId: true });
   const context = await requireDesktopContext(req, config);
+  requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
   if (contentType !== "audio/wav" && contentType !== "audio/x-wav") throw new HttpError(415, "Desktop voice input must be WAV audio.");

@@ -35,7 +35,7 @@ Do not switch back to `legacy` while reservations exist. First allow all submitt
 
 1. Enable `DESKTOP_OAUTH_ENABLED` for staging.
 2. Test fresh login, denial, duplicate callback, cold-start refresh, rotation reuse, logout, no-plan, expired-plan, privacy re-consent, offline, and 426 update flows.
-3. Enable `DESKTOP_CHAT_ENABLED` and `DESKTOP_STT_ENABLED` independently for allowlisted accounts at the edge/feature-flag layer.
+3. Set `DESKTOP_BETA_ACCOUNT_IDS` to the canonical `profiles.id` UUIDs for beta testers, then enable `DESKTOP_CHAT_ENABLED` and `DESKTOP_STT_ENABLED` independently. Use `*` only for an intentional all-paid-plan rollout.
 4. Confirm every funded request becomes `settled`, `estimated`, or (before submission) `released`.
 5. Confirm no raw provider secret or account token exists in child environments, logs, crash reports, config, or artifacts.
 6. Publish only an Authenticode-signed installer. Set `/downloads/windows/latest.json` to `published: true` only after uploading the installer and its SHA-256.
