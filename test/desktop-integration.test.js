@@ -344,6 +344,18 @@ test("the Windows beta explicitly disables the server-advertised computer-use ca
   assert.match(source, /computerUse:\s*false/);
 });
 
+test("the Windows release publisher fails closed and keeps large installers outside Git", async () => {
+  const publisher = await readFile(new URL("../scripts/desktop/publish-windows-release.ps1", import.meta.url), "utf8");
+  const compose = await readFile(new URL("../docker-compose.yml", import.meta.url), "utf8");
+  const ignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
+  assert.match(publisher, /SignatureStatus\]::Valid/);
+  assert.match(publisher, /Version .* already published with different bytes/);
+  assert.match(publisher, /Get-FileHash .* -Algorithm SHA256/);
+  assert.match(publisher, /artifacts\\windows-release/);
+  assert.match(compose, /WINDOWS_DOWNLOADS_DIR[^\n]+:\/app\/public\/downloads\/windows:ro/);
+  assert.match(ignore, /^artifacts\/$/m);
+});
+
 test("backend identity-sensitive RPCs are service-role only", async () => {
   const source = await readFile(new URL("../supabase/migrations/20260811185500_harden_backend_rpc_permissions.sql", import.meta.url), "utf8");
   for (const name of ["klui_search_document_chunks", "klui_search_document_pages", "smartyfy_consume_usage"]) {

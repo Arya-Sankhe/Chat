@@ -38,8 +38,9 @@ Do not switch back to `legacy` while reservations exist. First allow all submitt
 3. Set `DESKTOP_BETA_ACCOUNT_IDS` to the canonical `profiles.id` UUIDs for beta testers, then enable `DESKTOP_CHAT_ENABLED` and `DESKTOP_STT_ENABLED` independently. Use `*` only for an intentional all-paid-plan rollout.
 4. Confirm every funded request becomes `settled`, `estimated`, or (before submission) `released`.
 5. Confirm no raw provider secret or account token exists in child environments, logs, crash reports, config, or artifacts.
-6. Publish only an Authenticode-signed installer. Set `/downloads/windows/latest.json` to `published: true` only after uploading the installer and its SHA-256.
-7. Expand gradually while monitoring auth errors, refresh failures, 402/429/503 rates, cost variance, reservation drift, unsettled events, and client versions.
+6. Publish only an Authenticode-signed installer. From the website repository, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop/publish-windows-release.ps1 -InstallerPath <signed-installer.exe>`. The command refuses invalid signatures and version collisions, then prepares a versioned installer and `latest.json` with its SHA-256 under ignored `artifacts/windows-release/`.
+7. On production, set `WINDOWS_DOWNLOADS_DIR=/var/lib/klui-downloads/windows`, create that root-owned directory, and copy the two prepared release files into it. The container mounts it read-only. Verify the public SHA-256 before exposing the beta to testers; never commit the installer binary to Git.
+8. Expand gradually while monitoring auth errors, refresh failures, 402/429/503 rates, cost variance, reservation drift, unsettled events, and client versions.
 
 ## Rollback
 
