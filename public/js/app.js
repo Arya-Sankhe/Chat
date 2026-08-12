@@ -7815,4 +7815,8 @@ function bindEvents() {
 
 document.body.classList.toggle("capacitor-native", isNative());
 bindEvents();
+if (location.hash === "#settings") {
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  openSettings();
+}
 bootstrap();
