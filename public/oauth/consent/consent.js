@@ -8,6 +8,7 @@ const signIn = document.querySelector("#signIn");
 const privacy = document.querySelector("#privacy");
 const approve = document.querySelector("#approve");
 const success = document.querySelector("#success");
+const openDesktop = document.querySelector("#openDesktop");
 let config;
 let session;
 
@@ -17,13 +18,11 @@ function handOffToDesktop(redirectUrl) {
   approval.hidden = true;
   signIn.hidden = true;
   success.hidden = false;
-  document.title = "You’re signed in — Klui Anything";
+  openDesktop.href = redirectUrl;
+  document.title = "Open Klui Anything";
   setStatus("Opening Klui Anything…");
   location.assign(redirectUrl);
-  setTimeout(() => {
-    setStatus("All synced. You can close this tab.");
-    window.close();
-  }, 1200);
+  setTimeout(() => setStatus("Still here? Use Open Klui Anything above."), 1200);
 }
 
 async function api(path, options = {}) {

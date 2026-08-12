@@ -373,9 +373,12 @@ test("desktop consent stays friendly and leaves a reliable browser handoff fallb
   assert.match(page, /<details>/);
   assert.doesNotMatch(page, /Authorize desktop|active plan and shared weekly allowance/);
   assert.match(script, /function handOffToDesktop/);
+  assert.match(page, /id="openDesktop"/);
+  assert.match(page, /Open Klui Anything/);
+  assert.match(script, /openDesktop\.href = redirectUrl/);
   assert.match(script, /location\.assign\(redirectUrl\)/);
-  assert.match(script, /window\.close\(\)/);
-  assert.match(script, /All synced\. You can close this tab\./);
+  assert.match(script, /Still here\? Use Open Klui Anything above\./);
+  assert.doesNotMatch(page, /You’re all synced!/);
 });
 
 test("backend identity-sensitive RPCs are service-role only", async () => {
