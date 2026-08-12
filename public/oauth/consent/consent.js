@@ -7,10 +7,24 @@ const approval = document.querySelector("#approval");
 const signIn = document.querySelector("#signIn");
 const privacy = document.querySelector("#privacy");
 const approve = document.querySelector("#approve");
+const success = document.querySelector("#success");
 let config;
 let session;
 
 function setStatus(message) { status.textContent = message; }
+
+function handOffToDesktop(redirectUrl) {
+  approval.hidden = true;
+  signIn.hidden = true;
+  success.hidden = false;
+  document.title = "You’re signed in — Klui Anything";
+  setStatus("Opening Klui Anything…");
+  location.assign(redirectUrl);
+  setTimeout(() => {
+    setStatus("All synced. You can close this tab.");
+    window.close();
+  }, 1200);
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -21,7 +35,7 @@ async function api(path, options = {}) {
     }
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || "Authorization failed.");
+  if (!response.ok) throw new Error(payload.error || "Klui couldn’t finish signing you in.");
   return payload;
 }
 
@@ -38,8 +52,8 @@ async function showAuthorization() {
     return;
   }
   const details = await api(`/api/oauth/desktop/authorization?authorization_id=${encodeURIComponent(authorizationId)}`);
-  if (details.redirectUrl) { location.assign(details.redirectUrl); return; }
-  document.querySelector("#account").textContent = `Signed in as ${details.email}`;
+  if (details.redirectUrl) { handOffToDesktop(details.redirectUrl); return; }
+  document.querySelector("#account").textContent = `Hey ${details.email} 👋`;
   privacy.checked = Boolean(details.privacy?.accepted);
   approve.disabled = !privacy.checked;
   approval.hidden = false;
@@ -49,13 +63,14 @@ async function showAuthorization() {
 async function decide(decision) {
   approve.disabled = true;
   document.querySelector("#deny").disabled = true;
-  setStatus(decision === "approve" ? "Authorizing…" : "Canceling…");
+  setStatus(decision === "approve" ? "Syncing your account…" : "No worries — canceling…");
   try {
     const result = await api("/api/oauth/desktop/decision", {
       method: "POST",
       body: JSON.stringify({ authorizationId, decision, privacyConsent: privacy.checked })
     });
-    location.assign(result.redirectUrl);
+    if (decision === "approve") handOffToDesktop(result.redirectUrl);
+    else location.assign(result.redirectUrl);
   } catch (error) {
     setStatus(error.message);
     approve.disabled = !privacy.checked;
@@ -68,10 +83,10 @@ approve.addEventListener("click", () => void decide("approve"));
 document.querySelector("#deny").addEventListener("click", () => void decide("deny"));
 
 try {
-  if (!authorizationId) throw new Error("This authorization link is invalid.");
+  if (!authorizationId) throw new Error("This sign-in link has expired. Please try again from the app.");
   config = await fetch("/api/config", { cache: "no-store" }).then((response) => response.json());
   session = await loadSession();
   await showAuthorization();
 } catch (error) {
-  setStatus(error.message || "Authorization failed.");
+  setStatus(error.message || "Klui couldn’t finish signing you in.");
 }

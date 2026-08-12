@@ -365,6 +365,19 @@ test("the Windows download page keeps unsigned beta artifacts behind an unlisted
   assert.match(page, /'\/downloads\/windows\/latest\.json'/);
 });
 
+test("desktop consent stays friendly and leaves a reliable browser handoff fallback", async () => {
+  const page = await readFile(new URL("../public/oauth/consent/index.html", import.meta.url), "utf8");
+  const script = await readFile(new URL("../public/oauth/consent/consent.js", import.meta.url), "utf8");
+  assert.match(page, /home-valley\.webp/);
+  assert.match(page, /Let’s get you into Klui/);
+  assert.match(page, /<details>/);
+  assert.doesNotMatch(page, /Authorize desktop|active plan and shared weekly allowance/);
+  assert.match(script, /function handOffToDesktop/);
+  assert.match(script, /location\.assign\(redirectUrl\)/);
+  assert.match(script, /window\.close\(\)/);
+  assert.match(script, /All synced\. You can close this tab\./);
+});
+
 test("backend identity-sensitive RPCs are service-role only", async () => {
   const source = await readFile(new URL("../supabase/migrations/20260811185500_harden_backend_rpc_permissions.sql", import.meta.url), "utf8");
   for (const name of ["klui_search_document_chunks", "klui_search_document_pages", "smartyfy_consume_usage"]) {

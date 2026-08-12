@@ -5,43 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#07111f">
-    <title>Authorize Klui Anything</title>
+    <title>Continue to Klui Anything</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 70% 10%,#12395a 0,transparent 38%),linear-gradient(145deg,#050a12,#0a1727 58%,#07111f); color: #f7fbff; font-family: Inter,"Segoe UI",system-ui,sans-serif; }
-      main { width: min(520px,100%); padding: clamp(26px,5vw,38px); border: 1px solid #bdefff25; border-radius: 22px; background: linear-gradient(155deg,#ffffff12,#ffffff07); box-shadow: inset 0 1px #ffffff18,0 30px 80px #0007; backdrop-filter: blur(16px); }
-      header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
-      header img { width: 54px; height: 54px; border-radius: 15px; box-shadow: 0 10px 28px #0007; }
-      h1 { margin: 0; font-size: 26px; letter-spacing: -.025em; }
-      p { color: #aebfd2; line-height: 1.6; }
-      header p { margin: 5px 0 0; font-size: 14px; }
-      .privacy { display: flex; align-items: flex-start; gap: 11px; margin: 22px 0; padding: 15px; border: 1px solid #ffffff12; border-radius: 12px; background: #02070d66; color: #bfcede; font-size: 14px; line-height: 1.5; }
-      .privacy input { width: 17px; height: 17px; margin: 2px 0 0; accent-color: #7ee9ff; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        overflow-x: hidden;
+        background: linear-gradient(180deg, #02071324 0%, #02071344 48%, #02071310 100%), url("/images/home-valley.webp") center bottom / cover no-repeat, #020713;
+        color: #f8fbff;
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      }
+      body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 32%, #14335f40 0, transparent 44%); }
+      main { position: relative; width: min(460px, 100%); padding: clamp(26px, 5vw, 36px); border: 1px solid #ffffff20; border-radius: 28px; background: #090d17d9; box-shadow: inset 0 1px #ffffff18, 0 24px 70px #0008; backdrop-filter: blur(18px); }
+      .beta { display: inline-flex; align-items: center; min-height: 27px; margin-bottom: 20px; padding: 0 11px; border: 1px solid #a9f2bd66; border-radius: 999px; background: #7bd98f1f; color: #baf4c7; font-size: 12px; font-weight: 750; letter-spacing: .02em; }
+      header { display: flex; align-items: center; gap: 15px; margin-bottom: 22px; }
+      header img { width: 52px; height: 52px; border-radius: 15px; box-shadow: 0 10px 26px #0006; }
+      h1 { margin: 0; font-size: clamp(24px, 6vw, 29px); letter-spacing: -.035em; line-height: 1.08; }
+      p { color: #bdc8da; line-height: 1.55; }
+      header p { margin: 6px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+      .hello { margin: 0 0 16px; color: #eef4ff; font-size: 16px; }
+      .privacy { display: flex; align-items: flex-start; gap: 11px; margin: 18px 0 11px; padding: 14px; border: 1px solid #ffffff14; border-radius: 15px; background: #ffffff0a; color: #d7dfed; font-size: 14px; line-height: 1.45; cursor: pointer; }
+      .privacy input { width: 18px; height: 18px; margin: 1px 0 0; flex: 0 0 auto; accent-color: #8ee0a1; }
+      details { margin: 0 0 20px; color: #9fadc0; font-size: 12px; line-height: 1.5; }
+      summary { width: fit-content; cursor: pointer; color: #b9c7da; }
+      details p { margin: 8px 0 0; color: #9fadc0; }
       .actions { display: flex; gap: 10px; }
-      button { min-height: 44px; padding: 0 18px; border: 1px solid #ffffff24; border-radius: 10px; background: #ffffff0a; color: #e8f3ff; font: inherit; font-weight: 700; cursor: pointer; }
-      button.primary { flex: 1; border-color: #8cecff; background: #8cecff; color: #07111f; }
+      button { min-height: 46px; padding: 0 18px; border: 1px solid #ffffff1f; border-radius: 13px; background: #ffffff0c; color: #edf4ff; font: inherit; font-weight: 750; cursor: pointer; transition: transform 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out; }
+      button.primary { flex: 1; border-color: #94e7a7; background: #94e7a7; color: #08130b; box-shadow: 0 10px 26px #5fc47826; }
       button:hover:not(:disabled) { transform: translateY(-1px); }
-      button:focus-visible,input:focus-visible { outline: 3px solid #8cecff66; outline-offset: 3px; }
-      button:disabled { opacity: .45; cursor: default; transform: none; }
-      #status { min-height: 22px; margin-bottom: 0; color: #8fa5bc; font-size: 13px; }
-      #signIn { margin-top: 18px; padding-top: 2px; }
+      button:active:not(:disabled) { transform: scale(.98); }
+      button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
+      button:disabled { opacity: .42; cursor: default; }
+      #status { min-height: 20px; margin: 13px 0 0; color: #aab8ca; font-size: 13px; }
+      #signIn { margin-top: 4px; }
+      #signIn p { margin-top: 0; }
       #googleButton { min-height: 42px; }
+      #success { text-align: center; padding: 12px 0 2px; }
+      .success-icon { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 20px; background: #94e7a7; color: #08130b; font-size: 30px; box-shadow: 0 14px 34px #5fc47838; }
+      #success h2 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+      #success p { margin: 10px auto 0; max-width: 310px; }
       [hidden] { display: none !important; }
-      @media (max-width: 520px) { body { padding: 14px; } main { border-radius: 18px; } .actions { flex-direction: column-reverse; } button.primary { width: 100%; } }
+      @media (max-width: 520px) { body { padding: 14px; background-position: 56% bottom; } main { border-radius: 22px; } .actions { flex-direction: column-reverse; } button.primary { width: 100%; } }
       @media (prefers-reduced-motion: reduce) { button { transition: none; } }
     </style>
   </head>
   <body>
     <main>
-      <header><img src="/icons/icon-192.png" alt=""><div><h1>Open Klui Anything?</h1><p id="account">Authorize the desktop app with your Klui account.</p></div></header>
+      <span class="beta">Klui Anything beta ✨</span>
+      <header><img src="/icons/icon-192.png" alt="Klui Anything"><div><h1>Let’s get you into Klui</h1><p id="account">Use your Klui account to continue.</p></div></header>
       <section id="approval" hidden>
-        <p>Klui Anything will use your active plan and shared weekly allowance. The Windows beta runs Pi and inline workflows locally; computer control is not included yet.</p>
-        <label class="privacy"><input id="privacy" type="checkbox"><span>I understand Klui Anything may send screen context and voice audio to Klui and its AI providers to process my requests.</span></label>
-        <div class="actions"><button id="deny" type="button">Cancel</button><button id="approve" class="primary" type="button" disabled>Authorize desktop</button></div>
+        <p class="hello">Ready to bring your plan and weekly usage over to the desktop app?</p>
+        <label class="privacy"><input id="privacy" type="checkbox"><span>I’m okay with Klui processing the screen context or voice I choose to share.</span></label>
+        <details><summary>A quick privacy note</summary><p>Klui’s actions run on your computer. Only the prompts, screen context, or voice you choose to use are sent for AI processing.</p></details>
+        <div class="actions"><button id="deny" type="button">Not now</button><button id="approve" class="primary" type="button" disabled>Yep, open Klui</button></div>
       </section>
-      <section id="signIn" hidden><p>Sign in to klui.tech to continue.</p><div id="googleButton"></div></section>
-      <p id="status" role="status">Loading authorization…</p>
+      <section id="signIn" hidden><p>Sign in once, then we’ll send you right back to the app.</p><div id="googleButton"></div></section>
+      <section id="success" hidden><div class="success-icon" aria-hidden="true">✓</div><h2>You’re all synced!</h2><p>Klui Anything is opening now. You can close this tab whenever you’re ready.</p></section>
+      <p id="status" role="status">Getting things ready…</p>
     </main>
     <script type="module" src="/oauth/consent/consent.js"></script>
   </body>
