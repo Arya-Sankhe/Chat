@@ -49,6 +49,10 @@
       .success-icon { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 20px; background: #94e7a7; color: #08130b; font-size: 30px; box-shadow: 0 14px 34px #5fc47838; }
       #success h2 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
       #success p { margin: 10px auto 0; max-width: 310px; }
+      .open-app { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; margin-top: 20px; padding: 0 20px; border: 1px solid #94e7a7; border-radius: 13px; background: #94e7a7; color: #08130b; font-weight: 750; text-decoration: none; box-shadow: 0 10px 26px #5fc47826; }
+      .open-app:hover { transform: translateY(-1px); }
+      .open-app:active { transform: scale(.98); }
+      .open-app:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
       [hidden] { display: none !important; }
       @media (max-width: 520px) { body { padding: 14px; background-position: 56% bottom; } main { border-radius: 22px; } .actions { flex-direction: column-reverse; } button.primary { width: 100%; } }
       @media (prefers-reduced-motion: reduce) { button { transition: none; } }
@@ -65,7 +69,7 @@
         <div class="actions"><button id="deny" type="button">Not now</button><button id="approve" class="primary" type="button" disabled>Yep, open Klui</button></div>
       </section>
       <section id="signIn" hidden><p>Sign in once, then we’ll send you right back to the app.</p><div id="googleButton"></div></section>
-      <section id="success" hidden><div class="success-icon" aria-hidden="true">✓</div><h2>You’re all synced!</h2><p>Klui Anything is opening now. You can close this tab whenever you’re ready.</p></section>
+      <section id="success" hidden><div class="success-icon" aria-hidden="true">✓</div><h2>You’re approved!</h2><p>Klui Anything should open automatically. If it doesn’t, use the button below.</p><a id="openDesktop" class="open-app" href="#">Open Klui Anything</a></section>
       <p id="status" role="status">Getting things ready…</p>
     </main>
     <script type="module" src="/oauth/consent/consent.js"></script>
