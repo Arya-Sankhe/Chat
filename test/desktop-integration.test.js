@@ -8,7 +8,7 @@ import { requireDesktopUser } from "../server/auth/desktop.js";
 import { loadConfig, validateRuntimeConfig } from "../server/config.js";
 import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
-import { desktopBetaAllowed, validatedChatBody } from "../server/routes/desktop.js";
+import { desktopBetaAllowed, desktopChatReservationCredits, validatedChatBody } from "../server/routes/desktop.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { validatedAudioDuration } from "../server/speech/audio.js";
 
@@ -183,7 +183,7 @@ test("funded desktop features fail closed without a canonical account allowlist"
 });
 
 test("desktop chat pins OpenRouter price ceilings and rejects oversized screenshots", () => {
-  const config = loadConfig({});
+  const config = loadConfig({ DESKTOP_CHAT_RESERVATION_CREDITS: "0.25" });
   const png = Buffer.alloc(24);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
   png.writeUInt32BE(1, 16);
@@ -194,6 +194,13 @@ test("desktop chat pins OpenRouter price ceilings and rejects oversized screensh
     messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:image/png;base64,${png.toString("base64")}` } }] }]
   }, config);
   assert.deepEqual(body.provider.max_price, { prompt: 0.2, completion: 1.2 });
+  const developerBody = validatedChatBody({
+    model: "klui-desktop-agent",
+    stream: true,
+    messages: [{ role: "developer", content: "Be helpful." }, { role: "user", content: "Hi" }]
+  }, config);
+  const reservation = desktopChatReservationCredits(developerBody, config);
+  assert.ok(reservation > 0.009 && reservation < 0.02);
 
   png.writeUInt32BE(2561, 16);
   assert.throws(() => validatedChatBody({

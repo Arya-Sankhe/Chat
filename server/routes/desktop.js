@@ -138,6 +138,32 @@ function validateDataImage(value) {
   if (Math.max(dimensions.width, dimensions.height) > MAX_SCREENSHOT_EDGE) {
     throw new HttpError(413, "Desktop screenshots must be at most 2560 pixels on the longest edge.");
   }
+  return dimensions;
+}
+
+export function desktopChatReservationCredits(body, config) {
+  let imageTokens = 0;
+  for (const message of body.messages) if (Array.isArray(message.content)) {
+    for (const part of message.content) if (part?.type === "image_url" || part?.image_url) {
+      const { width, height } = validateDataImage(part.image_url);
+      imageTokens += 85 + (170 * Math.ceil(width / 512) * Math.ceil(height / 512));
+    }
+  }
+  const structuredBytes = Buffer.byteLength(JSON.stringify({
+    messages: body.messages,
+    tools: body.tools,
+    tool_choice: body.tool_choice
+  }, (key, value) => key === "url" && typeof value === "string" && value.startsWith("data:") ? "" : value));
+  // One token per remaining UTF-8 byte is deliberately conservative for text,
+  // with padding for provider framing that is not present in the JSON request.
+  const inputTokens = structuredBytes + imageTokens + 1024;
+  if (inputTokens > config.desktop.maxInputTokens) throw new HttpError(413, "The desktop chat context is too large.");
+  const ceiling = (
+    (inputTokens * config.desktop.maxPromptPricePerMillion)
+    + (config.desktop.maxCompletionTokens * config.desktop.maxCompletionPricePerMillion)
+  ) / 1_000_000;
+  if (ceiling > config.desktop.chatReservationCredits) throw new HttpError(413, "The desktop chat context exceeds the funded request ceiling.");
+  return Math.ceil(ceiling * 100_000_000) / 100_000_000;
 }
 
 export function validatedChatBody(body, config) {
@@ -148,7 +174,7 @@ export function validatedChatBody(body, config) {
   }
   let imageCount = 0;
   for (const message of body.messages) {
-    if (!message || !["system", "user", "assistant", "tool"].includes(message.role)) throw new HttpError(400, "A desktop chat message is invalid.");
+    if (!message || !["developer", "system", "user", "assistant", "tool"].includes(message.role)) throw new HttpError(400, "A desktop chat message is invalid.");
     if (Array.isArray(message.content)) for (const part of message.content) {
       if (part?.type === "image_url" || part?.image_url) {
         imageCount += 1;
@@ -256,6 +282,7 @@ export async function handleDesktopChat(req, res, config) {
   requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), config);
+  const reservationCredits = desktopChatReservationCredits(body, config);
   const provider = resolveProvider("openrouter", config);
   const meter = createCrofaiUsageMeter({
     db: context.db,
@@ -266,7 +293,7 @@ export async function handleDesktopChat(req, res, config) {
     surface: context.user.surface,
     modality: "llm",
     oauthClientId: context.user.oauthClientId,
-    reservationCredits: config.desktop.chatReservationCredits,
+    reservationCredits,
     signal: AbortSignal.timeout(10 * 60_000),
     streamChatCompletionFn: streamChatCompletion
   });
