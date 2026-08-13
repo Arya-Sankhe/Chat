@@ -14,8 +14,8 @@ Updated: 2026-08-13
 - Website chat, desktop chat, and voice record against the same account ledger.
 - The private download page publishes an exact version, byte count, and SHA-256 checksum.
 - Computer control is deliberately excluded from this beta.
-- The final request may complete while any weekly balance remains; once it settles, later requests stop at 100% with a non-retryable limit message.
-- `0.1.0-beta.9` is the current unsigned private-beta release candidate. The public channel remains signing-gated.
+- Requests that begin while settled usage is below 100% may finish, including sibling Console, Compare, and Council calls. Temporary reservations never change the customer-facing percentage or block siblings; later requests stop with a non-retryable limit message after settled usage reaches the cap.
+- `0.1.0-beta.10` is the current unsigned private-beta release candidate. The public channel remains signing-gated.
 
 ## Private-beta test checklist
 
