@@ -420,18 +420,28 @@ test("desktop usage exhaustion is friendly and non-retryable", () => {
     writeHead(value) { status = value; },
     end(value) { payload = JSON.parse(value); }
   };
-  sendDesktopProblem(res, new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false }), loadConfig({}));
+  sendDesktopProblem(res, new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false }), loadConfig({}));
   assert.equal(status, 429);
   assert.deepEqual(payload.error, {
     code: "usage_exhausted",
-    message: "You've used up your weekly limit.",
+    message: "You've reached your weekly limit. You can continue after it resets.",
     retryable: false
   });
 });
 
-test("the atomic meter allows one final request while any weekly balance remains", async () => {
-  const source = await readFile(new URL("../supabase/migrations/20260813085421_allow_final_funded_request.sql", import.meta.url), "utf8");
-  assert.match(source, /api_credit_used \+ v_week\.api_credit_reserved >= v_limit/);
-  assert.doesNotMatch(source, /api_credit_reserved \+ v_reserve > v_limit/);
+test("the soft cap ignores temporary reservations and checks settled usage only", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260813104924_make_usage_reservations_invisible_soft_cap.sql", import.meta.url), "utf8");
+  assert.match(source, /v_week\.api_credit_used >= v_limit/);
+  assert.match(source, /v_row\.api_credit_used >= v_row\.api_credit_limit/);
+  assert.doesNotMatch(source, /api_credit_used \+ v_(?:week|row)\.api_credit_reserved/);
   assert.match(source, /grant execute on function public\.klui_reserve_api_usage[^;]+to service_role/);
+});
+
+test("website and desktop usage bars show settled usage, never temporary reservations", async () => {
+  const website = await readFile(new URL("../server/routes/meta.js", import.meta.url), "utf8");
+  const desktop = await readFile(new URL("../server/routes/desktop.js", import.meta.url), "utf8");
+  assert.match(website, /remaining: Math\.max\(0, limit - used\)/);
+  assert.match(website, /Math\.floor\(\(used \/ limit\) \* 100\)/);
+  assert.match(desktop, /remaining: Math\.max\(0, limit - used\)/);
+  assert.match(desktop, /limited: used >= limit/);
 });

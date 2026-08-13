@@ -103,9 +103,9 @@ export async function handleMe(req, res, config) {
     apiUsage = {
       used,
       reserved,
-      remaining: Math.max(0, limit - used - reserved),
+      remaining: Math.max(0, limit - used),
       limit,
-      percent: limit > 0 ? Math.max(0, Math.floor(((used + reserved) / limit) * 100)) : 0,
+      percent: limit > 0 ? Math.max(0, Math.floor((used / limit) * 100)) : 0,
       periodStart: window.periodStart,
       periodEnd: window.periodEnd,
       weekStart: window.weekStart,

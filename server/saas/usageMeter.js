@@ -149,7 +149,7 @@ export function createCrofaiUsageMeter({
     }, { signal: AbortSignal.timeout(15_000) });
     if (result?.duplicate) throw new HttpError(409, "This request ID has already been used.");
     if (result?.reason === "usage_metering_disabled") throw new HttpError(503, "Usage metering is temporarily unavailable.");
-    if (!result?.allowed) throw new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false });
+    if (!result?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
     return requestId;
   }
 

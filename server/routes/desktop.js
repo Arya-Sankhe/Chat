@@ -240,7 +240,7 @@ export async function handleDesktopMe(req, res, config) {
     const used = Number(row?.api_credit_used || 0);
     const reserved = Number(row?.api_credit_reserved || 0);
     const limit = Number(row?.api_credit_limit || window.weeklyLimit || 0);
-    usage = { used, reserved, remaining: Math.max(0, limit - used - reserved), limit, limited: used + reserved >= limit, resetAt: window.weekEnd };
+    usage = { used, reserved, remaining: Math.max(0, limit - used), limit, limited: used >= limit, resetAt: window.weekEnd };
   }
   const eligible = Boolean(entitlement.active && entitlement.plan);
   const consented = Boolean(consent);
@@ -336,7 +336,7 @@ export async function handleDesktopSpeech(req, res, config) {
     ...window, reservedCredits: credits
   }, { signal: AbortSignal.timeout(15_000) });
   if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
-  if (!reservation?.allowed) throw new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false });
+  if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
   try {
     await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });
   } catch {
