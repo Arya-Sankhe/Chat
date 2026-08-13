@@ -101,6 +101,7 @@ export function loadConfig(env = process.env) {
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
+    "capacitor://localhost",
     ...readList(env.MOBILE_ALLOWED_ORIGINS)
   ]);
 

@@ -3,19 +3,18 @@
 Klui ships the same responsive frontend in two mobile forms:
 
 - Android: a bundled Capacitor APK.
-- iPhone: an installable PWA from `https://klui.tech`.
+- iPhone/iPad: a bundled Capacitor app, with the PWA still available as a fallback.
 
-The Android package never loads the production website as its WebView. `npm run
+The native packages never load the production website as their WebView. `npm run
 mobile:build` bundles the current `public/` application into `dist-mobile/`,
-and Capacitor copies that output into the Android project. All API requests
+and Capacitor copies that output into each native project. All API requests
 still go to `https://klui.tech`.
 
 ## Local requirements
 
 - Node.js 20 or newer.
-- Android Studio with Android SDK 36.
-- JDK 21.
-- An Android device or emulator with Android 10 or newer.
+- Android: Android Studio with SDK 36, JDK 21, and Android 10 or newer.
+- iOS: full Xcode (not only Command Line Tools) and an iPhone with iOS 15 or newer.
 
 Install dependencies and create a debug build:
 
@@ -32,9 +31,33 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 Use `npm run mobile:open` to open the native project in Android Studio.
 
+## Run on an iPhone
+
+Install and open Xcode once, then select it if macOS is still using only the
+Command Line Tools:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+npm ci
+npm run mobile:sync:ios
+npm run mobile:open:ios
+```
+
+In Xcode:
+
+1. Select the **App** target, then **Signing & Capabilities**.
+2. Choose your Apple development team. If `tech.klui.app` is unavailable to
+   that team, append a unique suffix to the bundle identifier for local tests.
+3. Connect and trust the iPhone, select it as the run destination, and press
+   **Run**. Enable Developer Mode on the phone if iOS asks for it.
+
+The app registers `tech.klui.app://auth/callback` for Google sign-in. Keep this
+exact URL in the Supabase Auth redirect allow list; changing the local bundle
+identifier does not change the callback scheme.
+
 ## Supabase and Google authentication
 
-The website keeps Google Identity Services. Android uses Supabase Google OAuth
+The website keeps Google Identity Services. Native Android and iOS use Supabase Google OAuth
 with PKCE and the callback:
 
 ```txt
@@ -43,10 +66,10 @@ tech.klui.app://auth/callback
 
 Add that callback to the Supabase Auth redirect allow list. Keep
 `https://klui.tech` and `https://klui.tech/**` for the website/PWA.
-The callback must match exactly; otherwise Android returns to Klui immediately
+The callback must match exactly; otherwise the native app returns to Klui immediately
 with a redirect configuration error instead of showing the Google account flow.
 
-The OAuth flow stores the Supabase session and PKCE verifier in Android secure
+The OAuth flow stores the Supabase session and PKCE verifier in native secure
 storage. Access and refresh tokens are never included in the callback URL.
 
 ## Production environment
@@ -57,6 +80,7 @@ The server already permits these mobile origins:
 https://klui.tech
 https://www.klui.tech
 https://localhost
+capacitor://localhost
 ```
 
 Use `MOBILE_ALLOWED_ORIGINS` only for additional development origins:
@@ -65,7 +89,7 @@ Use `MOBILE_ALLOWED_ORIGINS` only for additional development origins:
 MOBILE_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-Add the packaged Android origin to Cloudflare R2 CORS:
+Add both packaged native origins to Cloudflare R2 CORS:
 
 ```json
 [
@@ -73,7 +97,8 @@ Add the packaged Android origin to Cloudflare R2 CORS:
     "AllowedOrigins": [
       "https://klui.tech",
       "https://www.klui.tech",
-      "https://localhost"
+      "https://localhost",
+      "capacitor://localhost"
     ],
     "AllowedMethods": ["PUT", "HEAD", "GET"],
     "AllowedHeaders": ["*"],
@@ -216,6 +241,7 @@ Capacitor-specific behavior lives in:
 ```txt
 capacitor.config.ts
 android/
+ios/
 scripts/mobile/
 public/js/platform/
 ```

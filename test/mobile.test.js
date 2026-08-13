@@ -6,8 +6,8 @@ import { readStylesheet } from "./helpers/styles.js";
 
 import { loadConfig } from "../server/config.js";
 import { applyApiCors, handleApiPreflight } from "../server/http/cors.js";
-import { apiUrl, parseAuthCallbackUrl } from "../public/js/platform/index.js";
-import { compareVersionCodes } from "../public/js/platform/updates.js";
+import { apiUrl, nativePlatform, parseAuthCallbackUrl } from "../public/js/platform/index.js";
+import { checkForAppUpdate, compareVersionCodes } from "../public/js/platform/updates.js";
 
 function responseRecorder() {
   return {
@@ -33,6 +33,7 @@ test("mobile config includes the packaged Capacitor origin and configured develo
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
+    "capacitor://localhost",
     "http://localhost:5173",
     "https://preview.example"
   ]);
@@ -49,6 +50,17 @@ test("API CORS accepts the packaged app origin without credentials", () => {
   assert.equal(response.headers["access-control-allow-origin"], "https://localhost");
   assert.equal(response.headers["access-control-allow-credentials"], undefined);
   assert.equal(response.headers.vary, "Origin");
+});
+
+test("API CORS accepts the packaged iOS app origin", () => {
+  const response = responseRecorder();
+  const result = applyApiCors(
+    { headers: { origin: "capacitor://localhost" } },
+    response,
+    ["capacitor://localhost"]
+  );
+  assert.equal(result.allowed, true);
+  assert.equal(response.headers["access-control-allow-origin"], "capacitor://localhost");
 });
 
 test("API CORS does not reflect an arbitrary origin", () => {
@@ -96,6 +108,44 @@ test("API URL resolver uses the production API origin inside Capacitor", () => {
     if (previous === undefined) delete globalThis.Capacitor;
     else globalThis.Capacitor = previous;
   }
+});
+
+test("APK update checks do not run on iOS", async () => {
+  const previous = globalThis.Capacitor;
+  globalThis.Capacitor = {
+    isNativePlatform: () => true,
+    getPlatform: () => "ios"
+  };
+  try {
+    assert.equal(nativePlatform(), "ios");
+    assert.equal(await checkForAppUpdate(), null);
+  } finally {
+    if (previous === undefined) delete globalThis.Capacitor;
+    else globalThis.Capacitor = previous;
+  }
+});
+
+test("iOS target includes auth and media permission configuration", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [plist, project, packageJson] = await Promise.all([
+    readFile(new URL("../ios/App/App/Info.plist", import.meta.url), "utf8"),
+    readFile(new URL("../ios/App/App.xcodeproj/project.pbxproj", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8")
+  ]);
+  assert.match(plist, /<string>tech\.klui\.app<\/string>/);
+  assert.match(plist, /<key>NSCameraUsageDescription<\/key>/);
+  assert.match(plist, /<key>NSMicrophoneUsageDescription<\/key>/);
+  assert.match(project, /PRODUCT_BUNDLE_IDENTIFIER = tech\.klui\.app;/);
+  assert.equal(JSON.parse(packageJson).scripts["mobile:run:ios"], "npm run mobile:sync:ios && cap run ios");
+});
+
+test("iOS keyboard insets keep the native composer above the keyboard", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
+  );
+  assert.match(source, /Keyboard\.addListener\("keyboardWillShow"/);
+  assert.match(source, /--native-keyboard-height/);
+  assert.match(source, /classList\.toggle\("keyboard-open", value > 0\)/);
 });
 
 test("mobile build supports an API origin override without changing source", async () => {

@@ -1,4 +1,4 @@
-import { appVersion, isNative, openExternal, storage } from "./index.js";
+import { appVersion, isNative, nativePlatform, openExternal, storage } from "./index.js";
 
 const UPDATE_URL = "https://klui.tech/downloads/android/latest.json";
 const LAST_CHECK_KEY = "klui.mobile.last-update-check.v1";
@@ -12,7 +12,7 @@ export function compareVersionCodes(installed, available) {
 }
 
 export async function checkForAppUpdate({ force = false } = {}) {
-  if (!isNative()) return null;
+  if (!isNative() || nativePlatform() !== "android") return null;
   const now = Date.now();
   const previous = Number.parseInt(await storage.get(LAST_CHECK_KEY) || "0", 10);
   if (!force && previous && now - previous < CHECK_INTERVAL_MS) return null;

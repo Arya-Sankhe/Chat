@@ -60,6 +60,7 @@ import {
   exitApp,
   isNative,
   listenForDeepLinks,
+  listenForKeyboardInsets,
   onResume,
   openExternal,
   preferences,
@@ -5450,6 +5451,7 @@ function closeTopNativeSurface() {
 
 async function setupNativeLifecycle() {
   if (!isNative()) return;
+  await listenForKeyboardInsets();
   await listenForNativeAuth(state.config, {
     onSession: handleAuthenticatedSession,
     onError: (error) => {

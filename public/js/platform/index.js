@@ -10,6 +10,10 @@ export function isNative() {
   return Boolean(capacitorRuntime()?.isNativePlatform?.());
 }
 
+export function nativePlatform() {
+  return capacitorRuntime()?.getPlatform?.() || "web";
+}
+
 export function apiOrigin() {
   return isNative() ? API_ORIGIN : "";
 }
@@ -331,9 +335,26 @@ export async function setTextZoom(percent) {
     }
     await textZoomPlugin.setTextZoom({ percent: Math.round(percent) });
   } catch {
-    // Older Android builds without the native TextZoom plugin simply
-    // keep the default 100% size — never block the UI on this.
+    // iOS has no TextZoom plugin; WebKit's native text adjustment is enough.
+    document.documentElement.style.setProperty("-webkit-text-size-adjust", `${Math.round(percent)}%`);
   }
+}
+
+export async function listenForKeyboardInsets() {
+  if (!isNative() || nativePlatform() !== "ios") return () => {};
+  const { Keyboard } = await import("@capacitor/keyboard");
+  const setHeight = (height = 0) => {
+    const value = Math.max(0, Number(height) || 0);
+    document.body.style.setProperty("--native-keyboard-height", `${value}px`);
+    document.body.classList.toggle("keyboard-open", value > 0);
+  };
+  const show = await Keyboard.addListener("keyboardWillShow", ({ keyboardHeight }) => setHeight(keyboardHeight));
+  const hide = await Keyboard.addListener("keyboardWillHide", () => setHeight());
+  return () => {
+    setHeight();
+    void show.remove();
+    void hide.remove();
+  };
 }
 
 export async function showNativeKeyboard() {

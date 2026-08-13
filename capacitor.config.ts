@@ -6,6 +6,7 @@ const config: CapacitorConfig = {
   webDir: "dist-mobile",
   server: {
     hostname: "localhost",
+    iosScheme: "capacitor",
     androidScheme: "https",
     cleartext: false
   },
@@ -15,6 +16,9 @@ const config: CapacitorConfig = {
       releaseType: "APK",
       signingType: "apksigner"
     }
+  },
+  ios: {
+    preferredContentMode: "mobile"
   },
   plugins: {
     App: {
