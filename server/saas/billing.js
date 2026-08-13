@@ -164,7 +164,7 @@ export async function assertApiBudgetAvailable({ db, userId, subscription, plan,
     if (usage?.reason === "usage_metering_disabled") {
       throw new HttpError(503, "Usage metering is temporarily unavailable.");
     }
-    throw new HttpError(429, usage?.reason || "Weekly API limit reached.", usage);
+    throw new HttpError(429, "You've used up your weekly limit.", { ...usage, code: "usage_exhausted", retryable: false });
   }
   return usage;
 }

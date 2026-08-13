@@ -17,7 +17,6 @@ import { enforceRateLimit } from "../http/rateLimit.js";
 const MAX_CHAT_BYTES = 8 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
-const MAX_DESKTOP_IMAGES = 4;
 const MAX_SCREENSHOT_EDGE = 2560;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -37,7 +36,7 @@ export function sendDesktopProblem(res, error, config) {
     error: {
       code: details.code || errorCode(status),
       message: error?.message || "Unexpected server error.",
-      retryable: details.retryable ?? [429, 503].includes(status)
+      retryable: details.retryable ?? status === 503
     },
     ...(status === 426 ? {
       minimum_version: config.desktop.minimumWindowsVersion,
@@ -141,7 +140,7 @@ function validateDataImage(value) {
   return dimensions;
 }
 
-export function desktopChatReservationCredits(body, config) {
+export function fundDesktopChat(body, config) {
   let imageTokens = 0;
   for (const message of body.messages) if (Array.isArray(message.content)) {
     for (const part of message.content) if (part?.type === "image_url" || part?.image_url) {
@@ -172,13 +171,10 @@ export function validatedChatBody(body, config) {
   if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 128) {
     throw new HttpError(400, "Desktop chat messages are invalid.");
   }
-  let imageCount = 0;
   for (const message of body.messages) {
     if (!message || !["developer", "system", "user", "assistant", "tool"].includes(message.role)) throw new HttpError(400, "A desktop chat message is invalid.");
     if (Array.isArray(message.content)) for (const part of message.content) {
       if (part?.type === "image_url" || part?.image_url) {
-        imageCount += 1;
-        if (imageCount > MAX_DESKTOP_IMAGES) throw new HttpError(413, "A desktop request contains too many images.");
         validateDataImage(part.image_url);
       }
     }
@@ -195,7 +191,10 @@ export function validatedChatBody(body, config) {
     stream: true,
     max_tokens: config.desktop.maxCompletionTokens,
     reasoning_effort: "high",
+    service_tier: "flex",
     provider: {
+      order: ["openai/flex"],
+      allow_fallbacks: false,
       max_price: {
         prompt: config.desktop.maxPromptPricePerMillion,
         completion: config.desktop.maxCompletionPricePerMillion
@@ -282,7 +281,7 @@ export async function handleDesktopChat(req, res, config) {
   requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
   const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), config);
-  const reservationCredits = desktopChatReservationCredits(body, config);
+  const reservationCredits = fundDesktopChat(body, config);
   const provider = resolveProvider("openrouter", config);
   const meter = createCrofaiUsageMeter({
     db: context.db,
@@ -337,7 +336,7 @@ export async function handleDesktopSpeech(req, res, config) {
     ...window, reservedCredits: credits
   }, { signal: AbortSignal.timeout(15_000) });
   if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
-  if (!reservation?.allowed) throw new HttpError(429, "Voice and chat share your weekly allowance.");
+  if (!reservation?.allowed) throw new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false });
   try {
     await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });
   } catch {

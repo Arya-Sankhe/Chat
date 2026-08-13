@@ -5,7 +5,7 @@
 1. Apply `20260811000000_desktop_auth_and_atomic_usage.sql` to staging, then production.
 2. Run Supabase security and performance advisors. Resolve all critical/high findings and save the reports.
 3. Complete the hosted OAuth conformance matrix.
-4. Confirm the OpenAPI hash in both repositories is `976b40de9c5f664ff5badfa124893caefcc631bc764b8b175a0e4f1f27e73bb1`.
+4. Confirm the OpenAPI hash in both repositories is `3925e43dc4e4534d11cd76b3de8c9753b3e110ceac7e35a48cc722ea9dc70dd7`.
 5. Configure edge limits in addition to the process-local limiter. Restrict origin traffic so `CF-Connecting-IP` is trustworthy.
 6. Confirm OpenRouter/Sarvam keys exist only in the website deployment.
 7. Confirm `funded_inference_disabled.value.disabled` is `false` in `app_settings`.
@@ -38,9 +38,10 @@ Do not switch back to `legacy` while reservations exist. First allow all submitt
 3. Set `DESKTOP_BETA_ACCOUNT_IDS` to the canonical `profiles.id` UUIDs for beta testers, then enable `DESKTOP_CHAT_ENABLED` and `DESKTOP_STT_ENABLED` independently. Use `*` only for an intentional all-paid-plan rollout.
 4. Confirm every funded request becomes `settled`, `estimated`, or (before submission) `released`.
 5. Confirm no raw provider secret or account token exists in child environments, logs, crash reports, config, or artifacts.
-6. Publish only an Authenticode-signed installer. From the website repository, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop/publish-windows-release.ps1 -InstallerPath <signed-installer.exe>`. The command refuses invalid signatures and version collisions, then prepares a versioned installer and `latest.json` with its SHA-256 under ignored `artifacts/windows-release/`.
-7. On production, set `WINDOWS_DOWNLOADS_DIR=/var/lib/klui-downloads/windows`, create that root-owned directory, and copy the two prepared release files into it. The container mounts it read-only. Verify the public SHA-256 before exposing the beta to testers; never commit the installer binary to Git.
-8. Expand gradually while monitoring auth errors, refresh failures, 402/429/503 rates, cost variance, reservation drift, unsettled events, and client versions.
+6. Keep unsigned test builds in the unlisted private-beta channel. The page must disclose the Unknown publisher warning, and testers must verify the published SHA-256. Never expose an unsigned build through the public metadata file.
+7. For the broad public channel, publish only an Authenticode-signed installer. From the website repository, run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop/publish-windows-release.ps1 -InstallerPath <signed-installer.exe>`. The command refuses invalid signatures and version collisions, then prepares a versioned installer and `latest.json` with its SHA-256 under ignored `artifacts/windows-release/`.
+8. On production, set `WINDOWS_DOWNLOADS_DIR=/var/lib/klui-downloads/windows`, create that root-owned directory, and copy the two prepared release files into it. The container mounts it read-only. Verify the public SHA-256 before exposing the beta to testers; never commit the installer binary to Git.
+9. Expand gradually while monitoring auth errors, refresh failures, 402/429/503 rates, cost variance, reservation drift, unsettled events, and client versions.
 
 ## Rollback
 

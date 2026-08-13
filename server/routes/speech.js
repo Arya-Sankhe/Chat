@@ -61,7 +61,7 @@ export async function handleSpeechToText(req, res, config) {
       reservedCredits: credits
     }, { signal: AbortSignal.timeout(15_000) });
     if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
-    if (!reservation?.allowed) throw new HttpError(429, "Voice and chat share your weekly allowance.");
+    if (!reservation?.allowed) throw new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false });
   }
 
   const signal = enforce ? AbortSignal.timeout(45_000) : AbortSignal.any([req.signal, AbortSignal.timeout(45_000)]);

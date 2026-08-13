@@ -7,59 +7,239 @@
     <title>Klui Anything for Windows</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <style>
-      *{box-sizing:border-box}body{margin:0;min-height:100dvh;background:radial-gradient(circle at 75% 12%,#12395a 0,transparent 36%),linear-gradient(145deg,#050a12,#0a1727 58%,#07111f);color:#f7fbff;font-family:Inter,"Segoe UI",system-ui,sans-serif}main{width:min(1060px,100%);margin:auto;padding:clamp(34px,7vw,92px) 24px}.nav{display:flex;align-items:center;gap:12px;margin-bottom:clamp(58px,9vw,112px)}.nav img{width:38px;height:38px;border-radius:11px}.nav strong{font-size:15px;letter-spacing:.01em}.beta{margin-left:auto;padding:6px 10px;border:1px solid #78e7ff55;border-radius:999px;background:#78e7ff12;color:#9cefff;font-size:12px;font-weight:700}.hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:clamp(32px,7vw,92px);align-items:center}.eyebrow{margin:0 0 18px;color:#83e8ff;font-size:13px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}h1{max-width:720px;margin:0;font-size:clamp(42px,7vw,78px);line-height:.98;letter-spacing:-.055em}h1 span{color:#8deaff}.lead{max-width:620px;margin:26px 0 32px;color:#b7c7d9;font-size:clamp(17px,2vw,20px);line-height:1.65}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px}.download{display:inline-flex;min-height:52px;align-items:center;justify-content:center;padding:0 22px;border-radius:12px;background:#f5fbff;color:#08111d;text-decoration:none;font-weight:800;box-shadow:0 12px 34px #0007;transition:transform .18s ease,box-shadow .18s ease}.download:hover{transform:translateY(-2px);box-shadow:0 16px 40px #0009}.download[aria-disabled=true]{opacity:.48;pointer-events:none}.requirements{color:#879bb2;font-size:13px}.card{padding:26px;border:1px solid #bdefff25;border-radius:22px;background:linear-gradient(155deg,#ffffff12,#ffffff07);box-shadow:inset 0 1px #ffffff18,0 30px 80px #0006;backdrop-filter:blur(16px)}.card h2{margin:0 0 18px;font-size:18px}.feature{display:grid;grid-template-columns:34px 1fr;gap:12px;padding:15px 0;border-top:1px solid #ffffff12}.feature:first-of-type{border-top:0}.icon{display:grid;width:32px;height:32px;place-items:center;border-radius:9px;background:#7ee9ff16;color:#8feaff}.feature strong{display:block;margin-bottom:4px;font-size:14px}.feature p{margin:0;color:#90a4ba;font-size:13px;line-height:1.5}.trust{margin-top:26px;padding:14px 16px;border:1px solid #ffffff14;border-radius:12px;background:#02070d66;color:#9fb1c5;font-size:13px;line-height:1.55}#version{margin:14px 0 0;color:#7f94aa;font-size:12px}.foot{margin-top:clamp(64px,9vw,108px);padding-top:24px;border-top:1px solid #ffffff12;color:#6f8297;font-size:12px}@media(max-width:760px){.hero{grid-template-columns:1fr}.card{margin-top:12px}.nav{margin-bottom:58px}}@media(prefers-reduced-motion:reduce){.download{transition:none}}
+      :root {
+        color-scheme: light;
+        --ink: #1c2430;
+        --muted: #526072;
+        --quiet: #718093;
+        --line: rgba(28, 36, 48, .13);
+        --mint: #94e7a7;
+        --mint-hot: #a4eeb6;
+        --mint-ink: #08130b;
+        --ease-out: cubic-bezier(.22, 1, .36, 1);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; }
+      body {
+        min-height: 100dvh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background:
+          linear-gradient(180deg, rgba(3, 11, 25, .08), rgba(3, 11, 25, .18)),
+          url("/images/home-valley.webp") center bottom / cover no-repeat,
+          #07111f;
+        color: var(--ink);
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      }
+
+      main {
+        width: min(440px, 100%);
+        padding: 30px 30px 24px;
+        overflow: hidden;
+        position: relative;
+        text-align: center;
+        border: 1px solid rgba(255, 255, 255, .8);
+        border-radius: 28px;
+        background: linear-gradient(180deg, #f8fafc 0%, #f0f5f8 58%, #e8f0ea 100%);
+        box-shadow: 0 28px 90px rgba(0, 7, 18, .42), inset 0 1px #fff;
+        animation: rise 520ms var(--ease-out) both;
+      }
+
+      main::before,
+      main::after {
+        content: "";
+        position: absolute;
+        left: -18%;
+        right: -18%;
+        bottom: -60px;
+        height: 132px;
+        border-radius: 50% 50% 0 0;
+        background: #d2e4d6;
+        transform: rotate(-3deg);
+        pointer-events: none;
+      }
+      main::after {
+        bottom: -88px;
+        left: -10%;
+        right: -25%;
+        background: #c4dcca;
+        transform: rotate(4deg);
+      }
+
+      .beta {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        min-height: 27px;
+        padding: 0 11px;
+        border: 1px solid #82ba9a;
+        border-radius: 999px;
+        background: rgba(123, 217, 143, .14);
+        color: #206c3a;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .mascot {
+        position: relative;
+        z-index: 1;
+        width: 92px;
+        height: 92px;
+        margin: 24px auto 18px;
+        filter: drop-shadow(0 12px 18px rgba(69, 105, 166, .2));
+        animation: bob 4.8s ease-in-out infinite;
+      }
+      .mascot svg { display: block; width: 100%; height: 100%; }
+      .eyes { transform-origin: center; animation: blink 5.2s infinite; }
+
+      h1 {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        font-size: clamp(29px, 8vw, 38px);
+        line-height: 1.02;
+        letter-spacing: -.045em;
+      }
+      .lead {
+        position: relative;
+        z-index: 1;
+        max-width: 340px;
+        margin: 13px auto 22px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .download {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        width: 100%;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid #7ed492;
+        border-radius: 14px;
+        background: var(--mint);
+        color: var(--mint-ink);
+        box-shadow: 0 8px 20px rgba(95, 196, 120, .22);
+        font-size: 15px;
+        font-weight: 750;
+        text-decoration: none;
+        transition: transform 160ms var(--ease-out), background-color 160ms ease;
+      }
+      .download[aria-disabled="true"] {
+        pointer-events: none;
+        background: #cfead6;
+        border-color: #b7dcc2;
+        color: #355743;
+        box-shadow: none;
+      }
+
+      .requirements,
+      #version {
+        position: relative;
+        z-index: 1;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .requirements { margin: 13px 0 0; }
+      #version { min-height: 18px; margin: 5px 0 0; }
+
+      details {
+        position: relative;
+        z-index: 1;
+        margin-top: 14px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        text-align: left;
+      }
+      summary {
+        padding: 14px 2px 4px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      details p { margin: 8px 2px 0; font-size: 12px; line-height: 1.55; }
+      #trust { color: var(--quiet); }
+
+      @media (hover: hover) and (pointer: fine) {
+        .download:hover { transform: translateY(-1px); background: var(--mint-hot); }
+      }
+      .download:active { transform: scale(.98); }
+      .download:focus-visible,
+      summary:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
+
+      @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+      @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
+      @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
+      @media (max-width: 520px) { body { padding: 14px; } main { padding: 25px 20px 20px; border-radius: 24px; } }
+      @media (prefers-reduced-motion: reduce) { main, .mascot, .eyes, .download { animation: none; transition: none; } }
     </style>
   </head>
   <body>
     <main>
-      <div class="nav"><img src="/icons/icon-192.png" alt=""><strong>Klui Anything</strong><span class="beta" id="channel">Windows beta</span></div>
-      <section class="hero">
-        <div>
-          <p class="eyebrow">Klui, wherever you work</p>
-          <h1>Ask anything.<br><span>Right from Windows.</span></h1>
-          <p class="lead">Use Klui chat, voice, and inline workflows from your desktop. Log in with your existing Klui account—your paid plan and weekly allowance carry over automatically.</p>
-          <div class="actions"><a class="download" id="download" aria-disabled="true">Checking release…</a><span class="requirements">Windows 10 2004+ · 64-bit</span></div>
-          <p id="version" aria-live="polite"></p>
-        </div>
-        <aside class="card">
-          <h2>What is in this beta</h2>
-          <div class="feature"><span class="icon">✦</span><div><strong>Klui chat</strong><p>Server-funded AI with no provider keys to configure.</p></div></div>
-          <div class="feature"><span class="icon">◉</span><div><strong>Voice and inline</strong><p>Speak a request or bring Klui into the field you are already using.</p></div></div>
-          <div class="feature"><span class="icon">↗</span><div><strong>One shared allowance</strong><p>Website chat, desktop chat, and voice all use the same Klui balance.</p></div></div>
-          <div class="trust" id="trust">Computer control is intentionally not included in this beta. Install only the signed Klui Anything installer published on this page; no portable ZIP is distributed.</div>
-        </aside>
-      </section>
-      <footer class="foot">Klui Anything for Windows · Beta software may change as we learn from testers.</footer>
+      <span class="beta" id="channel">Klui Anything beta</span>
+      <div class="mascot" aria-hidden="true">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="face" cx="40%" cy="30%" r="68%"><stop offset="0" stop-color="#fff"/><stop offset="62%" stop-color="#fff"/><stop offset="100%" stop-color="#e8f1fc"/></radialGradient>
+            <radialGradient id="rim" cx="50%" cy="48%" r="58%"><stop offset="54%" stop-color="#9ec0f0" stop-opacity="0"/><stop offset="76%" stop-color="#9ec0f0" stop-opacity=".55"/><stop offset="100%" stop-color="#7eacf0" stop-opacity=".95"/></radialGradient>
+          </defs>
+          <rect x="8" y="8" width="64" height="64" rx="21" fill="url(#face)"/>
+          <rect x="8" y="8" width="64" height="64" rx="21" fill="url(#rim)"/>
+          <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
+          <g class="eyes" fill="#4f74b8"><rect x="26" y="24" width="8" height="18" rx="4"/><rect x="46" y="24" width="8" height="18" rx="4"/></g>
+          <path d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1>Let’s put Klui here.</h1>
+      <p class="lead">Your Klui plan and weekly usage come with you. Download the Windows beta, log in, and you’re ready.</p>
+      <a class="download" id="download" aria-disabled="true">Getting the latest beta…</a>
+      <p class="requirements">Windows 10 version 2004 or newer · 64-bit</p>
+      <p id="version" aria-live="polite"></p>
+      <details>
+        <summary>A little beta note</summary>
+        <p id="trust">Computer control is not included yet. Chat, voice, and inline workflows use the same weekly Klui allowance as the website.</p>
+      </details>
     </main>
     <script type="module">
-      const button=document.querySelector('#download');
-      const version=document.querySelector('#version');
-      const channel=document.querySelector('#channel');
-      const trust=document.querySelector('#trust');
-      const betaToken=new URLSearchParams(location.search).get('beta')||'';
-      const privateBeta=/^[a-f0-9]{32}$/i.test(betaToken);
-      const metadataUrl=privateBeta?`/downloads/windows/private/${betaToken}/latest.json`:'/downloads/windows/latest.json';
-      try{
-        const response=await fetch(metadataUrl,{cache:'no-store'});
-        const release=response.ok?await response.json():null;
-        const privateInstallerPrefix=`/downloads/windows/private/${betaToken}/`;
-        const validInstaller=release?.published&&release.installerUrl&&(!privateBeta||release.installerUrl.startsWith(privateInstallerPrefix));
-        if(validInstaller){
-          button.href=release.installerUrl;
-          button.textContent=privateBeta?'Download private beta':'Download for Windows';
-          button.removeAttribute('aria-disabled');
-          version.textContent=`Version ${release.version} · SHA-256 ${release.sha256||'available in release metadata'}`;
-          if(privateBeta){
-            channel.textContent='Private Windows beta';
-            trust.textContent='This private beta is not code-signed yet. Windows may show an Unknown publisher or SmartScreen warning. Install it only if this link came directly from Klui. Computer control is not included, and no portable ZIP is distributed.';
+      const button = document.querySelector("#download");
+      const version = document.querySelector("#version");
+      const channel = document.querySelector("#channel");
+      const trust = document.querySelector("#trust");
+      const betaToken = new URLSearchParams(location.search).get("beta") || "";
+      const privateBeta = /^[a-f0-9]{32}$/i.test(betaToken);
+      const metadataUrl = privateBeta ? `/downloads/windows/private/${betaToken}/latest.json` : "/downloads/windows/latest.json";
+
+      try {
+        const response = await fetch(metadataUrl, { cache: "no-store" });
+        const release = response.ok ? await response.json() : null;
+        const privateInstallerPrefix = `/downloads/windows/private/${betaToken}/`;
+        const validInstaller = release?.published && release.installerUrl
+          && (!privateBeta || release.installerUrl.startsWith(privateInstallerPrefix));
+        if (validInstaller) {
+          button.href = release.installerUrl;
+          button.textContent = "Download Klui Anything";
+          button.removeAttribute("aria-disabled");
+          version.textContent = `Version ${release.version}`;
+          if (privateBeta) {
+            channel.textContent = "Private Windows beta";
+            trust.textContent = "This private beta is not code-signed yet, so Windows may say Unknown publisher. Only install the copy downloaded from this Klui page. Computer control is not included yet.";
           }
-        }else{
-          button.textContent='Windows beta is not published yet';
-          version.textContent='Final signing and release checks are still in progress.';
+        } else {
+          button.textContent = "The next beta is almost ready";
+          version.textContent = "Check back here shortly.";
         }
-      }catch{
-        button.textContent='Release information unavailable';
-        version.textContent='Please try again shortly.';
+      } catch {
+        button.textContent = "Couldn’t check the latest beta";
+        version.textContent = "Refresh the page and try again.";
       }
     </script>
   </body>

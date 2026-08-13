@@ -183,7 +183,15 @@ export function adaptChatRequestForProvider(body, providerId) {
     providerPrefs.allow_fallbacks = true;
   }
   if (isProModel) {
-    providerPrefs.order = ["openai"];
+    const wantsFlex = rest.service_tier === "flex"
+      || (Array.isArray(rest.provider?.order) && rest.provider.order.some((slug) => String(slug).includes("/flex")));
+    if (wantsFlex) {
+      adapted.service_tier = "flex";
+      providerPrefs.order = ["openai/flex"];
+    } else {
+      delete adapted.service_tier;
+      providerPrefs.order = ["openai"];
+    }
     providerPrefs.allow_fallbacks = false;
   }
 

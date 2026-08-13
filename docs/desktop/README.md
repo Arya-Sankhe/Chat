@@ -2,7 +2,7 @@
 
 The `Chat` repository owns identity, the hosted OAuth adapter, privacy consent, plan eligibility, provider credentials, the desktop API, and the shared usage ledger. The `clickframe` repository owns the Windows shell, Credential Manager storage, local Pi/CUA execution, and desktop UX.
 
-The immutable compatibility artifact is [`../openapi/desktop-v1.2026-08-11.yaml`](../openapi/desktop-v1.2026-08-11.yaml). Compatible additions require a new dated `desktop-v1` artifact. Breaking changes require `/api/desktop/v2`.
+The current immutable compatibility artifact is [`../openapi/desktop-v1.2026-08-13.yaml`](../openapi/desktop-v1.2026-08-13.yaml). Compatible additions require a new dated `desktop-v1` artifact. Breaking changes require `/api/desktop/v2`.
 
 ## Required Supabase setup
 

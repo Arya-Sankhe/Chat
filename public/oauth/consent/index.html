@@ -8,7 +8,28 @@
     <title>Continue to Klui Anything</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <style>
+      :root {
+        --ink: #1c2430;
+        --muted: #4e5c6e;
+        --quiet: #707e8e;
+        --line: rgba(28, 36, 48, 0.11);
+        --sky-top: #f8fafc;
+        --sky-mid: #f0f5f8;
+        --sky-bottom: #e8f0ea;
+        --hill-far: #d2e4d6;
+        --hill-near: #c4dcca;
+        --mint: #94e7a7;
+        --mint-hot: #a4eeb6;
+        --mint-ink: #08130b;
+        --chip-fill: rgba(123, 217, 143, 0.16);
+        --chip-line: #82ba9a;
+        --chip-ink: #206c3a;
+        --face: #4f74b8;
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      }
+
       * { box-sizing: border-box; }
+
       body {
         margin: 0;
         min-height: 100dvh;
@@ -16,60 +37,382 @@
         place-items: center;
         padding: 24px;
         overflow-x: hidden;
-        background: linear-gradient(180deg, #02071324 0%, #02071344 48%, #02071310 100%), url("/images/home-valley.webp") center bottom / cover no-repeat, #020713;
-        color: #f8fbff;
-        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+        color: var(--ink);
+        font-family: "Segoe UI", Inter, system-ui, sans-serif;
+        background:
+          linear-gradient(180deg, #02071324 0%, #02071344 48%, #02071310 100%),
+          url("/images/home-valley.webp") center bottom / cover no-repeat,
+          #020713;
       }
-      body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 32%, #14335f40 0, transparent 44%); }
-      main { position: relative; width: min(460px, 100%); padding: clamp(26px, 5vw, 36px); border: 1px solid #ffffff20; border-radius: 28px; background: #090d17d9; box-shadow: inset 0 1px #ffffff18, 0 24px 70px #0008; backdrop-filter: blur(18px); }
-      .beta { display: inline-flex; align-items: center; min-height: 27px; margin-bottom: 20px; padding: 0 11px; border: 1px solid #a9f2bd66; border-radius: 999px; background: #7bd98f1f; color: #baf4c7; font-size: 12px; font-weight: 750; letter-spacing: .02em; }
-      header { display: flex; align-items: center; gap: 15px; margin-bottom: 22px; }
-      header img { width: 52px; height: 52px; border-radius: 15px; box-shadow: 0 10px 26px #0006; }
-      h1 { margin: 0; font-size: clamp(24px, 6vw, 29px); letter-spacing: -.035em; line-height: 1.08; }
-      p { color: #bdc8da; line-height: 1.55; }
-      header p { margin: 6px 0 0; font-size: 14px; overflow-wrap: anywhere; }
-      .hello { margin: 0 0 16px; color: #eef4ff; font-size: 16px; }
-      .privacy { display: flex; align-items: flex-start; gap: 11px; margin: 18px 0 11px; padding: 14px; border: 1px solid #ffffff14; border-radius: 15px; background: #ffffff0a; color: #d7dfed; font-size: 14px; line-height: 1.45; cursor: pointer; }
-      .privacy input { width: 18px; height: 18px; margin: 1px 0 0; flex: 0 0 auto; accent-color: #8ee0a1; }
-      details { margin: 0 0 20px; color: #9fadc0; font-size: 12px; line-height: 1.5; }
-      summary { width: fit-content; cursor: pointer; color: #b9c7da; }
-      details p { margin: 8px 0 0; color: #9fadc0; }
-      .actions { display: flex; gap: 10px; }
-      button { min-height: 46px; padding: 0 18px; border: 1px solid #ffffff1f; border-radius: 13px; background: #ffffff0c; color: #edf4ff; font: inherit; font-weight: 750; cursor: pointer; transition: transform 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out; }
-      button.primary { flex: 1; border-color: #94e7a7; background: #94e7a7; color: #08130b; box-shadow: 0 10px 26px #5fc47826; }
-      button:hover:not(:disabled) { transform: translateY(-1px); }
-      button:active:not(:disabled) { transform: scale(.98); }
-      button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
-      button:disabled { opacity: .42; cursor: default; }
-      #status { min-height: 20px; margin: 13px 0 0; color: #aab8ca; font-size: 13px; }
-      #signIn { margin-top: 4px; }
-      #signIn p { margin-top: 0; }
-      #googleButton { min-height: 42px; }
-      #success { text-align: center; padding: 12px 0 2px; }
-      .success-icon { display: grid; place-items: center; width: 64px; height: 64px; margin: 0 auto 18px; border-radius: 20px; background: #94e7a7; color: #08130b; font-size: 30px; box-shadow: 0 14px 34px #5fc47838; }
-      #success h2 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
-      #success p { margin: 10px auto 0; max-width: 310px; }
-      .open-app { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; margin-top: 20px; padding: 0 20px; border: 1px solid #94e7a7; border-radius: 13px; background: #94e7a7; color: #08130b; font-weight: 750; text-decoration: none; box-shadow: 0 10px 26px #5fc47826; }
-      .open-app:hover { transform: translateY(-1px); }
-      .open-app:active { transform: scale(.98); }
-      .open-app:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(circle at 50% 32%, #14335f40 0, transparent 44%);
+      }
+
+      main {
+        position: relative;
+        overflow: hidden;
+        width: min(400px, 100%);
+        padding: 28px 28px 22px;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 46%, var(--sky-bottom) 100%);
+        box-shadow: 0 24px 60px rgba(2, 7, 19, 0.38), 0 2px 0 rgba(255, 255, 255, 0.72) inset;
+        text-align: center;
+        animation: rise 280ms var(--ease-out);
+      }
+
+      main::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 78px;
+        pointer-events: none;
+        background:
+          radial-gradient(130% 95% at 18% 118%, var(--hill-near) 0 46%, transparent 47%),
+          radial-gradient(100% 90% at 82% 124%, var(--hill-far) 0 50%, transparent 51%),
+          linear-gradient(#0000 18%, #d7e6db 100%);
+      }
+
+      .beta {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        margin: 0 0 18px;
+        padding: 0 10px;
+        border: 1px solid var(--chip-line);
+        border-radius: 999px;
+        background: var(--chip-fill);
+        color: var(--chip-ink);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .mascot {
+        width: 104px;
+        height: 104px;
+        margin: 0 auto 12px;
+        transform-origin: 50% 80%;
+        animation: bob 3.8s ease-in-out infinite;
+      }
+
+      .mascot svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        filter: drop-shadow(0 10px 16px rgba(110, 155, 230, 0.28));
+      }
+
+      .eyes {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: blink 4.4s infinite;
+      }
+
+      .fx { opacity: 0; pointer-events: none; }
+
+      header { margin: 0 0 8px; }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(22px, 5.4vw, 26px);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.15;
+      }
+
+      header p,
+      .hello,
+      #signIn p,
+      #success p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      header p { overflow-wrap: anywhere; }
+
+      .hello { margin: 10px 0 18px; color: var(--ink); }
+
+      .privacy {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: fit-content;
+        max-width: 100%;
+        margin: 0 auto 8px;
+        padding: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .privacy input {
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        margin: 1px 0 0;
+        flex: 0 0 auto;
+        border: 1.5px solid #c3cdd0;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+
+      .privacy input:checked {
+        border-color: #6fc887;
+        background: var(--mint) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2308130b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M3.4 8.3 6.4 11.2 12.6 4.8'/%3E%3C/svg%3E") center / 12px no-repeat;
+      }
+
+      details {
+        margin: 0 auto 18px;
+        color: var(--quiet);
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: left;
+        width: fit-content;
+        max-width: 100%;
+      }
+
+      summary {
+        width: fit-content;
+        margin: 0 auto;
+        list-style: none;
+        cursor: pointer;
+        color: var(--quiet);
+      }
+
+      summary::-webkit-details-marker { display: none; }
+
+      details p {
+        margin: 8px 0 0;
+        max-width: 280px;
+        color: var(--quiet);
+      }
+
+      .actions {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        gap: 10px;
+      }
+
+      button,
+      .open-app {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+        font-size: 15px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          transform 160ms var(--ease-out),
+          background-color 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      button.primary,
+      .open-app {
+        flex: 1;
+        border-color: #7ed492;
+        background: var(--mint);
+        color: var(--mint-ink);
+        box-shadow: 0 8px 20px rgba(95, 196, 120, 0.22);
+      }
+
+      button:disabled {
+        cursor: default;
+        box-shadow: none;
+      }
+
+      button.primary:disabled {
+        background: #cfead6;
+        border-color: #b7dcc2;
+        color: #355743;
+      }
+
+      #status {
+        position: relative;
+        z-index: 1;
+        min-height: 20px;
+        margin: 12px 0 0;
+        color: var(--quiet);
+        font-size: 13px;
+      }
+
+      #status:empty {
+        min-height: 0;
+        margin: 0;
+      }
+
+      #signIn { margin-top: 8px; }
+      #signIn p { margin: 0 0 16px; }
+      #googleButton { display: flex; justify-content: center; min-height: 42px; }
+
+      .native-google-button {
+        width: 100%;
+        border-color: var(--line);
+        background: #fff;
+      }
+
+      #success { padding: 4px 0 2px; }
+      #success h2 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: -0.03em;
+      }
+      #success p { margin: 8px auto 0; max-width: 280px; }
+      .open-app { margin-top: 20px; width: 100%; }
+
+      main:has(#success:not([hidden])) .beta,
+      main:has(#success:not([hidden])) header { display: none; }
+      main:has(#success:not([hidden])) .eye { opacity: 0; }
+      main:has(#success:not([hidden])) .mouth-normal { opacity: 0; }
+      main:has(#success:not([hidden])) .fx-happy { opacity: 1; }
+      main:has(#success:not([hidden])) .mascot { animation: celebrate 700ms var(--ease-out); }
+
       [hidden] { display: none !important; }
-      @media (max-width: 520px) { body { padding: 14px; background-position: 56% bottom; } main { border-radius: 22px; } .actions { flex-direction: column-reverse; } button.primary { width: 100%; } }
-      @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+
+      @media (hover: hover) and (pointer: fine) {
+        button:hover:not(:disabled),
+        .open-app:hover { transform: translateY(-1px); }
+        button.primary:hover:not(:disabled),
+        .open-app:hover { background: var(--mint-hot); }
+      }
+
+      button:active:not(:disabled),
+      .open-app:active { transform: scale(0.97); }
+
+      button:focus-visible,
+      .open-app:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid #94e7a766;
+        outline-offset: 3px;
+      }
+
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(8px) scale(0.97); }
+        to { opacity: 1; transform: none; }
+      }
+
+      @keyframes bob {
+        0%, 100% { transform: translateY(0) rotate(-1deg); }
+        50% { transform: translateY(-3px) rotate(1deg); }
+      }
+
+      @keyframes blink {
+        0%, 92%, 100% { transform: scaleY(1); }
+        95% { transform: scaleY(0.08); }
+      }
+
+      @keyframes celebrate {
+        0% { transform: scale(0.96); }
+        55% { transform: scale(1.06) translateY(-4px); }
+        100% { transform: scale(1); }
+      }
+
+      @media (max-width: 520px) {
+        body { padding: 14px; background-position: 56% bottom; }
+        main { border-radius: 24px; padding: 24px 20px 18px; }
+        .actions { flex-direction: column-reverse; }
+        button.primary { width: 100%; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        main, .mascot, .eyes { animation: none; }
+        button, .open-app { transition: none; }
+      }
     </style>
   </head>
   <body>
     <main>
-      <span class="beta">Klui Anything beta ✨</span>
-      <header><img src="/icons/icon-192.png" alt="Klui Anything"><div><h1>Let’s get you into Klui</h1><p id="account">Use your Klui account to continue.</p></div></header>
+      <span class="beta">Klui Anything beta</span>
+      <div class="mascot" aria-hidden="true">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="klui-face" cx="40%" cy="30%" r="68%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="62%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#e8f1fc"/>
+            </radialGradient>
+            <radialGradient id="klui-rim" cx="50%" cy="48%" r="58%">
+              <stop offset="54%" stop-color="#9ec0f0" stop-opacity="0"/>
+              <stop offset="76%" stop-color="#9ec0f0" stop-opacity=".55"/>
+              <stop offset="100%" stop-color="#7eacf0" stop-opacity=".95"/>
+            </radialGradient>
+            <radialGradient id="klui-hi" cx="30%" cy="22%" r="42%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+              <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="klui-shade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="55%" stop-color="#7eacf0" stop-opacity="0"/>
+              <stop offset="100%" stop-color="#7eacf0" stop-opacity=".18"/>
+            </linearGradient>
+          </defs>
+          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-face)"/>
+          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-rim)"/>
+          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-hi)"/>
+          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-shade)"/>
+          <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" ry="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
+          <g class="eyes">
+            <rect class="eye" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
+            <rect class="eye" x="46" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
+            <g class="fx fx-happy" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round">
+              <path d="M24 34 Q30 26 36 34"/>
+              <path d="M44 34 Q50 26 56 34"/>
+            </g>
+          </g>
+          <path class="mouth-normal" d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <header>
+        <h1>Let’s get you into Klui</h1>
+        <p id="account">Use your Klui account to continue.</p>
+      </header>
       <section id="approval" hidden>
-        <p class="hello">Ready to bring your plan and weekly usage over to the desktop app?</p>
-        <label class="privacy"><input id="privacy" type="checkbox"><span>I’m okay with Klui processing the screen context or voice I choose to share.</span></label>
-        <details><summary>A quick privacy note</summary><p>Klui’s actions run on your computer. Only the prompts, screen context, or voice you choose to use are sent for AI processing.</p></details>
-        <div class="actions"><button id="deny" type="button">Not now</button><button id="approve" class="primary" type="button" disabled>Yep, open Klui</button></div>
+        <p class="hello">Ready when you are.</p>
+        <label class="privacy"><input id="privacy" type="checkbox"><span>Klui can use the screen or voice I share.</span></label>
+        <details>
+          <summary>How it works</summary>
+          <p>Klui runs on your computer. Only the prompts, screen, or voice you choose to send go out for help.</p>
+        </details>
+        <div class="actions">
+          <button id="deny" type="button">Not now</button>
+          <button id="approve" class="primary" type="button" disabled>Yes, open Klui</button>
+        </div>
       </section>
-      <section id="signIn" hidden><p>Sign in once, then we’ll send you right back to the app.</p><div id="googleButton"></div></section>
-      <section id="success" hidden><div class="success-icon" aria-hidden="true">✓</div><h2>You’re approved!</h2><p>Klui Anything should open automatically. If it doesn’t, use the button below.</p><a id="openDesktop" class="open-app" href="#">Open Klui Anything</a></section>
+      <section id="signIn" hidden>
+        <p>Sign in once, then we’ll send you right back to the app.</p>
+        <div id="googleButton"></div>
+      </section>
+      <section id="success" hidden>
+        <h2>You’re in!</h2>
+        <p>Klui Anything should open on its own. If it doesn’t, use the button below.</p>
+        <a id="openDesktop" class="open-app" href="#">Open Klui Anything</a>
+      </section>
       <p id="status" role="status">Getting things ready…</p>
     </main>
     <script type="module" src="/oauth/consent/consent.js"></script>

@@ -188,7 +188,7 @@ test("createCrofaiUsageMeter does not call OpenRouter when weekly budget is deni
 
   await assert.rejects(
     meter.chatCompletion({ body: { model: "alpha" } }),
-    /Weekly API limit reached/
+    /You've used up your weekly limit/
   );
   assert.equal(crofCalls, 0);
 });

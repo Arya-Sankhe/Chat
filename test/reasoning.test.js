@@ -254,10 +254,33 @@ test("Pro pins GPT-5.6 Luna to OpenAI at max reasoning", () => {
   assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
   assert.equal(adapted.temperature, undefined);
   assert.equal(adapted.top_p, undefined);
+  assert.equal(adapted.service_tier, undefined);
   assert.deepEqual(adapted.provider, {
     order: ["openai"],
     allow_fallbacks: false,
     require_parameters: true
+  });
+});
+
+test("desktop Luna requests stay on OpenAI flex while website Luna stays default", () => {
+  const website = adaptChatRequestForProvider({
+    model: "openai/gpt-5.6-luna",
+    messages: [{ role: "user", content: "hi" }]
+  }, "openrouter");
+  assert.equal(website.service_tier, undefined);
+  assert.deepEqual(website.provider, { order: ["openai"], allow_fallbacks: false });
+
+  const desktop = adaptChatRequestForProvider({
+    model: "openai/gpt-5.6-luna",
+    messages: [{ role: "user", content: "hi" }],
+    service_tier: "flex",
+    provider: { order: ["openai/flex"], allow_fallbacks: false, max_price: { prompt: 0.2, completion: 1.2 } }
+  }, "openrouter");
+  assert.equal(desktop.service_tier, "flex");
+  assert.deepEqual(desktop.provider, {
+    order: ["openai/flex"],
+    allow_fallbacks: false,
+    max_price: { prompt: 0.2, completion: 1.2 }
   });
 });
 
@@ -485,6 +508,7 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
     });
 
     assert.equal(requests[0].model, "openai/gpt-5.6-luna");
+    assert.equal(requests[0].service_tier, undefined);
     assert.deepEqual(requests[0].provider, { order: ["openai"], allow_fallbacks: false });
     assert.deepEqual(requests[0].reasoning, { effort: "xhigh", exclude: false });
     assert.equal(requests[1].model, "minimax/minimax-m3");

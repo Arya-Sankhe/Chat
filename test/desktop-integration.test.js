@@ -6,9 +6,10 @@ import { parse as parseYaml } from "yaml";
 
 import { requireDesktopUser } from "../server/auth/desktop.js";
 import { loadConfig, validateRuntimeConfig } from "../server/config.js";
+import { HttpError } from "../server/http/responses.js";
 import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
-import { desktopBetaAllowed, desktopChatReservationCredits, validatedChatBody } from "../server/routes/desktop.js";
+import { desktopBetaAllowed, fundDesktopChat, sendDesktopProblem, validatedChatBody } from "../server/routes/desktop.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { validatedAudioDuration } from "../server/speech/audio.js";
 
@@ -182,7 +183,7 @@ test("funded desktop features fail closed without a canonical account allowlist"
   assert.equal(desktopBetaAllowed(loadConfig({ DESKTOP_BETA_ACCOUNT_IDS: "*" }), "any-account"), true);
 });
 
-test("desktop chat pins OpenRouter price ceilings and rejects oversized screenshots", () => {
+test("desktop chat pins the funded ceiling and rejects oversized screenshots", () => {
   const config = loadConfig({ DESKTOP_CHAT_RESERVATION_CREDITS: "0.25" });
   const png = Buffer.alloc(24);
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
@@ -193,14 +194,29 @@ test("desktop chat pins OpenRouter price ceilings and rejects oversized screensh
     stream: true,
     messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:image/png;base64,${png.toString("base64")}` } }] }]
   }, config);
-  assert.deepEqual(body.provider.max_price, { prompt: 0.2, completion: 1.2 });
+  assert.equal(body.service_tier, "flex");
+  assert.deepEqual(body.provider, {
+    order: ["openai/flex"],
+    allow_fallbacks: false,
+    max_price: { prompt: 0.2, completion: 1.2 }
+  });
+  assert.doesNotThrow(() => validatedChatBody({
+    model: "klui-desktop-agent",
+    stream: true,
+    messages: [{
+      role: "user",
+      content: Array.from({ length: 6 }, () => ({ type: "image_url", image_url: { url: `data:image/png;base64,${png.toString("base64")}` } }))
+    }]
+  }, config));
   const developerBody = validatedChatBody({
     model: "klui-desktop-agent",
     stream: true,
     messages: [{ role: "developer", content: "Be helpful." }, { role: "user", content: "Hi" }]
   }, config);
-  const reservation = desktopChatReservationCredits(developerBody, config);
+  const reservation = fundDesktopChat(developerBody, config);
   assert.ok(reservation > 0.009 && reservation < 0.02);
+
+  assert.equal(developerBody.max_tokens, config.desktop.maxCompletionTokens);
 
   png.writeUInt32BE(2561, 16);
   assert.throws(() => validatedChatBody({
@@ -313,11 +329,11 @@ test("WAV duration is derived from the container and capped at thirty seconds", 
 });
 
 test("the desktop repository pins the immutable website OpenAPI artifact", async () => {
-  const yaml = await readFile(new URL("../docs/openapi/desktop-v1.2026-08-11.yaml", import.meta.url));
-  const declaredHash = await readFile(new URL("../docs/openapi/desktop-v1.2026-08-11.sha256", import.meta.url), "utf8");
+  const yaml = (await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.yaml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
+  const declaredHash = await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.sha256", import.meta.url), "utf8");
   const hash = createHash("sha256").update(yaml).digest("hex");
-  assert.equal(hash, "976b40de9c5f664ff5badfa124893caefcc631bc764b8b175a0e4f1f27e73bb1");
-  assert.equal(declaredHash.trim(), `${hash}  desktop-v1.2026-08-11.yaml`);
+  assert.equal(hash, "3925e43dc4e4534d11cd76b3de8c9753b3e110ceac7e35a48cc722ea9dc70dd7");
+  assert.equal(declaredHash.trim(), `${hash}  desktop-v1.2026-08-13.yaml`);
   const contract = parseYaml(yaml.toString("utf8"));
   assert.equal(contract.openapi, "3.1.0");
   assert.deepEqual(Object.keys(contract.paths).sort(), [
@@ -369,7 +385,7 @@ test("the Windows download page keeps unsigned beta artifacts behind an unlisted
   assert.match(page, /\/downloads\/windows\/private\/\$\{betaToken\}\/latest\.json/);
   assert.match(page, /release\.installerUrl\.startsWith\(privateInstallerPrefix\)/);
   assert.match(page, /This private beta is not code-signed yet/);
-  assert.match(page, /'\/downloads\/windows\/latest\.json'/);
+  assert.match(page, /["']\/downloads\/windows\/latest\.json["']/);
 });
 
 test("desktop consent stays friendly and leaves a reliable browser handoff fallback", async () => {
@@ -394,4 +410,28 @@ test("backend identity-sensitive RPCs are service-role only", async () => {
     assert.match(source, new RegExp(`revoke execute on function public\\.${name}[^;]+from public, anon, authenticated`));
     assert.match(source, new RegExp(`grant execute on function public\\.${name}[^;]+to service_role`));
   }
+});
+
+test("desktop usage exhaustion is friendly and non-retryable", () => {
+  let status;
+  let payload;
+  const res = {
+    headersSent: false,
+    writeHead(value) { status = value; },
+    end(value) { payload = JSON.parse(value); }
+  };
+  sendDesktopProblem(res, new HttpError(429, "You've used up your weekly limit.", { code: "usage_exhausted", retryable: false }), loadConfig({}));
+  assert.equal(status, 429);
+  assert.deepEqual(payload.error, {
+    code: "usage_exhausted",
+    message: "You've used up your weekly limit.",
+    retryable: false
+  });
+});
+
+test("the atomic meter allows one final request while any weekly balance remains", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260813085421_allow_final_funded_request.sql", import.meta.url), "utf8");
+  assert.match(source, /api_credit_used \+ v_week\.api_credit_reserved >= v_limit/);
+  assert.doesNotMatch(source, /api_credit_reserved \+ v_reserve > v_limit/);
+  assert.match(source, /grant execute on function public\.klui_reserve_api_usage[^;]+to service_role/);
 });
