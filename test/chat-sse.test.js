@@ -347,6 +347,28 @@ async function dispatchChat(config, db, { path, body }) {
 
 const conversationRow = { id: "conv-1", title: "Existing chat", model: TEXT_MODEL };
 
+test("chat role think resolves on the server without a vendor model ID", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: (body) => {
+      assert.equal(body.model, TEXT_MODEL);
+      assert.deepEqual(body.reasoning, { effort: "xhigh", exclude: false });
+      return [contentDelta("Think response."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: { id: "conv-1", title: "Existing chat", model: TEXT_MODEL } });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Use Think", role: "think", agentMode: false }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  const identity = db.calls.find((call) => call.op === "updateConversation" && call.patch.model);
+  assert.equal(identity?.patch.model, "think");
+});
+
 test("Pro ignores a Klui provider request and sends Luna through OpenAI at max reasoning", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({

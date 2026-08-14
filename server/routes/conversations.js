@@ -1,4 +1,5 @@
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
+import { resolveChatRole } from "../models.js";
 import { hydrateMessagesForClient } from "../saas/messages.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
@@ -29,9 +30,10 @@ export async function handleConversations(req, res, config) {
     if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
       throw new HttpError(404, "Project not found.");
     }
+    const routed = resolveChatRole({ role: body.role, model: body.model });
     const conversation = await context.db.createConversation(context.user.id, {
       title: body.title || "New chat",
-      model: body.model || "",
+      model: routed.role || routed.models[0] || "",
       projectId: projectId || null
     }, { signal: req.signal });
     sendJson(res, 201, { conversation });

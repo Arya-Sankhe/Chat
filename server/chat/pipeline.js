@@ -49,13 +49,10 @@ import {
 import { buildWeatherTool, isWeatherQuery } from "../weather.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
+import { resolveChatRole } from "../models.js";
 import {
-  OPENROUTER_TEXT_MODEL,
-  OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
-  OPENROUTER_VISION_L2,
   resolveProvider
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
@@ -85,15 +82,6 @@ import {
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
-// Text-only compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
-const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
-const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
-const DEFAULT_COUNCIL_MODELS = [
-  OPENROUTER_TEXT_MODEL,
-  OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_VISION_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL
-];
 
 const RESEARCH_CONTEXT_MAX_CHARS = 120_000;
 const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -328,20 +316,10 @@ function requestHasCompareMedia({ userContent, existingMessages = [], attachment
   return (existingMessages || []).some((message) => message?.role === "user" && contentHasCompareMedia(message.content));
 }
 
-function normalizeCompareModelsForRequest(value, { hasMedia = false } = {}) {
-  const models = normalizeCompareModels(value);
-  if (!models.length) return [];
-  return hasMedia ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
-}
-
 export function resolveFixedCompareModels(value, { hasMedia = false } = {}) {
-  return normalizeCompareModelsForRequest(value, { hasMedia });
-}
-
-function normalizeCouncilModelsForRequest(value) {
   const models = normalizeCompareModels(value);
   if (!models.length) return [];
-  return DEFAULT_COUNCIL_MODELS;
+  return resolveChatRole({ role: "compare", hasMedia }).models;
 }
 
 export function normalizeCouncilFlag(value) {
@@ -742,8 +720,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
     ? await context.db.getProject(context.user.id, conversation.project_id, { signal: req.signal })
     : null;
 
-  const councilEnabled = normalizeCouncilFlag(body.council);
-  const requestedCompareModels = normalizeCompareModels(body.models);
+  const earlyRoute = resolveChatRole({
+    role: body.role,
+    model: body.model || conversation.model,
+    models: body.models,
+    council: body.council
+  });
   const agentMode = normalizeAgentMode(body.agentMode);
   const retryAssistantMessageId = typeof body.retryAssistantMessageId === "string"
     ? body.retryAssistantMessageId.trim()
@@ -752,7 +734,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const editUserMessageId = typeof body.editUserMessageId === "string"
     ? body.editUserMessageId.trim()
     : "";
-  if (retryAssistantMessageId && (requestedCompareModels.length || councilEnabled)) {
+  if (retryAssistantMessageId && (earlyRoute.role === "compare" || earlyRoute.role === "council")) {
     throw new HttpError(400, "Retry is not supported for compare or council chats yet.");
   }
   if (retryAssistantMessageId && editUserMessageId) {
@@ -814,12 +796,20 @@ async function executeConversationMessage(req, res, config, conversationId, {
   }
 
   const hasCompareMedia = requestHasCompareMedia({ userContent, existingMessages, attachments });
-  const compareModels = councilEnabled
-    ? normalizeCouncilModelsForRequest(body.models)
-    : normalizeCompareModelsForRequest(body.models, { hasMedia: hasCompareMedia });
-  const requestedModel = body.model || conversation.model;
+  const routed = resolveChatRole({
+    role: body.role,
+    model: body.model || conversation.model,
+    models: body.models,
+    council: body.council,
+    hasMedia: hasCompareMedia
+  });
+  const councilEnabled = routed.role === "council";
+  const compareModels = routed.role === "compare" || councilEnabled ? routed.models : [];
+  const requestedModel = routed.models[0];
   const provider = resolveProvider(
-    compareModels.length || requestedModel === OPENROUTER_PRO_MODEL ? "openrouter" : body.provider,
+    compareModels.length || routed.role || requestedModel === OPENROUTER_PRO_MODEL
+      ? "openrouter"
+      : body.provider,
     config
   );
   const pastedTextRange = !isRetry && !isEdit
@@ -836,6 +826,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     }
   }
   const settings = normalizeMessageSettings(body);
+  if (routed.effort) settings.reasoning_effort = routed.effort;
   settings.systemPrompt = withWritingStyleSystemPrompt(
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
@@ -893,7 +884,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     }
   }
 
-  const responseModels = compareModels.length ? compareModels : [body.model || conversation.model];
+  const responseModels = compareModels.length ? compareModels : routed.models;
   for (const model of responseModels) {
     normalizeChatRequest({
       model,
@@ -989,12 +980,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
         ...settings
       })))
     : [normalizeChatRequest({
-        model: body.model || conversation.model,
-        messages: await providerMessagesForModel(body.model || conversation.model),
+        model: requestedModel,
+        messages: await providerMessagesForModel(requestedModel),
         ...settings
       })];
 
-  const conversationModel = chatRequests.map((request) => request.model).join(", ");
+  const conversationModel = routed.role || requestedModel;
   const titleContent = existingMessages.find((message) => message.role === "user")?.content || userContent;
   const titleNeedsGeneration = !conversation.title
     || conversation.title === "New chat"
@@ -1008,7 +999,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         signal: req.signal
       })
     : Promise.resolve(null);
-  const shouldUpdateModel = !conversation.model || compareModels.length > 0;
+  const shouldUpdateModel = Boolean(conversationModel) && conversation.model !== conversationModel;
   const updateConversationIdentity = async () => {
     const title = await titlePromise;
     if (title || shouldUpdateModel) {
@@ -1379,16 +1370,22 @@ export function filterCurrentTurnMessages(messages, turnRunId, userMessageId = "
 }
 
 function persistedTurnRequest(body, conversation, config, { hasMedia = false } = {}) {
-  const council = normalizeCouncilFlag(body.council);
-  const models = council
-    ? normalizeCouncilModelsForRequest(body.models)
-    : normalizeCompareModelsForRequest(body.models, { hasMedia });
+  const routed = resolveChatRole({
+    role: body.role,
+    model: body.model || conversation.model,
+    models: body.models,
+    council: body.council,
+    hasMedia
+  });
+  const council = routed.role === "council";
+  const models = routed.role === "compare" || council ? routed.models : [];
   if (council && (models.length < COUNCIL_MIN_MODELS || models.length > COUNCIL_MAX_MODELS)) {
     throw new HttpError(400, `Council supports ${COUNCIL_MIN_MODELS} to ${COUNCIL_MAX_MODELS} models.`);
   }
 
-  const model = String(body.model || conversation.model || "").trim();
+  const model = routed.models[0] || "";
   const settings = normalizeMessageSettings(body);
+  if (routed.effort) settings.reasoning_effort = routed.effort;
   const responseModels = models.length ? models : [model];
   for (const responseModel of responseModels) {
     normalizeChatRequest({
@@ -1397,13 +1394,14 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       ...settings
     });
   }
-  resolveProvider(models.length ? "openrouter" : body.provider, config);
+  resolveProvider(models.length || routed.role ? "openrouter" : body.provider, config);
 
   return {
     mode: council ? "council" : (models.length ? "compare" : "single"),
     payload: {
+      ...(routed.role ? { role: routed.role } : {}),
       model,
-      provider: models.length ? "openrouter" : String(body.provider || "").trim(),
+      provider: models.length || routed.role ? "openrouter" : String(body.provider || "").trim(),
       settings,
       writingStyle: normalizeWritingStyle(body.writingStyle),
       agentMode: normalizeAgentMode(body.agentMode),

@@ -13,7 +13,8 @@ import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
-import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
+import { resolveChatRole } from "../models.js";
+import { resolveProvider } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import { requireServerCrofKey } from "../routes/meta.js";
 import {
@@ -47,11 +48,15 @@ export async function handleTemporaryChat(req, res, config) {
   const context = await requireChatContext(req, config);
   const includeReasoning = context.profile?.role === "admin";
   const body = await parseJsonBody(req, 1024 * 1024);
-  if (Array.isArray(body.models) && body.models.length) {
+  const requested = resolveChatRole({
+    role: body.role,
+    model: body.model,
+    models: body.models,
+    council: body.council
+  });
+  if (requested.role === "compare" || requested.role === "council" || normalizeCouncilFlag(body.council)
+    || (Array.isArray(body.models) && body.models.length)) {
     throw new HttpError(400, "Temporary chat does not support compare or council mode yet.");
-  }
-  if (normalizeCouncilFlag(body.council)) {
-    throw new HttpError(400, "Temporary chat does not support council mode yet.");
   }
 
   const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
@@ -71,7 +76,15 @@ export async function handleTemporaryChat(req, res, config) {
   })();
   res.on("close", () => { void cleanupImages(); });
 
+  const routed = resolveChatRole({
+    role: body.role,
+    model: body.model,
+    models: body.models,
+    council: body.council,
+    hasMedia: attachments.length > 0
+  });
   const settings = normalizeMessageSettings(body);
+  if (routed.effort) settings.reasoning_effort = routed.effort;
   settings.systemPrompt = withWritingStyleSystemPrompt(
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
@@ -83,7 +96,8 @@ export async function handleTemporaryChat(req, res, config) {
     ...normalizeTemporaryHistory(body.messages),
     { role: "user", content: userContent }
   ];
-  const provider = resolveProvider(body.model === OPENROUTER_PRO_MODEL ? "openrouter" : body.provider, config);
+  const model = routed.models[0];
+  const provider = resolveProvider(routed.role ? "openrouter" : body.provider, config);
   const crofai = createCrofaiUsageMeter({
     db: context.db,
     userId: context.user.id,
@@ -100,10 +114,10 @@ export async function handleTemporaryChat(req, res, config) {
     signal: req.signal
   });
   const baseChatRequest = normalizeChatRequest({
-    model: body.model || OPENROUTER_TEXT_MODEL,
+    model,
     messages: await buildProviderMessages({
       messages: historyMessages,
-      systemPrompt: withModelSystemPrompt(settings.systemPrompt, body.model || OPENROUTER_TEXT_MODEL),
+      systemPrompt: withModelSystemPrompt(settings.systemPrompt, model),
       r2: context.r2,
       contextConfig: config.context,
       summarizeHistory
