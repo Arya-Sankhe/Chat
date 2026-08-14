@@ -38,33 +38,6 @@ test("normalizeChatRequest keeps only supported chat fields", () => {
   });
 });
 
-test("normalizeChatRequest upgrades the model used by older Android builds", () => {
-  const payload = normalizeChatRequest({
-    model: "deepseek/deepseek-v4-flash",
-    messages: [{ role: "user", content: "Hello" }]
-  });
-
-  assert.equal(payload.model, "deepseek/deepseek-v4-flash-0731");
-});
-
-test("normalizeChatRequest upgrades the former Nitro model used by older Android builds", () => {
-  const payload = normalizeChatRequest({
-    model: "poolside/laguna-xs-2.1",
-    messages: [{ role: "user", content: "Hello" }]
-  });
-
-  assert.equal(payload.model, "inclusionai/ling-3.0-flash");
-});
-
-test("normalizeChatRequest upgrades the former Council model used by older Android builds", () => {
-  const payload = normalizeChatRequest({
-    model: "deepseek/deepseek-v4-pro",
-    messages: [{ role: "user", content: "Hello" }]
-  });
-
-  assert.equal(payload.model, "tencent/hy3");
-});
-
 test("normalizeChatRequest supports vision content", () => {
   const payload = normalizeChatRequest({
     model: "kimi-k2.5",

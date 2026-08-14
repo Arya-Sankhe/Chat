@@ -19,9 +19,7 @@ export function createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages,
-  OPENROUTER_PRO_MODEL,
-  OPENROUTER_TEXT_MODEL
+  renderImages
 }) {
   let researchPollTimer = null;
   let researchPollGeneration = 0;
@@ -334,7 +332,7 @@ export function createResearchController({
         query,
         displayQuery,
         conversationId: state.activeConversationId || undefined,
-        model: selectedModelMode() === "pro" ? OPENROUTER_PRO_MODEL : OPENROUTER_TEXT_MODEL,
+        role: selectedModelMode() === "pro" ? "pro" : "think",
         temporary: false,
         compare: false,
         council: false,

@@ -186,7 +186,7 @@ function paintSpectrum(level = spectrumLevelFromSettings()) {
   }
   if (els.heatFill) els.heatFill.style.width = "100%";
   const isPro = n === SPECTRUM_N - 1;
-  const heatLabel = isPro ? "PRO" : n === 0 ? "Nitro" : "Think";
+  const heatLabel = isPro ? roleLabel("pro", "Pro").toUpperCase() : n === 0 ? roleLabel("nitro", "Nitro") : roleLabel("think", "Think");
   els.modelButton?.classList.toggle("nitro-active", n === 0);
   els.modelButton?.classList.toggle("think-active", n === 1);
   els.modelButton?.classList.toggle("pro-active", isPro);
@@ -1034,8 +1034,34 @@ function selectedModelMode() {
   return state.settings.modelMode === "pro" ? "pro" : "thinking";
 }
 
+function configRoles() {
+  return Array.isArray(state.config?.roles) ? state.config.roles : [];
+}
+
+function roleLabel(id, fallback) {
+  return configRoles().find((role) => role.id === id)?.label || fallback || id;
+}
+
+function selectedSingleRole() {
+  const level = spectrumLevelFromSettings();
+  if (level === 0) return "nitro";
+  if (level === SPECTRUM_N - 1) return "pro";
+  return "think";
+}
+
+function selectedChatRole() {
+  if (state.settings.compareEnabled && state.settings.compareMode === "council") return "council";
+  if (state.settings.compareEnabled) return "compare";
+  return selectedSingleRole();
+}
+
+function chatRequestSettings() {
+  const { temperature, top_p, max_tokens, seed, stop, systemPrompt } = state.settings;
+  return { temperature, top_p, max_tokens, seed, stop, systemPrompt };
+}
+
 function modelModeLabel(mode = selectedModelMode()) {
-  return mode === "pro" ? "Pro" : "Think";
+  return mode === "pro" ? roleLabel("pro", "Pro") : roleLabel("think", "Think");
 }
 
 function composerPlaceholder() {
@@ -3555,13 +3581,12 @@ async function sendSideChatMessage() {
 
   try {
     const provider = activeProvider();
-    const model = provider === "openrouter" ? resolveRoutedModel({ images: [], userContent: text }) : state.settings.model;
     await streamTemporaryChat(state.session, {
       text,
       messages: history,
-      model,
+      role: selectedSingleRole(),
       provider,
-      settings: { ...state.settings, reasoning_effort: currentReasoningEffort() },
+      settings: chatRequestSettings(),
       writingStyle: "concise",
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -5072,9 +5097,7 @@ researchController = createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages,
-  OPENROUTER_PRO_MODEL,
-  OPENROUTER_TEXT_MODEL
+  renderImages
 });
 
 function stopExtractedModulePollers() {
@@ -6113,18 +6136,12 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
 
   try {
     const retryProvider = activeProvider();
-    const retryModel = retryProvider === "openrouter"
-      ? resolveRoutedModel({ images: [], userContent: userMsg.content })
-      : state.settings.model;
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
-      model: retryModel,
+      role: selectedChatRole(),
       provider: retryProvider,
-      settings: {
-        ...state.settings,
-        reasoning_effort: currentReasoningEffort()
-      },
+      settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -6239,7 +6256,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   if (!temporaryChat && (newChat || !state.activeConversationId)) {
     const payload = await createConversation(state.session, {
-      model: compareModels[0] || resolveRoutedModel({ images }),
+      role: selectedChatRole(),
       projectId: state.activeProjectId || null
     });
     state.conversations.unshift(payload.conversation);
@@ -6339,22 +6356,15 @@ async function executeSend({ text, images, compareModels, council = false, descr
     }
 
     const provider = activeProvider();
-    const effectiveModel = provider === "openrouter"
-      ? resolveRoutedModel({ images, userContent: localUser.content })
-      : state.settings.model;
-    updateSetting("model", effectiveModel);
     const payload = {
       text,
       clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
         ? crypto.randomUUID()
         : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`,
       attachments: uploaded.map((item) => item.id),
-      model: effectiveModel,
+      role: selectedChatRole(),
       provider,
-      settings: {
-        ...state.settings,
-        reasoning_effort: currentReasoningEffort()
-      },
+      settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
@@ -6379,7 +6389,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
     } else if (council) {
       await streamCompareConversationMessage(state.session, conversationId, {
         ...payload,
-        models: compareModels,
         council: true
       }, {
         signal: abortController.signal,
@@ -6393,8 +6402,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       });
     } else if (compareModels.length) {
       await streamCompareConversationMessage(state.session, conversationId, {
-        ...payload,
-        models: compareModels
+        ...payload
       }, {
         signal: abortController.signal,
         onEvent: (event) => {

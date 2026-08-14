@@ -387,12 +387,12 @@ export async function saveEditableDocument(session, attachmentId, markdown, revi
   return response.json();
 }
 
-export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, model, signal }) {
+export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, signal }) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/revise`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ markdown, selection, instruction, model }),
+    body: JSON.stringify({ markdown, selection, instruction }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));

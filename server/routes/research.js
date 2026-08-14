@@ -4,14 +4,9 @@ import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/respons
 import { sanitizeResearchPublicView } from "../research/public.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { titleFromText } from "../saas/messages.js";
-import {
-  OPENROUTER_PRO_MODEL,
-  OPENROUTER_TEXT_MODEL,
-  resolveProvider
-} from "../providers.js";
+import { resolveChatRole } from "../models.js";
+import { resolveProvider } from "../providers.js";
 import { requireChatContext } from "./context.js";
-
-const RESEARCH_MODELS = new Set([OPENROUTER_TEXT_MODEL, OPENROUTER_PRO_MODEL]);
 
 export { sanitizeResearchPublicView };
 
@@ -47,7 +42,9 @@ export async function handleCreateResearch(req, res, config) {
   if (body.temporary || body.compare || body.council || body.hasAttachments) {
     throw new HttpError(400, "Deep Research currently works in a normal text chat only.");
   }
-  const model = RESEARCH_MODELS.has(body.model) ? body.model : OPENROUTER_TEXT_MODEL;
+  const requested = resolveChatRole({ role: body.role, model: body.model });
+  const role = requested.role === "pro" ? "pro" : "think";
+  const model = resolveChatRole({ role }).models[0];
   const provider = resolveProvider("openrouter", config);
   await createCrofaiUsageMeter({
     db: context.db,
@@ -66,7 +63,7 @@ export async function handleCreateResearch(req, res, config) {
   } else {
     conversation = await context.db.createConversation(context.user.id, {
       title: titleFromText(displayQuery),
-      model
+      model: role
     }, { signal: req.signal });
   }
   const active = await context.db.listActiveResearchRuns(
@@ -123,7 +120,7 @@ export async function handleCreateResearch(req, res, config) {
   }, { signal: req.signal });
   await context.db.updateConversation(context.user.id, conversation.id, {
     title: conversation.title === "New chat" ? titleFromText(displayQuery) : conversation.title,
-    model
+    model: role
   }, { signal: req.signal });
 
   sendJson(res, 202, {

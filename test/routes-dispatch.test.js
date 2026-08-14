@@ -185,10 +185,13 @@ test("public routes respond 200 without auth or configured services", async () =
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
   assert.equal(configRes.statusCode, 200);
   const configBody = configRes.json();
-  for (const key of ["app", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers"]) {
+  for (const key of ["app", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles"]) {
     assert.ok(key in configBody, `config payload exposes ${key}`);
   }
   assert.deepEqual(configBody.providers, { klui: false, openrouter: false });
+  assert.deepEqual(configBody.roles.map((role) => role.id), ["nitro", "think", "pro", "compare", "council"]);
+  const rolesJson = JSON.stringify(configBody.roles);
+  assert.doesNotMatch(rolesJson, /openrouter|deepseek\/|openai\/|inclusionai\/|xiaomi\/|tencent\//);
 
   const plans = await dispatch(bareConfig, { path: "/api/plans" });
   assert.equal(plans.statusCode, 200);
