@@ -438,7 +438,6 @@ export function createDocumentViewer({
               markdown,
               selection,
               instruction,
-              model: state.activeConversation?.model || state.settings?.model,
               signal
             });
             return result.replacement;

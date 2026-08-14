@@ -89,13 +89,21 @@ test("public chat roles expose labels without vendor IDs", () => {
 });
 
 test("website send path uses role and does not ship OpenRouter IDs", () => {
+  const api = readFileSync(resolve(here, "../public/js/api.js"), "utf8");
   const app = readFileSync(resolve(here, "../public/js/app.js"), "utf8");
+  const documentViewer = readFileSync(resolve(here, "../public/js/documentViewer.js"), "utf8");
   const research = readFileSync(resolve(here, "../public/js/research.js"), "utf8");
+  const requestSettings = app.match(/function chatRequestSettings\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(app, /function selectedChatRole\(\)/);
+  assert.ok(requestSettings);
+  assert.doesNotMatch(requestSettings, /\bmodel\b|compareModels|kluiModel|reasoning_effort|thinkingEffort/);
   assert.match(app, /role: selectedChatRole\(\)/);
   assert.match(app, /role: selectedSingleRole\(\)/);
   assert.doesNotMatch(app, /model: effectiveModel/);
   assert.doesNotMatch(app, /models: compareModels/);
+  assert.doesNotMatch(app, /settings:\s*\{\s*\.\.\.state\.settings/);
+  assert.doesNotMatch(api, /JSON\.stringify\(\{ markdown, selection, instruction, model \}\)/);
+  assert.doesNotMatch(documentViewer, /model: state\.activeConversation/);
   assert.match(research, /role: selectedModelMode\(\) === "pro" \? "pro" : "think"/);
   assert.doesNotMatch(research, /OPENROUTER_/);
 });

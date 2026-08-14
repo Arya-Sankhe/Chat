@@ -163,7 +163,6 @@ function applySpectrumLevel(level) {
   updateSetting("spectrumScale", 3);
   updateSetting("spectrumLevel", n);
   updateSetting("modelMode", step.mode);
-  updateSetting("role", n === 0 ? "nitro" : n === SPECTRUM_N - 1 ? "pro" : "think");
   updateSetting("provider", "openrouter");
   updateSetting("thinkingEffort", step.effort);
   updateSetting("model", step.model);
@@ -230,7 +229,6 @@ const WRITING_STYLE_LABELS = Object.freeze({
 
 const defaultSettings = {
   model: OPENROUTER_TEXT_MODEL,
-  role: "think",
   modelMode: "thinking",
   temperature: 0.7,
   top_p: 0.95,
@@ -1057,6 +1055,11 @@ function selectedChatRole() {
   return selectedSingleRole();
 }
 
+function chatRequestSettings() {
+  const { temperature, top_p, max_tokens, seed, stop, systemPrompt } = state.settings;
+  return { temperature, top_p, max_tokens, seed, stop, systemPrompt };
+}
+
 function modelModeLabel(mode = selectedModelMode()) {
   return mode === "pro" ? roleLabel("pro", "Pro") : roleLabel("think", "Think");
 }
@@ -1300,7 +1303,6 @@ function loadSettings() {
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
     loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
-    loaded.role = loaded.spectrumLevel === 0 ? "nitro" : loaded.spectrumLevel === SPECTRUM_N - 1 ? "pro" : "think";
     loaded.temperature = 0.7;
     loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
@@ -3584,7 +3586,7 @@ async function sendSideChatMessage() {
       messages: history,
       role: selectedSingleRole(),
       provider,
-      settings: { ...state.settings, reasoning_effort: currentReasoningEffort() },
+      settings: chatRequestSettings(),
       writingStyle: "concise",
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -6139,10 +6141,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
       ...(responseAdjustment ? { responseAdjustment } : {}),
       role: selectedChatRole(),
       provider: retryProvider,
-      settings: {
-        ...state.settings,
-        reasoning_effort: currentReasoningEffort()
-      },
+      settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
@@ -6365,10 +6364,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       attachments: uploaded.map((item) => item.id),
       role: selectedChatRole(),
       provider,
-      settings: {
-        ...state.settings,
-        reasoning_effort: currentReasoningEffort()
-      },
+      settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
