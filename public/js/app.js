@@ -6139,7 +6139,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
-      role: selectedChatRole(),
+      role: selectedSingleRole(),
       provider: retryProvider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),

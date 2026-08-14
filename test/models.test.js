@@ -94,9 +94,12 @@ test("website send path uses role and does not ship OpenRouter IDs", () => {
   const documentViewer = readFileSync(resolve(here, "../public/js/documentViewer.js"), "utf8");
   const research = readFileSync(resolve(here, "../public/js/research.js"), "utf8");
   const requestSettings = app.match(/function chatRequestSettings\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const retryPath = app.match(/async function retryFailedAssistant[\s\S]*?(?=\nfunction localAssistantForMode)/)?.[0] || "";
   assert.match(app, /function selectedChatRole\(\)/);
   assert.ok(requestSettings);
   assert.doesNotMatch(requestSettings, /\bmodel\b|compareModels|kluiModel|reasoning_effort|thinkingEffort/);
+  assert.match(retryPath, /role: selectedSingleRole\(\)/);
+  assert.doesNotMatch(retryPath, /role: selectedChatRole\(\)/);
   assert.match(app, /role: selectedChatRole\(\)/);
   assert.match(app, /role: selectedSingleRole\(\)/);
   assert.doesNotMatch(app, /model: effectiveModel/);
