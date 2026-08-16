@@ -142,10 +142,15 @@ test("listPaymentRequests scopes payment_requests to the user", async () => {
 test("listMessages scopes messages to the user and conversation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/messages");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("conversation_id"), "eq.conv_1");
     assert.equal(
-      url,
-      "https://example.supabase.co/rest/v1/messages?user_id=eq.user_1&conversation_id=eq.conv_1&select=*&order=created_at.asc"
+      parsed.searchParams.get("select"),
+      "id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot"
     );
+    assert.equal(parsed.searchParams.get("order"), "created_at.asc");
     expectServiceHeaders(options.headers);
 
     return new Response(JSON.stringify([{ id: "msg_1", role: "user" }]), {
@@ -159,13 +164,49 @@ test("listMessages scopes messages to the user and conversation", async () => {
   });
 });
 
+test("listMessages appends reasoning when includeReasoning is true", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "GET");
+    const parsed = new URL(url);
+    assert.equal(
+      parsed.searchParams.get("select"),
+      "id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot,reasoning"
+    );
+    expectServiceHeaders(options.headers);
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.listMessages("user_1", "conv_1", { includeReasoning: true });
+  });
+});
+
+test("listRecentAssistantMessages selects newest assistant content with a bound", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "GET");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/messages");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("conversation_id"), "eq.conv_1");
+    assert.equal(parsed.searchParams.get("role"), "eq.assistant");
+    assert.equal(parsed.searchParams.get("select"), "content");
+    assert.equal(parsed.searchParams.get("order"), "created_at.desc");
+    assert.equal(parsed.searchParams.get("limit"), "10");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([{ content: "Latest answer" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.deepEqual(await db.listRecentAssistantMessages("user_1", "conv_1"), [{ content: "Latest answer" }]);
+  });
+});
+
 test("listProjects scopes projects to the user and update order", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
-    assert.equal(
-      url,
-      "https://example.supabase.co/rest/v1/projects?user_id=eq.user_1&select=*&order=updated_at.desc"
-    );
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/projects");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("select"), "id,name,created_at,updated_at");
+    assert.equal(parsed.searchParams.get("order"), "updated_at.desc");
     expectServiceHeaders(options.headers);
     return jsonResponse([{ id: "project_1", name: "Launch" }]);
   }, async () => {

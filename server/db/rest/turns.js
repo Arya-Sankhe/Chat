@@ -41,8 +41,9 @@ export async function listPendingDocumentTurns(client, userId, conversationId, {
       user_id: `eq.${userId}`,
       conversation_id: `eq.${conversationId}`,
       status: "in.(waiting_documents,running)",
-      select: "*",
-      order: "created_at.asc"
+      select: "id,conversation_id,status,mode,user_message_id,request_payload",
+      order: "created_at.asc",
+      limit: "10"
     },
     signal
   });

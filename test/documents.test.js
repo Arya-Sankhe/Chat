@@ -738,12 +738,10 @@ test("DocumentService keeps shared project knowledge read-only", async () => {
 test("DocumentService fills vague create-document requests from the previous assistant answer", async () => {
   let capturedJob;
   const service = documentServiceWithDb({
-    async listMessages() {
+    async listRecentAssistantMessages() {
       return [
-        { role: "user", content: "make it concise" },
-        { role: "assistant", content: "## Concise Summary\nRegression fits a model by minimizing squared error." },
-        { role: "user", content: "make a pdf of the concise summary" },
-        { role: "assistant", content: "Here's the concise summary PDF:\n\n[Download Regression-II---Concise-Summary.pdf](/api/attachments/generated/download)" }
+        { content: "Here's the concise summary PDF:\n\n[Download Regression-II---Concise-Summary.pdf](/api/attachments/generated/download)" },
+        { content: "## Concise Summary\nRegression fits a model by minimizing squared error." }
       ];
     },
     async createDocumentJob(job) {

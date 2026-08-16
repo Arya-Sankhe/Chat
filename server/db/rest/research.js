@@ -24,7 +24,7 @@ export async function listActiveResearchRuns(client, userId, conversationId = ""
       user_id: `eq.${userId}`,
       ...(conversationId ? { conversation_id: `eq.${conversationId}` } : {}),
       status: "in.(queued,running)",
-      select: "*",
+      select: "id",
       order: "created_at.desc",
       limit: "2"
     },

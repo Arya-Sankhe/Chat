@@ -850,13 +850,12 @@ export class DocumentService {
   }
 
   async latestAssistantText() {
-    if (!this.conversationId || typeof this.db.listMessages !== "function") return "";
-    const messages = await this.db.listMessages(this.userId, this.conversationId, { signal: this.signal });
+    if (!this.conversationId || typeof this.db.listRecentAssistantMessages !== "function") return "";
+    // ponytail: last 10 assistant messages bound the handoff-skip scan; raise if chats stack more artifact handoffs than that
+    const messages = await this.db.listRecentAssistantMessages(this.userId, this.conversationId, { signal: this.signal });
     let fallback = "";
-    for (let i = (messages || []).length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message?.role !== "assistant") continue;
-      const text = contentToText(message.content).trim();
+    for (const message of messages || []) {
+      const text = contentToText(message?.content).trim();
       if (!text) continue;
       if (!fallback) fallback = text;
       if (assistantTextLooksLikeArtifactHandoff(text)) continue;

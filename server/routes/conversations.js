@@ -47,13 +47,13 @@ export async function handleConversationById(req, res, config, conversationId) {
   const context = await requireChatContext(req, config);
 
   if (req.method === "GET") {
+    const includeReasoning = context.profile?.role === "admin";
     const [conversation, messages, pendingTurns] = await Promise.all([
       context.db.getConversation(context.user.id, conversationId, { signal: req.signal }),
-      context.db.listMessages(context.user.id, conversationId, { signal: req.signal }),
+      context.db.listMessages(context.user.id, conversationId, { signal: req.signal, includeReasoning }),
       context.db.listPendingDocumentTurns(context.user.id, conversationId, { signal: req.signal })
     ]);
     if (!conversation) throw new HttpError(404, "Conversation not found.");
-    const includeReasoning = context.profile?.role === "admin";
     sendJson(res, 200, {
       conversation,
       messages: await hydrateMessagesForClient(messages, context.r2, { includeReasoning }),
