@@ -66,6 +66,7 @@ const PLAN_SEARCH_DEFAULTS = {
   essential: 200,
   pro: 500
 };
+const MIN_ILLUSTRATION_RESERVATION_CREDITS = 0.015;
 
 function loadSearchLimits(env) {
   const limits = {};
@@ -306,6 +307,8 @@ export function loadConfig(env = process.env) {
         && clean(env.SUPABASE_SERVICE_ROLE_KEY)
       ),
       model: "krea/krea-2-medium-turbo",
+      plannerModel: clean(env.ILLUSTRATION_PLANNER_MODEL) || "deepseek/deepseek-v4-flash-0731",
+      plannerMaxTokens: Math.min(readInt(env.ILLUSTRATION_PLANNER_MAX_TOKENS, 2000), 4000),
       maxImages: 1,
       maxBytes: 3 * 1024 * 1024,
       reservationCreditsPerImage: readPositiveNumber(env.ILLUSTRATION_RESERVATION_CREDITS, 0.25)
@@ -348,6 +351,15 @@ export function validateRuntimeConfig(config) {
     }
     if (config.speech?.apiKey && !(config.speech.creditsPerSecond > 0)) {
       throw new Error("SARVAM_STT_CREDITS_PER_SECOND must be positive when metering is enforced and Sarvam is enabled.");
+    }
+    if (
+      config.illustrations?.enabled
+      && config.illustrations.reservationCreditsPerImage + Number.EPSILON < MIN_ILLUSTRATION_RESERVATION_CREDITS
+    ) {
+      throw new Error(
+        `ILLUSTRATION_RESERVATION_CREDITS must be at least ${MIN_ILLUSTRATION_RESERVATION_CREDITS.toFixed(3)} `
+        + "for the configured Krea image model."
+      );
     }
   }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.desktop.oauthEnabled) {

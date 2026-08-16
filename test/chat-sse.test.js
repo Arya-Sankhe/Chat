@@ -939,11 +939,13 @@ const MINI_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42m
 test("illustration turn plans, stores one image, and streams status plus result", async (t) => {
   t.after(restoreFetch);
   const imageRequests = [];
+  const plannerRequests = [];
   installProviderFetch({
     streamFor: () => {
       throw new Error("illustration must not stream a chat completion");
     },
     completionFor: (body) => {
+      plannerRequests.push(body);
       assert.match(body.messages.map((message) => message.content).join("\n"), /Explain the above/);
       assert.match(body.messages.map((message) => message.content).join("\n"), /Ingest, transform/);
       return {
@@ -995,6 +997,8 @@ test("illustration turn plans, stores one image, and streams status plus result"
   assert.match(JSON.stringify(result.content), /signed\.example/);
   assert.doesNotMatch(res.body, /iVBORw0KGgo/);
   assert.ok(events.some((event) => event.type === "done"));
+  assert.equal(plannerRequests[0].model, "deepseek/deepseek-v4-flash-0731");
+  assert.equal(plannerRequests[0].max_tokens, 2000);
   assert.equal(imageRequests.length, 1);
   assert.equal(imageRequests[0].body.model, "krea/krea-2-medium-turbo");
   assert.equal(imageRequests[0].body.n, undefined);
@@ -1008,6 +1012,11 @@ test("illustration turn plans, stores one image, and streams status plus result"
   assert.match(imageRequests[0].body.prompt, /No Chinese characters/i);
   assert.ok(db.calls.some((call) => call.op === "createAttachment"));
   assert.ok(db.calls.some((call) => call.op === "putObject"));
+  assert.ok(
+    db.calls.findIndex((call) => call.op === "recordApiUsageCost" && call.payload.model === "krea/krea-2-medium-turbo")
+      > db.calls.findIndex((call) => call.op === "completeAttachment"),
+    "image usage should settle only after the generated attachment is durable"
+  );
   const assistantUpdate = db.calls.find((call) => call.op === "updateMessage" && call.patch?.content);
   assert.equal(assistantUpdate.patch.metadata.illustration.completed, 1);
   assert.doesNotMatch(JSON.stringify(assistantUpdate.patch.metadata), /Klui illustration of a pipeline/);
@@ -1067,6 +1076,50 @@ test("illustration plan-only and unsupported modes never call the Image API", as
   assert.equal(temp.statusCode, 400);
   assert.match(temp.body, /standard chat/);
   assert.equal(images, 0);
+});
+
+test("editing an illustration request is rejected before downstream messages are purged", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    },
+    completionFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    },
+    imageFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    }
+  });
+  const history = [
+    {
+      id: "user-illustration",
+      role: "user",
+      content: "Explain queues.",
+      metadata: { skillIds: ["illustration"], skillMarks: [{ id: "illustration", at: 0 }] }
+    },
+    {
+      id: "assistant-illustration",
+      role: "assistant",
+      content: "Existing illustration.",
+      finish_reason: "stop"
+    }
+  ];
+  const config = loadConfig(ILLUSTRATION_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      editUserMessageId: "user-illustration",
+      text: "Explain stacks instead.",
+      model: TEXT_MODEL
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body, /cannot be edited/i);
+  assert.equal(db.calls.some((call) => call.op === "deleteMessage"), false);
+  assert.equal(db.calls.some((call) => call.op === "updateMessage"), false);
 });
 
 /* ── retry and edit modes ── */

@@ -954,7 +954,11 @@ function skillDisplayName(skill) {
 }
 
 function skillIconMarkup(id) {
-  if (id === "humanizer") return HUMANIZER_ICON_SVG;
+  if (id === "humanizer") {
+    return HUMANIZER_ICON_SVG
+      .replace(/<defs>[\s\S]*?<\/defs>/, "")
+      .replace(' mask="url(#humanizer-cut)"', "");
+  }
   if (id === "illustration") return ILLUSTRATION_ICON_SVG;
   return DEFAULT_SKILL_ICON_SVG;
 }
@@ -984,6 +988,20 @@ function normalizeClientSkillIds(value) {
 
 function mergeComposerSkillIds(...lists) {
   return normalizeClientSkillIds(lists.flat());
+}
+
+function normalizeClientSkillMarks(value, skillIds, textLength = 100000) {
+  const allowed = new Set(normalizeClientSkillIds(skillIds));
+  const seen = new Set();
+  const out = [];
+  for (const mark of Array.isArray(value) ? value.slice(0, 16) : []) {
+    const id = String(mark?.id || "").trim();
+    const at = Number(mark?.at);
+    if (!allowed.has(id) || seen.has(id) || !Number.isInteger(at)) continue;
+    seen.add(id);
+    out.push({ id, at: Math.max(0, Math.min(textLength, at)) });
+  }
+  return out;
 }
 
 function composerPlainText(root = els.promptInput) {
@@ -1578,6 +1596,7 @@ function updateComposerPlaceholder() {
   if (!input) return;
   const placeholder = composerPlaceholder();
   input.dataset.placeholder = placeholder;
+  input.setAttribute("aria-label", placeholder || "Message Klui");
   const empty = !composerPlainText().trim() && !state.composerSkillIds.length;
   input.classList.toggle("is-placeholder", empty && Boolean(placeholder));
 }
@@ -1619,7 +1638,8 @@ function renderFollowUps() {
 }
 
 function addFollowUpFromInput() {
-  const text = composerSnapshot().text;
+  const snapshot = composerSnapshot();
+  const text = snapshot.text;
   const images = state.images.filter((item) => item.category === "image");
   const blocked = state.images.some((item) => item.category !== "image");
   if (blocked) {
@@ -1635,7 +1655,8 @@ function addFollowUpFromInput() {
     id: `followup_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     text,
     images,
-    skillIds: [...state.composerSkillIds]
+    skillIds: [...state.composerSkillIds],
+    skillMarks: snapshot.marks
   });
   setComposerPlainText("");
   state.images = [];
@@ -1665,6 +1686,7 @@ function saveFollowUp(id) {
   const text = input.value.trim();
   if (!text && !item.images?.length) return;
   item.text = text;
+  item.skillMarks = normalizeClientSkillIds(item.skillIds).map((skillId) => ({ id: skillId, at: 0 }));
   item.editing = false;
   renderFollowUps();
 }
@@ -1699,7 +1721,8 @@ function drainFollowUps() {
     .map((item) => ({
       text: item.text.trim(),
       images: Array.isArray(item.images) ? item.images : [],
-      skillIds: normalizeClientSkillIds(item.skillIds)
+      skillIds: normalizeClientSkillIds(item.skillIds),
+      skillMarks: Array.isArray(item.skillMarks) ? item.skillMarks : []
     }))
     .filter((item) => item.text || item.images.length);
   clearFollowUps({ revoke: false });
@@ -1714,6 +1737,43 @@ function followUpBatchText(queued) {
 
 function followUpBatchImages(queued) {
   return queued.flatMap((item) => item.images || []);
+}
+
+function followUpBatchSkillMarks(queued) {
+  const marks = [];
+  let offset = 0;
+  for (let index = 0; index < queued.length; index += 1) {
+    const item = queued[index];
+    const single = queued.length === 1;
+    const prefix = single ? "" : `Follow-up ${index + 1}: `;
+    const itemText = item.text || (single ? "Follow-up image" : "Image attached");
+    for (const mark of item.skillMarks || []) {
+      const at = Number(mark?.at);
+      if (!Number.isInteger(at)) continue;
+      marks.push({
+        id: mark.id,
+        at: offset + prefix.length + Math.max(0, Math.min(itemText.length, at))
+      });
+    }
+    offset += prefix.length + itemText.length + (index < queued.length - 1 ? 2 : 0);
+  }
+  return marks;
+}
+
+function illustrationSendBlocked(skillIds, compareModels = []) {
+  return normalizeClientSkillIds(skillIds).includes("illustration")
+    && (state.temporaryChat || compareModels.length > 0);
+}
+
+function drainAutomaticFollowUps() {
+  const skillIds = mergeComposerSkillIds(...state.followUps.map((item) => item.skillIds));
+  const images = followUpBatchImages(state.followUps);
+  const compareModels = resolveCompareModelsForSend({ images });
+  if (illustrationSendBlocked(skillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return [];
+  }
+  return drainFollowUps();
 }
 
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
@@ -4672,7 +4732,7 @@ function canEditUserMessage(msg) {
   if (state.running) return false;
   const id = msg?.id ? String(msg.id) : "";
   if (!id || id.startsWith("local_")) return false;
-  return msg.role === "user";
+  return msg.role === "user" && !normalizeClientSkillIds(msg.metadata?.skillIds).includes("illustration");
 }
 
 function renderUserMessageFooter(msg) {
@@ -6517,21 +6577,40 @@ async function sendPrompt({
   const sendSkillSnapshot = textOverride == null ? composerSnapshot() : { text, marks: [] };
   let sendSkillIds = [...state.composerSkillIds];
   let sendSkillMarks = sendSkillSnapshot.marks;
+  if (textOverride == null && state.followUps.length) {
+    const candidateSkillIds = mergeComposerSkillIds(
+      ...state.followUps.map((item) => item.skillIds),
+      sendSkillIds
+    );
+    const candidateImages = [...followUpBatchImages(state.followUps), ...state.images];
+    const candidateCompareModels = resolveCompareModelsForSend({ images: candidateImages });
+    if (illustrationSendBlocked(candidateSkillIds, candidateCompareModels)) {
+      showToast("Illustration works in standard chat.");
+      return;
+    }
+  }
   if (textOverride == null && !text && state.followUps.length) {
     const queued = drainFollowUps();
     text = followUpBatchText(queued);
     state.images = [...followUpBatchImages(queued), ...state.images];
     sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
-    sendSkillMarks = [];
+    sendSkillMarks = followUpBatchSkillMarks(queued);
     renderImages();
   } else if (textOverride == null && text && state.followUps.length) {
     const queued = drainFollowUps();
-    text = [followUpBatchText(queued), text].filter(Boolean).join("\n\n");
+    const queuedText = followUpBatchText(queued);
+    const queuedMarks = followUpBatchSkillMarks(queued);
+    const currentOffset = queuedText ? queuedText.length + 2 : 0;
+    text = [queuedText, text].filter(Boolean).join("\n\n");
     state.images = [...followUpBatchImages(queued), ...state.images];
     sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
-    sendSkillMarks = [];
+    sendSkillMarks = [
+      ...queuedMarks,
+      ...sendSkillMarks.map((mark) => ({ ...mark, at: mark.at + currentOffset }))
+    ];
     renderImages();
   }
+  sendSkillMarks = normalizeClientSkillMarks(sendSkillMarks, sendSkillIds, text.length);
   const pastedText = textOverride == null ? state.pastedText.trim() : "";
   const paste = textOverride == null
     ? pastedText
@@ -6562,6 +6641,10 @@ async function sendPrompt({
     uploaded: img.uploaded
   }));
   const compareModels = resolveCompareModelsForSend({ images: pendingImages });
+  if (sendSkillIds.includes("illustration") && (state.temporaryChat || compareModels.length)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
   if (state.temporaryChat && compareModels.length) {
     showToast("Temporary chat uses one model for now.");
     return;
@@ -6764,7 +6847,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     }
   } finally {
     const stillActive = state.activeConversationId === conversationId;
-    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainFollowUps() : [];
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const completedScrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     setAutoScroll(false);
@@ -6781,13 +6864,20 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
       const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
       await executeSend({
-        text: followUpBatchText(queuedFollowUps),
+        text: followUpText,
         images: followUpImages,
         compareModels: followUpCompareModels,
         council: Boolean(followUpCompareModels.length && isCouncilMode()),
         describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
-        skillIds: mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds))
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
       });
     }
   }
@@ -6848,6 +6938,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
   compareController.closeCompareContextBanner();
   const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
   const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
+  if (illustrationSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
@@ -7080,7 +7174,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const stillActive = temporaryChat
       ? state.temporaryChat && isRunKeyActive(runKey)
       : state.activeConversationId === conversationId && !state.temporaryChat;
-    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainFollowUps() : [];
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const completedScrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     setAutoScroll(false);
@@ -7100,13 +7194,20 @@ async function executeSend({ text, images, compareModels, council = false, descr
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
       const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
       await executeSend({
-        text: followUpBatchText(queuedFollowUps),
+        text: followUpText,
         images: followUpImages,
         compareModels: followUpCompareModels,
         council: Boolean(followUpCompareModels.length && isCouncilMode()),
         describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
-        skillIds: mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds))
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
       });
     }
   }

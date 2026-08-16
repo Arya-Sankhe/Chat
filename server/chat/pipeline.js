@@ -277,6 +277,9 @@ async function resolveMessageEdit({ db, userId, conversationId, editUserMessageI
 
   const target = existingMessages[targetIdx];
   if (target.role !== "user") throw new HttpError(400, "Only your own messages can be edited.");
+  if (illustrationSkillFromIds(target.metadata?.skillIds)) {
+    throw new HttpError(400, "Illustration requests cannot be edited. Send a new illustration request instead.");
+  }
 
   const newContent = applyEditedUserText(target.content, newText);
 
@@ -1086,7 +1089,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
       userMessage,
       historyMessages,
       requestedModel,
-      provider,
       crofai,
       turnRun,
       documentContext: projectContextMessage || "",
