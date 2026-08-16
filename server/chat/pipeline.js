@@ -1089,6 +1089,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       userMessage,
       historyMessages,
       requestedModel,
+      provider,
       crofai,
       turnRun,
       documentContext: projectContextMessage || "",

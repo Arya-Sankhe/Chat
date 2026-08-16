@@ -307,8 +307,6 @@ export function loadConfig(env = process.env) {
         && clean(env.SUPABASE_SERVICE_ROLE_KEY)
       ),
       model: "krea/krea-2-medium-turbo",
-      plannerModel: clean(env.ILLUSTRATION_PLANNER_MODEL) || "deepseek/deepseek-v4-flash-0731",
-      plannerMaxTokens: Math.min(readInt(env.ILLUSTRATION_PLANNER_MAX_TOKENS, 2000), 4000),
       maxImages: 1,
       maxBytes: 3 * 1024 * 1024,
       reservationCreditsPerImage: readPositiveNumber(env.ILLUSTRATION_RESERVATION_CREDITS, 0.25)

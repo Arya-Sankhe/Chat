@@ -997,8 +997,8 @@ test("illustration turn plans, stores one image, and streams status plus result"
   assert.match(JSON.stringify(result.content), /signed\.example/);
   assert.doesNotMatch(res.body, /iVBORw0KGgo/);
   assert.ok(events.some((event) => event.type === "done"));
-  assert.equal(plannerRequests[0].model, "deepseek/deepseek-v4-flash-0731");
-  assert.equal(plannerRequests[0].max_tokens, 2000);
+  assert.equal(plannerRequests[0].model, TEXT_MODEL);
+  assert.equal(plannerRequests[0].max_tokens, 15_000);
   assert.equal(imageRequests.length, 1);
   assert.equal(imageRequests[0].body.model, "krea/krea-2-medium-turbo");
   assert.equal(imageRequests[0].body.n, undefined);

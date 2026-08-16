@@ -527,7 +527,6 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   );
   assert.match(source, /item\.skillMarks = normalizeClientSkillIds\(item\.skillIds\)/);
   assert.match(source, /cannot be edited|includes\("illustration"\)/i);
-  assert.match(source, /\.replace\(' mask="url\(#humanizer-cut\)"', ""\)/);
   assert.match(source, /Generate a new version \(uses credits\)/);
   assert.match(source, /if \(skill\.exclusive\)/);
   assert.match(source, /String\(skill\.id \|\| ""\)\.toLowerCase\(\)\.startsWith\(query\)/);

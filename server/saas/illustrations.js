@@ -239,7 +239,6 @@ export async function planIllustrations({
   historyMessages,
   documentContext = "",
   maxImages = 1,
-  maxTokens = 2000,
   signal
 }) {
   const messages = [
@@ -262,7 +261,7 @@ export async function planIllustrations({
       body: {
         model,
         messages: extraUser ? [...messages, { role: "user", content: extraUser }] : messages,
-        max_tokens: maxTokens
+        max_tokens: 15_000
       },
       signal
     });
@@ -398,6 +397,7 @@ export async function runIllustrationTurn({
   userMessage,
   historyMessages,
   requestedModel,
+  provider,
   crofai,
   turnRun = null,
   documentContext = "",
@@ -450,12 +450,11 @@ export async function runIllustrationTurn({
 
     plan = await planIllustrations({
       crofai,
-      provider: imageProvider,
-      model: config.illustrations?.plannerModel || config.context?.summaryModel || requestedModel,
+      provider,
+      model: requestedModel,
       historyMessages,
       documentContext,
       maxImages,
-      maxTokens: config.illustrations?.plannerMaxTokens || 2000,
       signal: controller.signal
     });
 

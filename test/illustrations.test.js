@@ -143,7 +143,7 @@ test("planIllustrations sends conversation history and skips the Image API for c
   assert.match(calls[0].messages.map((m) => m.content).join("\n"), /Ingest, transform, and publish/);
   assert.match(calls[0].messages.map((m) => m.content).join("\n"), /Explain the above/);
   assert.equal(calls[0].messages[0].content, PLANNER_SYSTEM_PROMPT);
-  assert.equal(calls[0].max_tokens, 2000);
+  assert.equal(calls[0].max_tokens, 15_000);
   assert.equal("temperature" in calls[0], false);
   assert.equal("reasoning" in calls[0], false);
 

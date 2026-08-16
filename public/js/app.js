@@ -954,11 +954,7 @@ function skillDisplayName(skill) {
 }
 
 function skillIconMarkup(id) {
-  if (id === "humanizer") {
-    return HUMANIZER_ICON_SVG
-      .replace(/<defs>[\s\S]*?<\/defs>/, "")
-      .replace(' mask="url(#humanizer-cut)"', "");
-  }
+  if (id === "humanizer") return HUMANIZER_ICON_SVG;
   if (id === "illustration") return ILLUSTRATION_ICON_SVG;
   return DEFAULT_SKILL_ICON_SVG;
 }
