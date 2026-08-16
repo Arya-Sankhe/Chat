@@ -143,7 +143,7 @@ test("stopping a sent message restores its draft and removes its local turn", as
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
-  assert.match(source, /activeRun\.userMessage = localUser;[\s\S]*activeRun\.draft = \{ text, images \};/);
+  assert.match(source, /activeRun\.userMessage = localUser;[\s\S]*activeRun\.draft = \{ text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks \};/);
   assert.match(source, /function restoreCancelledTurnDraft[\s\S]*state\.messages = state\.messages\.filter/);
   assert.match(source, /cancelPendingDocumentTurn[\s\S]*restoreCancelledTurnDraft\(result, run\)/);
   assert.match(source, /restoreCancelledTurnDraft\(\{ run: \{ status: "cancelled" \} \}, run\);/);
@@ -272,8 +272,8 @@ test("adding uploads preserves an existing composer draft", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
-  assert.match(source, /const draft = els\.promptInput\.value/);
-  assert.match(source, /renderImages\(\);\s*els\.promptInput\.value = draft;\s*applyComposerHeight\(\)/);
+  assert.match(source, /const draft = composerSnapshot\(\)/);
+  assert.match(source, /renderImages\(\);\s*setComposerPlainText\(draft\.text, draft\.marks\);\s*applyComposerHeight\(\)/);
 });
 
 test("composer drag and drop reuses the shared attachment acceptance path", async () => {
@@ -497,6 +497,43 @@ test("writing style is included in send and retry payloads", async () => {
     source.match(/writingStyle:\s*normalizeWritingStyle\(state\.settings\.writingStyle\)/g)?.length >= 2,
     "normal sends and retries must both include writingStyle"
   );
+});
+
+test("slash skills expose composer markup and send skill IDs only", async () => {
+  const html = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(html, /id="skillCommandMenu"/);
+  assert.match(html, /id="promptInput"/);
+  assert.match(html, /composer-prompt/);
+  assert.match(html, /class="composer-input"/);
+  assert.match(html, /contenteditable="true"/);
+  assert.match(html, /aria-haspopup="listbox"/);
+  assert.match(source, /HUMANIZER_ICON_SVG/);
+  assert.match(source, /skillIds:\s*sendSkillIds/);
+  assert.match(source, /You can use up to 3 skills per message\./);
+  assert.match(source, /if \(state\.composerSkillIds\.length\) return "";/);
+  assert.match(source, /ILLUSTRATION_ICON_SVG/);
+  assert.match(source, /Illustration works in standard chat\./);
+  assert.match(source, /Generate a new version \(uses credits\)/);
+  assert.match(source, /if \(skill\.exclusive\)/);
+  assert.match(source, /String\(skill\.id \|\| ""\)\.toLowerCase\(\)\.startsWith\(query\)/);
+  assert.match(source, /\/\(\[a-z0-9-\]\*\)\$\/i/);
+  assert.doesNotMatch(source, /skill\.id\} \$\{skill\.name\} \$\{skill\.description/);
+  assert.doesNotMatch(source, /SKILL\.md/);
+  const css = readStylesheet();
+  assert.match(css, /\.composer-skill-token\s*\{[\s\S]*?background:\s*transparent/);
+  assert.match(css, /\.composer-skill-token\s*\{[\s\S]*?color:\s*inherit/);
+  assert.match(css, /\.composer-skill-token\[data-skill-id="humanizer"\]\s*\{[\s\S]*?color:\s*#22c55e/);
+  assert.match(css, /\.composer-skill-token\[data-skill-id="illustration"\]\s*\{[\s\S]*?color:\s*#2e86de/);
+  assert.match(css, /\.composer-skill-token-icon\s*\{[\s\S]*?width:\s*1em/);
+  assert.match(css, /\.composer-skill-token-icon\s*\{[\s\S]*?vertical-align:\s*-0\.125em/);
+  assert.match(css, /\[data-skill-id="humanizer"\] \.skill-command-icon/);
+  assert.match(css, /\[data-skill-id="illustration"\] \.skill-command-icon/);
+  assert.match(source, /option\.dataset\.skillId = skill\.id/);
 });
 
 test("camera action is only shown inside the Capacitor mobile app", async () => {

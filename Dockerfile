@@ -11,6 +11,7 @@ RUN npm ci --omit=dev
 COPY server ./server
 COPY public ./public
 COPY scripts ./scripts
+COPY skills ./skills
 
 EXPOSE 3000
 

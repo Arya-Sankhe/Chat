@@ -925,6 +925,12 @@ body.capacitor-native .side-chat-panel {
   overflow-wrap: anywhere;
 }
 
+.message.user .user-plain-text .composer-skill-token {
+  cursor: default;
+  margin: 0 0.2em 0 0.35em;
+  pointer-events: none;
+}
+
 .code-block-wrap {
 
   margin: 12px 0;

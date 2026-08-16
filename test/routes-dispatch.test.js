@@ -185,9 +185,19 @@ test("public routes respond 200 without auth or configured services", async () =
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
   assert.equal(configRes.statusCode, 200);
   const configBody = configRes.json();
-  for (const key of ["app", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles"]) {
+  for (const key of ["app", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles", "skills"]) {
     assert.ok(key in configBody, `config payload exposes ${key}`);
   }
+  const humanizer = configBody.skills.find((skill) => skill.id === "humanizer");
+  assert.ok(humanizer);
+  assert.equal(humanizer.name, "Humanize");
+  assert.equal(humanizer.description, "Remove signs of AI generated writing");
+  assert.equal("body" in humanizer, false);
+  assert.equal("content" in humanizer, false);
+  assert.equal("path" in humanizer, false);
+  assert.doesNotMatch(JSON.stringify(configBody.skills), /klui_composer_skill|# Humanizer/);
+  assert.equal(configBody.skills.some((skill) => skill.id === "illustration"), false);
+  assert.doesNotMatch(JSON.stringify(configBody.skills), /"execution"|injectPrompt/);
   assert.deepEqual(configBody.providers, { klui: false, openrouter: false });
   assert.deepEqual(configBody.roles.map((role) => role.id), ["nitro", "think", "pro", "compare", "council"]);
   const rolesJson = JSON.stringify(configBody.roles);

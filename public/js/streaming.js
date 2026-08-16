@@ -65,6 +65,22 @@ export function createStreamReducer({
   function applyStreamEvent(message, event) {
     if (event?.model && !message.model) message.model = String(event.model);
 
+    if (event?.type === "illustration:status") {
+      message.illustrationStatus = event.label || "Planning illustration…";
+      markActivityStarted(message);
+      return;
+    }
+
+    if (event?.type === "illustration:result") {
+      message.content = event.content ?? message.content;
+      if (event.metadata) message.metadata = event.metadata;
+      delete message.illustrationStatus;
+      message.finishReason ||= "stop";
+      markActivityEnded(message);
+      markReasoningEnded(message);
+      return;
+    }
+
     if (event?.type === "error") {
       message.error = event.error || "Model request failed.";
       message.finishReason = "error";

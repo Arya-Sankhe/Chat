@@ -325,6 +325,56 @@ export function createCrofaiUsageMeter({
       return result;
     },
 
+    async runReserved(params, execute) {
+      if (typeof execute !== "function") throw new Error("execute required");
+      if (meteringMode === "enforce") {
+        const requestId = await reserve(params);
+        let providerAccepted = false;
+        let submitted = false;
+        const markSubmitted = async (generationId = "") => {
+          providerAccepted = true;
+          if (submitted) return;
+          await db.markApiUsageSubmitted({ userId, requestId, generationId }, { signal: AbortSignal.timeout(15_000) });
+          submitted = true;
+        };
+        try {
+          const out = await execute({ markSubmitted });
+          providerAccepted = true;
+          await markSubmitted(out?.generationId || "");
+          await settleReservation({
+            requestId,
+            params,
+            usage: out?.usage || null,
+            generationId: out?.generationId || ""
+          });
+          return out?.result;
+        } catch (error) {
+          if (!providerAccepted) {
+            await db.releaseApiUsage({ userId, requestId }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+          } else if (!submitted) {
+            await db.settleApiUsage({
+              userId,
+              requestId,
+              costCredits: reservationCredits,
+              costSource: "submission_state_failure",
+              usage: {},
+              estimated: true
+            }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+          }
+          throw error;
+        }
+      }
+      await checkBudget(params?.signal);
+      const out = await execute({ markSubmitted: async () => {} });
+      await recordModelCost({
+        params,
+        usage: out?.usage || null,
+        generationId: out?.generationId || "",
+        callSignal: params?.signal
+      });
+      return out?.result;
+    },
+
     async streamChatCompletion(params) {
       if (meteringMode === "enforce") {
         const requestId = await reserve(params);

@@ -326,7 +326,8 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   assert.match(npmrc, /ignore-scripts=true/);
   assert.deepEqual(lock.packages[""].dependencies, {
     cheerio: "1.1.2",
-    "ipaddr.js": "2.2.0"
+    "ipaddr.js": "2.2.0",
+    yaml: "2.9.0"
   });
   assert.deepEqual(workerLock.packages[""].dependencies, {
     docx: "9.7.1",

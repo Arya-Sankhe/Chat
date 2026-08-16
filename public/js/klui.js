@@ -6,7 +6,7 @@ const PHRASES = {
   reading: ["skimming the page…", "highlighting the good bits", "taking notes…", "speed-reading…"],
   searching: ["digging the web…", "down the rabbit hole", "hunting for sources…", "sifting results…"],
   writing: ["drafting…", "finding the words…", "typing it up…", "making it flow…"],
-  generating: ["making magic…", "pixels are cooking", "almost there…", "rendering vibes…"],
+  generating: ["making magic…", "pixels are cooking", "stirring the ink…", "rendering vibes…"],
   reviewing: ["double checking…", "receipts incoming", "sanity check…", "final polish…"],
 };
 

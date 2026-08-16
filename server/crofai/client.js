@@ -185,3 +185,17 @@ export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId
   if (typeof onResponsePayload === "function") onResponsePayload(payload);
   return stripLeakedReasoningMarkup(payload?.choices?.[0]?.message?.content || "", requestBody.model);
 }
+
+export async function imageGeneration({ apiKey, baseUrl, body, signal }) {
+  const response = await fetch(`${baseUrl}/images`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(apiKey),
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw await crofaiError(response);
+  return response.json();
+}

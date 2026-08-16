@@ -143,6 +143,13 @@ test("document artifact cards open the viewer without a separate download action
   assert.doesNotMatch(renderer[0], />View<\/button>|>Download<\/a>/);
 });
 
+test("illustration lightbox caption reads the renderAssistantContent message argument", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /function renderAssistantContent\(content, message\)/);
+  assert.match(appJs, /isIllustrationMessage\(message\)/);
+  assert.doesNotMatch(appJs, /isIllustrationMessage\(msg\)/);
+});
+
 test("sent images render in a compact horizontal strip above the user bubble", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
