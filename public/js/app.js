@@ -4854,6 +4854,75 @@ function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
 }
 
+// Keep finished tables mounted so a mid-stream pan isn't cancelled by the next token.
+function adoptUnchangedTableScrolls(liveEl, nextRoot) {
+  const unused = [...liveEl.querySelectorAll(".table-scroll")];
+  if (!unused.length) return;
+  for (const next of nextRoot.querySelectorAll(".table-scroll")) {
+    const index = unused.findIndex((node) => node.innerHTML === next.innerHTML);
+    if (index < 0) continue;
+    next.replaceWith(unused[index]);
+    unused.splice(index, 1);
+  }
+}
+
+function patchStandardArticle(article, msg) {
+  if (researchController.researchMeta(msg)) return false;
+  if (article.classList.contains("compare-message") || article.classList.contains("council-message")) return false;
+  const role = msg.role === "user" ? "user" : "assistant";
+  if (msg.id) article.dataset.messageId = String(msg.id);
+  article.dataset.rawText = rawTextContent(msg.content);
+  const reasoning = article.querySelector("details.reasoning");
+  if (reasoning && msg.id) reasoning.dataset.messageId = String(msg.id);
+  article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+  const body = article.querySelector(".message-body");
+  if (!body) return false;
+  const nextFooter = renderMessageFooter(msg, role);
+  const prevFooter = body.querySelector(":scope > .message-footer");
+  if (prevFooter && nextFooter) prevFooter.outerHTML = nextFooter;
+  else if (prevFooter) prevFooter.remove();
+  else if (nextFooter) body.insertAdjacentHTML("beforeend", nextFooter);
+  return true;
+}
+
+// Patch ids/footers in place. Remounting the thread is the finish-jerk.
+function patchCompletedMessages() {
+  const articles = [...els.messages.querySelectorAll(":scope > article.message")];
+  const views = messageViews(state.messages);
+  if (!articles.length || articles.length !== views.length) return false;
+  for (let i = 0; i < views.length; i += 1) {
+    const view = views[i];
+    const article = articles[i];
+    if (view.type === "compare") {
+      if (!compareController.patchCompareMessage(article, view.messages)) return false;
+      continue;
+    }
+    if (view.type === "council") {
+      if (!councilController.patchCouncilMessage(article, view.council)) return false;
+      continue;
+    }
+    if (view.type !== "message" || !patchStandardArticle(article, view.message)) return false;
+  }
+  return true;
+}
+
+function settleLiveMessages({ pinned, scrollTop }) {
+  if (patchCompletedMessages()) {
+    renderConversations();
+    renderProfileMenu();
+    renderContextMeter();
+    renderChatPromptNavigator();
+    updateChatScrollNavigation();
+    compareController.syncCompareContextBanner();
+    syncPendingArtifactPolls();
+    if (pinned) pinMessagesToBottom();
+    return;
+  }
+  renderShell();
+  if (pinned) pinMessagesToBottom();
+  else setMessagesScrollTop(scrollTop);
+}
+
 function desktopChatNavigationEnabled() {
   return !isNative() && window.matchMedia("(min-width: 901px)").matches;
 }
@@ -4946,6 +5015,7 @@ function renderStreamingMessageSurface(message) {
       const tmp = document.createElement("div");
       tmp.innerHTML = renderAssistantMessageContent(message);
       tmp.querySelector(".thinking-status")?.remove();
+      adoptUnchangedTableScrolls(contentEl, tmp);
       for (const node of [...contentEl.childNodes]) {
         if (node !== statusEl) node.remove();
       }
@@ -4980,7 +5050,10 @@ function renderStreamingMessageSurface(message) {
         });
       }
     } else {
-      contentEl.innerHTML = renderAssistantMessageContent(message);
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderAssistantMessageContent(message);
+      adoptUnchangedTableScrolls(contentEl, tmp);
+      contentEl.replaceChildren(...tmp.childNodes);
       hydrateKluiBars(contentEl);
     }
   });
@@ -6363,8 +6436,9 @@ async function resumePendingDocumentTurn(run) {
     else localAssistant.error = error.message || "The pending turn could not resume.";
   } finally {
     state.resumingTurnId = "";
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (state.activeConversationId === conversationId) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
@@ -6375,7 +6449,7 @@ async function resumePendingDocumentTurn(run) {
           setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
         }
       }
-      renderShell();
+      settleLiveMessages({ pinned, scrollTop });
     } else {
       loadConversations().catch(() => {});
     }
@@ -6844,18 +6918,16 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
   } finally {
     const stillActive = state.activeConversationId === conversationId;
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
-    const completedScrollTop = els.messages.scrollTop;
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     if (shouldReloadConversation && stillActive) {
       await loadActiveConversation().catch(() => {});
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (!stillActive) {
       loadConversations().catch(() => {});
     } else {
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     }
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
@@ -7171,19 +7243,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
       ? state.temporaryChat && isRunKeyActive(runKey)
       : state.activeConversationId === conversationId && !state.temporaryChat;
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
-    const completedScrollTop = els.messages.scrollTop;
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     if (shouldReloadConversation && !temporaryChat && stillActive) {
       const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
       if (reloaded) {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
       }
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (stillActive) {
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (!temporaryChat) {
       loadConversations().catch(() => {});
     }
@@ -7374,6 +7444,7 @@ function setAutoScroll(enabled) {
 
 function bindEvents() {
   initDocumentViewerWidth();
+  if (els.messages) els.messages.style.overflowAnchor = "none";
 
   document.addEventListener("pointerup", (event) => {
     if (event.target.closest("#selectionActions, #sideChatPanel")) return;

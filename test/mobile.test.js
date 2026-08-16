@@ -249,10 +249,16 @@ test("temporary chat controls stay available for temp chats but not Projects", a
   assert.match(source, /temporaryChatLabel\?\.classList\.toggle\("hidden", state\.projectsOpen \|\| !state\.temporaryChat\)/);
 });
 
-test("completed streaming preserves the current message scroll position", async () => {
+test("completed streaming patches live messages instead of remounting the thread", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
+  assert.match(source, /function adoptUnchangedTableScrolls\(/);
+  assert.match(source, /function patchCompletedMessages\(/);
+  assert.match(source, /function settleLiveMessages\(/);
+  assert.match(source, /compareController\.patchCompareMessage\(article, view\.messages\)/);
+  assert.match(source, /councilController\.patchCouncilMessage\(article, view\.council\)/);
+  assert.match(source, /els\.messages\.style\.overflowAnchor = "none"/);
   const retryPath = source.slice(
     source.indexOf("async function retryFailedAssistant"),
     source.indexOf("async function executeSend")
@@ -262,9 +268,9 @@ test("completed streaming preserves the current message scroll position", async 
     source.indexOf("async function signOutAndReset")
   );
   for (const path of [retryPath, sendPath]) {
-    assert.match(path, /const completedScrollTop = els\.messages\.scrollTop/);
-    assert.match(path, /setAutoScroll\(false\)/);
-    assert.match(path, /renderShell\(\);\s*setMessagesScrollTop\(completedScrollTop\)/);
+    assert.match(path, /settleLiveMessages\(\{ pinned, scrollTop \}\)/);
+    assert.doesNotMatch(path, /setAutoScroll\(false\)/);
+    assert.doesNotMatch(path, /renderShell\(\);\s*setMessagesScrollTop\(completedScrollTop\)/);
   }
 });
 

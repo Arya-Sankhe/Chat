@@ -165,6 +165,75 @@ export function createCouncilController({
   `;
   }
 
+  function ensureCouncilCopyButton(head, text, label) {
+    if (!head || !String(text || "").trim() || head.querySelector("[data-copy-msg]")) return;
+    head.insertAdjacentHTML("beforeend", `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>`);
+  }
+
+  function syncCouncilPeerStatus(article, council) {
+    const detailsBody = article.querySelector(".council-details-body");
+    if (!detailsBody) return false;
+    const text = council.peerStatus || "";
+    const prev = detailsBody.querySelector(":scope > .council-peer-status");
+    if (prev && text) prev.textContent = text;
+    else if (prev) prev.remove();
+    else if (text) {
+      const stages = detailsBody.querySelector(":scope > .council-stages");
+      const html = `<div class="council-peer-status">${escapeHtml(text)}</div>`;
+      if (stages) stages.insertAdjacentHTML("afterend", html);
+      else detailsBody.insertAdjacentHTML("afterbegin", html);
+    }
+    return true;
+  }
+
+  function patchCouncilMessage(article, council) {
+    if (!article?.classList.contains("council-message") || !council) return false;
+    const panelists = council.panelists || [];
+    const lanes = [...article.querySelectorAll(".council-panel-grid > .council-panelist")];
+    if (lanes.length !== panelists.length) return false;
+
+    const progress = article.querySelector(":scope .council-progress");
+    if (!progress) return false;
+    progress.outerHTML = renderCouncilProgress(council);
+
+    const stages = article.querySelector(".council-stages");
+    if (stages) stages.outerHTML = renderCouncilStages(council);
+    if (!syncCouncilPeerStatus(article, council)) return false;
+
+    const details = article.querySelector("details.council-details");
+    const councilId = String(council.sessionId || council.id || "");
+    if (details && councilId) details.dataset.councilId = councilId;
+
+    const sub = article.querySelector(".council-header-sub");
+    if (sub) sub.textContent = `${panelists.length} panelists${council.chairman ? " · 1 chairman" : ""}`;
+
+    let synthesis = article.querySelector(".council-synthesis");
+    if (!synthesis) return false;
+    if (council.chairman && synthesis.querySelector(".council-synthesis-pending")) {
+      synthesis.outerHTML = renderCouncilSynthesis(council.chairman);
+      synthesis = article.querySelector(".council-synthesis");
+      if (!synthesis) return false;
+    }
+    if (council.chairman) {
+      const rawText = rawTextContent(council.chairman.content);
+      if (council.chairman.id) synthesis.dataset.messageId = String(council.chairman.id);
+      synthesis.dataset.rawText = rawText;
+      ensureCouncilCopyButton(synthesis.querySelector(".council-synthesis-head"), rawText, "Copy synthesis");
+      synthesis.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+    }
+
+    for (let i = 0; i < panelists.length; i += 1) {
+      const msg = normalizeMessage(panelists[i]);
+      const lane = lanes[i];
+      const rawText = rawTextContent(msg.content);
+      if (msg.id) lane.dataset.messageId = String(msg.id);
+      lane.dataset.rawText = rawText;
+      ensureCouncilCopyButton(lane.querySelector(".council-panelist-head"), rawText, "Copy response");
+      lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+    }
+    return true;
+  }
+
   function renderCouncilMessage(council) {
     const panelists = council.panelists || [];
     const chairman = council.chairman || null;
@@ -209,6 +278,7 @@ export function createCouncilController({
     councilModelAlias,
     activateCouncilMode,
     captureCouncilDetailsOpenState,
-    renderCouncilMessage
+    renderCouncilMessage,
+    patchCouncilMessage
   };
 }

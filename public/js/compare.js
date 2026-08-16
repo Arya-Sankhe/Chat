@@ -196,6 +196,35 @@ export function createCompareController({
   `;
   }
 
+  function ensureCompareCopyButton(head, text) {
+    if (!head || !String(text || "").trim() || head.querySelector("[data-copy-msg]")) return;
+    head.insertAdjacentHTML("beforeend", `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>`);
+  }
+
+  function patchCompareMessage(article, messages) {
+    if (!article?.classList.contains("compare-message")) return false;
+    const lanes = [...article.querySelectorAll(".compare-grid > .compare-response")];
+    if (!messages?.length || lanes.length !== messages.length) return false;
+    for (let i = 0; i < messages.length; i += 1) {
+      const msg = normalizeMessage(messages[i]);
+      const lane = lanes[i];
+      const rawText = rawTextContent(msg.content);
+      if (msg.id) lane.dataset.messageId = String(msg.id);
+      lane.dataset.rawText = rawText;
+      ensureCompareCopyButton(lane.querySelector(".compare-response-head"), rawText);
+      lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+    }
+    const body = article.querySelector(".message-body");
+    if (!body) return false;
+    const citations = messages.map((message) => renderCitations(message)).find((html) => html);
+    const prev = body.querySelector(":scope > .message-footer-sources");
+    const next = citations ? `<div class="message-footer-sources">${citations}</div>` : "";
+    if (prev && next) prev.outerHTML = next;
+    else if (prev) prev.remove();
+    else if (next) body.insertAdjacentHTML("beforeend", next);
+    return true;
+  }
+
   return {
     compareModelAlias,
     selectedCompareModelIds,
@@ -212,6 +241,7 @@ export function createCompareController({
     renderCompareControls,
     startCompareFreshChat,
     renderCompareResponse,
-    renderCompareMessage
+    renderCompareMessage,
+    patchCompareMessage
   };
 }
