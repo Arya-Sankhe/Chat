@@ -160,10 +160,7 @@ This is the commit that creates the *current* backend shape:
   `klui_claim_document_job` RPCs. Adds the `document-worker`
   service to `docker-compose.yml`.
 
-  This commit also grows the implementation plan
-  `DOCUMENT_SKILLS_IMPLEMENTATION_PLAN.md` from ~250 lines to ~1,100.
-  That plan is no longer authoritative for current behavior — the
-  current document skills live in
+  The current document skills live in
   `server/documents/{index,skillRegistry,skills,tool}.js`.
 
 - `a03f0a6 Add visual PDF page support and upload UI`,
@@ -871,11 +868,6 @@ Verified by re-reading the documents on the working tree:
   flow, the Capacitor plugin set, the Play-style universal link
   setup, the OTA update flow, and the release publishing. It
   matches the code.
-
-- **`DOCUMENT_SKILLS_IMPLEMENTATION_PLAN.md`** is a planning
-  document from `a78d7ec`. It is not authoritative for current
-  behavior; the current document skills live in
-  `server/documents/{index,skillRegistry,skills,tool}.js`.
 
 - **`docs/FUNCTION_INDEX.md` and `docs/ARCHITECTURE_HISTORY.md`**
   (this file) are the current authoritative architecture pack.
