@@ -235,8 +235,10 @@ body.capacitor-native .composer {
 }
 
 body.capacitor-native .composer textarea,
+body.capacitor-native .composer .composer-prompt,
 
-body.capacitor-native.chat-empty .composer textarea {
+body.capacitor-native.chat-empty .composer textarea,
+body.capacitor-native.chat-empty .composer .composer-prompt {
 
   min-height: 34px;
 
@@ -1477,7 +1479,8 @@ body.chat-empty .composer-area {
 
   }
 
-  .composer textarea {
+  .composer textarea,
+  .composer .composer-prompt {
 
     min-height: 24px;
 
@@ -2840,7 +2843,8 @@ body.capacitor-native .composer:focus-within {
 }
 
 /* Textarea takes remaining space */
-body.capacitor-native .composer textarea {
+body.capacitor-native .composer textarea,
+body.capacitor-native .composer .composer-prompt {
   flex: 1 1 0;
   min-width: 0;
   min-height: 20px;
@@ -2910,7 +2914,8 @@ body.capacitor-native.chat-empty .composer {
   min-height: 44px;
 }
 
-body.capacitor-native.chat-empty .composer textarea {
+body.capacitor-native.chat-empty .composer textarea,
+body.capacitor-native.chat-empty .composer .composer-prompt {
   min-height: 20px;
   font-size: 16px;
 }
@@ -3241,7 +3246,9 @@ body.capacitor-native .composer-previews {
   grid-column: 1 / -1;
 }
 body.capacitor-native .composer textarea,
-body.capacitor-native.chat-empty .composer textarea {
+body.capacitor-native .composer .composer-prompt,
+body.capacitor-native.chat-empty .composer textarea,
+body.capacitor-native.chat-empty .composer .composer-prompt {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;

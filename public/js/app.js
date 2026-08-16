@@ -95,7 +95,7 @@ import {
   startHomeGreeting,
   stopHomeGreeting,
   updateKluiBar
-} from "./klui.js";
+} from "./klui.js?v=20260816-stirring-ink";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -283,6 +283,9 @@ const state = {
   images: [],
   pastedText: "",
   followUps: [],
+  composerSkills: [],
+  composerSkillIds: [],
+  skillMenu: { open: false, query: "", start: 0, end: 0, active: 0, composing: false },
   running: false,
   autoScroll: true,
   abortController: null,
@@ -588,6 +591,8 @@ const els = {
   writingStylePill: document.querySelector("#writingStylePill"),
   writingStylePillLabel: document.querySelector("#writingStylePillLabel"),
   writingStylePillClose: document.querySelector("#writingStylePillClose"),
+  skillCommandMenu: document.querySelector("#skillCommandMenu"),
+  composerSkillChips: document.querySelector("#composerSkillChips"),
   imageToggle: document.querySelector("#imageToggle"),
   deepResearchToggle: document.querySelector("#deepResearchToggle"),
   researchModeChip: document.querySelector("#researchModeChip"),
@@ -659,6 +664,7 @@ const els = {
   lightbox: document.querySelector("#lightbox"),
   lightboxClose: document.querySelector("#lightboxClose"),
   lightboxImg: document.querySelector("#lightboxImg"),
+  lightboxCaption: document.querySelector("#lightboxCaption"),
   compareContextBanner: document.querySelector("#compareContextBanner"),
   compareContextYes: document.querySelector("#compareContextYes"),
   compareContextNo: document.querySelector("#compareContextNo"),
@@ -935,6 +941,508 @@ function setWritingStyle(value) {
   els.promptInput?.focus();
 }
 
+const HUMANIZER_ICON_SVG = '<svg viewBox="0 0 45 46" aria-hidden="true"><defs><mask id="humanizer-cut"><rect width="45" height="46" fill="#fff"/><path d="M7 40 38 6" stroke="#000" stroke-width="4.2" stroke-linecap="round"/></mask></defs><path d="M21.5 7.86C21.79 8.63 22.07 9.4 22.36 10.17C24.69 10.55 27.57 9.69 29.66 11.19C32.33 13.1 31.43 21.34 29.74 23.58C29.12 24.4 27.81 24.86 27.03 25.5C29.74 28.1 31.54 29.05 32.13 33.15C32.28 34.16 32.99 35.07 32.17 35.85C29.92 35.96 30.45 33.14 29.91 31.55C29.62 30.72 28.31 28.8 27.64 28.2C23.4 24.4 16.24 25.36 13.14 29.96C11.86 31.85 12.1 34.6 10.5 36.16C6.91 34.03 12.74 27.12 14.93 25.5C14.12 24.9 12.86 24.39 12.24 23.59C10.22 20.97 9.6 13.41 12.42 11.26C14.4 9.74 17.39 10.54 19.64 10.17C20.26 8.84 19.78 8.03 21.5 7.86ZM14.6 12.49C12.12 13.31 12.23 19.68 13.33 21.49C15.14 24.5 18.6 23.31 21.46 23.48C23.92 23.62 27.21 24.1 28.74 21.58C29.29 20.67 29.12 19.2 29.16 18.17C29.22 16.79 29.63 14.3 28.66 13.17C27.77 12.12 26.39 12.3 25.17 12.3C22.99 12.3 16.22 11.94 14.6 12.49ZM18.5 16.5C18.26 18.61 16.07 18.46 16.17 16.33C17.13 15.79 17.59 15.86 18.5 16.5ZM25.9 16.36C25.9 16.82 25.9 17.29 25.9 17.75C24.44 18.33 23.67 18.09 23.5 16.5C24.42 15.93 24.91 15.92 25.9 16.36Z" fill="currentColor" fill-rule="evenodd" mask="url(#humanizer-cut)"/><path d="M7 40 38 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>';
+const ILLUSTRATION_ICON_SVG = '<svg viewBox="2 3.6 20 16.8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.2" y="5" width="17.6" height="14" rx="3.2"/><circle cx="16.2" cy="9.35" r="1.55"/><path d="M4.45 16.4 9.15 11.45l3.15 3.15 2.4-2.8 4.85 4.55"/></svg>';
+const DEFAULT_SKILL_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5 12 8l2.5 2.5"/></svg>';
+
+function composerSkillById(id) {
+  return state.composerSkills.find((skill) => skill.id === id) || null;
+}
+
+function skillDisplayName(skill) {
+  return String(skill?.name || skill?.id || "").trim();
+}
+
+function skillIconMarkup(id) {
+  if (id === "humanizer") return HUMANIZER_ICON_SVG;
+  if (id === "illustration") return ILLUSTRATION_ICON_SVG;
+  return DEFAULT_SKILL_ICON_SVG;
+}
+
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+}
+
+function normalizeClientSkillIds(value) {
+  const known = new Set(state.composerSkills.map((skill) => skill.id));
+  const seen = new Set();
+  const out = [];
+  let exclusive = "";
+  for (const item of Array.isArray(value) ? value.slice(0, 16) : []) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (!known.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    if (composerSkillById(id)?.exclusive) {
+      if (!exclusive) exclusive = id;
+      continue;
+    }
+    if (out.length < 3) out.push(id);
+  }
+  return exclusive ? [exclusive] : out;
+}
+
+function mergeComposerSkillIds(...lists) {
+  return normalizeClientSkillIds(lists.flat());
+}
+
+function normalizeClientSkillMarks(value, skillIds, textLength = 100000) {
+  const allowed = new Set(normalizeClientSkillIds(skillIds));
+  const seen = new Set();
+  const out = [];
+  for (const mark of Array.isArray(value) ? value.slice(0, 16) : []) {
+    const id = String(mark?.id || "").trim();
+    const at = Number(mark?.at);
+    if (!allowed.has(id) || seen.has(id) || !Number.isInteger(at)) continue;
+    seen.add(id);
+    out.push({ id, at: Math.max(0, Math.min(textLength, at)) });
+  }
+  return out;
+}
+
+function composerPlainText(root = els.promptInput) {
+  if (!root) return "";
+  let out = "";
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out += node.nodeValue || "";
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (node.dataset?.skillId) return;
+    if (node.tagName === "BR") {
+      out += "\n";
+      return;
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(root);
+  return out.replace(/\u00a0/g, " ");
+}
+
+function composerSkillMarks(root = els.promptInput) {
+  let at = 0;
+  const marks = [];
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      at += (node.nodeValue || "").length;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const id = node.dataset?.skillId;
+    if (id) {
+      marks.push({ id, at });
+      return;
+    }
+    if (node.tagName === "BR") {
+      at += 1;
+      return;
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(root);
+  return marks;
+}
+
+function composerSnapshot() {
+  const raw = composerPlainText();
+  const lead = (raw.match(/^\s*/) || [""])[0].length;
+  const text = raw.trim();
+  const marks = composerSkillMarks().map((mark) => ({
+    id: mark.id,
+    at: Math.max(0, Math.min(text.length, mark.at - lead))
+  }));
+  return { text, marks };
+}
+
+function createSkillTokenEl(skill) {
+  const token = document.createElement("button");
+  token.type = "button";
+  token.className = "composer-skill-token";
+  token.dataset.skillId = skill.id;
+  token.contentEditable = "false";
+  token.setAttribute("aria-label", `Remove ${skillDisplayName(skill)}`);
+  token.title = `Remove ${skillDisplayName(skill)}`;
+  const icon = document.createElement("span");
+  icon.className = "composer-skill-token-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = skillIconMarkup(skill.id);
+  const label = document.createElement("span");
+  label.textContent = skillDisplayName(skill);
+  token.append(icon, label);
+  token.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    token.remove();
+    syncComposerSkillState();
+    els.promptInput?.focus();
+  });
+  return token;
+}
+
+function setComposerPlainText(text, marks = []) {
+  const root = els.promptInput;
+  if (!root) return;
+  const value = String(text || "");
+  const placed = [];
+  const used = new Set();
+  for (const mark of Array.isArray(marks) ? marks : []) {
+    const id = String(mark?.id || "").trim();
+    if (!composerSkillById(id) || used.has(id)) continue;
+    used.add(id);
+    const at = Number(mark.at);
+    placed.push({
+      id,
+      at: Number.isInteger(at) ? Math.max(0, Math.min(value.length, at)) : 0
+    });
+  }
+  placed.sort((a, b) => a.at - b.at);
+  root.replaceChildren();
+  let cursor = 0;
+  for (const mark of placed) {
+    if (mark.at > cursor) root.append(value.slice(cursor, mark.at));
+    const skill = composerSkillById(mark.id);
+    if (skill) root.appendChild(createSkillTokenEl(skill));
+    cursor = mark.at;
+  }
+  if (cursor < value.length) root.append(value.slice(cursor));
+  syncComposerSkillState();
+  updateComposerPlaceholder();
+}
+
+function syncComposerSkillState() {
+  state.composerSkillIds = normalizeClientSkillIds(composerSkillMarks().map((mark) => mark.id));
+  updateComposerPlaceholder();
+}
+
+function setComposerSkillIds(ids, marks) {
+  const next = normalizeClientSkillIds(ids);
+  const text = composerPlainText();
+  const existing = composerSkillMarks().filter((mark) => next.includes(mark.id));
+  const nextMarks = Array.isArray(marks) && marks.length
+    ? marks
+    : (existing.length === next.length ? existing : next.map((id) => ({ id, at: 0 })));
+  setComposerPlainText(text, nextMarks);
+}
+
+function clearComposerSkills() {
+  els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => el.remove());
+  syncComposerSkillState();
+  closeSkillMenu();
+}
+
+function renderComposerSkillChips() {
+  syncComposerSkillState();
+}
+
+function placeCaretAfter(node) {
+  const root = els.promptInput;
+  if (!root || !node) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertComposerText(text) {
+  const root = els.promptInput;
+  if (!root || !text) return;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || !root.contains(selection.anchorNode)) {
+    root.append(text);
+  } else {
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    placeCaretAfter(node);
+  }
+  updateComposerPlaceholder();
+}
+
+function composerCaretBeforeText() {
+  const root = els.promptInput;
+  const selection = window.getSelection();
+  if (!root || !selection?.rangeCount) return null;
+  const caret = selection.getRangeAt(0);
+  if (!caret.collapsed || !root.contains(caret.startContainer)) return null;
+  const pre = document.createRange();
+  pre.selectNodeContents(root);
+  pre.setEnd(caret.startContainer, caret.startOffset);
+  return composerPlainText({ childNodes: pre.cloneContents().childNodes, nodeType: Node.ELEMENT_NODE, dataset: {} });
+}
+
+function rangeFromComposerOffsets(start, end) {
+  const root = els.promptInput;
+  const range = document.createRange();
+  if (!root) return range;
+  let pos = 0;
+  let started = false;
+  const walk = (node) => {
+    if (started && range.endContainer !== root) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const next = pos + (node.nodeValue || "").length;
+      if (!started && start <= next) {
+        range.setStart(node, Math.max(0, start - pos));
+        started = true;
+      }
+      if (started && end <= next) {
+        range.setEnd(node, Math.max(0, end - pos));
+        return;
+      }
+      pos = next;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || node.dataset?.skillId) return;
+    if (node.tagName === "BR") {
+      if (!started && start <= pos + 1) {
+        range.setStartBefore(node);
+        started = true;
+      }
+      if (started && end <= pos + 1) {
+        range.setEndAfter(node);
+        return;
+      }
+      pos += 1;
+      return;
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(root);
+  if (!started) {
+    range.selectNodeContents(root);
+    range.collapse(false);
+  }
+  return range;
+}
+
+function animateSkillDrop(skillId, fromRect) {
+  const token = els.promptInput?.querySelector(`[data-skill-id="${skillId}"]`);
+  if (!token || !fromRect || prefersReducedMotion()) return;
+  const to = token.getBoundingClientRect();
+  if (!to.width || !to.height) return;
+  const ghost = token.cloneNode(true);
+  ghost.classList.add("composer-skill-token-fly");
+  ghost.tabIndex = -1;
+  ghost.style.left = `${fromRect.left}px`;
+  ghost.style.top = `${fromRect.top}px`;
+  ghost.style.width = `${fromRect.width}px`;
+  ghost.style.height = `${fromRect.height}px`;
+  document.body.appendChild(ghost);
+  token.classList.add("is-landing");
+  const dx = to.left - fromRect.left;
+  const dy = to.top - fromRect.top;
+  const sx = to.width / fromRect.width;
+  const sy = to.height / fromRect.height;
+  const motion = ghost.animate([
+    { transform: "translate(0, 0) scale(1)", opacity: 1 },
+    { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 1 }
+  ], {
+    duration: 220,
+    easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+    fill: "forwards"
+  });
+  const finish = () => {
+    ghost.remove();
+    token.classList.remove("is-landing");
+  };
+  motion.finished.then(finish).catch(finish);
+}
+
+function filteredSkillRows() {
+  const query = String(state.skillMenu.query || "").toLowerCase();
+  return state.composerSkills.filter((skill) => {
+    if (!query) return true;
+    return String(skill.id || "").toLowerCase().startsWith(query)
+      || String(skill.name || "").toLowerCase().startsWith(query);
+  });
+}
+
+function slashQueryAtCaret() {
+  const before = composerCaretBeforeText();
+  if (before == null) return null;
+  const match = before.match(/(^|\s)\/([a-z0-9-]*)$/i);
+  if (!match) return null;
+  const start = match.index + match[1].length;
+  const end = before.length;
+  return {
+    start,
+    end,
+    query: match[2],
+    range: rangeFromComposerOffsets(start, end)
+  };
+}
+
+function closeSkillMenu() {
+  if (!state.skillMenu.open && els.skillCommandMenu?.classList.contains("hidden")) {
+    els.promptInput?.setAttribute("aria-expanded", "false");
+    els.promptInput?.removeAttribute("aria-activedescendant");
+    return;
+  }
+  state.skillMenu.open = false;
+  state.skillMenu.query = "";
+  state.skillMenu.active = 0;
+  renderSkillCommandMenu();
+}
+
+function renderSkillCommandMenu() {
+  const menu = els.skillCommandMenu;
+  if (!menu) return;
+  menu.replaceChildren();
+  if (!state.skillMenu.open) {
+    menu.classList.add("hidden");
+    els.promptInput?.setAttribute("aria-expanded", "false");
+    els.promptInput?.removeAttribute("aria-activedescendant");
+    return;
+  }
+  const rows = filteredSkillRows();
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "skill-command-empty";
+    empty.textContent = "No matching skills";
+    menu.appendChild(empty);
+  } else {
+    rows.forEach((skill, index) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.id = `skill-option-${skill.id}`;
+      option.setAttribute("role", "option");
+      option.className = "skill-command-option";
+      option.dataset.skillId = skill.id;
+      const selected = state.composerSkillIds.includes(skill.id);
+      if (index === state.skillMenu.active) option.classList.add("is-active");
+      if (selected) option.classList.add("is-applied");
+      option.setAttribute("aria-selected", String(index === state.skillMenu.active));
+      const icon = document.createElement("span");
+      icon.className = "skill-command-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = skillIconMarkup(skill.id);
+      const name = document.createElement("span");
+      name.className = "skill-command-name";
+      name.textContent = skillDisplayName(skill);
+      const desc = document.createElement("span");
+      desc.className = "skill-command-desc";
+      desc.textContent = skill.description;
+      option.append(icon, name, desc);
+      if (selected) {
+        const check = document.createElement("span");
+        check.className = "skill-command-check";
+        check.setAttribute("aria-hidden", "true");
+        check.textContent = "✓";
+        option.appendChild(check);
+      }
+      option.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        selectComposerSkill(skill, option);
+      });
+      menu.appendChild(option);
+    });
+  }
+  menu.classList.remove("hidden");
+  els.promptInput?.setAttribute("aria-expanded", "true");
+  const active = rows[state.skillMenu.active];
+  if (active) {
+    els.promptInput?.setAttribute("aria-activedescendant", `skill-option-${active.id}`);
+    menu.querySelector(`#skill-option-${active.id}`)?.scrollIntoView({ block: "nearest" });
+  } else {
+    els.promptInput?.removeAttribute("aria-activedescendant");
+  }
+}
+
+function syncSkillMenu() {
+  const input = els.promptInput;
+  if (!input || state.researchMode || !state.composerSkills.length || state.skillMenu.composing) {
+    closeSkillMenu();
+    return;
+  }
+  const found = slashQueryAtCaret();
+  if (!found) {
+    closeSkillMenu();
+    return;
+  }
+  const queryChanged = !state.skillMenu.open || state.skillMenu.query !== found.query;
+  state.skillMenu.open = true;
+  state.skillMenu.query = found.query;
+  state.skillMenu.start = found.start;
+  state.skillMenu.end = found.end;
+  if (queryChanged) state.skillMenu.active = 0;
+  const rows = filteredSkillRows();
+  if (state.skillMenu.active >= rows.length) state.skillMenu.active = Math.max(0, rows.length - 1);
+  renderSkillCommandMenu();
+}
+
+function moveSkillActive(delta) {
+  const rows = filteredSkillRows();
+  if (!rows.length) return;
+  state.skillMenu.active = (state.skillMenu.active + delta + rows.length) % rows.length;
+  renderSkillCommandMenu();
+}
+
+function removeSlashQuery() {
+  const found = slashQueryAtCaret() || (state.skillMenu.start != null && state.skillMenu.end != null
+    ? { range: rangeFromComposerOffsets(state.skillMenu.start, state.skillMenu.end) }
+    : null);
+  found?.range?.deleteContents();
+  applyComposerHeight();
+  updateSendButton();
+}
+
+function selectComposerSkill(skill, fromEl) {
+  if (!skill) return;
+  if (skill.exclusive && (state.temporaryChat || state.settings.compareEnabled)) {
+    showToast("Illustration works in standard chat.");
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (state.composerSkillIds.includes(skill.id)) {
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (skill.exclusive) {
+    state.composerSkillIds = [skill.id];
+  } else if (state.composerSkillIds.some((id) => composerSkillById(id)?.exclusive)) {
+    state.composerSkillIds = [skill.id];
+  } else if (state.composerSkillIds.length >= 3) {
+    showToast("You can use up to 3 skills per message.");
+    return;
+  } else {
+    state.composerSkillIds = [...state.composerSkillIds, skill.id];
+  }
+  const fromRect = fromEl && !prefersReducedMotion() ? fromEl.getBoundingClientRect() : null;
+  const found = slashQueryAtCaret() || {
+    range: rangeFromComposerOffsets(state.skillMenu.start || 0, state.skillMenu.end || 0)
+  };
+  found.range?.deleteContents();
+  if (skill.exclusive) {
+    els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => {
+      if (el.dataset.skillId !== skill.id) el.remove();
+    });
+  } else {
+    els.promptInput?.querySelectorAll("[data-skill-id]").forEach((el) => {
+      if (composerSkillById(el.dataset.skillId)?.exclusive) el.remove();
+    });
+  }
+  const token = createSkillTokenEl(skill);
+  const insertAt = found?.range || (() => {
+    const range = document.createRange();
+    range.selectNodeContents(els.promptInput);
+    range.collapse(false);
+    return range;
+  })();
+  insertAt.insertNode(token);
+  placeCaretAfter(token);
+  syncComposerSkillState();
+  closeSkillMenu();
+  applyComposerHeight();
+  updateSendButton();
+  if (fromRect) animateSkillDrop(skill.id, fromRect);
+}
+
 function setResearchMode(enabled) {
   const next = Boolean(enabled);
   if (next && state.temporaryChat) {
@@ -947,6 +1455,7 @@ function setResearchMode(enabled) {
   }
   clearClarification();
   state.researchMode = next;
+  if (next) closeSkillMenu();
   if (next && state.settings.compareEnabled) compareController.cancelCompareMode();
   renderResearchMode();
   closeActionMenu();
@@ -980,6 +1489,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     state.pastedText = "";
     state.compareDescribeImages = false;
     stopPendingArtifactPolls();
+    clearComposerSkills();
     clearFollowUps();
     closeDocumentViewer();
     compareController.closeCompareContextBanner();
@@ -1065,6 +1575,7 @@ function modelModeLabel(mode = selectedModelMode()) {
 }
 
 function composerPlaceholder() {
+  if (state.composerSkillIds.length) return "";
   if (state.session && !hasChatAccess()) return "Choose a plan to start chatting";
   if (state.running) return "Send a follow up message";
   if (state.settings.compareEnabled) {
@@ -1077,7 +1588,13 @@ function composerPlaceholder() {
 }
 
 function updateComposerPlaceholder() {
-  if (els.promptInput) els.promptInput.placeholder = composerPlaceholder();
+  const input = els.promptInput;
+  if (!input) return;
+  const placeholder = composerPlaceholder();
+  input.dataset.placeholder = placeholder;
+  input.setAttribute("aria-label", placeholder || "Message Klui");
+  const empty = !composerPlainText().trim() && !state.composerSkillIds.length;
+  input.classList.toggle("is-placeholder", empty && Boolean(placeholder));
 }
 
 function renderFollowUps() {
@@ -1117,7 +1634,8 @@ function renderFollowUps() {
 }
 
 function addFollowUpFromInput() {
-  const text = els.promptInput.value.trim();
+  const snapshot = composerSnapshot();
+  const text = snapshot.text;
   const images = state.images.filter((item) => item.category === "image");
   const blocked = state.images.some((item) => item.category !== "image");
   if (blocked) {
@@ -1132,10 +1650,13 @@ function addFollowUpFromInput() {
   state.followUps.push({
     id: `followup_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     text,
-    images
+    images,
+    skillIds: [...state.composerSkillIds],
+    skillMarks: snapshot.marks
   });
-  els.promptInput.value = "";
+  setComposerPlainText("");
   state.images = [];
+  clearComposerSkills();
   applyComposerHeight();
   renderImages();
   renderFollowUps();
@@ -1161,6 +1682,7 @@ function saveFollowUp(id) {
   const text = input.value.trim();
   if (!text && !item.images?.length) return;
   item.text = text;
+  item.skillMarks = normalizeClientSkillIds(item.skillIds).map((skillId) => ({ id: skillId, at: 0 }));
   item.editing = false;
   renderFollowUps();
 }
@@ -1194,7 +1716,9 @@ function drainFollowUps() {
   const queued = state.followUps
     .map((item) => ({
       text: item.text.trim(),
-      images: Array.isArray(item.images) ? item.images : []
+      images: Array.isArray(item.images) ? item.images : [],
+      skillIds: normalizeClientSkillIds(item.skillIds),
+      skillMarks: Array.isArray(item.skillMarks) ? item.skillMarks : []
     }))
     .filter((item) => item.text || item.images.length);
   clearFollowUps({ revoke: false });
@@ -1209,6 +1733,43 @@ function followUpBatchText(queued) {
 
 function followUpBatchImages(queued) {
   return queued.flatMap((item) => item.images || []);
+}
+
+function followUpBatchSkillMarks(queued) {
+  const marks = [];
+  let offset = 0;
+  for (let index = 0; index < queued.length; index += 1) {
+    const item = queued[index];
+    const single = queued.length === 1;
+    const prefix = single ? "" : `Follow-up ${index + 1}: `;
+    const itemText = item.text || (single ? "Follow-up image" : "Image attached");
+    for (const mark of item.skillMarks || []) {
+      const at = Number(mark?.at);
+      if (!Number.isInteger(at)) continue;
+      marks.push({
+        id: mark.id,
+        at: offset + prefix.length + Math.max(0, Math.min(itemText.length, at))
+      });
+    }
+    offset += prefix.length + itemText.length + (index < queued.length - 1 ? 2 : 0);
+  }
+  return marks;
+}
+
+function illustrationSendBlocked(skillIds, compareModels = []) {
+  return normalizeClientSkillIds(skillIds).includes("illustration")
+    && (state.temporaryChat || compareModels.length > 0);
+}
+
+function drainAutomaticFollowUps() {
+  const skillIds = mergeComposerSkillIds(...state.followUps.map((item) => item.skillIds));
+  const images = followUpBatchImages(state.followUps);
+  const compareModels = resolveCompareModelsForSend({ images });
+  if (illustrationSendBlocked(skillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return [];
+  }
+  return drainFollowUps();
 }
 
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
@@ -1563,6 +2124,7 @@ function renderShell() {
   renderTemporaryChatMode();
   renderResearchMode();
   renderWritingStyle();
+  renderComposerSkillChips();
   renderProjects();
   renderProjectChatCrumb();
   renderAdminOnlyControls();
@@ -1905,7 +2467,7 @@ function estimateSystemPromptTokens() {
 }
 
 function estimatePendingInputTokens() {
-  let total = estimateTextTokens(els.promptInput?.value || "");
+  let total = estimateTextTokens(composerPlainText());
   for (const item of state.images || []) {
     total += item.category === "image" ? IMAGE_TOKENS : FILE_TOKENS;
   }
@@ -2674,6 +3236,7 @@ async function openConversation(conversationId) {
   state.activeProject = null;
   state.activeConversationId = conversationId;
   clearFollowUps();
+  clearComposerSkills();
   document.body.classList.remove("sidebar-open");
   state.compareDescribeImages = false;
   stopPendingArtifactPolls();
@@ -3053,6 +3616,7 @@ function toolStatusLabel(tool = {}) {
 
 function currentThinkingStatus(message, { streaming = false } = {}) {
   if (message?.error) return "";
+  if (message?.illustrationStatus) return message.illustrationStatus;
   const tools = Array.isArray(message?.toolEvents) ? message.toolEvents : [];
   const runningTool = [...tools].reverse().find((tool) => tool.status === "running");
   if (streaming && runningTool) return toolStatusLabel(runningTool);
@@ -3123,10 +3687,16 @@ function canRetryAssistant(message) {
 
 function renderMessageRetry(message) {
   if (!canRetryAssistant(message)) return "";
-  return `<button class="msg-action-btn msg-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}" aria-label="Retry" title="Retry"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>`;
+  const title = isIllustrationMessage(message) ? "Generate a new version (uses credits)" : "Retry";
+  return `<button class="msg-action-btn msg-retry-btn" type="button" data-retry-assistant-id="${escapeHtml(String(message.id))}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></button>`;
+}
+
+function isIllustrationMessage(message) {
+  return Boolean(message?.metadata?.illustration);
 }
 
 function canAdjustAssistant(message) {
+  if (isIllustrationMessage(message)) return false;
   if (!canRetryAssistant(message) || !rawTextContent(message.content).trim()) return false;
   const latest = [...state.messages].reverse().find((item) => item.role === "assistant");
   return String(latest?.id || "") === String(message.id || "");
@@ -3670,7 +4240,13 @@ function renderAssistantContent(content, message) {
         if (part?.type === "text") return renderAssistantText(part.text || "", citations);
         if (part?.type === "image_url") {
           const url = part.image_url?.url;
-          return url ? renderContent([part]) : "";
+          if (!url) return "";
+          const html = renderContent([part]);
+          if (!isIllustrationMessage(message)) return html;
+          const caption = illustrationCaptionFromMessage(message);
+          return caption
+            ? html.replace("<img ", `<img data-preview-caption="${escapeHtml(caption)}" `)
+            : html;
         }
         if (part?.type === "file") return renderContent([part]);
         return "";
@@ -3701,6 +4277,46 @@ function renderPastedTextCard(text, messageId) {
   </button>`;
 }
 
+function skillTokenHtml(id) {
+  const skill = composerSkillById(id);
+  const name = escapeHtml(skillDisplayName(skill || { id }));
+  return `<span class="composer-skill-token" data-skill-id="${escapeHtml(id)}"><span class="composer-skill-token-icon" aria-hidden="true">${skillIconMarkup(id)}</span><span>${name}</span></span>`;
+}
+
+function skillMarksForMessage(message, text) {
+  const ids = Array.isArray(message?.metadata?.skillIds)
+    ? message.metadata.skillIds.filter((id) => typeof id === "string" && id)
+    : [];
+  if (!ids.length) return [];
+  const used = new Set();
+  const placed = [];
+  for (const mark of Array.isArray(message?.metadata?.skillMarks) ? message.metadata.skillMarks : []) {
+    const id = typeof mark?.id === "string" ? mark.id : "";
+    const at = Number(mark?.at);
+    if (!ids.includes(id) || used.has(id) || !Number.isInteger(at) || at < 0) continue;
+    used.add(id);
+    placed.push({ id, at: Math.min(at, text.length) });
+  }
+  for (const id of ids) {
+    if (!used.has(id)) placed.push({ id, at: 0 });
+  }
+  return placed.sort((a, b) => a.at - b.at);
+}
+
+function renderUserTextWithSkills(text, message) {
+  const marks = skillMarksForMessage(message, text);
+  if (!marks.length) return renderPlainText(text);
+  let html = "";
+  let cursor = 0;
+  for (const mark of marks) {
+    html += renderPlainText(text.slice(cursor, mark.at));
+    html += skillTokenHtml(mark.id);
+    cursor = mark.at;
+  }
+  html += renderPlainText(text.slice(cursor));
+  return html;
+}
+
 function renderUserContent(message) {
   const content = message?.content;
   const paste = pastedTextFromMessage(message);
@@ -3709,11 +4325,11 @@ function renderUserContent(message) {
     : "";
   if (!paste) {
     const text = rawTextContent(content);
-    return `${text ? `<div class="user-plain-text">${renderPlainText(text)}</div>` : ""}${attachments}`;
+    return `${text || message?.metadata?.skillIds?.length ? `<div class="user-plain-text">${renderUserTextWithSkills(text, message)}</div>` : ""}${attachments}`;
   }
   const fullText = rawTextContent(content);
   const visibleText = `${fullText.slice(0, paste.start)}${fullText.slice(paste.start + paste.length)}`.trim();
-  return `${renderPastedTextCard(paste.text, message?.id)}${visibleText ? `<div class="user-plain-text">${renderPlainText(visibleText)}</div>` : ""}${attachments}`;
+  return `${renderPastedTextCard(paste.text, message?.id)}${visibleText || message?.metadata?.skillIds?.length ? `<div class="user-plain-text">${renderUserTextWithSkills(visibleText, message)}</div>` : ""}${attachments}`;
 }
 
 function renderUserImages(message) {
@@ -4112,7 +4728,7 @@ function canEditUserMessage(msg) {
   if (state.running) return false;
   const id = msg?.id ? String(msg.id) : "";
   if (!id || id.startsWith("local_")) return false;
-  return msg.role === "user";
+  return msg.role === "user" && !normalizeClientSkillIds(msg.metadata?.skillIds).includes("illustration");
 }
 
 function renderUserMessageFooter(msg) {
@@ -4630,7 +5246,7 @@ function acceptPendingFiles(files) {
     showToast("Turn off Deep Research before adding attachments.");
     return;
   }
-  const draft = els.promptInput.value;
+  const draft = composerSnapshot();
   const plan = state.me?.plan || {};
   const allFiles = [...files];
   const accepted = allFiles.filter((file) => state.temporaryChat
@@ -4689,7 +5305,7 @@ function acceptPendingFiles(files) {
     showAttachmentModelNotice();
   }
   renderImages();
-  els.promptInput.value = draft;
+  setComposerPlainText(draft.text, draft.marks);
   applyComposerHeight();
   compareController.syncCompareContextBanner();
 }
@@ -4710,14 +5326,35 @@ function showAttachmentModelNotice() {
   attachmentModelNoticeTimer = setTimeout(hideAttachmentModelNotice, 4500);
 }
 
-function openLightbox(src) {
+function illustrationCaptionFromMessage(message) {
+  const content = message?.content;
+  if (!Array.isArray(content)) return rawTextContent(content).trim();
+  return content
+    .filter((part) => part?.type === "text")
+    .map((part) => String(part.text || "").trim())
+    .filter((text) => text && !/illustration could not be generated/i.test(text))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function openLightbox(src, caption = "") {
   els.lightboxImg.src = src;
+  const text = String(caption || "").trim();
+  if (els.lightboxCaption) {
+    els.lightboxCaption.textContent = text;
+    els.lightboxCaption.hidden = !text;
+  }
   els.lightbox.classList.remove("hidden");
 }
 
 function closeLightbox() {
   els.lightbox.classList.add("hidden");
   els.lightboxImg.src = "";
+  if (els.lightboxCaption) {
+    els.lightboxCaption.textContent = "";
+    els.lightboxCaption.hidden = true;
+  }
 }
 
 /* ─── Drawers / Dialogs ─── */
@@ -5036,7 +5673,7 @@ function setRunning(running) {
   state.running = running;
   els.stopButton.classList.toggle("hidden", !running);
   els.sendButton.classList.toggle("hidden", running);
-  els.promptInput.disabled = false;
+  els.promptInput?.setAttribute("contenteditable", "true");
   els.imageToggle.disabled = state.temporaryChat || state.researchMode;
   els.modelButton.disabled = running;
   els.compareButton.disabled = running || state.temporaryChat;
@@ -5180,7 +5817,7 @@ function updateSendButton() {
     return;
   }
   els.sendButton.classList.toggle("is-voice-confirm", false);
-  const hasText = Boolean(els.promptInput.value.trim() || state.pastedText);
+  const hasText = Boolean(composerPlainText().trim() || state.pastedText);
   if (state.running) {
     const hasContent = hasText || state.images.some((item) => item.category === "image");
     const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 3;
@@ -5264,8 +5901,9 @@ function finishVoiceRecording() {
     const transcript = voiceTranscriptParts.filter(Boolean).join(" ").trim();
     if (commit) {
       if (transcript) {
-        const current = els.promptInput.value;
-        els.promptInput.value = `${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`;
+        const current = composerPlainText();
+        const marks = composerSkillMarks();
+        setComposerPlainText(`${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`, marks);
         els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
         els.promptInput.focus();
       }
@@ -5641,7 +6279,10 @@ function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   if (result?.run?.status !== "cancelled") return false;
   if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
   const content = result.user_message?.content;
-  els.promptInput.value = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
+  const restoredText = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
+  const restoredMarks = result.user_message?.metadata?.skillMarks
+    || (result.user_message?.metadata?.skillIds || run?.draft?.skillIds || []).map((id) => ({ id, at: 0 }));
+  setComposerPlainText(restoredText, restoredMarks);
   const parts = Array.isArray(content) ? content : [];
   state.images = parts.length
     ? parts.map(restoredTurnAttachment).filter(Boolean)
@@ -5790,6 +6431,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   state.compareDescribeImages = false;
   stopPendingArtifactPolls();
   clearFollowUps();
+  clearComposerSkills();
   closeDocumentViewer();
   compareController.closeCompareContextBanner();
   closeSearchDialog();
@@ -5866,6 +6508,7 @@ async function removeConversation(id) {
     state.messages = [];
     stopExtractedModulePollers();
     clearFollowUps();
+    clearComposerSkills();
     closeDocumentViewer();
     compareController.closeCompareContextBanner();
     syncConversationUrl({ replace: true });
@@ -5917,7 +6560,7 @@ async function sendPrompt({
     openUpgradePlans();
     return;
   }
-  let text = textOverride == null ? els.promptInput.value.trim() : String(textOverride).trim();
+  let text = textOverride == null ? composerSnapshot().text : String(textOverride).trim();
   if (state.running) {
     if (state.activeResearchId) {
       showToast("Wait for Deep Research to finish or cancel it first.");
@@ -5927,17 +6570,43 @@ async function sendPrompt({
     addFollowUpFromInput();
     return;
   }
+  const sendSkillSnapshot = textOverride == null ? composerSnapshot() : { text, marks: [] };
+  let sendSkillIds = [...state.composerSkillIds];
+  let sendSkillMarks = sendSkillSnapshot.marks;
+  if (textOverride == null && state.followUps.length) {
+    const candidateSkillIds = mergeComposerSkillIds(
+      ...state.followUps.map((item) => item.skillIds),
+      sendSkillIds
+    );
+    const candidateImages = [...followUpBatchImages(state.followUps), ...state.images];
+    const candidateCompareModels = resolveCompareModelsForSend({ images: candidateImages });
+    if (illustrationSendBlocked(candidateSkillIds, candidateCompareModels)) {
+      showToast("Illustration works in standard chat.");
+      return;
+    }
+  }
   if (textOverride == null && !text && state.followUps.length) {
     const queued = drainFollowUps();
     text = followUpBatchText(queued);
     state.images = [...followUpBatchImages(queued), ...state.images];
+    sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
+    sendSkillMarks = followUpBatchSkillMarks(queued);
     renderImages();
   } else if (textOverride == null && text && state.followUps.length) {
     const queued = drainFollowUps();
-    text = [followUpBatchText(queued), text].filter(Boolean).join("\n\n");
+    const queuedText = followUpBatchText(queued);
+    const queuedMarks = followUpBatchSkillMarks(queued);
+    const currentOffset = queuedText ? queuedText.length + 2 : 0;
+    text = [queuedText, text].filter(Boolean).join("\n\n");
     state.images = [...followUpBatchImages(queued), ...state.images];
+    sendSkillIds = mergeComposerSkillIds(...queued.map((item) => item.skillIds), sendSkillIds);
+    sendSkillMarks = [
+      ...queuedMarks,
+      ...sendSkillMarks.map((mark) => ({ ...mark, at: mark.at + currentOffset }))
+    ];
     renderImages();
   }
+  sendSkillMarks = normalizeClientSkillMarks(sendSkillMarks, sendSkillIds, text.length);
   const pastedText = textOverride == null ? state.pastedText.trim() : "";
   const paste = textOverride == null
     ? pastedText
@@ -5968,6 +6637,10 @@ async function sendPrompt({
     uploaded: img.uploaded
   }));
   const compareModels = resolveCompareModelsForSend({ images: pendingImages });
+  if (sendSkillIds.includes("illustration") && (state.temporaryChat || compareModels.length)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
   if (state.temporaryChat && compareModels.length) {
     showToast("Temporary chat uses one model for now.");
     return;
@@ -5990,7 +6663,9 @@ async function sendPrompt({
     compareModels,
     council: Boolean(compareModels.length && isCouncilMode()),
     describeImages: Boolean(compareModels.length && compareIncludesTextOnlyModels(compareModels)),
-    paste
+    paste,
+    skillIds: sendSkillIds,
+    skillMarks: sendSkillMarks
   });
 }
 
@@ -6168,7 +6843,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     }
   } finally {
     const stillActive = state.activeConversationId === conversationId;
-    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainFollowUps() : [];
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const completedScrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     setAutoScroll(false);
@@ -6185,12 +6860,20 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
       const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
       await executeSend({
-        text: followUpBatchText(queuedFollowUps),
+        text: followUpText,
         images: followUpImages,
         compareModels: followUpCompareModels,
         council: Boolean(followUpCompareModels.length && isCouncilMode()),
-        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels))
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
       });
     }
   }
@@ -6247,8 +6930,14 @@ function localAssistantForMode(compareModels = [], council = false) {
   };
 }
 
-async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null }) {
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null, skillIds = [], skillMarks = [] }) {
   compareController.closeCompareContextBanner();
+  const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
+  const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
+  if (illustrationSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Illustration works in standard chat.");
+    return;
+  }
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
@@ -6278,7 +6967,13 @@ async function executeSend({ text, images, compareModels, council = false, descr
   const localUser = {
     id: `local_${Date.now()}`,
     role: "user",
-    ...(paste ? { metadata: { paste } } : {}),
+    ...((paste || sendSkillIds.length) ? {
+      metadata: {
+        ...(paste ? { paste } : {}),
+        ...(sendSkillIds.length ? { skillIds: sendSkillIds } : {}),
+        ...(sendSkillMarks.length ? { skillMarks: sendSkillMarks } : {})
+      }
+    } : {}),
     content: (images.length || keptParts.length)
       ? [
           ...(text ? [{ type: "text", text }] : []),
@@ -6305,8 +7000,11 @@ async function executeSend({ text, images, compareModels, council = false, descr
     });
   }
   state.messages.push(localUser, localAssistant);
-  els.promptInput.value = "";
+  setComposerPlainText("");
   state.pastedText = "";
+  if (!editMessageId) {
+    closeSkillMenu();
+  }
   applyComposerHeight();
   for (const item of images) forgetPendingDocument(item);
   state.images = [];
@@ -6322,7 +7020,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   activeRun.messages = state.messages;
   activeRun.userMessage = localUser;
   activeRun.assistantMessage = localAssistant;
-  activeRun.draft = { text, images };
+  activeRun.draft = { text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks };
   setAutoScroll(true);
   syncActiveRunningUi();
   if (createdConversation) renderShell();
@@ -6366,6 +7064,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
       provider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
+      skillIds: sendSkillIds,
+      skillMarks: sendSkillMarks,
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
       ...(paste ? { paste } : {}),
@@ -6433,7 +7133,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       wasAborted = true;
       if (activeRun.cancelRequested && activeRun.turnWaiting && !activeRun.cancelResult) {
         if (isRunKeyActive(runKey)) {
-          els.promptInput.value = text;
+          setComposerPlainText(text, sendSkillMarks);
           state.images = images;
           for (const item of images) rememberPendingDocument(item);
           renderImages();
@@ -6470,7 +7170,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const stillActive = temporaryChat
       ? state.temporaryChat && isRunKeyActive(runKey)
       : state.activeConversationId === conversationId && !state.temporaryChat;
-    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainFollowUps() : [];
+    const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const completedScrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     setAutoScroll(false);
@@ -6490,12 +7190,20 @@ async function executeSend({ text, images, compareModels, council = false, descr
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
       const followUpCompareModels = resolveCompareModelsForSend({ images: followUpImages });
+      const followUpText = followUpBatchText(queuedFollowUps);
+      const followUpSkillIds = mergeComposerSkillIds(...queuedFollowUps.map((item) => item.skillIds));
       await executeSend({
-        text: followUpBatchText(queuedFollowUps),
+        text: followUpText,
         images: followUpImages,
         compareModels: followUpCompareModels,
         council: Boolean(followUpCompareModels.length && isCouncilMode()),
-        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels))
+        describeImages: Boolean(followUpCompareModels.length && compareIncludesTextOnlyModels(followUpCompareModels)),
+        skillIds: followUpSkillIds,
+        skillMarks: normalizeClientSkillMarks(
+          followUpBatchSkillMarks(queuedFollowUps),
+          followUpSkillIds,
+          followUpText.length
+        )
       });
     }
   }
@@ -6514,6 +7222,7 @@ async function signOutAndReset() {
   state.temporaryChat = false;
   clearClarification();
   clearFollowUps();
+  clearComposerSkills();
   state.activeConversationId = "";
   closeDocumentViewer();
   syncConversationUrl({ replace: true });
@@ -6537,6 +7246,7 @@ async function bootstrap() {
   applyTextScale();
   try {
     state.config = await fetchConfig();
+    state.composerSkills = Array.isArray(state.config?.skills) ? state.config.skills : [];
     await setupNativeLifecycle();
     configureApiAuth({
       getSession: () => state.session,
@@ -6608,7 +7318,7 @@ function isNearBottom(el, threshold = 60) {
 }
 
 function composerHasPendingContent() {
-  return Boolean(els.promptInput?.value?.trim() || state.pastedText || state.images?.length);
+  return Boolean(composerPlainText().trim() || state.pastedText || state.images?.length);
 }
 
 function composerHasFocus() {
@@ -7039,8 +7749,15 @@ function bindEvents() {
     }
   });
 
+  document.addEventListener("pointerdown", (event) => {
+    if (!state.skillMenu.open) return;
+    if (event.target.closest("#skillCommandMenu") || event.target === els.promptInput) return;
+    closeSkillMenu();
+  });
+
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (state.skillMenu.open) { closeSkillMenu(); return; }
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }
     if (isSearchDialogOpen()) { closeSearchDialog(); return; }
     if (isPinnedPopupOpen()) { closePinnedPopup(); return; }
@@ -7475,7 +8192,7 @@ function bindEvents() {
       return;
     }
     const thumb = e.target.closest("[data-preview-src]");
-    if (thumb) openLightbox(thumb.dataset.previewSrc);
+    if (thumb) openLightbox(thumb.dataset.previewSrc, thumb.dataset.previewCaption || "");
   });
 
   els.followupQueue?.addEventListener("click", (e) => {
@@ -7551,7 +8268,7 @@ function bindEvents() {
     }
     const previewImage = e.target.closest("[data-preview-src]");
     if (previewImage) {
-      openLightbox(previewImage.dataset.previewSrc);
+      openLightbox(previewImage.dataset.previewSrc, previewImage.dataset.previewCaption || "");
       return;
     }
 
@@ -7653,7 +8370,7 @@ function bindEvents() {
     const previewImage = e.target.closest("[data-preview-src]");
     if (previewImage && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();
-      openLightbox(previewImage.dataset.previewSrc);
+      openLightbox(previewImage.dataset.previewSrc, previewImage.dataset.previewCaption || "");
       return;
     }
     const input = e.target.closest("[data-edit-input]");
@@ -7743,12 +8460,84 @@ function bindEvents() {
 
   els.promptInput.addEventListener("input", () => {
     if (state.clarification || state.clarificationChecking) clearClarification();
+    syncComposerSkillState();
     els.composer?.classList.remove("compact");
     applyComposerHeight();
     updateSendButton();
     renderContextMeter();
+    syncSkillMenu();
+  });
+  els.promptInput.addEventListener("click", () => syncSkillMenu());
+  els.promptInput.addEventListener("keyup", (e) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) syncSkillMenu();
+  });
+  els.promptInput.addEventListener("compositionstart", () => {
+    state.skillMenu.composing = true;
+  });
+  els.promptInput.addEventListener("compositionend", () => {
+    state.skillMenu.composing = false;
+    syncSkillMenu();
+  });
+  els.promptInput.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (document.activeElement === els.promptInput) return;
+      if (els.skillCommandMenu?.contains(document.activeElement)) return;
+      closeSkillMenu();
+    }, 0);
   });
   els.promptInput.addEventListener("keydown", (e) => {
+    if (state.skillMenu.open && !e.isComposing && e.key !== "Process") {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveSkillActive(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveSkillActive(-1);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        const rows = filteredSkillRows();
+        const skill = rows[state.skillMenu.active];
+        e.preventDefault();
+        if (skill) selectComposerSkill(skill);
+        else closeSkillMenu();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSkillMenu();
+        return;
+      }
+    }
+    if (e.key === "Backspace" && !e.isComposing) {
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range?.collapsed) {
+        const node = range.startContainer;
+        const offset = range.startOffset;
+        let chip = null;
+        if (node === els.promptInput && offset > 0 && els.promptInput.childNodes[offset - 1]?.dataset?.skillId) {
+          chip = els.promptInput.childNodes[offset - 1];
+        } else if (node.nodeType === Node.TEXT_NODE && offset === 0 && node.previousSibling?.dataset?.skillId) {
+          chip = node.previousSibling;
+        }
+        if (chip) {
+          e.preventDefault();
+          chip.remove();
+          syncComposerSkillState();
+          return;
+        }
+      }
+    }
+    if (e.key === "Enter" && e.shiftKey) {
+      e.preventDefault();
+      insertComposerText("\n");
+      applyComposerHeight();
+      updateSendButton();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (voiceState === "recording") {
@@ -7767,9 +8556,15 @@ function bindEvents() {
     }
     const pasted = e.clipboardData?.getData("text/plain") || "";
     const isLongPaste = pasted.length >= LONG_PASTE_MIN_CHARS || pasted.split("\n").length >= LONG_PASTE_MIN_LINES;
-    if (!isLongPaste || state.running) return;
     e.preventDefault();
-    addTextToComposerPaste(pasted);
+    if (isLongPaste && !state.running) {
+      addTextToComposerPaste(pasted);
+      return;
+    }
+    insertComposerText(pasted);
+    applyComposerHeight();
+    updateSendButton();
+    syncSkillMenu();
   });
 
   els.temperatureInput.addEventListener("input", (e) => updateSetting("temperature", Number(e.target.value)));

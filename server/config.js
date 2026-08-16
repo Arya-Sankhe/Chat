@@ -66,6 +66,7 @@ const PLAN_SEARCH_DEFAULTS = {
   essential: 200,
   pro: 500
 };
+const MIN_ILLUSTRATION_RESERVATION_CREDITS = 0.015;
 
 function loadSearchLimits(env) {
   const limits = {};
@@ -293,6 +294,22 @@ export function loadConfig(env = process.env) {
       synthesisMaxTokens: readInt(env.RESEARCH_SYNTHESIS_MAX_TOKENS, 6000),
       finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 25_000),
       minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
+    },
+    illustrations: {
+      enabled: Boolean(
+        clean(env.OPENROUTER_API_KEY)
+        && (cleanUrl(env.R2_ENDPOINT) || r2AccountId)
+        && clean(env.R2_ACCESS_KEY_ID)
+        && clean(env.R2_SECRET_ACCESS_KEY)
+        && clean(env.R2_BUCKET)
+        && cleanUrl(env.SUPABASE_URL)
+        && clean(env.SUPABASE_ANON_KEY)
+        && clean(env.SUPABASE_SERVICE_ROLE_KEY)
+      ),
+      model: "krea/krea-2-medium-turbo",
+      maxImages: 1,
+      maxBytes: 3 * 1024 * 1024,
+      reservationCreditsPerImage: readPositiveNumber(env.ILLUSTRATION_RESERVATION_CREDITS, 0.25)
     }
   };
 }
@@ -332,6 +349,15 @@ export function validateRuntimeConfig(config) {
     }
     if (config.speech?.apiKey && !(config.speech.creditsPerSecond > 0)) {
       throw new Error("SARVAM_STT_CREDITS_PER_SECOND must be positive when metering is enforced and Sarvam is enabled.");
+    }
+    if (
+      config.illustrations?.enabled
+      && config.illustrations.reservationCreditsPerImage + Number.EPSILON < MIN_ILLUSTRATION_RESERVATION_CREDITS
+    ) {
+      throw new Error(
+        `ILLUSTRATION_RESERVATION_CREDITS must be at least ${MIN_ILLUSTRATION_RESERVATION_CREDITS.toFixed(3)} `
+        + "for the configured Krea image model."
+      );
     }
   }
   if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.desktop.oauthEnabled) {

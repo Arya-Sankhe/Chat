@@ -215,11 +215,15 @@ const realFetch = globalThis.fetch;
  * event list (or Response) for each streaming /chat/completions call;
  * `completionFor(body)` returns the JSON payload for non-streaming calls.
  */
-function installProviderFetch({ streamFor, completionFor = null }) {
+function installProviderFetch({ streamFor, completionFor = null, imageFor = null }) {
   globalThis.fetch = async (url, options = {}) => {
     const href = String(url);
     if (href.endsWith("/models")) return jsonResponse({ data: [] });
     if (href.includes("/generation")) return jsonResponse({ data: { total_cost: 0.001 } });
+    if (href.endsWith("/images")) {
+      if (!imageFor) throw new Error(`Unexpected fetch in SSE test: ${href}`);
+      return jsonResponse(imageFor(JSON.parse(options.body), options));
+    }
     if (href.endsWith("/chat/completions")) {
       const body = JSON.parse(options.body);
       if (body.stream) {
@@ -305,6 +309,16 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
       calls.push({ op: "recordApiUsageCost", payload });
       return {};
     },
+    async createAttachment(row) {
+      counter += 1;
+      const attachment = { id: `att-${counter}`, ...row };
+      calls.push({ op: "createAttachment", attachment });
+      return attachment;
+    },
+    async completeAttachment(userId, id, patch) {
+      calls.push({ op: "completeAttachment", id, patch });
+      return { id, ...patch, status: "uploaded" };
+    },
     async insertMessage(row) {
       counter += 1;
       const message = { id: `msg-${counter}`, ...row };
@@ -332,6 +346,11 @@ function overridesFor(db) {
     createDb: () => db,
     createR2: () => ({
       readUrl(key) { return `https://signed.example/${key}`; },
+      objectKey({ userId, fileName }) { return `users/${userId}/${fileName}`; },
+      async putObject(key, body, opts) {
+        db.calls.push({ op: "putObject", key, size: body?.length, contentType: opts?.contentType });
+        return { etag: "etag-1" };
+      },
       async deleteObjects(keys) { db.calls.push({ op: "deleteObjects", keys }); }
     }),
     verifyUser: async () => ({ id: "user-1", email: "user@example.com", raw: {} })
@@ -591,7 +610,7 @@ test("compare: server substitutes the default pair and streams per-index start/d
   const db = makeDb({ conversation: conversationRow });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
-    body: { text: "Compare this.", models: ["model-a", "model-b"], writingStyle: "learning" }
+    body: { text: "Compare this.", models: ["model-a", "model-b"], writingStyle: "learning", skillIds: ["humanizer"] }
   });
 
   assert.equal(res.statusCode, 200);
@@ -608,6 +627,8 @@ test("compare: server substitutes the default pair and streams per-index start/d
   }
   assert.equal(events.length, 8, "compare emits exactly per-lane events, no global done/usage");
   assert.ok(providerBodies.every((body) => /Writing style skill \(learning\)/.test(body.messages[0].content)));
+  assert.ok(providerBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages[0].content)));
+  assert.ok(providerBodies.every((body) => !("skillIds" in body)));
 
   /* Two assistant rows persisted, then updated with their content. */
   const assistantInserts = db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "assistant");
@@ -656,7 +677,7 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
   const db = makeDb({ conversation: conversationRow });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
-    body: { text: "Council question.", council: true, models: ["model-a", "model-b"], writingStyle: "formal" }
+    body: { text: "Council question.", council: true, models: ["model-a", "model-b"], writingStyle: "formal", skillIds: ["humanizer"] }
   });
 
   assert.equal(res.statusCode, 200);
@@ -716,6 +737,8 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
   assert.equal(events.at(-1).type, "council:chairman:done");
   assert.equal(streamedBodies.length, 5, "four panelists and the chairman stream");
   assert.ok(streamedBodies.every((body) => /Writing style skill \(formal\)/.test(body.messages[0].content)));
+  assert.ok(streamedBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages[0].content)));
+  assert.ok(streamedBodies.every((body) => !("skillIds" in body)));
 
   /* Stage ordering is frozen. */
   const order = [
@@ -866,16 +889,253 @@ test("writing styles reach normal and temporary provider prompts without leaking
   assert.equal("writingStyle" in requests[1], false);
 });
 
+test("composer skills reach normal and temporary prompts without leaking skillIds", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta("Humanized answer."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      text: "Rewrite this.",
+      model: TEXT_MODEL,
+      agentMode: false,
+      skillIds: ["humanizer", "humanizer", "../../etc/passwd", "unknown"],
+      skillMarks: [{ id: "humanizer", at: 8 }, { id: "unknown", at: 0 }]
+    }
+  });
+  await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "Rewrite this too.", model: TEXT_MODEL, skillIds: ["humanizer"] }
+  });
+
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(requests[1].messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(requests[1].messages[0].content, /Temporary chat cannot create/);
+  assert.equal("skillIds" in requests[0], false);
+  assert.equal("skillIds" in requests[1], false);
+  const userInsert = db.calls.find((call) => call.op === "insertMessage" && call.message.role === "user");
+  assert.deepEqual(userInsert.message.metadata.skillIds, ["humanizer"]);
+  assert.deepEqual(userInsert.message.metadata.skillMarks, [{ id: "humanizer", at: 8 }]);
+});
+
+const ILLUSTRATION_ENV = {
+  ...CONFIG_ENV,
+  R2_ACCOUNT_ID: "acc",
+  R2_ACCESS_KEY_ID: "key",
+  R2_SECRET_ACCESS_KEY: "secret",
+  R2_BUCKET: "bucket"
+};
+const MINI_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+test("illustration turn plans, stores one image, and streams status plus result", async (t) => {
+  t.after(restoreFetch);
+  const imageRequests = [];
+  const plannerRequests = [];
+  installProviderFetch({
+    streamFor: () => {
+      throw new Error("illustration must not stream a chat completion");
+    },
+    completionFor: (body) => {
+      plannerRequests.push(body);
+      assert.match(body.messages.map((message) => message.content).join("\n"), /Explain the above/);
+      assert.match(body.messages.map((message) => message.content).join("\n"), /Ingest, transform/);
+      return {
+        id: "plan-1",
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              mode: "generate",
+              reply: "One diagram of the earlier process.",
+              images: [{ purpose: "Show the process", prompt: "A text-free Klui illustration of a pipeline." }]
+            })
+          }
+        }],
+        usage: { cost: 0.001 }
+      };
+    },
+    imageFor: (body, options) => {
+      imageRequests.push({ body, options });
+      return {
+        id: "img-1",
+        data: [{ b64_json: MINI_PNG_B64, media_type: "image/png" }],
+        usage: { cost: 0.015 }
+      };
+    }
+  });
+
+  const config = loadConfig(ILLUSTRATION_ENV);
+  const db = makeDb({
+    conversation: conversationRow,
+    messages: [
+      { id: "older-user", role: "user", content: "We should split the pipeline." },
+      { id: "older-asst", role: "assistant", content: "Ingest, transform, and publish." }
+    ]
+  });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Explain the above as one digestible image.", model: TEXT_MODEL, agentMode: false, skillIds: ["illustration"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  const events = parseSse(res.body);
+  assert.equal(events[0].type, "illustration:status");
+  assert.equal(events[0].label, "Planning illustration…");
+  assert.ok(events.some((event) => event.type === "illustration:status" && event.label === "Generating illustration…"));
+  const result = events.find((event) => event.type === "illustration:result");
+  assert.ok(result);
+  assert.equal(Array.isArray(result.content), true);
+  assert.doesNotMatch(JSON.stringify(result.content), /Show the process|Ian Xiaohei/);
+  assert.match(JSON.stringify(result.content), /signed\.example/);
+  assert.doesNotMatch(res.body, /iVBORw0KGgo/);
+  assert.ok(events.some((event) => event.type === "done"));
+  assert.equal(plannerRequests[0].model, TEXT_MODEL);
+  assert.equal(plannerRequests[0].max_tokens, 15_000);
+  assert.equal(imageRequests.length, 1);
+  assert.equal(imageRequests[0].body.model, "krea/krea-2-medium-turbo");
+  assert.equal(imageRequests[0].body.n, undefined);
+  assert.equal(imageRequests[0].body.aspect_ratio, "16:9");
+  assert.equal(imageRequests[0].body.resolution, "1K");
+  assert.equal(imageRequests[0].body.output_format, undefined);
+  assert.match(imageRequests[0].options.headers.authorization, /Bearer or-key/);
+  assert.doesNotMatch(imageRequests[0].body.prompt, /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/);
+  assert.match(imageRequests[0].body.prompt, /English labels/i);
+  assert.match(imageRequests[0].body.prompt, /No watermark/i);
+  assert.match(imageRequests[0].body.prompt, /No Chinese characters/i);
+  assert.ok(db.calls.some((call) => call.op === "createAttachment"));
+  assert.ok(db.calls.some((call) => call.op === "putObject"));
+  assert.ok(
+    db.calls.findIndex((call) => call.op === "recordApiUsageCost" && call.payload.model === "krea/krea-2-medium-turbo")
+      > db.calls.findIndex((call) => call.op === "completeAttachment"),
+    "image usage should settle only after the generated attachment is durable"
+  );
+  const assistantUpdate = db.calls.find((call) => call.op === "updateMessage" && call.patch?.content);
+  assert.equal(assistantUpdate.patch.metadata.illustration.completed, 1);
+  assert.doesNotMatch(JSON.stringify(assistantUpdate.patch.metadata), /Klui illustration of a pipeline/);
+  const costs = db.calls.filter((call) => call.op === "recordApiUsageCost").map((call) => call.payload);
+  assert.ok(costs.some((payload) => payload.model === TEXT_MODEL));
+  assert.ok(costs.some((payload) => payload.model === "krea/krea-2-medium-turbo" && payload.costCredits === 0.015));
+});
+
+test("illustration plan-only and unsupported modes never call the Image API", async (t) => {
+  t.after(restoreFetch);
+  let images = 0;
+  installProviderFetch({
+    streamFor: () => {
+      throw new Error("plan-only illustration must not stream chat");
+    },
+    completionFor: () => ({
+      id: "plan-2",
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mode: "plan",
+            reply: "Suggested shots.",
+            images: [{ purpose: "The first idea", prompt: "Klui holds a list" }]
+          })
+        }
+      }],
+      usage: { cost: 0.001 }
+    }),
+    imageFor: () => {
+      images += 1;
+      throw new Error("plan-only must not generate");
+    }
+  });
+
+  const config = loadConfig(ILLUSTRATION_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Give me a shot list only. Do not generate yet.", model: TEXT_MODEL, agentMode: false, skillIds: ["illustration"] }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(images, 0);
+  assert.match(res.body, /No image was generated/);
+  assert.equal(db.calls.some((call) => call.op === "createAttachment"), false);
+
+  const compare = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Draw this.", models: ["model-a", "model-b"], skillIds: ["illustration"] }
+  });
+  assert.equal(compare.statusCode, 400);
+  assert.match(compare.body, /standard chat/);
+
+  const temp = await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "Draw this.", model: TEXT_MODEL, skillIds: ["illustration"] }
+  });
+  assert.equal(temp.statusCode, 400);
+  assert.match(temp.body, /standard chat/);
+  assert.equal(images, 0);
+});
+
+test("editing an illustration request is rejected before downstream messages are purged", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({
+    streamFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    },
+    completionFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    },
+    imageFor: () => {
+      throw new Error("an illustration edit must not reach the provider");
+    }
+  });
+  const history = [
+    {
+      id: "user-illustration",
+      role: "user",
+      content: "Explain queues.",
+      metadata: { skillIds: ["illustration"], skillMarks: [{ id: "illustration", at: 0 }] }
+    },
+    {
+      id: "assistant-illustration",
+      role: "assistant",
+      content: "Existing illustration.",
+      finish_reason: "stop"
+    }
+  ];
+  const config = loadConfig(ILLUSTRATION_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      editUserMessageId: "user-illustration",
+      text: "Explain stacks instead.",
+      model: TEXT_MODEL
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.match(res.body, /cannot be edited/i);
+  assert.equal(db.calls.some((call) => call.op === "deleteMessage"), false);
+  assert.equal(db.calls.some((call) => call.op === "updateMessage"), false);
+});
+
 /* ── retry and edit modes ── */
 
 test("retry: deletes failed assistant, reuses user message, streams fresh assistant", async (t) => {
   t.after(restoreFetch);
+  let providerRequest = null;
   installProviderFetch({
-    streamFor: () => [contentDelta("Retried answer."), usageChunk()]
+    streamFor: (body) => {
+      providerRequest = body;
+      return [contentDelta("Retried answer."), usageChunk()];
+    }
   });
 
   const history = [
-    { id: "user-1", role: "user", content: "Original question?" },
+    { id: "user-1", role: "user", content: "Original question?", metadata: { skillIds: ["humanizer"] } },
     {
       id: "asst-2",
       role: "assistant",
@@ -913,6 +1173,8 @@ test("retry: deletes failed assistant, reuses user message, streams fresh assist
   assert.equal(finalUpdate.id, "msg-1");
   assert.equal(finalUpdate.patch.content, "Retried answer.");
   assert.equal(finalUpdate.patch.finish_reason, "stop");
+  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.equal("skillIds" in providerRequest, false);
 });
 
 test("longer retry rewrites the existing answer without adding a user message", async (t) => {
@@ -926,7 +1188,7 @@ test("longer retry rewrites the existing answer without adding a user message", 
   });
 
   const history = [
-    { id: "user-1", role: "user", content: "Explain this." },
+    { id: "user-1", role: "user", content: "Explain this.", metadata: { skillIds: ["humanizer"] } },
     { id: "asst-2", role: "assistant", content: "Short answer.", finish_reason: "stop" }
   ];
   const config = loadConfig(CONFIG_ENV);
@@ -938,20 +1200,26 @@ test("longer retry rewrites the existing answer without adding a user message", 
 
   assert.match(providerRequest.messages[0].content, /substantially longer/);
   assert.match(providerRequest.messages[0].content, /<previous_response>\nShort answer\./);
+  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.equal("skillIds" in providerRequest, false);
   assert.equal(db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "user").length, 0);
   assert.deepEqual(db.calls.filter((call) => call.op === "deleteMessage").map((call) => call.id), ["asst-2"]);
 });
 
 test("edit: rewrites user text, purges downstream messages, streams new assistant", async (t) => {
   t.after(restoreFetch);
+  let providerRequest = null;
   installProviderFetch({
-    streamFor: () => [contentDelta("Answer to edited prompt."), usageChunk()]
+    streamFor: (body) => {
+      providerRequest = body;
+      return [contentDelta("Answer to edited prompt."), usageChunk()];
+    }
   });
 
   const history = [
     { id: "user-1", role: "user", content: "First question" },
     { id: "asst-2", role: "assistant", content: "First answer", finish_reason: "stop" },
-    { id: "user-3", role: "user", content: "Follow up question" },
+    { id: "user-3", role: "user", content: "Follow up question", metadata: { skillIds: ["humanizer"] } },
     { id: "asst-4", role: "assistant", content: "Follow up answer", finish_reason: "stop" }
   ];
 
@@ -959,7 +1227,7 @@ test("edit: rewrites user text, purges downstream messages, streams new assistan
   const db = makeDb({ conversation: conversationRow, messages: history });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
-    body: { editUserMessageId: "user-3", text: "Edited follow up?", model: TEXT_MODEL }
+    body: { editUserMessageId: "user-3", text: "Edited follow up?", model: TEXT_MODEL, skillIds: ["unknown"] }
   });
 
   assert.equal(res.statusCode, 200);
@@ -978,6 +1246,9 @@ test("edit: rewrites user text, purges downstream messages, streams new assistan
   const userUpdates = db.calls.filter((call) => call.op === "updateMessage" && call.id === "user-3");
   assert.equal(userUpdates.length, 1);
   assert.equal(userUpdates[0].patch.content, "Edited follow up?");
+  assert.equal("metadata" in userUpdates[0].patch, false);
+  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.equal("skillIds" in providerRequest, false);
 
   const inserts = db.calls.filter((call) => call.op === "insertMessage");
   assert.deepEqual(inserts.map((call) => call.message.role), ["assistant"]);
@@ -1113,8 +1384,12 @@ test("project knowledge cannot be rebound to an individual chat message", async 
 
 test("client-keyed send persists one durable turn and fences the first provider call", async (t) => {
   t.after(restoreFetch);
+  let providerRequest = null;
   installProviderFetch({
-    streamFor: () => [contentDelta("The document says hello."), usageChunk()]
+    streamFor: (body) => {
+      providerRequest = body;
+      return [contentDelta("The document says hello."), usageChunk()];
+    }
   });
 
   const config = loadConfig(CONFIG_ENV);
@@ -1209,6 +1484,7 @@ test("client-keyed send persists one durable turn and fences the first provider 
       model: TEXT_MODEL,
       attachments: [],
       writingStyle: "learning",
+      skillIds: ["humanizer", "../../etc/passwd"],
       clientTurnKey: "00000000-0000-4000-8000-000000000105"
     }
   });
@@ -1219,6 +1495,10 @@ test("client-keyed send persists one durable turn and fences the first provider 
   assert.equal(res.headers["x-klui-assistant-message-id"], undefined);
   assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1);
   assert.equal(calls.find((call) => call.op === "submitDocumentTurn").payload.requestPayload.writingStyle, "learning");
+  assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.requestPayload.skillIds, ["humanizer"]);
+  assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.messageMetadata.skillIds, ["humanizer"]);
+  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.equal("skillIds" in providerRequest, false);
   assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.attachmentIds, []);
   assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);
   assert.ok(

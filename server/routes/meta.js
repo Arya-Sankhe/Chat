@@ -7,6 +7,7 @@ import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { publicPlan } from "../saas/plans.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { publicChatRoles } from "../models.js";
+import { listComposerSkills } from "../saas/composerSkills.js";
 import { providerAvailability } from "../providers.js";
 import { authContext, requireChatContext } from "./context.js";
 
@@ -74,7 +75,8 @@ export function handleConfig(req, res, config) {
     defaultBaseUrl: config.defaultBaseUrl,
     services: configuredServices(config),
     providers: providerAvailability(config),
-    roles: publicChatRoles()
+    roles: publicChatRoles(),
+    skills: listComposerSkills().filter((skill) => skill.id !== "illustration" || config.illustrations?.enabled)
   });
 }
 

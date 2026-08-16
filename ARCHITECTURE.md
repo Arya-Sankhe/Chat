@@ -811,10 +811,6 @@ and explains the timeline.
   and `server/research/search.js`.
 - `MOBILE.md` is up to date and accurate against the current mobile
   build flow.
-- `DOCUMENT_SKILLS_IMPLEMENTATION_PLAN.md` is a planning document;
-  it is not authoritative for current behavior. The current
-  authoritative description of the document skills is the
-  `server/documents/` modules plus `docs/ARCHITECTURE_HISTORY.md`.
 
 ## 10. Recommended extraction boundaries
 

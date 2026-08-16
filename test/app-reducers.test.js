@@ -197,6 +197,31 @@ for (const fixture of fixtureDoc.fixtures) {
   });
 }
 
+test("illustration status and result update one assistant bubble without base64", () => {
+  const message = {
+    id: "local_assistant_1",
+    role: "assistant",
+    content: "",
+    reasoning: "",
+    toolCalls: []
+  };
+  reducers.applyStreamEvent(message, { type: "illustration:status", label: "Planning illustration…" });
+  assert.equal(message.illustrationStatus, "Planning illustration…");
+  assert.ok(message.activityStartedAt);
+  reducers.applyStreamEvent(message, {
+    type: "illustration:result",
+    content: [
+      { type: "text", text: "Show the process" },
+      { type: "image_url", image_url: { url: "https://signed.example/k" } }
+    ],
+    metadata: { illustration: { skillId: "illustration", completed: 1 } }
+  });
+  assert.equal(message.illustrationStatus, undefined);
+  assert.equal(Array.isArray(message.content), true);
+  assert.equal(message.metadata.illustration.completed, 1);
+  assert.doesNotMatch(JSON.stringify(message), /iVBORw0KGgo/);
+});
+
 test("response:reset keeps every mini-reasoning chunk through tool work and clears them at final-answer start", () => {
   const message = {
     id: "local_assistant_1",

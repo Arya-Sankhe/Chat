@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260725-sidebar-white">
+    <link rel="stylesheet" href="/styles.css?v=20260816-skill-gap">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -239,6 +239,7 @@
                 </button>
               </div>
               <section class="clarification-card hidden" id="clarificationCard" aria-live="polite" aria-label="Follow-up questions"></section>
+              <div class="composer-slot">
               <div class="composer">
                 <div class="composer-beam" aria-hidden="true"><div data-beam-bloom></div></div>
                 <div class="composer-previews" id="imagePreviews"></div>
@@ -246,7 +247,9 @@
                   <span>Deep research</span>
                   <button type="button" id="researchModeClose" aria-label="Turn off Deep Research">x</button>
                 </div>
-                <textarea id="promptInput" rows="1" placeholder="Message Klui" spellcheck="true"></textarea>
+                <div class="composer-input">
+                  <div id="promptInput" class="composer-prompt is-placeholder" contenteditable="true" role="textbox" aria-label="Message Klui" aria-multiline="true" spellcheck="true" data-placeholder="Message Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false"></div>
+                </div>
                 <div class="composer-bottom">
                   <div class="composer-actions">
                     <div class="composer-action-menu-wrap" id="composerActionMenuWrap">
@@ -373,6 +376,8 @@
                     </button>
                   </div>
                 </div>
+              </div>
+              <div class="skill-command-menu hidden" id="skillCommandMenu" role="listbox" aria-label="Skills"></div>
               </div>
             </div>
             <footer class="app-footer">
@@ -678,7 +683,10 @@
         <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close preview">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
-        <img id="lightboxImg" src="" alt="Expanded image preview">
+        <div class="lightbox-stage">
+          <img id="lightboxImg" src="" alt="Expanded image preview">
+          <p class="lightbox-caption" id="lightboxCaption" hidden></p>
+        </div>
       </div>
 
       <section class="pasted-text-dialog hidden" id="pastedTextDialog" role="dialog" aria-modal="true" aria-labelledby="pastedTextDialogTitle">
@@ -722,7 +730,7 @@
         });
       }
     </script>
-    <script type="module" src="/js/app.js?v=20260724-compare-media-fix"></script>
+    <script type="module" src="/js/app.js?v=20260816-skill-align"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

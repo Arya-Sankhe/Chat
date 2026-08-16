@@ -10,6 +10,7 @@ import {
 } from "../saas/messages.js";
 import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { illustrationSkillFromIds, withComposerSkillsSystemPrompt } from "../saas/composerSkills.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
@@ -58,6 +59,9 @@ export async function handleTemporaryChat(req, res, config) {
     || (Array.isArray(body.models) && body.models.length)) {
     throw new HttpError(400, "Temporary chat does not support compare or council mode yet.");
   }
+  if (illustrationSkillFromIds(body.skillIds)) {
+    throw new HttpError(400, "Illustration works in standard chat.");
+  }
 
   const attachments = await loadUploadedAttachments(context, body.attachments, req, context.plan);
   if (attachments.some((attachment) => attachment.category === "document")) {
@@ -89,6 +93,7 @@ export async function handleTemporaryChat(req, res, config) {
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
   );
+  settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, body.skillIds);
   settings.systemPrompt += "\n\nTemporary chat cannot create, edit, or export documents. If the user asks for a document, tell them: “I can’t create documents in temporary chat. I can only create documents in a normal chat.” Do not claim document tools are generally unavailable or list unrelated capabilities.";
   const userContent = buildStoredUserContent(body.text, attachments);
   const promptText = contentText(userContent);

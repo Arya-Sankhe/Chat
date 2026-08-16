@@ -183,7 +183,9 @@ export function createCrofaiUsageMeter({
       console.error("usage reservation ceiling violated; funded inference disabled", {
         surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: cost
       });
-      throw new HttpError(503, "Usage metering is temporarily unavailable.");
+      const error = new HttpError(503, "Usage metering is temporarily unavailable.");
+      error.usageSettled = true;
+      throw error;
     }
     await db.settleApiUsage({
       userId,
@@ -194,6 +196,25 @@ export function createCrofaiUsageMeter({
       generationId,
       estimated: missingUsage
     }, { signal: AbortSignal.timeout(15_000) });
+  }
+
+  async function settleAcceptedFailure({ requestId, params, usage, generationId, error }) {
+    if (error?.usageSettled) return;
+    try {
+      await settleReservation({ requestId, params, usage, generationId });
+      return;
+    } catch (settleError) {
+      if (settleError?.usageSettled) return;
+    }
+    await db.settleApiUsage({
+      userId,
+      requestId,
+      costCredits: reservationCredits,
+      costSource: "settlement_failure",
+      usage: usage || {},
+      generationId: generationId || "",
+      estimated: true
+    }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
   }
 
   function meterStreamResponse(response, params, callSignal = signal) {
@@ -267,14 +288,14 @@ export function createCrofaiUsageMeter({
         const requestId = await reserve(params);
         let providerAccepted = false;
         let submitted = false;
+        let responseUsage = null;
+        let responseGenerationId = "";
         const markSubmitted = async (generationId = "") => {
           if (submitted) return;
           await db.markApiUsageSubmitted({ userId, requestId, generationId }, { signal: AbortSignal.timeout(15_000) });
           submitted = true;
         };
         try {
-          let responseUsage = null;
-          let responseGenerationId = "";
           const result = await chatCompletionFn({
             ...params,
             onResponseStarted: async () => {
@@ -302,6 +323,14 @@ export function createCrofaiUsageMeter({
               usage: {},
               estimated: true
             }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+          } else {
+            await settleAcceptedFailure({
+              requestId,
+              params,
+              usage: responseUsage,
+              generationId: responseGenerationId,
+              error
+            });
           }
           throw error;
         }
@@ -323,6 +352,70 @@ export function createCrofaiUsageMeter({
         callSignal: params?.signal
       });
       return result;
+    },
+
+    async runReserved(params, execute) {
+      if (typeof execute !== "function") throw new Error("execute required");
+      if (meteringMode === "enforce") {
+        const requestId = await reserve(params);
+        let providerAccepted = false;
+        let submitted = false;
+        let acceptedUsage = null;
+        let acceptedGenerationId = "";
+        const markSubmitted = async (generationId = "", usage = null) => {
+          providerAccepted = true;
+          acceptedGenerationId = generationId || acceptedGenerationId;
+          if (usage && typeof usage === "object") acceptedUsage = usage;
+          if (submitted) return;
+          await db.markApiUsageSubmitted({ userId, requestId, generationId }, { signal: AbortSignal.timeout(15_000) });
+          submitted = true;
+        };
+        try {
+          const out = await execute({ markSubmitted });
+          providerAccepted = true;
+          acceptedUsage = out?.usage || acceptedUsage;
+          acceptedGenerationId = out?.generationId || acceptedGenerationId;
+          await markSubmitted(out?.generationId || "");
+          await settleReservation({
+            requestId,
+            params,
+            usage: out?.usage || null,
+            generationId: out?.generationId || ""
+          });
+          return out?.result;
+        } catch (error) {
+          if (!providerAccepted) {
+            await db.releaseApiUsage({ userId, requestId }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+          } else if (!submitted) {
+            await db.settleApiUsage({
+              userId,
+              requestId,
+              costCredits: reservationCredits,
+              costSource: "submission_state_failure",
+              usage: {},
+              estimated: true
+            }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+          } else {
+            await settleAcceptedFailure({
+              requestId,
+              params,
+              usage: acceptedUsage,
+              generationId: acceptedGenerationId,
+              error
+            });
+          }
+          throw error;
+        }
+      }
+      await checkBudget(params?.signal);
+      const out = await execute({ markSubmitted: async () => {} });
+      await recordModelCost({
+        params,
+        usage: out?.usage || null,
+        generationId: out?.generationId || "",
+        callSignal: params?.signal
+      });
+      return out?.result;
     },
 
     async streamChatCompletion(params) {

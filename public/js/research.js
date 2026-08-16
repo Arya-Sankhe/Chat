@@ -346,7 +346,10 @@ export function createResearchController({
       state.messages.push(payload.userMessage, payload.assistantMessage);
       state.activeResearchId = payload.run.id;
       state.researchMode = false;
-      elements.promptInput.value = "";
+      if (elements.promptInput) {
+        elements.promptInput.replaceChildren();
+        elements.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       state.pastedText = "";
       applyComposerHeight();
       renderImages();

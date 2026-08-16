@@ -30,6 +30,13 @@ import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import {
+  illustrationSkillFromIds,
+  normalizeComposerSkillIds,
+  normalizeComposerSkillMarks,
+  withComposerSkillsSystemPrompt
+} from "../saas/composerSkills.js";
+import { runIllustrationTurn } from "../saas/illustrations.js";
+import {
   normalizeResponseAdjustment,
   normalizeWritingStyle,
   withResponseAdjustmentSystemPrompt,
@@ -270,6 +277,9 @@ async function resolveMessageEdit({ db, userId, conversationId, editUserMessageI
 
   const target = existingMessages[targetIdx];
   if (target.role !== "user") throw new HttpError(400, "Only your own messages can be edited.");
+  if (illustrationSkillFromIds(target.metadata?.skillIds)) {
+    throw new HttpError(400, "Illustration requests cannot be edited. Send a new illustration request instead.");
+  }
 
   const newContent = applyEditedUserText(target.content, newText);
 
@@ -825,12 +835,28 @@ async function executeConversationMessage(req, res, config, conversationId, {
       throw new HttpError(400, `Council supports up to ${COUNCIL_MAX_MODELS} models.`);
     }
   }
+  const skillIds = isRetry || isEdit
+    ? normalizeComposerSkillIds(userMessage?.metadata?.skillIds)
+    : normalizeComposerSkillIds(body.skillIds);
+  const illustrationSkill = illustrationSkillFromIds(skillIds);
+  if (illustrationSkill) {
+    if (councilEnabled || compareModels.length) {
+      throw new HttpError(400, "Illustration works in standard chat.");
+    }
+    if (!config.illustrations?.enabled) {
+      throw new HttpError(503, "Illustration is not available.");
+    }
+    if (responseAdjustment) {
+      throw new HttpError(400, "Response length adjustment is not available for illustrations.");
+    }
+  }
   const settings = normalizeMessageSettings(body);
   if (routed.effort) settings.reasoning_effort = routed.effort;
   settings.systemPrompt = withWritingStyleSystemPrompt(
     await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     body.writingStyle
   );
+  settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, skillIds);
   settings.systemPrompt = withResponseAdjustmentSystemPrompt(
     settings.systemPrompt,
     responseAdjustment,
@@ -973,7 +999,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
     return messages;
   }
 
-  const chatRequests = compareModels.length
+  const chatRequests = illustrationSkill
+    ? []
+    : compareModels.length
     ? await Promise.all(compareModels.map(async (model) => normalizeChatRequest({
         model,
         messages: await providerMessagesForModel(model),
@@ -1023,12 +1051,18 @@ async function executeConversationMessage(req, res, config, conversationId, {
       content: userContent
     }, { signal: req.signal }) || userMessage;
   } else if (!isRetry && !turnRun) {
+    const skillMarks = normalizeComposerSkillMarks(body.skillMarks, skillIds);
+    const userMetadata = {
+      ...(pastedTextRange ? { paste: pastedTextRange } : {}),
+      ...(skillIds.length ? { skillIds } : {}),
+      ...(skillMarks.length ? { skillMarks } : {})
+    };
     userMessage = await context.db.insertMessage({
       user_id: context.user.id,
       conversation_id: conversation.id,
       role: "user",
       content: userContent,
-      ...(pastedTextRange ? { metadata: { paste: pastedTextRange } } : {})
+      ...(Object.keys(userMetadata).length ? { metadata: userMetadata } : {})
     }, { signal: req.signal });
 
     for (const attachment of attachments) {
@@ -1043,6 +1077,24 @@ async function executeConversationMessage(req, res, config, conversationId, {
         }, { signal: req.signal }).catch(() => {});
       }
     }
+  }
+
+  if (illustrationSkill) {
+    return runIllustrationTurn({
+      req,
+      res,
+      config,
+      context,
+      conversation,
+      userMessage,
+      historyMessages,
+      requestedModel,
+      provider,
+      crofai,
+      turnRun,
+      documentContext: projectContextMessage || "",
+      updateConversationIdentity
+    });
   }
 
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
@@ -1404,6 +1456,7 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       provider: models.length || routed.role ? "openrouter" : String(body.provider || "").trim(),
       settings,
       writingStyle: normalizeWritingStyle(body.writingStyle),
+      skillIds: normalizeComposerSkillIds(body.skillIds),
       agentMode: normalizeAgentMode(body.agentMode),
       webSearch: String(body.webSearch || "auto"),
       ...(models.length ? { models } : {}),
@@ -1423,13 +1476,19 @@ async function submitDocumentTurn({ req, config, context, conversation, body, at
   const paste = normalizePastedTextRange(body.paste, contentText(userContent));
   const hasMedia = requestHasCompareMedia({ userContent, attachments });
   const { mode, payload } = persistedTurnRequest(body, conversation, config, { hasMedia });
+  const submittedSkillIds = payload.skillIds || [];
+  const submittedSkillMarks = normalizeComposerSkillMarks(body.skillMarks, submittedSkillIds);
   const submitted = await context.db.submitDocumentTurn({
     userId: context.user.id,
     conversationId: conversation.id,
     clientTurnKey,
     mode,
     userContent,
-    messageMetadata: paste ? { paste } : {},
+    messageMetadata: {
+      ...(paste ? { paste } : {}),
+      ...(submittedSkillIds.length ? { skillIds: submittedSkillIds } : {}),
+      ...(submittedSkillMarks.length ? { skillMarks: submittedSkillMarks } : {})
+    },
     requestPayload: {
       ...payload,
       attachments: attachments.map((attachment) => attachment.id)
