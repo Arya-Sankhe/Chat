@@ -363,6 +363,12 @@ const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
 const conversationCache = new Map();
 
+function rememberConversation(id, messages) {
+  if (!id) return;
+  conversationCache.set(id, { messages: messages || [] });
+  if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
+}
+
 function conversationRunKey(conversationId = state.activeConversationId, temporary = state.temporaryChat) {
   if (temporary) return TEMPORARY_RUN_KEY;
   return String(conversationId || "");
@@ -440,6 +446,9 @@ function endConversationRun(key) {
 }
 
 function parkActiveConversationRun() {
+  if (state.activeConversationId && !state.temporaryChat) {
+    rememberConversation(state.activeConversationId, state.messages);
+  }
   const key = conversationRunKey();
   const run = getConversationRun(key);
   if (!run) return;
@@ -6326,8 +6335,7 @@ async function loadActiveConversation() {
     return;
   }
   const payload = await fetchConversation(state.session, id);
-  conversationCache.set(id, { messages: payload.messages || [] });
-  if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
+  rememberConversation(id, payload.messages || []);
   if (state.activeConversationId !== id) return;
   state.messages = payload.messages || [];
   const hasActiveResearch = state.messages.some((message) => {
