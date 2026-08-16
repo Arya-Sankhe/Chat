@@ -511,6 +511,7 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   assert.match(html, /composer-prompt/);
   assert.match(html, /class="composer-input"/);
   assert.match(html, /contenteditable="true"/);
+  assert.match(html, /id="promptInput"[^>]*aria-label="Message Klui"/);
   assert.match(html, /aria-haspopup="listbox"/);
   assert.match(source, /HUMANIZER_ICON_SVG/);
   assert.match(source, /skillIds:\s*sendSkillIds/);
@@ -518,6 +519,14 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   assert.match(source, /if \(state\.composerSkillIds\.length\) return "";/);
   assert.match(source, /ILLUSTRATION_ICON_SVG/);
   assert.match(source, /Illustration works in standard chat\./);
+  assert.match(source, /followUpBatchSkillMarks/);
+  assert.match(source, /drainAutomaticFollowUps/);
+  assert.ok(
+    source.match(/followUpBatchSkillMarks\(queuedFollowUps\)/g)?.length >= 2,
+    "both automatic follow-up paths must preserve inline skill positions"
+  );
+  assert.match(source, /item\.skillMarks = normalizeClientSkillIds\(item\.skillIds\)/);
+  assert.match(source, /cannot be edited|includes\("illustration"\)/i);
   assert.match(source, /Generate a new version \(uses credits\)/);
   assert.match(source, /if \(skill\.exclusive\)/);
   assert.match(source, /String\(skill\.id \|\| ""\)\.toLowerCase\(\)\.startsWith\(query\)/);

@@ -213,7 +213,7 @@ export function formatIllustrationContent({ mode, reply, images = [], stored = [
   if (mode === "plan" && images.length) {
     lines.push("", ...images.map((image, index) => `${index + 1}. ${image.purpose}`));
   }
-  lines.push("", "No image was generated.");
+  if (mode === "plan") lines.push("", "No image was generated.");
   parts.push({ type: "text", text: lines.filter((line) => line != null).join("\n") });
   return parts;
 }
@@ -351,7 +351,7 @@ async function generateOneImage({
   imageGenerationFn = imageGeneration
 }) {
   const body = illustrationImageBody(prompt);
-  const payload = await imageMeter.runReserved({
+  return imageMeter.runReserved({
     apiKey: imageProvider.apiKey,
     baseUrl: imageProvider.baseUrl,
     providerId: "openrouter",
@@ -362,26 +362,30 @@ async function generateOneImage({
       apiKey: imageProvider.apiKey,
       baseUrl: imageProvider.baseUrl,
       body,
+      signal,
+      onResponseStarted: () => markSubmitted()
+    });
+    await markSubmitted(result?.id ? String(result.id) : "", result?.usage || null);
+    const decoded = decodeIllustrationBytes(firstImageB64(result), maxBytes);
+    const stored = await storeGeneratedIllustration({
+      context,
+      conversationId,
+      messageId,
+      buffer: decoded.buffer,
+      mime: decoded.mime,
+      ext: decoded.ext,
+      index,
       signal
     });
-    await markSubmitted(result?.id ? String(result.id) : "");
-    return { usage: result?.usage || null, generationId: result?.id || "", result };
+    return {
+      usage: result?.usage || null,
+      generationId: result?.id || "",
+      result: {
+        ...stored,
+        cost: usageCostCredits(result?.usage) || 0
+      }
+    };
   });
-  const decoded = decodeIllustrationBytes(firstImageB64(payload), maxBytes);
-  const stored = await storeGeneratedIllustration({
-    context,
-    conversationId,
-    messageId,
-    buffer: decoded.buffer,
-    mime: decoded.mime,
-    ext: decoded.ext,
-    index,
-    signal
-  });
-  return {
-    ...stored,
-    cost: usageCostCredits(payload?.usage) || 0
-  };
 }
 
 export async function runIllustrationTurn({
@@ -435,6 +439,7 @@ export async function runIllustrationTurn({
   });
 
   const stored = [];
+  let plan = null;
   try {
     startSse(res, {
       "x-klui-user-message-id": userMessage.id,
@@ -443,7 +448,7 @@ export async function runIllustrationTurn({
     });
     writeSse(res, { type: "illustration:status", label: "Planning illustration…" });
 
-    const plan = await planIllustrations({
+    plan = await planIllustrations({
       crofai,
       provider,
       model: requestedModel,
@@ -525,8 +530,17 @@ export async function runIllustrationTurn({
     await updateConversationIdentity().catch(() => {});
     const aborted = error?.name === "AbortError";
     const message = aborted ? "Stopped by user." : error?.message || "The illustration could not be generated.";
+    const partialContent = error.partial?.content || (plan
+      ? formatIllustrationContent({
+          mode: plan.mode,
+          reply: plan.reply,
+          images: plan.images,
+          stored,
+          failed: Math.max(0, plan.images.length - stored.length)
+        })
+      : null);
     await updateAssistantOutputMessage(context, assistantMessage.id, {
-      ...(aborted ? { content: error.partial?.content || formatIllustrationContent({ mode: "generate", reply: "", stored, failed: 0 }) } : {}),
+      ...(partialContent ? { content: partialContent } : {}),
       error: message,
       finish_reason: "error"
     }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});

@@ -230,9 +230,16 @@ test("formatIllustrationContent shows the caption and image, not the purpose or 
   assert.match(plan[0].text, /No image was generated/);
   assert.match(plan[0].text, /1\. One/);
   assert.doesNotMatch(JSON.stringify(plan), /secret prompt|Ian Xiaohei/);
+
+  const clarify = formatIllustrationContent({
+    mode: "clarify",
+    reply: "What should I illustrate?"
+  });
+  assert.equal(clarify[0].text, "What should I illustrate?");
+  assert.doesNotMatch(clarify[0].text, /No image was generated/);
 });
 
-test("imageGeneration posts to /images once with no retry", async () => {
+test("imageGeneration does not retry a non-idempotent /images request", async () => {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
@@ -301,4 +308,13 @@ test("runReserved settles usage.cost and releases on pre-response failure", asyn
     throw new Error("transport failed");
   }), /transport failed/);
   assert.deepEqual(calls.map((call) => call.op), ["reserve", "release"]);
+
+  calls.length = 0;
+  await assert.rejects(() => enforced.runReserved({ body: { model: ILLUSTRATION_MODEL } }, async ({ markSubmitted }) => {
+    await markSubmitted("img-2", { cost: 0.015 });
+    throw new Error("storage failed");
+  }), /storage failed/);
+  assert.deepEqual(calls.map((call) => call.op), ["reserve", "submitted", "settle"]);
+  assert.equal(calls.at(-1).payload.costCredits, 0.015);
+  assert.equal(calls.at(-1).payload.generationId, "img-2");
 });

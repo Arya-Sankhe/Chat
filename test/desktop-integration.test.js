@@ -162,6 +162,29 @@ test("enforced metering fails fast without a positive LLM reservation ceiling", 
   );
 });
 
+test("enforced illustration metering covers the fixed provider image price", () => {
+  const env = {
+    API_USAGE_METERING_MODE: "enforce",
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
+    OPENROUTER_API_KEY: "provider-key",
+    R2_ACCOUNT_ID: "account",
+    R2_ACCESS_KEY_ID: "key",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "bucket",
+    SUPABASE_URL: "https://project.supabase.co",
+    SUPABASE_ANON_KEY: "anon",
+    SUPABASE_SERVICE_ROLE_KEY: "service"
+  };
+  assert.throws(
+    () => validateRuntimeConfig(loadConfig({ ...env, ILLUSTRATION_RESERVATION_CREDITS: "0.014" })),
+    /ILLUSTRATION_RESERVATION_CREDITS must be at least 0\.015/
+  );
+  assert.doesNotThrow(() => validateRuntimeConfig(loadConfig({
+    ...env,
+    ILLUSTRATION_RESERVATION_CREDITS: "0.015"
+  })));
+});
+
 test("funded desktop features fail closed without a canonical account allowlist", () => {
   const accountId = "00000000-0000-4000-8000-000000000001";
   const base = {
