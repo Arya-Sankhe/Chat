@@ -265,6 +265,8 @@ test("resource 404s surface as problem JSON after auth", async () => {
   const overrides = stubbedDeps({
     db: {
       async getConversation() { return null; },
+      async listMessages() { return []; },
+      async listPendingDocumentTurns() { return []; },
       async listMessageAttachments() { return []; },
       async deleteMessage() { return null; }
     }

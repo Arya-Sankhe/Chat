@@ -45,16 +45,14 @@ export async function handleConversations(req, res, config) {
 
 export async function handleConversationById(req, res, config, conversationId) {
   const context = await requireChatContext(req, config);
-  const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
-  if (!conversation) throw new HttpError(404, "Conversation not found.");
 
   if (req.method === "GET") {
-    const messages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
-    const pendingTurns = await context.db.listPendingDocumentTurns(
-      context.user.id,
-      conversation.id,
-      { signal: req.signal }
-    );
+    const [conversation, messages, pendingTurns] = await Promise.all([
+      context.db.getConversation(context.user.id, conversationId, { signal: req.signal }),
+      context.db.listMessages(context.user.id, conversationId, { signal: req.signal }),
+      context.db.listPendingDocumentTurns(context.user.id, conversationId, { signal: req.signal })
+    ]);
+    if (!conversation) throw new HttpError(404, "Conversation not found.");
     const includeReasoning = context.profile?.role === "admin";
     sendJson(res, 200, {
       conversation,
@@ -63,6 +61,9 @@ export async function handleConversationById(req, res, config, conversationId) {
     });
     return;
   }
+
+  const conversation = await context.db.getConversation(context.user.id, conversationId, { signal: req.signal });
+  if (!conversation) throw new HttpError(404, "Conversation not found.");
 
   if (req.method === "PATCH") {
     const body = await parseJsonBody(req);

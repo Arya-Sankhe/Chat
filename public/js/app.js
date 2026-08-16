@@ -278,6 +278,7 @@ const state = {
   activeResearchId: "",
   researchReport: null,
   messages: [],
+  conversationLoading: false,
   models: [],
   settings: loadSettings(),
   images: [],
@@ -360,6 +361,7 @@ const sideChatState = {
 /** One in-flight client run per conversation (or temporary chat). */
 const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
+const conversationCache = new Map();
 
 function conversationRunKey(conversationId = state.activeConversationId, temporary = state.temporaryChat) {
   if (temporary) return TEMPORARY_RUN_KEY;
@@ -3246,12 +3248,25 @@ async function openConversation(conversationId) {
   closePinnedPopup();
   closeConversationMenus();
   try {
-    await loadActiveConversation();
-    await restorePendingDocuments();
     syncConversationUrl();
+    if (!restoreLiveConversationRun(conversationId)) {
+      state.messages = conversationCache.get(conversationId)?.messages || [];
+      state.conversationLoading = !conversationCache.has(conversationId);
+    } else {
+      state.conversationLoading = false;
+    }
     renderImages();
     renderShell();
+    await loadActiveConversation();
+    if (state.activeConversationId !== conversationId) return;
+    state.conversationLoading = false;
+    renderShell();
+    await restorePendingDocuments();
   } catch (err) {
+    if (state.activeConversationId === conversationId) {
+      state.conversationLoading = false;
+      renderShell();
+    }
     showToast(err.message);
   }
 }
@@ -4787,8 +4802,16 @@ function renderStandardMessage(raw) {
 
 function renderMessages() {
   resetCodeSourceStore();
-  document.body.classList.toggle("chat-empty", !state.messages.length);
+  const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
+  document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
   renderTemporaryChatMode();
+  if (showSkeleton) {
+    stopHomeGreeting();
+    els.messages.innerHTML = `<div class="msg-skeleton" aria-hidden="true"><div class="msg-skeleton-bar"></div><div class="msg-skeleton-bar"></div><div class="msg-skeleton-bar"></div></div>`;
+    els.chatPromptNav?.classList.add("hidden");
+    els.chatJumpBottom?.classList.remove("visible");
+    return;
+  }
   if (!state.messages.length) {
     stopHomeGreeting();
     const guest = !state.session;
@@ -5574,6 +5597,7 @@ async function confirmPendingDelete() {
     closeConfirmDialog();
     state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
     state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
+    deletedConversationIds.forEach((cid) => conversationCache.delete(cid));
     state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
     savePinnedChatIds();
     state.activeProjectId = "";
@@ -6289,17 +6313,22 @@ async function loadConversations() {
 }
 
 async function loadActiveConversation() {
-  if (!state.activeConversationId) {
+  const id = state.activeConversationId;
+  if (!id) {
     state.messages = [];
+    state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
     return;
   }
-  if (restoreLiveConversationRun(state.activeConversationId)) {
+  if (restoreLiveConversationRun(id)) {
     researchController.resumeResearchPolling();
     return;
   }
-  const payload = await fetchConversation(state.session, state.activeConversationId);
+  const payload = await fetchConversation(state.session, id);
+  conversationCache.set(id, { messages: payload.messages || [] });
+  if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
+  if (state.activeConversationId !== id) return;
   state.messages = payload.messages || [];
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
@@ -6496,6 +6525,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   clearClarification();
   researchController.stopResearchPolling();
   state.activeConversationId = "";
+  state.conversationLoading = false;
   state.projectsOpen = false;
   state.activeProjectId = "";
   state.activeProject = null;
@@ -6572,6 +6602,7 @@ async function removeConversation(id) {
   closeConfirmDialog();
   closeConversationMenus();
   state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+  conversationCache.delete(id);
   if (state.activeProject?.conversations) {
     state.activeProject.conversations = state.activeProject.conversations.filter((conversation) => conversation.id !== id);
   }
@@ -7286,6 +7317,7 @@ async function signOutAndReset() {
   state.me = null;
   state.paymentRequests = [];
   state.conversations = [];
+  conversationCache.clear();
   state.pinnedChatIds = [];
   state.messages = [];
   state.pastedText = "";

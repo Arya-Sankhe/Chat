@@ -1851,3 +1851,51 @@ body.capacitor-native .side-chat-panel {
   border: 1px solid #fde68a;
 
 }
+
+.msg-skeleton {
+
+  max-width: var(--content-max);
+
+  width: 100%;
+
+  margin: 0 auto;
+
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 16px;
+
+  padding: 8px 0;
+
+}
+
+.msg-skeleton-bar {
+
+  height: 44px;
+
+  border-radius: var(--radius);
+
+  background: var(--bg-secondary);
+
+  animation: msg-skeleton-pulse 1.2s ease-in-out infinite;
+
+}
+
+.msg-skeleton-bar:nth-child(1) { width: 72%; }
+
+.msg-skeleton-bar:nth-child(2) { width: 46%; }
+
+.msg-skeleton-bar:nth-child(3) { width: 58%; }
+
+@keyframes msg-skeleton-pulse {
+
+  50% { opacity: 0.55; }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .msg-skeleton-bar { animation: none; }
+
+}
