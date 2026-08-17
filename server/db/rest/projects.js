@@ -4,17 +4,17 @@ export async function listProjects(client, userId, { signal } = {}) {
   return client.request("projects", {
     query: {
       user_id: `eq.${userId}`,
-      select: "id,name,created_at,updated_at",
+      select: "id,name,kind,meta,created_at,updated_at",
       order: "updated_at.desc"
     },
     signal
   });
 }
 
-export async function createProject(client, userId, name, { signal } = {}) {
+export async function createProject(client, userId, name, { kind, meta, signal } = {}) {
   const rows = await client.request("projects", {
     method: "POST",
-    body: { user_id: userId, name },
+    body: { user_id: userId, name, kind, meta },
     prefer: "return=representation",
     signal
   });

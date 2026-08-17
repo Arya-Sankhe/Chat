@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260817-chat-search">
+    <link rel="stylesheet" href="/styles.css?v=20260817-study-hub">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -83,6 +83,12 @@
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
                 </span>
                 <span class="sidebar-nav-label">Projects</span>
+              </button>
+              <button class="sidebar-nav-item" id="studyHubButton" type="button" aria-label="Study Hub" title="Study Hub">
+                <span class="sidebar-nav-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c2.5 2 9.5 2 12 0v-5"/><path d="M22 10v6"/></svg>
+                </span>
+                <span class="sidebar-nav-label">Study Hub</span>
               </button>
               <div class="sidebar-pin-wrap" id="sidebarPinWrap">
                 <button class="sidebar-nav-item sidebar-pin-trigger" id="pinnedChatsButton" type="button" aria-label="Pinned chats" aria-haspopup="menu" aria-expanded="false" title="Pinned chats">
@@ -196,6 +202,7 @@
             <span id="projectChatCrumbName"></span>
           </button>
           <section class="project-view hidden" id="projectView" aria-live="polite"></section>
+          <section class="study-view hidden" id="studyView" aria-live="polite"></section>
           <section class="messages" id="messages" aria-live="polite"></section>
 
           <aside class="chat-prompt-nav hidden" id="chatPromptNav" aria-label="Conversation prompts">
@@ -224,6 +231,7 @@
           <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv" multiple class="sr-only">
           <input id="cameraFileInput" type="file" accept="image/*" capture="environment" class="sr-only">
           <input id="projectFileInput" type="file" accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv" multiple class="sr-only">
+          <input id="studyFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/csv,text/tab-separated-values,.pdf,.docx,.xlsx,.pptx,.csv,.tsv,image/*" multiple class="sr-only">
 
           <div id="composerHomeAnchor" hidden></div>
           <section class="composer-area" aria-label="Message composer">
@@ -611,6 +619,39 @@
         </form>
       </dialog>
 
+      <dialog class="project-create-dialog" id="courseCreateDialog" aria-labelledby="courseCreateTitle">
+        <form method="dialog" id="courseCreateForm">
+          <div class="project-dialog-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c2.5 2 9.5 2 12 0v-5"/><path d="M22 10v6"/></svg>
+          </div>
+          <h2 id="courseCreateTitle">Create a course</h2>
+          <p>A home for lectures, notes, flashcards, and quizzes.</p>
+          <label for="courseNameInput">Course name</label>
+          <input id="courseNameInput" maxlength="80" autocomplete="off" placeholder="e.g. Organic Chemistry">
+          <label class="course-dialog-field" for="courseTermInput">Term (optional)</label>
+          <input id="courseTermInput" maxlength="40" autocomplete="off" placeholder="e.g. Fall 2026">
+          <div class="project-dialog-actions">
+            <button type="button" id="courseCreateCancel">Cancel</button>
+            <button type="submit" class="project-dialog-primary">Create course</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="project-create-dialog" id="courseRenameDialog" aria-labelledby="courseRenameTitle">
+        <form method="dialog" id="courseRenameForm">
+          <h2 id="courseRenameTitle">Rename course</h2>
+          <p>Update the name or term.</p>
+          <label for="courseRenameNameInput">Course name</label>
+          <input id="courseRenameNameInput" maxlength="80" autocomplete="off">
+          <label class="course-dialog-field" for="courseRenameTermInput">Term (optional)</label>
+          <input id="courseRenameTermInput" maxlength="40" autocomplete="off">
+          <div class="project-dialog-actions">
+            <button type="button" id="courseRenameCancel">Cancel</button>
+            <button type="submit" class="project-dialog-primary">Save</button>
+          </div>
+        </form>
+      </dialog>
+
       <section class="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
         <header class="research-report-header">
           <button class="research-report-back" id="researchReportBack" type="button">Back to chat</button>
@@ -635,6 +676,20 @@
       </section>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="study-session hidden" id="studySession" role="dialog" aria-modal="true" aria-label="Study session" aria-hidden="true"></div>
+
+      <section class="study-note-overlay hidden" id="studyNoteOverlay" role="dialog" aria-modal="true" aria-labelledby="studyNoteTitle" aria-hidden="true">
+        <div class="study-note-panel">
+          <header>
+            <h2 id="studyNoteTitle">Note</h2>
+            <button class="study-icon-btn" id="studyNoteClose" type="button" aria-label="Close note">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </header>
+          <div class="study-note-body" id="studyNoteBody"></div>
+        </div>
+      </section>
 
       <div class="selection-actions hidden" id="selectionActions" role="toolbar" aria-label="Selected text actions">
         <button type="button" id="selectionAddToChat">Add to Chat</button>
@@ -730,7 +785,7 @@
         });
       }
     </script>
-    <script type="module" src="/js/app.js?v=20260817-chat-search"></script>
+    <script type="module" src="/js/app.js?v=20260817-study-hub"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

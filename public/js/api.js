@@ -154,12 +154,12 @@ export async function listProjects(session) {
   return response.json();
 }
 
-export async function createProject(session, name) {
+export async function createProject(session, name, extra = {}) {
   const response = await apiFetch("/api/projects", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, ...extra })
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
@@ -186,6 +186,91 @@ export async function deleteProject(session, id) {
   const response = await apiFetch(`/api/projects/${encodeURIComponent(id)}`, {
     session,
     method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyOverview(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/overview`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyMaterials(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function generateStudyContent(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/generate`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyPractice(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/practice`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQueue(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/queue`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function reviewStudyCard(session, cardId, rating) {
+  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}/review`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ rating })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStudyCard(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/cards`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQuiz(session, quizId) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function submitStudyQuizAttempt(session, quizId, answers) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}/attempts`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answers })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function scaffoldStudyCourse(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/scaffold`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ documentFileId })
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();

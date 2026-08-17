@@ -144,6 +144,16 @@ const ROUTES = [
   { path: "/api/projects", method: "GET", authKind: "chat" },
   { path: "/api/projects", method: "POST", authKind: "chat" },
   { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
+  { path: "/api/study/courses/course-1/overview", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/generate", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/courses/course-1/practice", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/queue", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/cards", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/courses/course-1/scaffold", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/cards/card-1/review", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research", method: "POST", authKind: "chat" },
   { path: "/api/research/run-1/status", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research/run-1/cancel", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -1023,4 +1033,106 @@ test("seam: overrides are used by the scoped handler only and never leak into th
   );
   assert.equal(direct.statusCode, 401);
   assert.equal(verifyCalls, 1, "stubbed verifyUser must not be called by the default handler");
+});
+
+test("study course overview returns JSON for an owned course", async () => {
+  const course = { id: "course-1", kind: "course", name: "Biology", meta: { deadlines: [{ title: "Midterm", date: "2026-10-01", type: "exam" }] } };
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return course; },
+      async listProjectDocuments() { return [{ id: "doc-1" }]; },
+      async listStudyNotes() { return [{ id: "note-1" }]; },
+      async listStudyCards() { return [{ id: "card-1", due_at: "2020-01-01T00:00:00Z" }]; },
+      async listStudyQuizzes() { return []; },
+      async listStudyQuizAttempts() { return []; },
+      async listRecentStudyReviewDates() { return [{ reviewed_at: "2026-08-16T12:00:00Z" }]; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/overview", overrides });
+  assert.equal(res.statusCode, 200);
+  const payload = res.json();
+  assert.equal(payload.course.id, "course-1");
+  assert.equal(payload.dueCount, 1);
+  assert.deepEqual(payload.reviewDates, ["2026-08-16T12:00:00Z"]);
+  assert.equal(payload.counts.materials, 1);
+  assert.equal(payload.counts.notes, 1);
+  assert.equal(payload.counts.cards, 1);
+  assert.equal(payload.latestQuizAttempt, null);
+});
+
+test("study course card create returns 201 and rejects an empty front", async () => {
+  const created = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return { id: "course-1", kind: "course", name: "Biology" }; },
+      async createStudyCards(_userId, cards) {
+        created.push(cards);
+        return [{ id: "card-1", ...cards[0] }];
+      }
+    }
+  });
+
+  const createdRes = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/cards",
+    body: { front: "  What is mitosis?  ", back: "Cell division." },
+    overrides
+  });
+  assert.equal(createdRes.statusCode, 201);
+  assert.equal(createdRes.json().card.id, "card-1");
+  assert.equal(createdRes.json().card.front, "What is mitosis?");
+  assert.equal(createdRes.json().card.state, "new");
+  assert.equal(created[0][0].document_file_id, undefined);
+  assert.equal(created[0][0].note_id, undefined);
+
+  const empty = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/cards",
+    body: { front: "   ", back: "Cell division." },
+    overrides
+  });
+  assert.equal(empty.statusCode, 400);
+  assert.equal(created.length, 1);
+});
+
+test("study card review rejects an invalid rating with 400", async () => {
+  const overrides = stubbedDeps();
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/cards/card-1/review",
+    body: { rating: 9 },
+    overrides
+  });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "rating must be 1, 2, 3, or 4.");
+});
+
+test("study quiz GET strips answers and explanations", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyQuiz() {
+        return {
+          id: "quiz-1",
+          title: "Cells",
+          project_id: "course-1",
+          created_at: "2026-08-17T00:00:00Z",
+          questions: [{
+            q: "What is a cell?",
+            choices: ["A", "B", "C", "D"],
+            answer: 2,
+            explanation: "secret"
+          }]
+        };
+      },
+      async getProject() { return { id: "course-1", kind: "course" }; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, { path: "/api/study/quizzes/quiz-1", overrides });
+  assert.equal(res.statusCode, 200);
+  const quiz = res.json().quiz;
+  assert.equal(quiz.title, "Cells");
+  assert.deepEqual(quiz.questions, [{ q: "What is a cell?", choices: ["A", "B", "C", "D"] }]);
+  assert.equal("answer" in quiz.questions[0], false);
+  assert.equal("explanation" in quiz.questions[0], false);
+  assert.doesNotMatch(res.body, /secret/);
 });

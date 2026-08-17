@@ -3522,10 +3522,13 @@ body.capacitor-native .sidebar-new-item .sidebar-nav-icon {
 
 /* Projects and pinned chats are plain navigation rows in the Android sheet. */
 body.capacitor-native.sidebar-open #projectsButton,
+body.capacitor-native.sidebar-open #studyHubButton,
 body.capacitor-native.sidebar-open #pinnedChatsButton,
 body.capacitor-native.sidebar-open #projectsButton:hover,
+body.capacitor-native.sidebar-open #studyHubButton:hover,
 body.capacitor-native.sidebar-open #pinnedChatsButton:hover,
 body.capacitor-native.sidebar-open #projectsButton:active,
+body.capacitor-native.sidebar-open #studyHubButton:active,
 body.capacitor-native.sidebar-open #pinnedChatsButton:active {
   background: transparent !important;
 }

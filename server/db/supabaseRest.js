@@ -10,6 +10,7 @@ import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
 import * as projects from "./rest/projects.js";
 import * as research from "./rest/research.js";
+import * as study from "./rest/study.js";
 import * as subscriptions from "./rest/subscriptions.js";
 import * as turns from "./rest/turns.js";
 
@@ -152,6 +153,74 @@ export class SupabaseRest {
 
   async listProjectDocuments(userId, projectId, options) {
     return projects.listProjectDocuments(this, userId, projectId, options);
+  }
+
+  async listStudyNotes(userId, projectId, options) {
+    return study.listStudyNotes(this, userId, projectId, options);
+  }
+
+  async getStudyNote(userId, id, options) {
+    return study.getStudyNote(this, userId, id, options);
+  }
+
+  async createStudyNote(userId, note, options) {
+    return study.createStudyNote(this, userId, note, options);
+  }
+
+  async deleteStudyNote(userId, id, options) {
+    return study.deleteStudyNote(this, userId, id, options);
+  }
+
+  async listStudyCards(userId, projectId, options) {
+    return study.listStudyCards(this, userId, projectId, options);
+  }
+
+  async listDueStudyCards(userId, projectId, nowIso, limit, options) {
+    return study.listDueStudyCards(this, userId, projectId, nowIso, limit, options);
+  }
+
+  async getStudyCard(userId, id, options) {
+    return study.getStudyCard(this, userId, id, options);
+  }
+
+  async createStudyCards(userId, cards, options) {
+    return study.createStudyCards(this, userId, cards, options);
+  }
+
+  async updateStudyCard(userId, id, patch, options) {
+    return study.updateStudyCard(this, userId, id, patch, options);
+  }
+
+  async deleteStudyCardsForSource(userId, filter, options) {
+    return study.deleteStudyCardsForSource(this, userId, { ...filter, ...options });
+  }
+
+  async createStudyReview(userId, review, options) {
+    return study.createStudyReview(this, userId, review, options);
+  }
+
+  async listRecentStudyReviewDates(userId, options) {
+    return study.listRecentStudyReviewDates(this, userId, options);
+  }
+
+  async listStudyQuizzes(userId, projectId, options) {
+    return study.listStudyQuizzes(this, userId, projectId, options);
+  }
+
+  async getStudyQuiz(userId, id, options) {
+    return study.getStudyQuiz(this, userId, id, options);
+  }
+
+  async createStudyQuiz(userId, quiz, options) {
+    return study.createStudyQuiz(this, userId, quiz, options);
+  }
+
+  async createStudyQuizAttempt(userId, attempt, options) {
+    return study.createStudyQuizAttempt(this, userId, attempt, options);
+  }
+
+  async listStudyQuizAttempts(userId, filter, options) {
+    return study.listStudyQuizAttempts(this, userId, { ...filter, ...options });
   }
 
   async createConversation(userId, conversation, options) {

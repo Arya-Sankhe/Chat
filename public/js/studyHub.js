@@ -1,0 +1,1422 @@
+export function createStudyHubController({
+  state,
+  els,
+  escapeHtml,
+  renderContent,
+  showToast,
+  requireAuth,
+  blockChatNavigationWhileRunning,
+  parkActiveConversationRun,
+  clearClarification,
+  closeDocumentViewer,
+  renderShell,
+  renderImages,
+  openConversation,
+  openDeleteConfirm,
+  isSupportedDocumentFile,
+  fetchProject,
+  createProject,
+  updateProject,
+  presignUpload,
+  putUploadContent,
+  completeUpload,
+  deleteAttachment,
+  fetchDocumentStatus,
+  fetchStudyOverview,
+  fetchStudyMaterials,
+  generateStudyContent,
+  fetchStudyPractice,
+  fetchStudyQueue,
+  reviewStudyCard,
+  createStudyCard,
+  fetchStudyQuiz,
+  submitStudyQuizAttempt,
+  scaffoldStudyCourse,
+  syncStudyUrl,
+  loadProjects
+}) {
+  const TABS = ["overview", "materials", "chat", "practice"];
+
+  let pendingUploads = [];
+  let generatingKey = "";
+  let quizMenuKey = "";
+  let reviewSession = null;
+  let quizSession = null;
+  let studyNote = null;
+  let dueRequest = 0;
+
+  const sound = createSounds(reducedMotion);
+
+  function coursesFromProjects() {
+    return (state.projects || []).filter((project) => project.kind === "course");
+  }
+
+  function courseMeta(project) {
+    return project?.meta && typeof project.meta === "object" ? project.meta : {};
+  }
+
+  function courseName() {
+    return state.studyOverview?.course?.name
+      || state.studyProjectDetail?.project?.name
+      || coursesFromProjects().find((item) => item.id === state.activeCourseId)?.name
+      || "Course";
+  }
+
+  function reducedMotion() {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  }
+
+  function parkComposer() {
+    if (els.composerHomeAnchor && els.composerArea?.parentElement !== els.composerHomeAnchor.parentElement) {
+      els.composerHomeAnchor.after(els.composerArea);
+    }
+  }
+
+  function studyVisible() {
+    return Boolean(state.studyOpen && !state.activeConversationId);
+  }
+
+  function pad(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function localDayKey(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+
+  function dayKeyOffset(offset) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + offset);
+    return localDayKey(date);
+  }
+
+  function computeStreak(reviewDates) {
+    const days = new Set((reviewDates || []).map(localDayKey).filter(Boolean));
+    const today = dayKeyOffset(0);
+    const yesterday = dayKeyOffset(-1);
+    if (!days.size) return { count: 0, frozen: false };
+    let start = 0;
+    if (!days.has(today)) {
+      if (days.has(yesterday)) start = -1;
+      else return { count: 0, frozen: false };
+    }
+    let count = 0;
+    let freezeUsed = false;
+    let frozen = false;
+    for (let i = start; i > -400; i -= 1) {
+      const key = dayKeyOffset(i);
+      if (days.has(key)) {
+        count += 1;
+        continue;
+      }
+      const within7 = i >= -6;
+      if (!freezeUsed && within7 && i !== 0) {
+        freezeUsed = true;
+        if (key === yesterday) frozen = true;
+        continue;
+      }
+      break;
+    }
+    return { count, frozen };
+  }
+
+  function formatDeadlineWhen(dateStr) {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return "";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(date);
+    target.setHours(0, 0, 0, 0);
+    const days = Math.round((target - today) / 86400000);
+    if (days === 0) return "today";
+    if (days === 1) return "in 1 day";
+    if (days > 1) return `in ${days} days`;
+    if (days === -1) return "yesterday";
+    return `${Math.abs(days)} days ago`;
+  }
+
+  function formatShortDate(dateStr) {
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function minutesForCards(count) {
+    return Math.max(1, Math.round((Number(count) || 0) * 6 / 60) || 1);
+  }
+
+  function isStudyFile(file) {
+    return String(file?.type || "").startsWith("image/") || isSupportedDocumentFile(file);
+  }
+
+  function documentDisplayName(doc) {
+    const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
+    return attachment?.file_name || doc?.file_name || "Document";
+  }
+
+  function materialStatus(doc) {
+    if (doc?.text_ready_at || doc?.usable || doc?.processing_status === "ready") return "ready";
+    if (doc?.processing_status === "failed") return "failed";
+    return "reading";
+  }
+
+  function statusLabel(status) {
+    if (status === "uploading") return "Uploading";
+    if (status === "reading") return "Reading";
+    if (status === "failed") return "Failed";
+    return "Ready";
+  }
+
+  function iconCap() {
+    return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c2.5 2 9.5 2 12 0v-5"/><path d="M22 10v6"/></svg>`;
+  }
+
+  function spinner() {
+    return `<span class="study-spin" aria-hidden="true"></span>`;
+  }
+
+  function emptyState(title, body, action = "") {
+    return `<div class="study-empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(body)}</p>${action}</div>`;
+  }
+
+  function courseListMarkup() {
+    const courses = coursesFromProjects();
+    if (!courses.length) {
+      return `
+        <div class="study-hero-empty">
+          <div class="study-hero-icon">${iconCap()}</div>
+          <h1>Create your first course</h1>
+          <p>Upload a syllabus, then review flashcards and quizzes from your actual material.</p>
+          <button class="study-primary-btn" type="button" data-create-course>New course</button>
+        </div>`;
+    }
+    const cards = courses.map((course) => {
+      const meta = courseMeta(course);
+      const due = Number(state.studyDueByCourse?.[course.id] || 0);
+      const menuOpen = quizMenuKey === `course:${course.id}`;
+      return `
+        <article class="study-course-card">
+          <button class="study-course-open" type="button" data-open-course-id="${escapeHtml(course.id)}">
+            <strong>${escapeHtml(course.name)}</strong>
+            <small>${escapeHtml(meta.term || "No term")}</small>
+          </button>
+          ${due > 0 ? `<span class="study-due-badge">${escapeHtml(String(due))} due</span>` : ""}
+          <div class="study-card-menu-wrap">
+            <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Course options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+            </button>
+            <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(course.id)}" role="menu">
+              <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(course.id)}">Rename</button>
+              <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-course="${escapeHtml(course.id)}">Delete</button>
+            </div>
+          </div>
+        </article>`;
+    }).join("");
+    return `
+      <div class="study-page">
+        <header class="study-page-header">
+          <div>
+            <p class="study-kicker">Study Hub</p>
+            <h1>Your courses</h1>
+          </div>
+        </header>
+        <div class="study-course-grid">
+          ${cards}
+          <button class="study-course-card study-course-new" type="button" data-create-course>
+            <span class="study-new-plus" aria-hidden="true">+</span>
+            <strong>New course</strong>
+            <small>Name it, add a term, start collecting material.</small>
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function streakChipMarkup(dates) {
+    const streak = computeStreak(dates);
+    if (!streak.count) {
+      return `<span class="study-streak-chip">Start a streak today</span>`;
+    }
+    return `<span class="study-streak-chip${streak.frozen ? " is-frozen" : ""}" title="${streak.frozen ? "Streak freeze used yesterday" : "Review streak"}">
+      <span aria-hidden="true">${streak.frozen ? "❄" : "🔥"}</span>
+      ${escapeHtml(String(streak.count))} day${streak.count === 1 ? "" : "s"}
+      ${streak.frozen ? `<em>frozen</em>` : ""}
+    </span>`;
+  }
+
+  function overviewMarkup() {
+    const payload = state.studyOverview;
+    if (!payload?.course) return `<div class="study-loading">Loading course...</div>`;
+    const due = Number(payload.dueCount || 0);
+    const counts = payload.counts || {};
+    const deadlines = Array.isArray(payload.deadlines) ? payload.deadlines : (courseMeta(payload.course).deadlines || []);
+    const attempt = payload.latestQuizAttempt;
+    const reviewHero = due > 0
+      ? `<div class="study-hero-card">
+          <div class="study-hero-copy">
+            <p class="study-kicker">Review today</p>
+            <strong>${escapeHtml(String(due))}</strong>
+            <span>card${due === 1 ? "" : "s"} due · ~${escapeHtml(String(minutesForCards(due)))} min</span>
+          </div>
+          <button class="study-primary-btn" type="button" data-start-review>Start</button>
+        </div>`
+      : `<div class="study-hero-card is-caught-up">
+          <div class="study-hero-copy">
+            <p class="study-kicker">Review today</p>
+            <strong>All caught up</strong>
+            <span>Nothing is due right now. Keep the streak warm with a quick practice quiz.</span>
+          </div>
+        </div>`;
+    const deadlineRows = deadlines.length
+      ? `<ul class="study-deadline-list">${deadlines.map((item) => `
+          <li>
+            <span>
+              <strong>${escapeHtml(item.title || "Deadline")}</strong>
+              <small>${escapeHtml(formatShortDate(item.date))}${item.type ? ` · ${escapeHtml(item.type)}` : ""}</small>
+            </span>
+            <em>${escapeHtml(formatDeadlineWhen(item.date))}</em>
+          </li>`).join("")}</ul>`
+      : emptyState("No deadlines yet", "Drop a syllabus on Materials, then import dates.");
+    const quizLine = attempt && (attempt.score != null || attempt.total != null)
+      ? `<div class="study-latest-quiz">
+          <span>Latest quiz</span>
+          <strong>${escapeHtml(String(attempt.score ?? "?"))}/${escapeHtml(String(attempt.total ?? "?"))}</strong>
+          ${attempt.title ? `<small>${escapeHtml(attempt.title)}</small>` : ""}
+        </div>`
+      : "";
+    return `
+      <div class="study-overview">
+        <div class="study-overview-top">
+          ${reviewHero}
+          ${streakChipMarkup(payload.reviewDates)}
+        </div>
+        <section class="study-panel">
+          <h2>Upcoming</h2>
+          ${deadlineRows}
+        </section>
+        <div class="study-count-row">
+          <span><strong>${escapeHtml(String(counts.materials || 0))}</strong> materials</span>
+          <span><strong>${escapeHtml(String(counts.cards || 0))}</strong> cards</span>
+          <span><strong>${escapeHtml(String(counts.quizzes || 0))}</strong> quizzes</span>
+        </div>
+        ${quizLine}
+      </div>`;
+  }
+
+  function generateActions(kind, id, ready) {
+    if (!ready) return "";
+    const base = `${kind}:${id}`;
+    const busy = generatingKey.startsWith(`${base}:`) || generatingKey === base;
+    const quizOpen = quizMenuKey === base;
+    const spinFor = (type) => generatingKey === `${base}:${type}` || (type !== "quiz" && generatingKey === `${base}:${type}`);
+    return `
+      <div class="study-material-actions">
+        <button class="study-chip-btn" type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
+          ${spinFor("flashcards") ? spinner() : ""}Flashcards
+        </button>
+        <span class="study-quiz-wrap">
+          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(base)}" ${busy ? "disabled" : ""}>
+            ${spinFor("quiz") ? spinner() : ""}Quiz
+          </button>
+          <div class="study-quiz-menu${quizOpen ? "" : " hidden"}" data-quiz-menu="${escapeHtml(base)}">
+            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="5">5</button>
+            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="10">10</button>
+            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="15">15</button>
+          </div>
+        </span>
+        ${kind === "note" ? "" : `<button class="study-chip-btn" type="button" data-study-generate="summary" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
+          ${spinFor("summary") ? spinner() : ""}Summarize
+        </button>`}
+        ${kind === "doc" ? `<button class="study-chip-btn study-chip-quiet" type="button" data-study-scaffold="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
+          ${generatingKey === `${base}:scaffold` ? spinner() : ""}Import syllabus dates
+        </button>` : ""}
+      </div>`;
+  }
+
+  function materialsMarkup() {
+    const payload = state.studyMaterials;
+    const docs = payload?.documents || [];
+    const notes = payload?.notes || [];
+    const pending = pendingUploads.map((item) => `
+      <article class="study-material-card is-pending">
+        <div class="study-material-copy">
+          <strong>${escapeHtml(item.name)}</strong>
+          <span class="study-status-pill is-${escapeHtml(item.status)}">${escapeHtml(statusLabel(item.status))}</span>
+        </div>
+      </article>`).join("");
+    const docCards = docs.map((doc) => {
+      const status = materialStatus(doc);
+      const ready = status === "ready";
+      return `
+        <article class="study-material-card${ready ? " is-ready" : ""}">
+          <div class="study-material-copy">
+            <strong>${escapeHtml(documentDisplayName(doc))}</strong>
+            <small>${escapeHtml(String(doc.kind || "file").toUpperCase())}</small>
+            <span class="study-status-pill is-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
+          </div>
+          ${generateActions("doc", doc.id, ready)}
+        </article>`;
+    }).join("");
+    const noteCards = notes.map((note) => `
+      <article class="study-material-card study-note-card is-ready" data-open-note="${escapeHtml(note.id)}">
+        <div class="study-material-copy">
+          <strong>${escapeHtml(note.title || (note.kind === "image_transcript" ? "Image notes" : "Summary"))}</strong>
+          <small>${escapeHtml(note.kind === "image_transcript" ? "Image transcript" : "Summary")}</small>
+          <span class="study-status-pill is-ready">Ready</span>
+        </div>
+        ${generateActions("note", note.id, true)}
+      </article>`).join("");
+    const hasItems = docs.length || notes.length || pendingUploads.length;
+    return `
+      <div class="study-materials" data-study-drop>
+        <button class="study-dropzone${state.studyUploading ? " is-busy" : ""}" type="button" data-study-add-files>
+          <strong>Drop files here</strong>
+          <p>PDFs, slides, sheets, or photos of a syllabus and handwritten notes.</p>
+          <span>Browse files</span>
+        </button>
+        ${hasItems ? `<div class="study-material-list">${pending}${docCards}${noteCards}</div>`
+          : emptyState("Nothing here yet", "Drop a syllabus or lecture notes to get started.")}
+      </div>`;
+  }
+
+  function chatMarkup() {
+    const conversations = state.studyProjectDetail?.conversations || [];
+    const materialCount = Number(state.studyOverview?.counts?.materials || state.studyMaterials?.documents?.length || 0);
+    const empty = !conversations.length
+      ? (materialCount
+        ? emptyState("No chats yet", "Ask anything — I’ll ground answers in this course’s files.")
+        : emptyState(
+          "Upload something first",
+          "I’ll answer from your actual course material.",
+          `<button class="study-primary-btn" type="button" data-study-tab="materials">Go to Materials</button>`
+        ))
+      : "";
+    const rows = conversations.map((conversation) => `
+      <button class="study-chat-row" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
+        <span>${escapeHtml(conversation.title || "New chat")}</span>
+      </button>`).join("");
+    return `
+      <div class="study-chat">
+        <div class="study-composer-slot"></div>
+        <section class="study-panel">
+          <h2>Course chats</h2>
+          <div class="study-chat-list">${rows}${empty}</div>
+        </section>
+      </div>`;
+  }
+
+  function practiceMarkup() {
+    const payload = state.studyPractice;
+    if (!payload) return `<div class="study-loading">Loading practice...</div>`;
+    const decks = payload.decks || [];
+    const quizzes = payload.quizzes || [];
+    const due = Number(state.studyOverview?.dueCount || 0);
+    const deckCards = decks.length
+      ? decks.map((deck) => `
+          <article class="study-practice-card">
+            <strong>${escapeHtml(deck.title || "Deck")}</strong>
+            <small>${escapeHtml(String(deck.cardCount || 0))} cards</small>
+            ${Number(deck.dueCount) > 0 ? `<span class="study-due-badge">${escapeHtml(String(deck.dueCount))} due</span>` : ""}
+          </article>`).join("")
+      : emptyState("No decks yet", "Generate flashcards from a file on Materials.");
+    const quizCards = quizzes.length
+      ? quizzes.map((quiz) => `
+          <button class="study-practice-card" type="button" data-open-quiz="${escapeHtml(quiz.id)}">
+            <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
+            <small>${escapeHtml(String(quiz.questionCount || 0))} questions</small>
+            <span class="study-score-meta">Best ${escapeHtml(quiz.bestScore == null ? "—" : String(quiz.bestScore))} · Last ${escapeHtml(quiz.lastScore == null ? "—" : String(quiz.lastScore))}</span>
+          </button>`).join("")
+      : emptyState("No quizzes yet", "Create a 5, 10, or 15 question quiz from Materials.");
+    return `
+      <div class="study-practice">
+        <section class="study-panel">
+          <div class="study-section-heading">
+            <h2>Decks</h2>
+            ${due > 0 ? `<button class="study-primary-btn" type="button" data-start-review>Review ${escapeHtml(String(due))} due</button>` : ""}
+          </div>
+          <div class="study-practice-grid">${deckCards}</div>
+        </section>
+        <section class="study-panel">
+          <h2>Quizzes</h2>
+          <div class="study-practice-grid">${quizCards}</div>
+        </section>
+      </div>`;
+  }
+
+  function tabMarkup() {
+    const labels = { overview: "Overview", materials: "Materials", chat: "Chat", practice: "Practice" };
+    return `<div class="study-tabs" role="tablist" aria-label="Course sections">
+      ${TABS.map((tab) => `<button class="${state.activeCourseTab === tab ? "active" : ""}" type="button" role="tab" aria-selected="${state.activeCourseTab === tab ? "true" : "false"}" data-study-tab="${tab}">${labels[tab]}</button>`).join("")}
+    </div>`;
+  }
+
+  function courseDetailMarkup() {
+    const name = courseName();
+    const term = state.studyOverview?.course?.meta?.term
+      || courseMeta(state.studyOverview?.course).term
+      || courseMeta(state.studyProjectDetail?.project).term
+      || "";
+    const body = state.activeCourseTab === "materials" ? materialsMarkup()
+      : state.activeCourseTab === "chat" ? chatMarkup()
+        : state.activeCourseTab === "practice" ? practiceMarkup()
+          : overviewMarkup();
+    const menuOpen = quizMenuKey === `course:${state.activeCourseId}`;
+    return `
+      <button class="study-back-btn" type="button" data-study-back>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        Study Hub
+      </button>
+      <div class="study-detail">
+        <header class="study-detail-header">
+          <div class="study-detail-titles">
+            <input class="study-title-input" value="${escapeHtml(name)}" maxlength="80" aria-label="Course name">
+            ${term ? `<p class="study-term">${escapeHtml(term)}</p>` : ""}
+          </div>
+          <div class="study-card-menu-wrap">
+            <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(state.activeCourseId)}" aria-label="Course options" aria-expanded="${menuOpen ? "true" : "false"}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+            </button>
+            <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(state.activeCourseId)}" role="menu">
+              <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(state.activeCourseId)}">Rename</button>
+              <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-course="${escapeHtml(state.activeCourseId)}">Delete</button>
+            </div>
+          </div>
+        </header>
+        ${tabMarkup()}
+        <div class="study-tab-panel" data-study-tab-panel="${escapeHtml(state.activeCourseTab)}">${body}</div>
+      </div>`;
+  }
+
+  function renderNoteOverlay() {
+    if (!els.studyNoteOverlay) return;
+    const open = Boolean(studyNote);
+    els.studyNoteOverlay.classList.toggle("hidden", !open);
+    els.studyNoteOverlay.setAttribute("aria-hidden", open ? "false" : "true");
+    if (!open) return;
+    if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
+    if (els.studyNoteBody) {
+      try {
+        els.studyNoteBody.innerHTML = renderContent(studyNote.content || "") || `<pre>${escapeHtml(studyNote.content || "")}</pre>`;
+      } catch {
+        els.studyNoteBody.innerHTML = `<pre>${escapeHtml(studyNote.content || "")}</pre>`;
+      }
+    }
+  }
+
+  function bindMaterialsDnD() {
+    const panel = els.studyView?.querySelector("[data-study-drop]");
+    if (!panel) return;
+    const zone = panel.querySelector(".study-dropzone");
+    const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+    panel.addEventListener("dragover", (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      zone?.classList.add("is-dragover");
+    });
+    panel.addEventListener("dragleave", (event) => {
+      if (panel.contains(event.relatedTarget)) return;
+      zone?.classList.remove("is-dragover");
+    });
+    panel.addEventListener("drop", (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      zone?.classList.remove("is-dragover");
+      zone?.classList.add("is-dropped");
+      window.setTimeout(() => zone?.classList.remove("is-dropped"), 420);
+      void uploadCourseFiles(event.dataTransfer?.files || []);
+    });
+  }
+
+  function render() {
+    if (!els.studyView) return;
+    const visible = studyVisible();
+    if (visible) parkComposer();
+    els.studyView.classList.toggle("hidden", !visible);
+    els.studyView.classList.toggle("study-view--detail", Boolean(visible && state.activeCourseId));
+    els.studyHubButton?.classList.toggle("active", state.studyOpen);
+    document.body.classList.toggle("study-open", visible);
+    if (visible) {
+      els.messages?.classList.add("hidden");
+      els.chatPromptNav?.classList.add("hidden");
+    }
+    const chatReady = Boolean(visible && state.activeCourseId && state.activeCourseTab === "chat");
+    if (visible) els.composerArea?.classList.toggle("hidden", !chatReady);
+    if (!visible) {
+      renderNoteOverlay();
+      return;
+    }
+    els.studyView.innerHTML = state.activeCourseId ? courseDetailMarkup() : courseListMarkup();
+    if (chatReady) {
+      const slot = els.studyView.querySelector(".study-composer-slot");
+      if (slot && els.composerArea) slot.append(els.composerArea);
+    }
+    if (state.activeCourseTab === "materials") bindMaterialsDnD();
+    renderNoteOverlay();
+  }
+
+  async function refreshDueCounts() {
+    const courses = coursesFromProjects();
+    const request = ++dueRequest;
+    const due = { ...(state.studyDueByCourse || {}) };
+    const results = await Promise.allSettled(courses.map((course) => fetchStudyOverview(state.session, course.id)));
+    if (request !== dueRequest || !state.studyOpen) return;
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") due[courses[index].id] = Number(result.value?.dueCount || 0);
+    });
+    state.studyDueByCourse = due;
+    if (!state.activeCourseId) render();
+  }
+
+  async function loadOverview() {
+    if (!state.activeCourseId) return;
+    const id = state.activeCourseId;
+    const payload = await fetchStudyOverview(state.session, id);
+    if (state.activeCourseId !== id) return;
+    state.studyOverview = payload;
+    state.studyDueByCourse = { ...(state.studyDueByCourse || {}), [id]: Number(payload?.dueCount || 0) };
+  }
+
+  async function loadMaterials() {
+    if (!state.activeCourseId) return;
+    const id = state.activeCourseId;
+    const payload = await fetchStudyMaterials(state.session, id);
+    if (state.activeCourseId !== id) return;
+    state.studyMaterials = payload;
+  }
+
+  async function loadPractice() {
+    if (!state.activeCourseId) return;
+    const id = state.activeCourseId;
+    const payload = await fetchStudyPractice(state.session, id);
+    if (state.activeCourseId !== id) return;
+    state.studyPractice = payload;
+  }
+
+  async function loadCourseDetail() {
+    if (!state.activeCourseId) return;
+    const id = state.activeCourseId;
+    const payload = await fetchProject(state.session, id);
+    if (state.activeCourseId !== id) return;
+    state.studyProjectDetail = payload;
+  }
+
+  async function loadCourse() {
+    await Promise.all([loadOverview(), loadCourseDetail()]);
+    if (state.activeCourseTab === "materials") await loadMaterials();
+    if (state.activeCourseTab === "practice") await loadPractice();
+    if (state.activeCourseTab === "chat" && !state.studyMaterials) {
+      await loadMaterials().catch(() => {});
+    }
+  }
+
+  function resetCourseCaches() {
+    state.studyOverview = null;
+    state.studyMaterials = null;
+    state.studyPractice = null;
+    state.studyProjectDetail = null;
+    pendingUploads = [];
+    generatingKey = "";
+    quizMenuKey = "";
+    studyNote = null;
+  }
+
+  async function openCourses({ replace = false } = {}) {
+    if (!requireAuth() || blockChatNavigationWhileRunning()) return;
+    if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+      showToast("Wait for the document upload to finish before opening Study Hub.");
+      return;
+    }
+    parkActiveConversationRun();
+    clearClarification();
+    closeSession();
+    state.temporaryChat = false;
+    state.studyOpen = true;
+    state.projectsOpen = false;
+    state.activeProjectId = "";
+    state.activeProject = null;
+    state.activeCourseId = "";
+    state.activeCourseTab = "overview";
+    resetCourseCaches();
+    state.activeConversationId = "";
+    state.messages = [];
+    state.images = [];
+    renderImages();
+    closeDocumentViewer();
+    document.body.classList.remove("sidebar-open");
+    await loadProjects();
+    syncStudyUrl({ replace });
+    renderShell();
+    void refreshDueCounts();
+  }
+
+  async function openCourse(courseId, { replace = false, tab } = {}) {
+    if (!courseId || !requireAuth() || blockChatNavigationWhileRunning()) return;
+    if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+      showToast("Wait for the document upload to finish before opening a course.");
+      return;
+    }
+    parkActiveConversationRun();
+    clearClarification();
+    closeSession();
+    state.temporaryChat = false;
+    state.studyOpen = true;
+    state.projectsOpen = false;
+    state.activeProjectId = "";
+    state.activeProject = null;
+    state.activeCourseId = courseId;
+    state.activeCourseTab = TABS.includes(tab) ? tab : "overview";
+    resetCourseCaches();
+    state.activeConversationId = "";
+    state.messages = [];
+    state.images = [];
+    renderImages();
+    closeDocumentViewer();
+    document.body.classList.remove("sidebar-open");
+    renderShell();
+    try {
+      await loadCourse();
+      syncStudyUrl({ replace });
+      renderShell();
+      if (state.activeCourseTab === "chat") els.promptInput?.focus();
+    } catch (error) {
+      state.activeCourseId = "";
+      showToast(error.message || "Course could not be loaded.");
+      await openCourses({ replace: true });
+    }
+  }
+
+  function openCreateDialog() {
+    if (!requireAuth()) return;
+    if (els.courseNameInput) els.courseNameInput.value = "";
+    if (els.courseTermInput) els.courseTermInput.value = "";
+    els.courseCreateDialog?.showModal();
+    window.requestAnimationFrame(() => els.courseNameInput?.focus());
+  }
+
+  function courseById(id) {
+    return coursesFromProjects().find((item) => item.id === id)
+      || (state.studyOverview?.course?.id === id ? state.studyOverview.course : null)
+      || (state.studyProjectDetail?.project?.id === id ? state.studyProjectDetail.project : null);
+  }
+
+  function openRenameDialog(courseId) {
+    const course = courseById(courseId);
+    if (!course || !els.courseRenameDialog) return;
+    els.courseRenameDialog.dataset.courseId = courseId;
+    if (els.courseRenameNameInput) els.courseRenameNameInput.value = course.name || "";
+    if (els.courseRenameTermInput) els.courseRenameTermInput.value = courseMeta(course).term || "";
+    els.courseRenameDialog.showModal();
+    window.requestAnimationFrame(() => els.courseRenameNameInput?.focus());
+  }
+
+  async function submitCreate(event) {
+    event.preventDefault();
+    const name = els.courseNameInput?.value.trim();
+    if (!name) return;
+    const term = els.courseTermInput?.value.trim() || "";
+    try {
+      const meta = {};
+      if (term) meta.term = term;
+      const payload = await createProject(state.session, name, { kind: "course", meta });
+      state.projects = [payload.project, ...state.projects];
+      els.courseCreateDialog?.close();
+      await openCourse(payload.project.id);
+    } catch (error) {
+      showToast(error.message || "Course could not be created.");
+    }
+  }
+
+  async function submitRename(event) {
+    event.preventDefault();
+    const id = els.courseRenameDialog?.dataset.courseId;
+    const name = els.courseRenameNameInput?.value.trim();
+    if (!id || !name) return;
+    const term = els.courseRenameTermInput?.value.trim() || "";
+    try {
+      const payload = await updateProject(state.session, id, { name, meta: { ...courseMeta(courseById(id)), term } });
+      state.projects = state.projects.map((item) => item.id === payload.project.id ? payload.project : item);
+      if (state.studyOverview?.course?.id === id) state.studyOverview.course = payload.project;
+      if (state.studyProjectDetail?.project?.id === id) state.studyProjectDetail.project = payload.project;
+      els.courseRenameDialog.close();
+      render();
+      showToast("Course renamed.");
+    } catch (error) {
+      showToast(error.message || "Course could not be renamed.");
+    }
+  }
+
+  async function saveCourseName(name) {
+    if (!state.activeCourseId || !name || name === courseName()) return;
+    try {
+      const payload = await updateProject(state.session, state.activeCourseId, { name });
+      state.projects = state.projects.map((item) => item.id === payload.project.id ? payload.project : item);
+      if (state.studyOverview?.course) state.studyOverview.course = payload.project;
+      if (state.studyProjectDetail?.project) state.studyProjectDetail.project = payload.project;
+      render();
+      showToast("Course renamed.");
+    } catch (error) {
+      showToast(error.message || "Course could not be renamed.");
+    }
+  }
+
+  function confirmDeleteCourse(courseId) {
+    const course = courseById(courseId);
+    openDeleteConfirm({
+      title: "Delete course?",
+      body: `Delete "${course?.name || "this course"}", its chats, and its study material?`,
+      projectId: courseId
+    });
+  }
+
+  async function waitForDocument(attachmentId, fileName) {
+    while (state.session) {
+      const payload = await fetchDocumentStatus(state.session, attachmentId);
+      const doc = payload.document || {};
+      if (doc.usable) return doc;
+      if (doc.status === "failed" && !doc.usable) {
+        throw new Error(doc.error?.message || `${fileName || "Document"} could not be processed.`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    throw new Error(`${fileName || "Document"} processing stopped because the session ended.`);
+  }
+
+  async function uploadCourseFiles(files) {
+    const accepted = [...files].filter(isStudyFile);
+    if (!accepted.length) {
+      showToast("Choose a PDF, Word, Excel, PowerPoint, CSV, or image file.");
+      return;
+    }
+    if (!state.activeCourseId) return;
+    const courseId = state.activeCourseId;
+    state.studyUploading = true;
+    const locals = accepted.map((file) => ({
+      id: `up_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: file.name,
+      status: "uploading",
+      file
+    }));
+    pendingUploads = [...pendingUploads, ...locals];
+    render();
+    try {
+      await Promise.all(locals.map(async (item) => {
+        const category = String(item.file.type || "").startsWith("image/") ? "image" : "document";
+        const presigned = await presignUpload(state.session, item.file, category, { projectId: courseId });
+        try {
+          await putUploadContent(state.session, presigned, item.file, category);
+          const completed = await completeUpload(state.session, presigned.uploadId);
+          item.status = category === "image" ? "ready" : "reading";
+          if (state.activeCourseId === courseId) {
+            pendingUploads = pendingUploads.filter((row) => row.id !== item.id);
+            if (completed?.note && state.studyMaterials) {
+              state.studyMaterials = {
+                ...state.studyMaterials,
+                notes: [completed.note, ...(state.studyMaterials.notes || [])]
+              };
+            }
+            if (category === "image" && !completed?.note) {
+              showToast("Image uploaded, but transcription failed — try re-uploading.");
+            }
+            render();
+          }
+          if (category === "document" && !completed?.document?.usable) {
+            await waitForDocument(completed.id, item.name).catch(() => null);
+          }
+        } catch (error) {
+          await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
+          throw error;
+        }
+      }));
+      if (state.studyOpen && state.activeCourseId === courseId) {
+        await Promise.all([loadMaterials(), loadOverview().catch(() => {})]);
+        render();
+      }
+    } catch (error) {
+      showToast(error.message || "Files could not be uploaded.");
+    } finally {
+      pendingUploads = pendingUploads.filter((row) => !locals.some((item) => item.id === row.id));
+      state.studyUploading = false;
+      if (state.activeCourseId === courseId) render();
+    }
+  }
+
+  async function runGenerate(kind, id, type, count) {
+    if (!state.activeCourseId) return;
+    const key = `${kind}:${id}:${type}`;
+    generatingKey = key;
+    quizMenuKey = "";
+    render();
+    try {
+      const body = { type };
+      if (kind === "doc") body.documentFileId = id;
+      else body.noteId = id;
+      if (type === "quiz") body.count = Number(count) || 10;
+      const payload = await generateStudyContent(state.session, state.activeCourseId, body);
+      if (type === "flashcards") {
+        const n = payload?.cards?.length || 0;
+        showToast(`${n} card${n === 1 ? "" : "s"} created`);
+      } else if (type === "quiz") {
+        showToast("Quiz ready");
+      } else {
+        showToast("Summary ready");
+        if (payload?.note && state.studyMaterials) {
+          state.studyMaterials = {
+            ...state.studyMaterials,
+            notes: [payload.note, ...(state.studyMaterials.notes || [])]
+          };
+        }
+      }
+      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+    } catch (error) {
+      showToast(error.message || "Could not generate.");
+    } finally {
+      generatingKey = "";
+      render();
+    }
+  }
+
+  async function runScaffold(documentFileId) {
+    if (!state.activeCourseId) return;
+    generatingKey = `doc:${documentFileId}:scaffold`;
+    render();
+    try {
+      const payload = await scaffoldStudyCourse(state.session, state.activeCourseId, documentFileId);
+      if (payload?.meta && state.studyOverview?.course) {
+        state.studyOverview.course = { ...state.studyOverview.course, meta: payload.meta };
+      }
+      await loadOverview();
+      showToast("Syllabus dates imported");
+    } catch (error) {
+      showToast(error.message || "Could not import syllabus dates.");
+    } finally {
+      generatingKey = "";
+      render();
+    }
+  }
+
+  async function setTab(tab) {
+    if (!TABS.includes(tab) || tab === state.activeCourseTab) return;
+    state.activeCourseTab = tab;
+    quizMenuKey = "";
+    try {
+      if (tab === "materials" && !state.studyMaterials) await loadMaterials();
+      if (tab === "practice" && !state.studyPractice) await loadPractice();
+      if (tab === "chat") {
+        if (!state.studyProjectDetail) await loadCourseDetail();
+        if (!state.studyMaterials) await loadMaterials().catch(() => {});
+      }
+    } catch (error) {
+      showToast(error.message || "Could not load this tab.");
+    }
+    render();
+    if (tab === "chat") els.promptInput?.focus();
+  }
+
+  function sessionRoot() {
+    return els.studySession;
+  }
+
+  function closeSession() {
+    reviewSession = null;
+    quizSession = null;
+    const root = sessionRoot();
+    if (!root) return;
+    root.classList.add("hidden");
+    root.innerHTML = "";
+    root.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("study-session-open");
+  }
+
+  function openSessionShell(html) {
+    const root = sessionRoot();
+    if (!root) return;
+    root.innerHTML = html;
+    root.classList.remove("hidden");
+    root.setAttribute("aria-hidden", "false");
+    document.body.classList.add("study-session-open");
+  }
+
+  function reviewCardMarkup(session) {
+    if (session.done) {
+      const streak = computeStreak([
+        ...(state.studyOverview?.reviewDates || []),
+        new Date().toISOString()
+      ]);
+      const total = session.reviewed;
+      return `
+        <div class="study-session-end">
+          <p class="study-kicker">Session complete</p>
+          <strong>${escapeHtml(String(total))} card${total === 1 ? "" : "s"}</strong>
+          <ul class="study-grade-breakdown">
+            <li>Again ${escapeHtml(String(session.counts[1] || 0))}</li>
+            <li>Hard ${escapeHtml(String(session.counts[2] || 0))}</li>
+            <li>Good ${escapeHtml(String(session.counts[3] || 0))}</li>
+            <li>Easy ${escapeHtml(String(session.counts[4] || 0))}</li>
+          </ul>
+          <p class="study-end-streak">${streak.count ? `${escapeHtml(String(streak.count))}-day streak` : "Streak starts tomorrow if you come back."}</p>
+          <button class="study-primary-btn" type="button" data-close-session>Close</button>
+        </div>`;
+    }
+    const card = session.cards[session.index];
+    const pct = session.cards.length ? Math.round((session.index / session.cards.length) * 100) : 0;
+    return `
+      <div class="study-session-progress" aria-hidden="true"><span style="width:${pct}%"></span></div>
+      <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
+      <div class="study-session-stage">
+        <button class="study-flip${session.flipped ? " is-flipped" : ""}" type="button" data-study-flip aria-label="${session.flipped ? "Card back" : "Show answer"}">
+          <span class="study-flip-inner">
+            <span class="study-flip-face study-flip-front">${escapeHtml(card.front || "")}</span>
+            <span class="study-flip-face study-flip-back">${escapeHtml(card.back || "")}</span>
+          </span>
+        </button>
+        ${session.flipped ? `
+          <div class="study-grades">
+            <button type="button" data-study-grade="1">Again<span>1</span></button>
+            <button type="button" data-study-grade="2">Hard<span>2</span></button>
+            <button type="button" data-study-grade="3">Good<span>3</span></button>
+            <button type="button" data-study-grade="4">Easy<span>4</span></button>
+          </div>` : `<p class="study-flip-hint">Tap or press Space to flip</p>`}
+      </div>`;
+  }
+
+  function renderReview() {
+    if (!reviewSession) return;
+    openSessionShell(`<div class="study-session-frame is-review">${reviewCardMarkup(reviewSession)}</div>`);
+  }
+
+  async function startReview() {
+    if (!state.activeCourseId) return;
+    try {
+      const payload = await fetchStudyQueue(state.session, state.activeCourseId);
+      const cards = payload?.cards || [];
+      if (!cards.length) {
+        showToast("Nothing is due right now.");
+        return;
+      }
+      reviewSession = {
+        cards,
+        index: 0,
+        flipped: false,
+        reviewed: 0,
+        counts: { 1: 0, 2: 0, 3: 0, 4: 0 },
+        done: false
+      };
+      renderReview();
+    } catch (error) {
+      showToast(error.message || "Could not start review.");
+    }
+  }
+
+  function flipReview() {
+    if (!reviewSession || reviewSession.done || reviewSession.flipped) return;
+    reviewSession.flipped = true;
+    sound.flip();
+    renderReview();
+  }
+
+  function gradeReview(rating) {
+    if (!reviewSession || reviewSession.done || !reviewSession.flipped) return;
+    const card = reviewSession.cards[reviewSession.index];
+    const value = Number(rating);
+    if (!card || ![1, 2, 3, 4].includes(value)) return;
+    reviewSession.counts[value] += 1;
+    reviewSession.reviewed += 1;
+    if (value >= 3) sound.tick();
+    void reviewStudyCard(state.session, card.id, value).catch((error) => {
+      showToast(error.message || "Review could not be saved.");
+      if (!reviewSession) return;
+      reviewSession.counts[value] -= 1;
+      reviewSession.reviewed -= 1;
+      reviewSession.cards.push(card);
+      if (reviewSession.done) {
+        reviewSession.done = false;
+        reviewSession.index = reviewSession.cards.length - 1;
+        reviewSession.flipped = false;
+      }
+      renderReview();
+    });
+    const next = reviewSession.index + 1;
+    if (next >= reviewSession.cards.length) {
+      reviewSession.done = true;
+      sound.chime();
+      void loadOverview().then(() => render()).catch(() => {});
+    } else {
+      reviewSession.index = next;
+      reviewSession.flipped = false;
+    }
+    renderReview();
+  }
+
+  function quizMarkup(session) {
+    if (session.phase === "results") {
+      const { score, total, results, quiz, adding } = session;
+      const pct = total ? Math.round((score / total) * 100) : 0;
+      const misses = (results || []).map((row, index) => ({ row, index })).filter((item) => !item.row.correct);
+      const missList = misses.length
+        ? misses.map(({ row, index }) => {
+          const question = quiz.questions[index] || {};
+          const yours = row.yourAnswer;
+          const correct = row.answer;
+          return `
+            <article class="study-miss">
+              <p>${escapeHtml(question.q || `Question ${index + 1}`)}</p>
+              ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
+              <p class="study-miss-correct">${escapeHtml(question.choices?.[correct] || "")}</p>
+              ${row.explanation ? `<p class="study-miss-explain">${escapeHtml(row.explanation)}</p>` : ""}
+              <button class="study-chip-btn" type="button" data-add-missed="${index}" ${adding === index ? "disabled" : ""}>
+                ${adding === index ? spinner() : ""}Add to flashcards
+              </button>
+            </article>`;
+        }).join("")
+        : `<p class="study-empty-inline">No misses — nice work.</p>`;
+      return `
+        <div class="study-session-end">
+          <div class="study-score-ring" style="--study-score:${pct / 100}"><strong>${escapeHtml(String(score))}/${escapeHtml(String(total))}</strong></div>
+          <div class="study-miss-list">${missList}</div>
+          <button class="study-primary-btn" type="button" data-close-session>Close</button>
+        </div>`;
+    }
+    const question = session.quiz.questions[session.index] || {};
+    const pct = session.quiz.questions.length ? Math.round((session.index / session.quiz.questions.length) * 100) : 0;
+    const last = session.index >= session.quiz.questions.length - 1;
+    const choices = (question.choices || []).map((choice, index) => `
+      <button class="study-choice${session.selected === index ? " is-selected" : ""}" type="button" data-study-choice="${index}">
+        <span>${escapeHtml(String.fromCharCode(65 + index))}</span>
+        ${escapeHtml(choice)}
+      </button>`).join("");
+    return `
+      <div class="study-session-progress" aria-hidden="true"><span style="width:${pct}%"></span></div>
+      <button class="study-session-close" type="button" data-close-session aria-label="Close quiz">×</button>
+      <div class="study-quiz-stage">
+        <p class="study-kicker">Question ${escapeHtml(String(session.index + 1))} of ${escapeHtml(String(session.quiz.questions.length))}</p>
+        <h2>${escapeHtml(question.q || "")}</h2>
+        <div class="study-choices">${choices}</div>
+        <div class="study-quiz-nav">
+          <button class="study-chip-btn" type="button" data-study-skip>Skip</button>
+          <button class="study-primary-btn" type="button" data-study-next>${last ? "Submit" : "Next"}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderQuiz() {
+    if (!quizSession) return;
+    openSessionShell(`<div class="study-session-frame is-quiz">${quizMarkup(quizSession)}</div>`);
+  }
+
+  async function startQuiz(quizId) {
+    try {
+      const payload = await fetchStudyQuiz(state.session, quizId);
+      const quiz = payload?.quiz || payload;
+      if (!quiz?.questions?.length) {
+        showToast("This quiz has no questions yet.");
+        return;
+      }
+      quizSession = {
+        quiz,
+        index: 0,
+        selected: null,
+        answers: [],
+        phase: "ask",
+        adding: null,
+        courseId: state.activeCourseId
+      };
+      renderQuiz();
+    } catch (error) {
+      showToast(error.message || "Could not open quiz.");
+    }
+  }
+
+  async function commitQuizAnswer(skipped) {
+    if (!quizSession || quizSession.phase !== "ask") return;
+    const value = skipped || quizSession.selected == null ? -1 : quizSession.selected;
+    quizSession.answers.push(value);
+    quizSession.selected = null;
+    if (quizSession.index >= quizSession.quiz.questions.length - 1) {
+      try {
+        const payload = await submitStudyQuizAttempt(state.session, quizSession.quiz.id, quizSession.answers);
+        quizSession.phase = "results";
+        quizSession.score = payload.score;
+        quizSession.total = payload.total;
+        quizSession.results = payload.results || [];
+        sound.chime();
+        void loadOverview().then(() => render()).catch(() => {});
+        void loadPractice().catch(() => {});
+      } catch (error) {
+        showToast(error.message || "Could not submit quiz.");
+        quizSession.answers.pop();
+        return;
+      }
+    } else {
+      quizSession.index += 1;
+    }
+    renderQuiz();
+  }
+
+  async function addMissedCard(index) {
+    if (!quizSession || quizSession.phase !== "results") return;
+    const row = quizSession.results[index];
+    const question = quizSession.quiz.questions[index];
+    if (!row || !question || !quizSession.courseId) return;
+    const correct = question.choices?.[row.answer] || "";
+    const back = [correct, row.explanation].filter(Boolean).join("\n\n");
+    quizSession.adding = index;
+    renderQuiz();
+    try {
+      await createStudyCard(state.session, quizSession.courseId, { front: question.q || "", back });
+      showToast("Added to flashcards");
+    } catch (error) {
+      showToast(error.message || "Could not add flashcard.");
+    } finally {
+      quizSession.adding = null;
+      renderQuiz();
+    }
+  }
+
+  function handleSessionClick(event) {
+    if (event.target.closest("[data-close-session]")) {
+      closeSession();
+      return;
+    }
+    if (reviewSession) {
+      if (event.target.closest("[data-study-flip]") && !reviewSession.flipped) {
+        flipReview();
+        return;
+      }
+      const grade = event.target.closest("[data-study-grade]");
+      if (grade) gradeReview(grade.dataset.studyGrade);
+      return;
+    }
+    if (!quizSession) return;
+    const choice = event.target.closest("[data-study-choice]");
+    if (choice && quizSession.phase === "ask") {
+      quizSession.selected = Number(choice.dataset.studyChoice);
+      renderQuiz();
+      return;
+    }
+    if (event.target.closest("[data-study-skip]")) {
+      void commitQuizAnswer(true);
+      return;
+    }
+    if (event.target.closest("[data-study-next]")) {
+      if (quizSession.selected == null) return;
+      void commitQuizAnswer(false);
+      return;
+    }
+    const miss = event.target.closest("[data-add-missed]");
+    if (miss) void addMissedCard(Number(miss.dataset.addMissed));
+  }
+
+  function handleSessionKey(event) {
+    if (reviewSession && !reviewSession.done) {
+      if (event.key === " " || event.code === "Space") {
+        event.preventDefault();
+        if (!reviewSession.flipped) flipReview();
+        return;
+      }
+      if (reviewSession.flipped && ["1", "2", "3", "4"].includes(event.key)) {
+        event.preventDefault();
+        gradeReview(event.key);
+      }
+      return;
+    }
+    if (quizSession?.phase === "ask" && ["1", "2", "3", "4"].includes(event.key)) {
+      event.preventDefault();
+      quizSession.selected = Number(event.key) - 1;
+      renderQuiz();
+    }
+  }
+
+  function closeNote() {
+    studyNote = null;
+    renderNoteOverlay();
+  }
+
+  function openNote(id) {
+    const note = (state.studyMaterials?.notes || []).find((item) => item.id === id);
+    if (!note) return;
+    studyNote = note;
+    renderNoteOverlay();
+  }
+
+  function handleEscape() {
+    if (reviewSession || quizSession) {
+      closeSession();
+      return true;
+    }
+    if (studyNote) {
+      closeNote();
+      return true;
+    }
+    if (quizMenuKey) {
+      quizMenuKey = "";
+      render();
+      return true;
+    }
+    return false;
+  }
+
+  async function handleViewClick(event) {
+    const menuBtn = event.target.closest("[data-toggle-course-menu]");
+    if (menuBtn) {
+      const id = menuBtn.dataset.toggleCourseMenu;
+      quizMenuKey = quizMenuKey === `course:${id}` ? "" : `course:${id}`;
+      render();
+      return;
+    }
+    const quizToggle = event.target.closest("[data-toggle-quiz-menu]");
+    if (quizToggle) {
+      event.stopPropagation();
+      const key = quizToggle.dataset.toggleQuizMenu;
+      quizMenuKey = quizMenuKey === key ? "" : key;
+      render();
+      return;
+    }
+    if (!event.target.closest(".study-card-menu-wrap") && !event.target.closest(".study-quiz-wrap")) {
+      if (quizMenuKey) {
+        quizMenuKey = "";
+        render();
+      }
+    }
+    if (event.target.closest("[data-create-course]")) return openCreateDialog();
+    const open = event.target.closest("[data-open-course-id]");
+    if (open) return openCourse(open.dataset.openCourseId);
+    if (event.target.closest("[data-study-back]")) return openCourses();
+    const tab = event.target.closest("[data-study-tab]");
+    if (tab) return setTab(tab.dataset.studyTab);
+    if (event.target.closest("[data-start-review]")) return startReview();
+    const quiz = event.target.closest("[data-open-quiz]");
+    if (quiz) return startQuiz(quiz.dataset.openQuiz);
+    if (event.target.closest("[data-study-add-files]")) {
+      els.studyFileInput?.click();
+      return;
+    }
+    const gen = event.target.closest("[data-study-generate]");
+    if (gen) {
+      event.stopPropagation();
+      return runGenerate(gen.dataset.genKind, gen.dataset.genId, gen.dataset.studyGenerate, gen.dataset.count);
+    }
+    const scaffold = event.target.closest("[data-study-scaffold]");
+    if (scaffold) {
+      event.stopPropagation();
+      return runScaffold(scaffold.dataset.studyScaffold);
+    }
+    const note = event.target.closest("[data-open-note]");
+    if (note && !event.target.closest(".study-material-actions")) return openNote(note.dataset.openNote);
+    const chat = event.target.closest("[data-open-chat-id]");
+    if (chat) return openConversation(chat.dataset.openChatId);
+    const rename = event.target.closest("[data-rename-course]");
+    if (rename) return openRenameDialog(rename.dataset.renameCourse);
+    const remove = event.target.closest("[data-delete-course]");
+    if (remove) return confirmDeleteCourse(remove.dataset.deleteCourse);
+  }
+
+  function handleViewChange(event) {
+    const input = event.target.closest(".study-title-input");
+    if (!input) return;
+    void saveCourseName(input.value.trim());
+  }
+
+  function handleViewKey(event) {
+    if (event.key === "Enter" && event.target.matches?.(".study-title-input")) {
+      event.preventDefault();
+      event.target.blur();
+      return;
+    }
+    if (!event.target.closest?.(".study-tabs")) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const index = TABS.indexOf(state.activeCourseTab);
+    const next = event.key === "ArrowRight"
+      ? TABS[(index + 1) % TABS.length]
+      : TABS[(index - 1 + TABS.length) % TABS.length];
+    void setTab(next);
+  }
+
+  function bindEvents() {
+    els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
+    els.studyView?.addEventListener("change", (event) => { void handleViewChange(event); });
+    els.studyView?.addEventListener("keydown", handleViewKey);
+    els.studyFileInput?.addEventListener("change", (event) => {
+      void uploadCourseFiles(event.target.files || []);
+      event.target.value = "";
+    });
+    els.courseCreateForm?.addEventListener("submit", (event) => { void submitCreate(event); });
+    els.courseCreateCancel?.addEventListener("click", () => els.courseCreateDialog?.close());
+    els.courseRenameForm?.addEventListener("submit", (event) => { void submitRename(event); });
+    els.courseRenameCancel?.addEventListener("click", () => els.courseRenameDialog?.close());
+    els.studyNoteClose?.addEventListener("click", closeNote);
+    els.studyNoteOverlay?.addEventListener("click", (event) => {
+      if (event.target === els.studyNoteOverlay) closeNote();
+    });
+    els.studySession?.addEventListener("click", (event) => { void handleSessionClick(event); });
+    document.addEventListener("keydown", (event) => {
+      if (!reviewSession && !quizSession) return;
+      handleSessionKey(event);
+    });
+  }
+
+  return {
+    render,
+    openCourses,
+    openCourse,
+    bindEvents,
+    handleEscape,
+    closeSession,
+    loadCourse,
+    resetCourseCaches,
+    isSessionOpen: () => Boolean(reviewSession || quizSession)
+  };
+}
+
+function createSounds(reducedMotion) {
+  let ctx = null;
+  function play(fn) {
+    if (!reducedMotion?.()) fn();
+  }
+  function ac() {
+    try {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return null;
+      if (!ctx) ctx = new Ctor();
+      if (ctx.state === "suspended") void ctx.resume();
+      return ctx;
+    } catch {
+      return null;
+    }
+  }
+  function tone(freq, dur, type, delay, gainVal) {
+    try {
+      const audio = ac();
+      if (!audio) return;
+      const t0 = audio.currentTime + (delay || 0);
+      const osc = audio.createOscillator();
+      const filter = audio.createBiquadFilter();
+      const gain = audio.createGain();
+      osc.type = type || "sine";
+      osc.frequency.setValueAtTime(freq, t0);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1800, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(gainVal ?? 0.12, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audio.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    } catch {}
+  }
+  return {
+    flip() { play(() => tone(430, 0.055, "triangle", 0, 0.08)); },
+    tick() { play(() => tone(880, 0.035, "sine", 0, 0.07)); },
+    chime() {
+      play(() => {
+        tone(523.25, 0.11, "sine", 0, 0.11);
+        tone(659.25, 0.16, "sine", 0.11, 0.11);
+      });
+    }
+  };
+}
