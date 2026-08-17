@@ -153,6 +153,10 @@ export async function listRecentAssistantMessages(client, userId, conversationId
   });
 }
 
+export async function searchMessages(client, userId, query, { signal, limit = 30 } = {}) {
+  return client.rpc("klui_search_messages", { p_user_id: userId, p_query: query, p_limit: limit }, { signal });
+}
+
 export async function insertMessage(client, message, { signal } = {}) {
   const rows = await client.request("messages", {
     method: "POST",

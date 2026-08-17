@@ -199,6 +199,34 @@ test("listRecentAssistantMessages selects newest assistant content with a bound"
   });
 });
 
+test("searchMessages posts to klui_search_messages with scoped params", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_search_messages");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_query: "hello",
+      p_limit: 30
+    });
+    return jsonResponse([{
+      conversation_id: "conv_1",
+      title: "Chat",
+      snippet: "hello world",
+      matched_at: "2026-08-17T00:00:00Z"
+    }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const rows = await db.searchMessages("user_1", "hello");
+    assert.deepEqual(rows, [{
+      conversation_id: "conv_1",
+      title: "Chat",
+      snippet: "hello world",
+      matched_at: "2026-08-17T00:00:00Z"
+    }]);
+  });
+});
+
 test("listProjects scopes projects to the user and update order", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");

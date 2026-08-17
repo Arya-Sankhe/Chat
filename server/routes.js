@@ -3,7 +3,7 @@ import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
 import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
-import { handleConversationById, handleConversations, handleMessageById } from "./routes/conversations.js";
+import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
@@ -223,6 +223,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/conversations") {
       await handleConversations(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/conversations/search") {
+      await handleConversationSearch(req, res, config);
       return;
     }
 

@@ -30,6 +30,7 @@ import {
   fetchZiinaPaymentRequests,
   listConversations,
   listProjects,
+  searchChats,
   saveEditableDocument,
   rejectAdminPayment,
   requestClarifications,
@@ -42,7 +43,7 @@ import {
   updateAdminSettings,
   transcribeSpeech,
   uploadFile
-} from "./api.js";
+} from "./api.js?v=20260817-chat-search";
 import {
   clearSession,
   loadSession,
@@ -3143,6 +3144,29 @@ function isSearchDialogOpen() {
   return Boolean(els.searchDialog && !els.searchDialog.classList.contains("hidden"));
 }
 
+let searchBodyTimer = 0;
+let searchBodyRequestId = 0;
+let searchBodyHits = [];
+let searchBodyHitsQuery = "";
+let searchBodyStatus = "idle";
+
+function cancelSearchBody() {
+  if (searchBodyTimer) {
+    clearTimeout(searchBodyTimer);
+    searchBodyTimer = 0;
+  }
+  searchBodyRequestId += 1;
+  searchBodyHits = [];
+  searchBodyHitsQuery = "";
+  searchBodyStatus = "idle";
+}
+
+function bodySearchHits(query) {
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || trimmed !== searchBodyHitsQuery) return [];
+  return searchBodyHits;
+}
+
 function renderSearchResults(query = "") {
   if (!els.searchChatResults) return;
   const needle = query.trim().toLowerCase();
@@ -3150,13 +3174,22 @@ function renderSearchResults(query = "") {
     const title = String(conversation.title || "New chat").toLowerCase();
     return !needle || title.includes(needle);
   });
+  const titleIds = new Set(matches.map((conversation) => conversation.id));
+  const bodyHits = bodySearchHits(query).filter((hit) => hit?.conversation_id && !titleIds.has(hit.conversation_id));
+  const bodyStatus = query.trim() === searchBodyHitsQuery ? searchBodyStatus : "idle";
+  const statusHtml = bodyStatus === "pending"
+    ? `<div class="search-dialog-empty" role="status">Searching messages…</div>`
+    : bodyStatus === "error"
+      ? `<div class="search-dialog-empty" role="status">Message search is unavailable. Try again.</div>`
+      : "";
+  els.searchChatResults.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
 
-  if (!matches.length) {
-    els.searchChatResults.innerHTML = `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
+  if (!matches.length && !bodyHits.length) {
+    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
     return;
   }
 
-  els.searchChatResults.innerHTML = matches.map((conversation) => {
+  const titleHtml = matches.map((conversation) => {
     const active = conversation.id === state.activeConversationId ? "active" : "";
     return `
       <button class="search-result-row ${active}" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
@@ -3168,6 +3201,69 @@ function renderSearchResults(query = "") {
       </button>
     `;
   }).join("");
+
+  const bodyHtml = bodyHits.length ? `
+    <div class="search-result-section">Message matches</div>
+    ${bodyHits.map((hit) => {
+      const active = hit.conversation_id === state.activeConversationId ? "active" : "";
+      return `
+      <button class="search-result-row ${active}" type="button" data-open-chat-id="${escapeHtml(hit.conversation_id)}">
+        <span class="search-result-icon">${CHAT_ICON_SVG}</span>
+        <span class="search-result-copy">
+          <span class="search-result-title">${escapeHtml(hit.title || "New chat")}</span>
+          <span class="search-result-snippet">${escapeHtml(hit.snippet || "")}</span>
+        </span>
+        <span class="search-result-meta">${escapeHtml(formatChatAge(hit.matched_at))}</span>
+      </button>
+    `;
+    }).join("")}
+  ` : "";
+
+  els.searchChatResults.innerHTML = titleHtml + bodyHtml + statusHtml;
+}
+
+async function fetchSearchBody(trimmed) {
+  const requestId = ++searchBodyRequestId;
+  try {
+    const payload = await searchChats(state.session, trimmed);
+    if (requestId !== searchBodyRequestId) return;
+    if (!isSearchDialogOpen()) return;
+    if ((els.searchChatInput?.value || "").trim() !== trimmed) return;
+    searchBodyHits = Array.isArray(payload?.results) ? payload.results : [];
+    searchBodyHitsQuery = trimmed;
+    searchBodyStatus = "ready";
+    renderSearchResults(els.searchChatInput.value);
+  } catch {
+    if (requestId !== searchBodyRequestId) return;
+    if (!isSearchDialogOpen()) return;
+    if ((els.searchChatInput?.value || "").trim() !== trimmed) return;
+    searchBodyHits = [];
+    searchBodyHitsQuery = trimmed;
+    searchBodyStatus = "error";
+    renderSearchResults(els.searchChatInput?.value || "");
+  }
+}
+
+function scheduleSearchBody(query) {
+  if (searchBodyTimer) {
+    clearTimeout(searchBodyTimer);
+    searchBodyTimer = 0;
+  }
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || !state.session) {
+    searchBodyRequestId += 1;
+    searchBodyHits = [];
+    searchBodyHitsQuery = "";
+    searchBodyStatus = "idle";
+    return;
+  }
+  searchBodyHits = [];
+  searchBodyHitsQuery = trimmed;
+  searchBodyStatus = "pending";
+  searchBodyTimer = setTimeout(() => {
+    searchBodyTimer = 0;
+    void fetchSearchBody(trimmed);
+  }, 250);
 }
 
 function openSearchDialog() {
@@ -3188,6 +3284,7 @@ function openSearchDialog() {
 
 function closeSearchDialog() {
   if (!els.searchDialog) return;
+  cancelSearchBody();
   els.searchDialog.classList.add("hidden");
   els.searchDialog.setAttribute("aria-hidden", "true");
   if (els.searchChatInput) els.searchChatInput.value = "";
@@ -7772,6 +7869,7 @@ function bindEvents() {
   });
   els.searchDialogClose?.addEventListener("click", closeSearchDialog);
   els.searchChatInput?.addEventListener("input", (event) => {
+    scheduleSearchBody(event.target.value);
     renderSearchResults(event.target.value);
   });
   els.accountButton.addEventListener("click", (event) => {
@@ -7867,6 +7965,16 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+      if (!state.session || els.chatView?.classList.contains("hidden")) return;
+      e.preventDefault();
+      if (isSearchDialogOpen()) {
+        els.searchChatInput?.focus();
+        return;
+      }
+      openSearchDialog();
+      return;
+    }
     if (e.key !== "Escape") return;
     if (state.skillMenu.open) { closeSkillMenu(); return; }
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }

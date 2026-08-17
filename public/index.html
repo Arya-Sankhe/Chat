@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/styles.css?v=20260817-fast-switch">
+    <link rel="stylesheet" href="/styles.css?v=20260817-chat-search">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -578,7 +578,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
               </button>
             </div>
-            <div class="search-dialog-results" id="searchChatResults"></div>
+            <div class="search-dialog-results" id="searchChatResults" aria-live="polite" aria-atomic="false"></div>
           </div>
         </section>
 
@@ -730,7 +730,7 @@
         });
       }
     </script>
-    <script type="module" src="/js/app.js?v=20260817-fast-switch-2"></script>
+    <script type="module" src="/js/app.js?v=20260817-chat-search"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
   </body>
 </html>

@@ -43,6 +43,22 @@ export async function handleConversations(req, res, config) {
   throw new HttpError(405, "Method not allowed.");
 }
 
+export async function handleConversationSearch(req, res, config) {
+  const context = await requireChatContext(req, config);
+  if (req.method === "GET") {
+    const q = String(new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams.get("q") || "").trim().slice(0, 200);
+    if (q.length < 2) {
+      sendJson(res, 200, { results: [] });
+      return;
+    }
+    const results = await context.db.searchMessages(context.user.id, q, { signal: req.signal, limit: 30 });
+    sendJson(res, 200, { results });
+    return;
+  }
+
+  throw new HttpError(405, "Method not allowed.");
+}
+
 export async function handleConversationById(req, res, config, conversationId) {
   const context = await requireChatContext(req, config);
 

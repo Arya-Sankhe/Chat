@@ -142,6 +142,12 @@ export async function listConversations(session) {
   return response.json();
 }
 
+export async function searchChats(session, query) {
+  const response = await apiFetch(`/api/conversations/search?q=${encodeURIComponent(query)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function listProjects(session) {
   const response = await apiFetch("/api/projects", { session });
   if (!response.ok) throw new Error(await readProblem(response));

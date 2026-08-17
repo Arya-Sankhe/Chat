@@ -33,6 +33,17 @@ test("clarification card stays optional and supports recommended, custom, back, 
   assert.match(css, /\.clarification-body\s*\{[^}]*overflow-y:\s*auto/);
 });
 
+test("chat search distinguishes pending, failed, and empty message searches", () => {
+  const html = readPublic("index.html");
+  const appJs = readPublic("js/app.js");
+  assert.match(html, /id="searchChatResults"[^>]*aria-live="polite"/);
+  assert.match(appJs, /searchBodyStatus = "pending"/);
+  assert.match(appJs, /Searching messages…/);
+  assert.match(appJs, /Message search is unavailable\. Try again\./);
+  assert.match(appJs, /setAttribute\("aria-busy", bodyStatus === "pending" \? "true" : "false"\)/);
+  assert.match(appJs, /scheduleSearchBody\(event\.target\.value\);\s*renderSearchResults\(event\.target\.value\)/);
+});
+
 test("user message footer always offers copy; edit stays gated behind canEditUserMessage", () => {
   const appJs = readPublic("js/app.js");
   const footer = appJs.match(/function renderUserMessageFooter\(msg\)\s*\{[\s\S]*?\n\}/);
