@@ -30,6 +30,8 @@ function responseRecorder() {
 test("mobile config includes the packaged Capacitor origin and configured development origins", () => {
   const config = loadConfig({ MOBILE_ALLOWED_ORIGINS: "http://localhost:5173, https://preview.example" });
   assert.deepEqual(config.mobile.allowedOrigins, [
+    "https://klui.ai",
+    "https://www.klui.ai",
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
@@ -91,7 +93,7 @@ test("API URL resolver uses the production API origin inside Capacitor", () => {
   const previous = globalThis.Capacitor;
   globalThis.Capacitor = { isNativePlatform: () => true };
   try {
-    assert.equal(apiUrl("/api/me"), "https://klui.tech/api/me");
+    assert.equal(apiUrl("/api/me"), "https://klui.ai/api/me");
   } finally {
     if (previous === undefined) delete globalThis.Capacitor;
     else globalThis.Capacitor = previous;
@@ -103,7 +105,7 @@ test("mobile build supports an API origin override without changing source", asy
     readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
   );
   assert.match(source, /VITE_KLUI_API_ORIGIN/);
-  assert.match(source, /https:\/\/klui\.tech/);
+  assert.match(source, /https:\/\/klui\.ai/);
 });
 
 test("chat shell is visible before JavaScript finishes booting", async () => {

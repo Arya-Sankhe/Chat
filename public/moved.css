@@ -1,0 +1,109 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #eaf4ff;
+  color: #10244a;
+}
+
+* { box-sizing: border-box; }
+
+html, body { min-height: 100%; margin: 0; }
+
+body {
+  min-height: 100dvh;
+  background: #eaf4ff url("/images/home-clouds-light.webp") center / cover no-repeat;
+}
+
+main {
+  width: min(1120px, calc(100% - 40px));
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+  align-items: center;
+  gap: clamp(40px, 8vw, 112px);
+  padding: 48px 0;
+}
+
+.message { max-width: 620px; }
+
+.brand {
+  margin: 0 0 34px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: .06em;
+}
+
+h1 {
+  margin: 0;
+  max-width: 10ch;
+  font-size: clamp(54px, 7vw, 92px);
+  line-height: .98;
+  letter-spacing: -.065em;
+}
+
+.copy {
+  max-width: 48ch;
+  margin: 28px 0 32px;
+  color: #375078;
+  font-size: clamp(17px, 2vw, 20px);
+  line-height: 1.55;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 22px;
+  border-radius: 14px;
+  background: #1d55a7;
+  color: #f8fbff;
+  font-weight: 750;
+  text-decoration: none;
+  box-shadow: 0 12px 30px rgb(29 85 167 / .22);
+  transition: transform 180ms ease, background 180ms ease;
+}
+
+.button:hover { background: #16478f; transform: translateY(-2px); }
+.button:active { transform: translateY(0) scale(.98); }
+.button:focus-visible { outline: 3px solid #10244a; outline-offset: 4px; }
+
+.mascot { margin: 0; }
+
+.mascot img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid rgb(255 255 255 / .72);
+  border-radius: 32px;
+  box-shadow: 0 28px 80px rgb(28 79 147 / .24), inset 0 1px 0 rgb(255 255 255 / .8);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { background: #08152d; color: #f0f6ff; }
+  body { background: #08152d url("/images/home-night-sky.webp") center / cover no-repeat; }
+  .copy { color: #bed0eb; }
+  .button { background: #e7f1ff; color: #102c58; box-shadow: 0 12px 34px rgb(0 0 0 / .34); }
+  .button:hover { background: #f8fbff; }
+  .button:focus-visible { outline-color: #e7f1ff; }
+  .mascot img { border-color: rgb(255 255 255 / .2); box-shadow: 0 28px 80px rgb(0 0 0 / .38); }
+}
+
+@media (max-width: 767px) {
+  main {
+    width: min(calc(100% - 32px), 580px);
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding: 40px 0 28px;
+  }
+  .brand { margin-bottom: 28px; }
+  h1 { font-size: clamp(48px, 16vw, 72px); }
+  .mascot { width: min(78vw, 360px); justify-self: end; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mascot { animation: float 4.8s ease-in-out infinite; }
+  @keyframes float { 50% { transform: translateY(-10px) rotate(1deg); } }
+}

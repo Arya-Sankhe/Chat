@@ -99,6 +99,8 @@ export function loadConfig(env = process.env) {
     contextMaxTokens
   );
   const mobileAllowedOrigins = normalizeAllowedOrigins([
+    "https://klui.ai",
+    "https://www.klui.ai",
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
@@ -141,7 +143,7 @@ export function loadConfig(env = process.env) {
       chatReservationCredits: readPositiveNumber(env.DESKTOP_CHAT_RESERVATION_CREDITS, 0),
       minimumWindowsVersion: clean(env.DESKTOP_MINIMUM_WINDOWS_VERSION) || "0.1.0",
       latestWindowsVersion: clean(env.DESKTOP_LATEST_WINDOWS_VERSION) || "0.1.0",
-      windowsDownloadUrl: cleanUrl(env.DESKTOP_WINDOWS_DOWNLOAD_URL) || "https://klui.tech/download/windows",
+      windowsDownloadUrl: cleanUrl(env.DESKTOP_WINDOWS_DOWNLOAD_URL) || "https://klui.ai/download/windows",
       clients: {
         "klui-desktop-windows": {
           providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID),

@@ -3,6 +3,7 @@ import path from "node:path";
 import { applyApiCors } from "./http/cors.js";
 
 const publicDir = path.resolve(process.cwd(), "public");
+const legacyWebHosts = new Set(["klui.tech", "www.klui.tech"]);
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -44,9 +45,20 @@ async function resolvePublicFile(pathname) {
   return null;
 }
 
+export function isLegacyWebNavigation(req, url) {
+  const hostname = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
+  const acceptsHtml = String(req.headers.accept || "").includes("text/html");
+  return req.method === "GET"
+    && legacyWebHosts.has(hostname)
+    && !url.pathname.startsWith("/oauth/")
+    && (acceptsHtml || req.headers["sec-fetch-dest"] === "document");
+}
+
 export async function serveStatic(req, res, url, { allowedOrigins = [], supabaseUrl = "" } = {}) {
   const requestedPath = decodeURIComponent(url.pathname);
-  const pathname = requestedPath === "/"
+  const pathname = isLegacyWebNavigation(req, url)
+    ? "/moved/index.html"
+    : requestedPath === "/"
     ? "/index.html"
     : requestedPath;
   if (pathname === "/downloads/android/latest.json") {

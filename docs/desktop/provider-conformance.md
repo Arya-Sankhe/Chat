@@ -7,7 +7,7 @@ Run this matrix against staging before setting `DESKTOP_OAUTH_ENABLED=true`. Rec
 | Public native client | Code exchange succeeds without a client secret. |
 | PKCE S256 | Valid verifier succeeds; missing, plain, and incorrect verifiers fail. |
 | Redirect allowlist | The exact Windows URI succeeds; case, slash, host, path, query, and macOS substitutions fail. |
-| Existing website session | An authenticated klui.tech browser reaches first-party consent without another provider-specific desktop login. |
+| Existing website session | An authenticated klui.ai browser reaches first-party consent without another provider-specific desktop login. |
 | Consent | First approval is explicit; denial returns `access_denied`; `prompt=consent` re-shows the current privacy policy. |
 | Client identity | A verified access token contains the registered provider client ID; an ordinary website token is rejected by `/api/desktop/v1/*`. |
 | Code replay | The first exchange succeeds and the second returns `invalid_grant`. |
