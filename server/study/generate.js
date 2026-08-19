@@ -84,28 +84,22 @@ export async function loadMaterialText(db, userId, { documentFile, note, signal 
   return text.trim();
 }
 
-function flashcardTargetCount(text) {
-  const n = String(text || "").length;
-  if (n < 2000) return 8;
-  if (n < 8000) return 12;
-  if (n < 20000) return 16;
-  return 20;
+function clampPick(count, allowed) {
+  const n = Number(count);
+  return allowed.includes(n) ? n : allowed[0];
 }
 
 export function clampQuizCount(count) {
-  const n = Number(count);
-  if (n >= 15) return 15;
-  if (n >= 10) return 10;
-  return 5;
+  return clampPick(count, [10, 15, 25]);
 }
 
-function cleanCards(parsed) {
+function cleanCards(parsed, count) {
   const pairs = Array.isArray(parsed.cards) ? parsed.cards : Array.isArray(parsed.flashcards) ? parsed.flashcards : [];
   const cards = pairs.flatMap((entry) => {
     const front = String(entry?.front || "").trim();
     const back = String(entry?.back || "").trim();
     return front && back ? [{ front, back }] : [];
-  }).slice(0, 20);
+  }).slice(0, count);
   if (!cards.length) throw new HttpError(502, GENERATION_FAILED);
   return cards;
 }
@@ -127,19 +121,19 @@ function cleanQuestions(parsed, count) {
   return questions;
 }
 
-export async function generateFlashcards({ context, config, course, source, signal }) {
+export async function generateFlashcards({ context, config, course, source, count, signal }) {
   const text = await loadMaterialText(context.db, context.user.id, { ...source, signal });
   if (!text) throw new HttpError(400, "Material has no extracted text.");
-  const count = flashcardTargetCount(text);
+  const cardCount = clampPick(count, [10, 20, 30]);
   const parsed = await completeJson({
     context,
     config,
     signal,
-    maxTokens: 5000,
-    system: `You create study flashcards from source material. Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. Produce ${count} cards (between 8 and 20). Front is a precise prompt; back is the answer. No markdown, no commentary.`,
+    maxTokens: 14000,
+    system: `You create study flashcards from source material. Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. Produce exactly ${cardCount} cards. Front is a precise prompt; back is the answer. No markdown, no commentary.`,
     user: text
   });
-  const cards = cleanCards(parsed);
+  const cards = cleanCards(parsed, cardCount);
   const nowIso = new Date().toISOString();
   return context.db.createStudyCards(context.user.id, cards.map((card) => ({
     project_id: course.id,
@@ -160,7 +154,7 @@ export async function generateQuiz({ context, config, course, source, count, sig
     context,
     config,
     signal,
-    maxTokens: 6000,
+    maxTokens: 16000,
     system: `You create a multiple-choice quiz from source material. Return ONLY valid JSON: {"title":"...","questions":[{"q":"...","choices":["A","B","C","D"],"answer":0,"explanation":"..."}]}. Produce exactly ${questionCount} questions. choices must have 4 distinct strings. answer is the 0-based index of the correct choice. No markdown, no commentary.`,
     user: text
   });

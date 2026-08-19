@@ -191,6 +191,10 @@ export class SupabaseRest {
     return study.updateStudyCard(this, userId, id, patch, options);
   }
 
+  async deleteStudyCard(userId, id, options) {
+    return study.deleteStudyCard(this, userId, id, options);
+  }
+
   async deleteStudyCardsForSource(userId, filter, options) {
     return study.deleteStudyCardsForSource(this, userId, { ...filter, ...options });
   }

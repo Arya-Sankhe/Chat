@@ -7,16 +7,19 @@ import { handleConversationById, handleConversationSearch, handleConversations, 
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
+  handleStudyCard,
   handleStudyCardReview,
   handleStudyCourseGenerate,
   handleStudyCourseMaterials,
   handleStudyCourseOverview,
   handleStudyCoursePractice,
   handleStudyCourseCards,
+  handleStudyCourseDecks,
   handleStudyCourseQueue,
   handleStudyCourseScaffold,
   handleStudyQuizAttempts,
-  handleStudyQuizById
+  handleStudyQuizById,
+  handleStudyNoteExport
 } from "./routes/study.js";
 import {
   handleAdminPaymentRequests,
@@ -273,6 +276,11 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "decks") {
+      await handleStudyCourseDecks(req, res, config, parts[3]);
+      return;
+    }
+
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "queue") {
       await handleStudyCourseQueue(req, res, config, parts[3]);
       return;
@@ -293,6 +301,11 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "cards" && parts[3] && !parts[4]) {
+      await handleStudyCard(req, res, config, parts[3]);
+      return;
+    }
+
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "quizzes" && parts[3] && parts[4] === "attempts") {
       await handleStudyQuizAttempts(req, res, config, parts[3]);
       return;
@@ -300,6 +313,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "quizzes" && parts[3] && !parts[4]) {
       await handleStudyQuizById(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "notes" && parts[3] && parts[4] === "export") {
+      await handleStudyNoteExport(req, res, config, parts[3]);
       return;
     }
 

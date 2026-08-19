@@ -102,11 +102,33 @@ export async function updateStudyCard(client, userId, id, patch, { signal } = {}
   return single(rows);
 }
 
-export async function deleteStudyCardsForSource(client, userId, { documentFileId, noteId, signal } = {}) {
+export async function deleteStudyCard(client, userId, id, { signal } = {}) {
+  return client.request("study_cards", {
+    method: "DELETE",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    prefer: "return=minimal",
+    signal
+  });
+}
+
+export async function deleteStudyCardsForSource(client, userId, {
+  projectId,
+  documentFileId,
+  noteId,
+  manual,
+  signal
+} = {}) {
   const query = { user_id: `eq.${userId}` };
+  if (projectId) query.project_id = `eq.${projectId}`;
   if (documentFileId) query.document_file_id = `eq.${documentFileId}`;
   else if (noteId) query.note_id = `eq.${noteId}`;
-  else return null;
+  else if (manual) {
+    if (!projectId) return null;
+    query.document_file_id = "is.null";
+    query.note_id = "is.null";
+  } else {
+    return null;
+  }
   return client.request("study_cards", {
     method: "DELETE",
     query,

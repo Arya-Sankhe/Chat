@@ -658,6 +658,38 @@ test("listDueStudyCards filters by due_at and orders ascending", async () => {
   });
 });
 
+test("deleteStudyCardsForSource can delete a manual deck scoped to a course", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("project_id"), "eq.course_1");
+    assert.equal(parsed.searchParams.get("document_file_id"), "is.null");
+    assert.equal(parsed.searchParams.get("note_id"), "is.null");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.deleteStudyCardsForSource("user_1", { projectId: "course_1", manual: true });
+  });
+});
+
+test("deleteStudyCard DELETEs one card scoped to the user", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("id"), "eq.card_1");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.deleteStudyCard("user_1", "card_1");
+  });
+});
+
 test("createStudyCards bulk POSTs card rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");

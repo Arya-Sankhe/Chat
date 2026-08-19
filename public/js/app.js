@@ -50,10 +50,14 @@ import {
   fetchStudyQueue,
   reviewStudyCard,
   createStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
-  scaffoldStudyCourse
-} from "./api.js?v=20260817-study-hub3";
+  scaffoldStudyCourse,
+  exportStudyNote
+} from "./api.js?v=20260820-review-ui";
 import {
   clearSession,
   loadSession,
@@ -95,7 +99,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260817-study-hub3";
+import { createStudyHubController } from "./studyHub.js?v=20260820-close-z";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -578,6 +582,9 @@ const els = {
   studyNoteTitle: document.querySelector("#studyNoteTitle"),
   studyNoteBody: document.querySelector("#studyNoteBody"),
   studyNoteClose: document.querySelector("#studyNoteClose"),
+  studyNoteCopy: document.querySelector("#studyNoteCopy"),
+  studyNoteDownload: document.querySelector("#studyNoteDownload"),
+  studyNoteDownloadMenu: document.querySelector("#studyNoteDownloadMenu"),
   projectChatCrumb: document.querySelector("#projectChatCrumb"),
   projectChatCrumbName: document.querySelector("#projectChatCrumbName"),
   chatJumpBottom: document.querySelector("#chatJumpBottom"),
@@ -707,6 +714,7 @@ const els = {
   confirmCancelButton: document.querySelector("#confirmCancelButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
   renameDialog: document.querySelector("#renameDialog"),
+  renameTitle: document.querySelector("#renameTitle"),
   renameChatInput: document.querySelector("#renameChatInput"),
   renameCancelButton: document.querySelector("#renameCancelButton"),
   renameSaveButton: document.querySelector("#renameSaveButton"),
@@ -5696,7 +5704,7 @@ function closeAuthDialog() {
   }
 }
 
-function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "" } = {}) {
+function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null } = {}) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
@@ -5704,6 +5712,7 @@ function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projec
   state.pendingDeleteId = chatId || "";
   state.pendingDeleteAttachmentId = attachmentId || "";
   state.pendingDeleteProjectId = projectId || "";
+  state.pendingDeleteConfirm = typeof onConfirm === "function" ? onConfirm : null;
   els.confirmTitle.textContent = title;
   els.confirmBody.textContent = body;
   els.confirmDialog.classList.add("open");
@@ -5725,6 +5734,7 @@ function closeConfirmDialog() {
   state.pendingDeleteId = "";
   state.pendingDeleteAttachmentId = "";
   state.pendingDeleteProjectId = "";
+  state.pendingDeleteConfirm = null;
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
@@ -5734,6 +5744,12 @@ function closeConfirmDialog() {
 }
 
 async function confirmPendingDelete() {
+  if (typeof state.pendingDeleteConfirm === "function") {
+    const fn = state.pendingDeleteConfirm;
+    closeConfirmDialog();
+    await fn();
+    return;
+  }
   if (state.pendingDeleteAttachmentId) {
     const attachmentId = state.pendingDeleteAttachmentId;
     const projectId = state.activeProjectId;
@@ -5824,8 +5840,17 @@ function openRenameDialog(conversation) {
   closePinnedPopup();
   closeProfileMenu();
   if (isNative()) document.body.classList.remove("sidebar-open");
-  state.pendingRenameId = conversation.id;
-  els.renameChatInput.value = conversation.title || "New chat";
+  if (typeof conversation?.onSave === "function") {
+    state.pendingRenameId = "";
+    state.pendingRenameSave = conversation.onSave;
+    if (els.renameTitle) els.renameTitle.textContent = conversation.title || "Rename";
+    els.renameChatInput.value = conversation.value || "";
+  } else {
+    state.pendingRenameSave = null;
+    state.pendingRenameId = conversation.id;
+    if (els.renameTitle) els.renameTitle.textContent = "Rename chat";
+    els.renameChatInput.value = conversation.title || "New chat";
+  }
   els.renameDialog.classList.add("open");
   els.renameDialog.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -5838,6 +5863,8 @@ function openRenameDialog(conversation) {
 
 function closeRenameDialog() {
   state.pendingRenameId = "";
+  state.pendingRenameSave = null;
+  if (els.renameTitle) els.renameTitle.textContent = "Rename chat";
   els.renameDialog.classList.remove("open");
   els.renameDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "rename") {
@@ -5847,13 +5874,22 @@ function closeRenameDialog() {
 }
 
 async function saveRenameDialog() {
-  const id = state.pendingRenameId;
-  if (!id) return;
   const title = els.renameChatInput.value.trim();
   if (!title) {
-    showToast("Enter a chat title.");
+    showToast(state.pendingRenameSave ? "Enter a name." : "Enter a chat title.");
     return;
   }
+  if (typeof state.pendingRenameSave === "function") {
+    try {
+      await state.pendingRenameSave(title);
+      closeRenameDialog();
+    } catch (err) {
+      showToast(err.message || "Could not rename.");
+    }
+    return;
+  }
+  const id = state.pendingRenameId;
+  if (!id) return;
   try {
     const payload = await updateConversation(state.session, id, { title });
     const index = state.conversations.findIndex((item) => item.id === id);
@@ -6046,6 +6082,7 @@ studyHub = createStudyHubController({
   renderImages,
   openConversation,
   openDeleteConfirm,
+  openTitleRename: openRenameDialog,
   isSupportedDocumentFile,
   fetchProject,
   createProject,
@@ -6062,9 +6099,16 @@ studyHub = createStudyHubController({
   fetchStudyQueue,
   reviewStudyCard,
   createStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
+  exportStudyNote,
+  fetchDocumentJobStatus,
+  downloadAttachment,
+  flashCopySuccess,
   syncStudyUrl,
   loadProjects
 });

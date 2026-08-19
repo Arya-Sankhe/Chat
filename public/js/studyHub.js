@@ -1,3 +1,5 @@
+import { copyText } from "./platform/index.js";
+
 export function createStudyHubController({
   state,
   els,
@@ -13,6 +15,7 @@ export function createStudyHubController({
   renderImages,
   openConversation,
   openDeleteConfirm,
+  openTitleRename,
   isSupportedDocumentFile,
   fetchProject,
   createProject,
@@ -29,9 +32,16 @@ export function createStudyHubController({
   fetchStudyQueue,
   reviewStudyCard,
   createStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
+  exportStudyNote,
+  fetchDocumentJobStatus,
+  downloadAttachment,
+  flashCopySuccess,
   syncStudyUrl,
   loadProjects
 }) {
@@ -176,6 +186,20 @@ export function createStudyHubController({
     return `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c2.5 2 9.5 2 12 0v-5"/><path d="M22 10v6"/></svg>`;
   }
 
+  function kebabIcon() {
+    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>`;
+  }
+
+  function deckSourceOf(deck) {
+    if (deck.manual) return { manual: true };
+    if (deck.documentFileId) return { documentFileId: deck.documentFileId };
+    return { noteId: deck.noteId };
+  }
+
+  function findDeck(deckId) {
+    return (state.studyPractice?.decks || []).find((deck) => deck.id === deckId) || null;
+  }
+
   function spinner() {
     return `<span class="study-spin" aria-hidden="true"></span>`;
   }
@@ -208,7 +232,7 @@ export function createStudyHubController({
           ${due > 0 ? `<span class="study-due-badge">${escapeHtml(String(due))} due</span>` : ""}
           <div class="study-card-menu-wrap">
             <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Course options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              ${kebabIcon()}
             </button>
             <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(course.id)}" role="menu">
               <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(course.id)}">Rename</button>
@@ -311,23 +335,24 @@ export function createStudyHubController({
     if (!ready) return "";
     const base = `${kind}:${id}`;
     const busy = generatingKey.startsWith(`${base}:`) || generatingKey === base;
-    const quizOpen = quizMenuKey === base;
-    const spinFor = (type) => generatingKey === `${base}:${type}` || (type !== "quiz" && generatingKey === `${base}:${type}`);
+    const spinFor = (type) => generatingKey === `${base}:${type}`;
+    const countMenu = (type, label, counts) => {
+      const key = `${base}:${type}`;
+      const open = quizMenuKey === key;
+      return `
+        <span class="study-quiz-wrap">
+          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" ${busy ? "disabled" : ""}>
+            ${spinFor(type) ? spinner() : ""}${label}
+          </button>
+          <div class="study-quiz-menu${open ? "" : " hidden"}">
+            ${counts.map((n) => `<button type="button" data-study-generate="${type}" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="${n}">${n}</button>`).join("")}
+          </div>
+        </span>`;
+    };
     return `
       <div class="study-material-actions">
-        <button class="study-chip-btn" type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
-          ${spinFor("flashcards") ? spinner() : ""}Flashcards
-        </button>
-        <span class="study-quiz-wrap">
-          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(base)}" ${busy ? "disabled" : ""}>
-            ${spinFor("quiz") ? spinner() : ""}Quiz
-          </button>
-          <div class="study-quiz-menu${quizOpen ? "" : " hidden"}" data-quiz-menu="${escapeHtml(base)}">
-            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="5">5</button>
-            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="10">10</button>
-            <button type="button" data-study-generate="quiz" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="15">15</button>
-          </div>
-        </span>
+        ${countMenu("flashcards", "Flashcards", [10, 20, 30])}
+        ${countMenu("quiz", "Quiz", [10, 15, 25])}
         ${kind === "note" ? "" : `<button class="study-chip-btn" type="button" data-study-generate="summary" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
           ${spinFor("summary") ? spinner() : ""}Summarize
         </button>`}
@@ -417,12 +442,28 @@ export function createStudyHubController({
     const quizzes = payload.quizzes || [];
     const due = Number(state.studyOverview?.dueCount || 0);
     const deckCards = decks.length
-      ? decks.map((deck) => `
+      ? decks.map((deck) => {
+        const id = deck.id;
+        const menuOpen = quizMenuKey === `deck:${id}`;
+        const due = Number(deck.dueCount) || 0;
+        return `
           <article class="study-practice-card">
-            <strong>${escapeHtml(deck.title || "Deck")}</strong>
-            <small>${escapeHtml(String(deck.cardCount || 0))} cards</small>
-            ${Number(deck.dueCount) > 0 ? `<span class="study-due-badge">${escapeHtml(String(deck.dueCount))} due</span>` : ""}
-          </article>`).join("")
+            <button class="study-practice-open" type="button" data-open-deck="${escapeHtml(id)}">
+              <strong>${escapeHtml(deck.title || "Deck")}</strong>
+              <small>${escapeHtml(String(deck.cardCount || 0))} cards</small>
+            </button>
+            ${due > 0 ? `<span class="study-due-badge">${escapeHtml(String(due))} due</span>` : ""}
+            <div class="study-card-menu-wrap">
+              <button class="study-icon-btn" type="button" data-toggle-deck-menu="${escapeHtml(id)}" aria-label="Deck options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
+                ${kebabIcon()}
+              </button>
+              <div class="study-menu${menuOpen ? "" : " hidden"}" data-deck-menu="${escapeHtml(id)}" role="menu">
+                <button class="study-menu-item" type="button" role="menuitem" data-rename-deck="${escapeHtml(id)}">Rename</button>
+                <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-deck="${escapeHtml(id)}">Delete</button>
+              </div>
+            </div>
+          </article>`;
+      }).join("")
       : emptyState("No decks yet", "Generate flashcards from a file on Materials.");
     const quizCards = quizzes.length
       ? quizzes.map((quiz) => `
@@ -431,7 +472,7 @@ export function createStudyHubController({
             <small>${escapeHtml(String(quiz.questionCount || 0))} questions</small>
             <span class="study-score-meta">Best ${escapeHtml(quiz.bestScore == null ? "—" : String(quiz.bestScore))} · Last ${escapeHtml(quiz.lastScore == null ? "—" : String(quiz.lastScore))}</span>
           </button>`).join("")
-      : emptyState("No quizzes yet", "Create a 5, 10, or 15 question quiz from Materials.");
+      : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from Materials.");
     return `
       <div class="study-practice">
         <section class="study-panel">
@@ -479,7 +520,7 @@ export function createStudyHubController({
           </div>
           <div class="study-card-menu-wrap">
             <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(state.activeCourseId)}" aria-label="Course options" aria-expanded="${menuOpen ? "true" : "false"}">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+              ${kebabIcon()}
             </button>
             <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(state.activeCourseId)}" role="menu">
               <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(state.activeCourseId)}">Rename</button>
@@ -492,12 +533,39 @@ export function createStudyHubController({
       </div>`;
   }
 
+  function closeNoteDownloadMenu() {
+    els.studyNoteDownloadMenu?.classList.add("hidden");
+    els.studyNoteDownload?.setAttribute("aria-expanded", "false");
+  }
+
+  function noteFileName(ext) {
+    const base = String(studyNote?.title || "summary").replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim() || "summary";
+    return `${base}.${ext}`;
+  }
+
+  function setNoteDownloadBusy(busy) {
+    const btn = els.studyNoteDownload;
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.classList.toggle("is-busy", busy);
+    const spin = btn.querySelector(":scope > .study-spin");
+    if (busy && !spin) {
+      const next = document.createElement("span");
+      next.className = "study-spin";
+      next.setAttribute("aria-hidden", "true");
+      btn.insertBefore(next, btn.firstChild);
+    } else if (!busy) spin?.remove();
+  }
+
   function renderNoteOverlay() {
     if (!els.studyNoteOverlay) return;
     const open = Boolean(studyNote);
     els.studyNoteOverlay.classList.toggle("hidden", !open);
     els.studyNoteOverlay.setAttribute("aria-hidden", open ? "false" : "true");
-    if (!open) return;
+    if (!open) {
+      closeNoteDownloadMenu();
+      return;
+    }
     if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
     if (els.studyNoteBody) {
       try {
@@ -573,7 +641,7 @@ export function createStudyHubController({
     if (!state.activeCourseId) render();
   }
 
-  function applyDueDelta(delta) {
+  function applyDueDelta(delta, deckId) {
     if (!delta) return;
     const courseId = state.activeCourseId;
     const next = Math.max(0, Number(state.studyOverview?.dueCount || 0) + delta);
@@ -586,6 +654,7 @@ export function createStudyHubController({
     state.studyPractice = {
       ...state.studyPractice,
       decks: state.studyPractice.decks.map((deck) => {
+        if (deckId && deck.id !== deckId) return deck;
         const due = Number(deck.dueCount || 0);
         if (left <= 0 || due <= 0) return deck;
         const take = Math.min(due, left);
@@ -811,6 +880,61 @@ export function createStudyHubController({
     });
   }
 
+  function openRenameDeckDialog(deckId) {
+    const deck = findDeck(deckId);
+    if (!deck) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename deck",
+      value: deck.title || "",
+      onSave: (title) => saveDeckTitle(deck.id, title)
+    });
+  }
+
+  async function saveDeckTitle(deckId, title) {
+    const deck = findDeck(deckId);
+    if (!deck || !state.activeCourseId) return;
+    const payload = await updateStudyDeck(state.session, state.activeCourseId, {
+      ...deckSourceOf(deck),
+      title
+    });
+    const nextTitle = payload?.title || title;
+    if (state.studyPractice?.decks) {
+      state.studyPractice = {
+        ...state.studyPractice,
+        decks: state.studyPractice.decks.map((item) => item.id === deckId ? { ...item, title: nextTitle } : item)
+      };
+    }
+    render();
+    showToast("Deck renamed.");
+  }
+
+  function confirmDeleteDeck(deckId) {
+    const deck = findDeck(deckId);
+    if (!deck) return;
+    quizMenuKey = "";
+    render();
+    const count = Number(deck.cardCount) || 0;
+    openDeleteConfirm({
+      title: "Delete deck?",
+      body: `Delete "${deck.title || "this deck"}" and its ${count} card${count === 1 ? "" : "s"}?`,
+      onConfirm: () => deleteDeck(deck)
+    });
+  }
+
+  async function deleteDeck(deck) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyDeck(state.session, state.activeCourseId, deckSourceOf(deck));
+      await Promise.all([loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      render();
+      showToast("Deck deleted.");
+    } catch (error) {
+      showToast(error.message || "Deck could not be deleted.");
+    }
+  }
+
   async function waitForDocument(attachmentId, fileName) {
     while (state.session) {
       const payload = await fetchDocumentStatus(state.session, attachmentId);
@@ -901,7 +1025,7 @@ export function createStudyHubController({
       const body = { type };
       if (kind === "doc") body.documentFileId = id;
       else body.noteId = id;
-      if (type === "quiz") body.count = Number(count) || 10;
+      if (type === "quiz" || type === "flashcards") body.count = Number(count) || 10;
       const payload = await generateStudyContent(state.session, state.activeCourseId, body);
       if (type === "flashcards") {
         const n = payload?.cards?.length || 0;
@@ -969,8 +1093,10 @@ export function createStudyHubController({
 
   function closeSession() {
     const reviewed = Boolean(reviewSession);
+    clearTimeout(reviewSession?.animTimer);
     reviewSession = null;
     quizSession = null;
+    if (quizMenuKey === "review") quizMenuKey = "";
     const root = sessionRoot();
     if (root) {
       root.classList.add("hidden");
@@ -993,46 +1119,87 @@ export function createStudyHubController({
     document.body.classList.add("study-session-open");
   }
 
+  function reviewMarkLabel(mark) {
+    return mark === 3 ? "Got it" : mark === 1 ? "Missed" : "";
+  }
+
+  function reviewFace(card, session, side) {
+    const mark = session.marks[card.id];
+    const markClass = mark === 3 ? " is-good" : mark === 1 ? " is-bad" : "";
+    return `
+      <span class="study-flip-face study-flip-${side}">
+        <span class="study-review-top">
+          <span class="study-review-count">${escapeHtml(String(session.index + 1))} / ${escapeHtml(String(session.cards.length))}</span>
+          <span class="study-review-mark${markClass}">${reviewMarkLabel(mark)}</span>
+          <span class="study-review-kebab" aria-hidden="true"></span>
+        </span>
+        <span class="study-review-text">${escapeHtml((side === "front" ? card.front : card.back) || "")}</span>
+        <span class="study-review-see">${side === "front" ? "See answer" : "See question"}</span>
+      </span>`;
+  }
+
   function reviewCardMarkup(session) {
-    if (session.done) {
-      const streak = computeStreak([
-        ...(state.studyOverview?.reviewDates || []),
-        new Date().toISOString()
-      ]);
-      const total = session.reviewed;
+    if (!session.cards.length) {
       return `
         <div class="study-session-end">
-          <p class="study-kicker">Session complete</p>
-          <strong>${escapeHtml(String(total))} card${total === 1 ? "" : "s"}</strong>
-          <ul class="study-grade-breakdown">
-            <li>Again ${escapeHtml(String(session.counts[1] || 0))}</li>
-            <li>Hard ${escapeHtml(String(session.counts[2] || 0))}</li>
-            <li>Good ${escapeHtml(String(session.counts[3] || 0))}</li>
-            <li>Easy ${escapeHtml(String(session.counts[4] || 0))}</li>
-          </ul>
-          <p class="study-end-streak">${streak.count ? `${escapeHtml(String(streak.count))}-day streak` : "Streak starts tomorrow if you come back."}</p>
+          <p class="study-kicker">Deck empty</p>
+          <strong>No cards left</strong>
           <button class="study-primary-btn" type="button" data-close-session>Close</button>
         </div>`;
     }
     const card = session.cards[session.index];
-    const pct = session.cards.length ? Math.round((session.index / session.cards.length) * 100) : 0;
+    const menuOpen = quizMenuKey === "review";
+    const atStart = session.index === 0;
+    const atEnd = session.index >= session.cards.length - 1;
     return `
-      <div class="study-session-progress" aria-hidden="true"><span style="width:${pct}%"></span></div>
       <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
-      <div class="study-session-stage">
-        <button class="study-flip${session.flipped ? " is-flipped" : ""}" type="button" data-study-flip aria-label="${session.flipped ? "Card back" : "Show answer"}">
-          <span class="study-flip-inner">
-            <span class="study-flip-face study-flip-front">${escapeHtml(card.front || "")}</span>
-            <span class="study-flip-face study-flip-back">${escapeHtml(card.back || "")}</span>
-          </span>
-        </button>
-        ${session.flipped ? `
-          <div class="study-grades">
-            <button type="button" data-study-grade="1">Again<span>1</span></button>
-            <button type="button" data-study-grade="2">Hard<span>2</span></button>
-            <button type="button" data-study-grade="3">Good<span>3</span></button>
-            <button type="button" data-study-grade="4">Easy<span>4</span></button>
-          </div>` : `<p class="study-flip-hint">Tap or press Space to flip</p>`}
+      <p class="study-review-hint">Press “Space” to flip, “← / →” to navigate</p>
+      <div class="study-review">
+        <div class="study-review-glow" aria-hidden="true"></div>
+        <div class="study-review-stage">
+          <button class="study-flip${session.flipped ? " is-flipped" : ""}" type="button" data-study-flip aria-label="${session.flipped ? "Show question" : "Show answer"}">
+            <span class="study-flip-inner">
+              ${reviewFace(card, session, "front")}
+              ${reviewFace(card, session, "back")}
+            </span>
+          </button>
+          <div class="study-card-menu-wrap study-review-menu">
+            <button class="study-icon-btn" type="button" data-toggle-review-menu aria-label="Set options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
+              ${kebabIcon()}
+            </button>
+            <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
+              <button class="study-menu-item" type="button" role="menuitem" data-review-restart>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+                Restart set
+              </button>
+              <button class="study-menu-item" type="button" role="menuitem" data-review-shuffle>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
+                Shuffle set
+              </button>
+              <hr class="study-menu-sep">
+              <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-review-delete>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                Delete flashcard
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="study-review-controls">
+          <button class="study-review-nav" type="button" data-study-nav="-1" aria-label="Previous card"${atStart ? " disabled" : ""}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <button class="study-review-grade is-miss" type="button" data-study-grade="1" aria-label="Missed">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            <span class="study-review-n">${escapeHtml(String(session.counts[1] || 0))}</span>
+          </button>
+          <button class="study-review-grade is-got" type="button" data-study-grade="3" aria-label="Got it">
+            <span class="study-review-n">${escapeHtml(String(session.counts[3] || 0))}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>
+          </button>
+          <button class="study-review-nav is-next" type="button" data-study-nav="1" aria-label="Next card"${atEnd ? " disabled" : ""}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+        </div>
       </div>`;
   }
 
@@ -1041,23 +1208,27 @@ export function createStudyHubController({
     openSessionShell(`<div class="study-session-frame is-review">${reviewCardMarkup(reviewSession)}</div>`);
   }
 
-  async function startReview() {
+  async function startReview(deck) {
     if (!state.activeCourseId) return;
     try {
-      const payload = await fetchStudyQueue(state.session, state.activeCourseId);
+      const params = deck ? deckSourceOf(deck) : {};
+      const payload = await fetchStudyQueue(state.session, state.activeCourseId, params);
       const cards = payload?.cards || [];
       if (!cards.length) {
+        if (deck) showToast("This deck has no cards yet.");
         await refreshDueState();
         render();
         return;
       }
       reviewSession = {
         cards,
+        original: cards.slice(),
         index: 0,
         flipped: false,
         reviewed: 0,
         counts: { 1: 0, 2: 0, 3: 0, 4: 0 },
-        done: false
+        marks: {},
+        deckId: deck?.id || ""
       };
       renderReview();
     } catch (error) {
@@ -1065,47 +1236,200 @@ export function createStudyHubController({
     }
   }
 
+  function confirmOpen() {
+    return Boolean(document.getElementById("confirmDialog")?.classList.contains("open"));
+  }
+
   function flipReview() {
-    if (!reviewSession || reviewSession.done || reviewSession.flipped) return;
-    reviewSession.flipped = true;
+    if (!reviewSession?.cards.length || reviewSession.animating || confirmOpen()) return;
+    reviewSession.flipped = !reviewSession.flipped;
     sound.flip();
+    const root = sessionRoot();
+    const flip = root?.querySelector(".study-flip");
+    if (!flip) return renderReview();
+    flip.classList.toggle("is-flipped", reviewSession.flipped);
+    flip.setAttribute("aria-label", reviewSession.flipped ? "Show question" : "Show answer");
+  }
+
+  function toggleReviewMenu() {
+    quizMenuKey = quizMenuKey === "review" ? "" : "review";
+    const wrap = sessionRoot()?.querySelector(".study-review-menu");
+    const btn = wrap?.querySelector("[data-toggle-review-menu]");
+    const menu = wrap?.querySelector(".study-menu");
+    if (!btn || !menu) return renderReview();
+    menu.classList.toggle("hidden", quizMenuKey !== "review");
+    btn.setAttribute("aria-expanded", String(quizMenuKey === "review"));
+  }
+
+  function closeReviewMenu() {
+    if (quizMenuKey !== "review") return;
+    quizMenuKey = "";
+    const wrap = sessionRoot()?.querySelector(".study-review-menu");
+    wrap?.querySelector(".study-menu")?.classList.add("hidden");
+    wrap?.querySelector("[data-toggle-review-menu]")?.setAttribute("aria-expanded", "false");
+  }
+
+  function patchReviewChrome() {
+    const root = sessionRoot();
+    const card = reviewSession?.cards[reviewSession.index];
+    if (!root || !card) return false;
+    const mark = reviewSession.marks[card.id];
+    root.querySelectorAll(".study-review-mark").forEach((el) => {
+      el.textContent = reviewMarkLabel(mark);
+      el.classList.toggle("is-good", mark === 3);
+      el.classList.toggle("is-bad", mark === 1);
+    });
+    const miss = root.querySelector("[data-study-grade='1'] .study-review-n");
+    const got = root.querySelector("[data-study-grade='3'] .study-review-n");
+    if (miss) miss.textContent = String(reviewSession.counts[1] || 0);
+    if (got) got.textContent = String(reviewSession.counts[3] || 0);
+    return true;
+  }
+
+  function navReview(delta) {
+    if (!reviewSession?.cards.length || reviewSession.animating) return;
+    const next = reviewSession.index + Number(delta);
+    if (next < 0 || next >= reviewSession.cards.length) return;
+    reviewSession.index = next;
+    reviewSession.flipped = false;
+    closeReviewMenu();
     renderReview();
   }
 
-  function gradeReview(rating) {
-    if (!reviewSession || reviewSession.done || !reviewSession.flipped) return;
-    const card = reviewSession.cards[reviewSession.index];
-    const value = Number(rating);
-    if (!card || ![1, 2, 3, 4].includes(value)) return;
-    reviewSession.counts[value] += 1;
-    reviewSession.reviewed += 1;
-    applyDueDelta(-1);
-    if (value >= 3) sound.tick();
-    const save = reviewStudyCard(state.session, card.id, value).catch((error) => {
-      showToast(error.message || "Review could not be saved.");
-      applyDueDelta(1);
-      if (!reviewSession) return;
-      reviewSession.counts[value] -= 1;
-      reviewSession.reviewed -= 1;
-      reviewSession.cards.push(card);
-      if (reviewSession.done) {
-        reviewSession.done = false;
-        reviewSession.index = reviewSession.cards.length - 1;
-        reviewSession.flipped = false;
+  function restartReview() {
+    if (!reviewSession) return;
+    clearTimeout(reviewSession.animTimer);
+    reviewSession.animating = false;
+    closeReviewMenu();
+    reviewSession.cards = reviewSession.original.slice();
+    reviewSession.index = 0;
+    reviewSession.flipped = false;
+    reviewSession.reviewed = 0;
+    reviewSession.counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    reviewSession.marks = {};
+    renderReview();
+  }
+
+  function shuffleReview() {
+    if (!reviewSession?.cards.length) return;
+    clearTimeout(reviewSession.animTimer);
+    reviewSession.animating = false;
+    closeReviewMenu();
+    const cards = reviewSession.cards.slice();
+    for (let i = cards.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+    reviewSession.cards = cards;
+    reviewSession.index = 0;
+    reviewSession.flipped = false;
+    renderReview();
+  }
+
+  function confirmDeleteCard() {
+    const card = reviewSession?.cards[reviewSession.index];
+    if (!card) return;
+    closeReviewMenu();
+    openDeleteConfirm({
+      title: "Delete flashcard?",
+      body: "Delete this card from the deck?",
+      onConfirm: () => deleteReviewCard(card)
+    });
+  }
+
+  async function deleteReviewCard(card) {
+    if (!reviewSession || !card) return;
+    try {
+      await deleteStudyCard(state.session, card.id);
+      const mark = reviewSession.marks[card.id];
+      if (mark) {
+        reviewSession.counts[mark] -= 1;
+        reviewSession.reviewed = Math.max(0, reviewSession.reviewed - 1);
+        delete reviewSession.marks[card.id];
+      } else if (card.due !== false) {
+        applyDueDelta(-1, reviewSession.deckId);
+      }
+      reviewSession.cards = reviewSession.cards.filter((item) => item.id !== card.id);
+      reviewSession.original = reviewSession.original.filter((item) => item.id !== card.id);
+      if (reviewSession.index >= reviewSession.cards.length) {
+        reviewSession.index = Math.max(0, reviewSession.cards.length - 1);
+      }
+      reviewSession.flipped = false;
+      if (state.studyPractice?.decks && reviewSession.deckId) {
+        state.studyPractice = {
+          ...state.studyPractice,
+          decks: state.studyPractice.decks.map((deck) => (
+            deck.id === reviewSession.deckId
+              ? { ...deck, cardCount: Math.max(0, Number(deck.cardCount || 0) - 1) }
+              : deck
+          ))
+        };
       }
       renderReview();
-    });
-    pendingReviews = Promise.allSettled([pendingReviews, save]).then(() => {});
-    const next = reviewSession.index + 1;
-    if (next >= reviewSession.cards.length) {
-      reviewSession.done = true;
-      sound.chime();
-      void settleReviewsAndRefresh();
-    } else {
-      reviewSession.index = next;
-      reviewSession.flipped = false;
+    } catch (error) {
+      showToast(error.message || "Could not delete card.");
     }
-    renderReview();
+  }
+
+  function playGradeAnim(value) {
+    const advance = () => {
+      if (!reviewSession) return;
+      reviewSession.animating = false;
+      if (reviewSession.index >= reviewSession.cards.length - 1) {
+        sessionRoot()?.querySelector(".study-review-stage")?.classList.remove("is-got", "is-miss");
+        return;
+      }
+      navReview(1);
+    };
+    if (reducedMotion()) return advance();
+    const stage = sessionRoot()?.querySelector(".study-review-stage");
+    if (!stage) return advance();
+    reviewSession.animating = true;
+    stage.classList.remove("is-got", "is-miss");
+    void stage.offsetWidth;
+    stage.classList.add(value === 3 ? "is-got" : "is-miss");
+    clearTimeout(reviewSession.animTimer);
+    reviewSession.animTimer = setTimeout(advance, 520);
+  }
+
+  function gradeReview(rating) {
+    if (!reviewSession?.cards.length || reviewSession.animating) return;
+    const card = reviewSession.cards[reviewSession.index];
+    const value = Number(rating);
+    if (!card || (value !== 1 && value !== 3)) return;
+    const prev = reviewSession.marks[card.id] || 0;
+    if (prev !== value) {
+      if (prev) reviewSession.counts[prev] -= 1;
+      else reviewSession.reviewed += 1;
+      reviewSession.counts[value] += 1;
+      reviewSession.marks[card.id] = value;
+      const wasDue = card.due !== false && !prev;
+      if (wasDue) {
+        applyDueDelta(-1, reviewSession.deckId);
+        card.due = false;
+      }
+      if (value === 3) sound.tick();
+      const save = reviewStudyCard(state.session, card.id, value).catch((error) => {
+        showToast(error.message || "Review could not be saved.");
+        if (!reviewSession) return;
+        reviewSession.counts[value] -= 1;
+        if (prev) {
+          reviewSession.counts[prev] += 1;
+          reviewSession.marks[card.id] = prev;
+        } else {
+          reviewSession.reviewed -= 1;
+          delete reviewSession.marks[card.id];
+        }
+        if (wasDue) {
+          applyDueDelta(1, reviewSession.deckId);
+          card.due = true;
+        }
+        if (!patchReviewChrome()) renderReview();
+      });
+      pendingReviews = Promise.allSettled([pendingReviews, save]).then(() => {});
+      if (!patchReviewChrome()) renderReview();
+    }
+    playGradeAnim(value);
   }
 
   function quizMarkup(session) {
@@ -1239,8 +1563,21 @@ export function createStudyHubController({
       return;
     }
     if (reviewSession) {
-      if (event.target.closest("[data-study-flip]") && !reviewSession.flipped) {
+      if (event.target.closest("[data-toggle-review-menu]")) {
+        toggleReviewMenu();
+        return;
+      }
+      if (event.target.closest("[data-review-restart]")) return restartReview();
+      if (event.target.closest("[data-review-shuffle]")) return shuffleReview();
+      if (event.target.closest("[data-review-delete]")) return confirmDeleteCard();
+      if (quizMenuKey === "review" && !event.target.closest(".study-review-menu")) closeReviewMenu();
+      if (event.target.closest("[data-study-flip]")) {
         flipReview();
+        return;
+      }
+      const nav = event.target.closest("[data-study-nav]");
+      if (nav) {
+        navReview(nav.dataset.studyNav);
         return;
       }
       const grade = event.target.closest("[data-study-grade]");
@@ -1268,15 +1605,21 @@ export function createStudyHubController({
   }
 
   function handleSessionKey(event) {
-    if (reviewSession && !reviewSession.done) {
+    if (reviewSession?.cards.length) {
+      if (confirmOpen()) return;
       if (event.key === " " || event.code === "Space") {
         event.preventDefault();
-        if (!reviewSession.flipped) flipReview();
+        flipReview();
         return;
       }
-      if (reviewSession.flipped && ["1", "2", "3", "4"].includes(event.key)) {
+      if (event.key === "ArrowLeft") {
         event.preventDefault();
-        gradeReview(event.key);
+        navReview(-1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        navReview(1);
       }
       return;
     }
@@ -1289,7 +1632,62 @@ export function createStudyHubController({
 
   function closeNote() {
     studyNote = null;
+    setNoteDownloadBusy(false);
     renderNoteOverlay();
+  }
+
+  async function copyNote() {
+    if (!studyNote) return;
+    const text = [studyNote.title, els.studyNoteBody?.innerText || studyNote.content].filter(Boolean).join("\n\n");
+    try {
+      await copyText(text);
+      flashCopySuccess(els.studyNoteCopy);
+    } catch {
+      showToast("Could not copy.");
+    }
+  }
+
+  function downloadNoteMarkdown() {
+    const url = URL.createObjectURL(new Blob([String(studyNote?.content || "")], { type: "text/markdown;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = noteFileName("md");
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function waitForNoteExport(jobId) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const payload = await fetchDocumentJobStatus(state.session, jobId);
+      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) return payload.artifact;
+      if (["failed", "expired"].includes(payload?.job?.status)) {
+        throw new Error(payload.job.error?.message || "Export failed.");
+      }
+    }
+    throw new Error("Export is still processing. Try again shortly.");
+  }
+
+  async function exportNote(format) {
+    if (!studyNote) return;
+    if (format === "md") {
+      downloadNoteMarkdown();
+      return;
+    }
+    if (!state.session?.access_token) return showToast("Please sign in to download.");
+    setNoteDownloadBusy(true);
+    try {
+      const result = await exportStudyNote(state.session, studyNote.id, format);
+      const artifact = result.artifact || (result.jobId ? await waitForNoteExport(result.jobId) : null);
+      if (!artifact?.attachment_id) throw new Error("Export did not return a file.");
+      setNoteDownloadBusy(false);
+      await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || noteFileName(format));
+    } catch (error) {
+      setNoteDownloadBusy(false);
+      throw error;
+    }
   }
 
   function openNote(id) {
@@ -1300,8 +1698,17 @@ export function createStudyHubController({
   }
 
   function handleEscape() {
+    if (reviewSession && quizMenuKey === "review") {
+      closeReviewMenu();
+      return true;
+    }
+    if (confirmOpen()) return false;
     if (reviewSession || quizSession) {
       closeSession();
+      return true;
+    }
+    if (els.studyNoteDownloadMenu && !els.studyNoteDownloadMenu.classList.contains("hidden")) {
+      closeNoteDownloadMenu();
       return true;
     }
     if (studyNote) {
@@ -1321,6 +1728,14 @@ export function createStudyHubController({
     if (menuBtn) {
       const id = menuBtn.dataset.toggleCourseMenu;
       quizMenuKey = quizMenuKey === `course:${id}` ? "" : `course:${id}`;
+      render();
+      return;
+    }
+    const deckMenuBtn = event.target.closest("[data-toggle-deck-menu]");
+    if (deckMenuBtn) {
+      event.stopPropagation();
+      const id = deckMenuBtn.dataset.toggleDeckMenu;
+      quizMenuKey = quizMenuKey === `deck:${id}` ? "" : `deck:${id}`;
       render();
       return;
     }
@@ -1345,6 +1760,12 @@ export function createStudyHubController({
     const tab = event.target.closest("[data-study-tab]");
     if (tab) return setTab(tab.dataset.studyTab);
     if (event.target.closest("[data-start-review]")) return startReview();
+    const openDeck = event.target.closest("[data-open-deck]");
+    if (openDeck) {
+      const deck = findDeck(openDeck.dataset.openDeck);
+      if (deck) return startReview(deck);
+      return;
+    }
     const quiz = event.target.closest("[data-open-quiz]");
     if (quiz) return startQuiz(quiz.dataset.openQuiz);
     if (event.target.closest("[data-study-add-files]")) {
@@ -1369,6 +1790,10 @@ export function createStudyHubController({
     if (rename) return openRenameDialog(rename.dataset.renameCourse);
     const remove = event.target.closest("[data-delete-course]");
     if (remove) return confirmDeleteCourse(remove.dataset.deleteCourse);
+    const renameDeck = event.target.closest("[data-rename-deck]");
+    if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
+    const removeDeck = event.target.closest("[data-delete-deck]");
+    if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
   }
 
   function handleViewChange(event) {
@@ -1406,6 +1831,28 @@ export function createStudyHubController({
     els.courseRenameForm?.addEventListener("submit", (event) => { void submitRename(event); });
     els.courseRenameCancel?.addEventListener("click", () => els.courseRenameDialog?.close());
     els.studyNoteClose?.addEventListener("click", closeNote);
+    els.studyNoteCopy?.addEventListener("click", () => { void copyNote(); });
+    els.studyNoteDownload?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!els.studyNoteDownloadMenu) return;
+      const open = els.studyNoteDownloadMenu.classList.toggle("hidden") === false;
+      els.studyNoteDownload.setAttribute("aria-expanded", String(open));
+    });
+    els.studyNoteDownloadMenu?.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-study-note-export]");
+      if (!button) return;
+      closeNoteDownloadMenu();
+      try {
+        await exportNote(button.dataset.studyNoteExport);
+      } catch (error) {
+        showToast(error.message || "Export failed.");
+      }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!els.studyNoteDownloadMenu || els.studyNoteDownloadMenu.classList.contains("hidden")) return;
+      if (els.studyNoteDownload?.contains(event.target) || els.studyNoteDownloadMenu.contains(event.target)) return;
+      closeNoteDownloadMenu();
+    });
     els.studyNoteOverlay?.addEventListener("click", (event) => {
       if (event.target === els.studyNoteOverlay) closeNote();
     });

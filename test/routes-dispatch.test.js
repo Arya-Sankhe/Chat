@@ -148,12 +148,16 @@ const ROUTES = [
   { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/generate", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/courses/course-1/practice", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/decks", method: "PATCH", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/courses/course-1/decks", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/queue", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/cards", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/courses/course-1/scaffold", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/cards/card-1/review", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/cards/card-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/notes/note-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/research", method: "POST", authKind: "chat" },
   { path: "/api/research/run-1/status", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research/run-1/cancel", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -1060,6 +1064,129 @@ test("study course overview returns JSON for an owned course", async () => {
   assert.equal(payload.latestQuizAttempt, null);
 });
 
+test("study practice groups cards into openable decks and applies title overrides", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return {
+          id: "course-1",
+          kind: "course",
+          name: "CMP 321",
+          meta: { deckTitles: { "doc:doc-1": "Syntax notes" } }
+        };
+      },
+      async listProjectDocuments() {
+        return [{ id: "doc-1", file_name: "03+SyntaxAndSemantics-4S.pdf" }];
+      },
+      async listStudyNotes() { return []; },
+      async listStudyCards() {
+        return [
+          { id: "card-1", document_file_id: "doc-1", note_id: null, due_at: "2099-01-01T00:00:00Z" },
+          { id: "card-2", document_file_id: "doc-1", note_id: null, due_at: "2020-01-01T00:00:00Z" },
+          { id: "card-3", document_file_id: null, note_id: null, due_at: "2020-01-01T00:00:00Z" }
+        ];
+      },
+      async listStudyQuizzes() { return []; },
+      async listStudyQuizAttempts() { return []; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/practice", overrides });
+  assert.equal(res.statusCode, 200);
+  const decks = res.json().decks;
+  const named = decks.find((deck) => deck.id === "doc:doc-1");
+  const manual = decks.find((deck) => deck.id === "manual");
+  assert.equal(named.title, "Syntax notes");
+  assert.equal(named.documentFileId, "doc-1");
+  assert.equal(named.cardCount, 2);
+  assert.equal(named.dueCount, 1);
+  assert.equal(manual.title, "Your cards");
+  assert.equal(manual.manual, true);
+  assert.equal(manual.cardCount, 1);
+});
+
+test("study queue can return every card in a deck, due first", async () => {
+  const listed = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return { id: "course-1", kind: "course", name: "CMP 321" }; },
+      async listStudyCards() {
+        listed.push(true);
+        return [
+          { id: "later", front: "later", back: "b", state: "review", due_at: "2099-01-01T00:00:00Z", document_file_id: "doc-1" },
+          { id: "due", front: "due", back: "b", state: "review", due_at: "2020-01-01T00:00:00Z", document_file_id: "doc-1" },
+          { id: "other", front: "other", back: "b", state: "review", due_at: "2020-01-01T00:00:00Z", document_file_id: "doc-2" }
+        ];
+      }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    path: "/api/study/courses/course-1/queue?documentFileId=doc-1",
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(listed.length, 1);
+  const cards = res.json().cards;
+  assert.deepEqual(cards.map((card) => card.id), ["due", "later"]);
+  assert.equal(cards[0].due, true);
+  assert.equal(cards[1].due, false);
+});
+
+test("study deck rename and delete are scoped to one source", async () => {
+  const patches = [];
+  const deleted = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return {
+          id: "course-1",
+          kind: "course",
+          name: "CMP 321",
+          meta: { term: "Fall", deckTitles: { "doc:doc-1": "Old title" } }
+        };
+      },
+      async updateProject(_userId, projectId, patch) {
+        patches.push({ projectId, patch });
+        return { id: projectId, kind: "course", meta: patch.meta };
+      },
+      async deleteStudyCardsForSource(_userId, filter) {
+        deleted.push(filter);
+        return null;
+      }
+    }
+  });
+
+  const renamed = await dispatch(authReadyConfig, {
+    method: "PATCH",
+    path: "/api/study/courses/course-1/decks",
+    body: { documentFileId: "doc-1", title: "  Syntax notes  " },
+    overrides
+  });
+  assert.equal(renamed.statusCode, 200);
+  assert.equal(renamed.json().title, "Syntax notes");
+  assert.equal(patches[0].patch.meta.term, "Fall");
+  assert.equal(patches[0].patch.meta.deckTitles["doc:doc-1"], "Syntax notes");
+
+  const removed = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/courses/course-1/decks",
+    body: { documentFileId: "doc-1" },
+    overrides
+  });
+  assert.equal(removed.statusCode, 200);
+  assert.equal(removed.json().ok, true);
+  assert.equal(deleted[0].projectId, "course-1");
+  assert.equal(deleted[0].documentFileId, "doc-1");
+  assert.equal(patches.length, 1);
+
+  const bad = await dispatch(authReadyConfig, {
+    method: "PATCH",
+    path: "/api/study/courses/course-1/decks",
+    body: { title: "Nope" },
+    overrides
+  });
+  assert.equal(bad.statusCode, 400);
+});
+
 test("study course card create returns 201 and rejects an empty front", async () => {
   const created = [];
   const overrides = stubbedDeps({
@@ -1093,6 +1220,44 @@ test("study course card create returns 201 and rejects an empty front", async ()
   });
   assert.equal(empty.statusCode, 400);
   assert.equal(created.length, 1);
+});
+
+test("study card delete is scoped to the card owner", async () => {
+  const deleted = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyCard() {
+        return { id: "card-1", project_id: "course-1", front: "Q" };
+      },
+      async getProject() {
+        return { id: "course-1", kind: "course", name: "Biology" };
+      },
+      async deleteStudyCard(_userId, id) {
+        deleted.push(id);
+        return null;
+      }
+    }
+  });
+
+  const ok = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/cards/card-1",
+    overrides
+  });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().ok, true);
+  assert.deepEqual(deleted, ["card-1"]);
+
+  const missing = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/cards/missing",
+    overrides: stubbedDeps({
+      db: {
+        async getStudyCard() { return null; }
+      }
+    })
+  });
+  assert.equal(missing.statusCode, 404);
 });
 
 test("study card review rejects an invalid rating with 400", async () => {
@@ -1135,4 +1300,53 @@ test("study quiz GET strips answers and explanations", async () => {
   assert.equal("answer" in quiz.questions[0], false);
   assert.equal("explanation" in quiz.questions[0], false);
   assert.doesNotMatch(res.body, /secret/);
+});
+
+test("study note export uses the document create pipeline", async () => {
+  const created = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyNote() {
+        return { id: "note-1", title: "Syntax summary", content: "# Hello\n\nWorld" };
+      },
+      async createDocumentJob(job) {
+        created.push(job);
+        return { id: "job-1", status: "queued", job_type: job.job_type };
+      },
+      async getDocumentJob() {
+        return {
+          id: "job-1",
+          status: "succeeded",
+          output: { attachment_id: "att-1", file_name: "Syntax summary.pdf", kind: "pdf" }
+        };
+      }
+    }
+  });
+  const missing = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/notes/missing/export",
+    body: { format: "pdf" },
+    overrides: stubbedDeps({ db: { async getStudyNote() { return null; } } })
+  });
+  assert.equal(missing.statusCode, 404);
+
+  const bad = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/notes/note-1/export",
+    body: { format: "md" },
+    overrides
+  });
+  assert.equal(bad.statusCode, 400);
+
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/notes/note-1/export",
+    body: { format: "pdf" },
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().artifact.attachment_id, "att-1");
+  assert.equal(created[0].job_type, "document.create.pdf");
+  assert.equal(created[0].input.content, "# Hello\n\nWorld");
+  assert.equal(created[0].input.instructions, "");
 });
