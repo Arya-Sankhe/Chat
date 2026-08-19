@@ -1,6 +1,6 @@
 import { appVersion, isNative, openExternal, storage } from "./index.js";
 
-const UPDATE_URL = "https://klui.tech/downloads/android/latest.json";
+const UPDATE_URL = "https://klui.ai/downloads/android/latest.json";
 const LAST_CHECK_KEY = "klui.mobile.last-update-check.v1";
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -33,5 +33,5 @@ export async function checkForAppUpdate({ force = false } = {}) {
 }
 
 export function openAppUpdate(metadata) {
-  return openExternal(metadata?.apkUrl || "https://klui.tech/download/android");
+  return openExternal(metadata?.apkUrl || "https://klui.ai/download/android");
 }

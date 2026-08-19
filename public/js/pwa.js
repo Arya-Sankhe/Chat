@@ -15,7 +15,7 @@ function isIosSafari() {
 }
 
 async function registerServiceWorker() {
-  if (isNative() || location.protocol !== "https:" || location.hostname !== "klui.tech") return;
+  if (isNative() || location.protocol !== "https:" || location.hostname !== "klui.ai") return;
   if (!("serviceWorker" in navigator)) return;
   await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
 }
