@@ -63,8 +63,8 @@ function readDocumentMode(value) {
 
 const PLAN_SEARCH_DEFAULTS = {
   lite: 50,
-  essential: 200,
-  pro: 500
+  pro: 200,
+  max: 500
 };
 const MIN_ILLUSTRATION_RESERVATION_CREDITS = 0.015;
 
@@ -162,7 +162,7 @@ export function loadConfig(env = process.env) {
     plans,
     access: {
       mode: accessMode,
-      testingPlanId: clean(env.TEST_PLAN_ID) || "essential"
+      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
     },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),

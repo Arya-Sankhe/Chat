@@ -207,7 +207,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const plans = await dispatch(bareConfig, { path: "/api/plans" });
   assert.equal(plans.statusCode, 200);
   const planIds = plans.json().plans.map((plan) => plan.id);
-  assert.deepEqual(planIds, ["lite", "essential", "pro"]);
+  assert.deepEqual(planIds, ["lite", "pro", "max"]);
 });
 
 test("every auth-requiring route returns 503 problem JSON when Supabase is unconfigured", async () => {

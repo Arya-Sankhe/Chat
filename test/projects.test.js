@@ -13,8 +13,8 @@ const publicDir = resolve(here, "..", "public");
 test("project capacities are source-byte limits per plan", () => {
   const plans = Object.fromEntries(loadPlans({}).map((plan) => [plan.id, plan]));
   assert.equal(plans.lite.maxProjectBytes, 50 * 1024 * 1024);
-  assert.equal(plans.essential.maxProjectBytes, 100 * 1024 * 1024);
-  assert.equal(plans.pro.maxProjectBytes, 150 * 1024 * 1024);
+  assert.equal(plans.pro.maxProjectBytes, 100 * 1024 * 1024);
+  assert.equal(plans.max.maxProjectBytes, 150 * 1024 * 1024);
 });
 
 test("Projects reuses the composer and upload path with a backend capacity meter", () => {
