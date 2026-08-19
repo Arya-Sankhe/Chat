@@ -258,6 +258,9 @@ test("completed streaming patches live messages instead of remounting the thread
   assert.match(source, /function settleLiveMessages\(/);
   assert.match(source, /compareController\.patchCompareMessage\(article, view\.messages\)/);
   assert.match(source, /councilController\.patchCouncilMessage\(article, view\.council\)/);
+  assert.match(source, /const nextImages = renderUserImages\(msg\)/);
+  assert.match(source, /const staleImages = prevImages\?\.querySelector/);
+  assert.match(source, /prevImages\.outerHTML = nextImages/);
   assert.match(source, /els\.messages\.style\.overflowAnchor = "none"/);
   const retryPath = source.slice(
     source.indexOf("async function retryFailedAssistant"),
@@ -272,6 +275,35 @@ test("completed streaming patches live messages instead of remounting the thread
     assert.doesNotMatch(path, /setAutoScroll\(false\)/);
     assert.doesNotMatch(path, /renderShell\(\);\s*setMessagesScrollTop\(completedScrollTop\)/);
   }
+});
+
+test("conversation revalidation cannot replace live or newer chat state", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const loadPath = source.slice(
+    source.indexOf("async function loadActiveConversation"),
+    source.indexOf("function restoredTurnAttachment")
+  );
+  const listPath = source.slice(
+    source.indexOf("async function loadConversations"),
+    source.indexOf("async function loadActiveConversation")
+  );
+  assert.match(source, /let conversationLoadGeneration = 0/);
+  assert.match(loadPath, /const loadGeneration = \+\+conversationLoadGeneration/);
+  assert.match(loadPath, /const cachedAtStart = conversationCache\.get\(id\)/);
+  assert.match(
+    loadPath,
+    /loadGeneration !== conversationLoadGeneration \|\| state\.activeConversationId !== id[\s\S]*conversationCache\.get\(id\) === cachedAtStart[\s\S]*rememberConversation\(id[\s\S]*return "cached"/
+  );
+  assert.match(loadPath, /restoreLiveConversationRun\(id\)[\s\S]*rememberConversation\(id/);
+  assert.match(source, /loadResult !== "applied"/);
+  assert.match(source, /reloaded === "applied"/);
+  assert.match(listPath, /const hasLiveRun = Boolean\(run\?\.messages\)[\s\S]*loadResult === "applied" && !hasLiveRun[\s\S]*renderShell\(\)[\s\S]*restorePendingDocuments\(\)/);
+  assert.match(
+    source,
+    /state\.activeConversationId && !state\.temporaryChat && !state\.conversationLoading/
+  );
 });
 
 test("adding uploads preserves an existing composer draft", async () => {

@@ -363,6 +363,7 @@ const sideChatState = {
 const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
 const conversationCache = new Map();
+let conversationLoadGeneration = 0;
 
 function rememberConversation(id, messages) {
   if (!id) return;
@@ -447,7 +448,7 @@ function endConversationRun(key) {
 }
 
 function parkActiveConversationRun() {
-  if (state.activeConversationId && !state.temporaryChat) {
+  if (state.activeConversationId && !state.temporaryChat && !state.conversationLoading) {
     rememberConversation(state.activeConversationId, state.messages);
   }
   const key = conversationRunKey();
@@ -534,6 +535,7 @@ const els = {
   searchDialog: document.querySelector("#searchDialog"),
   searchChatInput: document.querySelector("#searchChatInput"),
   searchChatResults: document.querySelector("#searchChatResults"),
+  searchChatStatus: document.querySelector("#searchChatStatus"),
   searchDialogClose: document.querySelector("#searchDialogClose"),
   accountButton: document.querySelector("#accountButton"),
   profileAvatar: document.querySelector("#profileAvatar"),
@@ -3178,14 +3180,25 @@ function renderSearchResults(query = "") {
   const bodyHits = bodySearchHits(query).filter((hit) => hit?.conversation_id && !titleIds.has(hit.conversation_id));
   const bodyStatus = query.trim() === searchBodyHitsQuery ? searchBodyStatus : "idle";
   const statusHtml = bodyStatus === "pending"
-    ? `<div class="search-dialog-empty" role="status">Searching messages…</div>`
+    ? `<div class="search-dialog-empty">Searching messages…</div>`
     : bodyStatus === "error"
-      ? `<div class="search-dialog-empty" role="status">Message search is unavailable. Try again.</div>`
+      ? `<div class="search-dialog-empty">Message search is unavailable. Try again.</div>`
       : "";
-  els.searchChatResults.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
+  const emptyStatus = !matches.length && !bodyHits.length
+    ? (needle ? "No chats found." : "No chats yet.")
+    : "";
+  const statusText = bodyStatus === "pending"
+    ? "Searching messages…"
+    : bodyStatus === "error"
+      ? "Message search is unavailable. Try again."
+      : emptyStatus;
+  els.searchChatStatus?.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
+  if (els.searchChatStatus && els.searchChatStatus.textContent !== statusText) {
+    els.searchChatStatus.textContent = statusText;
+  }
 
   if (!matches.length && !bodyHits.length) {
-    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
+    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${emptyStatus}</div>`;
     return;
   }
 
@@ -3363,8 +3376,8 @@ async function openConversation(conversationId) {
     }
     renderImages();
     renderShell();
-    await loadActiveConversation();
-    if (state.activeConversationId !== conversationId) return;
+    const loadResult = await loadActiveConversation();
+    if (state.activeConversationId !== conversationId || loadResult !== "applied") return;
     state.conversationLoading = false;
     renderShell();
     await restorePendingDocuments();
@@ -5006,6 +5019,16 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
+  if (role === "user") {
+    const nextImages = renderUserImages(msg);
+    const prevImages = body.querySelector(":scope > .user-image-strip");
+    const staleImages = prevImages?.querySelector('img[src^="blob:"], [data-preview-src^="blob:"]');
+    if (prevImages && nextImages) {
+      if (staleImages) prevImages.outerHTML = nextImages;
+    }
+    else if (prevImages) prevImages.remove();
+    else if (nextImages) body.insertAdjacentHTML("afterbegin", nextImages);
+  }
   const nextFooter = renderMessageFooter(msg, role);
   const prevFooter = body.querySelector(":scope > .message-footer");
   if (prevFooter && nextFooter) prevFooter.outerHTML = nextFooter;
@@ -6410,8 +6433,16 @@ async function loadConversations() {
     state.activeConversationId = "";
   }
   if (!routeConversationId) state.activeConversationId = "";
-  if (state.activeConversationId) await loadActiveConversation();
-  else {
+  if (state.activeConversationId) {
+    const loadResult = await loadActiveConversation();
+    const run = getConversationRun(state.activeConversationId);
+    const hasLiveRun = Boolean(run?.messages) && !(run.mode === "research" && !run.abortController);
+    if (loadResult === "applied" && !hasLiveRun) {
+      state.conversationLoading = false;
+      renderShell();
+      await restorePendingDocuments();
+    }
+  } else {
     state.messages = [];
     stopExtractedModulePollers();
   }
@@ -6420,21 +6451,36 @@ async function loadConversations() {
 
 async function loadActiveConversation() {
   const id = state.activeConversationId;
+  const loadGeneration = ++conversationLoadGeneration;
   if (!id) {
     state.messages = [];
     state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
-    return;
+    return "applied";
   }
   if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
     researchController.resumeResearchPolling();
-    return;
+    return "applied";
   }
+  const cachedAtStart = conversationCache.get(id);
   const payload = await fetchConversation(state.session, id);
+  if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) {
+    if (!getConversationRun(id) && conversationCache.get(id) === cachedAtStart) {
+      rememberConversation(id, payload.messages || []);
+      return "cached";
+    }
+    return false;
+  }
+  if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
+    researchController.resumeResearchPolling();
+    return "applied";
+  }
   rememberConversation(id, payload.messages || []);
-  if (state.activeConversationId !== id) return;
   state.messages = payload.messages || [];
+  state.conversationLoading = false;
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
     return meta?.runId && ["queued", "running"].includes(meta.status);
@@ -6451,6 +6497,7 @@ async function loadActiveConversation() {
   if (pendingTurn && !getConversationRun(state.activeConversationId) && state.resumingTurnId !== pendingTurn.id) {
     setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
   }
+  return "applied";
 }
 
 function restoredTurnAttachment(part) {
@@ -7383,8 +7430,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     if (shouldReloadConversation && !temporaryChat && stillActive) {
-      const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
-      if (reloaded) {
+      const reloaded = await loadActiveConversation().catch(() => false);
+      if (reloaded === "applied") {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
       }
       settleLiveMessages({ pinned, scrollTop });
@@ -7965,16 +8012,6 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
-      if (!state.session || els.chatView?.classList.contains("hidden")) return;
-      e.preventDefault();
-      if (isSearchDialogOpen()) {
-        els.searchChatInput?.focus();
-        return;
-      }
-      openSearchDialog();
-      return;
-    }
     if (e.key !== "Escape") return;
     if (state.skillMenu.open) { closeSkillMenu(); return; }
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }

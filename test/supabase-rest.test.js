@@ -180,7 +180,8 @@ test("listMessages appends reasoning when includeReasoning is true", async () =>
   });
 });
 
-test("listRecentAssistantMessages selects newest assistant content with a bound", async () => {
+test("listRecentAssistantMessages selects newest assistant content with a bound and offset", async () => {
+  let request = 0;
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
     const parsed = new URL(url);
@@ -189,13 +190,21 @@ test("listRecentAssistantMessages selects newest assistant content with a bound"
     assert.equal(parsed.searchParams.get("conversation_id"), "eq.conv_1");
     assert.equal(parsed.searchParams.get("role"), "eq.assistant");
     assert.equal(parsed.searchParams.get("select"), "content");
-    assert.equal(parsed.searchParams.get("order"), "created_at.desc");
+    assert.equal(parsed.searchParams.get("order"), "created_at.desc,id.desc");
     assert.equal(parsed.searchParams.get("limit"), "10");
+    assert.equal(parsed.searchParams.get("offset"), request++ ? "10" : null);
     expectServiceHeaders(options.headers);
     return jsonResponse([{ content: "Latest answer" }]);
   }, async () => {
     const db = new SupabaseRest(FAKE_CONFIG);
-    assert.deepEqual(await db.listRecentAssistantMessages("user_1", "conv_1"), [{ content: "Latest answer" }]);
+    assert.deepEqual(
+      await db.listRecentAssistantMessages("user_1", "conv_1"),
+      [{ content: "Latest answer" }]
+    );
+    assert.deepEqual(
+      await db.listRecentAssistantMessages("user_1", "conv_1", { offset: 10 }),
+      [{ content: "Latest answer" }]
+    );
   });
 });
 

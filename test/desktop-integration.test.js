@@ -395,6 +395,8 @@ test("the per-user kill switch migration scopes ceiling blocks to the offending 
 
 test("the schema snapshot includes the complete enforced-metering RPC lifecycle", async () => {
   const source = await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8");
+  assert.match(source, /alter table public\.usage_api_weekly[\s\S]*?add column if not exists api_credit_reserved/);
+  assert.match(source, /alter table public\.usage_api_events[\s\S]*?add column if not exists request_id[\s\S]*?add column if not exists updated_at/);
   for (const functionName of [
     "klui_reserve_api_usage",
     "klui_mark_api_usage_submitted",
@@ -406,6 +408,17 @@ test("the schema snapshot includes the complete enforced-metering RPC lifecycle"
     assert.match(source, new RegExp(`revoke execute on function public\\.${functionName}\\([\\s\\S]*?from public, anon, authenticated`));
     assert.match(source, new RegExp(`grant execute on function public\\.${functionName}\\([\\s\\S]*?to service_role`));
   }
+});
+
+test("message search builds without blocking writes and headlines only deduplicated hits", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260816234517_search_messages_fts.sql", import.meta.url), "utf8");
+  assert.match(source, /create index concurrently if not exists messages_user_id_idx/);
+  assert.match(source, /create index concurrently if not exists messages_content_fts_idx/);
+  const hitCte = source.match(/,\s*hit as \(([\s\S]*?)\)\s*select\s+hit\.conversation_id/);
+  assert.ok(hitCte, "search function should deduplicate into a hit CTE");
+  assert.match(hitCte[1], /distinct on \(m\.conversation_id\)/);
+  assert.doesNotMatch(hitCte[1], /ts_headline/);
+  assert.match(source.slice(hitCte.index + hitCte[0].length), /ts_headline/);
 });
 
 test("the Windows beta explicitly disables the server-advertised computer-use capability", async () => {
