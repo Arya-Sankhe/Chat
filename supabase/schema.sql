@@ -61,20 +61,22 @@ create table if not exists public.plans (
   updated_at timestamptz not null default now()
 );
 
-insert into public.plans (id, name, max_images_per_message, sort_order)
+insert into public.plans (id, name, max_images_per_message, price_label, active, sort_order)
 values
-  ('lite', 'Lite', 4, 10),
-  ('essential', 'Essential', 4, 20),
-  ('pro', 'Pro', 4, 30)
+  ('lite', 'Lite', 4, '10 AED / month', true, 10),
+  ('pro', 'Pro', 4, '30 AED / month', true, 20),
+  ('max', 'Max', 4, '50 AED / month', true, 30)
 on conflict (id) do update
 set name = excluded.name,
+    max_images_per_message = excluded.max_images_per_message,
+    price_label = excluded.price_label,
     sort_order = excluded.sort_order,
     active = true,
     updated_at = now();
 
 update public.plans
 set active = false, updated_at = now()
-where id not in ('lite', 'essential', 'pro');
+where id not in ('lite', 'pro', 'max');
 
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),

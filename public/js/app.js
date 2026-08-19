@@ -2247,13 +2247,13 @@ function renderPlans() {
       tagline: "For light everyday use",
       features: ["Access to premium models", "Model compare"]
     },
-    essential: {
+    pro: {
       tagline: "For regular everyday use",
       badge: "Most popular",
-      usage: "3.5x more usage",
+      usage: "3x more usage",
       features: ["Access to premium models", "Model compare", "Model council"]
     },
-    pro: {
+    max: {
       tagline: "For pro workflows",
       usage: "6x more usage",
       features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]

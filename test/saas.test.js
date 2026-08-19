@@ -42,6 +42,14 @@ test("loadPlans maps Klui payment tiers from env", () => {
   assert.equal(Object.hasOwn(plans[0], "dailyDocumentToolLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "dailyGeneratedDocumentLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
+  assert.deepEqual(
+    loadPlans({}).map(({ id, monthlyApiCreditLimit }) => ({ id, monthlyApiCreditLimit })),
+    [
+      { id: "lite", monthlyApiCreditLimit: 1.36 },
+      { id: "pro", monthlyApiCreditLimit: 4.08 },
+      { id: "max", monthlyApiCreditLimit: 8.16 }
+    ]
+  );
 });
 
 test("applyEditedUserText rewrites plain text messages", () => {
@@ -83,11 +91,11 @@ test("testing access grants the configured plan", async () => {
     db: {},
     userId: "user_1",
     plans,
-    access: { mode: "testing", testingPlanId: "essential" }
+    access: { mode: "testing", testingPlanId: "pro" }
   });
 
   assert.equal(entitlement.active, true);
-  assert.equal(entitlement.plan.id, "essential");
+  assert.equal(entitlement.plan.id, "pro");
   assert.equal(entitlement.subscription.status, "testing");
 });
 
