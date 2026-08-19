@@ -51,7 +51,7 @@ Do not switch back to `legacy` while reservations exist. First allow all submitt
 - Keep the additive schema and reconciler. Website routes remain independent.
 - Never delete or zero live reservations during rollback; reconcile them.
 
-A reservation-ceiling violation also sets `app_settings.funded_inference_disabled` to `{ "disabled": true }`. This blocks new reservations across all server instances. After correcting and validating the ceiling, set it back to `false`; do not clear it merely to restore traffic.
+A reservation-ceiling violation sets `app_settings."funded_inference_disabled:<user_id>"` to `{ "disabled": true }`, blocking new funded usage for that user only. The bare `funded_inference_disabled` key remains a manual global kill switch for ops. After correcting and validating the ceiling, set the affected key back to `false`; do not clear it merely to restore traffic.
 
 ## Alerts
 

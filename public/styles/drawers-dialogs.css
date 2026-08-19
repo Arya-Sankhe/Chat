@@ -1767,3 +1767,29 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
   font-size: 14px;
 
 }
+
+.search-result-section {
+
+  padding: 10px 12px 4px;
+
+  font-size: 12px;
+
+  font-weight: 500;
+
+  color: var(--text-tertiary);
+
+}
+
+.search-result-snippet {
+
+  font-size: 12px;
+
+  color: var(--text-secondary);
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}

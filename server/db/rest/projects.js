@@ -4,7 +4,7 @@ export async function listProjects(client, userId, { signal } = {}) {
   return client.request("projects", {
     query: {
       user_id: `eq.${userId}`,
-      select: "*",
+      select: "id,name,created_at,updated_at",
       order: "updated_at.desc"
     },
     signal

@@ -274,7 +274,7 @@ test("enforced chat metering reserves, submits, and settles one idempotent reque
   assert.equal(events[2][1].costCredits, 0.01);
 });
 
-test("a reservation ceiling violation trips the database-backed global kill switch", async () => {
+test("a reservation ceiling violation trips the per-user kill switch, not the global one", async () => {
   const originalError = console.error;
   console.error = () => {};
   const settings = [];
@@ -295,7 +295,7 @@ test("a reservation ceiling violation trips the database-backed global kill swit
   });
   try {
     await assert.rejects(meter.chatCompletion({ providerId: "openrouter", body: { model: "fixed" } }), /metering/);
-    assert.equal(settings[0][0], "funded_inference_disabled");
+    assert.equal(settings[0][0], "funded_inference_disabled:user");
     assert.equal(settings[0][1].disabled, true);
   } finally {
     console.error = originalError;
@@ -383,6 +383,42 @@ test("the migration counts reservations and enforces the shared database kill sw
   assert.match(source, /usage_metering_disabled/);
   assert.match(source, /grant execute on function public\.klui_check_api_budget[\s\S]*?to service_role/);
   assert.match(source, /grant execute on function public\.klui_record_api_usage[\s\S]*?to service_role/);
+});
+
+test("the per-user kill switch migration scopes ceiling blocks to the offending user", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260816210804_per_user_kill_switch.sql", import.meta.url), "utf8");
+  const perUserChecks = source.match(/key in \('funded_inference_disabled', 'funded_inference_disabled:' \|\| p_user_id::text\)/g);
+  assert.equal(perUserChecks?.length, 2, "both klui_check_api_budget and klui_reserve_api_usage must match the global and per-user keys");
+  assert.match(source, /usage_metering_disabled/);
+  assert.match(source, /grant execute on function public\.klui_reserve_api_usage[\s\S]*?to service_role/);
+});
+
+test("the schema snapshot includes the complete enforced-metering RPC lifecycle", async () => {
+  const source = await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8");
+  assert.match(source, /alter table public\.usage_api_weekly[\s\S]*?add column if not exists api_credit_reserved/);
+  assert.match(source, /alter table public\.usage_api_events[\s\S]*?add column if not exists request_id[\s\S]*?add column if not exists updated_at/);
+  for (const functionName of [
+    "klui_reserve_api_usage",
+    "klui_mark_api_usage_submitted",
+    "klui_settle_api_usage",
+    "klui_release_api_usage",
+    "klui_reconcile_api_usage"
+  ]) {
+    assert.match(source, new RegExp(`create or replace function public\\.${functionName}\\(`));
+    assert.match(source, new RegExp(`revoke execute on function public\\.${functionName}\\([\\s\\S]*?from public, anon, authenticated`));
+    assert.match(source, new RegExp(`grant execute on function public\\.${functionName}\\([\\s\\S]*?to service_role`));
+  }
+});
+
+test("message search builds without blocking writes and headlines only deduplicated hits", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260816234517_search_messages_fts.sql", import.meta.url), "utf8");
+  assert.match(source, /create index concurrently if not exists messages_user_id_idx/);
+  assert.match(source, /create index concurrently if not exists messages_content_fts_idx/);
+  const hitCte = source.match(/,\s*hit as \(([\s\S]*?)\)\s*select\s+hit\.conversation_id/);
+  assert.ok(hitCte, "search function should deduplicate into a hit CTE");
+  assert.match(hitCte[1], /distinct on \(m\.conversation_id\)/);
+  assert.doesNotMatch(hitCte[1], /ts_headline/);
+  assert.match(source.slice(hitCte.index + hitCte[0].length), /ts_headline/);
 });
 
 test("the Windows beta explicitly disables the server-advertised computer-use capability", async () => {

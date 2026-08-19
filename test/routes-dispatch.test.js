@@ -140,6 +140,7 @@ const ROUTES = [
   { path: "/api/attachments/att-1", method: "DELETE", authKind: "chat" },
   { path: "/api/conversations", method: "GET", authKind: "chat" },
   { path: "/api/conversations", method: "POST", authKind: "chat" },
+  { path: "/api/conversations/search", method: "GET", authKind: "chat" },
   { path: "/api/projects", method: "GET", authKind: "chat" },
   { path: "/api/projects", method: "POST", authKind: "chat" },
   { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
@@ -265,6 +266,8 @@ test("resource 404s surface as problem JSON after auth", async () => {
   const overrides = stubbedDeps({
     db: {
       async getConversation() { return null; },
+      async listMessages() { return []; },
+      async listPendingDocumentTurns() { return []; },
       async listMessageAttachments() { return []; },
       async deleteMessage() { return null; }
     }
@@ -288,6 +291,35 @@ test("authenticated happy path works through stubbed dependencies", async () => 
   const res = await dispatch(authReadyConfig, { path: "/api/conversations", overrides });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json(), { conversations: [{ id: "conv-1", title: "Hello" }] });
+});
+
+test("conversation search returns stubbed matches and skips short queries", async () => {
+  const calls = [];
+  const results = [{
+    conversation_id: "conv-1",
+    title: "Hello",
+    snippet: "hello there",
+    matched_at: "2026-08-17T00:00:00Z"
+  }];
+  const overrides = stubbedDeps({
+    db: {
+      async searchMessages(userId, query, options) {
+        calls.push({ userId, query, limit: options?.limit });
+        return results;
+      }
+    }
+  });
+
+  const found = await dispatch(authReadyConfig, { path: "/api/conversations/search?q=hello", overrides });
+  assert.equal(found.statusCode, 200);
+  assert.deepEqual(found.json(), { results });
+  assert.deepEqual(calls, [{ userId: "user-1", query: "hello", limit: 30 }]);
+
+  calls.length = 0;
+  const short = await dispatch(authReadyConfig, { path: "/api/conversations/search?q=h", overrides });
+  assert.equal(short.statusCode, 200);
+  assert.deepEqual(short.json(), { results: [] });
+  assert.deepEqual(calls, []);
 });
 
 test("speech route forwards fixed Sarvam settings and returns the transcript", { concurrency: false }, async () => {

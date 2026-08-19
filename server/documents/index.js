@@ -850,19 +850,23 @@ export class DocumentService {
   }
 
   async latestAssistantText() {
-    if (!this.conversationId || typeof this.db.listMessages !== "function") return "";
-    const messages = await this.db.listMessages(this.userId, this.conversationId, { signal: this.signal });
-    let fallback = "";
-    for (let i = (messages || []).length - 1; i >= 0; i--) {
-      const message = messages[i];
-      if (message?.role !== "assistant") continue;
-      const text = contentToText(message.content).trim();
-      if (!text) continue;
-      if (!fallback) fallback = text;
-      if (assistantTextLooksLikeArtifactHandoff(text)) continue;
-      return text.slice(0, 30_000);
+    if (!this.conversationId || typeof this.db.listRecentAssistantMessages !== "function") return "";
+    // ponytail: scan 50 recent replies; raise only if chats routinely stack more artifact handoffs.
+    const pageSize = 10;
+    const maxPages = 5;
+    for (let page = 0; page < maxPages; page += 1) {
+      const messages = await this.db.listRecentAssistantMessages(this.userId, this.conversationId, {
+        signal: this.signal,
+        limit: pageSize,
+        offset: page * pageSize
+      });
+      for (const message of messages || []) {
+        const text = contentToText(message?.content).trim();
+        if (text && !assistantTextLooksLikeArtifactHandoff(text)) return text.slice(0, 30_000);
+      }
+      if (!messages || messages.length < pageSize) return "";
     }
-    return fallback.slice(0, 30_000);
+    return "";
   }
 
   async resolveCreateContent({ content, instructions, sections, data } = {}) {

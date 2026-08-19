@@ -30,6 +30,7 @@ import {
   fetchZiinaPaymentRequests,
   listConversations,
   listProjects,
+  searchChats,
   saveEditableDocument,
   rejectAdminPayment,
   requestClarifications,
@@ -42,7 +43,7 @@ import {
   updateAdminSettings,
   transcribeSpeech,
   uploadFile
-} from "./api.js";
+} from "./api.js?v=20260817-chat-search";
 import {
   clearSession,
   loadSession,
@@ -278,6 +279,7 @@ const state = {
   activeResearchId: "",
   researchReport: null,
   messages: [],
+  conversationLoading: false,
   models: [],
   settings: loadSettings(),
   images: [],
@@ -360,6 +362,14 @@ const sideChatState = {
 /** One in-flight client run per conversation (or temporary chat). */
 const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
+const conversationCache = new Map();
+let conversationLoadGeneration = 0;
+
+function rememberConversation(id, messages) {
+  if (!id) return;
+  conversationCache.set(id, { messages: messages || [] });
+  if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
+}
 
 function conversationRunKey(conversationId = state.activeConversationId, temporary = state.temporaryChat) {
   if (temporary) return TEMPORARY_RUN_KEY;
@@ -438,6 +448,9 @@ function endConversationRun(key) {
 }
 
 function parkActiveConversationRun() {
+  if (state.activeConversationId && !state.temporaryChat && !state.conversationLoading) {
+    rememberConversation(state.activeConversationId, state.messages);
+  }
   const key = conversationRunKey();
   const run = getConversationRun(key);
   if (!run) return;
@@ -522,6 +535,7 @@ const els = {
   searchDialog: document.querySelector("#searchDialog"),
   searchChatInput: document.querySelector("#searchChatInput"),
   searchChatResults: document.querySelector("#searchChatResults"),
+  searchChatStatus: document.querySelector("#searchChatStatus"),
   searchDialogClose: document.querySelector("#searchDialogClose"),
   accountButton: document.querySelector("#accountButton"),
   profileAvatar: document.querySelector("#profileAvatar"),
@@ -3132,6 +3146,29 @@ function isSearchDialogOpen() {
   return Boolean(els.searchDialog && !els.searchDialog.classList.contains("hidden"));
 }
 
+let searchBodyTimer = 0;
+let searchBodyRequestId = 0;
+let searchBodyHits = [];
+let searchBodyHitsQuery = "";
+let searchBodyStatus = "idle";
+
+function cancelSearchBody() {
+  if (searchBodyTimer) {
+    clearTimeout(searchBodyTimer);
+    searchBodyTimer = 0;
+  }
+  searchBodyRequestId += 1;
+  searchBodyHits = [];
+  searchBodyHitsQuery = "";
+  searchBodyStatus = "idle";
+}
+
+function bodySearchHits(query) {
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || trimmed !== searchBodyHitsQuery) return [];
+  return searchBodyHits;
+}
+
 function renderSearchResults(query = "") {
   if (!els.searchChatResults) return;
   const needle = query.trim().toLowerCase();
@@ -3139,13 +3176,33 @@ function renderSearchResults(query = "") {
     const title = String(conversation.title || "New chat").toLowerCase();
     return !needle || title.includes(needle);
   });
+  const titleIds = new Set(matches.map((conversation) => conversation.id));
+  const bodyHits = bodySearchHits(query).filter((hit) => hit?.conversation_id && !titleIds.has(hit.conversation_id));
+  const bodyStatus = query.trim() === searchBodyHitsQuery ? searchBodyStatus : "idle";
+  const statusHtml = bodyStatus === "pending"
+    ? `<div class="search-dialog-empty">Searching messages…</div>`
+    : bodyStatus === "error"
+      ? `<div class="search-dialog-empty">Message search is unavailable. Try again.</div>`
+      : "";
+  const emptyStatus = !matches.length && !bodyHits.length
+    ? (needle ? "No chats found." : "No chats yet.")
+    : "";
+  const statusText = bodyStatus === "pending"
+    ? "Searching messages…"
+    : bodyStatus === "error"
+      ? "Message search is unavailable. Try again."
+      : emptyStatus;
+  els.searchChatStatus?.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
+  if (els.searchChatStatus && els.searchChatStatus.textContent !== statusText) {
+    els.searchChatStatus.textContent = statusText;
+  }
 
-  if (!matches.length) {
-    els.searchChatResults.innerHTML = `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
+  if (!matches.length && !bodyHits.length) {
+    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${emptyStatus}</div>`;
     return;
   }
 
-  els.searchChatResults.innerHTML = matches.map((conversation) => {
+  const titleHtml = matches.map((conversation) => {
     const active = conversation.id === state.activeConversationId ? "active" : "";
     return `
       <button class="search-result-row ${active}" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
@@ -3157,6 +3214,69 @@ function renderSearchResults(query = "") {
       </button>
     `;
   }).join("");
+
+  const bodyHtml = bodyHits.length ? `
+    <div class="search-result-section">Message matches</div>
+    ${bodyHits.map((hit) => {
+      const active = hit.conversation_id === state.activeConversationId ? "active" : "";
+      return `
+      <button class="search-result-row ${active}" type="button" data-open-chat-id="${escapeHtml(hit.conversation_id)}">
+        <span class="search-result-icon">${CHAT_ICON_SVG}</span>
+        <span class="search-result-copy">
+          <span class="search-result-title">${escapeHtml(hit.title || "New chat")}</span>
+          <span class="search-result-snippet">${escapeHtml(hit.snippet || "")}</span>
+        </span>
+        <span class="search-result-meta">${escapeHtml(formatChatAge(hit.matched_at))}</span>
+      </button>
+    `;
+    }).join("")}
+  ` : "";
+
+  els.searchChatResults.innerHTML = titleHtml + bodyHtml + statusHtml;
+}
+
+async function fetchSearchBody(trimmed) {
+  const requestId = ++searchBodyRequestId;
+  try {
+    const payload = await searchChats(state.session, trimmed);
+    if (requestId !== searchBodyRequestId) return;
+    if (!isSearchDialogOpen()) return;
+    if ((els.searchChatInput?.value || "").trim() !== trimmed) return;
+    searchBodyHits = Array.isArray(payload?.results) ? payload.results : [];
+    searchBodyHitsQuery = trimmed;
+    searchBodyStatus = "ready";
+    renderSearchResults(els.searchChatInput.value);
+  } catch {
+    if (requestId !== searchBodyRequestId) return;
+    if (!isSearchDialogOpen()) return;
+    if ((els.searchChatInput?.value || "").trim() !== trimmed) return;
+    searchBodyHits = [];
+    searchBodyHitsQuery = trimmed;
+    searchBodyStatus = "error";
+    renderSearchResults(els.searchChatInput?.value || "");
+  }
+}
+
+function scheduleSearchBody(query) {
+  if (searchBodyTimer) {
+    clearTimeout(searchBodyTimer);
+    searchBodyTimer = 0;
+  }
+  const trimmed = query.trim();
+  if (trimmed.length < 2 || !state.session) {
+    searchBodyRequestId += 1;
+    searchBodyHits = [];
+    searchBodyHitsQuery = "";
+    searchBodyStatus = "idle";
+    return;
+  }
+  searchBodyHits = [];
+  searchBodyHitsQuery = trimmed;
+  searchBodyStatus = "pending";
+  searchBodyTimer = setTimeout(() => {
+    searchBodyTimer = 0;
+    void fetchSearchBody(trimmed);
+  }, 250);
 }
 
 function openSearchDialog() {
@@ -3177,6 +3297,7 @@ function openSearchDialog() {
 
 function closeSearchDialog() {
   if (!els.searchDialog) return;
+  cancelSearchBody();
   els.searchDialog.classList.add("hidden");
   els.searchDialog.setAttribute("aria-hidden", "true");
   if (els.searchChatInput) els.searchChatInput.value = "";
@@ -3246,12 +3367,25 @@ async function openConversation(conversationId) {
   closePinnedPopup();
   closeConversationMenus();
   try {
-    await loadActiveConversation();
-    await restorePendingDocuments();
     syncConversationUrl();
+    if (!restoreLiveConversationRun(conversationId)) {
+      state.messages = conversationCache.get(conversationId)?.messages || [];
+      state.conversationLoading = !conversationCache.has(conversationId);
+    } else {
+      state.conversationLoading = false;
+    }
     renderImages();
     renderShell();
+    const loadResult = await loadActiveConversation();
+    if (state.activeConversationId !== conversationId || loadResult !== "applied") return;
+    state.conversationLoading = false;
+    renderShell();
+    await restorePendingDocuments();
   } catch (err) {
+    if (state.activeConversationId === conversationId) {
+      state.conversationLoading = false;
+      renderShell();
+    }
     showToast(err.message);
   }
 }
@@ -4787,8 +4921,16 @@ function renderStandardMessage(raw) {
 
 function renderMessages() {
   resetCodeSourceStore();
-  document.body.classList.toggle("chat-empty", !state.messages.length);
+  const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
+  document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
   renderTemporaryChatMode();
+  if (showSkeleton) {
+    stopHomeGreeting();
+    els.messages.innerHTML = `<div class="msg-skeleton" aria-hidden="true"><div class="msg-skeleton-bar"></div><div class="msg-skeleton-bar"></div><div class="msg-skeleton-bar"></div></div>`;
+    els.chatPromptNav?.classList.add("hidden");
+    els.chatJumpBottom?.classList.remove("visible");
+    return;
+  }
   if (!state.messages.length) {
     stopHomeGreeting();
     const guest = !state.session;
@@ -4852,6 +4994,85 @@ function setMessagesScrollTop(value) {
 
 function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
+}
+
+// Keep finished tables mounted so a mid-stream pan isn't cancelled by the next token.
+function adoptUnchangedTableScrolls(liveEl, nextRoot) {
+  const unused = [...liveEl.querySelectorAll(".table-scroll")];
+  if (!unused.length) return;
+  for (const next of nextRoot.querySelectorAll(".table-scroll")) {
+    const index = unused.findIndex((node) => node.innerHTML === next.innerHTML);
+    if (index < 0) continue;
+    next.replaceWith(unused[index]);
+    unused.splice(index, 1);
+  }
+}
+
+function patchStandardArticle(article, msg) {
+  if (researchController.researchMeta(msg)) return false;
+  if (article.classList.contains("compare-message") || article.classList.contains("council-message")) return false;
+  const role = msg.role === "user" ? "user" : "assistant";
+  if (msg.id) article.dataset.messageId = String(msg.id);
+  article.dataset.rawText = rawTextContent(msg.content);
+  const reasoning = article.querySelector("details.reasoning");
+  if (reasoning && msg.id) reasoning.dataset.messageId = String(msg.id);
+  article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+  const body = article.querySelector(".message-body");
+  if (!body) return false;
+  if (role === "user") {
+    const nextImages = renderUserImages(msg);
+    const prevImages = body.querySelector(":scope > .user-image-strip");
+    const staleImages = prevImages?.querySelector('img[src^="blob:"], [data-preview-src^="blob:"]');
+    if (prevImages && nextImages) {
+      if (staleImages) prevImages.outerHTML = nextImages;
+    }
+    else if (prevImages) prevImages.remove();
+    else if (nextImages) body.insertAdjacentHTML("afterbegin", nextImages);
+  }
+  const nextFooter = renderMessageFooter(msg, role);
+  const prevFooter = body.querySelector(":scope > .message-footer");
+  if (prevFooter && nextFooter) prevFooter.outerHTML = nextFooter;
+  else if (prevFooter) prevFooter.remove();
+  else if (nextFooter) body.insertAdjacentHTML("beforeend", nextFooter);
+  return true;
+}
+
+// Patch ids/footers in place. Remounting the thread is the finish-jerk.
+function patchCompletedMessages() {
+  const articles = [...els.messages.querySelectorAll(":scope > article.message")];
+  const views = messageViews(state.messages);
+  if (!articles.length || articles.length !== views.length) return false;
+  for (let i = 0; i < views.length; i += 1) {
+    const view = views[i];
+    const article = articles[i];
+    if (view.type === "compare") {
+      if (!compareController.patchCompareMessage(article, view.messages)) return false;
+      continue;
+    }
+    if (view.type === "council") {
+      if (!councilController.patchCouncilMessage(article, view.council)) return false;
+      continue;
+    }
+    if (view.type !== "message" || !patchStandardArticle(article, view.message)) return false;
+  }
+  return true;
+}
+
+function settleLiveMessages({ pinned, scrollTop }) {
+  if (patchCompletedMessages()) {
+    renderConversations();
+    renderProfileMenu();
+    renderContextMeter();
+    renderChatPromptNavigator();
+    updateChatScrollNavigation();
+    compareController.syncCompareContextBanner();
+    syncPendingArtifactPolls();
+    if (pinned) pinMessagesToBottom();
+    return;
+  }
+  renderShell();
+  if (pinned) pinMessagesToBottom();
+  else setMessagesScrollTop(scrollTop);
 }
 
 function desktopChatNavigationEnabled() {
@@ -4946,6 +5167,7 @@ function renderStreamingMessageSurface(message) {
       const tmp = document.createElement("div");
       tmp.innerHTML = renderAssistantMessageContent(message);
       tmp.querySelector(".thinking-status")?.remove();
+      adoptUnchangedTableScrolls(contentEl, tmp);
       for (const node of [...contentEl.childNodes]) {
         if (node !== statusEl) node.remove();
       }
@@ -4980,7 +5202,10 @@ function renderStreamingMessageSurface(message) {
         });
       }
     } else {
-      contentEl.innerHTML = renderAssistantMessageContent(message);
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderAssistantMessageContent(message);
+      adoptUnchangedTableScrolls(contentEl, tmp);
+      contentEl.replaceChildren(...tmp.childNodes);
       hydrateKluiBars(contentEl);
     }
   });
@@ -5501,6 +5726,7 @@ async function confirmPendingDelete() {
     closeConfirmDialog();
     state.projects = state.projects.filter((project) => project.id !== deletedProjectId);
     state.conversations = state.conversations.filter((conversation) => conversation.project_id !== deletedProjectId);
+    deletedConversationIds.forEach((cid) => conversationCache.delete(cid));
     state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
     savePinnedChatIds();
     state.activeProjectId = "";
@@ -6207,8 +6433,16 @@ async function loadConversations() {
     state.activeConversationId = "";
   }
   if (!routeConversationId) state.activeConversationId = "";
-  if (state.activeConversationId) await loadActiveConversation();
-  else {
+  if (state.activeConversationId) {
+    const loadResult = await loadActiveConversation();
+    const run = getConversationRun(state.activeConversationId);
+    const hasLiveRun = Boolean(run?.messages) && !(run.mode === "research" && !run.abortController);
+    if (loadResult === "applied" && !hasLiveRun) {
+      state.conversationLoading = false;
+      renderShell();
+      await restorePendingDocuments();
+    }
+  } else {
     state.messages = [];
     stopExtractedModulePollers();
   }
@@ -6216,18 +6450,37 @@ async function loadConversations() {
 }
 
 async function loadActiveConversation() {
-  if (!state.activeConversationId) {
+  const id = state.activeConversationId;
+  const loadGeneration = ++conversationLoadGeneration;
+  if (!id) {
     state.messages = [];
+    state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
-    return;
+    return "applied";
   }
-  if (restoreLiveConversationRun(state.activeConversationId)) {
+  if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
     researchController.resumeResearchPolling();
-    return;
+    return "applied";
   }
-  const payload = await fetchConversation(state.session, state.activeConversationId);
+  const cachedAtStart = conversationCache.get(id);
+  const payload = await fetchConversation(state.session, id);
+  if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) {
+    if (!getConversationRun(id) && conversationCache.get(id) === cachedAtStart) {
+      rememberConversation(id, payload.messages || []);
+      return "cached";
+    }
+    return false;
+  }
+  if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
+    researchController.resumeResearchPolling();
+    return "applied";
+  }
+  rememberConversation(id, payload.messages || []);
   state.messages = payload.messages || [];
+  state.conversationLoading = false;
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
     return meta?.runId && ["queued", "running"].includes(meta.status);
@@ -6244,6 +6497,7 @@ async function loadActiveConversation() {
   if (pendingTurn && !getConversationRun(state.activeConversationId) && state.resumingTurnId !== pendingTurn.id) {
     setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
   }
+  return "applied";
 }
 
 function restoredTurnAttachment(part) {
@@ -6363,8 +6617,9 @@ async function resumePendingDocumentTurn(run) {
     else localAssistant.error = error.message || "The pending turn could not resume.";
   } finally {
     state.resumingTurnId = "";
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (state.activeConversationId === conversationId) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
@@ -6375,7 +6630,7 @@ async function resumePendingDocumentTurn(run) {
           setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
         }
       }
-      renderShell();
+      settleLiveMessages({ pinned, scrollTop });
     } else {
       loadConversations().catch(() => {});
     }
@@ -6422,6 +6677,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   clearClarification();
   researchController.stopResearchPolling();
   state.activeConversationId = "";
+  state.conversationLoading = false;
   state.projectsOpen = false;
   state.activeProjectId = "";
   state.activeProject = null;
@@ -6498,6 +6754,7 @@ async function removeConversation(id) {
   closeConfirmDialog();
   closeConversationMenus();
   state.conversations = state.conversations.filter((conversation) => conversation.id !== id);
+  conversationCache.delete(id);
   if (state.activeProject?.conversations) {
     state.activeProject.conversations = state.activeProject.conversations.filter((conversation) => conversation.id !== id);
   }
@@ -6844,18 +7101,16 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
   } finally {
     const stillActive = state.activeConversationId === conversationId;
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
-    const completedScrollTop = els.messages.scrollTop;
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     if (shouldReloadConversation && stillActive) {
       await loadActiveConversation().catch(() => {});
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (!stillActive) {
       loadConversations().catch(() => {});
     } else {
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     }
     if (queuedFollowUps.length) {
       const followUpImages = followUpBatchImages(queuedFollowUps);
@@ -7171,19 +7426,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
       ? state.temporaryChat && isRunKeyActive(runKey)
       : state.activeConversationId === conversationId && !state.temporaryChat;
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
-    const completedScrollTop = els.messages.scrollTop;
+    const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+    const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
-    setAutoScroll(false);
     if (shouldReloadConversation && !temporaryChat && stillActive) {
-      const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
-      if (reloaded) {
+      const reloaded = await loadActiveConversation().catch(() => false);
+      if (reloaded === "applied") {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
       }
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (stillActive) {
-      renderShell();
-      setMessagesScrollTop(completedScrollTop);
+      settleLiveMessages({ pinned, scrollTop });
     } else if (!temporaryChat) {
       loadConversations().catch(() => {});
     }
@@ -7216,6 +7469,7 @@ async function signOutAndReset() {
   state.me = null;
   state.paymentRequests = [];
   state.conversations = [];
+  conversationCache.clear();
   state.pinnedChatIds = [];
   state.messages = [];
   state.pastedText = "";
@@ -7374,6 +7628,7 @@ function setAutoScroll(enabled) {
 
 function bindEvents() {
   initDocumentViewerWidth();
+  if (els.messages) els.messages.style.overflowAnchor = "none";
 
   document.addEventListener("pointerup", (event) => {
     if (event.target.closest("#selectionActions, #sideChatPanel")) return;
@@ -7661,6 +7916,7 @@ function bindEvents() {
   });
   els.searchDialogClose?.addEventListener("click", closeSearchDialog);
   els.searchChatInput?.addEventListener("input", (event) => {
+    scheduleSearchBody(event.target.value);
     renderSearchResults(event.target.value);
   });
   els.accountButton.addEventListener("click", (event) => {

@@ -738,12 +738,10 @@ test("DocumentService keeps shared project knowledge read-only", async () => {
 test("DocumentService fills vague create-document requests from the previous assistant answer", async () => {
   let capturedJob;
   const service = documentServiceWithDb({
-    async listMessages() {
+    async listRecentAssistantMessages() {
       return [
-        { role: "user", content: "make it concise" },
-        { role: "assistant", content: "## Concise Summary\nRegression fits a model by minimizing squared error." },
-        { role: "user", content: "make a pdf of the concise summary" },
-        { role: "assistant", content: "Here's the concise summary PDF:\n\n[Download Regression-II---Concise-Summary.pdf](/api/attachments/generated/download)" }
+        { content: "Here's the concise summary PDF:\n\n[Download Regression-II---Concise-Summary.pdf](/api/attachments/generated/download)" },
+        { content: "## Concise Summary\nRegression fits a model by minimizing squared error." }
       ];
     },
     async createDocumentJob(job) {
@@ -765,6 +763,38 @@ test("DocumentService fills vague create-document requests from the previous ass
   assert.match(capturedJob.input.content, /Regression fits a model/);
   assert.equal(capturedJob.input.content_source, "previous_assistant");
   assert.doesNotMatch(capturedJob.input.content, /Create a concise PDF/);
+});
+
+test("DocumentService pages past artifact handoffs and never reuses one as content", async () => {
+  const handoff = { content: "PDF created: [Download](/api/attachments/generated/download)" };
+  const offsets = [];
+  const service = documentServiceWithDb({
+    async listRecentAssistantMessages(_userId, _conversationId, { offset }) {
+      offsets.push(offset);
+      if (offset === 0) return Array.from({ length: 10 }, () => handoff);
+      return [{ content: "The older substantive answer." }];
+    }
+  });
+
+  assert.equal(await service.latestAssistantText(), "The older substantive answer.");
+  assert.deepEqual(offsets, [0, 10]);
+
+  const handoffOnly = documentServiceWithDb({
+    async listRecentAssistantMessages(_userId, _conversationId, { offset }) {
+      return offset === 0 ? Array.from({ length: 10 }, () => handoff) : [handoff];
+    }
+  });
+  assert.equal(await handoffOnly.latestAssistantText(), "");
+
+  let pageCount = 0;
+  const capped = documentServiceWithDb({
+    async listRecentAssistantMessages() {
+      pageCount += 1;
+      return Array.from({ length: 10 }, () => handoff);
+    }
+  });
+  assert.equal(await capped.latestAssistantText(), "");
+  assert.equal(pageCount, 5);
 });
 
 test("DocumentService rejects title-only Excel before queuing a fake workbook", async () => {

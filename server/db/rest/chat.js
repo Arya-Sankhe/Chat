@@ -5,7 +5,7 @@ export async function listConversations(client, userId, { signal } = {}) {
     query: {
       user_id: `eq.${userId}`,
       deleted_at: "is.null",
-      select: "id,title,model,project_id,created_at,updated_at",
+      select: "id,title,project_id,created_at,updated_at",
       order: "updated_at.desc"
     },
     signal
@@ -126,16 +126,36 @@ export async function deleteMessage(client, userId, messageId, { signal } = {}) 
   return single(rows);
 }
 
-export async function listMessages(client, userId, conversationId, { signal } = {}) {
+export async function listMessages(client, userId, conversationId, { signal, includeReasoning = false } = {}) {
+  const select = `id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot${includeReasoning ? ",reasoning" : ""}`;
   return client.request("messages", {
     query: {
       user_id: `eq.${userId}`,
       conversation_id: `eq.${conversationId}`,
-      select: "*",
+      select,
       order: "created_at.asc"
     },
     signal
   });
+}
+
+export async function listRecentAssistantMessages(client, userId, conversationId, { signal, limit = 10, offset = 0 } = {}) {
+  return client.request("messages", {
+    query: {
+      user_id: `eq.${userId}`,
+      conversation_id: `eq.${conversationId}`,
+      role: "eq.assistant",
+      select: "content",
+      order: "created_at.desc,id.desc",
+      limit: String(limit),
+      ...(offset ? { offset: String(offset) } : {})
+    },
+    signal
+  });
+}
+
+export async function searchMessages(client, userId, query, { signal, limit = 30 } = {}) {
+  return client.rpc("klui_search_messages", { p_user_id: userId, p_query: query, p_limit: limit }, { signal });
 }
 
 export async function insertMessage(client, message, { signal } = {}) {

@@ -166,7 +166,9 @@ export function createCrofaiUsageMeter({
     const cost = missingUsage ? reservationCredits : resolved.cost;
     const source = missingUsage ? "reservation_ceiling" : resolved.source;
     if (cost > reservationCredits) {
-      await db.upsertAppSetting("funded_inference_disabled", {
+      // Per-user kill switch: block only this account. The bare
+      // "funded_inference_disabled" key remains a manual global ops switch.
+      await db.upsertAppSetting(`funded_inference_disabled:${userId}`, {
         disabled: true,
         reason: "reservation_ceiling",
         detectedAt: new Date().toISOString()
@@ -180,8 +182,8 @@ export function createCrofaiUsageMeter({
         generationId,
         estimated: true
       }, { signal: AbortSignal.timeout(15_000) });
-      console.error("usage reservation ceiling violated; funded inference disabled", {
-        surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: cost
+      console.error("usage reservation ceiling violated; funded inference disabled for user", {
+        userId, surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: cost
       });
       const error = new HttpError(503, "Usage metering is temporarily unavailable.");
       error.usageSettled = true;

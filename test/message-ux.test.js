@@ -33,6 +33,23 @@ test("clarification card stays optional and supports recommended, custom, back, 
   assert.match(css, /\.clarification-body\s*\{[^}]*overflow-y:\s*auto/);
 });
 
+test("chat search distinguishes pending, failed, and empty message searches", () => {
+  const html = readPublic("index.html");
+  const appJs = readPublic("js/app.js");
+  assert.doesNotMatch(html, /id="searchChatResults"[^>]*aria-live/);
+  assert.match(html, /id="searchChatStatus"[^>]*aria-live="polite"/);
+  assert.match(appJs, /searchBodyStatus = "pending"/);
+  assert.match(appJs, /Searching messages…/);
+  assert.match(appJs, /Message search is unavailable\. Try again\./);
+  assert.match(appJs, /searchChatStatus\?\.setAttribute\("aria-busy", bodyStatus === "pending" \? "true" : "false"\)/);
+  assert.match(appJs, /scheduleSearchBody\(event\.target\.value\);\s*renderSearchResults\(event\.target\.value\)/);
+});
+
+test("chat search has no global Ctrl or Command K shortcut", () => {
+  const appJs = readPublic("js/app.js");
+  assert.doesNotMatch(appJs, /\(e\.ctrlKey \|\| e\.metaKey\)[\s\S]{0,160}e\.key\.toLowerCase\(\) === "k"/);
+});
+
 test("user message footer always offers copy; edit stays gated behind canEditUserMessage", () => {
   const appJs = readPublic("js/app.js");
   const footer = appJs.match(/function renderUserMessageFooter\(msg\)\s*\{[\s\S]*?\n\}/);
@@ -113,12 +130,29 @@ test("thinking status is block-level and omitted once final answer text exists",
   assert.match(css, /\.thinking-status\.is-leaving/);
 });
 
+test("compare and council finish by patching live cards instead of requiring a remount", () => {
+  const compareJs = readPublic("js/compare.js");
+  const councilJs = readPublic("js/council.js");
+  const appJs = readPublic("js/app.js");
+  assert.match(compareJs, /function patchCompareMessage\(article, messages\)/);
+  assert.match(compareJs, /if \(!article\?\.classList\.contains\("compare-message"\)\) return false/);
+  assert.match(compareJs, /lanes\.length !== messages\.length/);
+  assert.match(councilJs, /function patchCouncilMessage\(article, council\)/);
+  assert.match(councilJs, /if \(!article\?\.classList\.contains\("council-message"\) \|\| !council\) return false/);
+  assert.match(councilJs, /lanes\.length !== panelists\.length/);
+  assert.match(appJs, /compareController\.patchCompareMessage\(article, view\.messages\)/);
+  assert.match(appJs, /councilController\.patchCouncilMessage\(article, view\.council\)/);
+});
+
 test("message tables are wrapped for horizontal scroll", () => {
   const renderJs = readPublic("js/render.js");
+  const appJs = readPublic("js/app.js");
   const css = readStylesheet();
   assert.match(renderJs, /function wrapMessageTables\(/);
   assert.match(renderJs, /class="table-scroll"/);
   assert.match(renderJs, /html\s*=\s*wrapMessageTables\(html\)/);
+  assert.match(appJs, /function adoptUnchangedTableScrolls\(/);
+  assert.match(appJs, /adoptUnchangedTableScrolls\(contentEl, tmp\)/);
   assert.match(
     css,
     /\.message-content\s+\.table-scroll\s*\{[^}]*overflow-x:\s*auto/,

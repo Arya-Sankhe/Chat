@@ -186,6 +186,14 @@ export class SupabaseRest {
     return chat.listMessages(this, userId, conversationId, options);
   }
 
+  async listRecentAssistantMessages(userId, conversationId, options) {
+    return chat.listRecentAssistantMessages(this, userId, conversationId, options);
+  }
+
+  async searchMessages(userId, query, options) {
+    return chat.searchMessages(this, userId, query, options);
+  }
+
   async insertMessage(message, options) {
     return chat.insertMessage(this, message, options);
   }
