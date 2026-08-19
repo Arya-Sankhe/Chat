@@ -24,6 +24,15 @@ export const BUILTIN_ADULT_DENY_DOMAINS = Object.freeze([
   "eporner.com"
 ]);
 
+/**
+ * Internal storage hosts the model must never fetch. Presigned R2 URLs can
+ * appear in model context (e.g. visual document pages sent as image URLs);
+ * fetching them returns signed-URL error pages that pollute citations.
+ */
+export const BUILTIN_INTERNAL_DENY_DOMAINS = Object.freeze([
+  "r2.cloudflarestorage.com"
+]);
+
 /** ICANN adult / dating TLDs. `.tube` omitted — generic TLD with non-adult use. */
 const ADULT_TLDS_RE = /\.(?:xxx|porn|adult|sex|sexy|cam|webcam|dating|singles)$/;
 
@@ -70,9 +79,9 @@ export function normalizeDenyDomain(value) {
     .replace(/^\.+|\.+$/g, "");
 }
 
-/** Merge built-in adult domains with optional configured extras. */
+/** Merge built-in adult and internal-storage domains with optional configured extras. */
 export function mergeDenyDomains(extra = []) {
-  const merged = new Set(BUILTIN_ADULT_DENY_DOMAINS);
+  const merged = new Set([...BUILTIN_ADULT_DENY_DOMAINS, ...BUILTIN_INTERNAL_DENY_DOMAINS]);
   for (const entry of Array.isArray(extra) ? extra : []) {
     const domain = normalizeDenyDomain(entry);
     if (domain) merged.add(domain);

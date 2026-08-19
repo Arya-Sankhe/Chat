@@ -53,7 +53,7 @@ import {
   fetchStudyQuiz,
   submitStudyQuizAttempt,
   scaffoldStudyCourse
-} from "./api.js?v=20260817-study-hub";
+} from "./api.js?v=20260817-study-hub3";
 import {
   clearSession,
   loadSession,
@@ -95,7 +95,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260817-study-hub";
+import { createStudyHubController } from "./studyHub.js?v=20260817-study-hub3";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -4066,7 +4066,11 @@ function dedupeCitationsForDisplay(citations) {
       continue;
     }
 
-    const key = entry.url || citationHost(entry.url);
+    // Internal presigned-storage URLs are not real web sources (they expire
+    // and render as error pages); older messages may still carry them.
+    const host = citationHost(entry.url);
+    if (host === "r2.cloudflarestorage.com" || host.endsWith(".r2.cloudflarestorage.com")) continue;
+    const key = entry.url || host;
     if (!key || seenWeb.has(key)) continue;
     seenWeb.add(key);
     out.push(entry);

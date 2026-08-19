@@ -44,6 +44,8 @@ export function createStudyHubController({
   let quizSession = null;
   let studyNote = null;
   let dueRequest = 0;
+  let dueRefreshRequest = 0;
+  let pendingReviews = Promise.resolve();
 
   const sound = createSounds(reducedMotion);
 
@@ -339,11 +341,12 @@ export function createStudyHubController({
     const payload = state.studyMaterials;
     const docs = payload?.documents || [];
     const notes = payload?.notes || [];
+    const statusPill = (status) => `<span class="study-status-pill is-${escapeHtml(status)}">${status === "uploading" || status === "reading" ? spinner() : ""}${escapeHtml(statusLabel(status))}</span>`;
     const pending = pendingUploads.map((item) => `
       <article class="study-material-card is-pending">
         <div class="study-material-copy">
           <strong>${escapeHtml(item.name)}</strong>
-          <span class="study-status-pill is-${escapeHtml(item.status)}">${escapeHtml(statusLabel(item.status))}</span>
+          ${statusPill(item.status)}
         </div>
       </article>`).join("");
     const docCards = docs.map((doc) => {
@@ -354,7 +357,7 @@ export function createStudyHubController({
           <div class="study-material-copy">
             <strong>${escapeHtml(documentDisplayName(doc))}</strong>
             <small>${escapeHtml(String(doc.kind || "file").toUpperCase())}</small>
-            <span class="study-status-pill is-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
+            ${statusPill(status)}
           </div>
           ${generateActions("doc", doc.id, ready)}
         </article>`;
@@ -568,6 +571,43 @@ export function createStudyHubController({
     });
     state.studyDueByCourse = due;
     if (!state.activeCourseId) render();
+  }
+
+  function applyDueDelta(delta) {
+    if (!delta) return;
+    const courseId = state.activeCourseId;
+    const next = Math.max(0, Number(state.studyOverview?.dueCount || 0) + delta);
+    if (state.studyOverview) state.studyOverview = { ...state.studyOverview, dueCount: next };
+    if (courseId) {
+      state.studyDueByCourse = { ...(state.studyDueByCourse || {}), [courseId]: next };
+    }
+    if (delta >= 0 || !state.studyPractice?.decks) return;
+    let left = -delta;
+    state.studyPractice = {
+      ...state.studyPractice,
+      decks: state.studyPractice.decks.map((deck) => {
+        const due = Number(deck.dueCount || 0);
+        if (left <= 0 || due <= 0) return deck;
+        const take = Math.min(due, left);
+        left -= take;
+        return { ...deck, dueCount: due - take };
+      })
+    };
+  }
+
+  async function refreshDueState() {
+    const request = ++dueRefreshRequest;
+    const courseId = state.activeCourseId;
+    await Promise.all([loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+    if (request !== dueRefreshRequest || state.activeCourseId !== courseId) return false;
+    return true;
+  }
+
+  function settleReviewsAndRefresh() {
+    return pendingReviews
+      .then(() => refreshDueState())
+      .then((ok) => { if (ok && state.studyOpen) render(); })
+      .catch(() => {});
   }
 
   async function loadOverview() {
@@ -808,21 +848,30 @@ export function createStudyHubController({
         try {
           await putUploadContent(state.session, presigned, item.file, category);
           const completed = await completeUpload(state.session, presigned.uploadId);
-          item.status = category === "image" ? "ready" : "reading";
-          if (state.activeCourseId === courseId) {
-            pendingUploads = pendingUploads.filter((row) => row.id !== item.id);
-            if (completed?.note && state.studyMaterials) {
-              state.studyMaterials = {
-                ...state.studyMaterials,
-                notes: [completed.note, ...(state.studyMaterials.notes || [])]
-              };
+          if (category === "image") {
+            // The transcript note is available immediately, so the placeholder
+            // is swapped for the note card in a single render.
+            if (state.activeCourseId === courseId) {
+              pendingUploads = pendingUploads.filter((row) => row.id !== item.id);
+              if (completed?.note && state.studyMaterials) {
+                state.studyMaterials = {
+                  ...state.studyMaterials,
+                  notes: [completed.note, ...(state.studyMaterials.notes || [])]
+                };
+              }
+              if (!completed?.note) {
+                showToast("Image uploaded, but transcription failed — try re-uploading.");
+              }
+              render();
             }
-            if (category === "image" && !completed?.note) {
-              showToast("Image uploaded, but transcription failed — try re-uploading.");
-            }
-            render();
+            return;
           }
-          if (category === "document" && !completed?.document?.usable) {
+          // Keep the placeholder visible (now "Reading") until the refreshed
+          // material list can take its place; removing it early makes the file
+          // vanish and reappear.
+          item.status = "reading";
+          if (state.activeCourseId === courseId) render();
+          if (!completed?.document?.usable) {
             await waitForDocument(completed.id, item.name).catch(() => null);
           }
         } catch (error) {
@@ -832,7 +881,6 @@ export function createStudyHubController({
       }));
       if (state.studyOpen && state.activeCourseId === courseId) {
         await Promise.all([loadMaterials(), loadOverview().catch(() => {})]);
-        render();
       }
     } catch (error) {
       showToast(error.message || "Files could not be uploaded.");
@@ -920,14 +968,20 @@ export function createStudyHubController({
   }
 
   function closeSession() {
+    const reviewed = Boolean(reviewSession);
     reviewSession = null;
     quizSession = null;
     const root = sessionRoot();
-    if (!root) return;
-    root.classList.add("hidden");
-    root.innerHTML = "";
-    root.setAttribute("aria-hidden", "true");
+    if (root) {
+      root.classList.add("hidden");
+      root.innerHTML = "";
+      root.setAttribute("aria-hidden", "true");
+    }
     document.body.classList.remove("study-session-open");
+    if (reviewed) {
+      render();
+      void settleReviewsAndRefresh();
+    }
   }
 
   function openSessionShell(html) {
@@ -993,7 +1047,8 @@ export function createStudyHubController({
       const payload = await fetchStudyQueue(state.session, state.activeCourseId);
       const cards = payload?.cards || [];
       if (!cards.length) {
-        showToast("Nothing is due right now.");
+        await refreshDueState();
+        render();
         return;
       }
       reviewSession = {
@@ -1024,9 +1079,11 @@ export function createStudyHubController({
     if (!card || ![1, 2, 3, 4].includes(value)) return;
     reviewSession.counts[value] += 1;
     reviewSession.reviewed += 1;
+    applyDueDelta(-1);
     if (value >= 3) sound.tick();
-    void reviewStudyCard(state.session, card.id, value).catch((error) => {
+    const save = reviewStudyCard(state.session, card.id, value).catch((error) => {
       showToast(error.message || "Review could not be saved.");
+      applyDueDelta(1);
       if (!reviewSession) return;
       reviewSession.counts[value] -= 1;
       reviewSession.reviewed -= 1;
@@ -1038,11 +1095,12 @@ export function createStudyHubController({
       }
       renderReview();
     });
+    pendingReviews = Promise.allSettled([pendingReviews, save]).then(() => {});
     const next = reviewSession.index + 1;
     if (next >= reviewSession.cards.length) {
       reviewSession.done = true;
       sound.chime();
-      void loadOverview().then(() => render()).catch(() => {});
+      void settleReviewsAndRefresh();
     } else {
       reviewSession.index = next;
       reviewSession.flipped = false;
