@@ -349,6 +349,7 @@ test("speech route forwards fixed Sarvam settings and returns the transcript", {
     assert.equal(request.options.body.get("model"), "saaras:v3");
     assert.equal(request.options.body.get("mode"), "codemix");
     assert.equal(request.options.body.get("language_code"), "unknown");
+    assert.equal(request.options.body.get("with_timestamps"), "true");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -389,6 +390,49 @@ test("enforced speech records but does not bill a provider attempt that fails", 
     assert.deepEqual(events.map((event) => Array.isArray(event) ? event[0] : event), ["reserve", "submitted", "settled"]);
     assert.equal(events[2][1].estimated, true);
     assert.equal(events[2][1].costCredits, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("enforced speech accepts browser blobs without duration metadata and retries Sarvam", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) return new Response("busy", { status: 503 });
+    return new Response(JSON.stringify({
+      transcript: "long recording",
+      timestamps: { end_time_seconds: [2.1, 4.2] }
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const events = [];
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    SARVAM_API_KEY: "sarvam-key",
+    API_USAGE_METERING_MODE: "enforce",
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
+    SARVAM_STT_CREDITS_PER_SECOND: "0.1"
+  });
+  const overrides = stubbedDeps({ db: {
+    async reserveApiUsage(params) { events.push(["reserve", params]); return { allowed: true }; },
+    async markApiUsageSubmitted() { events.push(["submitted"]); },
+    async settleApiUsage(params) { events.push(["settled", params]); }
+  } });
+  try {
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/speech-to-text",
+      headers: { "content-type": "audio/webm" },
+      body: "valid-browser-blob-without-webm-duration-metadata",
+      overrides
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { transcript: "long recording" });
+    assert.equal(attempts, 2);
+    assert.equal(events[0][1].reservedCredits, 3);
+    assert.equal(events[2][1].usage.duration_seconds, 4.2);
+    assert.ok(Math.abs(events[2][1].costCredits - 0.42) < Number.EPSILON * 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

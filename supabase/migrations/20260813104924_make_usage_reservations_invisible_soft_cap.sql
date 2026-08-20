@@ -1,4 +1,4 @@
-+-- Reservations remain a financial ceiling and crash-recovery mechanism only.
+-- Reservations remain a financial ceiling and crash-recovery mechanism only.
 -- The user-facing weekly cap is soft: any call that starts while settled usage
 -- is below the limit may finish, including sibling Compare/Council requests.
 

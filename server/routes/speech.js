@@ -6,6 +6,7 @@ import { requireChatContext } from "./context.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+const MAX_AUDIO_SECONDS = 30;
 
 function audioExtension(contentType) {
   if (contentType.includes("mp4")) return "m4a";
@@ -20,6 +21,7 @@ export async function callSarvam(config, audio, contentType, signal) {
   form.append("model", "saaras:v3");
   form.append("mode", "codemix");
   form.append("language_code", "unknown");
+  form.append("with_timestamps", "true");
 
   return fetch(`${config.speech.baseUrl}/speech-to-text`, {
     method: "POST",
@@ -42,10 +44,9 @@ export async function handleSpeechToText(req, res, config) {
   if (!audio.length) throw new HttpError(400, "The audio recording is empty.");
 
   const enforce = config.desktop?.meteringMode === "enforce";
-  const durationSeconds = enforce ? validatedAudioDuration(audio, contentType, { maxSeconds: 30 }) : 0;
   const requestIdHeader = String(req.headers["x-klui-request-id"] || "").trim();
   const requestId = /^[0-9a-f-]{36}$/i.test(requestIdHeader) ? requestIdHeader : randomUUID();
-  const credits = durationSeconds * Number(config.speech.creditsPerSecond || 0);
+  const reservationCredits = MAX_AUDIO_SECONDS * Number(config.speech.creditsPerSecond || 0);
   if (enforce) {
     const reservation = await context.db.reserveApiUsage({
       userId: context.user.id,
@@ -58,7 +59,7 @@ export async function handleSpeechToText(req, res, config) {
       provider: "sarvam",
       model: "saaras:v3",
       ...apiUsageWindow(context.subscription, context.plan),
-      reservedCredits: credits
+      reservedCredits: reservationCredits
     }, { signal: AbortSignal.timeout(15_000) });
     if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
     if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
@@ -76,7 +77,7 @@ export async function handleSpeechToText(req, res, config) {
   let response;
   try {
     response = await callSarvam(config, audio, contentType, signal);
-    if (!enforce && (response.status === 429 || response.status >= 500)) {
+    if (response.status === 429 || response.status >= 500) {
       await response.body?.cancel();
       response = await callSarvam(config, audio, contentType, signal);
     }
@@ -86,7 +87,7 @@ export async function handleSpeechToText(req, res, config) {
       requestId,
       costCredits: 0,
       costSource: "sarvam_provider_failure",
-      usage: { duration_seconds: durationSeconds },
+      usage: { duration_seconds: 0 },
       estimated: true
     }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
     if (signal.aborted) throw new HttpError(504, "Speech transcription timed out.");
@@ -99,7 +100,7 @@ export async function handleSpeechToText(req, res, config) {
       requestId,
       costCredits: 0,
       costSource: "sarvam_provider_failure",
-      usage: { duration_seconds: durationSeconds },
+      usage: { duration_seconds: 0 },
       estimated: true
     }, { signal: AbortSignal.timeout(15_000) });
     throw new HttpError(502, "Speech transcription failed.");
@@ -107,6 +108,15 @@ export async function handleSpeechToText(req, res, config) {
   const payload = await response.json().catch(() => ({}));
   const transcript = String(payload.transcript || "").trim();
   if (enforce) {
+    let durationSeconds;
+    try {
+      durationSeconds = validatedAudioDuration(audio, contentType, { maxSeconds: MAX_AUDIO_SECONDS });
+    } catch {
+      const ends = payload.timestamps?.end_time_seconds;
+      durationSeconds = Array.isArray(ends) ? Math.max(0, ...ends.map(Number).filter(Number.isFinite)) : 0;
+    }
+    durationSeconds = Math.min(Math.max(durationSeconds || 0, 0), MAX_AUDIO_SECONDS);
+    const credits = durationSeconds * Number(config.speech.creditsPerSecond || 0);
     await context.db.settleApiUsage({
       userId: context.user.id,
       requestId,
