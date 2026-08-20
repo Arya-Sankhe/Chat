@@ -125,6 +125,7 @@ const ROUTES = [
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
   { path: "/api/payments/ziina", method: "GET", authKind: "user" },
   { path: "/api/me", method: "GET", authKind: "user" },
+  { path: "/api/storage", method: "GET", authKind: "chat" },
   {
     path: "/api/models", method: "GET", authKind: "chat",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
@@ -467,7 +468,8 @@ test("project ownership is accepted only for document uploads", async () => {
   const overrides = stubbedDeps({
     db: {
       async getProject() { return { id: "project-1", name: "Launch" }; },
-      async createAttachment() { created = true; return { id: "upload-1" }; }
+      async createAttachment() { created = true; return { id: "upload-1" }; },
+      async reserveAttachment() { created = true; return { id: "upload-1" }; }
     }
   });
   const res = await dispatch(authReadyConfig, {
@@ -528,6 +530,8 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(calls.length, 1);
   assert.equal(calls[0].kind, "pdf");
   assert.equal(calls[0].attachmentId, "upload-1");
+  assert.equal(calls[0].accountMaxBytes, documentReadyConfig.plans.find((plan) => plan.id === "essential")?.maxStorageBytes
+    || documentReadyConfig.plans[0].maxStorageBytes);
   assert.equal(res.json().document.id, "doc-1");
 });
 
@@ -836,7 +840,7 @@ test("authenticated routes dispatch to their resource-specific handlers", async 
       method: "POST",
       path: "/api/uploads/presign",
       body: { category: "image", contentType: "image/png", fileName: "x.png", sizeBytes: 10 },
-      dbMethod: "createAttachment",
+      dbMethod: "reserveAttachment",
       result: { id: "upload-1" }
     },
     { method: "PUT", path: "/api/uploads/upload-1/content", dbMethod: "getAttachment", result: null },

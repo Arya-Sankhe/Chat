@@ -250,8 +250,32 @@ export class SupabaseRest {
     return attachments.createAttachment(this, attachment, options);
   }
 
+  async reserveAttachment(params, options) {
+    return attachments.reserveAttachment(this, params, options);
+  }
+
+  async completeReservedAttachment(params, options) {
+    return attachments.completeReservedAttachment(this, params, options);
+  }
+
+  async accountStorageUsed(userId, options) {
+    return attachments.accountStorageUsed(this, userId, options);
+  }
+
+  async listUserStorageAttachments(userId, options) {
+    return attachments.listUserStorageAttachments(this, userId, options);
+  }
+
+  async listConversationStorageTotals(userId, options) {
+    return attachments.listConversationStorageTotals(this, userId, options);
+  }
+
   async listOrphanAttachments(options) {
     return attachments.listOrphanAttachments(this, options);
+  }
+
+  async listStalePendingAttachments(options) {
+    return attachments.listStalePendingAttachments(this, options);
   }
 
   async completeAttachment(userId, attachmentId, patch, options) {

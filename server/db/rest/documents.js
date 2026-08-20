@@ -175,7 +175,8 @@ export async function completeDocumentUpload(client, {
   kind,
   limits = {},
   projectId = null,
-  projectMaxBytes = null
+  projectMaxBytes = null,
+  accountMaxBytes = null
 }, { signal } = {}) {
   return client.rpc("klui_complete_document_upload", {
     p_user_id: userId,
@@ -185,7 +186,8 @@ export async function completeDocumentUpload(client, {
     p_kind: kind,
     p_limits: limits,
     p_project_id: projectId,
-    p_project_max_bytes: projectMaxBytes
+    p_project_max_bytes: projectMaxBytes,
+    p_account_max_bytes: accountMaxBytes
   }, { signal });
 }
 

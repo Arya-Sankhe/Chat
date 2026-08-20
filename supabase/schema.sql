@@ -426,6 +426,9 @@ create index if not exists attachments_message_idx on public.attachments (messag
 create index if not exists attachments_project_idx on public.attachments (project_id) where project_id is not null;
 create index if not exists attachments_orphan_cleanup_idx on public.attachments (created_at)
   where conversation_id is null and message_id is null and (project_id is null or status = 'pending');
+create index if not exists attachments_pending_created_idx
+  on public.attachments (created_at)
+  where status = 'pending';
 create index if not exists document_chunks_tsv_idx on public.document_chunks using gin (tsv);
 create index if not exists document_chunks_doc_idx on public.document_chunks (document_file_id, chunk_index);
 create index if not exists document_chunks_user_doc_idx on public.document_chunks (user_id, document_file_id);
@@ -1370,6 +1373,133 @@ create policy "pending document turns read own"
   to authenticated
   using ((select auth.uid()) = user_id);
 
+create or replace function public.klui_account_storage_used(
+  p_user_id uuid,
+  p_exclude_id uuid default null
+) returns bigint
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(sum(a.size_bytes::bigint), 0)
+  from public.attachments a
+  where a.user_id = p_user_id
+    and a.status in ('pending', 'uploaded')
+    and (p_exclude_id is null or a.id <> p_exclude_id);
+$$;
+
+revoke all on function public.klui_account_storage_used(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.klui_account_storage_used(uuid, uuid) to service_role;
+
+create or replace function public.klui_reserve_attachment(
+  p_user_id uuid,
+  p_max_bytes bigint,
+  p_category text,
+  p_object_key text,
+  p_file_name text,
+  p_content_type text,
+  p_size_bytes integer,
+  p_conversation_id uuid default null,
+  p_message_id uuid default null,
+  p_project_id uuid default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_attachment public.attachments;
+  v_pending integer;
+  v_used bigint;
+begin
+  perform 1 from public.profiles where id = p_user_id for update;
+  if not found then raise exception 'profile_not_found'; end if;
+  if p_max_bytes is null or p_max_bytes <= 0 then raise exception 'account_limit_missing'; end if;
+  if p_category not in ('image', 'document') then raise exception 'unsupported_attachment_category'; end if;
+  if p_size_bytes is null or p_size_bytes <= 0 then raise exception 'invalid_attachment_size'; end if;
+  if coalesce(p_object_key, '') = '' or coalesce(p_file_name, '') = '' or coalesce(p_content_type, '') = '' then
+    raise exception 'invalid_attachment';
+  end if;
+
+  select count(*) into v_pending
+  from public.attachments
+  where user_id = p_user_id and status = 'pending';
+  if v_pending >= 20 then
+    raise exception 'pending_storage_limit_exceeded';
+  end if;
+
+  v_used := public.klui_account_storage_used(p_user_id, null);
+  if v_used + p_size_bytes::bigint > p_max_bytes then
+    raise exception 'account_storage_limit_exceeded';
+  end if;
+
+  insert into public.attachments (
+    user_id, conversation_id, message_id, project_id, category,
+    object_key, file_name, content_type, size_bytes, status
+  ) values (
+    p_user_id, p_conversation_id, p_message_id, p_project_id, p_category,
+    p_object_key, p_file_name, p_content_type, p_size_bytes, 'pending'
+  )
+  returning * into v_attachment;
+
+  return to_jsonb(v_attachment);
+end;
+$$;
+
+revoke all on function public.klui_reserve_attachment(uuid, bigint, text, text, text, text, integer, uuid, uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function public.klui_reserve_attachment(uuid, bigint, text, text, text, text, integer, uuid, uuid, uuid)
+  to service_role;
+
+create or replace function public.klui_complete_attachment(
+  p_user_id uuid,
+  p_attachment_id uuid,
+  p_size_bytes integer,
+  p_etag text,
+  p_max_bytes bigint
+) returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_attachment public.attachments;
+  v_used bigint;
+begin
+  perform 1 from public.profiles where id = p_user_id for update;
+  if not found then raise exception 'profile_not_found'; end if;
+  if p_max_bytes is null or p_max_bytes <= 0 then raise exception 'account_limit_missing'; end if;
+  if p_size_bytes is null or p_size_bytes <= 0 then raise exception 'invalid_attachment_size'; end if;
+
+  select * into v_attachment
+  from public.attachments
+  where id = p_attachment_id and user_id = p_user_id
+  for update;
+  if not found then raise exception 'attachment_not_found'; end if;
+
+  v_used := public.klui_account_storage_used(p_user_id, p_attachment_id);
+  if v_used + p_size_bytes::bigint > p_max_bytes then
+    raise exception 'account_storage_limit_exceeded';
+  end if;
+
+  update public.attachments
+  set status = 'uploaded',
+      uploaded_at = coalesce(uploaded_at, now()),
+      size_bytes = p_size_bytes,
+      etag = coalesce(p_etag, etag)
+  where id = v_attachment.id
+  returning * into v_attachment;
+
+  return to_jsonb(v_attachment);
+end;
+$$;
+
+revoke all on function public.klui_complete_attachment(uuid, uuid, integer, text, bigint)
+  from public, anon, authenticated;
+grant execute on function public.klui_complete_attachment(uuid, uuid, integer, text, bigint)
+  to service_role;
+
 create or replace function public.klui_complete_document_upload(
   p_user_id uuid,
   p_attachment_id uuid,
@@ -1378,7 +1508,8 @@ create or replace function public.klui_complete_document_upload(
   p_kind text,
   p_limits jsonb default '{}'::jsonb,
   p_project_id uuid default null,
-  p_project_max_bytes bigint default null
+  p_project_max_bytes bigint default null,
+  p_account_max_bytes bigint default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -1390,8 +1521,24 @@ declare
   v_jobs jsonb;
   v_used_bytes bigint;
 begin
+  perform 1 from public.profiles where id = p_user_id for update;
+  if not found then raise exception 'profile_not_found'; end if;
+  if p_account_max_bytes is null or p_account_max_bytes <= 0 then
+    raise exception 'account_limit_missing';
+  end if;
   if p_kind not in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv') then
     raise exception 'unsupported_document_kind';
+  end if;
+  if p_size_bytes is null or p_size_bytes <= 0 then raise exception 'invalid_attachment_size'; end if;
+
+  if p_project_id is not null then
+    perform 1 from public.projects
+    where id = p_project_id and user_id = p_user_id
+    for update;
+    if not found then raise exception 'project_not_found'; end if;
+    if p_project_max_bytes is null or p_project_max_bytes <= 0 then
+      raise exception 'project_limit_missing';
+    end if;
   end if;
 
   select * into v_attachment
@@ -1404,28 +1551,26 @@ begin
   if v_attachment.project_id is distinct from p_project_id then raise exception 'project_mismatch'; end if;
 
   if p_project_id is not null then
-    perform 1 from public.projects
-    where id = p_project_id and user_id = p_user_id
-    for update;
-    if not found then raise exception 'project_not_found'; end if;
-    if p_project_max_bytes is null or p_project_max_bytes <= 0 then
-      raise exception 'project_limit_missing';
-    end if;
     select coalesce(sum(size_bytes), 0) into v_used_bytes
     from public.attachments
     where project_id = p_project_id
       and user_id = p_user_id
       and status = 'uploaded'
       and id <> v_attachment.id;
-    if v_used_bytes + coalesce(p_size_bytes, v_attachment.size_bytes, 0) > p_project_max_bytes then
+    if v_used_bytes + p_size_bytes::bigint > p_project_max_bytes then
       raise exception 'project_storage_limit_exceeded';
     end if;
+  end if;
+
+  v_used_bytes := public.klui_account_storage_used(p_user_id, v_attachment.id);
+  if v_used_bytes + p_size_bytes::bigint > p_account_max_bytes then
+    raise exception 'account_storage_limit_exceeded';
   end if;
 
   update public.attachments
   set status = 'uploaded',
       uploaded_at = coalesce(uploaded_at, now()),
-      size_bytes = coalesce(p_size_bytes, size_bytes),
+      size_bytes = p_size_bytes,
       etag = coalesce(p_etag, etag)
   where id = v_attachment.id
   returning * into v_attachment;
@@ -1491,9 +1636,9 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint)
+revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint)
   from public, anon, authenticated;
-grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint)
+grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint)
   to service_role;
 
 create or replace function public.klui_complete_document_job(

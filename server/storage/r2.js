@@ -198,7 +198,7 @@ export class R2Client {
     };
   }
 
-  presign(method, key, expiresSeconds, extraParams = {}) {
+  presign(method, key, expiresSeconds, extraParams = {}, extraSignedHeaders = {}) {
     this.requireConfigured();
 
     const now = new Date();
@@ -208,7 +208,12 @@ export class R2Client {
     const upperMethod = method.toUpperCase();
     const signedHeaderValues = {
       host: endpoint.host,
-      ...(upperMethod === "PUT" ? { "x-amz-content-sha256": "UNSIGNED-PAYLOAD" } : {})
+      ...(upperMethod === "PUT" ? { "x-amz-content-sha256": "UNSIGNED-PAYLOAD" } : {}),
+      ...Object.fromEntries(
+        Object.entries(extraSignedHeaders || {})
+          .filter(([, value]) => value !== undefined && value !== null && value !== "")
+          .map(([header, value]) => [String(header).toLowerCase(), String(value)])
+      )
     };
     const signedHeaders = Object.keys(signedHeaderValues).sort().join(";");
     const params = new URLSearchParams({
@@ -249,8 +254,12 @@ export class R2Client {
     return `${endpoint.origin}${canonicalUri}?${canonicalQuery(params)}`;
   }
 
-  uploadUrl(key, expiresSeconds = this.config.uploadExpiresSeconds) {
-    return this.presign("PUT", key, expiresSeconds);
+  uploadUrl(key, expiresSeconds = this.config.uploadExpiresSeconds, { contentLength, contentType } = {}) {
+    const extraSignedHeaders = {
+      ...(Number.isInteger(contentLength) && contentLength > 0 ? { "content-length": String(contentLength) } : {}),
+      ...(contentType ? { "content-type": String(contentType) } : {})
+    };
+    return this.presign("PUT", key, expiresSeconds, {}, extraSignedHeaders);
   }
 
   async putObject(key, body, { contentType, expiresSeconds = this.config.uploadExpiresSeconds, signal } = {}) {

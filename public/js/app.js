@@ -25,6 +25,7 @@ import {
   fetchModels,
   fetchPlans,
   fetchProject,
+  fetchStorage,
   fetchResearchReport,
   fetchResearchStatus,
   fetchZiinaPaymentRequests,
@@ -43,7 +44,7 @@ import {
   updateAdminSettings,
   transcribeSpeech,
   uploadFile
-} from "./api.js?v=20260817-chat-search";
+} from "./api.js?v=20260819-storage";
 import {
   clearSession,
   loadSession,
@@ -300,6 +301,7 @@ const state = {
   pendingDeleteId: "",
   pendingDeleteAttachmentId: "",
   pendingDeleteProjectId: "",
+  storage: null,
   pendingRenameId: "",
   openConversationMenuId: "",
   editingMessageId: "",
@@ -547,6 +549,7 @@ const els = {
   profileMenuUsage: document.querySelector("#profileMenuUsage"),
   profileMenuUpgrade: document.querySelector("#profileMenuUpgrade"),
   profileMenuSettings: document.querySelector("#profileMenuSettings"),
+  profileMenuStorage: document.querySelector("#profileMenuStorage"),
   profileMenuAdmin: document.querySelector("#profileMenuAdmin"),
   profileMenuSignOut: document.querySelector("#profileMenuSignOut"),
   conversationList: document.querySelector("#conversationList"),
@@ -636,6 +639,7 @@ const els = {
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
+  accountStorageList: document.querySelector("#accountStorageList"),
   signOutButton: document.querySelector("#signOutButton"),
   adminSection: document.querySelector("#adminSection"),
   loadAdminButton: document.querySelector("#loadAdminButton"),
@@ -2358,15 +2362,37 @@ function toggleProfileMenu() {
   els.accountButton?.setAttribute("aria-expanded", "true");
 }
 
-function openAdminDrawer() {
+function openStorageDrawer() {
   if (!state.session) return;
   closeProfileMenu();
   document.body.classList.remove("sidebar-open");
   renderAccount();
+  if (els.accountStorageList) {
+    els.accountStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
+  }
   els.accountDrawer.classList.add("open");
   els.accountDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
   els.overlay.dataset.mode = "account";
+  loadMe()
+    .then(() => {
+      renderAccount();
+      renderProfileMenu();
+    })
+    .catch(() => {});
+  loadAccountStorage();
+}
+
+function openAdminDrawer() {
+  document.body.classList.remove("sidebar-open");
+  openStorageDrawer();
+}
+
+function formatStorageBytes(bytes) {
+  const value = Math.max(0, Number(bytes || 0));
+  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
 }
 
 function renderAccountUsageMarkup() {
@@ -2379,6 +2405,10 @@ function renderAccountUsageMarkup() {
   const resetLabel = api.weekEnd
     ? `Resets ${new Date(api.weekEnd).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
     : "Resets weekly";
+  const storage = usage.storage || {};
+  const usedBytes = Number(storage.usedBytes || 0);
+  const maxBytes = Number(storage.maxBytes || plan.maxStorageBytes || 0);
+  const storageFill = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || 0))));
 
   return `
     <div class="account-usage">
@@ -2390,6 +2420,16 @@ function renderAccountUsageMarkup() {
         <span class="account-usage-fill" style="width: ${percent}%"></span>
       </div>
       <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
+      <div class="account-usage-files">
+        <div class="account-usage-head">
+          <span class="account-usage-label">Files</span>
+          <span class="account-usage-value">${escapeHtml(formatStorageBytes(usedBytes))} of ${escapeHtml(formatStorageBytes(maxBytes))}</span>
+        </div>
+        <div class="account-usage-track" aria-hidden="true">
+          <span class="account-usage-fill" style="width: ${storageFill}%"></span>
+        </div>
+        <p class="account-usage-note">Processed documents use extra space not shown here.</p>
+      </div>
     </div>
   `;
 }
@@ -2552,6 +2592,105 @@ function renderAccount() {
     ${renderAccountUsageMarkup()}
   `;
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
+}
+
+function storageItemWhere(item) {
+  const where = item.conversationId
+    ? (item.conversationTitle ? `Chat ${item.conversationTitle}` : "Chat")
+    : item.projectId
+      ? (item.projectName ? `Project ${item.projectName}` : "Project")
+      : "Not in a chat";
+  if (item.status && item.status !== "uploaded") return `${where} · Incomplete upload`;
+  return where;
+}
+
+function storageItemById(id) {
+  return (state.storage?.items || []).find((item) => item.id === id) || null;
+}
+
+async function loadAccountStorage() {
+  if (!state.session || !els.accountStorageList) return;
+  try {
+    state.storage = await fetchStorage(state.session);
+    renderAccountStorageList();
+  } catch (error) {
+    els.accountStorageList.innerHTML = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
+  }
+}
+
+function refreshAccountStorage() {
+  return loadMe()
+    .then(() => {
+      renderProfileMenu();
+      if (!els.accountDrawer.classList.contains("open")) return;
+      renderAccount();
+      return loadAccountStorage();
+    })
+    .catch(() => {});
+}
+
+function renderAccountStorageList() {
+  if (!els.accountStorageList) return;
+  const items = state.storage?.items || [];
+  if (!items.length) {
+    els.accountStorageList.innerHTML = `<p class="storage-list-empty">No files yet.</p>`;
+    return;
+  }
+  els.accountStorageList.innerHTML = items.map((item) => {
+    const actions = item.canDelete
+      ? `<button class="admin-small-btn danger" type="button" data-storage-delete-file="${escapeHtml(item.id)}">Delete</button>`
+      : item.conversationId
+        ? `<button class="admin-small-btn" type="button" data-storage-open-chat="${escapeHtml(item.id)}">Open chat</button>
+           <button class="admin-small-btn danger" type="button" data-storage-delete-chat="${escapeHtml(item.id)}">Delete chat</button>`
+        : "";
+    return `
+      <div class="storage-row">
+        <div class="storage-row-copy">
+          <strong>${escapeHtml(item.fileName || "File")}</strong>
+          <small>${escapeHtml(formatStorageBytes(item.sizeBytes))} · ${escapeHtml(storageItemWhere(item))}</small>
+        </div>
+        <div class="storage-row-actions">${actions}</div>
+      </div>`;
+  }).join("");
+}
+
+function handleAccountStorageClick(event) {
+  const deleteFile = event.target.closest("[data-storage-delete-file]");
+  const openChat = event.target.closest("[data-storage-open-chat]");
+  const deleteChat = event.target.closest("[data-storage-delete-chat]");
+  if (!deleteFile && !openChat && !deleteChat) return;
+  const item = storageItemById(
+    deleteFile?.dataset.storageDeleteFile || openChat?.dataset.storageOpenChat || deleteChat?.dataset.storageDeleteChat
+  );
+  if (!item) return;
+
+  if (openChat) {
+    closeAccount();
+    void openConversation(item.conversationId);
+    return;
+  }
+
+  if (deleteFile) {
+    const searchNote = item.projectId ? " This also deletes search data for that project file." : "";
+    openDeleteConfirm({
+      title: "Delete file?",
+      body: `Remove "${item.fileName || "this file"}"?${searchNote}`,
+      attachmentId: item.id
+    });
+    return;
+  }
+
+  if (!item.conversationId) return;
+  const title = item.conversationTitle || "New chat";
+  const others = Math.max(0, Number(item.siblingCount || 0) - 1);
+  const extra = others
+    ? ` This also deletes ${others} other file${others === 1 ? "" : "s"} in '${title}' (${formatStorageBytes(item.siblingBytes)} in that chat).`
+    : "";
+  openDeleteConfirm({
+    title: "Delete chat?",
+    body: `Delete "${title}" from your account?${extra}`,
+    chatId: item.conversationId
+  });
 }
 
 /* ─── Projects ─── */
@@ -2852,6 +2991,7 @@ async function uploadProjectFiles(files) {
         return await completeUpload(state.session, presigned.uploadId);
       } catch (error) {
         await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
+        void refreshAccountStorage();
         throw error;
       }
     }));
@@ -5441,6 +5581,7 @@ async function startDocumentUpload(item) {
     if (!state.images.some((entry) => entry.localId === item.localId)) {
       forgetPendingDocument(uploaded.id);
       await deleteAttachment(state.session, uploaded.id).catch(() => {});
+      void refreshAccountStorage();
       return;
     }
     updatePendingDocument(item.localId, {
@@ -5674,8 +5815,12 @@ function closeConfirmDialog() {
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
-    els.overlay.hidden = true;
-    delete els.overlay.dataset.mode;
+    if (els.accountDrawer.classList.contains("open")) {
+      els.overlay.dataset.mode = "account";
+    } else {
+      els.overlay.hidden = true;
+      delete els.overlay.dataset.mode;
+    }
   }
 }
 
@@ -5706,6 +5851,7 @@ async function confirmPendingDelete() {
         await loadActiveProject();
         renderProjects();
       }
+      void refreshAccountStorage();
     } catch (error) {
       if (state.activeProjectId === projectId && removedDocument) {
         const documents = [...(state.activeProject?.documents || [])];
@@ -5735,6 +5881,7 @@ async function confirmPendingDelete() {
     renderShell();
     try {
       await deleteProject(state.session, deletedProjectId);
+      void refreshAccountStorage();
     } catch (error) {
       if (deletedProject && !state.projects.some((project) => project.id === deletedProjectId)) {
         state.projects = [deletedProject, ...state.projects];
@@ -6732,6 +6879,16 @@ async function removeConversation(id) {
   const index = state.conversations.findIndex((conversation) => conversation.id === id);
   if (index < 0) {
     closeConfirmDialog();
+    if (conversationRuns.has(id)) {
+      showToast("Stop the response in this chat before deleting it.");
+      return;
+    }
+    try {
+      await deleteConversation(state.session, id);
+      void refreshAccountStorage();
+    } catch (err) {
+      showToast(err.message || "Chat could not be deleted.");
+    }
     return;
   }
 
@@ -6777,6 +6934,7 @@ async function removeConversation(id) {
 
   try {
     await deleteConversation(state.session, id);
+    void refreshAccountStorage();
   } catch (err) {
     if (!state.conversations.some((conversation) => conversation.id === id)) {
       state.conversations.splice(Math.min(index, state.conversations.length), 0, deletedConversation);
@@ -7928,12 +8086,14 @@ function bindEvents() {
     openSettings();
   });
   els.profileMenuUpgrade?.addEventListener("click", openUpgradePlans);
+  els.profileMenuStorage?.addEventListener("click", openStorageDrawer);
   els.profileMenuAdmin?.addEventListener("click", openAdminDrawer);
   els.profileMenuSignOut?.addEventListener("click", () => {
     closeProfileMenu();
     signOutAndReset();
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
+  els.accountStorageList?.addEventListener("click", handleAccountStorageClick);
   els.settingsButtonAlt?.addEventListener("click", () => {
     closeActionMenu();
     openSettings();
@@ -8439,7 +8599,7 @@ function bindEvents() {
       if (removed?.abortController) removed.abortController.abort();
       const deleteId = removed?.attachmentId || removed?.uploadId || "";
       if (deleteId) {
-        deleteAttachment(state.session, deleteId).catch((err) => {
+        deleteAttachment(state.session, deleteId).then(() => refreshAccountStorage()).catch((err) => {
           showToast(err.message || "Attachment could not be deleted.");
         });
       }

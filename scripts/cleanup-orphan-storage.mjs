@@ -12,9 +12,21 @@ export async function cleanupOrphanStorage({
   logger = console
 }) {
   const graceDays = config.storageCleanup.graceDays;
+  const pendingGraceMinutes = config.storageCleanup.pendingGraceMinutes || 30;
   const batchSize = config.storageCleanup.batchSize;
   const before = new Date(now.getTime() - (graceDays * 24 * 60 * 60 * 1000)).toISOString();
-  const attachments = await db.listOrphanAttachments({ before, limit: batchSize });
+  const pendingBefore = new Date(now.getTime() - (pendingGraceMinutes * 60 * 1000)).toISOString();
+  const [orphans, stalePending] = await Promise.all([
+    db.listOrphanAttachments({ before, limit: batchSize }),
+    db.listStalePendingAttachments({ before: pendingBefore, limit: batchSize })
+  ]);
+  const seen = new Set();
+  const attachments = [];
+  for (const attachment of [...stalePending, ...orphans]) {
+    if (!attachment?.id || seen.has(attachment.id)) continue;
+    seen.add(attachment.id);
+    attachments.push(attachment);
+  }
   const failures = [];
   let objectsDeleted = 0;
   let attachmentsDeleted = 0;

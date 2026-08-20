@@ -15,6 +15,9 @@ test("project capacities are source-byte limits per plan", () => {
   assert.equal(plans.lite.maxProjectBytes, 50 * 1024 * 1024);
   assert.equal(plans.essential.maxProjectBytes, 100 * 1024 * 1024);
   assert.equal(plans.pro.maxProjectBytes, 150 * 1024 * 1024);
+  assert.equal(plans.lite.maxStorageBytes, 750 * 1024 * 1024);
+  assert.equal(plans.essential.maxStorageBytes, 2684354560);
+  assert.equal(plans.pro.maxStorageBytes, 5 * 1024 * 1024 * 1024);
 });
 
 test("Projects reuses the composer and upload path with a backend capacity meter", () => {
@@ -80,4 +83,5 @@ test("schema exposes only the capacity-aware document upload RPC", () => {
   const definitions = schema.match(/create or replace function public\.klui_complete_document_upload\(/g) || [];
   assert.equal(definitions.length, 1);
   assert.match(schema, /p_project_max_bytes bigint default null/);
+  assert.match(schema, /p_account_max_bytes bigint default null/);
 });

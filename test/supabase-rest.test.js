@@ -331,6 +331,81 @@ test("createDocumentFile POSTs document_files rows with return=representation", 
   });
 });
 
+test("reserveAttachment uses the quota RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_reserve_attachment");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_max_bytes: 2684354560,
+      p_category: "image",
+      p_object_key: "users/user_1/photo.png",
+      p_file_name: "photo.png",
+      p_content_type: "image/png",
+      p_size_bytes: 10,
+      p_conversation_id: null,
+      p_message_id: null,
+      p_project_id: null
+    });
+    return jsonResponse({ id: "att_1", status: "pending" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const attachment = await db.reserveAttachment({
+      userId: "user_1",
+      maxBytes: 2684354560,
+      category: "image",
+      objectKey: "users/user_1/photo.png",
+      fileName: "photo.png",
+      contentType: "image/png",
+      sizeBytes: 10
+    });
+    assert.equal(attachment.id, "att_1");
+  });
+});
+
+test("completeReservedAttachment uses the quota RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_complete_attachment");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_attachment_id: "att_1",
+      p_size_bytes: 10,
+      p_etag: "etag-1",
+      p_max_bytes: 5368709120
+    });
+    return jsonResponse({ id: "att_1", status: "uploaded", etag: "etag-1" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const attachment = await db.completeReservedAttachment({
+      userId: "user_1",
+      attachmentId: "att_1",
+      sizeBytes: 10,
+      etag: "etag-1",
+      maxBytes: 5368709120
+    });
+    assert.equal(attachment.status, "uploaded");
+  });
+});
+
+test("listUserStorageAttachments lists pending and uploaded by size", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.pathname, "/rest/v1/attachments");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("status"), "in.(pending,uploaded)");
+    assert.equal(parsed.searchParams.get("order"), "size_bytes.desc,created_at.desc");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.listUserStorageAttachments("user_1");
+  });
+});
+
 test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");
@@ -344,7 +419,8 @@ test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
       p_kind: "pdf",
       p_limits: { max_pdf_pages: 100 },
       p_project_id: null,
-      p_project_max_bytes: null
+      p_project_max_bytes: null,
+      p_account_max_bytes: null
     });
 
     return new Response(JSON.stringify({

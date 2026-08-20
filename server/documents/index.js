@@ -814,7 +814,11 @@ export class DocumentService {
       document_file_id: documentFileId,
       conversation_id: this.conversationId,
       job_type: jobType,
-      input
+      input: {
+        ...input,
+        account_max_bytes: this.plan?.maxStorageBytes || null,
+        project_id: this.projectId || input?.project_id || null
+      }
     }, { signal: this.signal });
 
     const deadline = Date.now() + Math.max(1000, Number(this.documentsConfig.jobWaitMs || 20_000));

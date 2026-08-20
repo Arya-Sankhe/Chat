@@ -11,6 +11,7 @@ const PLAN_DEFAULTS = [
     maxDocumentBytesPerMessage: 30 * 1024 * 1024,
     maxDocumentPages: 50,
     maxProjectBytes: 50 * 1024 * 1024,
+    maxStorageBytes: 750 * 1024 * 1024,
     sortOrder: 10
   },
   {
@@ -25,6 +26,7 @@ const PLAN_DEFAULTS = [
     maxDocumentBytesPerMessage: 60 * 1024 * 1024,
     maxDocumentPages: 100,
     maxProjectBytes: 100 * 1024 * 1024,
+    maxStorageBytes: Math.ceil(2.5 * 1024 * 1024 * 1024),
     sortOrder: 20
   },
   {
@@ -39,6 +41,7 @@ const PLAN_DEFAULTS = [
     maxDocumentBytesPerMessage: 60 * 1024 * 1024,
     maxDocumentPages: 100,
     maxProjectBytes: 150 * 1024 * 1024,
+    maxStorageBytes: 5 * 1024 * 1024 * 1024,
     sortOrder: 30
   }
 ];
@@ -72,7 +75,8 @@ export function loadPlans(env = process.env) {
     maxDocumentsPerMessage: readInt(env[envName(plan.id, "MAX_DOCUMENTS_PER_MESSAGE")], plan.maxDocumentsPerMessage),
     maxDocumentBytesPerMessage: readInt(env[envName(plan.id, "MAX_DOCUMENT_BYTES_PER_MESSAGE")], plan.maxDocumentBytesPerMessage),
     maxDocumentPages: readInt(env[envName(plan.id, "MAX_DOCUMENT_PAGES")], plan.maxDocumentPages),
-    maxProjectBytes: readInt(env[envName(plan.id, "MAX_PROJECT_BYTES")], plan.maxProjectBytes)
+    maxProjectBytes: readInt(env[envName(plan.id, "MAX_PROJECT_BYTES")], plan.maxProjectBytes),
+    maxStorageBytes: readInt(env[envName(plan.id, "MAX_STORAGE_BYTES")], plan.maxStorageBytes)
   })).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
@@ -91,7 +95,8 @@ export function publicPlan(plan) {
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,
     maxDocumentBytesPerMessage: plan.maxDocumentBytesPerMessage,
     maxDocumentPages: plan.maxDocumentPages,
-    maxProjectBytes: plan.maxProjectBytes
+    maxProjectBytes: plan.maxProjectBytes,
+    maxStorageBytes: plan.maxStorageBytes
   };
 }
 

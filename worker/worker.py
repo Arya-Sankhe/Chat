@@ -162,6 +162,12 @@ class JobCancelledError(RuntimeError):
         self.code = "cancelled"
 
 
+class StorageQuotaError(RuntimeError):
+    def __init__(self, message="Storage is full. Delete files to free up space."):
+        super().__init__(message)
+        self.code = "storage_exhausted"
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -622,7 +628,10 @@ class Supabase:
             data=json.dumps(body) if body is not None else None,
         )
         if not response.ok:
-            raise RuntimeError(f"Supabase {method} {path} failed: {response.status_code} {response.text}")
+            text = response.text
+            if "account_storage_limit_exceeded" in text or "pending_storage_limit_exceeded" in text:
+                raise StorageQuotaError()
+            raise RuntimeError(f"Supabase {method} {path} failed: {response.status_code} {text}")
         if response.status_code == 204 or not response.text:
             return None
         return response.json()
@@ -686,6 +695,37 @@ class Supabase:
     def create_attachment(self, payload):
         rows = self.request("attachments", method="POST", body=payload, prefer="return=representation")
         return rows[0]
+
+    def reserve_attachment(self, payload):
+        return self.rpc("klui_reserve_attachment", {
+            "p_user_id": payload["user_id"],
+            "p_max_bytes": payload["max_bytes"],
+            "p_category": payload["category"],
+            "p_object_key": payload["object_key"],
+            "p_file_name": payload["file_name"],
+            "p_content_type": payload["content_type"],
+            "p_size_bytes": payload["size_bytes"],
+            "p_conversation_id": payload.get("conversation_id"),
+            "p_message_id": payload.get("message_id"),
+            "p_project_id": payload.get("project_id"),
+        })
+
+    def complete_reserved_attachment(self, payload):
+        return self.rpc("klui_complete_attachment", {
+            "p_user_id": payload["user_id"],
+            "p_attachment_id": payload["attachment_id"],
+            "p_size_bytes": payload["size_bytes"],
+            "p_etag": payload.get("etag"),
+            "p_max_bytes": payload["max_bytes"],
+        })
+
+    def delete_attachment(self, user_id, attachment_id):
+        self.request(
+            "attachments",
+            method="DELETE",
+            params={"id": f"eq.{attachment_id}", "user_id": f"eq.{user_id}"},
+            prefer="return=minimal",
+        )
 
     def create_document_file(self, payload):
         rows = self.request("document_files", method="POST", body=payload, prefer="return=representation")
@@ -2555,49 +2595,77 @@ class Processor:
             "editor_revision": 1,
             "editable": True,
         } if editor_markdown and kind in ("docx", "pdf") and not preview else {}
+        size_bytes = path.stat().st_size
+        max_bytes = input_data.get("account_max_bytes")
+        if not max_bytes:
+            # ponytail: pre-quota jobs have no cap; Pro ceiling until the queue drains
+            max_bytes = env_int("PLAN_PRO_MAX_STORAGE_BYTES", 5 * 1024 * 1024 * 1024)
+        project_id = input_data.get("project_id") or (parent_doc or {}).get("project_id")
         key = self.object_key(user_id, path.name)
-        etag = self.r2.upload(key, path, content_type)
-        attachment = self.db.create_attachment({
-            "user_id": user_id,
-            "conversation_id": job.get("conversation_id"),
-            "message_id": job.get("message_id"),
-            "category": "document",
-            "object_key": key,
-            "file_name": path.name,
-            "content_type": content_type,
-            "size_bytes": path.stat().st_size,
-            "etag": etag,
-            "status": "uploaded",
-            "uploaded_at": now_iso(),
-        })
-        document_file = self.db.create_document_file({
-            "attachment_id": attachment["id"],
-            "user_id": user_id,
-            "conversation_id": job.get("conversation_id"),
-            "message_id": job.get("message_id"),
-            "kind": kind,
-            "source": source,
-            "parent_document_id": parent_doc["id"] if parent_doc else None,
-            "version_no": int(parent_doc.get("version_no", 0)) + 1 if parent_doc else 1,
-            "source_etag": etag,
-            "processing_status": "processing",
-            "metadata": {"generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
-        })
-        chunks, meta = self.extract(path, kind, user_id, document_file["id"])
-        self.db.insert_chunks(chunks)
-        ready_at = now_iso()
-        # Generated artifacts are created outside the upload extract/enrich pair, so the
-        # worker still marks text readiness (and legacy ready) on the new document row.
-        self.db.update_document_file(document_file["id"], {
-            "processing_status": "ready",
-            "text_ready_at": ready_at,
-            "page_count": meta.get("page_count"),
-            "word_count": meta.get("word_count"),
-            "sheet_count": meta.get("sheet_count"),
-            "used_cell_count": meta.get("used_cell_count"),
-            "metadata": {**meta, "generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
-            "error": None,
-        })
+        attachment = None
+        try:
+            attachment = self.db.reserve_attachment({
+                "user_id": user_id,
+                "max_bytes": max_bytes,
+                "category": "document",
+                "object_key": key,
+                "file_name": path.name,
+                "content_type": content_type,
+                "size_bytes": size_bytes,
+                "conversation_id": job.get("conversation_id"),
+                "message_id": job.get("message_id"),
+                "project_id": project_id,
+            })
+            etag = self.r2.upload(key, path, content_type)
+            attachment = self.db.complete_reserved_attachment({
+                "user_id": user_id,
+                "attachment_id": attachment["id"],
+                "size_bytes": size_bytes,
+                "etag": etag,
+                "max_bytes": max_bytes,
+            })
+            document_file = self.db.create_document_file({
+                "attachment_id": attachment["id"],
+                "user_id": user_id,
+                "conversation_id": job.get("conversation_id"),
+                "message_id": job.get("message_id"),
+                "project_id": project_id,
+                "kind": kind,
+                "source": source,
+                "parent_document_id": parent_doc["id"] if parent_doc else None,
+                "version_no": int(parent_doc.get("version_no", 0)) + 1 if parent_doc else 1,
+                "source_etag": attachment.get("etag") or etag,
+                "processing_status": "processing",
+                "metadata": {"generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
+            })
+            chunks, meta = self.extract(path, kind, user_id, document_file["id"])
+            self.db.insert_chunks(chunks)
+            ready_at = now_iso()
+            # Generated artifacts are created outside the upload extract/enrich pair, so the
+            # worker still marks text readiness (and legacy ready) on the new document row.
+            self.db.update_document_file(document_file["id"], {
+                "processing_status": "ready",
+                "text_ready_at": ready_at,
+                "page_count": meta.get("page_count"),
+                "word_count": meta.get("word_count"),
+                "sheet_count": meta.get("sheet_count"),
+                "used_cell_count": meta.get("used_cell_count"),
+                "metadata": {**meta, "generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
+                "error": None,
+            })
+        except Exception:
+            r2_deleted = False
+            try:
+                self.r2.delete(key)
+                r2_deleted = True
+            except Exception:
+                pass
+            if r2_deleted and attachment and attachment.get("id"):
+                try:
+                    self.db.delete_attachment(user_id, attachment["id"])
+                except Exception:
+                    pass
+            raise
         return {
             "attachment_id": attachment["id"],
             "document_file_id": document_file["id"],

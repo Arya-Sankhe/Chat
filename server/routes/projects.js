@@ -85,8 +85,13 @@ export async function handleProjectById(req, res, config, projectId) {
     for (const attachment of attachments) {
       keys.push(...await attachmentStorageKeys(context, attachment, config, req.signal));
     }
-    if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
-    await context.db.deleteProject(context.user.id, project.id, { signal: req.signal });
+    if (keys.length) {
+      await context.r2.deleteObjects(keys, { signal: req.signal });
+      await context.db.deleteProject(context.user.id, project.id, { signal: req.signal });
+      await context.r2.deleteObjects(keys, { signal: req.signal });
+    } else {
+      await context.db.deleteProject(context.user.id, project.id, { signal: req.signal });
+    }
     sendJson(res, 200, { deleted: true });
     return;
   }

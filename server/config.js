@@ -190,6 +190,7 @@ export function loadConfig(env = process.env) {
     },
     storageCleanup: {
       graceDays: readInt(env.STORAGE_CLEANUP_GRACE_DAYS, 7),
+      pendingGraceMinutes: readInt(env.STORAGE_CLEANUP_PENDING_MINUTES, 30),
       batchSize: readInt(env.STORAGE_CLEANUP_BATCH_SIZE, 100)
     },
     context: {
