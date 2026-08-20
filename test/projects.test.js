@@ -15,6 +15,9 @@ test("project capacities are source-byte limits per plan", () => {
   assert.equal(plans.lite.maxProjectBytes, 50 * 1024 * 1024);
   assert.equal(plans.pro.maxProjectBytes, 100 * 1024 * 1024);
   assert.equal(plans.max.maxProjectBytes, 150 * 1024 * 1024);
+  assert.equal(plans.lite.maxStorageBytes, 750 * 1024 * 1024);
+  assert.equal(plans.pro.maxStorageBytes, 2684354560);
+  assert.equal(plans.max.maxStorageBytes, 5 * 1024 * 1024 * 1024);
 });
 
 test("Projects reuses the composer and upload path with a backend capacity meter", () => {
@@ -68,11 +71,13 @@ test("project lifecycle guards shared sources and clears deleted project chats",
   const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
   const pipeline = readFileSync(resolve(here, "..", "server/chat/pipeline.js"), "utf8");
   const uploads = readFileSync(resolve(here, "..", "server/routes/uploads.js"), "utf8");
+  const projects = readFileSync(resolve(here, "..", "server/routes/projects.js"), "utf8");
   assert.match(pipeline, /if \(attachment\.project_id\)[\s\S]*Project knowledge is already available/);
   assert.match(uploads, /projectId && category !== "document"/);
   assert.match(app, /state\.conversations = state\.conversations\.filter\(\(conversation\) => conversation\.project_id !== deletedProjectId\)/);
   assert.match(app, /documents: state\.activeProject\.documents\.filter[\s\S]*?renderProjects\(\);[\s\S]*?await deleteAttachment\(state\.session, attachmentId\)/);
   assert.match(app, /state\.projects = state\.projects\.filter\(\(project\) => project\.id !== deletedProjectId\)[\s\S]*?renderShell\(\);[\s\S]*?await deleteProject\(state\.session, deletedProjectId\)/);
+  assert.equal((projects.match(/deleteObjects\(keys/g) || []).length, 1);
 });
 
 test("schema exposes only the capacity-aware document upload RPC", () => {
@@ -80,4 +85,5 @@ test("schema exposes only the capacity-aware document upload RPC", () => {
   const definitions = schema.match(/create or replace function public\.klui_complete_document_upload\(/g) || [];
   assert.equal(definitions.length, 1);
   assert.match(schema, /p_project_max_bytes bigint default null/);
+  assert.match(schema, /p_account_max_bytes bigint default null/);
 });

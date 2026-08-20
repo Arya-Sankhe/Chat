@@ -315,9 +315,27 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
       calls.push({ op: "createAttachment", attachment });
       return attachment;
     },
+    async reserveAttachment(params) {
+      counter += 1;
+      const attachment = {
+        id: `att-${counter}`,
+        object_key: params.objectKey,
+        file_name: params.fileName,
+        content_type: params.contentType,
+        size_bytes: params.sizeBytes,
+        category: params.category,
+        status: "pending"
+      };
+      calls.push({ op: "createAttachment", attachment });
+      return attachment;
+    },
     async completeAttachment(userId, id, patch) {
       calls.push({ op: "completeAttachment", id, patch });
       return { id, ...patch, status: "uploaded" };
+    },
+    async completeReservedAttachment({ attachmentId, sizeBytes, etag }) {
+      calls.push({ op: "completeAttachment", id: attachmentId, patch: { size_bytes: sizeBytes, etag } });
+      return { id: attachmentId, size_bytes: sizeBytes, etag, status: "uploaded" };
     },
     async insertMessage(row) {
       counter += 1;

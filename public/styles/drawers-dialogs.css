@@ -218,6 +218,62 @@
 
 }
 
+.settings-storage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-storage-icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.settings-storage-copy {
+  min-width: 0;
+}
+
+.settings-storage-copy strong,
+.settings-storage-copy small {
+  display: block;
+}
+
+.settings-storage-copy strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.settings-storage-copy small {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.settings-storage-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--bg-secondary);
+}
+
+.settings-storage-track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--transition);
+}
+
 .wallpaper-picker {
   display: grid;
   grid-template-columns: repeat(6, minmax(88px, 1fr));
@@ -799,6 +855,92 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
   font-size: 12px;
 
   color: var(--text-tertiary);
+
+}
+
+.account-usage-files {
+
+  margin-top: 14px;
+
+}
+
+.storage-list {
+
+  margin: 0 0 16px;
+
+}
+
+.storage-list-empty {
+
+  margin: 0;
+
+  padding: 8px 0 4px;
+
+  font-size: 13px;
+
+  color: var(--text-tertiary);
+
+}
+
+.storage-row {
+
+  display: grid;
+
+  grid-template-columns: minmax(0, 1fr) auto;
+
+  gap: 8px 12px;
+
+  align-items: center;
+
+  padding: 10px 0;
+
+  border-top: 1px solid var(--border-light);
+
+}
+
+.storage-row-copy {
+
+  min-width: 0;
+
+}
+
+.storage-row-copy strong {
+
+  display: block;
+
+  font-size: 13px;
+
+  font-weight: 600;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+}
+
+.storage-row-copy small {
+
+  display: block;
+
+  margin-top: 2px;
+
+  font-size: 12px;
+
+  color: var(--text-tertiary);
+
+}
+
+.storage-row-actions {
+
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  flex-shrink: 0;
 
 }
 

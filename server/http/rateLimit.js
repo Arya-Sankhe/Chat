@@ -2,13 +2,14 @@ import { HttpError } from "./responses.js";
 
 const counters = new Map();
 
-export function enforceRateLimit(req, bucket, limit, windowMs = 60_000) {
+export function enforceRateLimit(req, bucket, limit, windowMs = 60_000, principal = "") {
   const now = Date.now();
   const cloudflareAddress = Array.isArray(req.headers?.["cf-connecting-ip"])
     ? req.headers["cf-connecting-ip"][0]
     : req.headers?.["cf-connecting-ip"];
   const address = String(cloudflareAddress || req.socket?.remoteAddress || "unknown").slice(0, 64);
-  const key = `${bucket}:${address}`;
+  const identity = principal ? String(principal).slice(0, 64) : address;
+  const key = `${bucket}:${identity}`;
   const current = counters.get(key);
   const entry = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
   entry.count += 1;

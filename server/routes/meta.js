@@ -5,6 +5,7 @@ import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { publicPlan } from "../saas/plans.js";
+import { storageUsage } from "../saas/storageQuota.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { publicChatRoles } from "../models.js";
 import { listComposerSkills } from "../saas/composerSkills.js";
@@ -117,7 +118,15 @@ export async function handleMe(req, res, config) {
       weekIndex: window.weekIndex
     };
   }
-  const usage = apiUsage ? { api: apiUsage } : {};
+  let storageUsageRow = null;
+  if (entitlement.plan) {
+    const usedBytes = await context.db.accountStorageUsed(context.user.id, { signal: req.signal }).catch(() => 0);
+    storageUsageRow = storageUsage(usedBytes, entitlement.plan.maxStorageBytes);
+  }
+  const usage = {
+    ...(apiUsage ? { api: apiUsage } : {}),
+    ...(storageUsageRow ? { storage: storageUsageRow } : {})
+  };
   const settings = context.profile?.role === "admin"
     ? { systemPrompt: await loadGlobalSystemPrompt(context.db, { signal: req.signal }) }
     : {};

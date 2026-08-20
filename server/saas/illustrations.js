@@ -4,6 +4,7 @@ import { usageCostCredits } from "./billing.js";
 import { contentText, hydrateMessagesForClient } from "./messages.js";
 import { substituteImagesWithDescriptions } from "./images.js";
 import { createCrofaiUsageMeter } from "./usageMeter.js";
+import { deleteReservedUpload, mapStorageRpcError } from "./storageQuota.js";
 import { resolveProvider } from "../providers.js";
 import {
   createAssistantOutputMessage,
@@ -309,32 +310,38 @@ export async function storeGeneratedIllustration({
   const objectKey = context.r2.objectKey({ userId: context.user.id, fileName });
   let attachment = null;
   try {
-    attachment = await context.db.createAttachment({
-      user_id: context.user.id,
-      conversation_id: conversationId,
-      message_id: messageId,
+    attachment = await context.db.reserveAttachment({
+      userId: context.user.id,
+      maxBytes: context.plan.maxStorageBytes,
       category: "image",
-      object_key: objectKey,
-      file_name: fileName,
-      content_type: mime,
-      size_bytes: buffer.length,
-      status: "pending"
+      objectKey,
+      fileName,
+      contentType: mime,
+      sizeBytes: buffer.length,
+      conversationId,
+      messageId
     }, { signal });
     const uploaded = await context.r2.putObject(objectKey, buffer, {
       contentType: mime,
       signal
     });
-    await context.db.completeAttachment(context.user.id, attachment.id, {
-      size_bytes: buffer.length,
-      etag: uploaded?.etag || null
+    await context.db.completeReservedAttachment({
+      userId: context.user.id,
+      attachmentId: attachment.id,
+      sizeBytes: buffer.length,
+      etag: uploaded?.etag || null,
+      maxBytes: context.plan.maxStorageBytes
     }, { signal });
     return { attachmentId: attachment.id, objectKey, fileName };
   } catch (error) {
-    await context.r2.deleteObjects([objectKey], { signal }).catch(() => {});
     if (attachment?.id) {
-      await context.db.deleteAttachment(context.user.id, attachment.id, { signal }).catch(() => {});
+      try {
+        await deleteReservedUpload(context, attachment, { signal });
+      } catch {
+        // Keep the row when R2 delete fails so the bytes stay counted.
+      }
     }
-    throw error;
+    mapStorageRpcError(error);
   }
 }
 

@@ -948,7 +948,8 @@ class DispatchRoutingTest(unittest.TestCase):
         processor.r2 = mock.Mock()
         processor.r2.upload.return_value = "etag-1"
         processor.db = mock.Mock()
-        processor.db.create_attachment.return_value = {"id": "att-1", "file_name": "report.docx"}
+        processor.db.reserve_attachment.return_value = {"id": "att-1", "file_name": "report.docx"}
+        processor.db.complete_reserved_attachment.return_value = {"id": "att-1", "file_name": "report.docx", "etag": "etag-1"}
         processor.db.create_document_file.return_value = {"id": "doc-1"}
         processor.extract = mock.Mock(return_value=([], {"word_count": 2}))
         processor.object_key = mock.Mock(return_value="users/u/report.docx")
@@ -956,7 +957,11 @@ class DispatchRoutingTest(unittest.TestCase):
             "id": "job-1",
             "user_id": "user-1",
             "conversation_id": "conversation-1",
-            "input": {"editor_markdown": "# Report\n\nEditable body."},
+            "input": {
+                "editor_markdown": "# Report\n\nEditable body.",
+                "account_max_bytes": 2684354560,
+                "project_id": "project-1",
+            },
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -970,9 +975,101 @@ class DispatchRoutingTest(unittest.TestCase):
 
         created = processor.db.create_document_file.call_args.args[0]
         updated = processor.db.update_document_file.call_args.args[1]
+        reserved = processor.db.reserve_attachment.call_args.args[0]
+        completed = processor.db.complete_reserved_attachment.call_args.args[0]
+        self.assertEqual(reserved["max_bytes"], 2684354560)
+        self.assertEqual(reserved["project_id"], "project-1")
+        self.assertEqual(completed["max_bytes"], 2684354560)
+        self.assertEqual(created["project_id"], "project-1")
         self.assertTrue(created["metadata"]["editable"])
         self.assertEqual(updated["metadata"]["editor_markdown"], "# Report\n\nEditable body.")
         self.assertEqual(updated["metadata"]["editor_revision"], 1)
+
+    def test_store_generated_uses_complete_attachment_not_document_upload(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.r2 = mock.Mock()
+        processor.db = mock.Mock()
+        order = []
+        processor.db.reserve_attachment.side_effect = lambda payload: order.append("reserve") or {"id": "att-1"}
+        processor.r2.upload.side_effect = lambda *args, **kwargs: order.append("upload") or "etag-1"
+        processor.db.complete_reserved_attachment.side_effect = (
+            lambda payload: order.append("complete") or {"id": "att-1", "file_name": "out.pdf", "etag": "etag-1"}
+        )
+        processor.db.create_document_file.return_value = {"id": "doc-1"}
+        processor.extract = mock.Mock(return_value=([], {}))
+        processor.object_key = mock.Mock(return_value="users/u/out.pdf")
+        job = {"id": "job-1", "user_id": "user-1", "input": {"account_max_bytes": 100}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out.pdf"
+            output.write_bytes(b"pdf")
+            processor.store_generated(job, Path(tmp), output, "pdf", "application/pdf", "generated", None)
+
+        self.assertEqual(order, ["reserve", "upload", "complete"])
+        processor.db.complete_reserved_attachment.assert_called_once()
+        processor.db.complete_document_upload.assert_not_called()
+        self.assertEqual(w.StorageQuotaError().code, "storage_exhausted")
+
+    def test_store_generated_falls_back_to_max_cap_when_job_omits_account_max_bytes(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.r2 = mock.Mock()
+        processor.r2.upload.return_value = "etag-1"
+        processor.db = mock.Mock()
+        processor.db.reserve_attachment.return_value = {"id": "att-1"}
+        processor.db.complete_reserved_attachment.return_value = {"id": "att-1", "file_name": "out.pdf", "etag": "etag-1"}
+        processor.db.create_document_file.return_value = {"id": "doc-1"}
+        processor.extract = mock.Mock(return_value=([], {}))
+        processor.object_key = mock.Mock(return_value="users/u/out.pdf")
+        job = {"id": "job-1", "user_id": "user-1", "input": {}}
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"PLAN_MAX_MAX_STORAGE_BYTES": "5368709120"}):
+            output = Path(tmp) / "out.pdf"
+            output.write_bytes(b"pdf")
+            processor.store_generated(job, Path(tmp), output, "pdf", "application/pdf", "generated", None)
+
+        self.assertEqual(processor.db.reserve_attachment.call_args.args[0]["max_bytes"], 5368709120)
+        self.assertEqual(processor.db.complete_reserved_attachment.call_args.args[0]["max_bytes"], 5368709120)
+
+    def test_store_generated_keeps_row_when_r2_rollback_fails(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.r2 = mock.Mock()
+        processor.r2.upload.return_value = "etag-1"
+        processor.r2.delete.side_effect = RuntimeError("R2 unavailable")
+        processor.db = mock.Mock()
+        processor.db.reserve_attachment.return_value = {"id": "att-1"}
+        processor.db.complete_reserved_attachment.side_effect = w.StorageQuotaError()
+        processor.extract = mock.Mock(return_value=([], {}))
+        processor.object_key = mock.Mock(return_value="users/u/out.pdf")
+        job = {"id": "job-1", "user_id": "user-1", "input": {"account_max_bytes": 100}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out.pdf"
+            output.write_bytes(b"pdf")
+            with self.assertRaises(w.StorageQuotaError):
+                processor.store_generated(job, Path(tmp), output, "pdf", "application/pdf", "generated", None)
+
+        processor.db.delete_attachment.assert_not_called()
+
+    def test_store_generated_rolls_back_when_extract_fails_after_complete(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.r2 = mock.Mock()
+        processor.r2.upload.return_value = "etag-1"
+        processor.db = mock.Mock()
+        processor.db.reserve_attachment.return_value = {"id": "att-1"}
+        processor.db.complete_reserved_attachment.return_value = {"id": "att-1", "file_name": "out.pdf", "etag": "etag-1"}
+        processor.db.create_document_file.return_value = {"id": "doc-1"}
+        processor.extract = mock.Mock(side_effect=RuntimeError("extract failed"))
+        processor.object_key = mock.Mock(return_value="users/u/out.pdf")
+        job = {"id": "job-1", "user_id": "user-1", "input": {"account_max_bytes": 100}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out.pdf"
+            output.write_bytes(b"pdf")
+            with self.assertRaises(RuntimeError):
+                processor.store_generated(job, Path(tmp), output, "pdf", "application/pdf", "generated", None)
+
+        processor.r2.delete.assert_called_once_with("users/u/out.pdf")
+        processor.db.delete_attachment.assert_called_once_with("user-1", "att-1")
 
     def test_dispatch_routes_rev3_job_types(self):
         processor = w.Processor.__new__(w.Processor)

@@ -29,6 +29,7 @@ import {
   handleDocumentEditorRevise,
   handleDocumentStatus,
   handlePresignUpload,
+  handleStorage,
   handleUploadContent
 } from "./routes/uploads.js";
 import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
@@ -163,6 +164,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/clarifications" && req.method === "POST") {
       await handleClarifications(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/storage" && req.method === "GET") {
+      await handleStorage(req, res, config);
       return;
     }
 

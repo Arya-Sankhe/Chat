@@ -1,8 +1,10 @@
 import { createHash, createHmac } from "node:crypto";
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { enforceRateLimit } from "../http/rateLimit.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { mapStorageRpcError, STORAGE_LIST_LIMIT, storageUsage, deleteReservedUpload } from "../saas/storageQuota.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { DocumentService } from "../documents/index.js";
 import { requireChatContext } from "./context.js";
@@ -29,10 +31,14 @@ export function documentKindFromUpload({ fileName, contentType }) {
   return "";
 }
 
-function documentExtractionLimits(config) {
+function documentExtractionLimits(config, plan) {
+  const planPages = Number(plan?.maxDocumentPages);
+  const maxPdfPages = Number.isInteger(planPages) && planPages > 0
+    ? Math.min(config.documents.maxPdfPages, planPages)
+    : config.documents.maxPdfPages;
   return {
     max_file_bytes: config.documents.maxFileBytes,
-    max_pdf_pages: config.documents.maxPdfPages,
+    max_pdf_pages: maxPdfPages,
     max_docx_words: config.documents.maxDocxWords,
     max_xlsx_sheets: config.documents.maxXlsxSheets,
     max_xlsx_cells: config.documents.maxXlsxCells,
@@ -45,6 +51,7 @@ function documentExtractionLimits(config) {
 
 export async function handlePresignUpload(req, res, config) {
   const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "uploads-presign", 30, 60_000, context.user.id);
   const body = await parseJsonBody(req);
   const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
   if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
@@ -68,26 +75,33 @@ export async function handlePresignUpload(req, res, config) {
   }
 
   const objectKey = context.r2.objectKey({ userId: context.user.id, fileName: body.fileName });
-  const attachment = await context.db.createAttachment({
-    user_id: context.user.id,
-    category,
-    object_key: objectKey,
-    file_name: String(body.fileName || "upload"),
-    content_type: body.contentType,
-    size_bytes: Number(body.sizeBytes),
-    status: "pending",
-    project_id: projectId || null
-  }, { signal: req.signal });
+  const contentType = body.contentType || "application/octet-stream";
+  const sizeBytes = Number(body.sizeBytes);
+  let attachment;
+  try {
+    attachment = await context.db.reserveAttachment({
+      userId: context.user.id,
+      maxBytes: context.plan.maxStorageBytes,
+      category,
+      objectKey,
+      fileName: String(body.fileName || "upload"),
+      contentType,
+      sizeBytes,
+      projectId: projectId || null
+    }, { signal: req.signal });
+  } catch (error) {
+    mapStorageRpcError(error);
+  }
 
+  const expiresSeconds = category === "document"
+    ? config.documents.uploadExpiresSeconds
+    : config.r2.uploadExpiresSeconds;
   sendJson(res, 200, {
     uploadId: attachment.id,
     objectKey,
-    uploadUrl: context.r2.uploadUrl(
-      objectKey,
-      category === "document" ? config.documents.uploadExpiresSeconds : config.r2.uploadExpiresSeconds
-    ),
+    uploadUrl: context.r2.uploadUrl(objectKey, expiresSeconds, { contentLength: sizeBytes, contentType }),
     method: "PUT",
-    headers: context.r2.uploadHeaders(body.contentType || "application/octet-stream"),
+    headers: context.r2.uploadHeaders(contentType),
     category,
     maxImageBytes: config.r2.maxImageBytes,
     maxDocumentBytes: documentUploadMaxBytes(context, config)
@@ -142,44 +156,81 @@ export async function handleCompleteUpload(req, res, config) {
   if (!attachment) throw new HttpError(404, "Upload not found.");
   if (!["pending", "uploaded"].includes(attachment.status)) throw new HttpError(400, "Upload cannot be completed.");
 
-  const head = await context.r2.headObject(attachment.object_key, { signal: req.signal });
+  const failComplete = async (error) => {
+    if (attachment.status !== "pending") throw error;
+    try {
+      await deleteReservedUpload(context, attachment, { signal: req.signal });
+    } catch {
+      throw error;
+    }
+    throw error;
+  };
+
+  let head;
+  try {
+    head = await context.r2.headObject(attachment.object_key, { signal: req.signal });
+  } catch (error) {
+    await failComplete(error);
+  }
+  const sizeBytes = Number(head.sizeBytes);
+  const reservedBytes = Number(attachment.size_bytes);
+  if (!Number.isInteger(sizeBytes) || sizeBytes !== reservedBytes) {
+    await failComplete(new HttpError(400, "Uploaded file size did not match the reserved upload."));
+  }
+
   const category = attachment.category || "image";
-  assertUpload({
-    category,
-    contentType: attachment.content_type,
-    fileName: attachment.file_name,
-    sizeBytes: head.sizeBytes || attachment.size_bytes
-  }, {
-    maxImageBytes: config.r2.maxImageBytes,
-    maxDocumentBytes: documentUploadMaxBytes(context, config)
-  });
+  try {
+    assertUpload({
+      category,
+      contentType: attachment.content_type,
+      fileName: attachment.file_name,
+      sizeBytes
+    }, {
+      maxImageBytes: config.r2.maxImageBytes,
+      maxDocumentBytes: documentUploadMaxBytes(context, config)
+    });
+  } catch (error) {
+    await failComplete(error);
+  }
 
   let completed = attachment;
   let documentFile = null;
-  if (category === "document") {
-    const kind = documentKindFromUpload({
-      fileName: attachment.file_name,
-      contentType: attachment.content_type
-    });
-    if (!kind) throw new HttpError(400, "Unsupported document type.");
-    const result = await context.db.completeDocumentUpload({
-      userId: context.user.id,
-      attachmentId: attachment.id,
-      sizeBytes: head.sizeBytes || attachment.size_bytes,
-      etag: head.etag || attachment.etag || null,
-      kind,
-      limits: documentExtractionLimits(config),
-      projectId: attachment.project_id || null,
-      projectMaxBytes: context.plan.maxProjectBytes
-    }, { signal: req.signal });
-    completed = result?.attachment;
-    documentFile = result?.document_file;
-    if (!completed || !documentFile) throw new HttpError(500, "Document upload could not be queued.");
-  } else if (attachment.status === "pending") {
-    completed = await context.db.completeAttachment(context.user.id, attachment.id, {
-      size_bytes: head.sizeBytes || attachment.size_bytes,
-      etag: head.etag || null
-    }, { signal: req.signal });
+  try {
+    if (category === "document") {
+      const kind = documentKindFromUpload({
+        fileName: attachment.file_name,
+        contentType: attachment.content_type
+      });
+      if (!kind) throw new HttpError(400, "Unsupported document type.");
+      const result = await context.db.completeDocumentUpload({
+        userId: context.user.id,
+        attachmentId: attachment.id,
+        sizeBytes,
+        etag: head.etag || attachment.etag || null,
+        kind,
+        limits: documentExtractionLimits(config, context.plan),
+        projectId: attachment.project_id || null,
+        projectMaxBytes: context.plan.maxProjectBytes,
+        accountMaxBytes: context.plan.maxStorageBytes
+      }, { signal: req.signal });
+      completed = result?.attachment;
+      documentFile = result?.document_file;
+      if (!completed || !documentFile) throw new HttpError(500, "Document upload could not be queued.");
+    } else if (attachment.status === "pending") {
+      completed = await context.db.completeReservedAttachment({
+        userId: context.user.id,
+        attachmentId: attachment.id,
+        sizeBytes,
+        etag: head.etag || null,
+        maxBytes: context.plan.maxStorageBytes
+      }, { signal: req.signal });
+    }
+  } catch (error) {
+    try {
+      mapStorageRpcError(error);
+    } catch (mapped) {
+      await failComplete(mapped);
+    }
   }
 
   sendJson(res, 200, {
@@ -197,6 +248,67 @@ export async function handleCompleteUpload(req, res, config) {
       enrichedAt: documentFile.enriched_at || null,
       usable: Boolean(documentFile.text_ready_at || documentFile.visual_ready_at)
     } : null
+  });
+}
+
+function storageConversation(row) {
+  const fromAttachment = row?.conversations;
+  const fromMessage = Array.isArray(row?.messages) ? row.messages[0] : row?.messages;
+  const nested = fromMessage?.conversations;
+  const conversationId = row?.conversation_id || fromMessage?.conversation_id || fromAttachment?.id || nested?.id || "";
+  const title = fromAttachment?.title || nested?.title || "";
+  return { conversationId, title };
+}
+
+export async function handleStorage(req, res, config) {
+  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const [usedBytesRaw, items, totals] = await Promise.all([
+    context.db.accountStorageUsed(context.user.id, { signal: req.signal }),
+    context.db.listUserStorageAttachments(context.user.id, { limit: STORAGE_LIST_LIMIT, signal: req.signal }),
+    context.db.listConversationStorageTotals(context.user.id, { signal: req.signal })
+  ]);
+  const usedBytes = Number(usedBytesRaw) || 0;
+  const siblingByConversation = new Map();
+  for (const row of Array.isArray(totals) ? totals : []) {
+    const conversationId = row?.conversation_id;
+    if (!conversationId) continue;
+    siblingByConversation.set(conversationId, {
+      count: Number(row.count || row.id || 0),
+      bytes: Number(row.bytes || row.size_bytes || 0)
+    });
+  }
+  const listed = (Array.isArray(items) ? items : []).map((row) => {
+    const docs = Array.isArray(row.document_files) ? row.document_files[0] : row.document_files;
+    const { conversationId, title } = storageConversation(row);
+    const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
+    const sibling = siblingByConversation.get(conversationId) || { count: 0, bytes: 0 };
+    const linkedToChat = Boolean(conversationId || row.message_id);
+    return {
+      id: row.id,
+      fileName: row.file_name,
+      contentType: row.content_type,
+      category: row.category,
+      status: row.status,
+      sizeBytes: Number(row.size_bytes) || 0,
+      createdAt: row.created_at,
+      conversationId: conversationId || null,
+      conversationTitle: title || null,
+      projectId: row.project_id || project?.id || null,
+      projectName: project?.name || null,
+      source: docs?.source || "upload",
+      processingStatus: docs?.processing_status || null,
+      siblingCount: sibling.count,
+      siblingBytes: sibling.bytes,
+      canDelete: !linkedToChat
+    };
+  });
+  const listedBytes = listed.reduce((sum, item) => sum + item.sizeBytes, 0);
+  sendJson(res, 200, {
+    ...storageUsage(usedBytes, context.plan.maxStorageBytes),
+    listedBytes,
+    hiddenBytes: Math.max(0, usedBytes - listedBytes),
+    items: listed
   });
 }
 
@@ -462,7 +574,9 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
       preview: true,
       attachment_id: attachment.id,
       document_file_id: documentFile.id,
-      output_file_name: pdfPreviewFileName(attachment.file_name)
+      output_file_name: pdfPreviewFileName(attachment.file_name),
+      account_max_bytes: context.plan.maxStorageBytes,
+      project_id: documentFile.project_id || attachment.project_id || null
     }
   }, { signal: req.signal });
 
@@ -511,6 +625,7 @@ export async function handleDocumentEditorExport(req, res, config, attachmentId)
     r2: context.r2,
     userId: context.user.id,
     conversationId: doc.conversation_id,
+    projectId: doc.project_id || attachment.project_id || null,
     plan: context.plan,
     signal: req.signal
   });

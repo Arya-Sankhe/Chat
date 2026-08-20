@@ -4,7 +4,7 @@ import test from "node:test";
 import { cleanupOrphanStorage } from "../scripts/cleanup-orphan-storage.mjs";
 
 const CONFIG = {
-  storageCleanup: { graceDays: 7, batchSize: 100 },
+  storageCleanup: { graceDays: 7, pendingGraceMinutes: 30, batchSize: 100 },
   documents: { maxPdfPages: 100 }
 };
 
@@ -40,6 +40,13 @@ test("orphan cleanup removes every Office-derived R2 object before its database 
         limit: 100
       });
       return [attachment];
+    },
+    async listStalePendingAttachments(options) {
+      assert.deepEqual(options, {
+        before: "2026-07-12T23:30:00.000Z",
+        limit: 100
+      });
+      return [];
     },
     async getDocumentFileByAttachment(userId, attachmentId) {
       assert.equal(userId, "user_1");
@@ -99,6 +106,9 @@ test("orphan cleanup preserves the database row when R2 deletion fails", async (
         object_key: "users/user_2/photo.png"
       }];
     },
+    async listStalePendingAttachments() {
+      return [];
+    },
     async deleteAttachment() {
       databaseDeletes += 1;
     }
@@ -132,6 +142,9 @@ test("orphan cleanup does not touch R2 when document key discovery fails", async
         category: "document",
         object_key: "users/user_3/report.docx"
       }];
+    },
+    async listStalePendingAttachments() {
+      return [];
     },
     async getDocumentFileByAttachment() {
       throw new Error("Supabase unavailable");

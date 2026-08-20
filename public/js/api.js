@@ -321,10 +321,7 @@ export async function putUploadContent(session, upload, file, category = upload.
   try {
     const put = await fetch(upload.uploadUrl, {
       method: upload.method || "PUT",
-      headers: {
-        ...(upload.headers || {}),
-        "content-type": file.type || "application/octet-stream"
-      },
+      headers: { ...(upload.headers || {}) },
       body: file,
       signal
     });
@@ -353,6 +350,12 @@ export async function uploadFile(session, file, { signal } = {}) {
 
 export async function fetchDocumentStatus(session, attachmentId) {
   const response = await apiFetch(`/api/documents/${encodeURIComponent(attachmentId)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStorage(session) {
+  const response = await apiFetch("/api/storage", { session });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
