@@ -14,6 +14,10 @@ const REVISE_DOC_MAX = 120_000;
 const REVISE_INSTRUCTION_MAX = 4_000;
 const REVISE_TIMEOUT_MS = 60_000;
 
+function documentUploadMaxBytes(context, config) {
+  return Math.min(context.plan.maxDocumentFileBytes ?? config.documents.maxFileBytes, config.documents.maxFileBytes);
+}
+
 export function documentKindFromUpload({ fileName, contentType }) {
   const fromName = documentKindFromFileName(fileName);
   if (fromName) return fromName;
@@ -61,7 +65,7 @@ export async function handlePresignUpload(req, res, config) {
     sizeBytes: Number(body.sizeBytes)
   }, {
     maxImageBytes: config.r2.maxImageBytes,
-    maxDocumentBytes: config.documents.maxFileBytes
+    maxDocumentBytes: documentUploadMaxBytes(context, config)
   });
   if (projectId && category !== "document") {
     throw new HttpError(400, "Only documents can be added to project knowledge.");
@@ -100,7 +104,7 @@ export async function handlePresignUpload(req, res, config) {
     headers: context.r2.uploadHeaders(contentType),
     category,
     maxImageBytes: config.r2.maxImageBytes,
-    maxDocumentBytes: config.documents.maxFileBytes
+    maxDocumentBytes: documentUploadMaxBytes(context, config)
   });
 }
 
@@ -115,7 +119,7 @@ export async function handleUploadContent(req, res, config, uploadId) {
     throw new HttpError(503, "Document uploads are not configured.");
   }
 
-  const maxBytes = category === "document" ? config.documents.maxFileBytes : config.r2.maxImageBytes;
+  const maxBytes = category === "document" ? documentUploadMaxBytes(context, config) : config.r2.maxImageBytes;
   const raw = await readRawBody(req, maxBytes);
   const expectedSize = Number(attachment.size_bytes);
   if (Number.isInteger(expectedSize) && expectedSize > 0 && raw.length !== expectedSize) {
@@ -129,7 +133,7 @@ export async function handleUploadContent(req, res, config, uploadId) {
     sizeBytes: raw.length
   }, {
     maxImageBytes: config.r2.maxImageBytes,
-    maxDocumentBytes: config.documents.maxFileBytes
+    maxDocumentBytes: documentUploadMaxBytes(context, config)
   });
 
   const result = await context.r2.putObject(attachment.object_key, raw, {
@@ -183,7 +187,7 @@ export async function handleCompleteUpload(req, res, config) {
       sizeBytes
     }, {
       maxImageBytes: config.r2.maxImageBytes,
-      maxDocumentBytes: config.documents.maxFileBytes
+      maxDocumentBytes: documentUploadMaxBytes(context, config)
     });
   } catch (error) {
     await failComplete(error);
@@ -303,7 +307,6 @@ export async function handleStorage(req, res, config) {
   sendJson(res, 200, {
     ...storageUsage(usedBytes, context.plan.maxStorageBytes),
     listedBytes,
-    hiddenCount: Math.max(0, listed.length === STORAGE_LIST_LIMIT ? 1 : 0),
     hiddenBytes: Math.max(0, usedBytes - listedBytes),
     items: listed
   });

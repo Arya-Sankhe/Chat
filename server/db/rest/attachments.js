@@ -73,15 +73,7 @@ export async function listUserStorageAttachments(client, userId, { limit = 200, 
 }
 
 export async function listConversationStorageTotals(client, userId, { signal } = {}) {
-  return client.request("attachments", {
-    query: {
-      user_id: `eq.${userId}`,
-      status: "in.(pending,uploaded)",
-      conversation_id: "not.is.null",
-      select: "conversation_id,count:id.count(),bytes:size_bytes.sum()"
-    },
-    signal
-  });
+  return client.rpc("klui_conversation_storage_totals", { p_user_id: userId }, { signal });
 }
 
 export async function completeAttachment(client, userId, attachmentId, patch, { signal } = {}) {

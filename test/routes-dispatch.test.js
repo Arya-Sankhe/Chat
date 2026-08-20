@@ -208,7 +208,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const plans = await dispatch(bareConfig, { path: "/api/plans" });
   assert.equal(plans.statusCode, 200);
   const planIds = plans.json().plans.map((plan) => plan.id);
-  assert.deepEqual(planIds, ["lite", "essential", "pro"]);
+  assert.deepEqual(planIds, ["lite", "pro", "max"]);
 });
 
 test("every auth-requiring route returns 503 problem JSON when Supabase is unconfigured", async () => {
@@ -489,6 +489,32 @@ test("project ownership is accepted only for document uploads", async () => {
   assert.equal(created, false);
 });
 
+test("document presign enforces the current plan's single-file limit", async () => {
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    R2_ACCOUNT_ID: "account-1",
+    R2_ACCESS_KEY_ID: "r2-key",
+    R2_SECRET_ACCESS_KEY: "r2-secret",
+    R2_BUCKET: "uploads",
+    DOCUMENT_MAX_FILE_BYTES: String(100 * 1024 * 1024),
+    TEST_PLAN_ID: "lite"
+  });
+  const res = await dispatch(config, {
+    method: "POST",
+    path: "/api/uploads/presign",
+    body: {
+      category: "document",
+      contentType: "application/pdf",
+      fileName: "large.pdf",
+      sizeBytes: 50 * 1024 * 1024 + 1
+    },
+    overrides: stubbedDeps()
+  });
+
+  assert.equal(res.statusCode, 413);
+  assert.match(res.json().error, /50MB or smaller/);
+});
+
 test("document upload completion queues extraction through one atomic RPC", async () => {
   const calls = [];
   const attachment = {
@@ -530,7 +556,7 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(calls.length, 1);
   assert.equal(calls[0].kind, "pdf");
   assert.equal(calls[0].attachmentId, "upload-1");
-  assert.equal(calls[0].accountMaxBytes, documentReadyConfig.plans.find((plan) => plan.id === "essential")?.maxStorageBytes
+  assert.equal(calls[0].accountMaxBytes, documentReadyConfig.plans.find((plan) => plan.id === "pro")?.maxStorageBytes
     || documentReadyConfig.plans[0].maxStorageBytes);
   assert.equal(res.json().document.id, "doc-1");
 });

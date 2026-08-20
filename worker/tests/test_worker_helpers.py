@@ -1010,7 +1010,7 @@ class DispatchRoutingTest(unittest.TestCase):
         processor.db.complete_document_upload.assert_not_called()
         self.assertEqual(w.StorageQuotaError().code, "storage_exhausted")
 
-    def test_store_generated_falls_back_to_pro_cap_when_job_omits_account_max_bytes(self):
+    def test_store_generated_falls_back_to_max_cap_when_job_omits_account_max_bytes(self):
         processor = w.Processor.__new__(w.Processor)
         processor.r2 = mock.Mock()
         processor.r2.upload.return_value = "etag-1"
@@ -1022,7 +1022,7 @@ class DispatchRoutingTest(unittest.TestCase):
         processor.object_key = mock.Mock(return_value="users/u/out.pdf")
         job = {"id": "job-1", "user_id": "user-1", "input": {}}
 
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"PLAN_PRO_MAX_STORAGE_BYTES": "5368709120"}):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"PLAN_MAX_MAX_STORAGE_BYTES": "5368709120"}):
             output = Path(tmp) / "out.pdf"
             output.write_bytes(b"pdf")
             processor.store_generated(job, Path(tmp), output, "pdf", "application/pdf", "generated", None)

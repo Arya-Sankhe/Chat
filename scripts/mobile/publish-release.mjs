@@ -132,7 +132,7 @@ const metadata = {
   versionName,
   versionCode,
   minimumVersionCode: 1,
-  apkUrl: `https://klui.tech/downloads/android/${fileName}`,
+  apkUrl: `https://klui.ai/downloads/android/${fileName}`,
   releaseNotes: notes,
   sizeBytes: file.size,
   sha256,

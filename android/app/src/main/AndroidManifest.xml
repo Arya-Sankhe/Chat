@@ -39,6 +39,10 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
+                    android:host="klui.ai"
+                    android:pathPrefix="/c/" />
+                <data
+                    android:scheme="https"
                     android:host="klui.tech"
                     android:pathPrefix="/c/" />
             </intent-filter>

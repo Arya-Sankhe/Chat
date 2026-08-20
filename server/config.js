@@ -63,8 +63,8 @@ function readDocumentMode(value) {
 
 const PLAN_SEARCH_DEFAULTS = {
   lite: 50,
-  essential: 200,
-  pro: 500
+  pro: 200,
+  max: 500
 };
 const MIN_ILLUSTRATION_RESERVATION_CREDITS = 0.015;
 
@@ -99,6 +99,8 @@ export function loadConfig(env = process.env) {
     contextMaxTokens
   );
   const mobileAllowedOrigins = normalizeAllowedOrigins([
+    "https://klui.ai",
+    "https://www.klui.ai",
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
@@ -141,7 +143,7 @@ export function loadConfig(env = process.env) {
       chatReservationCredits: readPositiveNumber(env.DESKTOP_CHAT_RESERVATION_CREDITS, 0),
       minimumWindowsVersion: clean(env.DESKTOP_MINIMUM_WINDOWS_VERSION) || "0.1.0",
       latestWindowsVersion: clean(env.DESKTOP_LATEST_WINDOWS_VERSION) || "0.1.0",
-      windowsDownloadUrl: cleanUrl(env.DESKTOP_WINDOWS_DOWNLOAD_URL) || "https://klui.tech/download/windows",
+      windowsDownloadUrl: cleanUrl(env.DESKTOP_WINDOWS_DOWNLOAD_URL) || "https://klui.ai/download/windows",
       clients: {
         "klui-desktop-windows": {
           providerClientId: clean(env.SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID),
@@ -160,7 +162,7 @@ export function loadConfig(env = process.env) {
     plans,
     access: {
       mode: accessMode,
-      testingPlanId: clean(env.TEST_PLAN_ID) || "essential"
+      testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
     },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),
@@ -209,7 +211,7 @@ export function loadConfig(env = process.env) {
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
-      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 30 * 1024 * 1024),
+      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 100 * 1024 * 1024),
       maxFilesPerMessage: readInt(env.DOCUMENT_MAX_FILES_PER_MESSAGE, 5),
       maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 60 * 1024 * 1024),
       maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 100),

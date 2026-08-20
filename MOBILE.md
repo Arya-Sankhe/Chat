@@ -3,12 +3,12 @@
 Klui ships the same responsive frontend in two mobile forms:
 
 - Android: a bundled Capacitor APK.
-- iPhone: an installable PWA from `https://klui.tech`.
+- iPhone: an installable PWA from `https://klui.ai`.
 
 The Android package never loads the production website as its WebView. `npm run
 mobile:build` bundles the current `public/` application into `dist-mobile/`,
 and Capacitor copies that output into the Android project. All API requests
-still go to `https://klui.tech`.
+still go to `https://klui.ai`.
 
 ## Local requirements
 
@@ -42,7 +42,7 @@ tech.klui.app://auth/callback
 ```
 
 Add that callback to the Supabase Auth redirect allow list. Keep
-`https://klui.tech` and `https://klui.tech/**` for the website/PWA.
+`https://klui.ai` and `https://klui.ai/**` for the website/PWA.
 The callback must match exactly; otherwise Android returns to Klui immediately
 with a redirect configuration error instead of showing the Google account flow.
 
@@ -54,6 +54,8 @@ storage. Access and refresh tokens are never included in the callback URL.
 The server already permits these mobile origins:
 
 ```txt
+https://klui.ai
+https://www.klui.ai
 https://klui.tech
 https://www.klui.tech
 https://localhost
@@ -71,6 +73,8 @@ Add the packaged Android origin to Cloudflare R2 CORS:
 [
   {
     "AllowedOrigins": [
+      "https://klui.ai",
+      "https://www.klui.ai",
       "https://klui.tech",
       "https://www.klui.tech",
       "https://localhost"
@@ -145,7 +149,7 @@ npm run mobile:assetlinks
 ```
 
 Deploy the generated `public/.well-known/assetlinks.json` before testing
-`https://klui.tech/c/<conversation-id>` links.
+`https://klui.ai/c/<conversation-id>` links.
 
 ## Publish an APK
 
@@ -181,15 +185,15 @@ docker compose up -d --build
 The public download page is:
 
 ```txt
-https://klui.tech/download/android
+https://klui.ai/download/android
 ```
 
 Caddy already proxies the domain to Klui, so no special route is needed.
 The Node static server serves the page, APK and metadata. Verify:
 
 ```sh
-curl -I https://klui.tech/download/android
-curl https://klui.tech/downloads/android/latest.json
+curl -I https://klui.ai/download/android
+curl https://klui.ai/downloads/android/latest.json
 ```
 
 The installed APK checks metadata at startup and when resuming, at most once
@@ -201,7 +205,7 @@ every six hours. Increase `versionCode` for every release. Set
 Deploying the normal website also deploys the PWA manifest, icons, service
 worker and offline page. On iPhone:
 
-1. Open `https://klui.tech` in Safari.
+1. Open `https://klui.ai` in Safari.
 2. Tap Share.
 3. Tap **Add to Home Screen**.
 

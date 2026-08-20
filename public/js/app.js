@@ -636,6 +636,11 @@ const els = {
   wallpaperPicker: document.querySelector("#wallpaperPicker"),
   homeWallpaper: document.querySelector("#homeWallpaper"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
+  settingsStorageSection: document.querySelector("#settingsStorageSection"),
+  settingsStorageValue: document.querySelector("#settingsStorageValue"),
+  settingsStorageLeft: document.querySelector("#settingsStorageLeft"),
+  settingsStorageTrack: document.querySelector("#settingsStorageTrack"),
+  settingsStorageFill: document.querySelector("#settingsStorageFill"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
@@ -2146,6 +2151,7 @@ function renderShell() {
   renderProjects();
   renderProjectChatCrumb();
   renderAdminOnlyControls();
+  renderSettingsStorage();
 
   if (!servicesReady()) {
     renderServices();
@@ -2251,13 +2257,13 @@ function renderPlans() {
       tagline: "For light everyday use",
       features: ["Access to premium models", "Model compare"]
     },
-    essential: {
+    pro: {
       tagline: "For regular everyday use",
       badge: "Most popular",
-      usage: "3.5x more usage",
+      usage: "3x more usage",
       features: ["Access to premium models", "Model compare", "Model council"]
     },
-    pro: {
+    max: {
       tagline: "For pro workflows",
       usage: "6x more usage",
       features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
@@ -2393,6 +2399,23 @@ function formatStorageBytes(bytes) {
   if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
   return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
+}
+
+function renderSettingsStorage() {
+  if (!els.settingsStorageSection) return;
+  const storage = state.me?.usage?.storage || {};
+  const maxBytes = Number(storage.maxBytes || state.me?.plan?.maxStorageBytes || 0);
+  const usedBytes = Math.max(0, Number(storage.usedBytes || 0));
+  const visible = Boolean(state.session && maxBytes > 0);
+  els.settingsStorageSection.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const percent = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || (usedBytes / maxBytes) * 100))));
+  const value = `${formatStorageBytes(usedBytes)} of ${formatStorageBytes(maxBytes)} used`;
+  els.settingsStorageValue.textContent = value;
+  els.settingsStorageLeft.textContent = `${formatStorageBytes(Math.max(0, maxBytes - usedBytes))} left`;
+  els.settingsStorageFill.style.width = `${percent}%`;
+  els.settingsStorageTrack.setAttribute("aria-valuenow", String(percent));
+  els.settingsStorageTrack.setAttribute("aria-valuetext", value);
 }
 
 function renderAccountUsageMarkup() {
@@ -2622,6 +2645,7 @@ function refreshAccountStorage() {
   return loadMe()
     .then(() => {
       renderProfileMenu();
+      renderSettingsStorage();
       if (!els.accountDrawer.classList.contains("open")) return;
       renderAccount();
       return loadAccountStorage();
@@ -5969,6 +5993,7 @@ function syncSettingsInputs() {
   if (els.textScaleInput) els.textScaleInput.value = String(clampTextScale(state.settings.uiTextScale));
   if (els.textScaleValue) els.textScaleValue.textContent = `${clampTextScale(state.settings.uiTextScale)}%`;
   syncAppearanceControls();
+  renderSettingsStorage();
 }
 
 /* Composer border-beam: md while generating, pulse-inner ocean while mic. */

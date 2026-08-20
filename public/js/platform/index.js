@@ -1,4 +1,4 @@
-const API_ORIGIN = String(import.meta.env?.VITE_KLUI_API_ORIGIN || "https://klui.tech").replace(/\/+$/, "");
+const API_ORIGIN = String(import.meta.env?.VITE_KLUI_API_ORIGIN || "https://klui.ai").replace(/\/+$/, "");
 const AUTH_CALLBACK_URL = "tech.klui.app://auth/callback";
 const AUTH_STORAGE_KEY = "klui.auth.v1";
 
@@ -214,7 +214,7 @@ export async function listenForDeepLinks(callback) {
   const { App } = await import("@capacitor/app");
   const handleUrl = (value) => {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== "klui.tech") return;
+    if (url.protocol !== "https:" || !new Set(["klui.ai", "klui.tech"]).has(url.hostname)) return;
     callback?.(url);
   };
   const listener = await App.addListener("appUrlOpen", (event) => {

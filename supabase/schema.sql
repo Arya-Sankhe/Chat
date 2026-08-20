@@ -61,20 +61,22 @@ create table if not exists public.plans (
   updated_at timestamptz not null default now()
 );
 
-insert into public.plans (id, name, max_images_per_message, sort_order)
+insert into public.plans (id, name, max_images_per_message, price_label, active, sort_order)
 values
-  ('lite', 'Lite', 4, 10),
-  ('essential', 'Essential', 4, 20),
-  ('pro', 'Pro', 4, 30)
+  ('lite', 'Lite', 4, '10 AED / month', true, 10),
+  ('pro', 'Pro', 4, '30 AED / month', true, 20),
+  ('max', 'Max', 4, '50 AED / month', true, 30)
 on conflict (id) do update
 set name = excluded.name,
+    max_images_per_message = excluded.max_images_per_message,
+    price_label = excluded.price_label,
     sort_order = excluded.sort_order,
     active = true,
     updated_at = now();
 
 update public.plans
 set active = false, updated_at = now()
-where id not in ('lite', 'essential', 'pro');
+where id not in ('lite', 'pro', 'max');
 
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -1392,6 +1394,25 @@ $$;
 revoke all on function public.klui_account_storage_used(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.klui_account_storage_used(uuid, uuid) to service_role;
 
+create or replace function public.klui_conversation_storage_totals(
+  p_user_id uuid
+) returns table (conversation_id uuid, count bigint, bytes bigint)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select a.conversation_id, count(*), coalesce(sum(a.size_bytes::bigint), 0)
+  from public.attachments a
+  where a.user_id = p_user_id
+    and a.status in ('pending', 'uploaded')
+    and a.conversation_id is not null
+  group by a.conversation_id;
+$$;
+
+revoke all on function public.klui_conversation_storage_totals(uuid) from public, anon, authenticated;
+grant execute on function public.klui_conversation_storage_totals(uuid) to service_role;
+
 create or replace function public.klui_reserve_attachment(
   p_user_id uuid,
   p_max_bytes bigint,
@@ -1420,6 +1441,27 @@ begin
   if p_size_bytes is null or p_size_bytes <= 0 then raise exception 'invalid_attachment_size'; end if;
   if coalesce(p_object_key, '') = '' or coalesce(p_file_name, '') = '' or coalesce(p_content_type, '') = '' then
     raise exception 'invalid_attachment';
+  end if;
+  if p_object_key not like ('users/' || p_user_id::text || '/%') then
+    raise exception 'attachment_owner_mismatch';
+  end if;
+  if p_conversation_id is not null and not exists (
+    select 1 from public.conversations
+    where id = p_conversation_id and user_id = p_user_id and deleted_at is null
+  ) then
+    raise exception 'conversation_not_found';
+  end if;
+  if p_message_id is not null and not exists (
+    select 1 from public.messages
+    where id = p_message_id and user_id = p_user_id
+      and (p_conversation_id is null or conversation_id = p_conversation_id)
+  ) then
+    raise exception 'message_not_found';
+  end if;
+  if p_project_id is not null and not exists (
+    select 1 from public.projects where id = p_project_id and user_id = p_user_id
+  ) then
+    raise exception 'project_not_found';
   end if;
 
   select count(*) into v_pending
@@ -1477,6 +1519,7 @@ begin
   where id = p_attachment_id and user_id = p_user_id
   for update;
   if not found then raise exception 'attachment_not_found'; end if;
+  if v_attachment.status <> 'pending' then raise exception 'attachment_not_pending'; end if;
 
   v_used := public.klui_account_storage_used(p_user_id, p_attachment_id);
   if v_used + p_size_bytes::bigint > p_max_bytes then

@@ -364,6 +364,20 @@ test("reserveAttachment uses the quota RPC", async () => {
   });
 });
 
+test("listConversationStorageTotals uses an RPC when Data API aggregates are disabled", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_conversation_storage_totals");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), { p_user_id: "user_1" });
+    return jsonResponse([{ conversation_id: "conv_1", count: 2, bytes: 900 }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const rows = await db.listConversationStorageTotals("user_1");
+    assert.equal(rows[0].bytes, 900);
+  });
+});
+
 test("completeReservedAttachment uses the quota RPC", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");

@@ -12,8 +12,8 @@ import { mapStorageRpcError, storageUsage } from "../server/saas/storageQuota.js
 import { R2Client } from "../server/storage/r2.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ESSENTIAL_BYTES = 2684354560;
-const PRO_BYTES = 5 * 1024 * 1024 * 1024;
+const PRO_BYTES = 2684354560;
+const MAX_BYTES = 5 * 1024 * 1024 * 1024;
 const LITE_BYTES = 750 * 1024 * 1024;
 
 const SUPABASE_ENV = {
@@ -117,9 +117,9 @@ function r2Client() {
 test("plan storage caps stay bigint-safe and override from env", () => {
   const plans = Object.fromEntries(loadPlans({}).map((plan) => [plan.id, plan]));
   assert.equal(plans.lite.maxStorageBytes, LITE_BYTES);
-  assert.equal(plans.essential.maxStorageBytes, ESSENTIAL_BYTES);
   assert.equal(plans.pro.maxStorageBytes, PRO_BYTES);
-  assert.equal(publicPlan(plans.essential).maxStorageBytes, ESSENTIAL_BYTES);
+  assert.equal(plans.max.maxStorageBytes, MAX_BYTES);
+  assert.equal(publicPlan(plans.pro).maxStorageBytes, PRO_BYTES);
   const overridden = loadPlans({ PLAN_LITE_MAX_STORAGE_BYTES: "100" });
   assert.equal(overridden[0].maxStorageBytes, 100);
 });
@@ -300,7 +300,7 @@ test("storage list counts pending plus uploaded and reports the hidden remainder
   const body = res.json();
   assert.equal(res.statusCode, 200);
   assert.equal(body.usedBytes, 1500);
-  assert.equal(body.maxBytes, ESSENTIAL_BYTES);
+  assert.equal(body.maxBytes, PRO_BYTES);
   assert.equal(body.listedBytes, 1000);
   assert.equal(body.hiddenBytes, 500);
   assert.equal(body.listedBytes + body.hiddenBytes, body.usedBytes);
@@ -346,7 +346,7 @@ test("/api/me exposes usage.storage", async () => {
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().usage.storage.usedBytes, 2048);
-  assert.equal(res.json().usage.storage.maxBytes, ESSENTIAL_BYTES);
+  assert.equal(res.json().usage.storage.maxBytes, PRO_BYTES);
 });
 
 test("lite document completion caps extract pages at the plan limit", async () => {
@@ -388,11 +388,14 @@ test("lite document completion caps extract pages at the plan limit", async () =
 });
 
 test("quota SQL locks the profile and sums pending plus uploaded", () => {
-  const sql = readFileSync(resolve(here, "../supabase/migrations/20260819210000_per_user_storage_quota.sql"), "utf8");
+  const sql = readFileSync(resolve(here, "../supabase/migrations/20260820065933_per_user_storage_quota.sql"), "utf8");
   assert.match(sql, /returns bigint/);
   assert.match(sql, /p_max_bytes bigint/);
   assert.match(sql, /p_account_max_bytes bigint/);
   assert.match(sql, /status in \('pending', 'uploaded'\)/);
+  assert.match(sql, /klui_conversation_storage_totals/);
+  assert.match(sql, /attachment_owner_mismatch/);
+  assert.match(sql, /attachment_not_pending/);
   assert.match(sql, /klui_account_storage_used\(p_user_id, p_attachment_id\)/);
   assert.match(sql, /klui_account_storage_used\(p_user_id, v_attachment\.id\)/);
   assert.match(sql, /drop function if exists public\.klui_complete_document_upload\(uuid, uuid, integer, text, text, jsonb, uuid, bigint\)/);
@@ -408,6 +411,8 @@ test("account UI lists files, formats GB, and refetches after deletes", () => {
   const storageUi = app.slice(app.indexOf("function openStorageDrawer"), app.indexOf("/* ─── Projects"));
   assert.match(html, /id="accountStorageList"/);
   assert.match(html, /id="profileMenuStorage"/);
+  assert.match(html, /id="settingsStorageSection"/);
+  assert.match(html, /role="progressbar"[^>]+aria-label="Storage used"/);
   assert.match(storageUi, /account-usage-label">Files/);
   assert.match(storageUi, /10 \* 1024 \* 1024 \* 1024 \? 0 : 1\)\} GB/);
   assert.match(storageUi, /Incomplete upload/);
@@ -421,4 +426,5 @@ test("account UI lists files, formats GB, and refetches after deletes", () => {
   assert.doesNotMatch(storageUi, /R2|\bdisk\b|Study Hub/i);
   assert.match(api, /headers: \{ \.\.\.\(upload\.headers \|\| \{\}\) \}/);
   assert.doesNotMatch(api, /["']content-length["']/);
+  assert.match(app, /function renderSettingsStorage\(\)/);
 });

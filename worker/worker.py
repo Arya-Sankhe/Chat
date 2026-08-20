@@ -2598,8 +2598,8 @@ class Processor:
         size_bytes = path.stat().st_size
         max_bytes = input_data.get("account_max_bytes")
         if not max_bytes:
-            # ponytail: pre-quota jobs have no cap; Pro ceiling until the queue drains
-            max_bytes = env_int("PLAN_PRO_MAX_STORAGE_BYTES", 5 * 1024 * 1024 * 1024)
+            # ponytail: pre-quota jobs have no cap; Max ceiling until the queue drains
+            max_bytes = env_int("PLAN_MAX_MAX_STORAGE_BYTES", 5 * 1024 * 1024 * 1024)
         project_id = input_data.get("project_id") or (parent_doc or {}).get("project_id")
         key = self.object_key(user_id, path.name)
         attachment = None
