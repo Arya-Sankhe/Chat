@@ -2428,10 +2428,6 @@ function renderAccountUsageMarkup() {
   const resetLabel = api.weekEnd
     ? `Resets ${new Date(api.weekEnd).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
     : "Resets weekly";
-  const storage = usage.storage || {};
-  const usedBytes = Number(storage.usedBytes || 0);
-  const maxBytes = Number(storage.maxBytes || plan.maxStorageBytes || 0);
-  const storageFill = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || 0))));
 
   return `
     <div class="account-usage">
@@ -2443,16 +2439,6 @@ function renderAccountUsageMarkup() {
         <span class="account-usage-fill" style="width: ${percent}%"></span>
       </div>
       <p class="account-usage-note">${escapeHtml(resetLabel)}</p>
-      <div class="account-usage-files">
-        <div class="account-usage-head">
-          <span class="account-usage-label">Files</span>
-          <span class="account-usage-value">${escapeHtml(formatStorageBytes(usedBytes))} of ${escapeHtml(formatStorageBytes(maxBytes))}</span>
-        </div>
-        <div class="account-usage-track" aria-hidden="true">
-          <span class="account-usage-fill" style="width: ${storageFill}%"></span>
-        </div>
-        <p class="account-usage-note">Processed documents use extra space not shown here.</p>
-      </div>
     </div>
   `;
 }

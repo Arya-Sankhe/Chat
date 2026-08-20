@@ -403,17 +403,17 @@ test("quota SQL locks the profile and sums pending plus uploaded", () => {
   assert.equal((sql.match(/perform 1 from public\.profiles where id = p_user_id for update/g) || []).length, 3);
 });
 
-test("account UI lists files, formats GB, and refetches after deletes", () => {
+test("account UI hides storage management while Settings keeps the usage meter", () => {
   const app = readFileSync(resolve(here, "../public/js/app.js"), "utf8");
   const api = readFileSync(resolve(here, "../public/js/api.js"), "utf8");
   const html = readFileSync(resolve(here, "../public/index.html"), "utf8");
   const uploads = readFileSync(resolve(here, "../server/routes/uploads.js"), "utf8");
   const storageUi = app.slice(app.indexOf("function openStorageDrawer"), app.indexOf("/* ─── Projects"));
   assert.match(html, /id="accountStorageList"/);
-  assert.match(html, /id="profileMenuStorage"/);
+  assert.match(html, /class="profile-menu-item hidden"[^>]+id="profileMenuStorage"/);
   assert.match(html, /id="settingsStorageSection"/);
   assert.match(html, /role="progressbar"[^>]+aria-label="Storage used"/);
-  assert.match(storageUi, /account-usage-label">Files/);
+  assert.doesNotMatch(storageUi, /account-usage-label">Files/);
   assert.match(storageUi, /10 \* 1024 \* 1024 \* 1024 \? 0 : 1\)\} GB/);
   assert.match(storageUi, /Incomplete upload/);
   assert.match(storageUi, /other file/);
