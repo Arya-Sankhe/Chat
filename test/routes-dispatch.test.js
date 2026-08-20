@@ -487,6 +487,32 @@ test("project ownership is accepted only for document uploads", async () => {
   assert.equal(created, false);
 });
 
+test("document presign enforces the current plan's single-file limit", async () => {
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    R2_ACCOUNT_ID: "account-1",
+    R2_ACCESS_KEY_ID: "r2-key",
+    R2_SECRET_ACCESS_KEY: "r2-secret",
+    R2_BUCKET: "uploads",
+    DOCUMENT_MAX_FILE_BYTES: String(100 * 1024 * 1024),
+    TEST_PLAN_ID: "lite"
+  });
+  const res = await dispatch(config, {
+    method: "POST",
+    path: "/api/uploads/presign",
+    body: {
+      category: "document",
+      contentType: "application/pdf",
+      fileName: "large.pdf",
+      sizeBytes: 50 * 1024 * 1024 + 1
+    },
+    overrides: stubbedDeps()
+  });
+
+  assert.equal(res.statusCode, 413);
+  assert.match(res.json().error, /50MB or smaller/);
+});
+
 test("document upload completion queues extraction through one atomic RPC", async () => {
   const calls = [];
   const attachment = {
