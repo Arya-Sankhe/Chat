@@ -5,6 +5,7 @@ import * as billing from "./rest/billing.js";
 import * as caches from "./rest/caches.js";
 import * as chat from "./rest/chat.js";
 import * as documents from "./rest/documents.js";
+import * as memory from "./rest/memory.js";
 import * as desktop from "./rest/desktop.js";
 import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
@@ -200,6 +201,22 @@ export class SupabaseRest {
 
   async updateMessage(userId, messageId, patch, options) {
     return chat.updateMessage(this, userId, messageId, patch, options);
+  }
+
+  async getUserMemory(userId, options) {
+    return memory.getUserMemory(this, userId, options);
+  }
+
+  async upsertUserMemory(row, options) {
+    return memory.upsertUserMemory(this, row, options);
+  }
+
+  async updateUserMemory(userId, version, patch, options) {
+    return memory.updateUserMemory(this, userId, version, patch, options);
+  }
+
+  async listUserMemoryMessages(userId, after, options) {
+    return memory.listUserMemoryMessages(this, userId, after, options);
   }
 
   async submitDocumentTurn(params, options) {

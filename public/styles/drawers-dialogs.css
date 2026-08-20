@@ -182,28 +182,168 @@
 
 .settings-panel {
 
-  width: min(640px, 100%);
+  display: grid;
 
-  max-height: calc(100dvh - 64px);
+  grid-template-columns: 210px minmax(0, 1fr);
+
+  width: min(900px, 100%);
+
+  height: min(680px, calc(100dvh - 64px));
 
   background: var(--bg);
 
   border: 1px solid var(--border-light);
 
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
 
-  padding: 24px 28px;
+  padding: 0;
 
   box-shadow: var(--shadow-lg);
 
-  overflow-y: auto;
+  overflow: hidden;
 
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 12px;
+  border-right: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+}
+
+.settings-nav-brand {
+  margin: 0 10px 22px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tab:hover,
+.settings-tab.active {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.settings-main {
+  min-width: 0;
+  padding: 24px 30px 30px;
+  overflow-y: auto;
+}
+
+.settings-main > .drawer-header {
+  position: sticky;
+  top: -24px;
+  z-index: 2;
+  margin: -24px 0 0;
+  padding: 24px 0 16px;
+  background: var(--bg);
+}
+
+.settings-main > .drawer-header strong {
+  font-size: 20px;
 }
 
 .settings-section {
 
   margin-top: 24px;
 
+}
+
+.settings-storage-manage {
+  margin-top: 32px;
+}
+
+.settings-storage-manage > p {
+  margin: -6px 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.settings-storage-manage .storage-list {
+  max-height: 330px;
+  overflow-y: auto;
+}
+
+.memory-toggle-card {
+  padding: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  background: var(--bg-secondary);
+}
+
+.memory-privacy,
+.memory-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.memory-privacy {
+  margin: 14px 2px 24px;
+}
+
+.memory-empty {
+  padding: 28px 20px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.memory-editor label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.memory-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.memory-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.admin-load.danger {
+  color: var(--danger, #d14343);
+}
+
+.settings-notice {
+  min-height: 18px;
+  margin: 10px 2px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .settings-section h2 {
@@ -416,11 +556,57 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 }
 
 .settings-switch-row input {
-  width: 38px;
-  height: 22px;
+  appearance: none;
+  width: 42px;
+  height: 24px;
   flex: 0 0 auto;
-  accent-color: var(--accent);
+  border-radius: var(--radius-full);
+  background: var(--border);
+  box-shadow: inset 0 0 0 1px var(--border);
   cursor: pointer;
+  transition: background var(--transition);
+}
+
+.settings-switch-row input::after {
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 3px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: var(--shadow-sm);
+  content: "";
+  transition: transform var(--transition);
+}
+
+.settings-switch-row input:checked {
+  background: var(--accent);
+}
+
+.settings-switch-row input:checked::after {
+  transform: translateX(18px);
+}
+
+@media (max-width: 720px) {
+  .settings-drawer { padding: 10px; }
+  .settings-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: calc(100dvh - 20px);
+    border-radius: 18px;
+  }
+  .settings-nav {
+    flex-direction: row;
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+    overflow-x: auto;
+  }
+  .settings-nav-brand { display: none; }
+  .settings-tab { justify-content: center; min-width: 108px; }
+  .settings-main { padding: 20px 18px 24px; }
+  .settings-main > .drawer-header { top: -20px; margin-top: -20px; padding-top: 20px; }
+  .wallpaper-picker { grid-template-columns: repeat(5, minmax(88px, 1fr)); }
 }
 
 .text-scale-row {

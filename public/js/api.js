@@ -119,6 +119,29 @@ export async function fetchMe(session) {
   return response.json();
 }
 
+export async function fetchMemory(session) {
+  const response = await apiFetch("/api/memory", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateMemory(session, body) {
+  const response = await apiFetch("/api/memory", {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function clearMemory(session) {
+  const response = await apiFetch("/api/memory", { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchModels(session) {
   const response = await apiFetch("/api/models", { session });
   if (!response.ok) throw new Error(await readProblem(response));

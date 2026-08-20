@@ -5,6 +5,7 @@ import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
+import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
   handleAdminPaymentRequests,
@@ -124,6 +125,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/me" && req.method === "GET") {
       await handleMe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/memory") {
+      await handleMemory(req, res, config);
       return;
     }
 

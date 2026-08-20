@@ -1,6 +1,7 @@
 import {
   configureApiAuth,
   approveAdminPayment,
+  clearMemory,
   cancelResearch,
   cancelPendingDocumentTurn,
   createConversation,
@@ -22,6 +23,7 @@ import {
   fetchDocumentJobStatus,
   fetchDocumentStatus,
   fetchMe,
+  fetchMemory,
   fetchModels,
   fetchPlans,
   fetchProject,
@@ -42,9 +44,10 @@ import {
   streamConversationMessage,
   streamTemporaryChat,
   updateAdminSettings,
+  updateMemory,
   transcribeSpeech,
   uploadFile
-} from "./api.js?v=20260819-storage";
+} from "./api.js?v=20260820-memory";
 import {
   clearSession,
   loadSession,
@@ -302,6 +305,7 @@ const state = {
   pendingDeleteAttachmentId: "",
   pendingDeleteProjectId: "",
   storage: null,
+  memory: null,
   pendingRenameId: "",
   openConversationMenuId: "",
   editingMessageId: "",
@@ -622,6 +626,8 @@ const els = {
   settingsReasoningSection: document.querySelector("#settingsReasoningSection"),
   settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
+  settingsTabs: document.querySelector("#settingsTabs"),
+  settingsTitle: document.querySelector("#settingsTitle"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
   temperatureInput: document.querySelector("#temperatureInput"),
   topPInput: document.querySelector("#topPInput"),
@@ -641,6 +647,14 @@ const els = {
   settingsStorageLeft: document.querySelector("#settingsStorageLeft"),
   settingsStorageTrack: document.querySelector("#settingsStorageTrack"),
   settingsStorageFill: document.querySelector("#settingsStorageFill"),
+  settingsStorageList: document.querySelector("#settingsStorageList"),
+  memoryEnabledInput: document.querySelector("#memoryEnabledInput"),
+  memoryContentInput: document.querySelector("#memoryContentInput"),
+  memoryEditor: document.querySelector("#memoryEditor"),
+  memoryEmpty: document.querySelector("#memoryEmpty"),
+  memoryNotice: document.querySelector("#memoryNotice"),
+  saveMemoryButton: document.querySelector("#saveMemoryButton"),
+  clearMemoryButton: document.querySelector("#clearMemoryButton"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
@@ -2406,9 +2420,7 @@ function renderSettingsStorage() {
   const storage = state.me?.usage?.storage || {};
   const maxBytes = Number(storage.maxBytes || state.me?.plan?.maxStorageBytes || 0);
   const usedBytes = Math.max(0, Number(storage.usedBytes || 0));
-  const visible = Boolean(state.session && maxBytes > 0);
-  els.settingsStorageSection.classList.toggle("hidden", !visible);
-  if (!visible) return;
+  if (!state.session || maxBytes <= 0) return;
   const percent = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || (usedBytes / maxBytes) * 100))));
   const value = `${formatStorageBytes(usedBytes)} of ${formatStorageBytes(maxBytes)} used`;
   els.settingsStorageValue.textContent = value;
@@ -2618,12 +2630,14 @@ function storageItemById(id) {
 }
 
 async function loadAccountStorage() {
-  if (!state.session || !els.accountStorageList) return;
+  if (!state.session || (!els.accountStorageList && !els.settingsStorageList)) return;
   try {
     state.storage = await fetchStorage(state.session);
     renderAccountStorageList();
   } catch (error) {
-    els.accountStorageList.innerHTML = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
+    const markup = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
+    if (els.accountStorageList) els.accountStorageList.innerHTML = markup;
+    if (els.settingsStorageList) els.settingsStorageList.innerHTML = markup;
   }
 }
 
@@ -2632,21 +2646,20 @@ function refreshAccountStorage() {
     .then(() => {
       renderProfileMenu();
       renderSettingsStorage();
-      if (!els.accountDrawer.classList.contains("open")) return;
-      renderAccount();
+      if (els.accountDrawer.classList.contains("open")) renderAccount();
       return loadAccountStorage();
     })
     .catch(() => {});
 }
 
 function renderAccountStorageList() {
-  if (!els.accountStorageList) return;
   const items = state.storage?.items || [];
+  const targets = [els.accountStorageList, els.settingsStorageList].filter(Boolean);
   if (!items.length) {
-    els.accountStorageList.innerHTML = `<p class="storage-list-empty">No files yet.</p>`;
+    targets.forEach((target) => { target.innerHTML = `<p class="storage-list-empty">No files yet.</p>`; });
     return;
   }
-  els.accountStorageList.innerHTML = items.map((item) => {
+  const markup = items.map((item) => {
     const actions = item.canDelete
       ? `<button class="admin-small-btn danger" type="button" data-storage-delete-file="${escapeHtml(item.id)}">Delete</button>`
       : item.conversationId
@@ -2662,6 +2675,7 @@ function renderAccountStorageList() {
         <div class="storage-row-actions">${actions}</div>
       </div>`;
   }).join("");
+  targets.forEach((target) => { target.innerHTML = markup; });
 }
 
 function handleAccountStorageClick(event) {
@@ -2676,6 +2690,7 @@ function handleAccountStorageClick(event) {
 
   if (openChat) {
     closeAccount();
+    closeSettings();
     void openConversation(item.conversationId);
     return;
   }
@@ -5738,10 +5753,121 @@ function closeLightbox() {
 function openSettings() {
   document.body.classList.remove("sidebar-open");
   syncSettingsInputs();
+  setSettingsTab("general");
   els.settingsDrawer.classList.add("open");
   els.settingsDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
   els.overlay.dataset.mode = "settings";
+}
+
+function renderMemorySettings() {
+  const memory = state.memory || { enabled: false, content: "" };
+  if (els.memoryEnabledInput) els.memoryEnabledInput.checked = Boolean(memory.enabled);
+  if (els.memoryContentInput && document.activeElement !== els.memoryContentInput) {
+    els.memoryContentInput.value = memory.content || "";
+  }
+  els.memoryEditor?.classList.toggle("hidden", !memory.enabled);
+  els.memoryEmpty?.classList.toggle("hidden", Boolean(memory.enabled));
+}
+
+async function loadMemorySettings() {
+  if (!state.session) return;
+  if (els.memoryNotice) els.memoryNotice.textContent = "Loading memory...";
+  try {
+    const payload = await fetchMemory(state.session);
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not load memory.";
+  }
+}
+
+async function setMemoryEnabled(enabled) {
+  if (!els.memoryEnabledInput) return;
+  if (!state.session) {
+    renderMemorySettings();
+    return;
+  }
+  els.memoryEnabledInput.disabled = true;
+  if (els.memoryNotice) els.memoryNotice.textContent = enabled ? "Turning memory on..." : "Turning memory off...";
+  try {
+    const payload = await updateMemory(state.session, { enabled });
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) {
+      els.memoryNotice.textContent = enabled
+        ? "Memory is on. Only new messages you send from now on can be remembered."
+        : "Memory is off. Your existing summary is kept but will not be used or updated.";
+    }
+  } catch (error) {
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not update memory.";
+  } finally {
+    els.memoryEnabledInput.disabled = false;
+  }
+}
+
+async function saveMemorySettings() {
+  if (!state.session || !els.memoryContentInput) return;
+  els.saveMemoryButton.disabled = true;
+  if (els.memoryNotice) els.memoryNotice.textContent = "Saving...";
+  try {
+    const payload = await updateMemory(state.session, { content: els.memoryContentInput.value });
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "Saved. Changes apply to future replies.";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not save memory.";
+  } finally {
+    els.saveMemoryButton.disabled = false;
+  }
+}
+
+async function clearMemorySettings() {
+  if (!state.session || !els.clearMemoryButton) return;
+  if (els.clearMemoryButton.dataset.confirming !== "true") {
+    els.clearMemoryButton.dataset.confirming = "true";
+    els.clearMemoryButton.textContent = "Confirm clear";
+    if (els.memoryNotice) els.memoryNotice.textContent = "This permanently removes the whole memory summary.";
+    setTimeout(() => {
+      if (els.clearMemoryButton?.dataset.confirming !== "true") return;
+      delete els.clearMemoryButton.dataset.confirming;
+      els.clearMemoryButton.textContent = "Clear memory";
+    }, 5000);
+    return;
+  }
+  delete els.clearMemoryButton.dataset.confirming;
+  els.clearMemoryButton.textContent = "Clear memory";
+  els.clearMemoryButton.disabled = true;
+  try {
+    const payload = await clearMemory(state.session);
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "Memory cleared.";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not clear memory.";
+  } finally {
+    els.clearMemoryButton.disabled = false;
+  }
+}
+
+function setSettingsTab(tab) {
+  const selected = ["general", "memory", "storage"].includes(tab) ? tab : "general";
+  els.settingsTabs?.querySelectorAll("[data-settings-tab]").forEach((button) => {
+    const active = button.dataset.settingsTab === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-settings-panel], #settingsTextScaleSection").forEach((panel) => {
+    panel.hidden = (panel.dataset.settingsPanel || "general") !== selected;
+  });
+  if (els.settingsTitle) els.settingsTitle.textContent = selected[0].toUpperCase() + selected.slice(1);
+  if (selected === "memory" && !state.memory) void loadMemorySettings();
+  if (selected === "storage") {
+    if (els.settingsStorageList) els.settingsStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
+    void Promise.all([loadMe(), loadAccountStorage()]).then(renderSettingsStorage).catch(() => {});
+  }
 }
 
 function closeSettings() {
@@ -7636,6 +7762,7 @@ async function signOutAndReset() {
   stopExtractedModulePollers();
   state.session = null;
   state.me = null;
+  state.memory = null;
   state.paymentRequests = [];
   state.conversations = [];
   conversationCache.clear();
@@ -8105,6 +8232,7 @@ function bindEvents() {
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
   els.accountStorageList?.addEventListener("click", handleAccountStorageClick);
+  els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
   els.settingsButtonAlt?.addEventListener("click", () => {
     closeActionMenu();
     openSettings();
@@ -8144,6 +8272,13 @@ function bindEvents() {
   });
   els.researchPrint?.addEventListener("click", () => window.print());
   els.closeSettingsButton.addEventListener("click", closeSettings);
+  els.settingsTabs?.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-settings-tab]");
+    if (tab) setSettingsTab(tab.dataset.settingsTab);
+  });
+  els.memoryEnabledInput?.addEventListener("change", (event) => { void setMemoryEnabled(event.target.checked); });
+  els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
+  els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
   els.settingsDrawer?.addEventListener("click", (event) => {
     if (!els.settingsDrawer.classList.contains("open")) return;
     if (event.target.closest(".settings-panel")) return;

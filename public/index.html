@@ -420,14 +420,30 @@
 
         <aside class="settings-drawer" id="settingsDrawer" aria-label="Settings" aria-hidden="true">
           <div class="settings-panel">
+            <nav class="settings-nav" id="settingsTabs" aria-label="Settings sections">
+              <div class="settings-nav-brand">Settings</div>
+              <button class="settings-tab active" type="button" aria-pressed="true" data-settings-tab="general">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.36.7.66.96.3.25.68.4 1.07.4H21v4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+                General
+              </button>
+              <button class="settings-tab" type="button" aria-pressed="false" data-settings-tab="memory">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a5 5 0 0 0-4.55 7.08A4 4 0 0 0 9 18h1v3h4v-3h1a4 4 0 0 0 1.55-7.68A5 5 0 0 0 12 3Z"/><path d="M9 10h6M10 14h4"/></svg>
+                Memory
+              </button>
+              <button class="settings-tab" type="button" aria-pressed="false" data-settings-tab="storage">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 5h13l3 7v6a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2v-6l3-7Z"/><path d="M3 12h18M7 16h.01M11 16h.01"/></svg>
+                Storage
+              </button>
+            </nav>
+            <div class="settings-main">
             <div class="drawer-header">
-              <strong>Settings</strong>
+              <strong id="settingsTitle">General</strong>
               <button class="drawer-close" id="closeSettingsButton" type="button" aria-label="Close settings">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
 
-            <section class="settings-section">
+            <section class="settings-section" data-settings-panel="general">
               <h2>Appearance</h2>
               <div class="appearance-pill" id="appearancePill" role="radiogroup" aria-label="Appearance">
                 <button type="button" data-appearance="light" role="radio" aria-checked="false">Light</button>
@@ -436,7 +452,7 @@
               </div>
             </section>
 
-            <section class="settings-section">
+            <section class="settings-section" data-settings-panel="general">
               <h2>Wallpaper</h2>
               <div class="wallpaper-picker" id="wallpaperPicker" role="radiogroup" aria-label="Home wallpaper">
                 <button type="button" class="wallpaper-option" data-wallpaper="none" role="radio" aria-checked="false">
@@ -462,7 +478,7 @@
               </div>
             </section>
 
-            <section class="settings-section">
+            <section class="settings-section" data-settings-panel="general">
               <h2>Accent color</h2>
               <div class="color-preset-row" id="colorPresetRow" role="group" aria-label="Accent color">
                 <button type="button" class="color-swatch" data-accent="default" title="Default" aria-label="Default" aria-pressed="true"><span class="color-swatch-dot" data-swatch="default"></span></button>
@@ -476,8 +492,8 @@
               </div>
             </section>
 
-            <section class="settings-section hidden" id="settingsStorageSection">
-              <h2>Storage</h2>
+            <section class="settings-section" id="settingsStorageSection" data-settings-panel="storage" hidden>
+              <h2>Your storage</h2>
               <div class="settings-storage">
                 <div class="settings-storage-head">
                   <span class="settings-storage-icon" aria-hidden="true">
@@ -492,6 +508,34 @@
                   <span id="settingsStorageFill"></span>
                 </div>
               </div>
+              <div class="settings-storage-manage">
+                <h2>Manage files</h2>
+                <p>Open chats or remove uploads to free up space.</p>
+                <div class="storage-list" id="settingsStorageList"></div>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-panel="memory" hidden>
+              <div class="memory-toggle-card">
+                <label class="settings-switch-row" for="memoryEnabledInput">
+                  <span>
+                    <strong>Enable memory</strong>
+                    <small>Let Klui remember useful details for future chats.</small>
+                  </span>
+                  <input id="memoryEnabledInput" type="checkbox" role="switch">
+                </label>
+              </div>
+              <p class="memory-privacy">Memory starts with messages you send after you turn it on. Klui never learns from AI replies, uploaded files, images, tool results, generated documents, or temporary chats.</p>
+              <div class="memory-editor hidden" id="memoryEditor">
+                <label for="memoryContentInput">Memory summary</label>
+                <textarea id="memoryContentInput" rows="12" maxlength="6000" spellcheck="true" placeholder="Klui will add useful preferences and details here as you chat."></textarea>
+                <div class="memory-actions">
+                  <button class="admin-load danger" id="clearMemoryButton" type="button">Clear memory</button>
+                  <button class="admin-load" id="saveMemoryButton" type="button">Save changes</button>
+                </div>
+              </div>
+              <div class="memory-empty" id="memoryEmpty">Turn memory on to start building a private, editable summary from your future messages.</div>
+              <p class="settings-notice" id="memoryNotice" role="status" aria-live="polite"></p>
             </section>
 
             <section class="settings-section hidden" id="settingsTextScaleSection">
@@ -504,7 +548,7 @@
               </div>
             </section>
 
-            <section class="settings-section hidden" id="settingsModelParamsSection">
+            <section class="settings-section hidden" id="settingsModelParamsSection" data-settings-panel="general">
               <h2>Model parameters</h2>
               <div class="field-grid">
                 <label>
@@ -526,7 +570,7 @@
               </div>
             </section>
 
-            <section class="settings-section hidden" id="settingsReasoningSection">
+            <section class="settings-section hidden" id="settingsReasoningSection" data-settings-panel="general">
               <h2>Reasoning display</h2>
               <label class="settings-switch-row" for="showModelReasoningInput">
                 <span>
@@ -537,13 +581,14 @@
               </label>
             </section>
 
-            <section class="settings-section hidden" id="settingsSystemPromptSection">
+            <section class="settings-section hidden" id="settingsSystemPromptSection" data-settings-panel="general">
               <h2>System prompt</h2>
               <div class="field-group">
                 <textarea id="systemPromptInput" rows="4" spellcheck="true"></textarea>
               </div>
               <button class="admin-load settings-save-btn" id="saveSystemPromptButton" type="button">Save global prompt</button>
             </section>
+            </div>
           </div>
         </aside>
 
