@@ -183,9 +183,11 @@ export function adaptChatRequestForProvider(body, providerId) {
     providerPrefs.allow_fallbacks = true;
   }
   if (isProModel) {
-    adapted.service_tier = "flex";
-    providerPrefs.order = ["openai/flex"];
-    providerPrefs.allow_fallbacks = false;
+    delete adapted.service_tier;
+    providerPrefs.order = ["openai/flex", "openai"];
+    providerPrefs.allow_fallbacks = true;
+    providerPrefs.preferred_max_latency = 6;
+    providerPrefs.preferred_min_throughput = 25;
   }
 
   if (hasTools) {

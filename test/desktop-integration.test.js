@@ -217,10 +217,8 @@ test("desktop chat pins the funded ceiling and rejects oversized screenshots", (
     stream: true,
     messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:image/png;base64,${png.toString("base64")}` } }] }]
   }, config);
-  assert.equal(body.service_tier, "flex");
+  assert.equal(body.service_tier, undefined);
   assert.deepEqual(body.provider, {
-    order: ["openai/flex"],
-    allow_fallbacks: false,
     max_price: { prompt: 0.2, completion: 1.2 }
   });
   assert.doesNotThrow(() => validatedChatBody({

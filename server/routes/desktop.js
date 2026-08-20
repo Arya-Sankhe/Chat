@@ -191,10 +191,7 @@ export function validatedChatBody(body, config) {
     stream: true,
     max_tokens: config.desktop.maxCompletionTokens,
     reasoning_effort: "high",
-    service_tier: "flex",
     provider: {
-      order: ["openai/flex"],
-      allow_fallbacks: false,
       max_price: {
         prompt: config.desktop.maxPromptPricePerMillion,
         completion: config.desktop.maxCompletionPricePerMillion
