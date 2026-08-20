@@ -691,12 +691,11 @@ export function createDocumentViewer({
     if (!state.viewer.open) return;
     const transitionToken = ++viewerTransitionToken;
     const exitAnimation = animateViewer(false);
-    let savePromise = Promise.resolve();
     if (editorController) {
       pendingMarkdown = editorController.getMarkdown();
-      savePromise = saveEditorNow().catch(() => {});
+      void saveEditorNow().catch(() => {});
     }
-    await Promise.all([exitAnimation, savePromise]);
+    await exitAnimation;
     if (transitionToken !== viewerTransitionToken) return;
     destroyEditor();
     destroyOfficeViewer();

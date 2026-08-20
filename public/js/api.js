@@ -119,6 +119,29 @@ export async function fetchMe(session) {
   return response.json();
 }
 
+export async function fetchMemory(session) {
+  const response = await apiFetch("/api/memory", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateMemory(session, body) {
+  const response = await apiFetch("/api/memory", {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function clearMemory(session) {
+  const response = await apiFetch("/api/memory", { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchModels(session) {
   const response = await apiFetch("/api/models", { session });
   if (!response.ok) throw new Error(await readProblem(response));
@@ -456,10 +479,7 @@ export async function putUploadContent(session, upload, file, category = upload.
   try {
     const put = await fetch(upload.uploadUrl, {
       method: upload.method || "PUT",
-      headers: {
-        ...(upload.headers || {}),
-        "content-type": file.type || "application/octet-stream"
-      },
+      headers: { ...(upload.headers || {}) },
       body: file,
       signal
     });
@@ -488,6 +508,12 @@ export async function uploadFile(session, file, { signal } = {}) {
 
 export async function fetchDocumentStatus(session, attachmentId) {
   const response = await apiFetch(`/api/documents/${encodeURIComponent(attachmentId)}/status`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStorage(session) {
+  const response = await apiFetch("/api/storage", { session });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }

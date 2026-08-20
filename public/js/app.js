@@ -1,6 +1,7 @@
 import {
   configureApiAuth,
   approveAdminPayment,
+  clearMemory,
   cancelResearch,
   cancelPendingDocumentTurn,
   createConversation,
@@ -22,9 +23,11 @@ import {
   fetchDocumentJobStatus,
   fetchDocumentStatus,
   fetchMe,
+  fetchMemory,
   fetchModels,
   fetchPlans,
   fetchProject,
+  fetchStorage,
   fetchResearchReport,
   fetchResearchStatus,
   fetchZiinaPaymentRequests,
@@ -41,6 +44,7 @@ import {
   streamConversationMessage,
   streamTemporaryChat,
   updateAdminSettings,
+  updateMemory,
   transcribeSpeech,
   uploadFile,
   fetchStudyOverview,
@@ -57,7 +61,7 @@ import {
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
   exportStudyNote
-} from "./api.js?v=20260820-review-ui";
+} from "./api.js?v=20260820-study-merge";
 import {
   clearSession,
   loadSession,
@@ -99,7 +103,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260820-close-z";
+import { createStudyHubController } from "./studyHub.js?v=20260820-study-merge";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -324,6 +328,8 @@ const state = {
   pendingDeleteId: "",
   pendingDeleteAttachmentId: "",
   pendingDeleteProjectId: "",
+  storage: null,
+  memory: null,
   pendingRenameId: "",
   openConversationMenuId: "",
   editingMessageId: "",
@@ -388,6 +394,7 @@ const sideChatState = {
 const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
 const conversationCache = new Map();
+let conversationLoadGeneration = 0;
 
 function rememberConversation(id, messages) {
   if (!id) return;
@@ -472,7 +479,7 @@ function endConversationRun(key) {
 }
 
 function parkActiveConversationRun() {
-  if (state.activeConversationId && !state.temporaryChat) {
+  if (state.activeConversationId && !state.temporaryChat && !state.conversationLoading) {
     rememberConversation(state.activeConversationId, state.messages);
   }
   const key = conversationRunKey();
@@ -560,6 +567,7 @@ const els = {
   searchDialog: document.querySelector("#searchDialog"),
   searchChatInput: document.querySelector("#searchChatInput"),
   searchChatResults: document.querySelector("#searchChatResults"),
+  searchChatStatus: document.querySelector("#searchChatStatus"),
   searchDialogClose: document.querySelector("#searchDialogClose"),
   accountButton: document.querySelector("#accountButton"),
   profileAvatar: document.querySelector("#profileAvatar"),
@@ -571,6 +579,7 @@ const els = {
   profileMenuUsage: document.querySelector("#profileMenuUsage"),
   profileMenuUpgrade: document.querySelector("#profileMenuUpgrade"),
   profileMenuSettings: document.querySelector("#profileMenuSettings"),
+  profileMenuStorage: document.querySelector("#profileMenuStorage"),
   profileMenuAdmin: document.querySelector("#profileMenuAdmin"),
   profileMenuSignOut: document.querySelector("#profileMenuSignOut"),
   conversationList: document.querySelector("#conversationList"),
@@ -663,6 +672,8 @@ const els = {
   settingsReasoningSection: document.querySelector("#settingsReasoningSection"),
   settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
+  settingsTabs: document.querySelector("#settingsTabs"),
+  settingsTitle: document.querySelector("#settingsTitle"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
   temperatureInput: document.querySelector("#temperatureInput"),
   topPInput: document.querySelector("#topPInput"),
@@ -677,9 +688,23 @@ const els = {
   wallpaperPicker: document.querySelector("#wallpaperPicker"),
   homeWallpaper: document.querySelector("#homeWallpaper"),
   colorPresetRow: document.querySelector("#colorPresetRow"),
+  settingsStorageSection: document.querySelector("#settingsStorageSection"),
+  settingsStorageValue: document.querySelector("#settingsStorageValue"),
+  settingsStorageLeft: document.querySelector("#settingsStorageLeft"),
+  settingsStorageTrack: document.querySelector("#settingsStorageTrack"),
+  settingsStorageFill: document.querySelector("#settingsStorageFill"),
+  settingsStorageList: document.querySelector("#settingsStorageList"),
+  memoryEnabledInput: document.querySelector("#memoryEnabledInput"),
+  memoryContentInput: document.querySelector("#memoryContentInput"),
+  memoryEditor: document.querySelector("#memoryEditor"),
+  memoryEmpty: document.querySelector("#memoryEmpty"),
+  memoryNotice: document.querySelector("#memoryNotice"),
+  saveMemoryButton: document.querySelector("#saveMemoryButton"),
+  clearMemoryButton: document.querySelector("#clearMemoryButton"),
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
+  accountStorageList: document.querySelector("#accountStorageList"),
   signOutButton: document.querySelector("#signOutButton"),
   adminSection: document.querySelector("#adminSection"),
   loadAdminButton: document.querySelector("#loadAdminButton"),
@@ -2207,6 +2232,7 @@ function renderShell() {
   studyHub?.render();
   renderProjectChatCrumb();
   renderAdminOnlyControls();
+  renderSettingsStorage();
 
   if (!servicesReady()) {
     renderServices();
@@ -2315,13 +2341,13 @@ function renderPlans() {
       tagline: "For light everyday use",
       features: ["Access to premium models", "Model compare"]
     },
-    essential: {
+    pro: {
       tagline: "For regular everyday use",
       badge: "Most popular",
-      usage: "3.5x more usage",
+      usage: "3x more usage",
       features: ["Access to premium models", "Model compare", "Model council"]
     },
-    pro: {
+    max: {
       tagline: "For pro workflows",
       usage: "6x more usage",
       features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
@@ -2426,15 +2452,52 @@ function toggleProfileMenu() {
   els.accountButton?.setAttribute("aria-expanded", "true");
 }
 
-function openAdminDrawer() {
+function openStorageDrawer() {
   if (!state.session) return;
   closeProfileMenu();
   document.body.classList.remove("sidebar-open");
   renderAccount();
+  if (els.accountStorageList) {
+    els.accountStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
+  }
   els.accountDrawer.classList.add("open");
   els.accountDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
   els.overlay.dataset.mode = "account";
+  loadMe()
+    .then(() => {
+      renderAccount();
+      renderProfileMenu();
+    })
+    .catch(() => {});
+  loadAccountStorage();
+}
+
+function openAdminDrawer() {
+  document.body.classList.remove("sidebar-open");
+  openStorageDrawer();
+}
+
+function formatStorageBytes(bytes) {
+  const value = Math.max(0, Number(bytes || 0));
+  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
+}
+
+function renderSettingsStorage() {
+  if (!els.settingsStorageSection) return;
+  const storage = state.me?.usage?.storage || {};
+  const maxBytes = Number(storage.maxBytes || state.me?.plan?.maxStorageBytes || 0);
+  const usedBytes = Math.max(0, Number(storage.usedBytes || 0));
+  if (!state.session || maxBytes <= 0) return;
+  const percent = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || (usedBytes / maxBytes) * 100))));
+  const value = `${formatStorageBytes(usedBytes)} of ${formatStorageBytes(maxBytes)} used`;
+  els.settingsStorageValue.textContent = value;
+  els.settingsStorageLeft.textContent = `${formatStorageBytes(Math.max(0, maxBytes - usedBytes))} left`;
+  els.settingsStorageFill.style.width = `${percent}%`;
+  els.settingsStorageTrack.setAttribute("aria-valuenow", String(percent));
+  els.settingsStorageTrack.setAttribute("aria-valuetext", value);
 }
 
 function renderAccountUsageMarkup() {
@@ -2620,6 +2683,109 @@ function renderAccount() {
     ${renderAccountUsageMarkup()}
   `;
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");
+}
+
+function storageItemWhere(item) {
+  const where = item.conversationId
+    ? (item.conversationTitle ? `Chat ${item.conversationTitle}` : "Chat")
+    : item.projectId
+      ? (item.projectName ? `Project ${item.projectName}` : "Project")
+      : "Not in a chat";
+  if (item.status && item.status !== "uploaded") return `${where} · Incomplete upload`;
+  return where;
+}
+
+function storageItemById(id) {
+  return (state.storage?.items || []).find((item) => item.id === id) || null;
+}
+
+async function loadAccountStorage() {
+  if (!state.session || (!els.accountStorageList && !els.settingsStorageList)) return;
+  try {
+    state.storage = await fetchStorage(state.session);
+    renderAccountStorageList();
+  } catch (error) {
+    const markup = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
+    if (els.accountStorageList) els.accountStorageList.innerHTML = markup;
+    if (els.settingsStorageList) els.settingsStorageList.innerHTML = markup;
+  }
+}
+
+function refreshAccountStorage() {
+  return loadMe()
+    .then(() => {
+      renderProfileMenu();
+      renderSettingsStorage();
+      if (els.accountDrawer.classList.contains("open")) renderAccount();
+      return loadAccountStorage();
+    })
+    .catch(() => {});
+}
+
+function renderAccountStorageList() {
+  const items = state.storage?.items || [];
+  const targets = [els.accountStorageList, els.settingsStorageList].filter(Boolean);
+  if (!items.length) {
+    targets.forEach((target) => { target.innerHTML = `<p class="storage-list-empty">No files yet.</p>`; });
+    return;
+  }
+  const markup = items.map((item) => {
+    const actions = item.canDelete
+      ? `<button class="admin-small-btn danger" type="button" data-storage-delete-file="${escapeHtml(item.id)}">Delete</button>`
+      : item.conversationId
+        ? `<button class="admin-small-btn" type="button" data-storage-open-chat="${escapeHtml(item.id)}">Open chat</button>
+           <button class="admin-small-btn danger" type="button" data-storage-delete-chat="${escapeHtml(item.id)}">Delete chat</button>`
+        : "";
+    return `
+      <div class="storage-row">
+        <div class="storage-row-copy">
+          <strong>${escapeHtml(item.fileName || "File")}</strong>
+          <small>${escapeHtml(formatStorageBytes(item.sizeBytes))} · ${escapeHtml(storageItemWhere(item))}</small>
+        </div>
+        <div class="storage-row-actions">${actions}</div>
+      </div>`;
+  }).join("");
+  targets.forEach((target) => { target.innerHTML = markup; });
+}
+
+function handleAccountStorageClick(event) {
+  const deleteFile = event.target.closest("[data-storage-delete-file]");
+  const openChat = event.target.closest("[data-storage-open-chat]");
+  const deleteChat = event.target.closest("[data-storage-delete-chat]");
+  if (!deleteFile && !openChat && !deleteChat) return;
+  const item = storageItemById(
+    deleteFile?.dataset.storageDeleteFile || openChat?.dataset.storageOpenChat || deleteChat?.dataset.storageDeleteChat
+  );
+  if (!item) return;
+
+  if (openChat) {
+    closeAccount();
+    closeSettings();
+    void openConversation(item.conversationId);
+    return;
+  }
+
+  if (deleteFile) {
+    const searchNote = item.projectId ? " This also deletes search data for that project file." : "";
+    openDeleteConfirm({
+      title: "Delete file?",
+      body: `Remove "${item.fileName || "this file"}"?${searchNote}`,
+      attachmentId: item.id
+    });
+    return;
+  }
+
+  if (!item.conversationId) return;
+  const title = item.conversationTitle || "New chat";
+  const others = Math.max(0, Number(item.siblingCount || 0) - 1);
+  const extra = others
+    ? ` This also deletes ${others} other file${others === 1 ? "" : "s"} in '${title}' (${formatStorageBytes(item.siblingBytes)} in that chat).`
+    : "";
+  openDeleteConfirm({
+    title: "Delete chat?",
+    body: `Delete "${title}" from your account?${extra}`,
+    chatId: item.conversationId
+  });
 }
 
 /* ─── Projects ─── */
@@ -2927,6 +3093,7 @@ async function uploadProjectFiles(files) {
         return await completeUpload(state.session, presigned.uploadId);
       } catch (error) {
         await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
+        void refreshAccountStorage();
         throw error;
       }
     }));
@@ -3255,14 +3422,25 @@ function renderSearchResults(query = "") {
   const bodyHits = bodySearchHits(query).filter((hit) => hit?.conversation_id && !titleIds.has(hit.conversation_id));
   const bodyStatus = query.trim() === searchBodyHitsQuery ? searchBodyStatus : "idle";
   const statusHtml = bodyStatus === "pending"
-    ? `<div class="search-dialog-empty" role="status">Searching messages…</div>`
+    ? `<div class="search-dialog-empty">Searching messages…</div>`
     : bodyStatus === "error"
-      ? `<div class="search-dialog-empty" role="status">Message search is unavailable. Try again.</div>`
+      ? `<div class="search-dialog-empty">Message search is unavailable. Try again.</div>`
       : "";
-  els.searchChatResults.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
+  const emptyStatus = !matches.length && !bodyHits.length
+    ? (needle ? "No chats found." : "No chats yet.")
+    : "";
+  const statusText = bodyStatus === "pending"
+    ? "Searching messages…"
+    : bodyStatus === "error"
+      ? "Message search is unavailable. Try again."
+      : emptyStatus;
+  els.searchChatStatus?.setAttribute("aria-busy", bodyStatus === "pending" ? "true" : "false");
+  if (els.searchChatStatus && els.searchChatStatus.textContent !== statusText) {
+    els.searchChatStatus.textContent = statusText;
+  }
 
   if (!matches.length && !bodyHits.length) {
-    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${needle ? "No chats found." : "No chats yet."}</div>`;
+    els.searchChatResults.innerHTML = statusHtml || `<div class="search-dialog-empty">${emptyStatus}</div>`;
     return;
   }
 
@@ -3444,8 +3622,8 @@ async function openConversation(conversationId) {
     }
     renderImages();
     renderShell();
-    await loadActiveConversation();
-    if (state.activeConversationId !== conversationId) return;
+    const loadResult = await loadActiveConversation();
+    if (state.activeConversationId !== conversationId || loadResult !== "applied") return;
     state.conversationLoading = false;
     renderShell();
     await restorePendingDocuments();
@@ -5091,6 +5269,16 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
+  if (role === "user") {
+    const nextImages = renderUserImages(msg);
+    const prevImages = body.querySelector(":scope > .user-image-strip");
+    const staleImages = prevImages?.querySelector('img[src^="blob:"], [data-preview-src^="blob:"]');
+    if (prevImages && nextImages) {
+      if (staleImages) prevImages.outerHTML = nextImages;
+    }
+    else if (prevImages) prevImages.remove();
+    else if (nextImages) body.insertAdjacentHTML("afterbegin", nextImages);
+  }
   const nextFooter = renderMessageFooter(msg, role);
   const prevFooter = body.querySelector(":scope > .message-footer");
   if (prevFooter && nextFooter) prevFooter.outerHTML = nextFooter;
@@ -5503,6 +5691,7 @@ async function startDocumentUpload(item) {
     if (!state.images.some((entry) => entry.localId === item.localId)) {
       forgetPendingDocument(uploaded.id);
       await deleteAttachment(state.session, uploaded.id).catch(() => {});
+      void refreshAccountStorage();
       return;
     }
     updatePendingDocument(item.localId, {
@@ -5649,10 +5838,121 @@ function closeLightbox() {
 function openSettings() {
   document.body.classList.remove("sidebar-open");
   syncSettingsInputs();
+  setSettingsTab("general");
   els.settingsDrawer.classList.add("open");
   els.settingsDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
   els.overlay.dataset.mode = "settings";
+}
+
+function renderMemorySettings() {
+  const memory = state.memory || { enabled: false, content: "" };
+  if (els.memoryEnabledInput) els.memoryEnabledInput.checked = Boolean(memory.enabled);
+  if (els.memoryContentInput && document.activeElement !== els.memoryContentInput) {
+    els.memoryContentInput.value = memory.content || "";
+  }
+  els.memoryEditor?.classList.toggle("hidden", !memory.enabled);
+  els.memoryEmpty?.classList.toggle("hidden", Boolean(memory.enabled));
+}
+
+async function loadMemorySettings() {
+  if (!state.session) return;
+  if (els.memoryNotice) els.memoryNotice.textContent = "Loading memory...";
+  try {
+    const payload = await fetchMemory(state.session);
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not load memory.";
+  }
+}
+
+async function setMemoryEnabled(enabled) {
+  if (!els.memoryEnabledInput) return;
+  if (!state.session) {
+    renderMemorySettings();
+    return;
+  }
+  els.memoryEnabledInput.disabled = true;
+  if (els.memoryNotice) els.memoryNotice.textContent = enabled ? "Turning memory on..." : "Turning memory off...";
+  try {
+    const payload = await updateMemory(state.session, { enabled });
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) {
+      els.memoryNotice.textContent = enabled
+        ? "Memory is on. Only new messages you send from now on can be remembered."
+        : "Memory is off. Your existing summary is kept but will not be used or updated.";
+    }
+  } catch (error) {
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not update memory.";
+  } finally {
+    els.memoryEnabledInput.disabled = false;
+  }
+}
+
+async function saveMemorySettings() {
+  if (!state.session || !els.memoryContentInput) return;
+  els.saveMemoryButton.disabled = true;
+  if (els.memoryNotice) els.memoryNotice.textContent = "Saving...";
+  try {
+    const payload = await updateMemory(state.session, { content: els.memoryContentInput.value });
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "Saved. Changes apply to future replies.";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not save memory.";
+  } finally {
+    els.saveMemoryButton.disabled = false;
+  }
+}
+
+async function clearMemorySettings() {
+  if (!state.session || !els.clearMemoryButton) return;
+  if (els.clearMemoryButton.dataset.confirming !== "true") {
+    els.clearMemoryButton.dataset.confirming = "true";
+    els.clearMemoryButton.textContent = "Confirm clear";
+    if (els.memoryNotice) els.memoryNotice.textContent = "This permanently removes the whole memory summary.";
+    setTimeout(() => {
+      if (els.clearMemoryButton?.dataset.confirming !== "true") return;
+      delete els.clearMemoryButton.dataset.confirming;
+      els.clearMemoryButton.textContent = "Clear memory";
+    }, 5000);
+    return;
+  }
+  delete els.clearMemoryButton.dataset.confirming;
+  els.clearMemoryButton.textContent = "Clear memory";
+  els.clearMemoryButton.disabled = true;
+  try {
+    const payload = await clearMemory(state.session);
+    state.memory = payload.memory;
+    renderMemorySettings();
+    if (els.memoryNotice) els.memoryNotice.textContent = "Memory cleared.";
+  } catch (error) {
+    if (els.memoryNotice) els.memoryNotice.textContent = error.message || "Could not clear memory.";
+  } finally {
+    els.clearMemoryButton.disabled = false;
+  }
+}
+
+function setSettingsTab(tab) {
+  const selected = ["general", "memory", "storage"].includes(tab) ? tab : "general";
+  els.settingsTabs?.querySelectorAll("[data-settings-tab]").forEach((button) => {
+    const active = button.dataset.settingsTab === selected;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-settings-panel], #settingsTextScaleSection").forEach((panel) => {
+    panel.hidden = (panel.dataset.settingsPanel || "general") !== selected;
+  });
+  if (els.settingsTitle) els.settingsTitle.textContent = selected[0].toUpperCase() + selected.slice(1);
+  if (selected === "memory" && !state.memory) void loadMemorySettings();
+  if (selected === "storage") {
+    if (els.settingsStorageList) els.settingsStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
+    void Promise.all([loadMe(), loadAccountStorage()]).then(renderSettingsStorage).catch(() => {});
+  }
 }
 
 function closeSettings() {
@@ -5738,8 +6038,12 @@ function closeConfirmDialog() {
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
-    els.overlay.hidden = true;
-    delete els.overlay.dataset.mode;
+    if (els.accountDrawer.classList.contains("open")) {
+      els.overlay.dataset.mode = "account";
+    } else {
+      els.overlay.hidden = true;
+      delete els.overlay.dataset.mode;
+    }
   }
 }
 
@@ -5776,6 +6080,7 @@ async function confirmPendingDelete() {
         await loadActiveProject();
         renderProjects();
       }
+      void refreshAccountStorage();
     } catch (error) {
       if (state.activeProjectId === projectId && removedDocument) {
         const documents = [...(state.activeProject?.documents || [])];
@@ -5819,6 +6124,7 @@ async function confirmPendingDelete() {
     renderShell();
     try {
       await deleteProject(state.session, deletedProjectId);
+      void refreshAccountStorage();
     } catch (error) {
       if (deletedProject && !state.projects.some((project) => project.id === deletedProjectId)) {
         state.projects = [deletedProject, ...state.projects];
@@ -5926,6 +6232,7 @@ function syncSettingsInputs() {
   if (els.textScaleInput) els.textScaleInput.value = String(clampTextScale(state.settings.uiTextScale));
   if (els.textScaleValue) els.textScaleValue.textContent = `${clampTextScale(state.settings.uiTextScale)}%`;
   syncAppearanceControls();
+  renderSettingsStorage();
 }
 
 /* Composer border-beam: md while generating, pulse-inner ocean while mic. */
@@ -6584,8 +6891,16 @@ async function loadConversations() {
     state.activeConversationId = "";
   }
   if (!routeConversationId) state.activeConversationId = "";
-  if (state.activeConversationId) await loadActiveConversation();
-  else {
+  if (state.activeConversationId) {
+    const loadResult = await loadActiveConversation();
+    const run = getConversationRun(state.activeConversationId);
+    const hasLiveRun = Boolean(run?.messages) && !(run.mode === "research" && !run.abortController);
+    if (loadResult === "applied" && !hasLiveRun) {
+      state.conversationLoading = false;
+      renderShell();
+      await restorePendingDocuments();
+    }
+  } else {
     state.messages = [];
     stopExtractedModulePollers();
   }
@@ -6594,21 +6909,36 @@ async function loadConversations() {
 
 async function loadActiveConversation() {
   const id = state.activeConversationId;
+  const loadGeneration = ++conversationLoadGeneration;
   if (!id) {
     state.messages = [];
     state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
-    return;
+    return "applied";
   }
   if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
     researchController.resumeResearchPolling();
-    return;
+    return "applied";
   }
+  const cachedAtStart = conversationCache.get(id);
   const payload = await fetchConversation(state.session, id);
+  if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) {
+    if (!getConversationRun(id) && conversationCache.get(id) === cachedAtStart) {
+      rememberConversation(id, payload.messages || []);
+      return "cached";
+    }
+    return false;
+  }
+  if (restoreLiveConversationRun(id)) {
+    state.conversationLoading = false;
+    researchController.resumeResearchPolling();
+    return "applied";
+  }
   rememberConversation(id, payload.messages || []);
-  if (state.activeConversationId !== id) return;
   state.messages = payload.messages || [];
+  state.conversationLoading = false;
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
     return meta?.runId && ["queued", "running"].includes(meta.status);
@@ -6625,6 +6955,7 @@ async function loadActiveConversation() {
   if (pendingTurn && !getConversationRun(state.activeConversationId) && state.resumingTurnId !== pendingTurn.id) {
     setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
   }
+  return "applied";
 }
 
 function restoredTurnAttachment(part) {
@@ -6879,6 +7210,16 @@ async function removeConversation(id) {
   const index = state.conversations.findIndex((conversation) => conversation.id === id);
   if (index < 0) {
     closeConfirmDialog();
+    if (conversationRuns.has(id)) {
+      showToast("Stop the response in this chat before deleting it.");
+      return;
+    }
+    try {
+      await deleteConversation(state.session, id);
+      void refreshAccountStorage();
+    } catch (err) {
+      showToast(err.message || "Chat could not be deleted.");
+    }
     return;
   }
 
@@ -6924,6 +7265,7 @@ async function removeConversation(id) {
 
   try {
     await deleteConversation(state.session, id);
+    void refreshAccountStorage();
   } catch (err) {
     if (!state.conversations.some((conversation) => conversation.id === id)) {
       state.conversations.splice(Math.min(index, state.conversations.length), 0, deletedConversation);
@@ -7578,8 +7920,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey);
     if (shouldReloadConversation && !temporaryChat && stillActive) {
-      const reloaded = await loadActiveConversation().then(() => true).catch(() => false);
-      if (reloaded) {
+      const reloaded = await loadActiveConversation().catch(() => false);
+      if (reloaded === "applied") {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);
       }
       settleLiveMessages({ pinned, scrollTop });
@@ -7615,6 +7957,7 @@ async function signOutAndReset() {
   stopExtractedModulePollers();
   state.session = null;
   state.me = null;
+  state.memory = null;
   state.paymentRequests = [];
   state.conversations = [];
   conversationCache.clear();
@@ -8086,12 +8429,15 @@ function bindEvents() {
     openSettings();
   });
   els.profileMenuUpgrade?.addEventListener("click", openUpgradePlans);
+  els.profileMenuStorage?.addEventListener("click", openStorageDrawer);
   els.profileMenuAdmin?.addEventListener("click", openAdminDrawer);
   els.profileMenuSignOut?.addEventListener("click", () => {
     closeProfileMenu();
     signOutAndReset();
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
+  els.accountStorageList?.addEventListener("click", handleAccountStorageClick);
+  els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
   els.settingsButtonAlt?.addEventListener("click", () => {
     closeActionMenu();
     openSettings();
@@ -8131,6 +8477,13 @@ function bindEvents() {
   });
   els.researchPrint?.addEventListener("click", () => window.print());
   els.closeSettingsButton.addEventListener("click", closeSettings);
+  els.settingsTabs?.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-settings-tab]");
+    if (tab) setSettingsTab(tab.dataset.settingsTab);
+  });
+  els.memoryEnabledInput?.addEventListener("change", (event) => { void setMemoryEnabled(event.target.checked); });
+  els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
+  els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
   els.settingsDrawer?.addEventListener("click", (event) => {
     if (!els.settingsDrawer.classList.contains("open")) return;
     if (event.target.closest(".settings-panel")) return;
@@ -8170,16 +8523,6 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
-      if (!state.session || els.chatView?.classList.contains("hidden")) return;
-      e.preventDefault();
-      if (isSearchDialogOpen()) {
-        els.searchChatInput?.focus();
-        return;
-      }
-      openSearchDialog();
-      return;
-    }
     if (e.key !== "Escape") return;
     if (studyHub.handleEscape()) return;
     if (state.skillMenu.open) { closeSkillMenu(); return; }
@@ -8638,7 +8981,7 @@ function bindEvents() {
       if (removed?.abortController) removed.abortController.abort();
       const deleteId = removed?.attachmentId || removed?.uploadId || "";
       if (deleteId) {
-        deleteAttachment(state.session, deleteId).catch((err) => {
+        deleteAttachment(state.session, deleteId).then(() => refreshAccountStorage()).catch((err) => {
           showToast(err.message || "Attachment could not be deleted.");
         });
       }

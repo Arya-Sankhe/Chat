@@ -5,6 +5,7 @@ import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
 import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from "./routes/meta.js";
+import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
   handleStudyCard,
@@ -44,6 +45,7 @@ import {
   handleDocumentEditorRevise,
   handleDocumentStatus,
   handlePresignUpload,
+  handleStorage,
   handleUploadContent
 } from "./routes/uploads.js";
 import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
@@ -141,6 +143,11 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (url.pathname === "/api/memory") {
+      await handleMemory(req, res, config);
+      return;
+    }
+
     if (url.pathname === "/api/oauth/desktop/authorization") {
       await handleDesktopAuthorizationDetails(req, res, url, config);
       return;
@@ -178,6 +185,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/clarifications" && req.method === "POST") {
       await handleClarifications(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/storage" && req.method === "GET") {
+      await handleStorage(req, res, config);
       return;
     }
 

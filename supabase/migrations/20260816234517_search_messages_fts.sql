@@ -23,7 +23,10 @@ as $$
   end;
 $$;
 
-create index if not exists messages_content_fts_idx
+create index concurrently if not exists messages_user_id_idx
+  on public.messages (user_id);
+
+create index concurrently if not exists messages_content_fts_idx
   on public.messages
   using gin (to_tsvector('english', public.klui_message_text(content)));
 
@@ -43,18 +46,11 @@ set search_path = ''
 as $$
   with tsq as (
     select websearch_to_tsquery('english', coalesce(p_query, '')) as q
-  )
-  select hit.conversation_id, hit.title, hit.snippet, hit.matched_at
-  from (
+  ), hit as (
     select distinct on (m.conversation_id)
       m.conversation_id,
       c.title,
-      ts_headline(
-        'english',
-        public.klui_message_text(m.content),
-        tsq.q,
-        'StartSel="", StopSel="", MaxWords=18, MinWords=8'
-      ) as snippet,
+      m.content,
       m.created_at as matched_at
     from public.messages m
     join public.conversations c
@@ -66,7 +62,19 @@ as $$
       and m.role in ('user', 'assistant')
       and to_tsvector('english', public.klui_message_text(m.content)) @@ tsq.q
     order by m.conversation_id, m.created_at desc
-  ) hit
+  )
+  select
+    hit.conversation_id,
+    hit.title,
+    ts_headline(
+      'english',
+      public.klui_message_text(hit.content),
+      tsq.q,
+      'StartSel="", StopSel="", MaxWords=18, MinWords=8'
+    ) as snippet,
+    hit.matched_at
+  from hit
+  cross join tsq
   order by hit.matched_at desc
   limit least(greatest(coalesce(p_limit, 30), 1), 30);
 $$;

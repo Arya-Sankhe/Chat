@@ -46,3 +46,11 @@ test("editable viewer supports fullscreen and closes its export menu outside", a
   assert.match(viewer, /opening \? 220 : 160/);
   assert.match(styles, /inset:\s*0 0 0 var\(--sidebar-active-w\)/);
 });
+
+test("document viewer closes after its animation without waiting for the server save", async () => {
+  const viewer = await readFile(new URL("../public/js/documentViewer.js", import.meta.url), "utf8");
+  const close = viewer.match(/async function closeDocumentViewer\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.match(close, /saveEditorNow\(\)/);
+  assert.match(close, /await exitAnimation/);
+  assert.doesNotMatch(close, /await .*save/);
+});

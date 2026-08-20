@@ -85,6 +85,9 @@ test("prompt helper preserves the base prompt and adds a delimited Humanizer blo
   assert.match(prompt, /<\/klui_composer_skill>/);
   assert.match(prompt, /applies only to this turn/);
   assert.match(prompt, /Do not claim to use files/);
+  assert.match(prompt, /This is embedded mode/);
+  assert.match(prompt, /A synonym pass that keeps the same paragraph plan is a failed rewrite/);
+  assert.match(prompt, /Reply with ONLY the final rewrite/);
 });
 
 test("missing malformed duplicate unknown traversal and extra IDs are harmless", () => {

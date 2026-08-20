@@ -29,6 +29,7 @@ import {
 import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { loadUserMemory, maybeRefreshUserMemory, withUserMemorySystemPrompt } from "../saas/userMemory.js";
 import {
   illustrationSkillFromIds,
   normalizeComposerSkillIds,
@@ -852,8 +853,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
   }
   const settings = normalizeMessageSettings(body);
   if (routed.effort) settings.reasoning_effort = routed.effort;
+  const [globalSystemPrompt, userMemory] = await Promise.all([
+    loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+    loadUserMemory(context.db, context.user.id, { signal: req.signal })
+  ]);
   settings.systemPrompt = withWritingStyleSystemPrompt(
-    await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+    withUserMemorySystemPrompt(globalSystemPrompt, userMemory?.content),
     body.writingStyle
   );
   settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, skillIds);
@@ -1796,6 +1801,7 @@ export async function handleConversationMessage(req, res, config, conversationId
   if (!String(body.clientTurnKey || "").trim()
     && !attachments.some((attachment) => attachment.category === "document")) {
     await executeConversationMessage(req, res, config, conversation.id, { context, conversation, body });
+    void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
     return;
   }
 
@@ -1809,6 +1815,7 @@ export async function handleConversationMessage(req, res, config, conversationId
     run: submitted.run,
     userMessage: submitted.user_message
   });
+  void maybeRefreshUserMemory({ db: context.db, userId: context.user.id, config });
 }
 
 export async function handlePendingDocumentTurnCancel(req, res, config, conversationId, turnId) {

@@ -180,7 +180,8 @@ test("listMessages appends reasoning when includeReasoning is true", async () =>
   });
 });
 
-test("listRecentAssistantMessages selects newest assistant content with a bound", async () => {
+test("listRecentAssistantMessages selects newest assistant content with a bound and offset", async () => {
+  let request = 0;
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
     const parsed = new URL(url);
@@ -189,13 +190,21 @@ test("listRecentAssistantMessages selects newest assistant content with a bound"
     assert.equal(parsed.searchParams.get("conversation_id"), "eq.conv_1");
     assert.equal(parsed.searchParams.get("role"), "eq.assistant");
     assert.equal(parsed.searchParams.get("select"), "content");
-    assert.equal(parsed.searchParams.get("order"), "created_at.desc");
+    assert.equal(parsed.searchParams.get("order"), "created_at.desc,id.desc");
     assert.equal(parsed.searchParams.get("limit"), "10");
+    assert.equal(parsed.searchParams.get("offset"), request++ ? "10" : null);
     expectServiceHeaders(options.headers);
     return jsonResponse([{ content: "Latest answer" }]);
   }, async () => {
     const db = new SupabaseRest(FAKE_CONFIG);
-    assert.deepEqual(await db.listRecentAssistantMessages("user_1", "conv_1"), [{ content: "Latest answer" }]);
+    assert.deepEqual(
+      await db.listRecentAssistantMessages("user_1", "conv_1"),
+      [{ content: "Latest answer" }]
+    );
+    assert.deepEqual(
+      await db.listRecentAssistantMessages("user_1", "conv_1", { offset: 10 }),
+      [{ content: "Latest answer" }]
+    );
   });
 });
 
@@ -322,6 +331,95 @@ test("createDocumentFile POSTs document_files rows with return=representation", 
   });
 });
 
+test("reserveAttachment uses the quota RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_reserve_attachment");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_max_bytes: 2684354560,
+      p_category: "image",
+      p_object_key: "users/user_1/photo.png",
+      p_file_name: "photo.png",
+      p_content_type: "image/png",
+      p_size_bytes: 10,
+      p_conversation_id: null,
+      p_message_id: null,
+      p_project_id: null
+    });
+    return jsonResponse({ id: "att_1", status: "pending" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const attachment = await db.reserveAttachment({
+      userId: "user_1",
+      maxBytes: 2684354560,
+      category: "image",
+      objectKey: "users/user_1/photo.png",
+      fileName: "photo.png",
+      contentType: "image/png",
+      sizeBytes: 10
+    });
+    assert.equal(attachment.id, "att_1");
+  });
+});
+
+test("listConversationStorageTotals uses an RPC when Data API aggregates are disabled", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_conversation_storage_totals");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), { p_user_id: "user_1" });
+    return jsonResponse([{ conversation_id: "conv_1", count: 2, bytes: 900 }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const rows = await db.listConversationStorageTotals("user_1");
+    assert.equal(rows[0].bytes, 900);
+  });
+});
+
+test("completeReservedAttachment uses the quota RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_complete_attachment");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_attachment_id: "att_1",
+      p_size_bytes: 10,
+      p_etag: "etag-1",
+      p_max_bytes: 5368709120
+    });
+    return jsonResponse({ id: "att_1", status: "uploaded", etag: "etag-1" });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const attachment = await db.completeReservedAttachment({
+      userId: "user_1",
+      attachmentId: "att_1",
+      sizeBytes: 10,
+      etag: "etag-1",
+      maxBytes: 5368709120
+    });
+    assert.equal(attachment.status, "uploaded");
+  });
+});
+
+test("listUserStorageAttachments lists pending and uploaded by size", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.pathname, "/rest/v1/attachments");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("status"), "in.(pending,uploaded)");
+    assert.equal(parsed.searchParams.get("order"), "size_bytes.desc,created_at.desc");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.listUserStorageAttachments("user_1");
+  });
+});
+
 test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");
@@ -335,7 +433,8 @@ test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
       p_kind: "pdf",
       p_limits: { max_pdf_pages: 100 },
       p_project_id: null,
-      p_project_max_bytes: null
+      p_project_max_bytes: null,
+      p_account_max_bytes: null
     });
 
     return new Response(JSON.stringify({

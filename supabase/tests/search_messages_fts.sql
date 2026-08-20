@@ -2,9 +2,8 @@
 
 -- Run only against a disposable empty Postgres database:
 --   psql -v ON_ERROR_STOP=1 -f supabase/tests/search_messages_fts.sql
--- Everything is wrapped in a transaction and rolled back.
-
-begin;
+-- The migration builds indexes concurrently, so this script must run with
+-- psql autocommit enabled rather than inside a transaction.
 
 do $$
 begin
@@ -13,6 +12,11 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
 end;
 $$;
+
+drop function if exists public.klui_search_messages(uuid, text, integer);
+drop table if exists public.messages cascade;
+drop table if exists public.conversations cascade;
+drop function if exists public.klui_message_text(jsonb);
 
 create table public.conversations (
   id uuid primary key,
@@ -57,6 +61,9 @@ begin
   end if;
   if not has_function_privilege('service_role', 'public.klui_search_messages(uuid,text,integer)', 'execute') then
     raise exception 'service_role cannot execute chat search';
+  end if;
+  if to_regclass('public.messages_user_id_idx') is null then
+    raise exception 'messages_user_id_idx was not created';
   end if;
 end;
 $$;
@@ -124,4 +131,7 @@ $$;
 
 select pg_temp.assert_search_index_used();
 
-rollback;
+drop function public.klui_search_messages(uuid, text, integer);
+drop table public.messages;
+drop table public.conversations;
+drop function public.klui_message_text(jsonb);

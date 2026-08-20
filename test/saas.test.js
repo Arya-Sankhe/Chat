@@ -26,7 +26,8 @@ test("loadPlans maps Klui payment tiers from env", () => {
     PLAN_LITE_PRICE_LABEL: "10 AED / month",
     PLAN_LITE_MONTHLY_API_CREDITS: "3.5",
     PLAN_LITE_MAX_DOCUMENTS_PER_MESSAGE: "5",
-    PLAN_LITE_MAX_DOCUMENT_BYTES_PER_MESSAGE: "31457280",
+    PLAN_LITE_MAX_DOCUMENT_FILE_BYTES: "52428800",
+    PLAN_LITE_MAX_DOCUMENT_BYTES_PER_MESSAGE: "52428800",
     PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite"
   });
 
@@ -36,12 +37,33 @@ test("loadPlans maps Klui payment tiers from env", () => {
   assert.equal(plans[0].ziinaPaymentUrl, "https://ziina.com/pay/lite");
   assert.equal(plans[0].monthlyApiCreditLimit, 3.5);
   assert.equal(plans[0].maxDocumentsPerMessage, 5);
-  assert.equal(plans[0].maxDocumentBytesPerMessage, 31457280);
+  assert.equal(plans[0].maxDocumentFileBytes, 52428800);
+  assert.equal(plans[0].maxDocumentBytesPerMessage, 52428800);
   assert.equal(Object.hasOwn(plans[0], "dailyMessageLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "monthlyImageLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "dailyDocumentToolLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "dailyGeneratedDocumentLimit"), false);
   assert.equal(Object.hasOwn(plans[0], "priceId"), false);
+  assert.deepEqual(
+    loadPlans({}).map(({ id, monthlyApiCreditLimit }) => ({ id, monthlyApiCreditLimit })),
+    [
+      { id: "lite", monthlyApiCreditLimit: 1.36 },
+      { id: "pro", monthlyApiCreditLimit: 4.08 },
+      { id: "max", monthlyApiCreditLimit: 8.16 }
+    ]
+  );
+  assert.deepEqual(
+    loadPlans({}).map(({ id, maxDocumentFileBytes, maxDocumentBytesPerMessage }) => ({
+      id,
+      maxDocumentFileBytes,
+      maxDocumentBytesPerMessage
+    })),
+    [
+      { id: "lite", maxDocumentFileBytes: 50 * 1024 * 1024, maxDocumentBytesPerMessage: 50 * 1024 * 1024 },
+      { id: "pro", maxDocumentFileBytes: 70 * 1024 * 1024, maxDocumentBytesPerMessage: 100 * 1024 * 1024 },
+      { id: "max", maxDocumentFileBytes: 100 * 1024 * 1024, maxDocumentBytesPerMessage: 100 * 1024 * 1024 }
+    ]
+  );
 });
 
 test("applyEditedUserText rewrites plain text messages", () => {
@@ -83,11 +105,11 @@ test("testing access grants the configured plan", async () => {
     db: {},
     userId: "user_1",
     plans,
-    access: { mode: "testing", testingPlanId: "essential" }
+    access: { mode: "testing", testingPlanId: "pro" }
   });
 
   assert.equal(entitlement.active, true);
-  assert.equal(entitlement.plan.id, "essential");
+  assert.equal(entitlement.plan.id, "pro");
   assert.equal(entitlement.subscription.status, "testing");
 });
 

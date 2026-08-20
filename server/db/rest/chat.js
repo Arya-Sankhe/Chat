@@ -139,15 +139,16 @@ export async function listMessages(client, userId, conversationId, { signal, inc
   });
 }
 
-export async function listRecentAssistantMessages(client, userId, conversationId, { signal, limit = 10 } = {}) {
+export async function listRecentAssistantMessages(client, userId, conversationId, { signal, limit = 10, offset = 0 } = {}) {
   return client.request("messages", {
     query: {
       user_id: `eq.${userId}`,
       conversation_id: `eq.${conversationId}`,
       role: "eq.assistant",
       select: "content",
-      order: "created_at.desc",
-      limit: String(limit)
+      order: "created_at.desc,id.desc",
+      limit: String(limit),
+      ...(offset ? { offset: String(offset) } : {})
     },
     signal
   });

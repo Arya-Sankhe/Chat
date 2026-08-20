@@ -834,7 +834,11 @@ export class DocumentService {
       document_file_id: documentFileId,
       conversation_id: this.conversationId,
       job_type: jobType,
-      input
+      input: {
+        ...input,
+        account_max_bytes: this.plan?.maxStorageBytes || null,
+        project_id: this.projectId || input?.project_id || null
+      }
     }, { signal: this.signal });
 
     const deadline = Date.now() + Math.max(1000, Number(this.documentsConfig.jobWaitMs || 20_000));
@@ -871,17 +875,22 @@ export class DocumentService {
 
   async latestAssistantText() {
     if (!this.conversationId || typeof this.db.listRecentAssistantMessages !== "function") return "";
-    // ponytail: last 10 assistant messages bound the handoff-skip scan; raise if chats stack more artifact handoffs than that
-    const messages = await this.db.listRecentAssistantMessages(this.userId, this.conversationId, { signal: this.signal });
-    let fallback = "";
-    for (const message of messages || []) {
-      const text = contentToText(message?.content).trim();
-      if (!text) continue;
-      if (!fallback) fallback = text;
-      if (assistantTextLooksLikeArtifactHandoff(text)) continue;
-      return text.slice(0, 30_000);
+    // ponytail: scan 50 recent replies; raise only if chats routinely stack more artifact handoffs.
+    const pageSize = 10;
+    const maxPages = 5;
+    for (let page = 0; page < maxPages; page += 1) {
+      const messages = await this.db.listRecentAssistantMessages(this.userId, this.conversationId, {
+        signal: this.signal,
+        limit: pageSize,
+        offset: page * pageSize
+      });
+      for (const message of messages || []) {
+        const text = contentToText(message?.content).trim();
+        if (text && !assistantTextLooksLikeArtifactHandoff(text)) return text.slice(0, 30_000);
+      }
+      if (!messages || messages.length < pageSize) return "";
     }
-    return fallback.slice(0, 30_000);
+    return "";
   }
 
   async resolveCreateContent({ content, instructions, sections, data } = {}) {

@@ -125,6 +125,7 @@ const ROUTES = [
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
   { path: "/api/payments/ziina", method: "GET", authKind: "user" },
   { path: "/api/me", method: "GET", authKind: "user" },
+  { path: "/api/storage", method: "GET", authKind: "chat" },
   {
     path: "/api/models", method: "GET", authKind: "chat",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
@@ -221,7 +222,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const plans = await dispatch(bareConfig, { path: "/api/plans" });
   assert.equal(plans.statusCode, 200);
   const planIds = plans.json().plans.map((plan) => plan.id);
-  assert.deepEqual(planIds, ["lite", "essential", "pro"]);
+  assert.deepEqual(planIds, ["lite", "pro", "max"]);
 });
 
 test("every auth-requiring route returns 503 problem JSON when Supabase is unconfigured", async () => {
@@ -481,7 +482,8 @@ test("project ownership is accepted only for document uploads", async () => {
   const overrides = stubbedDeps({
     db: {
       async getProject() { return { id: "project-1", name: "Launch" }; },
-      async createAttachment() { created = true; return { id: "upload-1" }; }
+      async createAttachment() { created = true; return { id: "upload-1" }; },
+      async reserveAttachment() { created = true; return { id: "upload-1" }; }
     }
   });
   const res = await dispatch(authReadyConfig, {
@@ -499,6 +501,32 @@ test("project ownership is accepted only for document uploads", async () => {
   assert.equal(res.statusCode, 400);
   assert.equal(res.json().error, "Only documents can be added to project knowledge.");
   assert.equal(created, false);
+});
+
+test("document presign enforces the current plan's single-file limit", async () => {
+  const config = loadConfig({
+    ...SUPABASE_ENV,
+    R2_ACCOUNT_ID: "account-1",
+    R2_ACCESS_KEY_ID: "r2-key",
+    R2_SECRET_ACCESS_KEY: "r2-secret",
+    R2_BUCKET: "uploads",
+    DOCUMENT_MAX_FILE_BYTES: String(100 * 1024 * 1024),
+    TEST_PLAN_ID: "lite"
+  });
+  const res = await dispatch(config, {
+    method: "POST",
+    path: "/api/uploads/presign",
+    body: {
+      category: "document",
+      contentType: "application/pdf",
+      fileName: "large.pdf",
+      sizeBytes: 50 * 1024 * 1024 + 1
+    },
+    overrides: stubbedDeps()
+  });
+
+  assert.equal(res.statusCode, 413);
+  assert.match(res.json().error, /50MB or smaller/);
 });
 
 test("document upload completion queues extraction through one atomic RPC", async () => {
@@ -542,6 +570,8 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(calls.length, 1);
   assert.equal(calls[0].kind, "pdf");
   assert.equal(calls[0].attachmentId, "upload-1");
+  assert.equal(calls[0].accountMaxBytes, documentReadyConfig.plans.find((plan) => plan.id === "pro")?.maxStorageBytes
+    || documentReadyConfig.plans[0].maxStorageBytes);
   assert.equal(res.json().document.id, "doc-1");
 });
 
@@ -850,7 +880,7 @@ test("authenticated routes dispatch to their resource-specific handlers", async 
       method: "POST",
       path: "/api/uploads/presign",
       body: { category: "image", contentType: "image/png", fileName: "x.png", sizeBytes: 10 },
-      dbMethod: "createAttachment",
+      dbMethod: "reserveAttachment",
       result: { id: "upload-1" }
     },
     { method: "PUT", path: "/api/uploads/upload-1/content", dbMethod: "getAttachment", result: null },

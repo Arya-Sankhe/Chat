@@ -30,6 +30,8 @@ function responseRecorder() {
 test("mobile config includes the packaged Capacitor origin and configured development origins", () => {
   const config = loadConfig({ MOBILE_ALLOWED_ORIGINS: "http://localhost:5173, https://preview.example" });
   assert.deepEqual(config.mobile.allowedOrigins, [
+    "https://klui.ai",
+    "https://www.klui.ai",
     "https://klui.tech",
     "https://www.klui.tech",
     "https://localhost",
@@ -91,7 +93,7 @@ test("API URL resolver uses the production API origin inside Capacitor", () => {
   const previous = globalThis.Capacitor;
   globalThis.Capacitor = { isNativePlatform: () => true };
   try {
-    assert.equal(apiUrl("/api/me"), "https://klui.tech/api/me");
+    assert.equal(apiUrl("/api/me"), "https://klui.ai/api/me");
   } finally {
     if (previous === undefined) delete globalThis.Capacitor;
     else globalThis.Capacitor = previous;
@@ -103,7 +105,7 @@ test("mobile build supports an API origin override without changing source", asy
     readFile(new URL("../public/js/platform/index.js", import.meta.url), "utf8")
   );
   assert.match(source, /VITE_KLUI_API_ORIGIN/);
-  assert.match(source, /https:\/\/klui\.tech/);
+  assert.match(source, /https:\/\/klui\.ai/);
 });
 
 test("chat shell is visible before JavaScript finishes booting", async () => {
@@ -258,6 +260,9 @@ test("completed streaming patches live messages instead of remounting the thread
   assert.match(source, /function settleLiveMessages\(/);
   assert.match(source, /compareController\.patchCompareMessage\(article, view\.messages\)/);
   assert.match(source, /councilController\.patchCouncilMessage\(article, view\.council\)/);
+  assert.match(source, /const nextImages = renderUserImages\(msg\)/);
+  assert.match(source, /const staleImages = prevImages\?\.querySelector/);
+  assert.match(source, /prevImages\.outerHTML = nextImages/);
   assert.match(source, /els\.messages\.style\.overflowAnchor = "none"/);
   const retryPath = source.slice(
     source.indexOf("async function retryFailedAssistant"),
@@ -272,6 +277,35 @@ test("completed streaming patches live messages instead of remounting the thread
     assert.doesNotMatch(path, /setAutoScroll\(false\)/);
     assert.doesNotMatch(path, /renderShell\(\);\s*setMessagesScrollTop\(completedScrollTop\)/);
   }
+});
+
+test("conversation revalidation cannot replace live or newer chat state", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const loadPath = source.slice(
+    source.indexOf("async function loadActiveConversation"),
+    source.indexOf("function restoredTurnAttachment")
+  );
+  const listPath = source.slice(
+    source.indexOf("async function loadConversations"),
+    source.indexOf("async function loadActiveConversation")
+  );
+  assert.match(source, /let conversationLoadGeneration = 0/);
+  assert.match(loadPath, /const loadGeneration = \+\+conversationLoadGeneration/);
+  assert.match(loadPath, /const cachedAtStart = conversationCache\.get\(id\)/);
+  assert.match(
+    loadPath,
+    /loadGeneration !== conversationLoadGeneration \|\| state\.activeConversationId !== id[\s\S]*conversationCache\.get\(id\) === cachedAtStart[\s\S]*rememberConversation\(id[\s\S]*return "cached"/
+  );
+  assert.match(loadPath, /restoreLiveConversationRun\(id\)[\s\S]*rememberConversation\(id/);
+  assert.match(source, /loadResult !== "applied"/);
+  assert.match(source, /reloaded === "applied"/);
+  assert.match(listPath, /const hasLiveRun = Boolean\(run\?\.messages\)[\s\S]*loadResult === "applied" && !hasLiveRun[\s\S]*renderShell\(\)[\s\S]*restorePendingDocuments\(\)/);
+  assert.match(
+    source,
+    /state\.activeConversationId && !state\.temporaryChat && !state\.conversationLoading/
+  );
 });
 
 test("adding uploads preserves an existing composer draft", async () => {

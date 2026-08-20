@@ -5,6 +5,7 @@ import * as billing from "./rest/billing.js";
 import * as caches from "./rest/caches.js";
 import * as chat from "./rest/chat.js";
 import * as documents from "./rest/documents.js";
+import * as memory from "./rest/memory.js";
 import * as desktop from "./rest/desktop.js";
 import * as payments from "./rest/payments.js";
 import * as profiles from "./rest/profiles.js";
@@ -275,6 +276,22 @@ export class SupabaseRest {
     return chat.updateMessage(this, userId, messageId, patch, options);
   }
 
+  async getUserMemory(userId, options) {
+    return memory.getUserMemory(this, userId, options);
+  }
+
+  async upsertUserMemory(row, options) {
+    return memory.upsertUserMemory(this, row, options);
+  }
+
+  async updateUserMemory(userId, version, patch, options) {
+    return memory.updateUserMemory(this, userId, version, patch, options);
+  }
+
+  async listUserMemoryMessages(userId, after, options) {
+    return memory.listUserMemoryMessages(this, userId, after, options);
+  }
+
   async submitDocumentTurn(params, options) {
     return turns.submitDocumentTurn(this, params, options);
   }
@@ -323,8 +340,32 @@ export class SupabaseRest {
     return attachments.createAttachment(this, attachment, options);
   }
 
+  async reserveAttachment(params, options) {
+    return attachments.reserveAttachment(this, params, options);
+  }
+
+  async completeReservedAttachment(params, options) {
+    return attachments.completeReservedAttachment(this, params, options);
+  }
+
+  async accountStorageUsed(userId, options) {
+    return attachments.accountStorageUsed(this, userId, options);
+  }
+
+  async listUserStorageAttachments(userId, options) {
+    return attachments.listUserStorageAttachments(this, userId, options);
+  }
+
+  async listConversationStorageTotals(userId, options) {
+    return attachments.listConversationStorageTotals(this, userId, options);
+  }
+
   async listOrphanAttachments(options) {
     return attachments.listOrphanAttachments(this, options);
+  }
+
+  async listStalePendingAttachments(options) {
+    return attachments.listStalePendingAttachments(this, options);
   }
 
   async completeAttachment(userId, attachmentId, patch, options) {
