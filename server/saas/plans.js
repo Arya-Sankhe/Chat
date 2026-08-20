@@ -8,7 +8,8 @@ const PLAN_DEFAULTS = [
     monthlyApiCreditLimit: 1.36,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
-    maxDocumentBytesPerMessage: 30 * 1024 * 1024,
+    maxDocumentFileBytes: 50 * 1024 * 1024,
+    maxDocumentBytesPerMessage: 50 * 1024 * 1024,
     maxDocumentPages: 50,
     maxProjectBytes: 50 * 1024 * 1024,
     sortOrder: 10
@@ -22,7 +23,8 @@ const PLAN_DEFAULTS = [
     monthlyApiCreditLimit: 4.08,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
-    maxDocumentBytesPerMessage: 60 * 1024 * 1024,
+    maxDocumentFileBytes: 70 * 1024 * 1024,
+    maxDocumentBytesPerMessage: 100 * 1024 * 1024,
     maxDocumentPages: 100,
     maxProjectBytes: 100 * 1024 * 1024,
     sortOrder: 20
@@ -36,7 +38,8 @@ const PLAN_DEFAULTS = [
     monthlyApiCreditLimit: 8.16,
     maxImagesPerMessage: 4,
     maxDocumentsPerMessage: 5,
-    maxDocumentBytesPerMessage: 60 * 1024 * 1024,
+    maxDocumentFileBytes: 100 * 1024 * 1024,
+    maxDocumentBytesPerMessage: 100 * 1024 * 1024,
     maxDocumentPages: 100,
     maxProjectBytes: 150 * 1024 * 1024,
     sortOrder: 30
@@ -70,6 +73,7 @@ export function loadPlans(env = process.env) {
       : plan.monthlyApiCreditLimit,
     maxImagesPerMessage: readInt(env[envName(plan.id, "MAX_IMAGES_PER_MESSAGE")], plan.maxImagesPerMessage),
     maxDocumentsPerMessage: readInt(env[envName(plan.id, "MAX_DOCUMENTS_PER_MESSAGE")], plan.maxDocumentsPerMessage),
+    maxDocumentFileBytes: readInt(env[envName(plan.id, "MAX_DOCUMENT_FILE_BYTES")], plan.maxDocumentFileBytes),
     maxDocumentBytesPerMessage: readInt(env[envName(plan.id, "MAX_DOCUMENT_BYTES_PER_MESSAGE")], plan.maxDocumentBytesPerMessage),
     maxDocumentPages: readInt(env[envName(plan.id, "MAX_DOCUMENT_PAGES")], plan.maxDocumentPages),
     maxProjectBytes: readInt(env[envName(plan.id, "MAX_PROJECT_BYTES")], plan.maxProjectBytes)
@@ -89,6 +93,7 @@ export function publicPlan(plan) {
     monthlyApiCreditLimit: plan.monthlyApiCreditLimit,
     maxImagesPerMessage: plan.maxImagesPerMessage,
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,
+    maxDocumentFileBytes: plan.maxDocumentFileBytes,
     maxDocumentBytesPerMessage: plan.maxDocumentBytesPerMessage,
     maxDocumentPages: plan.maxDocumentPages,
     maxProjectBytes: plan.maxProjectBytes

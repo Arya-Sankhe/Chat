@@ -210,7 +210,7 @@ export function loadConfig(env = process.env) {
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
-      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 30 * 1024 * 1024),
+      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 100 * 1024 * 1024),
       maxFilesPerMessage: readInt(env.DOCUMENT_MAX_FILES_PER_MESSAGE, 5),
       maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 60 * 1024 * 1024),
       maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 100),
