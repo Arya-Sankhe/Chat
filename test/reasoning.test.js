@@ -164,7 +164,7 @@ test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback",
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["deepseek"],
+    order: ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"],
     allow_fallbacks: true
   });
 });
@@ -177,7 +177,7 @@ test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present"
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["deepseek"],
+    order: ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"],
     allow_fallbacks: true,
     require_parameters: true
   });

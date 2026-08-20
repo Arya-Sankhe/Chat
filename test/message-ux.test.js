@@ -130,6 +130,16 @@ test("thinking status is block-level and omitted once final answer text exists",
   assert.match(css, /\.thinking-status\.is-leaving/);
 });
 
+test("streamed answer text gets a short blur reveal without animating reduced-motion clients", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  assert.match(appJs, /function animateNewestStreamingText\(root, addedCharacters\)/);
+  assert.match(appJs, /animateNewestStreamingText\(contentEl, addedCharacters\)/);
+  assert.match(css, /\.streaming-text-reveal\s*\{[^}]*160ms[^}]*cubic-bezier\(0\.23, 1, 0\.32, 1\)/s);
+  assert.match(css, /@keyframes streaming-text-reveal\s*\{[\s\S]*?filter:\s*blur\(2px\)[\s\S]*?filter:\s*blur\(0\)/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.streaming-text-reveal\s*\{[^}]*animation:\s*none/s);
+});
+
 test("compare and council finish by patching live cards instead of requiring a remount", () => {
   const compareJs = readPublic("js/compare.js");
   const councilJs = readPublic("js/council.js");

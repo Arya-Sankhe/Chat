@@ -5312,6 +5312,28 @@ function scrollToChatPrompt(messageId) {
   });
 }
 
+function animateNewestStreamingText(root, addedCharacters) {
+  if (!root || addedCharacters < 1) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .message-note, .sources-pill, pre, code, .katex, button, svg")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let newest = null;
+  while (walker.nextNode()) newest = walker.currentNode;
+  if (!newest) return;
+  const start = Math.max(0, newest.data.length - Math.min(addedCharacters, 48));
+  const tail = newest.splitText(start);
+  const reveal = document.createElement("span");
+  reveal.className = "streaming-text-reveal";
+  tail.replaceWith(reveal);
+  reveal.append(tail);
+}
+
 function renderStreamingMessageSurface(message) {
   const id = message?.id ? String(message.id) : "";
   if (!id) return false;
@@ -5322,6 +5344,10 @@ function renderStreamingMessageSurface(message) {
   captureReasoningOpenState();
   preserveMessageScroll(() => {
     const rawText = rawTextContent(message.content);
+    const previousRawText = surface.dataset.rawText || "";
+    const addedCharacters = rawText.startsWith(previousRawText)
+      ? rawText.length - previousRawText.length
+      : rawText.length;
     surface.dataset.rawText = rawText;
     const statusEl = contentEl.querySelector(".thinking-status");
     const hasContent = rawText.trim().length > 0;
@@ -5373,6 +5399,7 @@ function renderStreamingMessageSurface(message) {
       contentEl.replaceChildren(...tmp.childNodes);
       hydrateKluiBars(contentEl);
     }
+    animateNewestStreamingText(contentEl, addedCharacters);
   });
   syncPendingArtifactPolls();
   renderContextMeter();

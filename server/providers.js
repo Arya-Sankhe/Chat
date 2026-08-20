@@ -179,7 +179,7 @@ export function adaptChatRequestForProvider(body, providerId) {
   };
 
   if (isDeepSeekModel) {
-    providerPrefs.order = ["deepseek"];
+    providerPrefs.order = ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"];
     providerPrefs.allow_fallbacks = true;
   }
   if (isProModel) {
