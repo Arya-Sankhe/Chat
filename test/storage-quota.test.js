@@ -388,7 +388,7 @@ test("lite document completion caps extract pages at the plan limit", async () =
 });
 
 test("quota SQL locks the profile and sums pending plus uploaded", () => {
-  const sql = readFileSync(resolve(here, "../supabase/migrations/20260820065933_per_user_storage_quota.sql"), "utf8");
+  const sql = readFileSync(resolve(here, "../supabase/migrations/20260820071431_per_user_storage_quota.sql"), "utf8");
   assert.match(sql, /returns bigint/);
   assert.match(sql, /p_max_bytes bigint/);
   assert.match(sql, /p_account_max_bytes bigint/);
