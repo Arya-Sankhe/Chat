@@ -63,8 +63,30 @@ function makeRes() {
     on(event, fn) {
       (this.events[event] ||= []).push(fn);
     },
+    off(event, fn) {
+      this.events[event] = (this.events[event] || []).filter((entry) => entry !== fn);
+    },
+    removeListener(event, fn) {
+      this.off(event, fn);
+    },
+    emit(event) {
+      for (const fn of [...(this.events[event] || [])]) fn();
+    },
+    emitClose() {
+      this.destroyed = true;
+      this.emit("close");
+    },
     json() {
       return JSON.parse(this.body);
+    },
+    sseEvents() {
+      return this.body
+        .split("\n\n")
+        .map((block) => block.trim())
+        .filter((block) => block.startsWith("data: "))
+        .map((block) => block.slice("data: ".length))
+        .filter((data) => data !== "[DONE]")
+        .map((data) => JSON.parse(data));
     }
   };
 }
@@ -76,6 +98,15 @@ async function dispatch(config, { method = "GET", path, headers, body, overrides
   const handler = overrides ? createApiHandler(config, overrides) : createApiHandler(config);
   await handler(req, res, url);
   return res;
+}
+
+async function dispatchPending(config, { method = "GET", path, headers, body, overrides = null } = {}) {
+  const req = makeReq({ method, path, headers, body });
+  const res = makeRes();
+  const url = new URL(path, "http://test.local");
+  const handler = overrides ? createApiHandler(config, overrides) : createApiHandler(config);
+  const done = handler(req, res, url);
+  return { req, res, done };
 }
 
 const SUPABASE_ENV = {
@@ -147,6 +178,7 @@ const ROUTES = [
   { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
   { path: "/api/study/courses/course-1/overview", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/materials", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/generate", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/courses/course-1/practice", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/decks", method: "PATCH", authKind: "chat", enforced405: "GET" },
@@ -159,6 +191,7 @@ const ROUTES = [
   { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/notes/note-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/notes/note-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/research", method: "POST", authKind: "chat" },
   { path: "/api/research/run-1/status", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research/run-1/cancel", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -1092,6 +1125,512 @@ test("study course overview returns JSON for an owned course", async () => {
   assert.equal(payload.counts.notes, 1);
   assert.equal(payload.counts.cards, 1);
   assert.equal(payload.latestQuizAttempt, null);
+});
+
+test("study materials expose Rapid/Deep flashcard modes", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return {
+          id: "course-1",
+          kind: "course",
+          name: "CMP 321",
+          meta: { flashcardModes: { "doc:doc-2": "deep" }, hiddenDocumentIds: ["doc-3"] }
+        };
+      },
+      async listProjectDocuments() { return [{ id: "doc-1" }, { id: "doc-2" }, { id: "doc-3" }]; },
+      async listStudyNotes() { return []; },
+      async listStudyCards() {
+        return [
+          { document_file_id: "doc-1", note_id: null },
+          { document_file_id: "doc-2", note_id: null }
+        ];
+      }
+    }
+  });
+  const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/materials", overrides });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().flashcardModes, { "doc:doc-1": "rapid", "doc:doc-2": "deep" });
+  assert.deepEqual(res.json().documents.map((doc) => doc.id), ["doc-1", "doc-2"]);
+});
+
+test("deleting a study file hides it and keeps notes", async () => {
+  const patches = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return { id: "course-1", kind: "course", name: "CMP 321", meta: { term: "Fall" } };
+      },
+      async getDocumentFile() {
+        return { id: "doc-1", project_id: "course-1" };
+      },
+      async updateProject(_userId, projectId, patch) {
+        patches.push(patch);
+        return { id: projectId, kind: "course", meta: patch.meta };
+      }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/courses/course-1/materials",
+    body: { documentFileId: "doc-1" },
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(patches[0].meta.hiddenDocumentIds, ["doc-1"]);
+  assert.equal(patches[0].meta.term, "Fall");
+});
+
+test("flashcard generate rejects a second Rapid and a missing mode", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return {
+          id: "course-1",
+          kind: "course",
+          name: "CMP 321",
+          meta: { flashcardModes: { "doc:doc-1": "rapid" } }
+        };
+      },
+      async getDocumentFile() {
+        return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z" };
+      },
+      async listStudyCards() {
+        return [{ document_file_id: "doc-1", note_id: null, front: "What is a parse tree?" }];
+      }
+    }
+  });
+  const again = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/generate",
+    body: { type: "flashcards", documentFileId: "doc-1", mode: "rapid" },
+    overrides
+  });
+  assert.equal(again.statusCode, 409);
+  assert.match(again.json().error, /Rapid already created/);
+
+  const missing = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/generate",
+    body: { type: "flashcards", documentFileId: "doc-1" },
+    overrides
+  });
+  assert.equal(missing.statusCode, 400);
+  assert.match(missing.json().error, /mode must be rapid or deep/);
+});
+
+test("flashcard generate serializes Rapid and Deep for one material", async () => {
+  const realFetch = globalThis.fetch;
+  let releaseHang;
+  const hang = new Promise((resolve) => { releaseHang = resolve; });
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/chat/completions")) {
+      await hang;
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  try {
+    const overrides = stubbedDeps({
+      db: {
+        async getProject() { return { id: "course-1", kind: "course", name: "CMP 321", meta: {} }; },
+        async getDocumentFile() {
+          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        },
+        async listStudyCards() { return []; },
+        async checkApiBudget() { return { allowed: true }; },
+        async listDocumentChunksForFiles() {
+          return [{ text: "Photosynthesis converts light to chemical energy." }];
+        },
+        async createStudyCards() { return []; }
+      }
+    });
+    const first = await dispatchPending(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "flashcards", documentFileId: "doc-1", mode: "rapid" },
+      overrides
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(first.res.statusCode, 200);
+    assert.match(first.res.headers["content-type"], /text\/event-stream/);
+
+    const second = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "flashcards", documentFileId: "doc-1", mode: "deep" },
+      overrides
+    });
+    assert.equal(second.statusCode, 409);
+    assert.match(second.json().error, /already in progress/);
+
+    first.res.emitClose();
+    releaseHang();
+    await first.done;
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("notes generate rejects a second Summary", async () => {
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() { return { id: "course-1", kind: "course", name: "CMP 321" }; },
+      async getDocumentFile() {
+        return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z" };
+      },
+      async listStudyNotes() {
+        return [{ document_file_id: "doc-1", kind: "summary" }];
+      }
+    }
+  });
+  const again = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/generate",
+    body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+    overrides
+  });
+  assert.equal(again.statusCode, 409);
+  assert.match(again.json().error, /Summary already created/);
+});
+
+test("study generate streams SSE complete for notes", async () => {
+  const realFetch = globalThis.fetch;
+  const created = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const href = String(url);
+    if (href.includes("/generation")) {
+      return new Response(JSON.stringify({ data: { total_cost: 0.001 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (href.endsWith("/chat/completions")) {
+      const body = JSON.parse(options.body || "{}");
+      assert.equal(body.stream, true);
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            id: "gen-study-1",
+            choices: [{ delta: { content: "# Cell Biology\n\nMembranes matter." }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.001 }
+          })}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    throw new Error(`unexpected fetch ${href}`);
+  };
+  try {
+    const overrides = stubbedDeps({
+      db: {
+        async getProject() {
+          return { id: "course-1", kind: "course", name: "CMP 321", meta: {} };
+        },
+        async getDocumentFile() {
+          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        },
+        async listStudyNotes() { return []; },
+        async checkApiBudget() { return { allowed: true }; },
+        async listDocumentChunksForFiles() {
+          return [{ text: "Membranes control what enters the cell." }];
+        },
+        async createStudyNote(_userId, note) {
+          created.push(note);
+          return { id: "note-1", ...note };
+        },
+        async recordApiUsageCost() { return null; }
+      }
+    });
+    const res = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+      overrides
+    });
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["content-type"], /text\/event-stream/);
+    const events = res.sseEvents();
+    assert.ok(events.some((event) => event.type === "status" && event.stage === "preparing"));
+    const complete = events.find((event) => event.type === "complete");
+    assert.ok(complete, `events=${JSON.stringify(events)}`);
+    assert.equal(complete.result.type, "notes");
+    assert.equal(complete.result.id, "note-1");
+    assert.equal(complete.result.mode, "summary");
+    assert.match(res.body, /data: \[DONE\]/);
+    assert.equal(created.length, 1);
+    assert.match(created[0].content, /Membranes matter/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("study generate validates before SSE headers", async () => {
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/generate",
+    body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+    overrides: stubbedDeps({
+      db: {
+        async getProject() { return { id: "course-1", kind: "course", name: "CMP 321" }; },
+        async getDocumentFile() { return null; }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.headersSent, true);
+  assert.equal(res.headers["content-type"], "application/json; charset=utf-8");
+  assert.match(res.json().error, /Material not found/);
+});
+
+test("study generate aborts on response close without saving", async () => {
+  const realFetch = globalThis.fetch;
+  const created = [];
+  let abortSeen = false;
+  globalThis.fetch = async (url, options = {}) => {
+    if (!String(url).endsWith("/chat/completions")) throw new Error(`unexpected fetch ${url}`);
+    return new Response(new ReadableStream({
+      start(controller) {
+        const onAbort = () => {
+          abortSeen = true;
+          const error = new Error("The operation was aborted.");
+          error.name = "AbortError";
+          try { controller.error(error); } catch { /* already closed */ }
+        };
+        if (options.signal?.aborted) onAbort();
+        else options.signal?.addEventListener("abort", onAbort, { once: true });
+      }
+    }), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  };
+  try {
+    const overrides = stubbedDeps({
+      db: {
+        async getProject() {
+          return { id: "course-1", kind: "course", name: "CMP 321", meta: {} };
+        },
+        async getDocumentFile() {
+          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        },
+        async listStudyNotes() { return []; },
+        async checkApiBudget() { return { allowed: true }; },
+        async listDocumentChunksForFiles() {
+          return [{ text: "Abortable source text for study notes." }];
+        },
+        async createStudyNote(_userId, note) {
+          created.push(note);
+          return { id: "note-1", ...note };
+        }
+      }
+    });
+    const pending = await dispatchPending(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+      overrides
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(pending.res.statusCode, 200);
+    assert.match(pending.res.headers["content-type"], /text\/event-stream/);
+    pending.res.emitClose();
+    await pending.done;
+    assert.equal(created.length, 0);
+    assert.equal(abortSeen, true);
+    const events = pending.res.sseEvents();
+    assert.equal(events.some((event) => event.type === "complete"), false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("study generate aborts on request abort without saving", async () => {
+  const realFetch = globalThis.fetch;
+  const created = [];
+  let abortSeen = false;
+  globalThis.fetch = async (url, options = {}) => {
+    if (!String(url).endsWith("/chat/completions")) throw new Error(`unexpected fetch ${url}`);
+    return new Response(new ReadableStream({
+      start(controller) {
+        const onAbort = () => {
+          abortSeen = true;
+          const error = new Error("The operation was aborted.");
+          error.name = "AbortError";
+          try { controller.error(error); } catch { /* already closed */ }
+        };
+        if (options.signal?.aborted) onAbort();
+        else options.signal?.addEventListener("abort", onAbort, { once: true });
+      }
+    }), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" }
+    });
+  };
+  try {
+    const overrides = stubbedDeps({
+      db: {
+        async getProject() {
+          return { id: "course-1", kind: "course", name: "CMP 321", meta: {} };
+        },
+        async getDocumentFile() {
+          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        },
+        async listStudyNotes() { return []; },
+        async checkApiBudget() { return { allowed: true }; },
+        async listDocumentChunksForFiles() {
+          return [{ text: "Abortable source text for study notes." }];
+        },
+        async createStudyNote(_userId, note) {
+          created.push(note);
+          return { id: "note-1", ...note };
+        }
+      }
+    });
+    const pending = await dispatchPending(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+      overrides
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(pending.res.statusCode, 200);
+    pending.req.emit("aborted");
+    await pending.done;
+    assert.equal(created.length, 0);
+    assert.equal(abortSeen, true);
+    assert.equal(pending.res.sseEvents().some((event) => event.type === "complete"), false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("study generate emits error event after SSE headers", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (!String(url).endsWith("/chat/completions")) throw new Error(`unexpected fetch ${url}`);
+    return new Response("upstream failed", { status: 502 });
+  };
+  try {
+    const overrides = stubbedDeps({
+      db: {
+        async getProject() {
+          return { id: "course-1", kind: "course", name: "CMP 321", meta: {} };
+        },
+        async getDocumentFile() {
+          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        },
+        async listStudyNotes() { return []; },
+        async checkApiBudget() { return { allowed: true }; },
+        async listDocumentChunksForFiles() {
+          return [{ text: "Source text." }];
+        }
+      }
+    });
+    const res = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
+      overrides
+    });
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["content-type"], /text\/event-stream/);
+    const events = res.sseEvents();
+    assert.ok(events.some((event) => event.type === "error" && event.error));
+    assert.match(res.body, /data: \[DONE\]/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("study generation status endpoints are removed", async () => {
+  const list = await dispatch(authReadyConfig, {
+    path: "/api/study/courses/course-1/generations",
+    overrides: stubbedDeps()
+  });
+  assert.equal(list.statusCode, 404);
+
+  const one = await dispatch(authReadyConfig, {
+    path: "/api/study/generations/job-1",
+    overrides: stubbedDeps()
+  });
+  assert.equal(one.statusCode, 404);
+});
+
+test("study note delete is scoped to the course owner", async () => {
+  const deleted = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyNote() {
+        return { id: "note-1", project_id: "course-1", title: "Summary" };
+      },
+      async getProject() {
+        return { id: "course-1", kind: "course", name: "Biology" };
+      },
+      async deleteStudyNote(_userId, id) {
+        deleted.push(id);
+        return null;
+      }
+    }
+  });
+  const ok = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/notes/note-1",
+    overrides
+  });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(deleted, ["note-1"]);
+
+  const missing = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/notes/note-1",
+    overrides: stubbedDeps({
+      db: {
+        async getStudyNote() { return null; }
+      }
+    })
+  });
+  assert.equal(missing.statusCode, 404);
+});
+
+test("deleting a deck clears its Rapid/Deep lock", async () => {
+  const patches = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getProject() {
+        return {
+          id: "course-1",
+          kind: "course",
+          name: "CMP 321",
+          meta: { term: "Fall", flashcardModes: { "doc:doc-1": "deep", "doc:doc-2": "rapid" } }
+        };
+      },
+      async updateProject(_userId, projectId, patch) {
+        patches.push(patch);
+        return { id: projectId, kind: "course", meta: patch.meta };
+      },
+      async deleteStudyCardsForSource() { return null; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/courses/course-1/decks",
+    body: { documentFileId: "doc-1" },
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(patches[0].meta.term, "Fall");
+  assert.equal(patches[0].meta.flashcardModes["doc:doc-1"], undefined);
+  assert.equal(patches[0].meta.flashcardModes["doc:doc-2"], "rapid");
 });
 
 test("study practice groups cards into openable decks and applies title overrides", async () => {

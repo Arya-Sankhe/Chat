@@ -2698,3 +2698,4 @@ revoke execute on function public.klui_message_text(jsonb) from public, anon, au
 revoke execute on function public.klui_search_messages(uuid, text, integer) from public, anon, authenticated;
 grant execute on function public.klui_message_text(jsonb) to service_role;
 grant execute on function public.klui_search_messages(uuid, text, integer) to service_role;
+

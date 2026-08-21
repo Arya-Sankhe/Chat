@@ -28,6 +28,7 @@ export function createStudyHubController({
   fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
+  deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
   reviewStudyCard,
@@ -39,6 +40,7 @@ export function createStudyHubController({
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
   exportStudyNote,
+  deleteStudyNote,
   fetchDocumentJobStatus,
   downloadAttachment,
   flashCopySuccess,
@@ -48,7 +50,10 @@ export function createStudyHubController({
   const TABS = ["overview", "materials", "chat", "practice"];
 
   let pendingUploads = [];
-  let generatingKey = "";
+  let scaffoldBusyKey = "";
+  /** @type {Map<string, object>} in-memory generation cards; survives SPA nav while page stays open */
+  const generations = new Map();
+  let elapsedTimer = null;
   let quizMenuKey = "";
   let reviewSession = null;
   let quizSession = null;
@@ -167,6 +172,36 @@ export function createStudyHubController({
   function documentDisplayName(doc) {
     const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
     return attachment?.file_name || doc?.file_name || "Document";
+  }
+
+  function isDetailedNote(note) {
+    return note?.kind === "detailed" || String(note?.content || "").startsWith("<!--klui:detailed-->");
+  }
+
+  function noteBody(note) {
+    const text = String(note?.content || "");
+    return text.startsWith("<!--klui:detailed-->") ? text.slice("<!--klui:detailed-->".length).replace(/^\n/, "") : text;
+  }
+
+  function noteKindLabel(note) {
+    if (note?.kind === "image_transcript") return "Image transcript";
+    if (isDetailedNote(note)) return "Detailed";
+    return "Summary";
+  }
+
+  function materialMenu(kind, id) {
+    const key = `material:${kind}:${id}`;
+    const open = quizMenuKey === key;
+    const del = kind === "note" ? `data-delete-note="${escapeHtml(id)}"` : `data-delete-doc="${escapeHtml(id)}"`;
+    return `
+      <div class="study-card-menu-wrap">
+        <button class="study-icon-btn" type="button" data-toggle-material-menu="${escapeHtml(key)}" aria-label="Material options" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+          ${kebabIcon()}
+        </button>
+        <div class="study-menu${open ? "" : " hidden"}" role="menu">
+          <button class="study-menu-item study-menu-danger" type="button" role="menuitem" ${del}>Delete</button>
+        </div>
+      </div>`;
   }
 
   function materialStatus(doc) {
@@ -334,32 +369,169 @@ export function createStudyHubController({
   function generateActions(kind, id, ready) {
     if (!ready) return "";
     const base = `${kind}:${id}`;
-    const busy = generatingKey.startsWith(`${base}:`) || generatingKey === base;
-    const spinFor = (type) => generatingKey === `${base}:${type}`;
+    const scaffoldBusy = scaffoldBusyKey === `${base}:scaffold`;
+    const activeFor = (type, mode = "") => [...generations.values()].some((job) => (
+      job.courseId === state.activeCourseId
+      && job.status === "running"
+      && job.type === type
+      && (kind === "doc" ? job.documentFileId === id : job.noteId === id)
+      && (!mode || job.mode === mode)
+    ));
     const countMenu = (type, label, counts) => {
       const key = `${base}:${type}`;
       const open = quizMenuKey === key;
       return `
         <span class="study-quiz-wrap">
-          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" ${busy ? "disabled" : ""}>
-            ${spinFor(type) ? spinner() : ""}${label}
+          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+            ${label}
           </button>
           <div class="study-quiz-menu${open ? "" : " hidden"}">
             ${counts.map((n) => `<button type="button" data-study-generate="${type}" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="${n}">${n}</button>`).join("")}
           </div>
         </span>`;
     };
+    const flashcardAction = () => {
+      const cardMode = String(state.studyMaterials?.flashcardModes?.[`${kind === "note" ? "note" : "doc"}:${id}`] || "");
+      const key = `${base}:flashcards`;
+      const open = quizMenuKey === key;
+      const rapidDone = cardMode === "rapid" || cardMode === "deep";
+      const deepDone = cardMode === "deep";
+      const busy = activeFor("flashcards");
+      return `
+        <span class="study-quiz-wrap">
+          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+            Flashcards
+          </button>
+          <div class="study-quiz-menu${open ? "" : " hidden"}">
+            <button type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="rapid" title="Key concepts — a chapter review"${rapidDone || busy ? " disabled" : ""}>Rapid</button>
+            <button type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="deep" title="Every concept in the chapter"${deepDone || busy ? " disabled" : ""}>Deep</button>
+          </div>
+        </span>`;
+    };
+    const notesAction = () => {
+      if (kind !== "doc") return "";
+      const related = (state.studyMaterials?.notes || []).filter((note) => note.document_file_id === id);
+      const summaryDone = related.some((note) => note.kind === "summary" && !isDetailedNote(note));
+      const detailedDone = related.some((note) => isDetailedNote(note));
+      const key = `${base}:notes`;
+      const open = quizMenuKey === key;
+      return `
+        <span class="study-quiz-wrap">
+          <button class="study-chip-btn" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+            Notes
+          </button>
+          <div class="study-quiz-menu${open ? "" : " hidden"}">
+            <button type="button" data-study-generate="notes" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="summary" title="Most important concepts"${summaryDone || activeFor("notes", "summary") ? " disabled" : ""}>Summary</button>
+            <button type="button" data-study-generate="notes" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="detailed" title="A thorough chapter review"${detailedDone || activeFor("notes", "detailed") ? " disabled" : ""}>Detailed</button>
+          </div>
+        </span>`;
+    };
     return `
       <div class="study-material-actions">
-        ${countMenu("flashcards", "Flashcards", [10, 20, 30])}
+        ${flashcardAction()}
         ${countMenu("quiz", "Quiz", [10, 15, 25])}
-        ${kind === "note" ? "" : `<button class="study-chip-btn" type="button" data-study-generate="summary" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
-          ${spinFor("summary") ? spinner() : ""}Summarize
-        </button>`}
-        ${kind === "doc" ? `<button class="study-chip-btn study-chip-quiet" type="button" data-study-scaffold="${escapeHtml(id)}" ${busy ? "disabled" : ""}>
-          ${generatingKey === `${base}:scaffold` ? spinner() : ""}Import syllabus dates
+        ${notesAction()}
+        ${kind === "doc" ? `<button class="study-chip-btn study-chip-quiet" type="button" data-study-scaffold="${escapeHtml(id)}" ${scaffoldBusy ? "disabled" : ""}>
+          ${scaffoldBusy ? spinner() : ""}Import syllabus dates
         </button>` : ""}
       </div>`;
+  }
+
+  function jobTypeLabel(type) {
+    if (type === "flashcards") return "Flashcards";
+    if (type === "quiz") return "Quiz";
+    if (type === "notes") return "Notes";
+    return "Generation";
+  }
+
+  function jobStatusLabel(status) {
+    if (status === "running") return "Running";
+    if (status === "succeeded") return "Ready";
+    if (status === "failed") return "Failed";
+    return statusLabel(status);
+  }
+
+  function jobSourceName(job) {
+    if (job?.documentFileId) {
+      const doc = (state.studyMaterials?.documents || []).find((item) => item.id === job.documentFileId);
+      if (doc) return documentDisplayName(doc);
+    }
+    if (job?.noteId) {
+      const note = (state.studyMaterials?.notes || []).find((item) => item.id === job.noteId);
+      if (note) return note.title || noteKindLabel(note);
+    }
+    return job?.result?.title || "Material";
+  }
+
+  function formatElapsed(job) {
+    const start = Date.parse(job?.createdAt || "");
+    if (!Number.isFinite(start)) return "";
+    const terminal = job.status === "succeeded" || job.status === "failed";
+    const end = terminal
+      ? (Date.parse(job.finishedAt || "") || Date.now())
+      : Date.now();
+    const sec = Math.max(0, Math.floor((end - start) / 1000));
+    if (sec < 60) return `${sec}s`;
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  }
+
+  function jobMetaLine(job) {
+    const bits = [];
+    if (job.mode) bits.push(job.mode === "deep" ? "Deep" : job.mode === "detailed" ? "Detailed" : job.mode === "rapid" ? "Rapid" : job.mode === "summary" ? "Summary" : String(job.mode));
+    if (job.type === "quiz" && job.count) bits.push(`${job.count} questions`);
+    const out = job.result && typeof job.result === "object" ? job.result : null;
+    if (out?.count != null && job.type === "flashcards") bits.push(`${out.count} cards`);
+    if (out?.partial) bits.push("partial");
+    if (out?.warning) bits.push(String(out.warning));
+    if (out?.visualPageWarning) bits.push(out.visualPageCount != null ? `${out.visualPageCount} visual pages skipped` : "visual pages skipped");
+    return bits.join(" · ");
+  }
+
+  function courseGenerationCards() {
+    if (!state.activeCourseId) return [];
+    return [...generations.values()]
+      .filter((job) => job.courseId === state.activeCourseId)
+      .sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
+  }
+
+  function generationCardsMarkup() {
+    const cards = courseGenerationCards();
+    if (!cards.length) return "";
+    return cards.map((job) => {
+      const active = job.status === "running";
+      const pillClass = job.status === "succeeded" ? "ready" : job.status === "failed" ? "failed" : "reading";
+      const stage = job.stage ? ` · ${job.stage}` : "";
+      const elapsed = formatElapsed(job);
+      const meta = jobMetaLine(job);
+      const noteId = job.type === "notes" ? (job.result?.noteId || job.result?.id || "") : "";
+      const successHint = job.status !== "succeeded" ? ""
+        : job.type === "notes"
+          ? (noteId
+            ? `<button class="study-chip-btn" type="button" data-open-note="${escapeHtml(String(noteId))}">Open note</button>`
+            : `<small class="study-gen-hint">Ready in Materials</small>`)
+          : `<small class="study-gen-hint">Available in Practice</small>`;
+      return `
+        <article class="study-material-card study-gen-card is-${escapeHtml(job.status || "running")}" data-gen-id="${escapeHtml(job.id)}">
+          <div class="study-material-copy">
+            <strong>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(jobSourceName(job))}</strong>
+            ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+            <span class="study-status-pill is-${escapeHtml(pillClass)}" aria-live="polite">
+              ${active ? spinner() : ""}${escapeHtml(jobStatusLabel(job.status))}${escapeHtml(stage)}
+            </span>
+            ${elapsed ? `<small class="study-gen-elapsed">${escapeHtml(elapsed)}</small>` : ""}
+          </div>
+          ${active ? `
+            <div class="study-gen-actions">
+              <button class="study-chip-btn" type="button" data-cancel-generation="${escapeHtml(job.id)}">Cancel</button>
+            </div>` : ""}
+          ${job.status === "failed" ? `
+            <p class="study-gen-error">${escapeHtml(job.error || "Generation failed.")}</p>
+            <div class="study-gen-actions">
+              <button class="study-chip-btn" type="button" data-retry-generation="${escapeHtml(job.id)}">Retry</button>
+            </div>` : ""}
+          ${successHint ? `<div class="study-gen-actions">${successHint}</div>` : ""}
+        </article>`;
+    }).join("");
   }
 
   function materialsMarkup() {
@@ -385,16 +557,18 @@ export function createStudyHubController({
             ${statusPill(status)}
           </div>
           ${generateActions("doc", doc.id, ready)}
+          ${materialMenu("doc", doc.id)}
         </article>`;
     }).join("");
     const noteCards = notes.map((note) => `
       <article class="study-material-card study-note-card is-ready" data-open-note="${escapeHtml(note.id)}">
         <div class="study-material-copy">
-          <strong>${escapeHtml(note.title || (note.kind === "image_transcript" ? "Image notes" : "Summary"))}</strong>
-          <small>${escapeHtml(note.kind === "image_transcript" ? "Image transcript" : "Summary")}</small>
+          <strong>${escapeHtml(note.title || (note.kind === "image_transcript" ? "Image notes" : isDetailedNote(note) ? "Detailed review" : "Summary"))}</strong>
+          <small>${escapeHtml(noteKindLabel(note))}</small>
           <span class="study-status-pill is-ready">Ready</span>
         </div>
         ${generateActions("note", note.id, true)}
+        ${materialMenu("note", note.id)}
       </article>`).join("");
     const hasItems = docs.length || notes.length || pendingUploads.length;
     return `
@@ -529,6 +703,7 @@ export function createStudyHubController({
           </div>
         </header>
         ${tabMarkup()}
+        ${courseGenerationCards().length ? `<div class="study-material-list study-generation-list">${generationCardsMarkup()}</div>` : ""}
         <div class="study-tab-panel" data-study-tab-panel="${escapeHtml(state.activeCourseTab)}">${body}</div>
       </div>`;
   }
@@ -569,9 +744,9 @@ export function createStudyHubController({
     if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
     if (els.studyNoteBody) {
       try {
-        els.studyNoteBody.innerHTML = renderContent(studyNote.content || "") || `<pre>${escapeHtml(studyNote.content || "")}</pre>`;
+        els.studyNoteBody.innerHTML = renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       } catch {
-        els.studyNoteBody.innerHTML = `<pre>${escapeHtml(studyNote.content || "")}</pre>`;
+        els.studyNoteBody.innerHTML = `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       }
     }
   }
@@ -603,6 +778,11 @@ export function createStudyHubController({
 
   function render() {
     if (!els.studyView) return;
+    if (!state.session) {
+      if (generations.size) abortAllGenerations();
+    } else {
+      pruneDeletedCourseGenerations();
+    }
     const visible = studyVisible();
     if (visible) parkComposer();
     els.studyView.classList.toggle("hidden", !visible);
@@ -679,6 +859,156 @@ export function createStudyHubController({
       .catch(() => {});
   }
 
+  function activeGenerationJobs() {
+    return [...generations.values()].filter((job) => job.status === "running");
+  }
+
+  function stopElapsedTimer() {
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
+
+  function ensureElapsedTimer() {
+    if (!activeGenerationJobs().length) {
+      stopElapsedTimer();
+      return;
+    }
+    if (elapsedTimer) return;
+    elapsedTimer = setInterval(() => {
+      if (!activeGenerationJobs().length) {
+        stopElapsedTimer();
+        return;
+      }
+      if (studyVisible() && state.activeCourseId) render();
+    }, 1000);
+  }
+
+  function abortAllGenerations() {
+    for (const job of generations.values()) {
+      try { job.controller?.abort(); } catch { /* ignore */ }
+    }
+    generations.clear();
+    stopElapsedTimer();
+  }
+
+  function pruneDeletedCourseGenerations() {
+    const courseIds = new Set(coursesFromProjects().map((course) => course.id));
+    let changed = false;
+    for (const [id, job] of [...generations.entries()]) {
+      if (courseIds.has(job.courseId)) continue;
+      try { job.controller?.abort(); } catch { /* ignore */ }
+      generations.delete(id);
+      changed = true;
+    }
+    if (changed) ensureElapsedTimer();
+  }
+
+  function toastForGeneration(job) {
+    if (job.status === "failed") {
+      showToast(job.error || "Could not generate.");
+      return;
+    }
+    if (job.status !== "succeeded") return;
+    const out = job.result && typeof job.result === "object" ? job.result : {};
+    if (job.type === "flashcards") {
+      const n = Number(out.count) || 0;
+      showToast(n ? `${n} card${n === 1 ? "" : "s"} created` : "Flashcards ready");
+    } else if (job.type === "quiz") {
+      showToast("Quiz ready");
+    } else if (job.type === "notes") {
+      showToast(job.mode === "detailed" ? "Detailed review ready" : "Summary ready");
+    }
+  }
+
+  function requestKeyFor(kind, id, type, { count, mode } = {}) {
+    return `${kind}:${id}:${type}:${mode || ""}:${count || ""}`;
+  }
+
+  function newGenerationId() {
+    return typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function generationMatchesRequest(job, requestKey) {
+    return job.requestKey === requestKey && job.status === "running";
+  }
+
+  async function pumpGeneration(job) {
+    const courseId = job.courseId;
+    try {
+      let result = null;
+      let completed = false;
+      await generateStudyContent(state.session, courseId, job.body, {
+        signal: job.controller.signal,
+        onEvent(event) {
+          if (event.type === "status") {
+            job.stage = event.stage ? String(event.stage) : "";
+            if (studyVisible() && state.activeCourseId === courseId) render();
+            return;
+          }
+          if (event.type === "complete") {
+            result = event.result ?? null;
+            completed = true;
+          }
+        }
+      });
+      if (job.controller.signal.aborted || !generations.has(job.id)) return;
+      if (!completed) throw new Error("Generation ended unexpectedly.");
+      job.status = "succeeded";
+      job.stage = "";
+      job.result = result;
+      job.finishedAt = new Date().toISOString();
+      toastForGeneration(job);
+      if (state.activeCourseId === courseId) {
+        await Promise.all([
+          loadMaterials().catch(() => {}),
+          loadOverview().catch(() => {}),
+          loadPractice().catch(() => {})
+        ]);
+      }
+    } catch (error) {
+      if (error?.name === "AbortError" || job.controller.signal.aborted) {
+        generations.delete(job.id);
+        return;
+      }
+      if (!generations.has(job.id)) return;
+      job.status = "failed";
+      job.stage = "";
+      job.error = error?.message || "Could not generate.";
+      job.finishedAt = new Date().toISOString();
+      toastForGeneration(job);
+    } finally {
+      ensureElapsedTimer();
+      if (studyVisible() && state.activeCourseId === courseId) render();
+    }
+  }
+
+  function startGeneration({ kind, id, type, count, mode, body, requestKey, courseId }) {
+    const job = {
+      id: newGenerationId(),
+      requestKey,
+      courseId,
+      type,
+      mode: mode || "",
+      count: type === "quiz" ? (Number(count) || 10) : undefined,
+      documentFileId: kind === "doc" ? id : "",
+      noteId: kind === "note" ? id : "",
+      body,
+      status: "running",
+      stage: "",
+      createdAt: new Date().toISOString(),
+      finishedAt: "",
+      result: null,
+      error: "",
+      controller: new AbortController()
+    };
+    generations.set(job.id, job);
+    ensureElapsedTimer();
+    void pumpGeneration(job);
+    return job;
+  }
+
   async function loadOverview() {
     if (!state.activeCourseId) return;
     const id = state.activeCourseId;
@@ -727,7 +1057,7 @@ export function createStudyHubController({
     state.studyPractice = null;
     state.studyProjectDetail = null;
     pendingUploads = [];
-    generatingKey = "";
+    scaffoldBusyKey = "";
     quizMenuKey = "";
     studyNote = null;
   }
@@ -935,6 +1265,67 @@ export function createStudyHubController({
     }
   }
 
+  function confirmDeleteDoc(docId) {
+    const doc = (state.studyMaterials?.documents || []).find((item) => item.id === docId);
+    if (!doc) return;
+    quizMenuKey = "";
+    render();
+    openDeleteConfirm({
+      title: "Remove file?",
+      body: `Remove "${documentDisplayName(doc)}" from materials? Notes, flashcards, and quizzes you made from it will stay.`,
+      onConfirm: () => deleteDoc(doc)
+    });
+  }
+
+  async function deleteDoc(doc) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyMaterial(state.session, state.activeCourseId, doc.id);
+      if (state.studyMaterials) {
+        state.studyMaterials = {
+          ...state.studyMaterials,
+          documents: (state.studyMaterials.documents || []).filter((item) => item.id !== doc.id)
+        };
+      }
+      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      render();
+      showToast("File removed.");
+    } catch (error) {
+      showToast(error.message || "File could not be removed.");
+    }
+  }
+
+  function confirmDeleteNote(noteId) {
+    const note = (state.studyMaterials?.notes || []).find((item) => item.id === noteId);
+    if (!note) return;
+    quizMenuKey = "";
+    render();
+    openDeleteConfirm({
+      title: "Delete note?",
+      body: `Delete "${note.title || noteKindLabel(note)}"?`,
+      onConfirm: () => deleteNote(note)
+    });
+  }
+
+  async function deleteNote(note) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyNote(state.session, note.id);
+      if (studyNote?.id === note.id) closeNote();
+      if (state.studyMaterials) {
+        state.studyMaterials = {
+          ...state.studyMaterials,
+          notes: (state.studyMaterials.notes || []).filter((item) => item.id !== note.id)
+        };
+      }
+      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      render();
+      showToast("Note deleted.");
+    } catch (error) {
+      showToast(error.message || "Note could not be deleted.");
+    }
+  }
+
   async function waitForDocument(attachmentId, fileName) {
     while (state.session) {
       const payload = await fetchDocumentStatus(state.session, attachmentId);
@@ -1015,44 +1406,64 @@ export function createStudyHubController({
     }
   }
 
-  async function runGenerate(kind, id, type, count) {
-    if (!state.activeCourseId) return;
-    const key = `${kind}:${id}:${type}`;
-    generatingKey = key;
-    quizMenuKey = "";
-    render();
-    try {
-      const body = { type };
-      if (kind === "doc") body.documentFileId = id;
-      else body.noteId = id;
-      if (type === "quiz" || type === "flashcards") body.count = Number(count) || 10;
-      const payload = await generateStudyContent(state.session, state.activeCourseId, body);
-      if (type === "flashcards") {
-        const n = payload?.cards?.length || 0;
-        showToast(`${n} card${n === 1 ? "" : "s"} created`);
-      } else if (type === "quiz") {
-        showToast("Quiz ready");
-      } else {
-        showToast("Summary ready");
-        if (payload?.note && state.studyMaterials) {
-          state.studyMaterials = {
-            ...state.studyMaterials,
-            notes: [payload.note, ...(state.studyMaterials.notes || [])]
-          };
-        }
-      }
-      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
-    } catch (error) {
-      showToast(error.message || "Could not generate.");
-    } finally {
-      generatingKey = "";
-      render();
+  async function runGenerate(kind, id, type, { count, mode } = {}) {
+    if (!state.activeCourseId || !state.session) return;
+    const courseId = state.activeCourseId;
+    const requestKey = requestKeyFor(kind, id, type, { count, mode });
+    if ([...generations.values()].some((job) => job.courseId === courseId && generationMatchesRequest(job, requestKey))) {
+      return;
     }
+    if (type === "flashcards") {
+      const flashBusy = [...generations.values()].some((job) => (
+        job.courseId === courseId
+        && job.status === "running"
+        && job.type === "flashcards"
+        && (kind === "doc" ? job.documentFileId === id : job.noteId === id)
+      ));
+      if (flashBusy) return;
+    }
+    const body = { type };
+    if (kind === "doc") body.documentFileId = id;
+    else body.noteId = id;
+    if (type === "quiz") body.count = Number(count) || 10;
+    if (type === "flashcards") body.mode = mode === "deep" ? "deep" : "rapid";
+    if (type === "notes") body.mode = mode === "detailed" ? "detailed" : "summary";
+    quizMenuKey = "";
+    startGeneration({
+      kind,
+      id,
+      type,
+      count: body.count,
+      mode: body.mode || "",
+      body,
+      requestKey,
+      courseId
+    });
+    render();
+  }
+
+  function cancelGeneration(jobId) {
+    const job = generations.get(jobId);
+    if (!job || job.status !== "running") return;
+    try { job.controller.abort(); } catch { /* ignore */ }
+    generations.delete(jobId);
+    ensureElapsedTimer();
+    render();
+  }
+
+  function retryGeneration(jobId) {
+    const job = generations.get(jobId);
+    if (!job || job.status !== "failed" || !state.session) return;
+    const kind = job.documentFileId ? "doc" : "note";
+    const id = job.documentFileId || job.noteId;
+    if (!id || !job.type) return;
+    generations.delete(jobId);
+    void runGenerate(kind, id, job.type, { count: job.count, mode: job.mode });
   }
 
   async function runScaffold(documentFileId) {
     if (!state.activeCourseId) return;
-    generatingKey = `doc:${documentFileId}:scaffold`;
+    scaffoldBusyKey = `doc:${documentFileId}:scaffold`;
     render();
     try {
       const payload = await scaffoldStudyCourse(state.session, state.activeCourseId, documentFileId);
@@ -1064,7 +1475,7 @@ export function createStudyHubController({
     } catch (error) {
       showToast(error.message || "Could not import syllabus dates.");
     } finally {
-      generatingKey = "";
+      scaffoldBusyKey = "";
       render();
     }
   }
@@ -1133,7 +1544,7 @@ export function createStudyHubController({
           <span class="study-review-mark${markClass}">${reviewMarkLabel(mark)}</span>
           <span class="study-review-kebab" aria-hidden="true"></span>
         </span>
-        <span class="study-review-text">${escapeHtml((side === "front" ? card.front : card.back) || "")}</span>
+        <span class="study-review-text"><span>${escapeHtml((side === "front" ? card.front : card.back) || "").replaceAll("___", '<span class="study-blank" aria-label="blank"></span>')}</span></span>
         <span class="study-review-see">${side === "front" ? "See answer" : "See question"}</span>
       </span>`;
   }
@@ -1638,7 +2049,7 @@ export function createStudyHubController({
 
   async function copyNote() {
     if (!studyNote) return;
-    const text = [studyNote.title, els.studyNoteBody?.innerText || studyNote.content].filter(Boolean).join("\n\n");
+    const text = [studyNote.title, els.studyNoteBody?.innerText || noteBody(studyNote)].filter(Boolean).join("\n\n");
     try {
       await copyText(text);
       flashCopySuccess(els.studyNoteCopy);
@@ -1648,7 +2059,7 @@ export function createStudyHubController({
   }
 
   function downloadNoteMarkdown() {
-    const url = URL.createObjectURL(new Blob([String(studyNote?.content || "")], { type: "text/markdown;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob([noteBody(studyNote)], { type: "text/markdown;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = noteFileName("md");
@@ -1739,6 +2150,14 @@ export function createStudyHubController({
       render();
       return;
     }
+    const materialMenuBtn = event.target.closest("[data-toggle-material-menu]");
+    if (materialMenuBtn) {
+      event.stopPropagation();
+      const key = materialMenuBtn.dataset.toggleMaterialMenu;
+      quizMenuKey = quizMenuKey === key ? "" : key;
+      render();
+      return;
+    }
     const quizToggle = event.target.closest("[data-toggle-quiz-menu]");
     if (quizToggle) {
       event.stopPropagation();
@@ -1775,7 +2194,20 @@ export function createStudyHubController({
     const gen = event.target.closest("[data-study-generate]");
     if (gen) {
       event.stopPropagation();
-      return runGenerate(gen.dataset.genKind, gen.dataset.genId, gen.dataset.studyGenerate, gen.dataset.count);
+      return runGenerate(gen.dataset.genKind, gen.dataset.genId, gen.dataset.studyGenerate, {
+        count: gen.dataset.count,
+        mode: gen.dataset.mode
+      });
+    }
+    const retryGen = event.target.closest("[data-retry-generation]");
+    if (retryGen) {
+      event.stopPropagation();
+      return retryGeneration(retryGen.dataset.retryGeneration);
+    }
+    const cancelGen = event.target.closest("[data-cancel-generation]");
+    if (cancelGen) {
+      event.stopPropagation();
+      return cancelGeneration(cancelGen.dataset.cancelGeneration);
     }
     const scaffold = event.target.closest("[data-study-scaffold]");
     if (scaffold) {
@@ -1783,7 +2215,9 @@ export function createStudyHubController({
       return runScaffold(scaffold.dataset.studyScaffold);
     }
     const note = event.target.closest("[data-open-note]");
-    if (note && !event.target.closest(".study-material-actions")) return openNote(note.dataset.openNote);
+    if (note && !event.target.closest(".study-material-actions") && !event.target.closest(".study-card-menu-wrap")) {
+      return openNote(note.dataset.openNote);
+    }
     const chat = event.target.closest("[data-open-chat-id]");
     if (chat) return openConversation(chat.dataset.openChatId);
     const rename = event.target.closest("[data-rename-course]");
@@ -1794,6 +2228,16 @@ export function createStudyHubController({
     if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
     const removeDeck = event.target.closest("[data-delete-deck]");
     if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
+    const removeDoc = event.target.closest("[data-delete-doc]");
+    if (removeDoc) {
+      event.stopPropagation();
+      return confirmDeleteDoc(removeDoc.dataset.deleteDoc);
+    }
+    const removeNote = event.target.closest("[data-delete-note]");
+    if (removeNote) {
+      event.stopPropagation();
+      return confirmDeleteNote(removeNote.dataset.deleteNote);
+    }
   }
 
   function handleViewChange(event) {

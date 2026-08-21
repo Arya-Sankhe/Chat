@@ -274,6 +274,43 @@ test("enforced chat metering reserves, submits, and settles one idempotent reque
   assert.equal(events[2][1].costCredits, 0.01);
 });
 
+test("cancelling an accepted stream settles its reservation", async () => {
+  const settled = [];
+  const encoder = new TextEncoder();
+  const meter = createCrofaiUsageMeter({
+    db: {
+      async reserveApiUsage() { return { allowed: true }; },
+      async markApiUsageSubmitted() {},
+      async settleApiUsage(params) { settled.push(params); },
+      async releaseApiUsage() { throw new Error("accepted streams must not release reservations"); }
+    },
+    userId: "user",
+    subscription: { id: "sub", current_period_end: "2026-09-01T00:00:00Z" },
+    plan: { id: "pro", monthlyApiCreditLimit: 25 },
+    meteringMode: "enforce",
+    reservationCredits: 0.25,
+    streamChatCompletionFn: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"id":"gen_cancelled","choices":[{"delta":{"content":"partial"}}]}\n\n'));
+      }
+    }))
+  });
+
+  const response = await meter.streamChatCompletion({
+    requestId: "00000000-0000-4000-8000-000000000004",
+    providerId: "openrouter",
+    body: { model: "fixed" }
+  });
+  const reader = response.body.getReader();
+  await reader.read();
+  await reader.cancel(new Error("client disconnected"));
+
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].generationId, "gen_cancelled");
+  assert.equal(settled[0].costCredits, 0.25);
+  assert.equal(settled[0].estimated, true);
+});
+
 test("a reservation ceiling violation trips the per-user kill switch, not the global one", async () => {
   const originalError = console.error;
   console.error = () => {};
@@ -370,7 +407,7 @@ test("the desktop repository pins the immutable website OpenAPI artifact", async
 });
 
 test("every non-desktop LLM entry point passes enforce-mode settings to the shared meter", async () => {
-  for (const path of ["../server/research/worker.js", "../server/routes/uploads.js"]) {
+  for (const path of ["../server/research/worker.js", "../server/study/generate.js", "../server/routes/uploads.js"]) {
     const source = await readFile(new URL(path, import.meta.url), "utf8");
     assert.match(source, /createCrofaiUsageMeter\(\{[\s\S]*?meteringMode: config\.desktop\.meteringMode,[\s\S]*?reservationCredits: config\.desktop\.chatReservationCredits[\s\S]*?\}\)/);
   }

@@ -581,10 +581,11 @@
 }
 
 .study-material-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 14px;
+  padding: 14px 42px 14px 14px;
 }
 
 .study-material-copy {
@@ -648,21 +649,52 @@
 .study-quiz-menu button {
   min-width: 36px;
   min-height: 32px;
+  padding: 0 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font: inherit;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.study-quiz-menu button:hover {
+.study-quiz-menu button:hover:not(:disabled) {
   background: var(--bg-secondary);
+}
+
+.study-quiz-menu button:disabled {
+  cursor: default;
+  opacity: .4;
 }
 
 .study-note-card {
   cursor: pointer;
+}
+
+.study-gen-card .study-gen-elapsed,
+.study-gen-card .study-gen-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.study-gen-card {
+  padding-right: 14px;
+}
+
+.study-gen-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.study-gen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .study-spin {
@@ -1061,6 +1093,15 @@ body.study-session-open .toast {
   width: 100%;
   overflow: auto;
   padding: 12px 8px;
+  text-align: center;
+}
+
+.study-blank {
+  display: inline-block;
+  min-width: 4.5ch;
+  height: 0.85em;
+  border-bottom: 2px solid currentColor;
+  vertical-align: baseline;
 }
 
 .study-review-see {

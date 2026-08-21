@@ -20,6 +20,7 @@ import {
   handleStudyCourseScaffold,
   handleStudyQuizAttempts,
   handleStudyQuizById,
+  handleStudyNote,
   handleStudyNoteExport
 } from "./routes/study.js";
 import {
@@ -330,6 +331,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "notes" && parts[3] && parts[4] === "export") {
       await handleStudyNoteExport(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "notes" && parts[3] && !parts[4]) {
+      await handleStudyNote(req, res, config, parts[3]);
       return;
     }
 

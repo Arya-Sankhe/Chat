@@ -1,13 +1,28 @@
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { DocumentService } from "../documents/index.js";
+import { startSse, writeSse } from "../chat/shared.js";
 import { gradeCard } from "../study/fsrs.js";
 import {
+  GENERATE_MAX_MS,
+  clampQuizCount,
+  collectFlashcardModes,
+  flashcardModeAllowed,
   generateFlashcards,
   generateQuiz,
   generateSummary,
+  normalizeFlashcardMode,
+  normalizeNoteMode,
+  noteBody,
+  noteModeAllowed,
+  noteModesFromNotes,
+  resolvedFlashcardMode,
   scaffoldCourseMeta
 } from "../study/generate.js";
+import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
+
+// ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
+const activeStudyGenerations = new Set();
 
 async function requireCourse(context, courseId, signal) {
   const project = await context.db.getProject(context.user.id, courseId, { signal });
@@ -24,7 +39,9 @@ async function requireCourseSource(context, course, body, signal) {
   if (documentFileId) {
     const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal });
     if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
-    if (!documentFile.text_ready_at) throw new HttpError(409, "Material is still processing.");
+    if (!documentFile.text_ready_at && !documentFile.visual_ready_at) {
+      throw new HttpError(409, "Material is still processing.");
+    }
     return { documentFile };
   }
   const note = await context.db.getStudyNote(context.user.id, noteId, { signal });
@@ -74,6 +91,39 @@ function deckTitlesFromMeta(meta) {
   return titles && typeof titles === "object" && !Array.isArray(titles) ? titles : {};
 }
 
+function flashcardModesFromMeta(meta) {
+  const modes = meta?.flashcardModes;
+  return modes && typeof modes === "object" && !Array.isArray(modes) ? { ...modes } : {};
+}
+
+function generationLockKey({ userId, courseId, type, source, mode }) {
+  const src = source.documentFile
+    ? `doc:${source.documentFile.id}`
+    : `note:${source.note.id}`;
+  let key = `${userId}:${courseId}:${src}:${type}`;
+  if (type === "notes") key += `:${mode || "summary"}`;
+  return key;
+}
+
+function endStudySse(res) {
+  if (!res.writableEnded && !res.destroyed) {
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }
+}
+
+function hiddenDocumentIdsFromMeta(meta) {
+  return (Array.isArray(meta?.hiddenDocumentIds) ? meta.hiddenDocumentIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+}
+
+function sourceDeckInput(source) {
+  return source.documentFile
+    ? { documentFileId: source.documentFile.id }
+    : { noteId: source.note.id };
+}
+
 function parseDeckSource(input = {}) {
   const documentFileId = typeof input.documentFileId === "string" ? input.documentFileId.trim() : "";
   const noteId = typeof input.noteId === "string" ? input.noteId.trim() : "";
@@ -114,13 +164,14 @@ export async function handleStudyCourseOverview(req, res, config, courseId) {
     context.db.listRecentStudyReviewDates(context.user.id, { signal: req.signal })
   ]);
   const meta = course.meta && typeof course.meta === "object" && !Array.isArray(course.meta) ? course.meta : {};
+  const hidden = new Set(hiddenDocumentIdsFromMeta(meta));
   sendJson(res, 200, {
     course,
     dueCount: (cards || []).filter((card) => card.due_at && new Date(card.due_at).getTime() <= now).length,
     reviewDates: (reviewRows || []).map((row) => row.reviewed_at).filter(Boolean),
     deadlines: Array.isArray(meta.deadlines) ? meta.deadlines : [],
     counts: {
-      materials: (documents || []).length,
+      materials: (documents || []).filter((doc) => !hidden.has(doc.id)).length,
       cards: (cards || []).length,
       quizzes: (quizzes || []).length,
       notes: (notes || []).length
@@ -130,14 +181,38 @@ export async function handleStudyCourseOverview(req, res, config, courseId) {
 }
 
 export async function handleStudyCourseMaterials(req, res, config, courseId) {
-  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  if (req.method !== "GET" && req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
-  const [documents, notes] = await Promise.all([
+  if (req.method === "DELETE") {
+    const body = await parseJsonBody(req);
+    const documentFileId = typeof body.documentFileId === "string" ? body.documentFileId.trim() : "";
+    if (!documentFileId) throw new HttpError(400, "documentFileId is required.");
+    const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal: req.signal });
+    if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
+    const meta = courseMetaObject(course);
+    const hiddenDocumentIds = hiddenDocumentIdsFromMeta(meta);
+    if (!hiddenDocumentIds.includes(documentFileId)) hiddenDocumentIds.push(documentFileId);
+    await context.db.updateProject(context.user.id, course.id, {
+      meta: { ...meta, hiddenDocumentIds }
+    }, { signal: req.signal });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  const [documents, notes, cards] = await Promise.all([
     context.db.listProjectDocuments(context.user.id, course.id, { signal: req.signal }),
-    context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal })
+    context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal }),
+    context.db.listStudyCards(context.user.id, course.id, {
+      select: "document_file_id,note_id",
+      signal: req.signal
+    })
   ]);
-  sendJson(res, 200, { documents: documents || [], notes: notes || [] });
+  const hidden = new Set(hiddenDocumentIdsFromMeta(courseMetaObject(course)));
+  sendJson(res, 200, {
+    documents: (documents || []).filter((doc) => !hidden.has(doc.id)),
+    notes: notes || [],
+    flashcardModes: collectFlashcardModes(courseMetaObject(course).flashcardModes, cards)
+  });
 }
 
 export async function handleStudyCourseGenerate(req, res, config, courseId) {
@@ -145,24 +220,195 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
   const body = await parseJsonBody(req);
-  const type = String(body.type || "").trim();
-  if (!["flashcards", "quiz", "summary"].includes(type)) {
-    throw new HttpError(400, "type must be flashcards, quiz, or summary.");
+  const type = String(body.type || "").trim() === "summary" ? "notes" : String(body.type || "").trim();
+  if (!["flashcards", "quiz", "notes"].includes(type)) {
+    throw new HttpError(400, "type must be flashcards, quiz, or notes.");
   }
   const source = await requireCourseSource(context, course, body, req.signal);
-  const params = { context, config, course, source, signal: req.signal };
+
+  let mode = null;
+  let count = null;
+  let existingFronts = [];
   if (type === "flashcards") {
-    const cards = await generateFlashcards({ ...params, count: body.count });
-    sendJson(res, 200, { cards });
-    return;
+    mode = normalizeFlashcardMode(body.mode);
+    if (!mode) throw new HttpError(400, "mode must be rapid or deep.");
+    const key = deckKey(sourceDeckInput(source));
+    const listed = await context.db.listStudyCards(context.user.id, course.id, {
+      select: "document_file_id,note_id,front",
+      signal: req.signal
+    }) || [];
+    const mine = listed.filter((card) => source.documentFile
+      ? card.document_file_id === source.documentFile.id
+      : card.note_id === source.note.id);
+    const meta = courseMetaObject(course);
+    const current = resolvedFlashcardMode(flashcardModesFromMeta(meta)[key], mine.length > 0);
+    if (!flashcardModeAllowed(current, mode)) {
+      throw new HttpError(409, current === "deep"
+        ? "Deep deck already created."
+        : "Rapid already created. Use Deep for a full rundown.");
+    }
+    if (mode === "deep") existingFronts = mine.map((card) => card.front);
+  } else if (type === "quiz") {
+    count = clampQuizCount(body.count);
+  } else {
+    if (!source.documentFile) throw new HttpError(400, "Notes can only be generated from a file.");
+    mode = normalizeNoteMode(body.mode) || "summary";
+    const listed = await context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal });
+    const existing = noteModesFromNotes(listed, source.documentFile.id);
+    if (!noteModeAllowed(existing, mode)) {
+      throw new HttpError(409, mode === "detailed"
+        ? "Detailed review already created."
+        : "Summary already created.");
+    }
   }
-  if (type === "quiz") {
-    const quiz = await generateQuiz({ ...params, count: body.count });
-    sendJson(res, 200, { quiz });
-    return;
+
+  await createCrofaiUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    signal: req.signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: config.desktop.chatReservationCredits
+  }).checkBudget(req.signal);
+
+  const lockKey = generationLockKey({
+    userId: context.user.id,
+    courseId: course.id,
+    type,
+    source,
+    mode
+  });
+  if (activeStudyGenerations.has(lockKey)) {
+    throw new HttpError(409, type === "flashcards"
+      ? "Flashcard generation is already in progress for this material."
+      : "Generation is already in progress for this material.");
   }
-  const note = await generateSummary(params);
-  sendJson(res, 200, { note });
+  activeStudyGenerations.add(lockKey);
+
+  const controller = new AbortController();
+  let finished = false;
+  const abort = (reason) => {
+    if (!controller.signal.aborted) controller.abort(reason);
+  };
+  const onReqAbort = () => abort(req.signal?.reason);
+  const onClose = () => {
+    if (!finished && !res.writableEnded) abort();
+  };
+  const maxRunMs = config.study?.maxRunMs || GENERATE_MAX_MS;
+  const deadline = setTimeout(() => abort(new Error("study_request_timeout")), maxRunMs);
+  const heartbeat = setInterval(() => {
+    if (finished || res.writableEnded || res.destroyed) return;
+    writeSse(res, { type: "heartbeat" });
+  }, 15_000);
+
+  if (req.signal?.aborted) abort(req.signal.reason);
+  else if (req.signal) req.signal.addEventListener("abort", onReqAbort, { once: true });
+  res.on("close", onClose);
+
+  const signal = controller.signal;
+  const emitStage = (stage) => writeSse(res, { type: "status", stage });
+  let warning = null;
+  const onWarning = (message) => {
+    if (message) warning = String(message);
+  };
+
+  try {
+    startSse(res);
+
+    let result;
+    if (type === "flashcards") {
+      const cards = await generateFlashcards({
+        context,
+        config,
+        course,
+        source,
+        mode,
+        existingFronts,
+        signal,
+        onWarning,
+        onStage: emitStage
+      });
+      const meta = courseMetaObject(course);
+      const key = deckKey(sourceDeckInput(source));
+      const completedMode = meta.flashcardModes?.[key] === "deep" || mode === "deep" ? "deep" : "rapid";
+      const flashcardModes = {
+        ...(meta.flashcardModes && typeof meta.flashcardModes === "object" ? meta.flashcardModes : {}),
+        [key]: completedMode
+      };
+      await context.db.updateProject(context.user.id, course.id, {
+        meta: { ...meta, flashcardModes }
+      }, { signal });
+      result = {
+        type,
+        count: cards.length,
+        mode: completedMode,
+        ...(warning ? { warning } : {})
+      };
+    } else if (type === "quiz") {
+      const generated = await generateQuiz({
+        context,
+        config,
+        course,
+        source,
+        count,
+        signal,
+        onWarning,
+        onStage: emitStage
+      });
+      result = {
+        type,
+        id: generated.quiz.id,
+        title: generated.quiz.title || "Quiz",
+        count: Array.isArray(generated.quiz.questions) ? generated.quiz.questions.length : 0,
+        ...(generated.partial ? { partial: true } : {}),
+        ...(warning ? { warning } : {})
+      };
+    } else {
+      const generated = await generateSummary({
+        context,
+        config,
+        course,
+        source,
+        mode,
+        signal,
+        onWarning,
+        onStage: emitStage
+      });
+      result = {
+        type,
+        id: generated.note.id,
+        title: generated.note.title || "",
+        mode: mode || "summary",
+        ...(generated.partial ? { partial: true } : {}),
+        ...(warning ? { warning } : {})
+      };
+    }
+
+    writeSse(res, { type: "complete", result });
+    finished = true;
+    endStudySse(res);
+  } catch (error) {
+    finished = true;
+    if (res.headersSent) {
+      const aborted = signal.aborted || error?.name === "AbortError";
+      const message = aborted
+        ? "Generation cancelled."
+        : (error instanceof HttpError ? error.message : (error?.message || "Generation failed, try again."));
+      writeSse(res, { type: "error", error: message });
+      endStudySse(res);
+      return;
+    }
+    throw error;
+  } finally {
+    finished = true;
+    clearTimeout(deadline);
+    clearInterval(heartbeat);
+    if (req.signal) req.signal.removeEventListener("abort", onReqAbort);
+    if (typeof res.off === "function") res.off("close", onClose);
+    else if (typeof res.removeListener === "function") res.removeListener("close", onClose);
+    activeStudyGenerations.delete(lockKey);
+  }
 }
 
 export async function handleStudyCoursePractice(req, res, config, courseId) {
@@ -321,6 +567,15 @@ export async function handleStudyCourseDecks(req, res, config, courseId) {
     manual: source.manual || undefined,
     signal: req.signal
   });
+  const meta = courseMetaObject(course);
+  const key = deckKey(source);
+  const flashcardModes = flashcardModesFromMeta(meta);
+  if (flashcardModes[key]) {
+    delete flashcardModes[key];
+    await context.db.updateProject(context.user.id, course.id, {
+      meta: { ...meta, flashcardModes }
+    }, { signal: req.signal });
+  }
   sendJson(res, 200, { ok: true });
 }
 
@@ -428,6 +683,16 @@ export async function handleStudyCourseScaffold(req, res, config, courseId) {
   sendJson(res, 200, { meta });
 }
 
+export async function handleStudyNote(req, res, config, noteId) {
+  if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const note = await context.db.getStudyNote(context.user.id, noteId, { signal: req.signal });
+  if (!note) throw new HttpError(404, "Note not found.");
+  await requireCourse(context, note.project_id, req.signal);
+  await context.db.deleteStudyNote(context.user.id, note.id, { signal: req.signal });
+  sendJson(res, 200, { ok: true });
+}
+
 export async function handleStudyNoteExport(req, res, config, noteId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -436,7 +701,7 @@ export async function handleStudyNoteExport(req, res, config, noteId) {
   const body = await parseJsonBody(req);
   const format = String(body.format || "").toLowerCase();
   if (!["docx", "pdf"].includes(format)) throw new HttpError(400, "Export format must be docx or pdf.");
-  const markdown = String(note.content || "").trim();
+  const markdown = noteBody(note).trim();
   if (!markdown) throw new HttpError(400, "Note has no content.");
   const documents = new DocumentService({
     config,

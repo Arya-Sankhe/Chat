@@ -50,6 +50,7 @@ import {
   fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
+  deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
   reviewStudyCard,
@@ -60,8 +61,9 @@ import {
   fetchStudyQuiz,
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
-  exportStudyNote
-} from "./api.js?v=20260820-study-merge";
+  exportStudyNote,
+  deleteStudyNote
+} from "./api.js?v=20260821-unlink-file";
 import {
   clearSession,
   loadSession,
@@ -103,7 +105,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260820-study-merge";
+import { createStudyHubController } from "./studyHub.js?v=20260821-unlink-file";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -6402,6 +6404,7 @@ studyHub = createStudyHubController({
   fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
+  deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
   reviewStudyCard,
@@ -6413,6 +6416,7 @@ studyHub = createStudyHubController({
   submitStudyQuizAttempt,
   scaffoldStudyCourse,
   exportStudyNote,
+  deleteStudyNote,
   fetchDocumentJobStatus,
   downloadAttachment,
   flashCopySuccess,

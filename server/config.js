@@ -298,6 +298,11 @@ export function loadConfig(env = process.env) {
       finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 25_000),
       minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
     },
+    study: {
+      maxRunMs: readInt(env.STUDY_MAX_RUN_MS, 10 * 60 * 1000),
+      inactivityMs: readInt(env.STUDY_INACTIVITY_MS, 30_000),
+      visionModel: clean(env.STUDY_VISION_MODEL) || "xiaomi/mimo-v2.5"
+    },
     illustrations: {
       enabled: Boolean(
         clean(env.OPENROUTER_API_KEY)

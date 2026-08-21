@@ -476,6 +476,10 @@ export class SupabaseRest {
     return documents.listDocumentPagesByNumbers(this, userId, documentFileId, pageNumbers, options);
   }
 
+  async updateDocumentPage(userId, documentFileId, pageNumber, patch, options) {
+    return documents.updateDocumentPage(this, userId, documentFileId, pageNumber, patch, options);
+  }
+
   async queueDocumentPageRender(params, options) {
     return documents.queueDocumentPageRender(this, params, options);
   }

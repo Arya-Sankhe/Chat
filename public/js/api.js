@@ -226,15 +226,32 @@ export async function fetchStudyMaterials(session, courseId) {
   return response.json();
 }
 
-export async function generateStudyContent(session, courseId, body) {
+export async function deleteStudyMaterial(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
+    session,
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ documentFileId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function generateStudyContent(session, courseId, body, { signal, onEvent } = {}) {
   const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/generate`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
+  return readSseStream(response, (event) => {
+    if (!event || typeof event !== "object") return;
+    if (event.type === "error") throw new Error(event.error || "Generation failed.");
+    if (event.type === "heartbeat") return;
+    onEvent?.(event);
+  });
 }
 
 export async function fetchStudyPractice(session, courseId) {
@@ -322,6 +339,15 @@ export async function submitStudyQuizAttempt(session, quizId, answers) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ answers })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyNote(session, noteId) {
+  const response = await apiFetch(`/api/study/notes/${encodeURIComponent(noteId)}`, {
+    session,
+    method: "DELETE"
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
