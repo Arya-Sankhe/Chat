@@ -476,16 +476,16 @@ test("capacitor empty-state has no logo icon above the heading", async () => {
   // The ::before pseudo-element that showed the Klui icon must be removed.
   assert.doesNotMatch(
     source,
-    /body\.capacitor-native\.chat-empty \.empty-state h1::before/,
-    "empty-state h1 must not have a ::before pseudo-element on capacitor"
+    /body\.capacitor-native\.chat-empty \.empty-state (?:h1|\.type-line)::before/,
+    "empty-state greeting must not have a ::before pseudo-element on capacitor"
   );
   // The heading should not use display: grid with gap (which held the icon + text).
-  const h1Rule = source.match(/body\.capacitor-native\.chat-empty \.empty-state h1\s*\{[^}]*\}/)?.[0] ?? "";
-  assert.ok(h1Rule, "empty-state h1 capacitor rule should exist");
+  const h1Rule = source.match(/body\.capacitor-native\.chat-empty \.empty-state \.type-line\s*\{[^}]*\}/)?.[0] ?? "";
+  assert.ok(h1Rule, "empty-state greeting capacitor rule should exist");
   assert.doesNotMatch(
     h1Rule,
     /display:\s*grid/,
-    "empty-state h1 should not use display: grid"
+    "empty-state greeting should not use display: grid"
   );
 });
 

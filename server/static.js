@@ -3,7 +3,9 @@ import path from "node:path";
 import { applyApiCors } from "./http/cors.js";
 
 const publicDir = path.resolve(process.cwd(), "public");
+const homeDir = path.join(publicDir, "home");
 const legacyWebHosts = new Set(["klui.tech", "www.klui.tech"]);
+const marketingWebHosts = new Set(["home.klui.ai", "www.home.klui.ai"]);
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -12,6 +14,13 @@ const contentTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".svg", "image/svg+xml"],
   [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".avif", "image/avif"],
+  [".woff2", "font/woff2"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
   [".webmanifest", "application/manifest+json"],
   [".apk", "application/vnd.android.package-archive"],
   [".exe", "application/vnd.microsoft.portable-executable"]
@@ -21,8 +30,99 @@ const directoryIndexes = new Map([
   ["/download/android", "/download/android/index.html"],
   ["/download/android/", "/download/android/index.html"],
   ["/download/windows", "/download/windows/index.html"],
-  ["/download/windows/", "/download/windows/index.html"]
+  ["/download/windows/", "/download/windows/index.html"],
+  ["/home", "/home/index.html"],
+  ["/home/", "/home/index.html"]
 ]);
+
+function hostnameOf(req) {
+  return String(req.headers.host || "")
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/\.+$/, "");
+}
+
+function isDocumentMethod(req) {
+  return req.method === "GET" || req.method === "HEAD";
+}
+
+function safePathAndQuery(url) {
+  let pathname = String(url.pathname || "/").replace(/\/{2,}/g, "/");
+  if (!pathname.startsWith("/") || pathname.startsWith("//") || pathname.includes("\\") || /[\r\n]/.test(pathname)) {
+    pathname = "/";
+  }
+  const search = String(url.search || "");
+  if (/[\r\n]/.test(search)) return pathname;
+  return `${pathname}${search}`;
+}
+
+function isHomeDocumentPath(pathname) {
+  return pathname === "/home" || pathname === "/home/" || pathname === "/home/index.html";
+}
+
+function isMovedDocumentPath(pathname) {
+  return pathname === "/moved" || pathname === "/moved/" || pathname === "/moved/index.html";
+}
+
+function isAndroidLatestJson(pathname) {
+  return pathname === "/downloads/android/latest.json";
+}
+
+function addMovedQuery(pathAndQuery) {
+  if (/[?&]moved=/.test(pathAndQuery)) return pathAndQuery;
+  return pathAndQuery.includes("?") ? `${pathAndQuery}&moved=1` : `${pathAndQuery}?moved=1`;
+}
+
+function legacyRedirectLocation(url) {
+  const pathname = String(url.pathname || "/");
+  if (pathname === "/robots.txt" || pathname === "/sitemap.xml") {
+    return `https://klui.ai${pathname}`;
+  }
+  return `https://klui.ai${addMovedQuery(safePathAndQuery(url))}`;
+}
+
+export function isLegacyWebNavigation(req, url) {
+  const hostname = hostnameOf(req);
+  const pathname = String(url.pathname || "/");
+  return isDocumentMethod(req)
+    && legacyWebHosts.has(hostname)
+    && !pathname.startsWith("/oauth/")
+    && !isAndroidLatestJson(pathname);
+}
+
+export function isMarketingHost(req) {
+  return marketingWebHosts.has(hostnameOf(req));
+}
+
+export function hostRedirectLocation(req, url) {
+  if (!isDocumentMethod(req)) return null;
+  const hostname = hostnameOf(req);
+  const pathname = String(url.pathname || "/");
+
+  if (hostname === "www.klui.ai") {
+    if (pathname === "/home" || pathname.startsWith("/home/")) return "https://home.klui.ai/";
+    if (isMovedDocumentPath(pathname)) return "https://klui.ai/";
+    return `https://klui.ai${safePathAndQuery(url)}`;
+  }
+  if (hostname === "www.home.klui.ai") return `https://home.klui.ai${safePathAndQuery(url)}`;
+  if (hostname === "klui.ai") {
+    if (isHomeDocumentPath(pathname)) return "https://home.klui.ai/";
+    if (isMovedDocumentPath(pathname)) return "https://klui.ai/";
+    return null;
+  }
+  if (isLegacyWebNavigation(req, url)) return legacyRedirectLocation(url);
+  return null;
+}
+
+function isInside(dir, filePath) {
+  const prefix = dir.endsWith(path.sep) ? dir : `${dir}${path.sep}`;
+  return filePath === dir || filePath.startsWith(prefix);
+}
+
+function isSharedMarketingAsset(filePath) {
+  const relative = path.relative(publicDir, filePath);
+  return relative === "favicon.svg" || relative.startsWith(`icons${path.sep}`);
+}
 
 async function resolvePublicFile(pathname) {
   const mapped = directoryIndexes.get(pathname);
@@ -34,7 +134,7 @@ async function resolvePublicFile(pathname) {
 
   for (const candidate of candidates) {
     const filePath = path.resolve(publicDir, `.${candidate}`);
-    if (!filePath.startsWith(publicDir)) continue;
+    if (!isInside(publicDir, filePath)) continue;
     try {
       const stat = await fs.promises.stat(filePath);
       if (stat.isFile()) return filePath;
@@ -45,34 +145,80 @@ async function resolvePublicFile(pathname) {
   return null;
 }
 
-export function isLegacyWebNavigation(req, url) {
-  const hostname = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
-  const acceptsHtml = String(req.headers.accept || "").includes("text/html");
-  return req.method === "GET"
-    && legacyWebHosts.has(hostname)
-    && !url.pathname.startsWith("/oauth/")
-    && (acceptsHtml || req.headers["sec-fetch-dest"] === "document");
+async function resolveMarketingFile(pathname) {
+  const homePath = pathname === "/home" || pathname.startsWith("/home/")
+    ? pathname
+    : pathname === "/"
+      ? "/home/index.html"
+      : `/home${pathname}`;
+  const homeFile = await resolvePublicFile(homePath);
+  if (homeFile && isInside(homeDir, homeFile)) return homeFile;
+
+  const shared = await resolvePublicFile(pathname);
+  if (shared && isSharedMarketingAsset(shared)) return shared;
+  return null;
+}
+
+function sendRedirect(res, location) {
+  res.writeHead(301, {
+    location,
+    "cache-control": "public, max-age=300"
+  });
+  res.end();
+}
+
+function sendNotFound(res) {
+  const notFound = path.join(homeDir, "404.html");
+  res.writeHead(404, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache"
+  });
+  if (fs.existsSync(notFound)) {
+    fs.createReadStream(notFound).pipe(res);
+    return;
+  }
+  res.end("<!doctype html><html lang=\"en\"><title>Not found</title><h1>Not found</h1></html>");
+}
+
+function sendSpaFallback(res) {
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache"
+  });
+  fs.createReadStream(path.join(publicDir, "index.html")).pipe(res);
+}
+
+function isHomePreviewPath(pathname) {
+  return pathname === "/home" || pathname.startsWith("/home/");
 }
 
 export async function serveStatic(req, res, url, { allowedOrigins = [], supabaseUrl = "" } = {}) {
-  const requestedPath = decodeURIComponent(url.pathname);
-  const pathname = isLegacyWebNavigation(req, url)
-    ? "/moved/index.html"
-    : requestedPath === "/"
+  const redirectTo = hostRedirectLocation(req, url);
+  if (redirectTo) {
+    sendRedirect(res, redirectTo);
+    return;
+  }
+
+  const requestedPath = url.pathname || "/";
+  const marketing = isMarketingHost(req);
+  const pathname = !marketing && requestedPath === "/"
     ? "/index.html"
     : requestedPath;
+
   if (pathname === "/downloads/android/latest.json") {
     applyApiCors(req, res, allowedOrigins);
   }
 
-  const filePath = await resolvePublicFile(pathname);
+  const filePath = marketing
+    ? await resolveMarketingFile(pathname)
+    : await resolvePublicFile(pathname);
 
   if (!filePath) {
-    res.writeHead(200, {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-cache"
-    });
-    fs.createReadStream(path.join(publicDir, "index.html")).pipe(res);
+    if (marketing || isHomePreviewPath(requestedPath)) {
+      sendNotFound(res);
+      return;
+    }
+    sendSpaFallback(res);
     return;
   }
 

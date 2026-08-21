@@ -238,7 +238,7 @@
   50% { transform: translateY(-2px) rotate(1deg); }
 }
 
-.empty-state h1.type-line {
+.empty-state .type-line {
   display: flex;
   align-items: center;
   width: auto;

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /oauth/
+Disallow: /home
+
+Sitemap: https://klui.ai/sitemap.xml

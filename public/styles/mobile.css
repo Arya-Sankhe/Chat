@@ -186,7 +186,7 @@ body.capacitor-native.chat-empty .empty-state {
 
 }
 
-body.capacitor-native.chat-empty .empty-state h1 {
+body.capacitor-native.chat-empty .empty-state .type-line {
 
   display: block;
 
@@ -200,7 +200,7 @@ body.capacitor-native.chat-empty .empty-state h1 {
 
 }
 
-body.capacitor-native.chat-empty .empty-state .hero-line.is-long h1.type-line {
+body.capacitor-native.chat-empty .empty-state .hero-line.is-long .type-line {
   font-size: clamp(16px, 5vw, 22px);
 }
 
@@ -726,7 +726,7 @@ body.chat-empty .empty-state {
 
 }
 
-body.chat-empty .empty-state h1 {
+body.chat-empty .empty-state .type-line {
 
   font-size: clamp(24px, 2.2vw, 30px);
 
@@ -1407,13 +1407,13 @@ body.chat-empty .composer-area {
 
   }
 
-  .empty-state h1 {
+  .empty-state .type-line {
 
     font-size: 28px;
 
   }
 
-  body.chat-empty .empty-state h1 {
+  body.chat-empty .empty-state .type-line {
 
     font-size: 24px;
 

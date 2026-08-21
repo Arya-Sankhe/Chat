@@ -281,7 +281,7 @@ test("the APK greeting is present on first paint and long lines stay compact", (
   assert.match(kluiJs, /text\.length > 22/);
   assert.match(
     css,
-    /body\.capacitor-native\.chat-empty \.empty-state \.hero-line\.is-long h1\.type-line\s*\{[^}]*font-size:\s*clamp\(16px, 5vw, 22px\)/
+    /body\.capacitor-native\.chat-empty \.empty-state \.hero-line\.is-long \.type-line\s*\{[^}]*font-size:\s*clamp\(16px, 5vw, 22px\)/
   );
 });
 

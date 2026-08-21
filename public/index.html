@@ -8,10 +8,50 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Klui">
-    <title>Klui</title>
+    <title>Klui AI</title>
+    <meta name="description" content="Klui AI is one workspace for notes, research, writing, and files. Chat, compare models, run Deep Research with citations, and create PDFs, Word docs, spreadsheets, and slides.">
+    <link rel="canonical" href="https://klui.ai/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Klui AI">
+    <meta property="og:title" content="Klui AI">
+    <meta property="og:description" content="Klui AI is one workspace for notes, research, writing, and files. Chat, compare models, run Deep Research with citations, and create PDFs, Word docs, spreadsheets, and slides.">
+    <meta property="og:url" content="https://klui.ai/">
+    <meta property="og:image" content="https://klui.ai/icons/icon-512.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Klui AI">
+    <meta name="twitter:description" content="Klui AI is one workspace for notes, research, writing, and files. Chat, compare models, run Deep Research with citations, and create documents.">
+    <meta name="twitter:image" content="https://klui.ai/icons/icon-512.png">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "name": "Klui",
+            "alternateName": "Klui AI",
+            "url": "https://klui.ai/",
+            "logo": "https://klui.ai/icons/icon-512.png"
+          },
+          {
+            "@type": "WebSite",
+            "name": "Klui",
+            "alternateName": ["Klui AI", "klui.ai"],
+            "url": "https://klui.ai/"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Klui AI",
+            "applicationCategory": "EducationalApplication",
+            "operatingSystem": "Web, Android, Windows",
+            "url": "https://klui.ai/",
+            "description": "Klui AI is one workspace for notes, research, writing, and files. Chat, compare models, run Deep Research with citations, and create PDFs, Word docs, spreadsheets, and slides."
+          }
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="/styles.css?v=20260821-streaming">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -53,6 +93,7 @@
       </section>
 
       <div class="app-shell" id="chatView">
+        <h1 class="sr-only">Klui AI</h1>
         <img class="home-wallpaper" id="homeWallpaper" src="/images/home-clouds.webp" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
         <button class="native-nav-backdrop" id="nativeNavBackdrop" type="button" aria-label="Close navigation"></button>
         <aside class="sidebar" aria-label="Navigation">
@@ -739,6 +780,32 @@
         </div>
       </aside>
 
+      <aside class="ios-install-hint hidden" id="movedNotice" role="status" aria-labelledby="movedNoticeTitle">
+        <button class="ios-install-close" id="movedNoticeDismiss" type="button" aria-label="Dismiss moved notice">x</button>
+        <img src="/icons/icon-192.png" width="44" height="44" alt="">
+        <div>
+          <strong id="movedNoticeTitle">Klui lives at Klui.ai now</strong>
+          <p>You came from Klui.tech. Same account, same chats.</p>
+          <button class="moved-open" id="movedNoticeOpen" type="button">Open Klui</button>
+        </div>
+      </aside>
+      <style>
+        #movedNotice .moved-open {
+          display: inline-flex;
+          margin-top: 8px;
+          min-height: 36px;
+          padding: 0 12px;
+          border: 0;
+          border-radius: 8px;
+          background: var(--accent);
+          color: var(--accent-contrast);
+          font: inherit;
+          font-weight: 650;
+          cursor: pointer;
+        }
+        #movedNotice .moved-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+      </style>
+
       <section class="app-update-dialog hidden" id="appUpdateDialog" role="dialog" aria-modal="true" aria-labelledby="appUpdateTitle">
         <h2 id="appUpdateTitle">Klui update available</h2>
         <p id="appUpdateBody">Download the latest Android version.</p>
@@ -789,7 +856,7 @@
           window.__kluiLaunchGreeting = greeting;
           document.querySelector("#messages").innerHTML = `<div class="empty-state">
             <div class="hero-line${greeting.length > 22 ? " is-long" : ""}">
-              <h1 class="type-line"><span class="type-text">${greeting}</span><span class="caret"></span></h1>
+              <p class="type-line"><span class="type-text">${greeting}</span><span class="caret"></span></p>
             </div>
           </div>`;
         }
@@ -801,5 +868,22 @@
     </script>
     <script type="module" src="/js/app.js?v=20260819-storage"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
+    <script>
+      (function () {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get("moved") !== "1") return;
+        const notice = document.getElementById("movedNotice");
+        if (!notice) return;
+        notice.classList.remove("hidden");
+        function dismissMovedNotice() {
+          notice.classList.add("hidden");
+          url.searchParams.delete("moved");
+          const next = url.pathname + url.search + url.hash;
+          history.replaceState({}, "", next);
+        }
+        document.getElementById("movedNoticeDismiss")?.addEventListener("click", dismissMovedNotice);
+        document.getElementById("movedNoticeOpen")?.addEventListener("click", dismissMovedNotice);
+      })();
+    </script>
   </body>
 </html>
