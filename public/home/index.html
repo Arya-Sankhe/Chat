@@ -65,7 +65,7 @@
         </a>
         <span class="nav-balance" aria-hidden="true"></span>
         <details class="nav-mobile">
-          <summary>Menu</summary>
+          <summary aria-label="Menu"><span class="menu-icon" aria-hidden="true"></span></summary>
           <nav aria-label="Mobile navigation">
             <a href="#workspace">Workspace</a>
             <a href="#research">Research</a>
@@ -79,9 +79,13 @@
     <main id="content">
       <section class="hero" aria-labelledby="hero-title">
         <picture>
-          <source srcset="assets/hero-refined-v4-800.webp" type="image/webp" media="(max-width: 700px)">
-          <img class="hero-art" src="assets/hero-refined-v4.webp" width="1672" height="941" alt="An open book beneath blue halftone clouds and a wave of bright orange fire" fetchpriority="high" decoding="async">
+          <source srcset="assets/hero-mobile.webp" type="image/webp" media="(max-width: 720px)">
+          <img class="hero-art" src="assets/hero-refined-v4.webp" width="2560" height="1441" alt="An open book beneath blue halftone clouds and a wave of bright orange fire" fetchpriority="high" decoding="async">
         </picture>
+        <video class="hero-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true" tabindex="-1" disablepictureinpicture>
+          <source src="assets/hero-loop-mobile.mp4" type="video/mp4" media="(max-width: 720px)">
+          <source src="assets/hero-loop.mp4" type="video/mp4">
+        </video>
         <div class="hero-copy">
           <h1 id="hero-title">Locked in so you can relax</h1>
           <a class="cta" href="https://klui.ai">Join Klui <span aria-hidden="true">→</span></a>

@@ -145,18 +145,42 @@ summary:focus-visible {
 .nav-mobile { display: none; position: relative; justify-self: end; }
 
 .nav-mobile summary {
-  display: inline-flex;
-  align-items: center;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
-  font-weight: 750;
   list-style: none;
 }
 
 .nav-mobile summary::-webkit-details-marker { display: none; }
+
+.menu-icon {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 1.5px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+.menu-icon::before,
+.menu-icon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 20px;
+  height: 1.5px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+.menu-icon::before { top: -6px; }
+.menu-icon::after { top: 6px; }
 
 .nav-mobile nav {
   position: absolute;
@@ -174,18 +198,28 @@ summary:focus-visible {
 
 .hero {
   position: relative;
-  min-height: min(100dvh, 940px);
+  min-height: 100svh;
   overflow: hidden;
   isolation: isolate;
 }
 
-.hero picture { position: absolute; inset: 0; }
+.hero picture,
+.hero-video {
+  position: absolute;
+  inset: 0;
+}
 
-.hero-art {
+.hero-art,
+.hero-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center bottom;
+}
+
+.hero-video {
+  z-index: 1;
+  pointer-events: none;
 }
 
 .hero-copy {
@@ -520,8 +554,6 @@ h2 {
   .nav-primary, .nav-balance { display: none; }
   .wordmark { justify-self: start; }
   .nav-mobile { display: block; }
-  .hero { min-height: 760px; }
-  .hero-art { object-position: center bottom; }
   .hero-copy { padding-top: 132px; }
   .hero h1 { font-size: clamp(3rem, 14vw, 4.15rem); max-width: 9ch; }
   .band { padding: 76px 18px 88px; }
@@ -543,6 +575,7 @@ h2 {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .hero-video { display: none; }
   .cta, .plan-cta, .paper-link { transition: none; }
   .cta:hover, .plan-cta:hover, .paper-link:hover,
   .cta:active, .plan-cta:active, .paper-link:active { transform: none; }
