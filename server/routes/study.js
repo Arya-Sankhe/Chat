@@ -56,10 +56,18 @@ function publicQuiz(quiz) {
     title: quiz.title || "",
     project_id: quiz.project_id,
     created_at: quiz.created_at,
-    questions: questions.map((entry) => ({
-      q: String(entry?.q || ""),
-      choices: Array.isArray(entry?.choices) ? entry.choices.map((choice) => String(choice || "")) : []
-    }))
+    questions: questions.map((entry) => {
+      const answer = Number(entry?.answer);
+      const whys = Array.isArray(entry?.whys) ? entry.whys.map((why) => String(why || "")) : [];
+      return {
+        q: String(entry?.q || ""),
+        topic: String(entry?.topic || ""),
+        choices: Array.isArray(entry?.choices) ? entry.choices.map((choice) => String(choice || "")) : [],
+        answer: Number.isInteger(answer) ? answer : null,
+        explanation: String(entry?.explanation || ""),
+        whys
+      };
+    })
   };
 }
 

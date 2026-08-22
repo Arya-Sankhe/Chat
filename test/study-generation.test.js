@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  cleanQuestions,
   loadMaterialText,
   parseMarkdownNote,
   parseStudyJson
@@ -37,6 +38,22 @@ test("parseMarkdownNote takes first H1 and keeps partial markdown", () => {
   const untitled = parseMarkdownNote("Just a paragraph of notes.", { fallbackTitle: "Lecture.pdf" });
   assert.equal(untitled.title, "Lecture.pdf");
   assert.match(untitled.content, /Just a paragraph/);
+});
+
+test("quiz questions keep topic and fill explanation from whys", () => {
+  const questions = cleanQuestions({
+    questions: [{
+      q: "What is osmosis?",
+      topic: "Cell transport",
+      choices: ["A", "B", "C", "D"],
+      answer: 1,
+      whys: ["diffusion of solute", "water across a membrane", "active pump", "endocytosis"]
+    }]
+  }, 10);
+  assert.equal(questions.length, 1);
+  assert.equal(questions[0].topic, "Cell transport");
+  assert.equal(questions[0].explanation, "water across a membrane");
+  assert.equal(questions[0].whys[1], "water across a membrane");
 });
 
 test("brace-aware salvage recovers complete objects from truncated JSON", () => {

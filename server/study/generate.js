@@ -361,7 +361,7 @@ function cleanCards(parsed, max = FLASHCARD_CAP) {
   }).slice(0, max);
 }
 
-function cleanQuestions(parsed, count) {
+export function cleanQuestions(parsed, count) {
   const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
   const questions = rows.flatMap((entry) => {
     const q = String(entry?.q || entry?.question || "").trim();
@@ -370,9 +370,11 @@ function cleanQuestions(parsed, count) {
       .filter(Boolean)
       .slice(0, 4);
     const answer = Number(entry?.answer);
-    const explanation = String(entry?.explanation || "").trim();
     if (!q || choices.length !== 4 || !Number.isInteger(answer) || answer < 0 || answer > 3) return [];
-    return [{ q, choices, answer, explanation }];
+    const whys = choices.map((_, index) => String(entry?.whys?.[index] || "").trim());
+    const explanation = String(entry?.explanation || whys[answer] || "").trim();
+    const topic = String(entry?.topic || "").trim();
+    return [{ q, topic, choices, answer, explanation, whys }];
   }).slice(0, count);
   if (questions.length < Math.min(count, 1)) throw new HttpError(502, GENERATION_FAILED);
   return questions;
@@ -464,7 +466,7 @@ export async function generateQuiz({
     config,
     signal,
     maxTokens: 16000,
-    system: `You create a multiple-choice quiz from source material. Return ONLY valid JSON: {"title":"...","questions":[{"q":"...","choices":["A","B","C","D"],"answer":0,"explanation":"..."}]}. Produce exactly ${questionCount} questions. choices must have 4 distinct strings. answer is the 0-based index of the correct choice. No markdown, no commentary.`,
+    system: `You create a multiple-choice quiz from source material. Return ONLY valid JSON: {"title":"...","questions":[{"q":"...","topic":"short concept","choices":["A","B","C","D"],"answer":0,"whys":["why A","why B","why C","why D"]}]}. Produce exactly ${questionCount} questions. choices must have 4 distinct strings. answer is the 0-based index of the correct choice. topic is 2–5 words. whys has 4 short clauses, one per choice: the correct one says why it is right, the others say why not or when that idea actually applies. No markdown, no commentary.`,
     user: text,
     expect: "json"
   });

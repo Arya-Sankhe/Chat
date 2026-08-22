@@ -154,6 +154,35 @@ test("materials cards have a delete menu", () => {
   assert.match(api, /\/api\/study\/notes\/\$\{encodeURIComponent\(noteId\)\}/);
 });
 
+test("quiz recap is a fixed card with review, retake, and lookback", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.match(hub, /phase === "reveal"/);
+  assert.match(hub, /data-study-continue/);
+  assert.match(hub, /study-quiz-recap/);
+  assert.match(hub, /function quizLetter\(/);
+  assert.match(hub, /See me after class/);
+  assert.match(hub, /Excellent — you did well/);
+  assert.match(hub, /Quiz Results/);
+  assert.match(hub, /Review Quiz/);
+  assert.match(hub, /Retake Quiz/);
+  assert.doesNotMatch(hub, /Topics covered/);
+  assert.doesNotMatch(hub, /Quiz complete/);
+  assert.match(hub, /study-miss-list[\s\S]*data-quiz-recap/);
+  assert.match(hub, /data-quiz-lookback/);
+  assert.match(css, /Patrick Hand/);
+  assert.match(css, /Caveat/);
+  assert.match(hub, /data-quiz-retake/);
+  assert.match(hub, /function retakeQuiz\(/);
+  assert.match(hub, /phase === "lookback"/);
+  assert.match(hub, /Add to flashcards/);
+  assert.doesNotMatch(hub, /data-study-next/);
+  assert.doesNotMatch(hub, /Keep learning/);
+  assert.match(css, /\.study-session-frame\.is-quiz\.is-recap\s*\{[^}]*overflow:\s*auto/s);
+  assert.match(css, /\.study-quiz-marks\s*\{/);
+  assert.match(css, /\.study-choice-why\s*\{/);
+});
+
 test("in-memory generation uses POST SSE without durable job polling", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const api = readFileSync(resolve(publicDir, "js/api.js"), "utf8");

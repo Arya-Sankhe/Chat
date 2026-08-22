@@ -1841,7 +1841,7 @@ test("study card review rejects an invalid rating with 400", async () => {
   assert.equal(res.json().error, "rating must be 1, 2, 3, or 4.");
 });
 
-test("study quiz GET strips answers and explanations", async () => {
+test("study quiz GET includes answers for in-session reveal", async () => {
   const overrides = stubbedDeps({
     db: {
       async getStudyQuiz() {
@@ -1852,9 +1852,11 @@ test("study quiz GET strips answers and explanations", async () => {
           created_at: "2026-08-17T00:00:00Z",
           questions: [{
             q: "What is a cell?",
+            topic: "Basics",
             choices: ["A", "B", "C", "D"],
             answer: 2,
-            explanation: "secret"
+            explanation: "secret",
+            whys: ["no", "no", "yes", "no"]
           }]
         };
       },
@@ -1865,10 +1867,14 @@ test("study quiz GET strips answers and explanations", async () => {
   assert.equal(res.statusCode, 200);
   const quiz = res.json().quiz;
   assert.equal(quiz.title, "Cells");
-  assert.deepEqual(quiz.questions, [{ q: "What is a cell?", choices: ["A", "B", "C", "D"] }]);
-  assert.equal("answer" in quiz.questions[0], false);
-  assert.equal("explanation" in quiz.questions[0], false);
-  assert.doesNotMatch(res.body, /secret/);
+  assert.deepEqual(quiz.questions, [{
+    q: "What is a cell?",
+    topic: "Basics",
+    choices: ["A", "B", "C", "D"],
+    answer: 2,
+    explanation: "secret",
+    whys: ["no", "no", "yes", "no"]
+  }]);
 });
 
 test("study note export uses the document create pipeline", async () => {

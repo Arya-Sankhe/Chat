@@ -1843,60 +1843,150 @@ export function createStudyHubController({
     playGradeAnim(value);
   }
 
-  function quizMarkup(session) {
-    if (session.phase === "results") {
-      const { score, total, results, quiz, adding } = session;
-      const pct = total ? Math.round((score / total) * 100) : 0;
-      const misses = (results || []).map((row, index) => ({ row, index })).filter((item) => !item.row.correct);
-      const missList = misses.length
-        ? misses.map(({ row, index }) => {
-          const question = quiz.questions[index] || {};
-          const yours = row.yourAnswer;
-          const correct = row.answer;
-          return `
-            <article class="study-miss">
-              <p>${escapeHtml(question.q || `Question ${index + 1}`)}</p>
-              ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
-              <p class="study-miss-correct">${escapeHtml(question.choices?.[correct] || "")}</p>
-              ${row.explanation ? `<p class="study-miss-explain">${escapeHtml(row.explanation)}</p>` : ""}
-              <button class="study-chip-btn" type="button" data-add-missed="${index}" ${adding === index ? "disabled" : ""}>
-                ${adding === index ? spinner() : ""}Add to flashcards
-              </button>
-            </article>`;
-        }).join("")
-        : `<p class="study-empty-inline">No misses — nice work.</p>`;
+  function quizLookbackMarkup(session) {
+    const { results, quiz, adding, added } = session;
+    const items = (quiz.questions || []).map((question, index) => {
+      const row = results?.[index] || {};
+      const yours = row.yourAnswer;
+      const correct = row.answer;
+      const kind = row.correct ? "is-right" : yours < 0 ? "is-skip" : "is-wrong";
+      const mark = row.correct ? "Right" : yours < 0 ? "Skipped" : "Wrong";
+      const already = added?.has(index);
       return `
-        <div class="study-session-end">
-          <div class="study-score-ring" style="--study-score:${pct / 100}"><strong>${escapeHtml(String(score))}/${escapeHtml(String(total))}</strong></div>
-          <div class="study-miss-list">${missList}</div>
-          <button class="study-primary-btn" type="button" data-close-session>Close</button>
-        </div>`;
-    }
+        <article class="study-miss ${kind}">
+          <p class="study-miss-mark">${mark}</p>
+          <p>${escapeHtml(question.q || `Question ${index + 1}`)}</p>
+          ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
+          <p class="study-miss-correct">${escapeHtml(question.choices?.[correct] || "")}</p>
+          ${row.explanation ? `<p class="study-miss-explain">${escapeHtml(row.explanation)}</p>` : ""}
+          <button class="study-chip-btn" type="button" data-add-missed="${index}" ${already || adding === index ? "disabled" : ""}>
+            ${adding === index ? spinner() : already ? "Added" : "Add to flashcards"}
+          </button>
+        </article>`;
+    }).join("");
+    return `
+      <div class="study-quiz-lookback">
+        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
+        <h2>Review</h2>
+        <div class="study-miss-list">${items || `<p class="study-empty-inline">Nothing to review.</p>`}</div>
+        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
+      </div>`;
+  }
+
+  function quizLetter(pct) {
+    if (pct >= 90) return "A";
+    if (pct >= 70) return "B";
+    if (pct >= 50) return "C";
+    return "F";
+  }
+
+  function quizNote(letter) {
+    if (letter === "A") return "Excellent — you did well!";
+    if (letter === "B") return "Keep it up, you're almost there.";
+    if (letter === "C") return "Not bad. One more pass.";
+    return "See me after class!";
+  }
+
+  function quizRecapMarkup(session) {
+    const { score, total, results, quiz } = session;
+    const pct = total ? Math.round((score / total) * 100) : 0;
+    const skipped = (results || []).filter((row) => row.yourAnswer < 0).length;
+    const wrong = (results || []).filter((row) => !row.correct && row.yourAnswer >= 0).length;
+    const letter = quizLetter(pct);
+    const tone = pct >= 70 ? "good" : pct >= 50 ? "ok" : "bad";
+    return `
+      <div class="study-quiz-recap is-${tone}">
+        <header class="study-quiz-sheet">
+          <div class="study-quiz-sheet-copy">
+            <h2>Quiz Results</h2>
+            <p class="study-quiz-subject">Subject: ${escapeHtml(quiz.title || "Quiz")}</p>
+          </div>
+          <p class="study-quiz-percent" aria-label="Grade ${letter}, ${escapeHtml(String(pct))} percent">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <ellipse cx="50" cy="50" rx="43" ry="40" transform="rotate(-8 50 50)"/>
+              <ellipse cx="51" cy="49" rx="41" ry="38" transform="rotate(5 51 49)"/>
+            </svg>
+            <strong>${escapeHtml(String(pct))}%</strong>
+            <span>${letter}</span>
+          </p>
+        </header>
+        <ul class="study-quiz-marks">
+          <li class="is-right"><span aria-hidden="true">✓</span> Correct: ${escapeHtml(String(score))}</li>
+          <li class="is-wrong"><span aria-hidden="true">✕</span> Wrong: ${escapeHtml(String(wrong))}</li>
+          <li class="is-skip"><span aria-hidden="true">–</span> Skipped: ${escapeHtml(String(skipped))}</li>
+        </ul>
+        <div class="study-quiz-foot">
+          <hr class="study-quiz-rule">
+          <div class="study-quiz-links">
+            <button type="button" data-quiz-lookback>Review Quiz</button>
+            <button type="button" data-close-session>Finish</button>
+          </div>
+          <button class="study-quiz-retake" type="button" data-quiz-retake>Retake Quiz</button>
+          <p class="study-quiz-note">${quizNote(letter)}</p>
+        </div>
+      </div>`;
+  }
+
+  function quizMarkup(session) {
+    if (session.phase === "lookback") return quizLookbackMarkup(session);
+    if (session.phase === "results") return quizRecapMarkup(session);
     const question = session.quiz.questions[session.index] || {};
-    const pct = session.quiz.questions.length ? Math.round((session.index / session.quiz.questions.length) * 100) : 0;
-    const last = session.index >= session.quiz.questions.length - 1;
-    const choices = (question.choices || []).map((choice, index) => `
-      <button class="study-choice${session.selected === index ? " is-selected" : ""}" type="button" data-study-choice="${index}">
-        <span>${escapeHtml(String.fromCharCode(65 + index))}</span>
-        ${escapeHtml(choice)}
-      </button>`).join("");
+    const total = session.quiz.questions.length;
+    const revealed = session.phase === "reveal";
+    const pct = total ? Math.round(((session.index + (revealed ? 1 : 0)) / total) * 100) : 0;
+    const answer = Number(question.answer);
+    const selected = session.selected;
+    const correctPick = selected === answer;
+    const skipped = selected === -1;
+    const hasWhys = (question.whys || []).some((why) => String(why || "").trim());
+    const fallback = revealed && !hasWhys ? String(question.explanation || "").trim() : "";
+    const last = session.index >= total - 1;
+    const choices = (question.choices || []).map((choice, index) => {
+      const state = !revealed
+        ? (selected === index ? " is-selected" : "")
+        : index === answer
+          ? " is-right"
+          : selected === index
+            ? " is-wrong"
+            : " is-idle";
+      const why = revealed && hasWhys ? String(question.whys[index] || "").trim() : "";
+      return `
+        <button class="study-choice${state}" type="button" data-study-choice="${index}">
+          <span>${escapeHtml(String.fromCharCode(65 + index))}</span>
+          ${escapeHtml(choice)}
+          ${why ? `<span class="study-choice-why">${escapeHtml(why)}</span>` : ""}
+        </button>`;
+    }).join("");
+    const verdict = !revealed
+      ? ""
+      : skipped
+        ? "Passed on this one"
+        : correctPick
+          ? "That's it"
+          : "Not this one";
     return `
       <div class="study-session-progress" aria-hidden="true"><span style="width:${pct}%"></span></div>
-      <button class="study-session-close" type="button" data-close-session aria-label="Close quiz">×</button>
-      <div class="study-quiz-stage">
-        <p class="study-kicker">Question ${escapeHtml(String(session.index + 1))} of ${escapeHtml(String(session.quiz.questions.length))}</p>
+      <div class="study-quiz-stage${revealed ? " is-revealed" : ""}">
+        <p class="study-kicker">Question ${escapeHtml(String(session.index + 1))} of ${escapeHtml(String(total))}</p>
         <h2>${escapeHtml(question.q || "")}</h2>
+        ${verdict ? `<p class="study-quiz-verdict${skipped ? " is-skip" : correctPick ? " is-right" : " is-wrong"}">${verdict}</p>` : ""}
         <div class="study-choices">${choices}</div>
+        ${fallback ? `<p class="study-quiz-explain">${escapeHtml(fallback)}</p>` : ""}
         <div class="study-quiz-nav">
-          <button class="study-chip-btn" type="button" data-study-skip>Skip</button>
-          <button class="study-primary-btn" type="button" data-study-next>${last ? "Submit" : "Next"}</button>
+          ${revealed
+            ? `<button class="study-primary-btn" type="button" data-study-continue ${session.submitting ? "disabled" : ""}>${session.submitting ? spinner() : last ? "See rundown" : "Continue"}</button>`
+            : `<button class="study-chip-btn" type="button" data-study-skip>Skip</button>`}
         </div>
       </div>`;
   }
 
   function renderQuiz() {
     if (!quizSession) return;
-    openSessionShell(`<div class="study-session-frame is-quiz">${quizMarkup(quizSession)}</div>`);
+    const extra = quizSession.phase === "results" ? " is-recap" : quizSession.phase === "lookback" ? " is-lookback" : "";
+    openSessionShell(`
+      <button class="study-session-close" type="button" data-close-session aria-label="Close quiz">×</button>
+      <div class="study-session-frame is-quiz${extra}">${quizMarkup(quizSession)}</div>
+    `);
   }
 
   async function startQuiz(quizId) {
@@ -1914,6 +2004,8 @@ export function createStudyHubController({
         answers: [],
         phase: "ask",
         adding: null,
+        submitting: false,
+        added: new Set(),
         courseId: state.activeCourseId
       };
       renderQuiz();
@@ -1922,34 +2014,68 @@ export function createStudyHubController({
     }
   }
 
-  async function commitQuizAnswer(skipped) {
+  function revealQuizChoice(index) {
     if (!quizSession || quizSession.phase !== "ask") return;
-    const value = skipped || quizSession.selected == null ? -1 : quizSession.selected;
+    if (index !== -1 && !Number.isInteger(index)) return;
+    quizSession.selected = index;
+    quizSession.phase = "reveal";
+    const answer = Number(quizSession.quiz.questions[quizSession.index]?.answer);
+    if (index === answer) sound.tick();
+    renderQuiz();
+  }
+
+  async function continueQuiz() {
+    if (!quizSession || quizSession.phase !== "reveal" || quizSession.submitting) return;
+    const value = quizSession.selected == null ? -1 : quizSession.selected;
     quizSession.answers.push(value);
     quizSession.selected = null;
     if (quizSession.index >= quizSession.quiz.questions.length - 1) {
+      quizSession.submitting = true;
+      renderQuiz();
       try {
         const payload = await submitStudyQuizAttempt(state.session, quizSession.quiz.id, quizSession.answers);
         quizSession.phase = "results";
         quizSession.score = payload.score;
         quizSession.total = payload.total;
         quizSession.results = payload.results || [];
+        quizSession.submitting = false;
         sound.chime();
         void loadOverview().then(() => render()).catch(() => {});
         void loadPractice().catch(() => {});
       } catch (error) {
-        showToast(error.message || "Could not submit quiz.");
         quizSession.answers.pop();
+        quizSession.selected = value;
+        quizSession.submitting = false;
+        showToast(error.message || "Could not submit quiz.");
+        renderQuiz();
         return;
       }
     } else {
       quizSession.index += 1;
+      quizSession.phase = "ask";
     }
     renderQuiz();
   }
 
+  function retakeQuiz() {
+    if (!quizSession?.quiz) return;
+    quizSession = {
+      quiz: quizSession.quiz,
+      courseId: quizSession.courseId,
+      index: 0,
+      selected: null,
+      answers: [],
+      phase: "ask",
+      adding: null,
+      submitting: false,
+      added: new Set()
+    };
+    renderQuiz();
+  }
+
   async function addMissedCard(index) {
-    if (!quizSession || quizSession.phase !== "results") return;
+    if (!quizSession || quizSession.phase !== "lookback") return;
+    if (quizSession.added?.has(index)) return;
     const row = quizSession.results[index];
     const question = quizSession.quiz.questions[index];
     if (!row || !question || !quizSession.courseId) return;
@@ -1959,6 +2085,8 @@ export function createStudyHubController({
     renderQuiz();
     try {
       await createStudyCard(state.session, quizSession.courseId, { front: question.q || "", back });
+      quizSession.added ||= new Set();
+      quizSession.added.add(index);
       showToast("Added to flashcards");
     } catch (error) {
       showToast(error.message || "Could not add flashcard.");
@@ -1998,17 +2126,29 @@ export function createStudyHubController({
     if (!quizSession) return;
     const choice = event.target.closest("[data-study-choice]");
     if (choice && quizSession.phase === "ask") {
-      quizSession.selected = Number(choice.dataset.studyChoice);
-      renderQuiz();
+      revealQuizChoice(Number(choice.dataset.studyChoice));
       return;
     }
     if (event.target.closest("[data-study-skip]")) {
-      void commitQuizAnswer(true);
+      revealQuizChoice(-1);
       return;
     }
-    if (event.target.closest("[data-study-next]")) {
-      if (quizSession.selected == null) return;
-      void commitQuizAnswer(false);
+    if (event.target.closest("[data-study-continue]")) {
+      void continueQuiz();
+      return;
+    }
+    if (event.target.closest("[data-quiz-lookback]")) {
+      quizSession.phase = "lookback";
+      renderQuiz();
+      return;
+    }
+    if (event.target.closest("[data-quiz-recap]")) {
+      quizSession.phase = "results";
+      renderQuiz();
+      return;
+    }
+    if (event.target.closest("[data-quiz-retake]")) {
+      retakeQuiz();
       return;
     }
     const miss = event.target.closest("[data-add-missed]");
@@ -2036,8 +2176,12 @@ export function createStudyHubController({
     }
     if (quizSession?.phase === "ask" && ["1", "2", "3", "4"].includes(event.key)) {
       event.preventDefault();
-      quizSession.selected = Number(event.key) - 1;
-      renderQuiz();
+      revealQuizChoice(Number(event.key) - 1);
+      return;
+    }
+    if (quizSession?.phase === "reveal" && event.key === "Enter") {
+      event.preventDefault();
+      void continueQuiz();
     }
   }
 
