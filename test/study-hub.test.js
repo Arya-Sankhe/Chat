@@ -241,7 +241,7 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.doesNotMatch(hub, /Import syllabus dates/);
   assert.doesNotMatch(hub, /overviewMarkup/);
   assert.doesNotMatch(hub, /computeStreak/);
-  assert.match(hub, /courseGenerationCards\(\)\.length \? `<div class="study-material-list study-generation-list"/);
+  assert.match(hub, /courseGenerationCards\(\)\.length \? `<div class="study-material-board study-generation-list"/);
   assert.match(hub, /activeFor\("flashcards"\)/);
   assert.match(hub, /abortAllGenerations/);
   assert.doesNotMatch(hub, /let generatingKey/);
@@ -266,4 +266,45 @@ test("study hub schema drops reviews, attempts, due_at, and FSRS columns", () =>
   assert.doesNotMatch(css, /study-streak-chip/);
   assert.doesNotMatch(css, /study-deadline-list/);
   assert.doesNotMatch(css, /study-due-badge/);
+});
+
+test("study hub uses a whiteboard board skin without adding product surfaces", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  const html = readFileSync(resolve(publicDir, "index.html"), "utf8");
+  assert.match(hub, /function sketchStroke\(/);
+  assert.match(hub, /Today's board -/);
+  assert.match(hub, /study-material-board/);
+  assert.match(hub, /study-chat-box/);
+  assert.match(hub, /study-chat-heading/);
+  assert.match(hub, /data-open-chat-id=/);
+  assert.match(hub, /function boardLoadingMarkup\(/);
+  assert.match(hub, /study-doodle/);
+  assert.match(css, /study-sketch/);
+  assert.match(hub, /study-sticky/);
+  assert.match(css, /Shantell Sans/);
+  assert.match(css, /--study-board/);
+  assert.match(css, /#study-wobble/);
+  assert.match(css, /body\.study-open \.home-wallpaper/);
+  assert.match(html, /Shantell\+Sans/);
+  assert.match(html, /id="study-wobble"/);
+  assert.doesNotMatch(hub, /Scribbled to-do/);
+  assert.doesNotMatch(hub, /Midterm in/);
+});
+
+test("study hub paints before refetching and reuses course payloads", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
+  assert.match(hub, /let cacheCourseId = ""/);
+  assert.match(hub, /function prefetchCourse\(/);
+  assert.match(hub, /function loadOnce\(/);
+  assert.match(hub, /function courseBodyMarkup\(/);
+  assert.match(hub, /study-detail-body/);
+  assert.match(hub, /patchGenerationElapsed/);
+  assert.match(hub, /const ready = tabReady\(\)/);
+  assert.match(hub, /if \(cacheCourseId !== courseId\) resetCourseCaches\(\)/);
+  assert.match(hub, /syncStudyUrl\(\{ replace \}\);\s*renderShell\(\);/);
+  assert.match(hub, /now - projectsAt < 20000/);
+  assert.doesNotMatch(hub, /resetCourseCaches\(\);\s*state\.activeConversationId/);
+  assert.match(app, /renderShell\(\);\s*if \(state\.activeCourseId\)/);
 });

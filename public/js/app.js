@@ -102,7 +102,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260822-combo-create";
+import { createStudyHubController } from "./studyHub.js?v=20260822-board9";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -7106,6 +7106,7 @@ async function loadChatApp() {
     state.activeCourseId = courseIdFromLocation();
     state.activeConversationId = "";
     state.messages = [];
+    renderShell();
     if (state.activeCourseId) {
       try {
         await studyHub.loadCourse();
@@ -7113,8 +7114,8 @@ async function loadChatApp() {
         showToast(error.message || "Course could not be loaded.");
         state.activeCourseId = "";
       }
+      renderShell();
     }
-    renderShell();
     return;
   }
   if (projectsRouteFromLocation()) {
@@ -8827,19 +8828,18 @@ function bindEvents() {
         state.activeCourseId = courseIdFromLocation();
         state.activeConversationId = "";
         state.messages = [];
+        renderShell();
         if (state.activeCourseId) {
-          studyHub.resetCourseCaches();
           try {
             await studyHub.loadCourse();
           } catch (error) {
             showToast(error.message || "Course could not be loaded.");
             state.activeCourseId = "";
-            await loadProjects();
           }
+          renderShell();
         } else {
-          await loadProjects();
+          loadProjects().then(() => renderShell()).catch(() => {});
         }
-        renderShell();
         return;
       }
       if (projectsRouteFromLocation()) {
