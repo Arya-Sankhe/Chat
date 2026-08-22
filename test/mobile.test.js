@@ -246,9 +246,9 @@ test("temporary chat controls stay available for temp chats but not Projects", a
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
-  assert.match(source, /showTempToggle\s*=\s*!state\.projectsOpen\s*&&\s*\(onEmptyChat\s*\|\|\s*state\.temporaryChat\)/);
+  assert.match(source, /showTempToggle\s*=\s*!state\.projectsOpen\s*&&\s*!state\.studyOpen\s*&&\s*\(onEmptyChat\s*\|\|\s*state\.temporaryChat\)/);
   assert.match(source, /temporaryChatToggle\?\.classList\.toggle\(\s*"hidden",\s*!showTempToggle\s*\)/);
-  assert.match(source, /temporaryChatLabel\?\.classList\.toggle\("hidden", state\.projectsOpen \|\| !state\.temporaryChat\)/);
+  assert.match(source, /temporaryChatLabel\?\.classList\.toggle\("hidden", state\.projectsOpen \|\| state\.studyOpen \|\| !state\.temporaryChat\)/);
 });
 
 test("completed streaming patches live messages instead of remounting the thread", async () => {

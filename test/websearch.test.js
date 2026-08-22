@@ -168,6 +168,16 @@ describe("deny domains", () => {
     assert.ok(deny.includes("tracker.test"));
   });
 
+  test("internal R2 storage hosts are always denied", () => {
+    const deny = mergeDenyDomains([]);
+    const kept = filterDeniedDomains([
+      { title: "Presigned page image", url: "https://206df89133b849f2cfedd8b52122213f.r2.cloudflarestorage.com/klui-chat/users/u/page.png?X-Amz-Signature=abc" },
+      { title: "Bare endpoint", url: "https://r2.cloudflarestorage.com/bucket/key" },
+      { title: "Regular site", url: "https://example.com/article" }
+    ], deny);
+    assert.deepEqual(kept.map((entry) => entry.title), ["Regular site"]);
+  });
+
   test("medical and academic hosts are retained", () => {
     const deny = mergeDenyDomains([]);
     const kept = filterDeniedDomains([

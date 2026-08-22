@@ -25,6 +25,7 @@ from openpyxl.utils.cell import get_column_letter, range_boundaries
 from pypdf import PdfReader
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches as PptxInches
 from pptx.util import Pt
@@ -355,6 +356,194 @@ def is_usable_extracted_text(text):
     return len(words) >= 3 or alnum >= 20
 
 
+def edgeparse_figure_count(elements):
+    count = 0
+    for element in elements or []:
+        if not isinstance(element, dict):
+            continue
+        element_type = str(element.get("type") or "").strip().lower()
+        if element_type in ("image", "figure"):
+            count += 1
+    return count
+
+
+def iter_pptx_shapes(shapes):
+    """Yield shapes depth-first, expanding groups so nested content is visible."""
+    for shape in shapes or []:
+        shape_type = getattr(shape, "shape_type", None)
+        if shape_type == MSO_SHAPE_TYPE.GROUP:
+            nested = getattr(shape, "shapes", None)
+            if nested is not None:
+                yield from iter_pptx_shapes(nested)
+            continue
+        yield shape
+
+
+def pptx_shape_plain_text(shape):
+    if getattr(shape, "has_table", False):
+        return ""
+    if not getattr(shape, "has_text_frame", False):
+        return ""
+    frame = getattr(shape, "text_frame", None)
+    if frame is None:
+        return ""
+    return "\n".join(p.text.strip() for p in frame.paragraphs if p.text and p.text.strip()).strip()
+
+
+def pptx_table_text(shape):
+    if not getattr(shape, "has_table", False):
+        return ""
+    rows = []
+    try:
+        for row in shape.table.rows:
+            rows.append("\t".join(cell.text.strip() for cell in row.cells))
+    except Exception:
+        return ""
+    return "\n".join(row for row in rows if row.strip()).strip()
+
+
+def format_pptx_chart_text(shape):
+    """Readable chart summary; never raises for odd/unsupported charts."""
+    try:
+        if not getattr(shape, "has_chart", False):
+            return ""
+        chart = shape.chart
+    except Exception:
+        return ""
+
+    lines = []
+    try:
+        if getattr(chart, "has_title", False):
+            title = ""
+            try:
+                title = (chart.chart_title.text_frame.text or "").strip()
+            except Exception:
+                title = ""
+            if title:
+                lines.append(f"### {title}")
+    except Exception:
+        pass
+
+    categories = []
+    try:
+        plot = chart.plots[0]
+        for category in plot.categories:
+            try:
+                label = getattr(category, "label", None)
+                categories.append(str(label if label is not None else category).strip())
+            except Exception:
+                continue
+        categories = [c for c in categories if c]
+    except Exception:
+        categories = []
+    if categories:
+        lines.append("Categories: " + ", ".join(categories))
+
+    series_list = []
+    try:
+        series_list = list(chart.series)
+    except Exception:
+        try:
+            series_list = list(chart.plots[0].series)
+        except Exception:
+            series_list = []
+
+    for index, series in enumerate(series_list, start=1):
+        try:
+            name = str(getattr(series, "name", None) or f"Series {index}").strip() or f"Series {index}"
+            values = []
+            for value in series.values:
+                values.append("" if value is None else str(value))
+            lines.append(f"{name}: " + ", ".join(values))
+        except Exception:
+            continue
+
+    return "\n".join(lines).strip()
+
+
+_PPTX_PICTURE_PLACEHOLDERS = {
+    PP_PLACEHOLDER.PICTURE,
+    PP_PLACEHOLDER.BITMAP,
+    PP_PLACEHOLDER.SLIDE_IMAGE,
+}
+_PPTX_CHART_PLACEHOLDERS = {
+    PP_PLACEHOLDER.CHART,
+    PP_PLACEHOLDER.ORG_CHART,
+}
+_PPTX_OTHER_VISUAL_PLACEHOLDERS = {
+    PP_PLACEHOLDER.MEDIA_CLIP,
+    PP_PLACEHOLDER.OBJECT,
+}
+_PPTX_VISUAL_SHAPE_TYPES = {
+    MSO_SHAPE_TYPE.PICTURE,
+    MSO_SHAPE_TYPE.LINKED_PICTURE,
+    MSO_SHAPE_TYPE.MEDIA,
+    MSO_SHAPE_TYPE.WEB_VIDEO,
+    MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT,
+    MSO_SHAPE_TYPE.LINKED_OLE_OBJECT,
+    MSO_SHAPE_TYPE.INK,
+    MSO_SHAPE_TYPE.INK_COMMENT,
+    MSO_SHAPE_TYPE.CANVAS,
+}
+_PPTX_SMARTART_TYPES = {
+    MSO_SHAPE_TYPE.IGX_GRAPHIC,
+    MSO_SHAPE_TYPE.DIAGRAM,
+}
+
+
+def pptx_shape_visual_kind(shape):
+    """Return 'chart'|'picture'|'smartart'|'visual' or None for non-visual shapes."""
+    try:
+        if getattr(shape, "has_chart", False):
+            return "chart"
+    except Exception:
+        pass
+
+    shape_type = getattr(shape, "shape_type", None)
+    if shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE):
+        return "picture"
+    if shape_type in _PPTX_SMARTART_TYPES:
+        return "smartart"
+    if shape_type in _PPTX_VISUAL_SHAPE_TYPES:
+        return "visual"
+    if shape_type is None:
+        # GraphicFrame SmartArt/other DrawingML (not table/chart) reports None.
+        try:
+            if getattr(shape, "has_table", False):
+                return None
+        except Exception:
+            pass
+        return "smartart"
+    if shape_type == MSO_SHAPE_TYPE.PLACEHOLDER:
+        try:
+            ph = shape.placeholder_format.type
+        except Exception:
+            return None
+        if ph in _PPTX_CHART_PLACEHOLDERS:
+            return "chart"
+        if ph in _PPTX_PICTURE_PLACEHOLDERS:
+            return "picture"
+        if ph in _PPTX_OTHER_VISUAL_PLACEHOLDERS:
+            return "visual"
+    return None
+
+
+def pptx_notes_text(slide):
+    """Speaker notes body text via notes_text_frame (excludes slide image/number placeholders)."""
+    try:
+        if not getattr(slide, "has_notes_slide", False):
+            return ""
+        notes_slide = slide.notes_slide
+        frame = getattr(notes_slide, "notes_text_frame", None)
+        if frame is None:
+            return ""
+        return "\n".join(
+            p.text.strip() for p in frame.paragraphs if p.text and p.text.strip()
+        ).strip()
+    except Exception:
+        return ""
+
+
 def group_edgeparse_pages(document, max_page_count=None):
     """Group EdgeParse kids into page-anchored structured Markdown texts.
 
@@ -403,11 +592,14 @@ def group_edgeparse_pages(document, max_page_count=None):
             if block and block.strip():
                 blocks.append(block.strip())
         text = "\n\n".join(blocks).strip()
+        figure_count = edgeparse_figure_count(elements)
         pages.append({
             "page_number": page_number,
             "text": text,
             "elements": elements,
             "word_count": len(text.split()) if text else 0,
+            "figure_count": figure_count,
+            "has_visual": figure_count > 0,
         })
     combined = "\n\n".join(page["text"] for page in pages if page["text"]).strip()
     return {
@@ -1790,8 +1982,23 @@ class Processor:
         chunks = []
         for page in grouped["pages"]:
             text = (page.get("text") or "").strip()
-            if not text:
+            try:
+                figure_count = int(page.get("figure_count") or 0)
+            except (TypeError, ValueError):
+                figure_count = 0
+            has_visual = bool(page.get("has_visual")) or figure_count > 0
+            # Empty text is insertable (NOT NULL allows '') and skipped by study
+            # loaders; metadata stays queryable for visual-candidate selection.
+            if not text and not has_visual:
                 continue
+            metadata = {
+                "page": page["page_number"],
+                "extractor": "edgeparse",
+                "figure_count": figure_count,
+                "has_visual": has_visual,
+            }
+            if not text and has_visual:
+                metadata["visual_only"] = True
             chunks.append(self.chunk(
                 user_id,
                 document_file_id,
@@ -1799,7 +2006,7 @@ class Processor:
                 "page",
                 f"Page {page['page_number']}",
                 text,
-                {"page": page["page_number"], "extractor": "edgeparse"},
+                metadata,
             ))
             if len(chunks) >= 1000:
                 break
@@ -1987,22 +2194,86 @@ class Processor:
         words = 0
         for slide_index, slide in enumerate(prs.slides, start=1):
             texts = []
-            for shape in slide.shapes:
-                if getattr(shape, "has_text_frame", False) and shape.text_frame:
-                    text = "\n".join(p.text.strip() for p in shape.text_frame.paragraphs if p.text.strip())
-                    if text:
-                        texts.append(text)
-                if getattr(shape, "has_table", False):
-                    rows = []
-                    for row in shape.table.rows:
-                        rows.append("\t".join(cell.text.strip() for cell in row.cells))
-                    if rows:
-                        chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Slide {slide_index} table", "\n".join(rows), {"slide": slide_index}))
+            visual_count = 0
+            chart_count = 0
+            for shape in iter_pptx_shapes(slide.shapes):
+                kind = pptx_shape_visual_kind(shape)
+                if kind:
+                    visual_count += 1
+                    if kind == "chart":
+                        chart_count += 1
+
+                table_text = pptx_table_text(shape)
+                if table_text:
+                    chunks.append(self.chunk(
+                        user_id,
+                        document_file_id,
+                        len(chunks),
+                        "table",
+                        f"Slide {slide_index} table",
+                        table_text,
+                        {"slide": slide_index},
+                    ))
+                    continue
+
+                chart_text = format_pptx_chart_text(shape)
+                if chart_text:
+                    chunks.append(self.chunk(
+                        user_id,
+                        document_file_id,
+                        len(chunks),
+                        "chart",
+                        f"Slide {slide_index} chart",
+                        chart_text,
+                        {"slide": slide_index, "has_visual": True, "chart_count": 1},
+                    ))
+                    continue
+
+                plain = pptx_shape_plain_text(shape)
+                if plain:
+                    texts.append(plain)
+
+            notes = pptx_notes_text(slide)
+            if notes:
+                texts.append("Notes:\n" + notes)
+
             slide_text = "\n".join(texts).strip()
+            has_visual = visual_count > 0
+            metadata = {
+                "slide": slide_index,
+                "has_visual": has_visual,
+                "visual_count": visual_count,
+                "chart_count": chart_count,
+            }
             if slide_text:
                 words += len(slide_text.split())
-                chunks.append(self.chunk(user_id, document_file_id, len(chunks), "slide", f"Slide {slide_index}", slide_text, {"slide": slide_index}))
-        return chunks[:500], {"page_count": len(prs.slides), "word_count": words, "slide_count": len(prs.slides)}
+                chunks.append(self.chunk(
+                    user_id,
+                    document_file_id,
+                    len(chunks),
+                    "slide",
+                    f"Slide {slide_index}",
+                    slide_text,
+                    metadata,
+                ))
+            elif has_visual:
+                # Empty text persists metadata for Node visual candidates without
+                # inventing study prose (consumers already skip blank chunk text).
+                metadata["visual_only"] = True
+                chunks.append(self.chunk(
+                    user_id,
+                    document_file_id,
+                    len(chunks),
+                    "slide",
+                    f"Slide {slide_index}",
+                    "",
+                    metadata,
+                ))
+        return chunks[:500], {
+            "page_count": len(prs.slides),
+            "word_count": words,
+            "slide_count": len(prs.slides),
+        }
 
     def extract_csv(self, path, kind, user_id, document_file_id, limits):
         detected = from_path(str(path)).best()

@@ -219,6 +219,42 @@ export function createCrofaiUsageMeter({
     }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
   }
 
+  function observeStream(body, { onChunk, onComplete, onFailure }) {
+    const reader = body.getReader();
+    let finalized = false;
+    const finalize = async (complete, error) => {
+      if (finalized) return;
+      finalized = true;
+      if (complete) await onComplete();
+      else await onFailure(error);
+    };
+    return new ReadableStream({
+      async pull(controller) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            await finalize(true);
+            controller.close();
+            return;
+          }
+          onChunk(value);
+          controller.enqueue(value);
+        } catch (error) {
+          await finalize(false, error).catch(() => {});
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          const error = reason instanceof Error ? reason : new Error("Stream cancelled.");
+          await finalize(false, error).catch(() => {});
+        }
+      }
+    });
+  }
+
   function meterStreamResponse(response, params, callSignal = signal) {
     if (!response?.body) return response;
     const decoder = new TextDecoder();
@@ -226,27 +262,38 @@ export function createCrofaiUsageMeter({
     let usage = null;
     let generationId = "";
 
-    const meteredBody = response.body.pipeThrough(new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
-        buffer = parseSseEvents(buffer, (event) => {
-          if (event?.id && !generationId) generationId = String(event.id);
-          const eventUsage = usageFromPayload(event);
-          if (eventUsage) usage = eventUsage;
-        });
-      },
-      async flush() {
-        if (buffer) {
-          parseSseEvents(`${buffer}\n\n`, (event) => {
-            if (event?.id && !generationId) generationId = String(event.id);
-            const eventUsage = usageFromPayload(event);
-            if (eventUsage) usage = eventUsage;
-          });
-        }
+    const parseChunk = (chunk) => {
+      buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = parseSseEvents(buffer, (event) => {
+        if (event?.id && !generationId) generationId = String(event.id);
+        const eventUsage = usageFromPayload(event);
+        if (eventUsage) usage = eventUsage;
+      });
+    };
+    const flushBuffer = () => {
+      if (!buffer) return;
+      parseSseEvents(`${buffer}\n\n`, (event) => {
+        if (event?.id && !generationId) generationId = String(event.id);
+        const eventUsage = usageFromPayload(event);
+        if (eventUsage) usage = eventUsage;
+      });
+    };
+    const meteredBody = observeStream(response.body, {
+      onChunk: parseChunk,
+      async onComplete() {
+        flushBuffer();
         await recordModelCost({ params, usage, generationId, callSignal });
+      },
+      async onFailure() {
+        flushBuffer();
+        await recordModelCost({
+          params,
+          usage,
+          generationId,
+          callSignal: AbortSignal.timeout(15_000)
+        });
       }
-    }));
+    });
 
     return new Response(meteredBody, {
       status: response.status,
@@ -262,23 +309,31 @@ export function createCrofaiUsageMeter({
     let buffer = "";
     let usage = null;
     let generationId = "";
-    const meteredBody = response.body.pipeThrough(new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
-        buffer = parseSseEvents(buffer, (event) => {
-          if (event?.id && !generationId) generationId = String(event.id);
-          if (usageFromPayload(event)) usage = usageFromPayload(event);
-        });
-      },
-      async flush() {
-        if (buffer) parseSseEvents(`${buffer}\n\n`, (event) => {
-          if (event?.id && !generationId) generationId = String(event.id);
-          if (usageFromPayload(event)) usage = usageFromPayload(event);
-        });
+    const parseChunk = (chunk) => {
+      buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = parseSseEvents(buffer, (event) => {
+        if (event?.id && !generationId) generationId = String(event.id);
+        if (usageFromPayload(event)) usage = usageFromPayload(event);
+      });
+    };
+    const flushBuffer = () => {
+      if (!buffer) return;
+      parseSseEvents(`${buffer}\n\n`, (event) => {
+        if (event?.id && !generationId) generationId = String(event.id);
+        if (usageFromPayload(event)) usage = usageFromPayload(event);
+      });
+    };
+    const meteredBody = observeStream(response.body, {
+      onChunk: parseChunk,
+      async onComplete() {
+        flushBuffer();
         await settleReservation({ requestId, params, usage, generationId });
+      },
+      async onFailure(error) {
+        flushBuffer();
+        await settleAcceptedFailure({ requestId, params, usage, generationId, error });
       }
-    }));
+    });
     return new Response(meteredBody, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
 

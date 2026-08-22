@@ -177,12 +177,12 @@ export async function listProjects(session) {
   return response.json();
 }
 
-export async function createProject(session, name) {
+export async function createProject(session, name, extra = {}) {
   const response = await apiFetch("/api/projects", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, ...extra })
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
@@ -211,6 +211,140 @@ export async function deleteProject(session, id) {
     method: "DELETE"
   });
   if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyMaterials(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyMaterial(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
+    session,
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ documentFileId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function generateStudyContent(session, courseId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/generate`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, (event) => {
+    if (!event || typeof event !== "object") return;
+    if (event.type === "error") throw new Error(event.error || "Generation failed.");
+    if (event.type === "heartbeat") return;
+    onEvent?.(event);
+  });
+}
+
+export async function fetchStudyPractice(session, courseId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/practice`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQueue(session, courseId, params = {}) {
+  const search = new URLSearchParams();
+  if (params.documentFileId) search.set("documentFileId", params.documentFileId);
+  if (params.noteId) search.set("noteId", params.noteId);
+  if (params.deckKey) search.set("deckKey", params.deckKey);
+  if (params.manual) search.set("manual", "1");
+  const query = search.toString();
+  const response = await apiFetch(
+    `/api/study/courses/${encodeURIComponent(courseId)}/queue${query ? `?${query}` : ""}`,
+    { session }
+  );
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyDeck(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/decks`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyDeck(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/decks`, {
+    session,
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyCard(session, cardId) {
+  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createStudyCard(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/cards`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyQuiz(session, quizId) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function submitStudyQuizAttempt(session, quizId, answers) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}/attempts`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answers })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyNote(session, noteId) {
+  const response = await apiFetch(`/api/study/notes/${encodeURIComponent(noteId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function exportStudyNote(session, noteId, format) {
+  const response = await apiFetch(`/api/study/notes/${encodeURIComponent(noteId)}/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format })
+  });
+  if (!response.ok && response.status !== 202) throw new Error(await readProblem(response));
   return response.json();
 }
 

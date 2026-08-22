@@ -218,6 +218,26 @@ class EdgeParseNormalizeTest(unittest.TestCase):
         self.assertFalse(grouped["has_usable_text"])
         self.assertEqual(grouped["word_count"], 0)
         self.assertEqual(grouped["pages"][0]["text"], "")
+        self.assertEqual(grouped["pages"][0]["figure_count"], 1)
+        self.assertTrue(grouped["pages"][0]["has_visual"])
+
+    def test_figure_counts_and_text_pages(self):
+        doc = {
+            "number of pages": 2,
+            "kids": [
+                {"type": "paragraph", "page number": 1, "content": "Alpha beta gamma."},
+                {"type": "figure", "page number": 1},
+                {"type": "image", "page number": 2, "source": "scan.png"},
+                {"type": "figure", "page number": 2},
+            ],
+        }
+        grouped = w.group_edgeparse_pages(doc)
+        self.assertEqual(grouped["pages"][0]["figure_count"], 1)
+        self.assertTrue(grouped["pages"][0]["has_visual"])
+        self.assertIn("Alpha beta gamma.", grouped["pages"][0]["text"])
+        self.assertEqual(grouped["pages"][1]["text"], "")
+        self.assertEqual(grouped["pages"][1]["figure_count"], 2)
+        self.assertTrue(grouped["pages"][1]["has_visual"])
 
     def test_group_pages_trusts_max_page_count(self):
         inflated = {
@@ -232,12 +252,132 @@ class EdgeParseNormalizeTest(unittest.TestCase):
         self.assertEqual(len(grouped["pages"]), 2)
         self.assertIn("Page one text here.", grouped["pages"][0]["text"])
         self.assertEqual(grouped["pages"][1]["text"], "")
+        self.assertEqual(grouped["pages"][1]["figure_count"], 0)
+        self.assertFalse(grouped["pages"][1]["has_visual"])
 
     def test_single_garbage_token_is_not_usable(self):
         self.assertFalse(w.is_usable_extracted_text("x"))
         self.assertFalse(w.is_usable_extracted_text("ab"))
         self.assertTrue(w.is_usable_extracted_text("one two three"))
         self.assertTrue(w.is_usable_extracted_text("abcdefghijklmnopqrst"))  # 20 alnum
+
+
+class PptxExtractionHelpersTest(unittest.TestCase):
+    def test_iter_pptx_shapes_expands_groups(self):
+        leaf = mock.Mock(shape_type=w.MSO_SHAPE_TYPE.TEXT_BOX)
+        nested_group = mock.Mock(shape_type=w.MSO_SHAPE_TYPE.GROUP, shapes=[leaf])
+        outer = mock.Mock(shape_type=w.MSO_SHAPE_TYPE.GROUP, shapes=[nested_group])
+        picture = mock.Mock(shape_type=w.MSO_SHAPE_TYPE.PICTURE)
+        found = list(w.iter_pptx_shapes([outer, picture]))
+        self.assertEqual(found, [leaf, picture])
+
+    def test_pptx_notes_text_uses_notes_text_frame(self):
+        frame = mock.Mock()
+        frame.paragraphs = [
+            mock.Mock(text="  Keep this note  "),
+            mock.Mock(text="   "),
+            mock.Mock(text="Second line"),
+        ]
+        notes_slide = mock.Mock(notes_text_frame=frame)
+        slide = mock.Mock(has_notes_slide=True, notes_slide=notes_slide)
+        self.assertEqual(w.pptx_notes_text(slide), "Keep this note\nSecond line")
+
+        slide_no_notes = mock.Mock(has_notes_slide=False)
+        self.assertEqual(w.pptx_notes_text(slide_no_notes), "")
+
+    def test_format_pptx_chart_text_defensive(self):
+        from types import SimpleNamespace
+
+        good = mock.Mock()
+        good.has_chart = True
+        chart = mock.Mock()
+        chart.has_title = True
+        chart.chart_title.text_frame.text = "Revenue"
+        cat_a = mock.Mock(label="Q1")
+        cat_b = mock.Mock(label="Q2")
+        plot = mock.Mock()
+        plot.categories = [cat_a, cat_b]
+        series = SimpleNamespace(name="Actual", values=[10, None])
+        chart.plots = [plot]
+        chart.series = [series]
+        good.chart = chart
+        text = w.format_pptx_chart_text(good)
+        self.assertIn("### Revenue", text)
+        self.assertIn("Categories: Q1, Q2", text)
+        # Final .strip() drops the trailing space after a null value placeholder.
+        self.assertIn("Actual: 10,", text)
+
+        broken = mock.Mock()
+        broken.has_chart = True
+        type(broken).chart = property(lambda self: (_ for _ in ()).throw(RuntimeError("bad chart")))
+        self.assertEqual(w.format_pptx_chart_text(broken), "")
+
+        no_chart = mock.Mock(has_chart=False)
+        self.assertEqual(w.format_pptx_chart_text(no_chart), "")
+
+    def test_pptx_shape_plain_text_skips_tables(self):
+        table_shape = mock.Mock(has_table=True, has_text_frame=True)
+        table_shape.text_frame.paragraphs = [mock.Mock(text="should not appear")]
+        self.assertEqual(w.pptx_shape_plain_text(table_shape), "")
+
+    def test_extract_pptx_visual_only_slide_metadata(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.chunk = w.Processor.chunk.__get__(processor, w.Processor)
+
+        picture = mock.Mock(
+            shape_type=w.MSO_SHAPE_TYPE.PICTURE,
+            has_chart=False,
+            has_table=False,
+            has_text_frame=False,
+        )
+        slide = mock.Mock(shapes=[picture], has_notes_slide=False)
+        slides = mock.Mock()
+        slides.__iter__ = lambda self: iter([slide])
+        slides.__len__ = lambda self: 1
+        prs = mock.Mock(slides=slides)
+
+        with mock.patch("worker.worker.Presentation", return_value=prs):
+            chunks, meta = processor.extract_pptx("/tmp/deck.pptx", "user-1", "doc-1", {})
+
+        self.assertEqual(meta["slide_count"], 1)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0]["text"], "")
+        self.assertEqual(chunks[0]["source_type"], "slide")
+        self.assertTrue(chunks[0]["metadata"]["has_visual"])
+        self.assertEqual(chunks[0]["metadata"]["visual_count"], 1)
+        self.assertEqual(chunks[0]["metadata"]["chart_count"], 0)
+        self.assertTrue(chunks[0]["metadata"]["visual_only"])
+        self.assertEqual(chunks[0]["metadata"]["slide"], 1)
+
+    def test_extract_pptx_grouped_text_and_notes(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.chunk = w.Processor.chunk.__get__(processor, w.Processor)
+
+        leaf = mock.Mock(
+            shape_type=w.MSO_SHAPE_TYPE.TEXT_BOX,
+            has_chart=False,
+            has_table=False,
+            has_text_frame=True,
+        )
+        leaf.text_frame.paragraphs = [mock.Mock(text="Grouped hello")]
+        group = mock.Mock(shape_type=w.MSO_SHAPE_TYPE.GROUP, shapes=[leaf])
+
+        notes_frame = mock.Mock()
+        notes_frame.paragraphs = [mock.Mock(text="Say this aloud")]
+        notes_slide = mock.Mock(notes_text_frame=notes_frame)
+        slide = mock.Mock(shapes=[group], has_notes_slide=True, notes_slide=notes_slide)
+        slides = mock.Mock()
+        slides.__iter__ = lambda self: iter([slide])
+        slides.__len__ = lambda self: 1
+        prs = mock.Mock(slides=slides)
+
+        with mock.patch("worker.worker.Presentation", return_value=prs):
+            chunks, _meta = processor.extract_pptx("/tmp/deck.pptx", "user-1", "doc-1", {})
+
+        self.assertEqual(len(chunks), 1)
+        self.assertIn("Grouped hello", chunks[0]["text"])
+        self.assertIn("Notes:\nSay this aloud", chunks[0]["text"])
+        self.assertFalse(chunks[0]["metadata"]["has_visual"])
 
 
 class StageAwareCompletionPayloadTest(unittest.TestCase):
@@ -400,6 +540,47 @@ class StageAwareCompletionPayloadTest(unittest.TestCase):
         self.assertTrue(meta["has_usable_text"])
         self.assertEqual(meta["page_count"], 1)
         self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0]["metadata"].get("figure_count"), 0)
+        self.assertFalse(chunks[0]["metadata"].get("has_visual"))
+
+    def test_extract_pdf_persists_visual_only_page_metadata(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.default_limits = {"max_pdf_pages": 100, "max_extracted_chars": 500000}
+        processor.max_extracted_chars = 500000
+        processor.cap_chunks = w.Processor.cap_chunks.__get__(processor, w.Processor)
+        processor.limit = w.Processor.limit.__get__(processor, w.Processor)
+        processor.chunk = w.Processor.chunk.__get__(processor, w.Processor)
+        sample = {
+            "number of pages": 2,
+            "kids": [
+                {"type": "paragraph", "page number": 1, "content": "Alpha beta gamma delta."},
+                {"type": "image", "page number": 2, "source": "fig.png"},
+                {"type": "figure", "page number": 2},
+            ],
+        }
+
+        with mock.patch("worker.worker.PdfReader") as reader_cls:
+            reader = reader_cls.return_value
+            reader.is_encrypted = False
+            reader.pages = [object(), object()]
+            with mock.patch("worker.worker.edgeparse.convert", return_value=sample):
+                chunks, meta = processor.extract_pdf(
+                    "/tmp/a.pdf",
+                    "user-1",
+                    "doc-1",
+                    processor.default_limits,
+                    page_count=2,
+                )
+
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(meta["has_usable_text"])
+        self.assertEqual(chunks[0]["text"], "Alpha beta gamma delta.")
+        self.assertEqual(chunks[1]["text"], "")
+        self.assertEqual(chunks[1]["metadata"]["page"], 2)
+        self.assertEqual(chunks[1]["metadata"]["figure_count"], 2)
+        self.assertTrue(chunks[1]["metadata"]["has_visual"])
+        self.assertTrue(chunks[1]["metadata"]["visual_only"])
+        self.assertEqual(chunks[1]["metadata"]["extractor"], "edgeparse")
 
     def test_usable_extract_patch_sets_text_ready(self):
         processor = w.Processor.__new__(w.Processor)

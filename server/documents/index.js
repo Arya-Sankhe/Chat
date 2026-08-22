@@ -282,34 +282,54 @@ export class DocumentService {
 
   async smallProjectContext(maxTokens = 20_000) {
     if (!this.enabled || !this.projectId) return "";
+    const results = [];
+    let usedTokens = 0;
     const docs = (await this.db.listUsableProjectDocumentFiles(
       this.userId,
       this.projectId,
       { signal: this.signal }
     )).filter((doc) => doc.text_ready_at && doc?.metadata?.preview !== true);
-    if (!docs.length) return "";
     const estimatedTokens = docs.reduce((sum, doc) => {
       const words = Math.max(0, Number(doc.word_count || 0));
       return sum + Math.ceil(words * 1.35);
     }, 0);
-    if (!estimatedTokens || estimatedTokens > maxTokens) return "";
-    const maxChunks = 500;
-    const chunks = await this.db.listDocumentChunksForFiles(
-      this.userId,
-      docs.map((doc) => doc.id),
-      { limit: maxChunks + 1, signal: this.signal }
-    );
-    if (chunks.length > maxChunks) return "";
-    const total = chunks.reduce((sum, chunk) => sum + Math.max(1, Number(chunk.token_estimate || Math.ceil(String(chunk.text || "").length / 4))), 0);
-    if (!chunks.length || total > maxTokens) return "";
-    const docsById = new Map(docs.map((doc) => [doc.id, doc]));
-    const results = chunks.map((chunk) => {
-      const doc = docsById.get(chunk.document_file_id);
-      return {
-        title: `${documentTitle(doc)} — ${chunk.source_label || "Excerpt"}`,
-        content: String(chunk.text || "")
-      };
-    });
+    if (docs.length && estimatedTokens && estimatedTokens <= maxTokens) {
+      const maxChunks = 500;
+      const chunks = await this.db.listDocumentChunksForFiles(
+        this.userId,
+        docs.map((doc) => doc.id),
+        { limit: maxChunks + 1, signal: this.signal }
+      );
+      if (chunks.length && chunks.length <= maxChunks) {
+        const total = chunks.reduce((sum, chunk) => sum + Math.max(1, Number(chunk.token_estimate || Math.ceil(String(chunk.text || "").length / 4))), 0);
+        if (total && total <= maxTokens) {
+          const docsById = new Map(docs.map((doc) => [doc.id, doc]));
+          for (const chunk of chunks) {
+            const doc = docsById.get(chunk.document_file_id);
+            results.push({
+              title: `${documentTitle(doc)} — ${chunk.source_label || "Excerpt"}`,
+              content: String(chunk.text || "")
+            });
+          }
+          usedTokens = total;
+        }
+      }
+    }
+    const notes = typeof this.db.listStudyNotes === "function"
+      ? (await this.db.listStudyNotes(this.userId, this.projectId, { signal: this.signal }) || [])
+      : [];
+    for (const note of notes) {
+      const content = String(note.content || "").trim();
+      if (!content) continue;
+      const tokens = Math.max(1, Math.ceil(content.length / 4));
+      if (usedTokens + tokens > maxTokens) break;
+      results.push({
+        title: String(note.title || "Study note").trim() || "Study note",
+        content
+      });
+      usedTokens += tokens;
+    }
+    if (!results.length) return "";
     return buildUntrustedDocumentContext({
       lead: "Project knowledge is small enough to include in full for this request.",
       results

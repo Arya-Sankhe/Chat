@@ -242,7 +242,7 @@ test("listProjects scopes projects to the user and update order", async () => {
     const parsed = new URL(url);
     assert.equal(parsed.pathname, "/rest/v1/projects");
     assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
-    assert.equal(parsed.searchParams.get("select"), "id,name,created_at,updated_at");
+    assert.equal(parsed.searchParams.get("select"), "id,name,kind,meta,created_at,updated_at");
     assert.equal(parsed.searchParams.get("order"), "updated_at.desc");
     expectServiceHeaders(options.headers);
     return jsonResponse([{ id: "project_1", name: "Launch" }]);
@@ -737,3 +737,83 @@ test("getAppSetting reads app_settings by key and returns the first row", async 
     assert.deepEqual(setting, { key: "maintenance_mode", value: false });
   });
 });
+
+test("deleteStudyCardsForSource can delete a manual deck scoped to a course", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("project_id"), "eq.course_1");
+    assert.equal(parsed.searchParams.get("document_file_id"), "is.null");
+    assert.equal(parsed.searchParams.get("note_id"), "is.null");
+    assert.equal(parsed.searchParams.get("deck_key"), "is.null");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.deleteStudyCardsForSource("user_1", { projectId: "course_1", manual: true });
+  });
+});
+
+test("deleteStudyCard DELETEs one card scoped to the user", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("id"), "eq.card_1");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.deleteStudyCard("user_1", "card_1");
+  });
+});
+
+test("deleteStudyCardsForSource can delete a combo deck by deck_key", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("project_id"), "eq.course_1");
+    assert.equal(parsed.searchParams.get("deck_key"), "eq.combo_11111111-1111-1111-1111-111111111111");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.deleteStudyCardsForSource("user_1", {
+      projectId: "course_1",
+      deckKey: "combo_11111111-1111-1111-1111-111111111111"
+    });
+  });
+});
+
+test("createStudyCards bulk POSTs card rows with return=representation", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "POST");
+    assert.equal(url, "https://example.supabase.co/rest/v1/study_cards");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.equal(options.headers.prefer, "return=representation");
+    const body = JSON.parse(options.body);
+    assert.equal(body.length, 2);
+    assert.equal(body[0].user_id, "user_1");
+    assert.equal(body[0].front, "Q1");
+    assert.equal(body[1].front, "Q2");
+    return jsonResponse([
+      { id: "card_1", front: "Q1" },
+      { id: "card_2", front: "Q2" }
+    ]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const cards = await db.createStudyCards("user_1", [
+      { project_id: "course_1", front: "Q1", back: "A1" },
+      { project_id: "course_1", front: "Q2", back: "A2" }
+    ]);
+    assert.equal(cards.length, 2);
+    assert.equal(cards[0].id, "card_1");
+  });
+});
+
+

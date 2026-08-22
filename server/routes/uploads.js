@@ -7,6 +7,7 @@ import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { mapStorageRpcError, STORAGE_LIST_LIMIT, storageUsage, deleteReservedUpload } from "../saas/storageQuota.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { DocumentService } from "../documents/index.js";
+import { transcribeCourseImage } from "../study/generate.js";
 import { requireChatContext } from "./context.js";
 
 const REVISE_SELECTION_MAX = 24_000;
@@ -54,9 +55,10 @@ export async function handlePresignUpload(req, res, config) {
   enforceRateLimit(req, "uploads-presign", 30, 60_000, context.user.id);
   const body = await parseJsonBody(req);
   const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
-  if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
-    throw new HttpError(404, "Project not found.");
-  }
+  const project = projectId
+    ? await context.db.getProject(context.user.id, projectId, { signal: req.signal })
+    : null;
+  if (projectId && !project) throw new HttpError(404, "Project not found.");
 
   const category = assertUpload({
     category: body.category,
@@ -67,7 +69,7 @@ export async function handlePresignUpload(req, res, config) {
     maxImageBytes: config.r2.maxImageBytes,
     maxDocumentBytes: documentUploadMaxBytes(context, config)
   });
-  if (projectId && category !== "document") {
+  if (projectId && category !== "document" && project.kind !== "course") {
     throw new HttpError(400, "Only documents can be added to project knowledge.");
   }
   if (category === "document" && !configuredServices(config).documents) {
@@ -233,6 +235,26 @@ export async function handleCompleteUpload(req, res, config) {
     }
   }
 
+  let note = null;
+  let courseImage = false;
+  if (completed && (completed.category || category) === "image" && completed.project_id) {
+    const project = await context.db.getProject(context.user.id, completed.project_id, { signal: req.signal });
+    if (project?.kind === "course") {
+      courseImage = true;
+      try {
+        note = await transcribeCourseImage({
+          context,
+          config,
+          course: project,
+          attachment: completed,
+          signal: req.signal
+        });
+      } catch {
+        note = null;
+      }
+    }
+  }
+
   sendJson(res, 200, {
     id: completed.id,
     fileName: completed.file_name,
@@ -247,7 +269,8 @@ export async function handleCompleteUpload(req, res, config) {
       visualReadyAt: documentFile.visual_ready_at || null,
       enrichedAt: documentFile.enriched_at || null,
       usable: Boolean(documentFile.text_ready_at || documentFile.visual_ready_at)
-    } : null
+    } : null,
+    ...(courseImage ? { note } : note ? { note } : {})
   });
 }
 

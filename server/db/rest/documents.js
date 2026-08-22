@@ -244,6 +244,21 @@ export async function listDocumentPagesByNumbers(client, userId, documentFileId,
   });
 }
 
+export async function updateDocumentPage(client, userId, documentFileId, pageNumber, patch, { signal } = {}) {
+  const rows = await client.request("document_pages", {
+    method: "PATCH",
+    query: {
+      user_id: `eq.${userId}`,
+      document_file_id: `eq.${documentFileId}`,
+      page_number: `eq.${Number(pageNumber)}`
+    },
+    body: patch,
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
 export async function queueDocumentPageRender(client, {
   userId,
   documentFileId,

@@ -8,6 +8,19 @@ import { handleConfig, handleHealth, handleMe, handleModels, handlePlans } from 
 import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
+  handleStudyCard,
+  handleStudyCourseGenerate,
+  handleStudyCourseMaterials,
+  handleStudyCoursePractice,
+  handleStudyCourseCards,
+  handleStudyCourseDecks,
+  handleStudyCourseQueue,
+  handleStudyQuizAttempts,
+  handleStudyQuizById,
+  handleStudyNote,
+  handleStudyNoteExport
+} from "./routes/study.js";
+import {
   handleAdminPaymentRequests,
   handleAdminUpdatePaymentRequest,
   handleCreateZiinaPaymentRequest,
@@ -250,6 +263,61 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "projects" && parts[2] && !parts[3]) {
       await handleProjectById(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "materials") {
+      await handleStudyCourseMaterials(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "generate") {
+      await handleStudyCourseGenerate(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "practice") {
+      await handleStudyCoursePractice(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "decks") {
+      await handleStudyCourseDecks(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "queue") {
+      await handleStudyCourseQueue(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "cards") {
+      await handleStudyCourseCards(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "cards" && parts[3] && !parts[4]) {
+      await handleStudyCard(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "quizzes" && parts[3] && parts[4] === "attempts") {
+      await handleStudyQuizAttempts(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "quizzes" && parts[3] && !parts[4]) {
+      await handleStudyQuizById(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "notes" && parts[3] && parts[4] === "export") {
+      await handleStudyNoteExport(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "notes" && parts[3] && !parts[4]) {
+      await handleStudyNote(req, res, config, parts[3]);
       return;
     }
 

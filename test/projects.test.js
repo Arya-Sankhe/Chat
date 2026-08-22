@@ -27,7 +27,7 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.match(html, /id="projectsButton"/);
   assert.match(html, /id="projectView"/);
   assert.match(html, /id="composerHomeAnchor"/);
-  assert.match(app, /createConversation\(state\.session,\s*\{[\s\S]*?projectId: state\.activeProjectId \|\| null/);
+  assert.match(app, /createConversation\(state\.session,\s*\{[\s\S]*?projectId: state\.activeProjectId \|\| \(state\.studyOpen \? state\.activeCourseId : ""\) \|\| null/);
   assert.match(app, /presignUpload\(state\.session, file, "document", \{ projectId: state\.activeProjectId \}\)/);
   assert.match(app, /usage\.usedBytes/);
   assert.match(app, /usage\.maxBytes/);

@@ -46,8 +46,21 @@ import {
   updateAdminSettings,
   updateMemory,
   transcribeSpeech,
-  uploadFile
-} from "./api.js?v=20260820-memory";
+  uploadFile,
+  fetchStudyMaterials,
+  generateStudyContent,
+  deleteStudyMaterial,
+  fetchStudyPractice,
+  fetchStudyQueue,
+  createStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
+  fetchStudyQuiz,
+  submitStudyQuizAttempt,
+  exportStudyNote,
+  deleteStudyNote
+} from "./api.js?v=20260821-unlink-file";
 import {
   clearSession,
   loadSession,
@@ -89,6 +102,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
+import { createStudyHubController } from "./studyHub.js?v=20260823-modelbox";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -268,6 +282,13 @@ const state = {
   conversations: [],
   projects: [],
   projectsOpen: false,
+  studyOpen: false,
+  activeCourseId: "",
+  activeCourseTab: "materials",
+  studyMaterials: null,
+  studyPractice: null,
+  studyProjectDetail: null,
+  studyUploading: false,
   activeProjectId: "",
   activeProject: null,
   projectUploading: false,
@@ -352,6 +373,7 @@ let voiceCommit = true;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
 let researchController;
+let studyHub;
 let compareController;
 let councilController;
 let adminPanel;
@@ -532,6 +554,7 @@ const els = {
   newChatButton: document.querySelector("#newChatButton"),
   searchChatsButton: document.querySelector("#searchChatsButton"),
   projectsButton: document.querySelector("#projectsButton"),
+  studyHubButton: document.querySelector("#studyHubButton"),
   pinnedChatsButton: document.querySelector("#pinnedChatsButton"),
   pinnedPopup: document.querySelector("#pinnedPopup"),
   pinnedPopupList: document.querySelector("#pinnedPopupList"),
@@ -559,6 +582,15 @@ const els = {
   conversationList: document.querySelector("#conversationList"),
   messages: document.querySelector("#messages"),
   projectView: document.querySelector("#projectView"),
+  studyView: document.querySelector("#studyView"),
+  studySession: document.querySelector("#studySession"),
+  studyNoteOverlay: document.querySelector("#studyNoteOverlay"),
+  studyNoteTitle: document.querySelector("#studyNoteTitle"),
+  studyNoteBody: document.querySelector("#studyNoteBody"),
+  studyNoteClose: document.querySelector("#studyNoteClose"),
+  studyNoteCopy: document.querySelector("#studyNoteCopy"),
+  studyNoteDownload: document.querySelector("#studyNoteDownload"),
+  studyNoteDownloadMenu: document.querySelector("#studyNoteDownloadMenu"),
   projectChatCrumb: document.querySelector("#projectChatCrumb"),
   projectChatCrumbName: document.querySelector("#projectChatCrumbName"),
   chatJumpBottom: document.querySelector("#chatJumpBottom"),
@@ -597,10 +629,29 @@ const els = {
   imageFileInput: document.querySelector("#imageFileInput"),
   cameraFileInput: document.querySelector("#cameraFileInput"),
   projectFileInput: document.querySelector("#projectFileInput"),
+  studyFileInput: document.querySelector("#studyFileInput"),
   projectCreateDialog: document.querySelector("#projectCreateDialog"),
   projectCreateForm: document.querySelector("#projectCreateForm"),
   projectNameInput: document.querySelector("#projectNameInput"),
   projectCreateCancel: document.querySelector("#projectCreateCancel"),
+  courseCreateDialog: document.querySelector("#courseCreateDialog"),
+  courseCreateForm: document.querySelector("#courseCreateForm"),
+  courseNameInput: document.querySelector("#courseNameInput"),
+  courseTermInput: document.querySelector("#courseTermInput"),
+  courseCreateCancel: document.querySelector("#courseCreateCancel"),
+  studyCreateDialog: document.querySelector("#studyCreateDialog"),
+  studyCreateForm: document.querySelector("#studyCreateForm"),
+  studyCreateTitle: document.querySelector("#studyCreateTitle"),
+  studyCreateHint: document.querySelector("#studyCreateHint"),
+  studyCreateSearch: document.querySelector("#studyCreateSearch"),
+  studyCreateList: document.querySelector("#studyCreateList"),
+  studyCreateActions: document.querySelector("#studyCreateActions"),
+  studyCreateCancel: document.querySelector("#studyCreateCancel"),
+  courseRenameDialog: document.querySelector("#courseRenameDialog"),
+  courseRenameForm: document.querySelector("#courseRenameForm"),
+  courseRenameNameInput: document.querySelector("#courseRenameNameInput"),
+  courseRenameTermInput: document.querySelector("#courseRenameTermInput"),
+  courseRenameCancel: document.querySelector("#courseRenameCancel"),
   cameraAction: document.querySelector("#cameraAction"),
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
@@ -693,6 +744,7 @@ const els = {
   confirmCancelButton: document.querySelector("#confirmCancelButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
   renameDialog: document.querySelector("#renameDialog"),
+  renameTitle: document.querySelector("#renameTitle"),
   renameChatInput: document.querySelector("#renameChatInput"),
   renameCancelButton: document.querySelector("#renameCancelButton"),
   renameSaveButton: document.querySelector("#renameSaveButton"),
@@ -754,6 +806,15 @@ function projectsRouteFromLocation() {
   return window.location.pathname === "/projects" || Boolean(projectIdFromLocation());
 }
 
+function courseIdFromLocation() {
+  const match = window.location.pathname.match(/^\/study\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function studyRouteFromLocation() {
+  return window.location.pathname === "/study" || Boolean(courseIdFromLocation());
+}
+
 function conversationUrl(id) {
   return id ? `/c/${encodeURIComponent(id)}` : "/";
 }
@@ -771,6 +832,13 @@ function syncProjectsUrl({ replace = false } = {}) {
   const target = state.activeProjectId ? `/projects/${encodeURIComponent(state.activeProjectId)}` : "/projects";
   if (window.location.pathname === target) return;
   window.history[replace ? "replaceState" : "pushState"]({ projectId: state.activeProjectId || "" }, "", target);
+}
+
+function syncStudyUrl({ replace = false } = {}) {
+  if (suppressUrlSync) return;
+  const target = state.activeCourseId ? `/study/${encodeURIComponent(state.activeCourseId)}` : "/study";
+  if (window.location.pathname === target) return;
+  window.history[replace ? "replaceState" : "pushState"]({ courseId: state.activeCourseId || "" }, "", target);
 }
 
 function blockChatNavigationWhileRunning() {
@@ -808,10 +876,10 @@ function renderTemporaryChatMode() {
   const onEmptyChat = !state.messages.length;
   // Incognito affordance only on the home/empty screen or while a temp chat
   // is active — hide it once a normal conversation has messages.
-  const showTempToggle = !state.projectsOpen && (onEmptyChat || state.temporaryChat);
+  const showTempToggle = !state.projectsOpen && !state.studyOpen && (onEmptyChat || state.temporaryChat);
   els.temporaryChatBar?.classList.toggle("hidden", !showTempToggle);
   els.temporaryChatToggle?.classList.toggle("hidden", !showTempToggle);
-  els.temporaryChatLabel?.classList.toggle("hidden", state.projectsOpen || !state.temporaryChat);
+  els.temporaryChatLabel?.classList.toggle("hidden", state.projectsOpen || state.studyOpen || !state.temporaryChat);
   if (els.temporaryChatToggle) {
     els.temporaryChatToggle.classList.toggle("active", state.temporaryChat);
     els.temporaryChatToggle.setAttribute("aria-pressed", String(state.temporaryChat));
@@ -1621,6 +1689,9 @@ function composerPlaceholder() {
   if (state.projectsOpen && state.activeProjectId && !state.activeConversationId) {
     return `Message ${state.activeProject?.project?.name || "this project"}`;
   }
+  if (state.studyOpen && state.activeCourseId && !state.activeConversationId) {
+    return `Message ${state.studyProjectDetail?.project?.name || "this course"}`;
+  }
   return "Message Klui agent";
 }
 
@@ -2163,6 +2234,7 @@ function renderShell() {
   renderWritingStyle();
   renderComposerSkillChips();
   renderProjects();
+  studyHub?.render();
   renderProjectChatCrumb();
   renderAdminOnlyControls();
   renderSettingsStorage();
@@ -2184,6 +2256,7 @@ function renderShell() {
     renderDocumentViewer();
     renderProfileMenu();
     renderProjects();
+    studyHub?.render();
     return;
   }
 
@@ -2197,6 +2270,7 @@ function renderShell() {
     renderProfileMenu();
     updateComposerPlaceholder();
     renderProjects();
+    studyHub?.render();
     return;
   }
 
@@ -2208,6 +2282,7 @@ function renderShell() {
   renderDocumentViewer();
   renderProfileMenu();
   renderProjects();
+  studyHub?.render();
   updateComposerPlaceholder();
   compareController.syncCompareContextBanner();
 }
@@ -2735,7 +2810,7 @@ function projectSourceRows(project = state.activeProject) {
 
 function projectListMarkup() {
   const search = state.projectSearch.trim().toLowerCase();
-  const projects = [...(state.projects || [])].sort((a, b) => state.projectSort === "name"
+  const projects = [...(state.projects || []).filter((project) => project.kind !== "course")].sort((a, b) => state.projectSort === "name"
       ? a.name.localeCompare(b.name)
       : new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   const visibleCount = projects.filter((project) => !search || project.name.toLowerCase().includes(search)).length;
@@ -2856,14 +2931,17 @@ function renderProjectChatCrumb() {
   const conversation = state.conversations.find((item) => item.id === state.activeConversationId);
   const projectId = conversation?.project_id || "";
   // Only while a project chat is open — not on the project home / normal chats.
-  const visible = Boolean(projectId && state.activeConversationId && !state.projectsOpen && !state.temporaryChat);
+  const visible = Boolean(projectId && state.activeConversationId && !state.projectsOpen && !state.studyOpen && !state.temporaryChat);
   els.projectChatCrumb.classList.toggle("hidden", !visible);
   document.body.classList.toggle("project-chat-open", visible);
   if (!visible) return;
   const project = state.projects.find((item) => item.id === projectId)
     || (state.activeProject?.project?.id === projectId ? state.activeProject.project : null);
-  const name = project?.name || "Project";
-  els.projectChatCrumb.dataset.projectId = projectId;
+  const isCourse = project?.kind === "course";
+  const name = project?.name || (isCourse ? "Course" : "Project");
+  els.projectChatCrumb.dataset.projectId = isCourse ? "" : projectId;
+  els.projectChatCrumb.dataset.courseId = isCourse ? projectId : "";
+  els.projectChatCrumb.classList.toggle("study-chat-crumb", isCourse);
   els.projectChatCrumb.setAttribute("aria-label", `Back to ${name}`);
   if (els.projectChatCrumbName) els.projectChatCrumbName.textContent = name;
 }
@@ -2920,6 +2998,8 @@ async function openProjects({ replace = false } = {}) {
   clearClarification();
   state.temporaryChat = false;
   state.projectsOpen = true;
+  state.studyOpen = false;
+  state.activeCourseId = "";
   state.activeProjectId = "";
   state.activeProject = null;
   state.activeConversationId = "";
@@ -2943,6 +3023,8 @@ async function openProject(projectId, { replace = false } = {}) {
   clearClarification();
   state.temporaryChat = false;
   state.projectsOpen = true;
+  state.studyOpen = false;
+  state.activeCourseId = "";
   state.activeProjectId = projectId;
   state.activeProject = null;
   state.activeConversationId = "";
@@ -3510,15 +3592,19 @@ async function openConversation(conversationId) {
   parkActiveConversationRun();
   clearClarification();
   researchController.stopResearchPolling();
+  studyHub.closeSession();
   state.images = state.images.filter((item) => item.category !== "document");
   state.temporaryChat = false;
   let conversation = state.conversations.find((item) => item.id === conversationId);
   if (!conversation) {
-    conversation = (state.activeProject?.conversations || []).find((item) => item.id === conversationId) || null;
+    conversation = (state.activeProject?.conversations || []).find((item) => item.id === conversationId)
+      || (state.studyProjectDetail?.conversations || []).find((item) => item.id === conversationId)
+      || null;
     if (conversation) state.conversations.unshift(conversation);
   }
   state.activeProjectId = conversation?.project_id || "";
   state.projectsOpen = false;
+  state.studyOpen = false;
   state.activeProject = null;
   state.activeConversationId = conversationId;
   clearFollowUps();
@@ -4171,7 +4257,11 @@ function dedupeCitationsForDisplay(citations) {
       continue;
     }
 
-    const key = entry.url || citationHost(entry.url);
+    // Internal presigned-storage URLs are not real web sources (they expire
+    // and render as error pages); older messages may still carry them.
+    const host = citationHost(entry.url);
+    if (host === "r2.cloudflarestorage.com" || host.endsWith(".r2.cloudflarestorage.com")) continue;
+    const key = entry.url || host;
     if (!key || seenWeb.has(key)) continue;
     seenWeb.add(key);
     out.push(entry);
@@ -5946,7 +6036,7 @@ function closeAuthDialog() {
   }
 }
 
-function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "" } = {}) {
+function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null } = {}) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
@@ -5954,6 +6044,7 @@ function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projec
   state.pendingDeleteId = chatId || "";
   state.pendingDeleteAttachmentId = attachmentId || "";
   state.pendingDeleteProjectId = projectId || "";
+  state.pendingDeleteConfirm = typeof onConfirm === "function" ? onConfirm : null;
   els.confirmTitle.textContent = title;
   els.confirmBody.textContent = body;
   els.confirmDialog.classList.add("open");
@@ -5975,6 +6066,7 @@ function closeConfirmDialog() {
   state.pendingDeleteId = "";
   state.pendingDeleteAttachmentId = "";
   state.pendingDeleteProjectId = "";
+  state.pendingDeleteConfirm = null;
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
@@ -5988,6 +6080,12 @@ function closeConfirmDialog() {
 }
 
 async function confirmPendingDelete() {
+  if (typeof state.pendingDeleteConfirm === "function") {
+    const fn = state.pendingDeleteConfirm;
+    closeConfirmDialog();
+    await fn();
+    return;
+  }
   if (state.pendingDeleteAttachmentId) {
     const attachmentId = state.pendingDeleteAttachmentId;
     const projectId = state.activeProjectId;
@@ -6038,9 +6136,22 @@ async function confirmPendingDelete() {
     deletedConversationIds.forEach((cid) => conversationCache.delete(cid));
     state.pinnedChatIds = state.pinnedChatIds.filter((id) => !deletedConversationIds.has(id));
     savePinnedChatIds();
+    const isCourse = deletedProject?.kind === "course" || state.studyOpen;
     state.activeProjectId = "";
     state.activeProject = null;
-    syncProjectsUrl({ replace: true });
+    if (isCourse) {
+      state.studyOpen = true;
+      state.projectsOpen = false;
+      if (state.activeCourseId === deletedProjectId) {
+        state.activeCourseId = "";
+        state.studyMaterials = null;
+        state.studyPractice = null;
+        state.studyProjectDetail = null;
+      }
+      syncStudyUrl({ replace: true });
+    } else {
+      syncProjectsUrl({ replace: true });
+    }
     renderShell();
     try {
       await deleteProject(state.session, deletedProjectId);
@@ -6066,8 +6177,17 @@ function openRenameDialog(conversation) {
   closePinnedPopup();
   closeProfileMenu();
   if (isNative()) document.body.classList.remove("sidebar-open");
-  state.pendingRenameId = conversation.id;
-  els.renameChatInput.value = conversation.title || "New chat";
+  if (typeof conversation?.onSave === "function") {
+    state.pendingRenameId = "";
+    state.pendingRenameSave = conversation.onSave;
+    if (els.renameTitle) els.renameTitle.textContent = conversation.title || "Rename";
+    els.renameChatInput.value = conversation.value || "";
+  } else {
+    state.pendingRenameSave = null;
+    state.pendingRenameId = conversation.id;
+    if (els.renameTitle) els.renameTitle.textContent = "Rename chat";
+    els.renameChatInput.value = conversation.title || "New chat";
+  }
   els.renameDialog.classList.add("open");
   els.renameDialog.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -6080,6 +6200,8 @@ function openRenameDialog(conversation) {
 
 function closeRenameDialog() {
   state.pendingRenameId = "";
+  state.pendingRenameSave = null;
+  if (els.renameTitle) els.renameTitle.textContent = "Rename chat";
   els.renameDialog.classList.remove("open");
   els.renameDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "rename") {
@@ -6089,13 +6211,22 @@ function closeRenameDialog() {
 }
 
 async function saveRenameDialog() {
-  const id = state.pendingRenameId;
-  if (!id) return;
   const title = els.renameChatInput.value.trim();
   if (!title) {
-    showToast("Enter a chat title.");
+    showToast(state.pendingRenameSave ? "Enter a name." : "Enter a chat title.");
     return;
   }
+  if (typeof state.pendingRenameSave === "function") {
+    try {
+      await state.pendingRenameSave(title);
+      closeRenameDialog();
+    } catch (err) {
+      showToast(err.message || "Could not rename.");
+    }
+    return;
+  }
+  const id = state.pendingRenameId;
+  if (!id) return;
   try {
     const payload = await updateConversation(state.session, id, { title });
     const index = state.conversations.findIndex((item) => item.id === id);
@@ -6272,6 +6403,52 @@ researchController = createResearchController({
   selectedModelMode,
   applyComposerHeight,
   renderImages
+});
+
+studyHub = createStudyHubController({
+  state,
+  els,
+  escapeHtml,
+  renderContent,
+  showToast,
+  requireAuth,
+  blockChatNavigationWhileRunning,
+  parkActiveConversationRun,
+  clearClarification,
+  closeDocumentViewer,
+  renderShell,
+  renderImages,
+  openConversation,
+  openDeleteConfirm,
+  openTitleRename: openRenameDialog,
+  isSupportedDocumentFile,
+  fetchProject,
+  createProject,
+  updateProject,
+  updateConversation,
+  presignUpload,
+  putUploadContent,
+  completeUpload,
+  deleteAttachment,
+  fetchDocumentStatus,
+  fetchStudyMaterials,
+  generateStudyContent,
+  deleteStudyMaterial,
+  fetchStudyPractice,
+  fetchStudyQueue,
+  createStudyCard,
+  deleteStudyCard,
+  updateStudyDeck,
+  deleteStudyDeck,
+  fetchStudyQuiz,
+  submitStudyQuizAttempt,
+  exportStudyNote,
+  deleteStudyNote,
+  fetchDocumentJobStatus,
+  downloadAttachment,
+  flashCopySuccess,
+  syncStudyUrl,
+  loadProjects
 });
 
 function stopExtractedModulePollers() {
@@ -6599,6 +6776,7 @@ function closeAppUpdate() {
 }
 
 function closeTopNativeSurface() {
+  if (studyHub?.handleEscape?.()) return true;
   if (!els.appUpdateDialog?.classList.contains("hidden")) {
     closeAppUpdate();
     return true;
@@ -6734,7 +6912,7 @@ async function loadConversations() {
   state.pinnedChatIds = state.pinnedChatIds.filter((id) => validIds.has(id));
   savePinnedChatIds();
   const routeConversationId = conversationIdFromLocation();
-  if (projectsRouteFromLocation()) return;
+  if (projectsRouteFromLocation() || studyRouteFromLocation()) return;
   if (routeConversationId) {
     state.activeConversationId = state.conversations.some((conversation) => conversation.id === routeConversationId)
       ? routeConversationId
@@ -6950,6 +7128,24 @@ async function resumePendingDocumentTurn(run) {
 
 async function loadChatApp() {
   await Promise.all([loadModels(), loadConversations(), loadProjects()]);
+  if (studyRouteFromLocation()) {
+    state.studyOpen = true;
+    state.projectsOpen = false;
+    state.activeCourseId = courseIdFromLocation();
+    state.activeConversationId = "";
+    state.messages = [];
+    renderShell();
+    if (state.activeCourseId) {
+      try {
+        await studyHub.loadCourse();
+      } catch (error) {
+        showToast(error.message || "Course could not be loaded.");
+        state.activeCourseId = "";
+      }
+      renderShell();
+    }
+    return;
+  }
   if (projectsRouteFromLocation()) {
     state.projectsOpen = true;
     state.activeProjectId = projectIdFromLocation();
@@ -6987,9 +7183,12 @@ function openNewChat({ replaceUrl = false } = {}) {
   parkActiveConversationRun();
   clearClarification();
   researchController.stopResearchPolling();
+  studyHub.closeSession();
   state.activeConversationId = "";
   state.conversationLoading = false;
   state.projectsOpen = false;
+  state.studyOpen = false;
+  state.activeCourseId = "";
   state.activeProjectId = "";
   state.activeProject = null;
   state.messages = [];
@@ -7079,6 +7278,9 @@ async function removeConversation(id) {
   if (state.activeProject?.conversations) {
     state.activeProject.conversations = state.activeProject.conversations.filter((conversation) => conversation.id !== id);
   }
+  if (state.studyProjectDetail?.conversations) {
+    state.studyProjectDetail.conversations = state.studyProjectDetail.conversations.filter((conversation) => conversation.id !== id);
+  }
   unpinChat(id);
 
   if (wasActive) {
@@ -7102,6 +7304,14 @@ async function removeConversation(id) {
   } catch (err) {
     if (!state.conversations.some((conversation) => conversation.id === id)) {
       state.conversations.splice(Math.min(index, state.conversations.length), 0, deletedConversation);
+    }
+    if (
+      deletedConversation
+      && state.studyProjectDetail?.conversations
+      && deletedConversation.project_id === state.studyProjectDetail.project?.id
+      && !state.studyProjectDetail.conversations.some((conversation) => conversation.id === id)
+    ) {
+      state.studyProjectDetail.conversations = [deletedConversation, ...state.studyProjectDetail.conversations];
     }
     state.pinnedChatIds = previousPinnedChatIds;
     savePinnedChatIds();
@@ -7523,11 +7733,12 @@ async function executeSend({ text, images, compareModels, council = false, descr
   if (!temporaryChat && (newChat || !state.activeConversationId)) {
     const payload = await createConversation(state.session, {
       role: selectedChatRole(),
-      projectId: state.activeProjectId || null
+      projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
     });
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
     state.projectsOpen = false;
+    state.studyOpen = false;
     state.messages = [];
     createdConversation = true;
     syncConversationUrl();
@@ -8214,10 +8425,20 @@ function bindEvents() {
     document.body.classList.remove("sidebar-open");
     void openProjects();
   });
+  els.studyHubButton?.addEventListener("click", () => {
+    document.body.classList.remove("sidebar-open");
+    void studyHub.openCourses();
+  });
   els.projectChatCrumb?.addEventListener("click", () => {
+    const courseId = els.projectChatCrumb.dataset.courseId;
+    if (courseId) {
+      void studyHub.openCourse(courseId, { tab: "chat" });
+      return;
+    }
     const projectId = els.projectChatCrumb.dataset.projectId;
     if (projectId) void openProject(projectId);
   });
+  studyHub.bindEvents();
   els.projectView?.addEventListener("click", (event) => { void handleProjectViewClick(event); });
   els.projectView?.addEventListener("change", (event) => { void handleProjectTitleChange(event); });
   els.projectView?.addEventListener("input", handleProjectSearch);
@@ -8346,6 +8567,7 @@ function bindEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (studyHub.handleEscape()) return;
     if (state.skillMenu.open) { closeSkillMenu(); return; }
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }
     if (isSearchDialogOpen()) { closeSearchDialog(); return; }
@@ -8624,6 +8846,7 @@ function bindEvents() {
     }
     parkActiveConversationRun();
     researchController.stopResearchPolling();
+    studyHub.closeSession();
     const routeResearchId = researchIdFromLocation();
     const routeConversationId = conversationIdFromLocation();
     const routeProjectId = projectIdFromLocation();
@@ -8636,8 +8859,32 @@ function bindEvents() {
       if (!els.researchReportView.classList.contains("hidden")) {
         await researchController.closeResearchReport({ push: false });
       }
+      if (studyRouteFromLocation()) {
+        state.studyOpen = true;
+        state.projectsOpen = false;
+        state.activeProjectId = "";
+        state.activeProject = null;
+        state.activeCourseId = courseIdFromLocation();
+        state.activeConversationId = "";
+        state.messages = [];
+        renderShell();
+        if (state.activeCourseId) {
+          try {
+            await studyHub.loadCourse();
+          } catch (error) {
+            showToast(error.message || "Course could not be loaded.");
+            state.activeCourseId = "";
+          }
+          renderShell();
+        } else {
+          loadProjects().then(() => renderShell()).catch(() => {});
+        }
+        return;
+      }
       if (projectsRouteFromLocation()) {
         state.projectsOpen = true;
+        state.studyOpen = false;
+        state.activeCourseId = "";
         state.activeProjectId = routeProjectId;
         state.activeProject = null;
         state.activeConversationId = "";
@@ -8649,6 +8896,8 @@ function bindEvents() {
       if (!routeConversationId) {
         state.temporaryChat = false;
         state.projectsOpen = false;
+        state.studyOpen = false;
+        state.activeCourseId = "";
         state.activeProjectId = "";
         state.activeProject = null;
         state.activeConversationId = "";
@@ -8674,6 +8923,8 @@ function bindEvents() {
       }
       state.activeConversationId = routeConversationId;
       state.temporaryChat = false;
+      state.projectsOpen = false;
+      state.studyOpen = false;
       closeDocumentViewer();
       compareController.closeCompareContextBanner();
       await loadActiveConversation();
