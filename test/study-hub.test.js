@@ -330,3 +330,31 @@ test("course chat list includes newly created course conversations without a ref
   assert.match(hub, /function confirmDeleteCourseChat\(/);
   assert.match(app, /state\.studyProjectDetail\.conversations = state\.studyProjectDetail\.conversations\.filter/);
 });
+
+test("study hub overlays dismiss on leave paths", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
+  assert.match(hub, /function closeSession\(\) \{[\s\S]*?closeNote\(\);/);
+  assert.match(hub, /async function openCourses\(\{ replace = false \} = \{\}\) \{[\s\S]*?closeSession\(\);/);
+  assert.match(app, /async function openProjects\(\{ replace = false \} = \{\}\) \{[\s\S]*?studyHub\.closeSession\(\);/);
+  assert.match(app, /async function openProject\(projectId, \{ replace = false \} = \{\}\) \{[\s\S]*?studyHub\.closeSession\(\);/);
+  assert.match(app, /function openNewChat\(\{ replaceUrl = false \} = \{\}\) \{[\s\S]*?studyHub\.closeSession\(\);/);
+  assert.match(app, /async function openConversation\(conversationId\) \{[\s\S]*?studyHub\.closeSession\(\);/);
+  assert.match(app, /addEventListener\("popstate"[\s\S]*?studyHub\.closeSession\(\);/);
+});
+
+test("successful generation cards remove themselves immediately", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(
+    hub,
+    /function courseGenerationCards\(\) \{[\s\S]*?job\.status !== "succeeded"/
+  );
+  assert.match(
+    hub,
+    /toastForGeneration\(job\);\s*generations\.delete\(job\.id\);\s*if \(studyVisible\(\) && state\.activeCourseId === courseId\) render\(\);\s*if \(state\.activeCourseId === courseId\) \{\s*await Promise\.all\(/
+  );
+  assert.doesNotMatch(hub, /Ready in Materials/);
+  assert.doesNotMatch(hub, /Available in Practice/);
+  assert.match(hub, /job\.status === "failed" \? `/);
+  assert.match(hub, /data-retry-generation=/);
+});

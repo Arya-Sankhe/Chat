@@ -2996,6 +2996,7 @@ async function openProjects({ replace = false } = {}) {
   }
   parkActiveConversationRun();
   clearClarification();
+  studyHub.closeSession();
   state.temporaryChat = false;
   state.projectsOpen = true;
   state.studyOpen = false;
@@ -3021,6 +3022,7 @@ async function openProject(projectId, { replace = false } = {}) {
   }
   parkActiveConversationRun();
   clearClarification();
+  studyHub.closeSession();
   state.temporaryChat = false;
   state.projectsOpen = true;
   state.studyOpen = false;

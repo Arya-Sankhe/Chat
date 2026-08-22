@@ -463,10 +463,7 @@ export async function generateFlashcards({
   throwIfAborted(signal);
   const parsed = parseStudyJson(streamed.content);
   const cards = cleanCards(parsed.value, FLASHCARD_CAP);
-  if (!cards.length) {
-    if (deep) return [];
-    throw new HttpError(502, GENERATION_FAILED);
-  }
+  if (!cards.length) throw new HttpError(502, GENERATION_FAILED);
   onStage?.("saving");
   throwIfAborted(signal);
   const deckKey = source.documentFiles?.length ? comboDeckKey() : null;

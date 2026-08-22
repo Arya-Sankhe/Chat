@@ -423,7 +423,7 @@ export function createStudyHubController({
   function courseGenerationCards() {
     if (!state.activeCourseId) return [];
     return [...generations.values()]
-      .filter((job) => job.courseId === state.activeCourseId)
+      .filter((job) => job.courseId === state.activeCourseId && job.status !== "succeeded")
       .sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
   }
 
@@ -432,17 +432,10 @@ export function createStudyHubController({
     if (!cards.length) return "";
     return cards.map((job) => {
       const active = job.status === "running";
-      const pillClass = job.status === "succeeded" ? "ready" : job.status === "failed" ? "failed" : "reading";
+      const pillClass = job.status === "failed" ? "failed" : "reading";
       const stage = job.stage ? ` · ${job.stage}` : "";
       const elapsed = formatElapsed(job);
       const meta = jobMetaLine(job);
-      const noteId = job.type === "notes" ? (job.result?.noteId || job.result?.id || "") : "";
-      const successHint = job.status !== "succeeded" ? ""
-        : job.type === "notes"
-          ? (noteId
-            ? `<button class="study-chip-btn" type="button" data-open-note="${escapeHtml(String(noteId))}">${sketchStroke()}Open note</button>`
-            : `<small class="study-gen-hint">Ready in Materials</small>`)
-          : `<small class="study-gen-hint">Available in Practice</small>`;
       return `
         <article class="study-material-card study-gen-card is-${escapeHtml(job.status || "running")}" data-gen-id="${escapeHtml(job.id)}">
           ${sketchStroke()}
@@ -463,7 +456,6 @@ export function createStudyHubController({
             <div class="study-gen-actions">
               <button class="study-chip-btn" type="button" data-retry-generation="${escapeHtml(job.id)}">${sketchStroke()}Retry</button>
             </div>` : ""}
-          ${successHint ? `<div class="study-gen-actions">${successHint}</div>` : ""}
         </article>`;
     }).join("");
   }
@@ -940,6 +932,8 @@ export function createStudyHubController({
       job.result = result;
       job.finishedAt = new Date().toISOString();
       toastForGeneration(job);
+      generations.delete(job.id);
+      if (studyVisible() && state.activeCourseId === courseId) render();
       if (state.activeCourseId === courseId) {
         await Promise.all([
           loadMaterials().catch(() => {}),
@@ -1687,6 +1681,7 @@ export function createStudyHubController({
       root.setAttribute("aria-hidden", "true");
     }
     document.body.classList.remove("study-session-open");
+    closeNote();
     if (reviewed) render();
   }
 

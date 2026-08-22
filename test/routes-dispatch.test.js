@@ -1446,6 +1446,77 @@ test("combo flashcard generate stamps deck_key and skips Your cards", async () =
   }
 });
 
+test("empty deep flashcard output errors without stamping flashcardModes", async () => {
+  const realFetch = globalThis.fetch;
+  const patches = [];
+  let created = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const href = String(url);
+    if (href.includes("/generation")) {
+      return new Response(JSON.stringify({ data: { total_cost: 0.001 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (href.endsWith("/chat/completions")) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            id: "gen-empty-deep",
+            choices: [{ delta: { content: '{"cards":[]}' }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.001 }
+          })}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        }
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    throw new Error(`unexpected fetch ${href}`);
+  };
+  try {
+    const res = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "flashcards", documentFileId: "doc-1", mode: "deep" },
+      overrides: stubbedDeps({
+        db: {
+          async getProject() { return { id: "course-1", kind: "course", name: "CMP 321", meta: {} }; },
+          async getDocumentFile() {
+            return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+          },
+          async listStudyCards() { return []; },
+          async checkApiBudget() { return { allowed: true }; },
+          async listDocumentChunksForFiles() {
+            return [{ text: "Photosynthesis converts light to chemical energy." }];
+          },
+          async createStudyCards() {
+            created += 1;
+            return [];
+          },
+          async updateProject(_userId, _id, patch) {
+            patches.push(patch);
+            return { id: "course-1", kind: "course", meta: patch.meta };
+          },
+          async recordApiUsageCost() { return null; }
+        }
+      })
+    });
+    assert.equal(res.statusCode, 200);
+    const events = res.sseEvents();
+    assert.ok(events.some((event) => event.type === "error" && /Generation failed/i.test(event.error)));
+    assert.equal(events.some((event) => event.type === "complete"), false);
+    assert.equal(created, 0);
+    assert.equal(patches.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("combo quiz generate stores a course-level quiz", async () => {
   const realFetch = globalThis.fetch;
   const created = [];
