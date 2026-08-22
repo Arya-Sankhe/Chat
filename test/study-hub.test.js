@@ -286,6 +286,12 @@ test("study hub uses a whiteboard board skin without adding product surfaces", (
   assert.match(css, /--study-board/);
   assert.match(css, /#study-wobble/);
   assert.match(css, /body\.study-open \.home-wallpaper/);
+  assert.match(hub, /study-chip-label/);
+  assert.match(css, /study-ink-blue:is\(:hover, \[aria-expanded="true"\]\)/);
+  assert.match(css, /study-ink-orange:is\(:hover, \[aria-expanded="true"\]\)/);
+  assert.match(css, /study-ink-purple:is\(:hover, \[aria-expanded="true"\]\)/);
+  assert.match(css, /\.study-quiz-menu button \+ button/);
+  assert.match(css, /background: var\(--study-paper\)/);
   assert.match(html, /Shantell\+Sans/);
   assert.match(html, /id="study-wobble"/);
   assert.doesNotMatch(hub, /Scribbled to-do/);
@@ -307,4 +313,20 @@ test("study hub paints before refetching and reuses course payloads", () => {
   assert.match(hub, /now - projectsAt < 20000/);
   assert.doesNotMatch(hub, /resetCourseCaches\(\);\s*state\.activeConversationId/);
   assert.match(app, /renderShell\(\);\s*if \(state\.activeCourseId\)/);
+});
+
+test("course chat list includes newly created course conversations without a refetch", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
+  assert.match(hub, /function courseConversations\(/);
+  assert.match(hub, /conv\.project_id !== courseId/);
+  assert.match(hub, /const conversations = courseConversations\(\)/);
+  assert.match(app, /studyHub\.openCourse\(courseId, \{ tab: "chat" \}\)/);
+  assert.match(app, /projectId: state\.activeProjectId \|\| \(state\.studyOpen \? state\.activeCourseId : ""\) \|\| null/);
+  assert.match(hub, /data-toggle-chat-menu=/);
+  assert.match(hub, /data-rename-chat=/);
+  assert.match(hub, /data-delete-chat=/);
+  assert.match(hub, /function openRenameCourseChat\(/);
+  assert.match(hub, /function confirmDeleteCourseChat\(/);
+  assert.match(app, /state\.studyProjectDetail\.conversations = state\.studyProjectDetail\.conversations\.filter/);
 });

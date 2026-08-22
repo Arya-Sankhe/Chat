@@ -102,7 +102,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260822-board9";
+import { createStudyHubController } from "./studyHub.js?v=20260823-board14";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -6398,6 +6398,7 @@ studyHub = createStudyHubController({
   fetchProject,
   createProject,
   updateProject,
+  updateConversation,
   presignUpload,
   putUploadContent,
   completeUpload,
@@ -7250,6 +7251,9 @@ async function removeConversation(id) {
   if (state.activeProject?.conversations) {
     state.activeProject.conversations = state.activeProject.conversations.filter((conversation) => conversation.id !== id);
   }
+  if (state.studyProjectDetail?.conversations) {
+    state.studyProjectDetail.conversations = state.studyProjectDetail.conversations.filter((conversation) => conversation.id !== id);
+  }
   unpinChat(id);
 
   if (wasActive) {
@@ -7273,6 +7277,14 @@ async function removeConversation(id) {
   } catch (err) {
     if (!state.conversations.some((conversation) => conversation.id === id)) {
       state.conversations.splice(Math.min(index, state.conversations.length), 0, deletedConversation);
+    }
+    if (
+      deletedConversation
+      && state.studyProjectDetail?.conversations
+      && deletedConversation.project_id === state.studyProjectDetail.project?.id
+      && !state.studyProjectDetail.conversations.some((conversation) => conversation.id === id)
+    ) {
+      state.studyProjectDetail.conversations = [deletedConversation, ...state.studyProjectDetail.conversations];
     }
     state.pinnedChatIds = previousPinnedChatIds;
     savePinnedChatIds();
@@ -8393,7 +8405,7 @@ function bindEvents() {
   els.projectChatCrumb?.addEventListener("click", () => {
     const courseId = els.projectChatCrumb.dataset.courseId;
     if (courseId) {
-      void studyHub.openCourse(courseId);
+      void studyHub.openCourse(courseId, { tab: "chat" });
       return;
     }
     const projectId = els.projectChatCrumb.dataset.projectId;

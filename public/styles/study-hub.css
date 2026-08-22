@@ -10,9 +10,9 @@ body.study-session-open,
   --study-ink: #1c1c1c;
   --study-muted: #6b675e;
   --study-stroke: #2a2a2a;
-  --study-blue: #1e4ed8;
-  --study-orange: #c45e10;
-  --study-purple: #6d32b3;
+  --study-blue: #8ec8ff;
+  --study-orange: #ffb070;
+  --study-purple: #d7b0ff;
   --study-red: #c81e1e;
   --study-green: #2a9a44;
   --study-paper: #f3e0c2;
@@ -514,7 +514,7 @@ body[data-mode="dark"] .study-tape {
 .study-course-card:hover,
 .study-practice-card:hover,
 .study-material-card:hover,
-.study-chat-row:hover,
+.study-chat-item:hover,
 .study-dropzone:hover {
   transform: translateY(-1px);
 }
@@ -638,14 +638,13 @@ body[data-mode="dark"] .study-tape {
   transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
 }
 
-.study-primary-btn {
-  color: var(--study-ink);
+.study-chip-label {
+  position: relative;
+  z-index: 1;
 }
 
-.study-chip-btn .study-sketch-stroke,
-.study-primary-btn .study-sketch-stroke,
-.study-browse {
-  z-index: 0;
+.study-primary-btn {
+  color: var(--study-ink);
 }
 
 .study-chip-btn:hover:not(:disabled),
@@ -657,6 +656,25 @@ body[data-mode="dark"] .study-tape {
 .study-primary-btn:hover:not(:disabled) .study-sketch-stroke {
   border-color: currentColor;
   background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.study-material-actions .study-chip-btn:is(:hover, [aria-expanded="true"]):not(:disabled) {
+  color: var(--study-ink);
+}
+
+.study-material-actions .study-ink-blue:is(:hover, [aria-expanded="true"]):not(:disabled) .study-sketch-stroke {
+  background: color-mix(in srgb, var(--study-blue) 55%, transparent);
+  border-color: var(--study-blue);
+}
+
+.study-material-actions .study-ink-orange:is(:hover, [aria-expanded="true"]):not(:disabled) .study-sketch-stroke {
+  background: color-mix(in srgb, var(--study-orange) 55%, transparent);
+  border-color: var(--study-orange);
+}
+
+.study-material-actions .study-ink-purple:is(:hover, [aria-expanded="true"]):not(:disabled) .study-sketch-stroke {
+  background: color-mix(in srgb, var(--study-purple) 55%, transparent);
+  border-color: var(--study-purple);
 }
 
 .study-browse:hover {
@@ -971,6 +989,11 @@ body[data-mode="dark"] .study-tape {
   flex-direction: column;
   gap: 12px;
   padding: 16px 42px 16px 16px;
+  overflow: visible;
+}
+
+.study-material-card:has(.study-quiz-menu:not(.hidden)) {
+  z-index: 5;
 }
 
 .study-material-copy {
@@ -1019,22 +1042,24 @@ body[data-mode="dark"] .study-tape {
   top: calc(100% + 6px);
   z-index: 6;
   display: flex;
-  gap: 4px;
-  padding: 6px;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 2px;
   border: 2px solid var(--study-stroke);
   border-radius: 12px 16px 10px 14px;
-  background: color-mix(in srgb, var(--study-board) 88%, var(--study-paper));
-  box-shadow: 3px 4px 0 color-mix(in srgb, var(--study-ink) 10%, transparent);
+  background: var(--study-paper);
+  color: var(--study-paper-ink);
+  box-shadow: 3px 4px 0 color-mix(in srgb, var(--study-ink) 18%, transparent);
 }
 
 .study-quiz-menu button {
-  min-width: 36px;
+  min-width: 44px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
-  color: var(--study-ink);
+  color: inherit;
   font: inherit;
   font-size: 15px;
   font-weight: 650;
@@ -1042,8 +1067,12 @@ body[data-mode="dark"] .study-tape {
   cursor: pointer;
 }
 
+.study-quiz-menu button + button {
+  border-left: 2px solid var(--study-stroke);
+}
+
 .study-quiz-menu button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--study-ink) 6%, transparent);
+  background: color-mix(in srgb, var(--study-ink) 10%, var(--study-paper));
 }
 
 .study-quiz-menu button:disabled {
@@ -1205,17 +1234,36 @@ body.study-open .study-composer-slot .composer-model-btn.heat-btn {
   padding: 6px 4px 16px 0;
 }
 
-.study-chat-row {
-  appearance: none;
-  -webkit-appearance: none;
+.study-chat-item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   align-self: start;
   width: fit-content;
   max-width: 100%;
+  overflow: visible;
+}
+
+.study-chat-item:has(.study-menu:not(.hidden)) {
+  z-index: 5;
+}
+
+.study-chat-item .study-card-menu-wrap {
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+}
+
+.study-chat-row {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
   height: auto;
   min-height: 0;
-  padding: 10px 16px;
+  padding: 10px 34px 10px 16px;
   overflow: visible;
   list-style: none;
   text-align: left;
@@ -2545,6 +2593,7 @@ body.study-open .study-composer-slot .composer-prompt:focus-visible,
   .study-course-card,
   .study-material-card,
   .study-practice-card,
+  .study-chat-item,
   .study-sticky,
   .study-quiz-recap,
   .study-quiz-note,

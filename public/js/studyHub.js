@@ -20,6 +20,7 @@ export function createStudyHubController({
   fetchProject,
   createProject,
   updateProject,
+  updateConversation,
   presignUpload,
   putUploadContent,
   completeUpload,
@@ -310,7 +311,7 @@ export function createStudyHubController({
       return `
         <span class="study-quiz-wrap">
           <button class="study-chip-btn study-ink-orange" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}${label}
+            ${sketchStroke()}<span class="study-chip-label">${label}</span>
           </button>
           <div class="study-quiz-menu${open ? "" : " hidden"}">
             ${counts.map((n) => `<button type="button" data-study-generate="${type}" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="${n}">${n}</button>`).join("")}
@@ -327,7 +328,7 @@ export function createStudyHubController({
       return `
         <span class="study-quiz-wrap">
           <button class="study-chip-btn study-ink-blue" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}Flashcards
+            ${sketchStroke()}<span class="study-chip-label">Flashcards</span>
           </button>
           <div class="study-quiz-menu${open ? "" : " hidden"}">
             <button type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="rapid" title="Key concepts — a chapter review"${rapidDone || busy ? " disabled" : ""}>Rapid</button>
@@ -345,7 +346,7 @@ export function createStudyHubController({
       return `
         <span class="study-quiz-wrap">
           <button class="study-chip-btn study-ink-purple" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}Notes
+            ${sketchStroke()}<span class="study-chip-label">Notes</span>
           </button>
           <div class="study-quiz-menu${open ? "" : " hidden"}">
             <button type="button" data-study-generate="notes" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="summary" title="Most important concepts"${summaryDone || activeFor("notes", "summary") ? " disabled" : ""}>Summary</button>
@@ -519,8 +520,22 @@ export function createStudyHubController({
       </div>`;
   }
 
+  function courseConversations() {
+    const courseId = state.activeCourseId;
+    const byId = new Map();
+    for (const conv of state.studyProjectDetail?.conversations || []) {
+      if (conv?.id) byId.set(conv.id, conv);
+    }
+    for (const conv of state.conversations || []) {
+      if (!conv?.id || conv.project_id !== courseId) continue;
+      const prev = byId.get(conv.id);
+      byId.set(conv.id, prev ? { ...prev, ...conv } : conv);
+    }
+    return [...byId.values()].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+  }
+
   function chatMarkup() {
-    const conversations = state.studyProjectDetail?.conversations || [];
+    const conversations = courseConversations();
     const materialCount = Number(state.studyMaterials?.documents?.length || 0);
     const empty = !conversations.length
       ? (materialCount
@@ -531,11 +546,26 @@ export function createStudyHubController({
           `<button class="study-primary-btn" type="button" data-study-tab="materials">${sketchStroke()}Go to Materials</button>`
         ))
       : "";
-    const rows = conversations.map((conversation) => `
-      <button class="study-chat-row" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
-        ${sketchStroke()}
-        <span>${escapeHtml(conversation.title || "New chat")}</span>
-      </button>`).join("");
+    const rows = conversations.map((conversation) => {
+      const id = conversation.id;
+      const menuOpen = quizMenuKey === `chat:${id}`;
+      return `
+      <div class="study-chat-item">
+        <button class="study-chat-row" type="button" data-open-chat-id="${escapeHtml(id)}">
+          ${sketchStroke()}
+          <span>${escapeHtml(conversation.title || "New chat")}</span>
+        </button>
+        <div class="study-card-menu-wrap">
+          <button class="study-icon-btn" type="button" data-toggle-chat-menu="${escapeHtml(id)}" aria-label="Chat options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
+            ${kebabIcon()}
+          </button>
+          <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
+            <button class="study-menu-item" type="button" role="menuitem" data-rename-chat="${escapeHtml(id)}">Rename</button>
+            <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-chat="${escapeHtml(id)}">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
     return `
       <div class="study-chat">
         <h2 class="study-marker study-ink-orange study-chat-heading">Course chats</h2>
@@ -1186,6 +1216,58 @@ export function createStudyHubController({
     } catch (error) {
       showToast(error.message || "Course could not be renamed.");
     }
+  }
+
+  function findCourseChat(id) {
+    return courseConversations().find((item) => item.id === id);
+  }
+
+  function patchCourseChat(id, patch) {
+    const apply = (list) => (list || []).map((item) => item.id === id ? { ...item, ...patch } : item);
+    const index = (state.conversations || []).findIndex((item) => item.id === id);
+    if (index >= 0) state.conversations[index] = { ...state.conversations[index], ...patch };
+    else state.conversations.unshift({ id, project_id: state.activeCourseId, ...patch });
+    if (state.studyProjectDetail?.conversations) {
+      const has = state.studyProjectDetail.conversations.some((item) => item.id === id);
+      state.studyProjectDetail = {
+        ...state.studyProjectDetail,
+        conversations: has
+          ? apply(state.studyProjectDetail.conversations)
+          : [{ id, project_id: state.activeCourseId, ...patch }, ...state.studyProjectDetail.conversations]
+      };
+    }
+  }
+
+  function openRenameCourseChat(id) {
+    const conversation = findCourseChat(id);
+    if (!conversation) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename chat",
+      value: conversation.title || "New chat",
+      onSave: (title) => saveCourseChatTitle(id, title)
+    });
+  }
+
+  async function saveCourseChatTitle(id, title) {
+    const payload = await updateConversation(state.session, id, { title });
+    patchCourseChat(id, payload?.conversation || { title });
+    render();
+    showToast("Chat renamed.");
+  }
+
+  function confirmDeleteCourseChat(id) {
+    const conversation = findCourseChat(id);
+    if (!conversation) return;
+    quizMenuKey = "";
+    render();
+    if (!state.conversations.some((item) => item.id === id)) state.conversations.unshift(conversation);
+    openDeleteConfirm({
+      title: "Delete chat?",
+      body: `Delete "${conversation.title || "New chat"}" from your account?`,
+      chatId: id
+    });
   }
 
   function confirmDeleteCourse(courseId) {
@@ -2374,6 +2456,14 @@ export function createStudyHubController({
       render();
       return;
     }
+    const chatMenuBtn = event.target.closest("[data-toggle-chat-menu]");
+    if (chatMenuBtn) {
+      event.stopPropagation();
+      const id = chatMenuBtn.dataset.toggleChatMenu;
+      quizMenuKey = quizMenuKey === `chat:${id}` ? "" : `chat:${id}`;
+      render();
+      return;
+    }
     const materialMenuBtn = event.target.closest("[data-toggle-material-menu]");
     if (materialMenuBtn) {
       event.stopPropagation();
@@ -2451,6 +2541,16 @@ export function createStudyHubController({
     if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
     const removeDeck = event.target.closest("[data-delete-deck]");
     if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
+    const renameChat = event.target.closest("[data-rename-chat]");
+    if (renameChat) {
+      event.stopPropagation();
+      return openRenameCourseChat(renameChat.dataset.renameChat);
+    }
+    const removeChat = event.target.closest("[data-delete-chat]");
+    if (removeChat) {
+      event.stopPropagation();
+      return confirmDeleteCourseChat(removeChat.dataset.deleteChat);
+    }
     const removeDoc = event.target.closest("[data-delete-doc]");
     if (removeDoc) {
       event.stopPropagation();
