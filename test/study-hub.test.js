@@ -176,6 +176,9 @@ test("quiz recap is a fixed card with review, retake, and lookback", () => {
   assert.match(hub, /function retakeQuiz\(/);
   assert.match(hub, /phase === "lookback"/);
   assert.match(hub, /Add to flashcards/);
+  assert.match(hub, /quizId:\s*quizSession\.quiz\.id/);
+  assert.match(hub, /function addedQuestionIndexes\(/);
+  assert.match(hub, /already \? "Added" : "Add to flashcards"/);
   assert.doesNotMatch(hub, /data-study-next/);
   assert.doesNotMatch(hub, /Keep learning/);
   assert.match(css, /\.study-session-frame\.is-quiz\.is-recap\s*\{[^}]*overflow:\s*auto/s);

@@ -1843,6 +1843,15 @@ export function createStudyHubController({
     playGradeAnim(value);
   }
 
+  function addedQuestionIndexes(questions, fronts) {
+    const have = new Set((fronts || []).map((front) => String(front || "").trim()).filter(Boolean));
+    const added = new Set();
+    (questions || []).forEach((question, index) => {
+      if (have.has(String(question.q || "").trim())) added.add(index);
+    });
+    return added;
+  }
+
   function quizLookbackMarkup(session) {
     const { results, quiz, adding, added } = session;
     const items = (quiz.questions || []).map((question, index) => {
@@ -1997,6 +2006,7 @@ export function createStudyHubController({
         showToast("This quiz has no questions yet.");
         return;
       }
+      const existingFronts = Array.isArray(payload?.existingFronts) ? payload.existingFronts : [];
       quizSession = {
         quiz,
         index: 0,
@@ -2005,7 +2015,8 @@ export function createStudyHubController({
         phase: "ask",
         adding: null,
         submitting: false,
-        added: new Set(),
+        existingFronts,
+        added: addedQuestionIndexes(quiz.questions, existingFronts),
         courseId: state.activeCourseId
       };
       renderQuiz();
@@ -2068,7 +2079,8 @@ export function createStudyHubController({
       phase: "ask",
       adding: null,
       submitting: false,
-      added: new Set()
+      existingFronts: quizSession.existingFronts || [],
+      added: addedQuestionIndexes(quizSession.quiz.questions, quizSession.existingFronts)
     };
     renderQuiz();
   }
@@ -2084,9 +2096,13 @@ export function createStudyHubController({
     quizSession.adding = index;
     renderQuiz();
     try {
-      await createStudyCard(state.session, quizSession.courseId, { front: question.q || "", back });
-      quizSession.added ||= new Set();
-      quizSession.added.add(index);
+      await createStudyCard(state.session, quizSession.courseId, {
+        front: question.q || "",
+        back,
+        quizId: quizSession.quiz.id
+      });
+      quizSession.existingFronts = [...(quizSession.existingFronts || []), question.q || ""];
+      quizSession.added = addedQuestionIndexes(quizSession.quiz.questions, quizSession.existingFronts);
       showToast("Added to flashcards");
     } catch (error) {
       showToast(error.message || "Could not add flashcard.");

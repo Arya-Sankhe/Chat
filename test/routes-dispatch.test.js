@@ -1154,20 +1154,54 @@ test("study materials expose Rapid/Deep flashcard modes", async () => {
   assert.deepEqual(res.json().documents.map((doc) => doc.id), ["doc-1", "doc-2"]);
 });
 
-test("deleting a study file hides it and keeps notes", async () => {
+test("deleting a study file hides it, frees quota, and keeps the document id", async () => {
   const patches = [];
+  const sizePatches = [];
+  const deletedKeys = [];
+  let deletedAttachment = false;
   const overrides = stubbedDeps({
     db: {
       async getProject() {
         return { id: "course-1", kind: "course", name: "CMP 321", meta: { term: "Fall" } };
       },
       async getDocumentFile() {
-        return { id: "doc-1", project_id: "course-1" };
+        return { id: "doc-1", project_id: "course-1", attachment_id: "att-1" };
       },
+      async getAttachment() {
+        return {
+          id: "att-1",
+          object_key: "users/user-1/ch4.pdf",
+          category: "document",
+          size_bytes: 4096
+        };
+      },
+      async getDocumentFileByAttachment() {
+        return {
+          id: "doc-1",
+          kind: "pdf",
+          page_count: 1,
+          extraction_key: "users/user-1/extract.json",
+          preview_key: "users/user-1/preview.json"
+        };
+      },
+      async listDocumentPages() {
+        return [{ image_key: "users/user-1/documents/doc-1/pages/page-0001.jpg" }];
+      },
+      async updateAttachment(_userId, id, patch) {
+        sizePatches.push({ id, patch });
+        return { id, ...patch };
+      },
+      async deleteAttachment() { deletedAttachment = true; },
       async updateProject(_userId, projectId, patch) {
         patches.push(patch);
         return { id: projectId, kind: "course", meta: patch.meta };
       }
+    }
+  });
+  overrides.createR2 = () => ({
+    async deleteObjects(keys) {
+      deletedKeys.push(...keys);
+      return keys.length;
     }
   });
   const res = await dispatch(authReadyConfig, {
@@ -1179,6 +1213,12 @@ test("deleting a study file hides it and keeps notes", async () => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(patches[0].meta.hiddenDocumentIds, ["doc-1"]);
   assert.equal(patches[0].meta.term, "Fall");
+  assert.equal(deletedAttachment, false);
+  assert.deepEqual(sizePatches, [{ id: "att-1", patch: { size_bytes: 0 } }]);
+  assert.equal(deletedKeys.includes("users/user-1/ch4.pdf"), true);
+  assert.equal(deletedKeys.includes("users/user-1/extract.json"), true);
+  assert.equal(deletedKeys.includes("users/user-1/preview.json"), true);
+  assert.equal(deletedKeys.includes("users/user-1/documents/doc-1/pages/page-0001.jpg"), true);
 });
 
 test("flashcard generate rejects a second Rapid and a missing mode", async () => {
@@ -1758,12 +1798,19 @@ test("study deck rename and delete are scoped to one source", async () => {
 
 test("study course card create returns 201 and rejects an empty front", async () => {
   const created = [];
+  const stored = [];
   const overrides = stubbedDeps({
     db: {
       async getProject() { return { id: "course-1", kind: "course", name: "Biology" }; },
+      async getStudyQuiz() {
+        return { id: "quiz-1", project_id: "course-1", document_file_id: "doc-1", note_id: null };
+      },
+      async listStudyCards() { return stored; },
       async createStudyCards(_userId, cards) {
         created.push(cards);
-        return [{ id: "card-1", ...cards[0] }];
+        const row = { id: `card-${created.length}`, ...cards[0] };
+        stored.push(row);
+        return [row];
       }
     }
   });
@@ -1781,6 +1828,26 @@ test("study course card create returns 201 and rejects an empty front", async ()
   assert.equal(created[0][0].document_file_id, undefined);
   assert.equal(created[0][0].note_id, undefined);
 
+  const fromQuiz = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/cards",
+    body: { front: "What is mitosis?", back: "Cell division.", quizId: "quiz-1" },
+    overrides
+  });
+  assert.equal(fromQuiz.statusCode, 201);
+  assert.equal(created[1][0].document_file_id, "doc-1");
+  assert.equal(created[1][0].note_id, null);
+
+  const dup = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/courses/course-1/cards",
+    body: { front: "What is mitosis?", back: "Cell division.", quizId: "quiz-1" },
+    overrides
+  });
+  assert.equal(dup.statusCode, 200);
+  assert.equal(dup.json().card.id, "card-2");
+  assert.equal(created.length, 2);
+
   const empty = await dispatch(authReadyConfig, {
     method: "POST",
     path: "/api/study/courses/course-1/cards",
@@ -1788,7 +1855,7 @@ test("study course card create returns 201 and rejects an empty front", async ()
     overrides
   });
   assert.equal(empty.statusCode, 400);
-  assert.equal(created.length, 1);
+  assert.equal(created.length, 2);
 });
 
 test("study card delete is scoped to the card owner", async () => {
@@ -1849,6 +1916,8 @@ test("study quiz GET includes answers for in-session reveal", async () => {
           id: "quiz-1",
           title: "Cells",
           project_id: "course-1",
+          document_file_id: "doc-1",
+          note_id: null,
           created_at: "2026-08-17T00:00:00Z",
           questions: [{
             q: "What is a cell?",
@@ -1860,13 +1929,20 @@ test("study quiz GET includes answers for in-session reveal", async () => {
           }]
         };
       },
-      async getProject() { return { id: "course-1", kind: "course" }; }
+      async getProject() { return { id: "course-1", kind: "course" }; },
+      async listStudyCards() {
+        return [
+          { document_file_id: "doc-1", note_id: null, front: "What is a cell?" },
+          { document_file_id: "doc-2", note_id: null, front: "Other" }
+        ];
+      }
     }
   });
   const res = await dispatch(authReadyConfig, { path: "/api/study/quizzes/quiz-1", overrides });
   assert.equal(res.statusCode, 200);
   const quiz = res.json().quiz;
   assert.equal(quiz.title, "Cells");
+  assert.deepEqual(res.json().existingFronts, ["What is a cell?"]);
   assert.deepEqual(quiz.questions, [{
     q: "What is a cell?",
     topic: "Basics",

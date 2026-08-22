@@ -20,6 +20,7 @@ import {
 } from "../study/generate.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
+import { attachmentStorageKeys } from "./uploads.js";
 
 // ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
 const activeStudyGenerations = new Set();
@@ -147,6 +148,12 @@ function deckKey(source) {
   return `note:${source.noteId}`;
 }
 
+function cardBelongsToSource(card, { documentFileId, noteId } = {}) {
+  if (documentFileId) return card.document_file_id === documentFileId;
+  if (noteId) return card.note_id === noteId;
+  return !card.document_file_id && !card.note_id;
+}
+
 function cleanDeckTitle(value) {
   if (typeof value !== "string") throw new HttpError(400, "title must be a non-empty string.");
   const title = value.trim();
@@ -198,6 +205,19 @@ export async function handleStudyCourseMaterials(req, res, config, courseId) {
     if (!documentFileId) throw new HttpError(400, "documentFileId is required.");
     const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal: req.signal });
     if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
+    const nested = Array.isArray(documentFile.attachments) ? documentFile.attachments[0] : documentFile.attachments;
+    const attachmentId = documentFile.attachment_id || nested?.id;
+    const attachment = attachmentId
+      ? await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal })
+      : null;
+    if (attachment) {
+      const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
+      if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
+      // ponytail: keep the attachment/document_files rows so decks/quizzes stay keyed; course delete cascades them.
+      if (Number(attachment.size_bytes) !== 0) {
+        await context.db.updateAttachment(context.user.id, attachment.id, { size_bytes: 0 }, { signal: req.signal });
+      }
+    }
     const meta = courseMetaObject(course);
     const hiddenDocumentIds = hiddenDocumentIdsFromMeta(meta);
     if (!hiddenDocumentIds.includes(documentFileId)) hiddenDocumentIds.push(documentFileId);
@@ -495,13 +515,33 @@ export async function handleStudyCourseCards(req, res, config, courseId) {
   const body = await parseJsonBody(req);
   const front = cleanCardSide(body.front, "front");
   const back = cleanCardSide(body.back, "back");
-  const cards = await context.db.createStudyCards(context.user.id, [{
+  const card = {
     project_id: course.id,
     front,
     back,
     state: "new",
     due_at: new Date().toISOString()
-  }], { signal: req.signal });
+  };
+  const quizId = typeof body.quizId === "string" ? body.quizId.trim() : "";
+  if (quizId) {
+    const quiz = await context.db.getStudyQuiz(context.user.id, quizId, { signal: req.signal });
+    if (!quiz || quiz.project_id !== course.id) throw new HttpError(404, "Quiz not found.");
+    card.document_file_id = quiz.document_file_id || null;
+    card.note_id = quiz.note_id || null;
+    const listed = await context.db.listStudyCards(context.user.id, course.id, {
+      select: "id,document_file_id,note_id,front,back,state,due_at",
+      signal: req.signal
+    }) || [];
+    const existing = listed.find((row) => row.front === front && cardBelongsToSource(row, {
+      documentFileId: card.document_file_id,
+      noteId: card.note_id
+    }));
+    if (existing) {
+      sendJson(res, 200, { card: existing });
+      return;
+    }
+  }
+  const cards = await context.db.createStudyCards(context.user.id, [card], { signal: req.signal });
   sendJson(res, 201, { card: cards[0] || null });
 }
 
@@ -631,7 +671,17 @@ export async function handleStudyQuizById(req, res, config, quizId) {
   const quiz = await context.db.getStudyQuiz(context.user.id, quizId, { signal: req.signal });
   if (!quiz) throw new HttpError(404, "Quiz not found.");
   await requireCourse(context, quiz.project_id, req.signal);
-  sendJson(res, 200, { quiz: publicQuiz(quiz) });
+  const listed = await context.db.listStudyCards(context.user.id, quiz.project_id, {
+    select: "document_file_id,note_id,front",
+    signal: req.signal
+  }) || [];
+  const existingFronts = listed
+    .filter((card) => cardBelongsToSource(card, {
+      documentFileId: quiz.document_file_id,
+      noteId: quiz.note_id
+    }))
+    .map((card) => card.front);
+  sendJson(res, 200, { quiz: publicQuiz(quiz), existingFronts });
 }
 
 export async function handleStudyQuizAttempts(req, res, config, quizId) {
