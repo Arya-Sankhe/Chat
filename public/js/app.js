@@ -102,7 +102,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260823-board14";
+import { createStudyHubController } from "./studyHub.js?v=20260823-modelbox";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";

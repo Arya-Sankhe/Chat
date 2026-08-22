@@ -1197,16 +1197,10 @@ body.study-open .study-composer-slot .heat-name {
 
 body.study-open .study-composer-slot .composer-tool,
 body.study-open .study-composer-slot .compare-btn,
-body.study-open .study-composer-slot .composer-plus-btn {
-  background: transparent;
-  border: 2px solid var(--study-stroke);
-  border-radius: 10px 14px 8px 12px;
-  box-shadow: none;
-}
-
+body.study-open .study-composer-slot .composer-plus-btn,
 body.study-open .study-composer-slot .composer-model-btn.heat-btn {
   background: transparent;
-  border: 2px solid var(--study-green);
+  border: 2px solid var(--study-stroke);
   border-radius: 10px 14px 8px 12px;
   box-shadow: none;
 }
