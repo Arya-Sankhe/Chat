@@ -25,20 +25,17 @@ export function createStudyHubController({
   completeUpload,
   deleteAttachment,
   fetchDocumentStatus,
-  fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
   deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
-  reviewStudyCard,
   createStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
-  scaffoldStudyCourse,
   exportStudyNote,
   deleteStudyNote,
   fetchDocumentJobStatus,
@@ -47,10 +44,9 @@ export function createStudyHubController({
   syncStudyUrl,
   loadProjects
 }) {
-  const TABS = ["overview", "materials", "chat", "practice"];
+  const TABS = ["materials", "chat", "practice"];
 
   let pendingUploads = [];
-  let scaffoldBusyKey = "";
   /** @type {Map<string, object>} in-memory generation cards; survives SPA nav while page stays open */
   const generations = new Map();
   let elapsedTimer = null;
@@ -58,9 +54,6 @@ export function createStudyHubController({
   let reviewSession = null;
   let quizSession = null;
   let studyNote = null;
-  let dueRequest = 0;
-  let dueRefreshRequest = 0;
-  let pendingReviews = Promise.resolve();
 
   const sound = createSounds(reducedMotion);
 
@@ -73,8 +66,7 @@ export function createStudyHubController({
   }
 
   function courseName() {
-    return state.studyOverview?.course?.name
-      || state.studyProjectDetail?.project?.name
+    return state.studyProjectDetail?.project?.name
       || coursesFromProjects().find((item) => item.id === state.activeCourseId)?.name
       || "Course";
   }
@@ -91,78 +83,6 @@ export function createStudyHubController({
 
   function studyVisible() {
     return Boolean(state.studyOpen && !state.activeConversationId);
-  }
-
-  function pad(n) {
-    return String(n).padStart(2, "0");
-  }
-
-  function localDayKey(value) {
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  }
-
-  function dayKeyOffset(offset) {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    date.setDate(date.getDate() + offset);
-    return localDayKey(date);
-  }
-
-  function computeStreak(reviewDates) {
-    const days = new Set((reviewDates || []).map(localDayKey).filter(Boolean));
-    const today = dayKeyOffset(0);
-    const yesterday = dayKeyOffset(-1);
-    if (!days.size) return { count: 0, frozen: false };
-    let start = 0;
-    if (!days.has(today)) {
-      if (days.has(yesterday)) start = -1;
-      else return { count: 0, frozen: false };
-    }
-    let count = 0;
-    let freezeUsed = false;
-    let frozen = false;
-    for (let i = start; i > -400; i -= 1) {
-      const key = dayKeyOffset(i);
-      if (days.has(key)) {
-        count += 1;
-        continue;
-      }
-      const within7 = i >= -6;
-      if (!freezeUsed && within7 && i !== 0) {
-        freezeUsed = true;
-        if (key === yesterday) frozen = true;
-        continue;
-      }
-      break;
-    }
-    return { count, frozen };
-  }
-
-  function formatDeadlineWhen(dateStr) {
-    const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return "";
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const target = new Date(date);
-    target.setHours(0, 0, 0, 0);
-    const days = Math.round((target - today) / 86400000);
-    if (days === 0) return "today";
-    if (days === 1) return "in 1 day";
-    if (days > 1) return `in ${days} days`;
-    if (days === -1) return "yesterday";
-    return `${Math.abs(days)} days ago`;
-  }
-
-  function formatShortDate(dateStr) {
-    const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
-
-  function minutesForCards(count) {
-    return Math.max(1, Math.round((Number(count) || 0) * 6 / 60) || 1);
   }
 
   function isStudyFile(file) {
@@ -256,7 +176,6 @@ export function createStudyHubController({
     }
     const cards = courses.map((course) => {
       const meta = courseMeta(course);
-      const due = Number(state.studyDueByCourse?.[course.id] || 0);
       const menuOpen = quizMenuKey === `course:${course.id}`;
       return `
         <article class="study-course-card">
@@ -264,7 +183,6 @@ export function createStudyHubController({
             <strong>${escapeHtml(course.name)}</strong>
             <small>${escapeHtml(meta.term || "No term")}</small>
           </button>
-          ${due > 0 ? `<span class="study-due-badge">${escapeHtml(String(due))} due</span>` : ""}
           <div class="study-card-menu-wrap">
             <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Course options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
               ${kebabIcon()}
@@ -295,81 +213,9 @@ export function createStudyHubController({
       </div>`;
   }
 
-  function streakChipMarkup(dates) {
-    const streak = computeStreak(dates);
-    if (!streak.count) {
-      return `<span class="study-streak-chip">Start a streak today</span>`;
-    }
-    return `<span class="study-streak-chip${streak.frozen ? " is-frozen" : ""}" title="${streak.frozen ? "Streak freeze used yesterday" : "Review streak"}">
-      <span aria-hidden="true">${streak.frozen ? "❄" : "🔥"}</span>
-      ${escapeHtml(String(streak.count))} day${streak.count === 1 ? "" : "s"}
-      ${streak.frozen ? `<em>frozen</em>` : ""}
-    </span>`;
-  }
-
-  function overviewMarkup() {
-    const payload = state.studyOverview;
-    if (!payload?.course) return `<div class="study-loading">Loading course...</div>`;
-    const due = Number(payload.dueCount || 0);
-    const counts = payload.counts || {};
-    const deadlines = Array.isArray(payload.deadlines) ? payload.deadlines : (courseMeta(payload.course).deadlines || []);
-    const attempt = payload.latestQuizAttempt;
-    const reviewHero = due > 0
-      ? `<div class="study-hero-card">
-          <div class="study-hero-copy">
-            <p class="study-kicker">Review today</p>
-            <strong>${escapeHtml(String(due))}</strong>
-            <span>card${due === 1 ? "" : "s"} due · ~${escapeHtml(String(minutesForCards(due)))} min</span>
-          </div>
-          <button class="study-primary-btn" type="button" data-start-review>Start</button>
-        </div>`
-      : `<div class="study-hero-card is-caught-up">
-          <div class="study-hero-copy">
-            <p class="study-kicker">Review today</p>
-            <strong>All caught up</strong>
-            <span>Nothing is due right now. Keep the streak warm with a quick practice quiz.</span>
-          </div>
-        </div>`;
-    const deadlineRows = deadlines.length
-      ? `<ul class="study-deadline-list">${deadlines.map((item) => `
-          <li>
-            <span>
-              <strong>${escapeHtml(item.title || "Deadline")}</strong>
-              <small>${escapeHtml(formatShortDate(item.date))}${item.type ? ` · ${escapeHtml(item.type)}` : ""}</small>
-            </span>
-            <em>${escapeHtml(formatDeadlineWhen(item.date))}</em>
-          </li>`).join("")}</ul>`
-      : emptyState("No deadlines yet", "Drop a syllabus on Materials, then import dates.");
-    const quizLine = attempt && (attempt.score != null || attempt.total != null)
-      ? `<div class="study-latest-quiz">
-          <span>Latest quiz</span>
-          <strong>${escapeHtml(String(attempt.score ?? "?"))}/${escapeHtml(String(attempt.total ?? "?"))}</strong>
-          ${attempt.title ? `<small>${escapeHtml(attempt.title)}</small>` : ""}
-        </div>`
-      : "";
-    return `
-      <div class="study-overview">
-        <div class="study-overview-top">
-          ${reviewHero}
-          ${streakChipMarkup(payload.reviewDates)}
-        </div>
-        <section class="study-panel">
-          <h2>Upcoming</h2>
-          ${deadlineRows}
-        </section>
-        <div class="study-count-row">
-          <span><strong>${escapeHtml(String(counts.materials || 0))}</strong> materials</span>
-          <span><strong>${escapeHtml(String(counts.cards || 0))}</strong> cards</span>
-          <span><strong>${escapeHtml(String(counts.quizzes || 0))}</strong> quizzes</span>
-        </div>
-        ${quizLine}
-      </div>`;
-  }
-
   function generateActions(kind, id, ready) {
     if (!ready) return "";
     const base = `${kind}:${id}`;
-    const scaffoldBusy = scaffoldBusyKey === `${base}:scaffold`;
     const activeFor = (type, mode = "") => [...generations.values()].some((job) => (
       job.courseId === state.activeCourseId
       && job.status === "running"
@@ -431,9 +277,6 @@ export function createStudyHubController({
         ${flashcardAction()}
         ${countMenu("quiz", "Quiz", [10, 15, 25])}
         ${notesAction()}
-        ${kind === "doc" ? `<button class="study-chip-btn study-chip-quiet" type="button" data-study-scaffold="${escapeHtml(id)}" ${scaffoldBusy ? "disabled" : ""}>
-          ${scaffoldBusy ? spinner() : ""}Import syllabus dates
-        </button>` : ""}
       </div>`;
   }
 
@@ -585,7 +428,7 @@ export function createStudyHubController({
 
   function chatMarkup() {
     const conversations = state.studyProjectDetail?.conversations || [];
-    const materialCount = Number(state.studyOverview?.counts?.materials || state.studyMaterials?.documents?.length || 0);
+    const materialCount = Number(state.studyMaterials?.documents?.length || 0);
     const empty = !conversations.length
       ? (materialCount
         ? emptyState("No chats yet", "Ask anything — I’ll ground answers in this course’s files.")
@@ -614,19 +457,16 @@ export function createStudyHubController({
     if (!payload) return `<div class="study-loading">Loading practice...</div>`;
     const decks = payload.decks || [];
     const quizzes = payload.quizzes || [];
-    const due = Number(state.studyOverview?.dueCount || 0);
     const deckCards = decks.length
       ? decks.map((deck) => {
         const id = deck.id;
         const menuOpen = quizMenuKey === `deck:${id}`;
-        const due = Number(deck.dueCount) || 0;
         return `
           <article class="study-practice-card">
             <button class="study-practice-open" type="button" data-open-deck="${escapeHtml(id)}">
               <strong>${escapeHtml(deck.title || "Deck")}</strong>
               <small>${escapeHtml(String(deck.cardCount || 0))} cards</small>
             </button>
-            ${due > 0 ? `<span class="study-due-badge">${escapeHtml(String(due))} due</span>` : ""}
             <div class="study-card-menu-wrap">
               <button class="study-icon-btn" type="button" data-toggle-deck-menu="${escapeHtml(id)}" aria-label="Deck options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
                 ${kebabIcon()}
@@ -644,7 +484,6 @@ export function createStudyHubController({
           <button class="study-practice-card" type="button" data-open-quiz="${escapeHtml(quiz.id)}">
             <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
             <small>${escapeHtml(String(quiz.questionCount || 0))} questions</small>
-            <span class="study-score-meta">Best ${escapeHtml(quiz.bestScore == null ? "—" : String(quiz.bestScore))} · Last ${escapeHtml(quiz.lastScore == null ? "—" : String(quiz.lastScore))}</span>
           </button>`).join("")
       : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from Materials.");
     return `
@@ -652,7 +491,6 @@ export function createStudyHubController({
         <section class="study-panel">
           <div class="study-section-heading">
             <h2>Decks</h2>
-            ${due > 0 ? `<button class="study-primary-btn" type="button" data-start-review>Review ${escapeHtml(String(due))} due</button>` : ""}
           </div>
           <div class="study-practice-grid">${deckCards}</div>
         </section>
@@ -664,7 +502,7 @@ export function createStudyHubController({
   }
 
   function tabMarkup() {
-    const labels = { overview: "Overview", materials: "Materials", chat: "Chat", practice: "Practice" };
+    const labels = { materials: "Materials", chat: "Chat", practice: "Practice" };
     return `<div class="study-tabs" role="tablist" aria-label="Course sections">
       ${TABS.map((tab) => `<button class="${state.activeCourseTab === tab ? "active" : ""}" type="button" role="tab" aria-selected="${state.activeCourseTab === tab ? "true" : "false"}" data-study-tab="${tab}">${labels[tab]}</button>`).join("")}
     </div>`;
@@ -672,14 +510,10 @@ export function createStudyHubController({
 
   function courseDetailMarkup() {
     const name = courseName();
-    const term = state.studyOverview?.course?.meta?.term
-      || courseMeta(state.studyOverview?.course).term
-      || courseMeta(state.studyProjectDetail?.project).term
-      || "";
-    const body = state.activeCourseTab === "materials" ? materialsMarkup()
-      : state.activeCourseTab === "chat" ? chatMarkup()
-        : state.activeCourseTab === "practice" ? practiceMarkup()
-          : overviewMarkup();
+    const term = courseMeta(state.studyProjectDetail?.project).term || "";
+    const body = state.activeCourseTab === "chat" ? chatMarkup()
+      : state.activeCourseTab === "practice" ? practiceMarkup()
+        : materialsMarkup();
     const menuOpen = quizMenuKey === `course:${state.activeCourseId}`;
     return `
       <button class="study-back-btn" type="button" data-study-back>
@@ -808,57 +642,6 @@ export function createStudyHubController({
     renderNoteOverlay();
   }
 
-  async function refreshDueCounts() {
-    const courses = coursesFromProjects();
-    const request = ++dueRequest;
-    const due = { ...(state.studyDueByCourse || {}) };
-    const results = await Promise.allSettled(courses.map((course) => fetchStudyOverview(state.session, course.id)));
-    if (request !== dueRequest || !state.studyOpen) return;
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") due[courses[index].id] = Number(result.value?.dueCount || 0);
-    });
-    state.studyDueByCourse = due;
-    if (!state.activeCourseId) render();
-  }
-
-  function applyDueDelta(delta, deckId) {
-    if (!delta) return;
-    const courseId = state.activeCourseId;
-    const next = Math.max(0, Number(state.studyOverview?.dueCount || 0) + delta);
-    if (state.studyOverview) state.studyOverview = { ...state.studyOverview, dueCount: next };
-    if (courseId) {
-      state.studyDueByCourse = { ...(state.studyDueByCourse || {}), [courseId]: next };
-    }
-    if (delta >= 0 || !state.studyPractice?.decks) return;
-    let left = -delta;
-    state.studyPractice = {
-      ...state.studyPractice,
-      decks: state.studyPractice.decks.map((deck) => {
-        if (deckId && deck.id !== deckId) return deck;
-        const due = Number(deck.dueCount || 0);
-        if (left <= 0 || due <= 0) return deck;
-        const take = Math.min(due, left);
-        left -= take;
-        return { ...deck, dueCount: due - take };
-      })
-    };
-  }
-
-  async function refreshDueState() {
-    const request = ++dueRefreshRequest;
-    const courseId = state.activeCourseId;
-    await Promise.all([loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
-    if (request !== dueRefreshRequest || state.activeCourseId !== courseId) return false;
-    return true;
-  }
-
-  function settleReviewsAndRefresh() {
-    return pendingReviews
-      .then(() => refreshDueState())
-      .then((ok) => { if (ok && state.studyOpen) render(); })
-      .catch(() => {});
-  }
-
   function activeGenerationJobs() {
     return [...generations.values()].filter((job) => job.status === "running");
   }
@@ -963,7 +746,6 @@ export function createStudyHubController({
       if (state.activeCourseId === courseId) {
         await Promise.all([
           loadMaterials().catch(() => {}),
-          loadOverview().catch(() => {}),
           loadPractice().catch(() => {})
         ]);
       }
@@ -1009,15 +791,6 @@ export function createStudyHubController({
     return job;
   }
 
-  async function loadOverview() {
-    if (!state.activeCourseId) return;
-    const id = state.activeCourseId;
-    const payload = await fetchStudyOverview(state.session, id);
-    if (state.activeCourseId !== id) return;
-    state.studyOverview = payload;
-    state.studyDueByCourse = { ...(state.studyDueByCourse || {}), [id]: Number(payload?.dueCount || 0) };
-  }
-
   async function loadMaterials() {
     if (!state.activeCourseId) return;
     const id = state.activeCourseId;
@@ -1043,7 +816,7 @@ export function createStudyHubController({
   }
 
   async function loadCourse() {
-    await Promise.all([loadOverview(), loadCourseDetail()]);
+    await loadCourseDetail();
     if (state.activeCourseTab === "materials") await loadMaterials();
     if (state.activeCourseTab === "practice") await loadPractice();
     if (state.activeCourseTab === "chat" && !state.studyMaterials) {
@@ -1052,12 +825,10 @@ export function createStudyHubController({
   }
 
   function resetCourseCaches() {
-    state.studyOverview = null;
     state.studyMaterials = null;
     state.studyPractice = null;
     state.studyProjectDetail = null;
     pendingUploads = [];
-    scaffoldBusyKey = "";
     quizMenuKey = "";
     studyNote = null;
   }
@@ -1077,7 +848,7 @@ export function createStudyHubController({
     state.activeProjectId = "";
     state.activeProject = null;
     state.activeCourseId = "";
-    state.activeCourseTab = "overview";
+    state.activeCourseTab = "materials";
     resetCourseCaches();
     state.activeConversationId = "";
     state.messages = [];
@@ -1088,7 +859,6 @@ export function createStudyHubController({
     await loadProjects();
     syncStudyUrl({ replace });
     renderShell();
-    void refreshDueCounts();
   }
 
   async function openCourse(courseId, { replace = false, tab } = {}) {
@@ -1106,7 +876,7 @@ export function createStudyHubController({
     state.activeProjectId = "";
     state.activeProject = null;
     state.activeCourseId = courseId;
-    state.activeCourseTab = TABS.includes(tab) ? tab : "overview";
+    state.activeCourseTab = TABS.includes(tab) ? tab : "materials";
     resetCourseCaches();
     state.activeConversationId = "";
     state.messages = [];
@@ -1137,7 +907,6 @@ export function createStudyHubController({
 
   function courseById(id) {
     return coursesFromProjects().find((item) => item.id === id)
-      || (state.studyOverview?.course?.id === id ? state.studyOverview.course : null)
       || (state.studyProjectDetail?.project?.id === id ? state.studyProjectDetail.project : null);
   }
 
@@ -1177,7 +946,6 @@ export function createStudyHubController({
     try {
       const payload = await updateProject(state.session, id, { name, meta: { ...courseMeta(courseById(id)), term } });
       state.projects = state.projects.map((item) => item.id === payload.project.id ? payload.project : item);
-      if (state.studyOverview?.course?.id === id) state.studyOverview.course = payload.project;
       if (state.studyProjectDetail?.project?.id === id) state.studyProjectDetail.project = payload.project;
       els.courseRenameDialog.close();
       render();
@@ -1192,7 +960,6 @@ export function createStudyHubController({
     try {
       const payload = await updateProject(state.session, state.activeCourseId, { name });
       state.projects = state.projects.map((item) => item.id === payload.project.id ? payload.project : item);
-      if (state.studyOverview?.course) state.studyOverview.course = payload.project;
       if (state.studyProjectDetail?.project) state.studyProjectDetail.project = payload.project;
       render();
       showToast("Course renamed.");
@@ -1257,7 +1024,7 @@ export function createStudyHubController({
     if (!state.activeCourseId) return;
     try {
       await deleteStudyDeck(state.session, state.activeCourseId, deckSourceOf(deck));
-      await Promise.all([loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      await Promise.all([loadPractice().catch(() => {})]);
       render();
       showToast("Deck deleted.");
     } catch (error) {
@@ -1287,7 +1054,7 @@ export function createStudyHubController({
           documents: (state.studyMaterials.documents || []).filter((item) => item.id !== doc.id)
         };
       }
-      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      await Promise.all([loadMaterials(), loadPractice().catch(() => {})]);
       render();
       showToast("File removed.");
     } catch (error) {
@@ -1318,7 +1085,7 @@ export function createStudyHubController({
           notes: (state.studyMaterials.notes || []).filter((item) => item.id !== note.id)
         };
       }
-      await Promise.all([loadMaterials(), loadOverview().catch(() => {}), loadPractice().catch(() => {})]);
+      await Promise.all([loadMaterials(), loadPractice().catch(() => {})]);
       render();
       showToast("Note deleted.");
     } catch (error) {
@@ -1395,7 +1162,7 @@ export function createStudyHubController({
         }
       }));
       if (state.studyOpen && state.activeCourseId === courseId) {
-        await Promise.all([loadMaterials(), loadOverview().catch(() => {})]);
+        await Promise.all([loadMaterials()]);
       }
     } catch (error) {
       showToast(error.message || "Files could not be uploaded.");
@@ -1461,25 +1228,6 @@ export function createStudyHubController({
     void runGenerate(kind, id, job.type, { count: job.count, mode: job.mode });
   }
 
-  async function runScaffold(documentFileId) {
-    if (!state.activeCourseId) return;
-    scaffoldBusyKey = `doc:${documentFileId}:scaffold`;
-    render();
-    try {
-      const payload = await scaffoldStudyCourse(state.session, state.activeCourseId, documentFileId);
-      if (payload?.meta && state.studyOverview?.course) {
-        state.studyOverview.course = { ...state.studyOverview.course, meta: payload.meta };
-      }
-      await loadOverview();
-      showToast("Syllabus dates imported");
-    } catch (error) {
-      showToast(error.message || "Could not import syllabus dates.");
-    } finally {
-      scaffoldBusyKey = "";
-      render();
-    }
-  }
-
   async function setTab(tab) {
     if (!TABS.includes(tab) || tab === state.activeCourseTab) return;
     state.activeCourseTab = tab;
@@ -1515,10 +1263,7 @@ export function createStudyHubController({
       root.setAttribute("aria-hidden", "true");
     }
     document.body.classList.remove("study-session-open");
-    if (reviewed) {
-      render();
-      void settleReviewsAndRefresh();
-    }
+    if (reviewed) render();
   }
 
   function openSessionShell(html) {
@@ -1620,15 +1365,12 @@ export function createStudyHubController({
   }
 
   async function startReview(deck) {
-    if (!state.activeCourseId) return;
+    if (!state.activeCourseId || !deck) return;
     try {
-      const params = deck ? deckSourceOf(deck) : {};
-      const payload = await fetchStudyQueue(state.session, state.activeCourseId, params);
+      const payload = await fetchStudyQueue(state.session, state.activeCourseId, deckSourceOf(deck));
       const cards = payload?.cards || [];
       if (!cards.length) {
-        if (deck) showToast("This deck has no cards yet.");
-        await refreshDueState();
-        render();
+        showToast("This deck has no cards yet.");
         return;
       }
       reviewSession = {
@@ -1757,8 +1499,6 @@ export function createStudyHubController({
         reviewSession.counts[mark] -= 1;
         reviewSession.reviewed = Math.max(0, reviewSession.reviewed - 1);
         delete reviewSession.marks[card.id];
-      } else if (card.due !== false) {
-        applyDueDelta(-1, reviewSession.deckId);
       }
       reviewSession.cards = reviewSession.cards.filter((item) => item.id !== card.id);
       reviewSession.original = reviewSession.original.filter((item) => item.id !== card.id);
@@ -1814,30 +1554,7 @@ export function createStudyHubController({
       else reviewSession.reviewed += 1;
       reviewSession.counts[value] += 1;
       reviewSession.marks[card.id] = value;
-      const wasDue = card.due !== false && !prev;
-      if (wasDue) {
-        applyDueDelta(-1, reviewSession.deckId);
-        card.due = false;
-      }
       if (value === 3) sound.tick();
-      const save = reviewStudyCard(state.session, card.id, value).catch((error) => {
-        showToast(error.message || "Review could not be saved.");
-        if (!reviewSession) return;
-        reviewSession.counts[value] -= 1;
-        if (prev) {
-          reviewSession.counts[prev] += 1;
-          reviewSession.marks[card.id] = prev;
-        } else {
-          reviewSession.reviewed -= 1;
-          delete reviewSession.marks[card.id];
-        }
-        if (wasDue) {
-          applyDueDelta(1, reviewSession.deckId);
-          card.due = true;
-        }
-        if (!patchReviewChrome()) renderReview();
-      });
-      pendingReviews = Promise.allSettled([pendingReviews, save]).then(() => {});
       if (!patchReviewChrome()) renderReview();
     }
     playGradeAnim(value);
@@ -2051,8 +1768,6 @@ export function createStudyHubController({
         quizSession.results = payload.results || [];
         quizSession.submitting = false;
         sound.chime();
-        void loadOverview().then(() => render()).catch(() => {});
-        void loadPractice().catch(() => {});
       } catch (error) {
         quizSession.answers.pop();
         quizSession.selected = value;
@@ -2338,7 +2053,6 @@ export function createStudyHubController({
     if (event.target.closest("[data-study-back]")) return openCourses();
     const tab = event.target.closest("[data-study-tab]");
     if (tab) return setTab(tab.dataset.studyTab);
-    if (event.target.closest("[data-start-review]")) return startReview();
     const openDeck = event.target.closest("[data-open-deck]");
     if (openDeck) {
       const deck = findDeck(openDeck.dataset.openDeck);
@@ -2368,11 +2082,6 @@ export function createStudyHubController({
     if (cancelGen) {
       event.stopPropagation();
       return cancelGeneration(cancelGen.dataset.cancelGeneration);
-    }
-    const scaffold = event.target.closest("[data-study-scaffold]");
-    if (scaffold) {
-      event.stopPropagation();
-      return runScaffold(scaffold.dataset.studyScaffold);
     }
     const note = event.target.closest("[data-open-note]");
     if (note && !event.target.closest(".study-material-actions") && !event.target.closest(".study-card-menu-wrap")) {

@@ -434,15 +434,12 @@ export async function generateFlashcards({
   }
   onStage?.("saving");
   throwIfAborted(signal);
-  const nowIso = new Date().toISOString();
   return context.db.createStudyCards(context.user.id, cards.map((card) => ({
     project_id: course.id,
     document_file_id: source.documentFile?.id || null,
     note_id: source.note?.id || null,
     front: card.front,
-    back: card.back,
-    state: "new",
-    due_at: nowIso
+    back: card.back
   })), { signal });
 }
 
@@ -531,49 +528,6 @@ export async function generateSummary({
     content: detailed ? `${DETAILED_NOTE_MARK}\n${parsed.content}` : parsed.content
   }, { signal });
   return { note, partial };
-}
-
-const DEADLINE_TYPES = new Set(["exam", "assignment", "other"]);
-
-function cleanScaffoldMeta(parsed) {
-  const meta = {};
-  const term = String(parsed.term || "").trim();
-  if (term) meta.term = term;
-  const topics = (Array.isArray(parsed.topics) ? parsed.topics : [])
-    .map((topic) => String(topic || "").trim())
-    .filter(Boolean)
-    .slice(0, 100);
-  if (topics.length) meta.topics = topics;
-  const deadlines = (Array.isArray(parsed.deadlines) ? parsed.deadlines : [])
-    .flatMap((entry) => {
-      const title = String(entry?.title || "").trim();
-      const date = String(entry?.date || "").trim();
-      const type = String(entry?.type || "").trim();
-      if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !DEADLINE_TYPES.has(type)) return [];
-      return [{ title, date, type }];
-    })
-    .slice(0, 100);
-  if (deadlines.length) meta.deadlines = deadlines;
-  return meta;
-}
-
-export async function scaffoldCourseMeta({ context, config, course, documentFile, signal }) {
-  const text = await loadMaterialText(context.db, context.user.id, { documentFile, signal });
-  if (!text) throw new HttpError(400, "Material has no extracted text.");
-  const streamed = await streamComplete({
-    context,
-    config,
-    signal,
-    maxTokens: 2500,
-    system: "Extract a course syllabus. Return ONLY valid JSON: {\"term\":\"optional term name\",\"topics\":[\"...\"],\"deadlines\":[{\"title\":\"...\",\"date\":\"YYYY-MM-DD\",\"type\":\"exam\"}]}. type must be exam, assignment, or other. Omit unknown fields. Dates must be ISO YYYY-MM-DD. No markdown, no commentary.",
-    user: text,
-    expect: "json"
-  });
-  const parsed = parseStudyJson(streamed.content);
-  const extracted = cleanScaffoldMeta(parsed.value);
-  const meta = { ...(course.meta && typeof course.meta === "object" ? course.meta : {}), ...extracted };
-  const updated = await context.db.updateProject(context.user.id, course.id, { meta }, { signal });
-  return updated?.meta || meta;
 }
 
 export async function transcribeCourseImage({ context, config, course, attachment, signal }) {

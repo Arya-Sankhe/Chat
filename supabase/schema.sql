@@ -315,22 +315,7 @@ create table if not exists public.study_cards (
   note_id uuid references public.study_notes(id) on delete cascade,
   front text not null,
   back text not null,
-  state text not null default 'new' check (state in ('new', 'learning', 'review', 'relearning')),
-  difficulty real,
-  stability real,
-  reps integer not null default 0,
-  lapses integer not null default 0,
-  due_at timestamptz not null default now(),
-  last_reviewed_at timestamptz,
   created_at timestamptz not null default now()
-);
-
-create table if not exists public.study_reviews (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  card_id uuid not null references public.study_cards(id) on delete cascade,
-  rating smallint not null check (rating between 1 and 4),
-  reviewed_at timestamptz not null default now()
 );
 
 create table if not exists public.study_quizzes (
@@ -341,16 +326,6 @@ create table if not exists public.study_quizzes (
   note_id uuid references public.study_notes(id) on delete cascade,
   title text not null default '',
   questions jsonb not null,
-  created_at timestamptz not null default now()
-);
-
-create table if not exists public.study_quiz_attempts (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  quiz_id uuid not null references public.study_quizzes(id) on delete cascade,
-  answers jsonb not null,
-  score integer not null,
-  total integer not null,
   created_at timestamptz not null default now()
 );
 
@@ -496,8 +471,7 @@ where price_label = 'Configured in Stripe';
 create index if not exists subscriptions_user_updated_idx on public.subscriptions (user_id, updated_at desc);
 create index if not exists projects_user_updated_idx on public.projects (user_id, updated_at desc);
 create index if not exists study_notes_user_project_idx on public.study_notes (user_id, project_id);
-create index if not exists study_cards_user_project_due_idx on public.study_cards (user_id, project_id, due_at);
-create index if not exists study_reviews_user_reviewed_idx on public.study_reviews (user_id, reviewed_at desc);
+create index if not exists study_cards_user_project_idx on public.study_cards (user_id, project_id);
 create index if not exists study_quizzes_user_project_idx on public.study_quizzes (user_id, project_id);
 create index if not exists conversations_user_updated_idx on public.conversations (user_id, updated_at desc) where deleted_at is null;
 create index if not exists conversations_project_idx on public.conversations (project_id) where project_id is not null;
@@ -547,11 +521,11 @@ grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
 grant select on public.profiles, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
 grant select on public.research_runs to authenticated;
-grant select on public.study_notes, public.study_cards, public.study_reviews, public.study_quizzes, public.study_quiz_attempts to authenticated;
+grant select on public.study_notes, public.study_cards, public.study_quizzes to authenticated;
 grant select on public.usage_api_weekly to authenticated;
 grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
 grant all on public.research_runs to service_role;
-grant all on public.study_notes, public.study_cards, public.study_reviews, public.study_quizzes, public.study_quiz_attempts to service_role;
+grant all on public.study_notes, public.study_cards, public.study_quizzes to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.app_settings enable row level security;
@@ -569,9 +543,7 @@ alter table public.document_jobs enable row level security;
 alter table public.research_runs enable row level security;
 alter table public.study_notes enable row level security;
 alter table public.study_cards enable row level security;
-alter table public.study_reviews enable row level security;
 alter table public.study_quizzes enable row level security;
-alter table public.study_quiz_attempts enable row level security;
 alter table public.usage_api_weekly enable row level security;
 alter table public.usage_api_events enable row level security;
 alter table public.model_cache enable row level security;
@@ -591,9 +563,7 @@ drop policy if exists "document jobs read own" on public.document_jobs;
 drop policy if exists "research runs read own" on public.research_runs;
 drop policy if exists "study notes read own" on public.study_notes;
 drop policy if exists "study cards read own" on public.study_cards;
-drop policy if exists "study reviews read own" on public.study_reviews;
 drop policy if exists "study quizzes read own" on public.study_quizzes;
-drop policy if exists "study quiz attempts read own" on public.study_quiz_attempts;
 drop policy if exists "usage api weekly read own" on public.usage_api_weekly;
 
 create policy "profiles read own" on public.profiles for select using (auth.uid() = id);
@@ -611,9 +581,7 @@ create policy "document jobs read own" on public.document_jobs for select using 
 create policy "research runs read own" on public.research_runs for select to authenticated using ((select auth.uid()) = user_id);
 create policy "study notes read own" on public.study_notes for select using (auth.uid() = user_id);
 create policy "study cards read own" on public.study_cards for select using (auth.uid() = user_id);
-create policy "study reviews read own" on public.study_reviews for select using (auth.uid() = user_id);
 create policy "study quizzes read own" on public.study_quizzes for select using (auth.uid() = user_id);
-create policy "study quiz attempts read own" on public.study_quiz_attempts for select using (auth.uid() = user_id);
 create policy "usage api weekly read own" on public.usage_api_weekly for select using (auth.uid() = user_id);
 
 -- Live definition (see 20260816210804_per_user_kill_switch.sql): denies when

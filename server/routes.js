@@ -9,15 +9,12 @@ import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
   handleStudyCard,
-  handleStudyCardReview,
   handleStudyCourseGenerate,
   handleStudyCourseMaterials,
-  handleStudyCourseOverview,
   handleStudyCoursePractice,
   handleStudyCourseCards,
   handleStudyCourseDecks,
   handleStudyCourseQueue,
-  handleStudyCourseScaffold,
   handleStudyQuizAttempts,
   handleStudyQuizById,
   handleStudyNote,
@@ -269,11 +266,6 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
-    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "overview") {
-      await handleStudyCourseOverview(req, res, config, parts[3]);
-      return;
-    }
-
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "materials") {
       await handleStudyCourseMaterials(req, res, config, parts[3]);
       return;
@@ -301,16 +293,6 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "cards") {
       await handleStudyCourseCards(req, res, config, parts[3]);
-      return;
-    }
-
-    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "scaffold") {
-      await handleStudyCourseScaffold(req, res, config, parts[3]);
-      return;
-    }
-
-    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "cards" && parts[3] && parts[4] === "review") {
-      await handleStudyCardReview(req, res, config, parts[3]);
       return;
     }
 

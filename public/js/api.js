@@ -214,12 +214,6 @@ export async function deleteProject(session, id) {
   return response.json();
 }
 
-export async function fetchStudyOverview(session, courseId) {
-  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/overview`, { session });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
 export async function fetchStudyMaterials(session, courseId) {
   const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, { session });
   if (!response.ok) throw new Error(await readProblem(response));
@@ -296,17 +290,6 @@ export async function deleteStudyDeck(session, courseId, body) {
   return response.json();
 }
 
-export async function reviewStudyCard(session, cardId, rating) {
-  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}/review`, {
-    session,
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ rating })
-  });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
 export async function deleteStudyCard(session, cardId) {
   const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}`, {
     session,
@@ -361,17 +344,6 @@ export async function exportStudyNote(session, noteId, format) {
     body: JSON.stringify({ format })
   });
   if (!response.ok && response.status !== 202) throw new Error(await readProblem(response));
-  return response.json();
-}
-
-export async function scaffoldStudyCourse(session, courseId, documentFileId) {
-  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/scaffold`, {
-    session,
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ documentFileId })
-  });
-  if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
 

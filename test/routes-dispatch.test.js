@@ -176,7 +176,6 @@ const ROUTES = [
   { path: "/api/projects", method: "GET", authKind: "chat" },
   { path: "/api/projects", method: "POST", authKind: "chat" },
   { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
-  { path: "/api/study/courses/course-1/overview", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/materials", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/generate", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -185,8 +184,6 @@ const ROUTES = [
   { path: "/api/study/courses/course-1/decks", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/queue", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/cards", method: "POST", authKind: "chat", enforced405: "GET" },
-  { path: "/api/study/courses/course-1/scaffold", method: "POST", authKind: "chat", enforced405: "GET" },
-  { path: "/api/study/cards/card-1/review", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/cards/card-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
@@ -1102,31 +1099,6 @@ test("seam: overrides are used by the scoped handler only and never leak into th
   assert.equal(verifyCalls, 1, "stubbed verifyUser must not be called by the default handler");
 });
 
-test("study course overview returns JSON for an owned course", async () => {
-  const course = { id: "course-1", kind: "course", name: "Biology", meta: { deadlines: [{ title: "Midterm", date: "2026-10-01", type: "exam" }] } };
-  const overrides = stubbedDeps({
-    db: {
-      async getProject() { return course; },
-      async listProjectDocuments() { return [{ id: "doc-1" }]; },
-      async listStudyNotes() { return [{ id: "note-1" }]; },
-      async listStudyCards() { return [{ id: "card-1", due_at: "2020-01-01T00:00:00Z" }]; },
-      async listStudyQuizzes() { return []; },
-      async listStudyQuizAttempts() { return []; },
-      async listRecentStudyReviewDates() { return [{ reviewed_at: "2026-08-16T12:00:00Z" }]; }
-    }
-  });
-  const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/overview", overrides });
-  assert.equal(res.statusCode, 200);
-  const payload = res.json();
-  assert.equal(payload.course.id, "course-1");
-  assert.equal(payload.dueCount, 1);
-  assert.deepEqual(payload.reviewDates, ["2026-08-16T12:00:00Z"]);
-  assert.equal(payload.counts.materials, 1);
-  assert.equal(payload.counts.notes, 1);
-  assert.equal(payload.counts.cards, 1);
-  assert.equal(payload.latestQuizAttempt, null);
-});
-
 test("study materials expose Rapid/Deep flashcard modes", async () => {
   const overrides = stubbedDeps({
     db: {
@@ -1690,13 +1662,12 @@ test("study practice groups cards into openable decks and applies title override
       async listStudyNotes() { return []; },
       async listStudyCards() {
         return [
-          { id: "card-1", document_file_id: "doc-1", note_id: null, due_at: "2099-01-01T00:00:00Z" },
-          { id: "card-2", document_file_id: "doc-1", note_id: null, due_at: "2020-01-01T00:00:00Z" },
-          { id: "card-3", document_file_id: null, note_id: null, due_at: "2020-01-01T00:00:00Z" }
+          { id: "card-1", document_file_id: "doc-1", note_id: null },
+          { id: "card-2", document_file_id: "doc-1", note_id: null },
+          { id: "card-3", document_file_id: null, note_id: null }
         ];
       },
-      async listStudyQuizzes() { return []; },
-      async listStudyQuizAttempts() { return []; }
+      async listStudyQuizzes() { return []; }
     }
   });
   const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/practice", overrides });
@@ -1707,13 +1678,13 @@ test("study practice groups cards into openable decks and applies title override
   assert.equal(named.title, "Syntax notes");
   assert.equal(named.documentFileId, "doc-1");
   assert.equal(named.cardCount, 2);
-  assert.equal(named.dueCount, 1);
+  assert.equal(named.dueCount, undefined);
   assert.equal(manual.title, "Your cards");
   assert.equal(manual.manual, true);
   assert.equal(manual.cardCount, 1);
 });
 
-test("study queue can return every card in a deck, due first", async () => {
+test("study queue returns every card in a deck", async () => {
   const listed = [];
   const overrides = stubbedDeps({
     db: {
@@ -1721,9 +1692,9 @@ test("study queue can return every card in a deck, due first", async () => {
       async listStudyCards() {
         listed.push(true);
         return [
-          { id: "later", front: "later", back: "b", state: "review", due_at: "2099-01-01T00:00:00Z", document_file_id: "doc-1" },
-          { id: "due", front: "due", back: "b", state: "review", due_at: "2020-01-01T00:00:00Z", document_file_id: "doc-1" },
-          { id: "other", front: "other", back: "b", state: "review", due_at: "2020-01-01T00:00:00Z", document_file_id: "doc-2" }
+          { id: "later", front: "later", back: "b", document_file_id: "doc-1" },
+          { id: "due", front: "due", back: "b", document_file_id: "doc-1" },
+          { id: "other", front: "other", back: "b", document_file_id: "doc-2" }
         ];
       }
     }
@@ -1735,9 +1706,8 @@ test("study queue can return every card in a deck, due first", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(listed.length, 1);
   const cards = res.json().cards;
-  assert.deepEqual(cards.map((card) => card.id), ["due", "later"]);
-  assert.equal(cards[0].due, true);
-  assert.equal(cards[1].due, false);
+  assert.deepEqual(cards.map((card) => card.id), ["later", "due"]);
+  assert.equal(cards[0].due, undefined);
 });
 
 test("study deck rename and delete are scoped to one source", async () => {
@@ -1824,7 +1794,6 @@ test("study course card create returns 201 and rejects an empty front", async ()
   assert.equal(createdRes.statusCode, 201);
   assert.equal(createdRes.json().card.id, "card-1");
   assert.equal(createdRes.json().card.front, "What is mitosis?");
-  assert.equal(createdRes.json().card.state, "new");
   assert.equal(created[0][0].document_file_id, undefined);
   assert.equal(created[0][0].note_id, undefined);
 
@@ -1896,18 +1865,6 @@ test("study card delete is scoped to the card owner", async () => {
   assert.equal(missing.statusCode, 404);
 });
 
-test("study card review rejects an invalid rating with 400", async () => {
-  const overrides = stubbedDeps();
-  const res = await dispatch(authReadyConfig, {
-    method: "POST",
-    path: "/api/study/cards/card-1/review",
-    body: { rating: 9 },
-    overrides
-  });
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.json().error, "rating must be 1, 2, 3, or 4.");
-});
-
 test("study quiz GET includes answers for in-session reveal", async () => {
   const overrides = stubbedDeps({
     db: {
@@ -1951,6 +1908,33 @@ test("study quiz GET includes answers for in-session reveal", async () => {
     explanation: "secret",
     whys: ["no", "no", "yes", "no"]
   }]);
+});
+
+test("study quiz attempt grades in-session without storing", async () => {
+  let stored = false;
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyQuiz() {
+        return {
+          id: "quiz-1",
+          project_id: "course-1",
+          questions: [{ q: "Q", choices: ["A", "B"], answer: 1 }]
+        };
+      },
+      async getProject() { return { id: "course-1", kind: "course" }; },
+      async createStudyQuizAttempt() { stored = true; }
+    }
+  });
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/study/quizzes/quiz-1/attempts",
+    body: { answers: [1] },
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().score, 1);
+  assert.equal(res.json().total, 1);
+  assert.equal(stored, false);
 });
 
 test("study note export uses the document create pipeline", async () => {

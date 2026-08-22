@@ -47,20 +47,17 @@ import {
   updateMemory,
   transcribeSpeech,
   uploadFile,
-  fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
   deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
-  reviewStudyCard,
   createStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
-  scaffoldStudyCourse,
   exportStudyNote,
   deleteStudyNote
 } from "./api.js?v=20260821-unlink-file";
@@ -287,13 +284,11 @@ const state = {
   projectsOpen: false,
   studyOpen: false,
   activeCourseId: "",
-  activeCourseTab: "overview",
-  studyOverview: null,
+  activeCourseTab: "materials",
   studyMaterials: null,
   studyPractice: null,
   studyProjectDetail: null,
   studyUploading: false,
-  studyDueByCourse: {},
   activeProjectId: "",
   activeProject: null,
   projectUploading: false,
@@ -1687,7 +1682,7 @@ function composerPlaceholder() {
     return `Message ${state.activeProject?.project?.name || "this project"}`;
   }
   if (state.studyOpen && state.activeCourseId && !state.activeConversationId) {
-    return `Message ${state.studyOverview?.course?.name || state.studyProjectDetail?.project?.name || "this course"}`;
+    return `Message ${state.studyProjectDetail?.project?.name || "this course"}`;
   }
   return "Message Klui agent";
 }
@@ -6114,7 +6109,6 @@ async function confirmPendingDelete() {
       state.projectsOpen = false;
       if (state.activeCourseId === deletedProjectId) {
         state.activeCourseId = "";
-        state.studyOverview = null;
         state.studyMaterials = null;
         state.studyPractice = null;
         state.studyProjectDetail = null;
@@ -6401,20 +6395,17 @@ studyHub = createStudyHubController({
   completeUpload,
   deleteAttachment,
   fetchDocumentStatus,
-  fetchStudyOverview,
   fetchStudyMaterials,
   generateStudyContent,
   deleteStudyMaterial,
   fetchStudyPractice,
   fetchStudyQueue,
-  reviewStudyCard,
   createStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
   fetchStudyQuiz,
   submitStudyQuizAttempt,
-  scaffoldStudyCourse,
   exportStudyNote,
   deleteStudyNote,
   fetchDocumentJobStatus,

@@ -176,10 +176,6 @@ export class SupabaseRest {
     return study.listStudyCards(this, userId, projectId, options);
   }
 
-  async listDueStudyCards(userId, projectId, nowIso, limit, options) {
-    return study.listDueStudyCards(this, userId, projectId, nowIso, limit, options);
-  }
-
   async getStudyCard(userId, id, options) {
     return study.getStudyCard(this, userId, id, options);
   }
@@ -188,24 +184,12 @@ export class SupabaseRest {
     return study.createStudyCards(this, userId, cards, options);
   }
 
-  async updateStudyCard(userId, id, patch, options) {
-    return study.updateStudyCard(this, userId, id, patch, options);
-  }
-
   async deleteStudyCard(userId, id, options) {
     return study.deleteStudyCard(this, userId, id, options);
   }
 
   async deleteStudyCardsForSource(userId, filter, options) {
     return study.deleteStudyCardsForSource(this, userId, { ...filter, ...options });
-  }
-
-  async createStudyReview(userId, review, options) {
-    return study.createStudyReview(this, userId, review, options);
-  }
-
-  async listRecentStudyReviewDates(userId, options) {
-    return study.listRecentStudyReviewDates(this, userId, options);
   }
 
   async listStudyQuizzes(userId, projectId, options) {
@@ -218,14 +202,6 @@ export class SupabaseRest {
 
   async createStudyQuiz(userId, quiz, options) {
     return study.createStudyQuiz(this, userId, quiz, options);
-  }
-
-  async createStudyQuizAttempt(userId, attempt, options) {
-    return study.createStudyQuizAttempt(this, userId, attempt, options);
-  }
-
-  async listStudyQuizAttempts(userId, filter, options) {
-    return study.listStudyQuizAttempts(this, userId, { ...filter, ...options });
   }
 
   async createConversation(userId, conversation, options) {

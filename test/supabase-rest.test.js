@@ -738,25 +738,6 @@ test("getAppSetting reads app_settings by key and returns the first row", async 
   });
 });
 
-test("listDueStudyCards filters by due_at and orders ascending", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    assert.equal(options.method, "GET");
-    const parsed = new URL(url);
-    assert.equal(parsed.pathname, "/rest/v1/study_cards");
-    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
-    assert.equal(parsed.searchParams.get("project_id"), "eq.course_1");
-    assert.equal(parsed.searchParams.get("due_at"), "lte.2026-08-17T00:00:00.000Z");
-    assert.equal(parsed.searchParams.get("order"), "due_at.asc");
-    assert.equal(parsed.searchParams.get("limit"), "100");
-    expectServiceHeaders(options.headers);
-    return jsonResponse([{ id: "card_1", front: "Q", back: "A", state: "review" }]);
-  }, async () => {
-    const db = new SupabaseRest(FAKE_CONFIG);
-    const rows = await db.listDueStudyCards("user_1", "course_1", "2026-08-17T00:00:00.000Z", 100);
-    assert.equal(rows[0].id, "card_1");
-  });
-});
-
 test("deleteStudyCardsForSource can delete a manual deck scoped to a course", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "DELETE");
@@ -807,46 +788,12 @@ test("createStudyCards bulk POSTs card rows with return=representation", async (
   }, async () => {
     const db = new SupabaseRest(FAKE_CONFIG);
     const cards = await db.createStudyCards("user_1", [
-      { project_id: "course_1", front: "Q1", back: "A1", state: "new" },
-      { project_id: "course_1", front: "Q2", back: "A2", state: "new" }
+      { project_id: "course_1", front: "Q1", back: "A1" },
+      { project_id: "course_1", front: "Q2", back: "A2" }
     ]);
     assert.equal(cards.length, 2);
     assert.equal(cards[0].id, "card_1");
   });
 });
 
-test("createStudyReview POSTs a rating row scoped to the user", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    assert.equal(options.method, "POST");
-    assert.equal(url, "https://example.supabase.co/rest/v1/study_reviews");
-    expectServiceHeaders(options.headers, { withBody: true });
-    assert.equal(options.headers.prefer, "return=representation");
-    assert.deepEqual(JSON.parse(options.body), {
-      card_id: "card_1",
-      rating: 3,
-      user_id: "user_1"
-    });
-    return jsonResponse([{ id: "rev_1", rating: 3 }]);
-  }, async () => {
-    const db = new SupabaseRest(FAKE_CONFIG);
-    const review = await db.createStudyReview("user_1", { card_id: "card_1", rating: 3 });
-    assert.equal(review.id, "rev_1");
-  });
-});
 
-test("listRecentStudyReviewDates selects reviewed_at newest first", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    const parsed = new URL(url);
-    assert.equal(parsed.pathname, "/rest/v1/study_reviews");
-    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
-    assert.equal(parsed.searchParams.get("select"), "reviewed_at");
-    assert.equal(parsed.searchParams.get("order"), "reviewed_at.desc");
-    assert.equal(parsed.searchParams.get("limit"), "500");
-    expectServiceHeaders(options.headers);
-    return jsonResponse([{ reviewed_at: "2026-08-17T00:00:00Z" }]);
-  }, async () => {
-    const db = new SupabaseRest(FAKE_CONFIG);
-    const rows = await db.listRecentStudyReviewDates("user_1");
-    assert.equal(rows[0].reviewed_at, "2026-08-17T00:00:00Z");
-  });
-});

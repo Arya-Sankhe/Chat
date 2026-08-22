@@ -20,6 +20,8 @@ test("practice decks are openable and have rename/delete menus", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const api = readFileSync(resolve(publicDir, "js/api.js"), "utf8");
   const html = readFileSync(resolve(publicDir, "index.html"), "utf8");
+  assert.match(hub, /const TABS = \["materials", "chat", "practice"\]/);
+  assert.doesNotMatch(hub, /"overview"/);
   assert.match(hub, /data-open-deck=/);
   assert.match(hub, /data-toggle-deck-menu=/);
   assert.match(hub, /data-rename-deck=/);
@@ -61,6 +63,7 @@ test("review session uses tick/x controls and a three-item set menu", () => {
   assert.match(hub, /data-review-shuffle/);
   assert.match(hub, /data-review-delete/);
   assert.match(hub, /deleteStudyCard/);
+  assert.doesNotMatch(hub, /reviewStudyCard/);
   assert.match(hub, /function playGradeAnim\(/);
   assert.match(hub, /classList.add\(value === 3 \? "is-got" : "is-miss"\)/);
   assert.doesNotMatch(hub, /data-study-grade="2"/);
@@ -179,6 +182,8 @@ test("quiz recap is a fixed card with review, retake, and lookback", () => {
   assert.match(hub, /quizId:\s*quizSession\.quiz\.id/);
   assert.match(hub, /function addedQuestionIndexes\(/);
   assert.match(hub, /already \? "Added" : "Add to flashcards"/);
+  assert.doesNotMatch(hub, /Best \$\{/);
+  assert.doesNotMatch(hub, /Latest quiz/);
   assert.doesNotMatch(hub, /data-study-next/);
   assert.doesNotMatch(hub, /Keep learning/);
   assert.match(css, /\.study-session-frame\.is-quiz\.is-recap\s*\{[^}]*overflow:\s*auto/s);
@@ -211,10 +216,33 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.match(hub, /data-cancel-generation=/);
   assert.match(hub, /data-retry-generation=/);
   assert.match(hub, /aria-live="polite"/);
-  assert.match(hub, /scaffoldBusyKey/);
+  assert.doesNotMatch(hub, /scaffoldBusyKey/);
+  assert.doesNotMatch(hub, /Import syllabus dates/);
+  assert.doesNotMatch(hub, /overviewMarkup/);
+  assert.doesNotMatch(hub, /computeStreak/);
   assert.match(hub, /courseGenerationCards\(\)\.length \? `<div class="study-material-list study-generation-list"/);
   assert.match(hub, /activeFor\("flashcards"\)/);
   assert.match(hub, /abortAllGenerations/);
   assert.doesNotMatch(hub, /let generatingKey/);
   assert.doesNotMatch(hub, /EventSource/);
+});
+
+test("study hub schema drops reviews, attempts, due_at, and FSRS columns", () => {
+  const schema = readFileSync(resolve(here, "../supabase/schema.sql"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  const dropReviews = readFileSync(resolve(here, "../supabase/migrations/20260822120000_drop_study_reviews_attempts_and_due_at.sql"), "utf8");
+  const dropFsrs = readFileSync(resolve(here, "../supabase/migrations/20260822133000_drop_study_card_fsrs_columns.sql"), "utf8");
+  assert.doesNotMatch(schema, /study_reviews/);
+  assert.doesNotMatch(schema, /study_quiz_attempts/);
+  assert.doesNotMatch(schema, /due_at timestamptz/);
+  assert.doesNotMatch(schema, /last_reviewed_at/);
+  assert.doesNotMatch(schema, /stability real/);
+  assert.match(dropReviews, /drop table if exists public\.study_reviews/);
+  assert.match(dropReviews, /drop column if exists due_at/);
+  assert.match(dropFsrs, /drop column if exists state/);
+  assert.match(dropFsrs, /drop column if exists last_reviewed_at/);
+  assert.doesNotMatch(css, /study-overview-top/);
+  assert.doesNotMatch(css, /study-streak-chip/);
+  assert.doesNotMatch(css, /study-deadline-list/);
+  assert.doesNotMatch(css, /study-due-badge/);
 });
