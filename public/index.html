@@ -706,6 +706,20 @@
         </form>
       </dialog>
 
+      <dialog class="project-create-dialog" id="studyCreateDialog" aria-labelledby="studyCreateTitle">
+        <form method="dialog" id="studyCreateForm">
+          <h2 id="studyCreateTitle">Create flashcards</h2>
+          <p id="studyCreateHint">Select the materials to include.</p>
+          <label for="studyCreateSearch">Search</label>
+          <input id="studyCreateSearch" type="search" maxlength="80" autocomplete="off" placeholder="Search materials">
+          <div id="studyCreateList" class="study-create-list"></div>
+          <div class="project-dialog-actions">
+            <button type="button" id="studyCreateCancel">Cancel</button>
+            <div id="studyCreateActions" class="study-create-modes"></div>
+          </div>
+        </form>
+      </dialog>
+
       <dialog class="project-create-dialog" id="courseRenameDialog" aria-labelledby="courseRenameTitle">
         <form method="dialog" id="courseRenameForm">
           <h2 id="courseRenameTitle">Rename course</h2>

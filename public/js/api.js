@@ -258,6 +258,7 @@ export async function fetchStudyQueue(session, courseId, params = {}) {
   const search = new URLSearchParams();
   if (params.documentFileId) search.set("documentFileId", params.documentFileId);
   if (params.noteId) search.set("noteId", params.noteId);
+  if (params.deckKey) search.set("deckKey", params.deckKey);
   if (params.manual) search.set("manual", "1");
   const query = search.toString();
   const response = await apiFetch(

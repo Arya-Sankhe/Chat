@@ -29,23 +29,41 @@ async function requireCourse(context, courseId, signal) {
   return project;
 }
 
+const COMBO_FILE_CAP = 5;
+
+function uniqueFileIds(body = {}) {
+  const fromList = Array.isArray(body.documentFileIds) ? body.documentFileIds : [];
+  const one = typeof body.documentFileId === "string" ? body.documentFileId.trim() : "";
+  const ids = (fromList.length ? fromList : (one ? [one] : []))
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+async function requireReadyCourseFile(context, course, documentFileId, signal) {
+  const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal });
+  if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
+  if (!documentFile.text_ready_at && !documentFile.visual_ready_at) {
+    throw new HttpError(409, "Material is still processing.");
+  }
+  return documentFile;
+}
+
 async function requireCourseSource(context, course, body, signal) {
-  const documentFileId = typeof body.documentFileId === "string" ? body.documentFileId.trim() : "";
   const noteId = typeof body.noteId === "string" ? body.noteId.trim() : "";
-  if (Boolean(documentFileId) === Boolean(noteId)) {
-    throw new HttpError(400, "Provide exactly one of documentFileId or noteId.");
+  const ids = uniqueFileIds(body);
+  if (ids.length && noteId) throw new HttpError(400, "Provide files or a note, not both.");
+  if (!ids.length && !noteId) throw new HttpError(400, "Provide a file or note.");
+  if (ids.length > COMBO_FILE_CAP) throw new HttpError(400, `Pick up to ${COMBO_FILE_CAP} materials.`);
+  if (noteId) {
+    const note = await context.db.getStudyNote(context.user.id, noteId, { signal });
+    if (!note || note.project_id !== course.id) throw new HttpError(404, "Material not found.");
+    return { note };
   }
-  if (documentFileId) {
-    const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal });
-    if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
-    if (!documentFile.text_ready_at && !documentFile.visual_ready_at) {
-      throw new HttpError(409, "Material is still processing.");
-    }
-    return { documentFile };
-  }
-  const note = await context.db.getStudyNote(context.user.id, noteId, { signal });
-  if (!note || note.project_id !== course.id) throw new HttpError(404, "Material not found.");
-  return { note };
+  const files = [];
+  for (const id of ids) files.push(await requireReadyCourseFile(context, course, id, signal));
+  if (files.length === 1) return { documentFile: files[0] };
+  return { documentFiles: files };
 }
 
 function publicQuiz(quiz) {
@@ -97,9 +115,11 @@ function flashcardModesFromMeta(meta) {
 }
 
 function generationLockKey({ userId, courseId, type, source, mode }) {
-  const src = source.documentFile
-    ? `doc:${source.documentFile.id}`
-    : `note:${source.note.id}`;
+  const src = source.documentFiles?.length
+    ? `docs:${source.documentFiles.map((file) => file.id).slice().sort().join(",")}`
+    : source.documentFile
+      ? `doc:${source.documentFile.id}`
+      : `note:${source.note.id}`;
   let key = `${userId}:${courseId}:${src}:${type}`;
   if (type === "notes") key += `:${mode || "summary"}`;
   return key;
@@ -127,22 +147,36 @@ function sourceDeckInput(source) {
 function parseDeckSource(input = {}) {
   const documentFileId = typeof input.documentFileId === "string" ? input.documentFileId.trim() : "";
   const noteId = typeof input.noteId === "string" ? input.noteId.trim() : "";
+  const deckKeyValue = typeof input.deckKey === "string" ? input.deckKey.trim() : "";
   const manual = input.manual === true || input.manual === "1" || input.manual === "true";
-  const count = Number(Boolean(documentFileId)) + Number(Boolean(noteId)) + Number(manual);
-  if (count !== 1) throw new HttpError(400, "Provide exactly one of documentFileId, noteId, or manual.");
-  return { documentFileId, noteId, manual };
+  if (deckKeyValue && !/^combo_[0-9a-f-]{36}$/i.test(deckKeyValue)) {
+    throw new HttpError(400, "Invalid deck.");
+  }
+  const count = Number(Boolean(documentFileId)) + Number(Boolean(noteId)) + Number(manual) + Number(Boolean(deckKeyValue));
+  if (count !== 1) throw new HttpError(400, "Provide exactly one of documentFileId, noteId, manual, or deckKey.");
+  return { documentFileId, noteId, manual, deckKey: deckKeyValue };
 }
 
 function deckKey(source) {
+  if (source.deckKey) return source.deckKey;
   if (source.manual) return "manual";
   if (source.documentFileId) return `doc:${source.documentFileId}`;
   return `note:${source.noteId}`;
 }
 
-function cardBelongsToSource(card, { documentFileId, noteId } = {}) {
-  if (documentFileId) return card.document_file_id === documentFileId;
-  if (noteId) return card.note_id === noteId;
-  return !card.document_file_id && !card.note_id;
+function cardBelongsToSource(card, { documentFileId, noteId, deckKey: key } = {}) {
+  if (key) return card.deck_key === key;
+  if (documentFileId) return !card.deck_key && card.document_file_id === documentFileId;
+  if (noteId) return !card.deck_key && card.note_id === noteId;
+  return !card.deck_key && !card.document_file_id && !card.note_id;
+}
+
+function quizCardSource(quiz) {
+  return {
+    documentFileId: quiz.document_file_id || "",
+    noteId: quiz.note_id || "",
+    deckKey: quiz.deck_key || ""
+  };
 }
 
 function cleanDeckTitle(value) {
@@ -218,22 +252,24 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
   if (type === "flashcards") {
     mode = normalizeFlashcardMode(body.mode);
     if (!mode) throw new HttpError(400, "mode must be rapid or deep.");
-    const key = deckKey(sourceDeckInput(source));
-    const listed = await context.db.listStudyCards(context.user.id, course.id, {
-      select: "document_file_id,note_id,front",
-      signal: req.signal
-    }) || [];
-    const mine = listed.filter((card) => source.documentFile
-      ? card.document_file_id === source.documentFile.id
-      : card.note_id === source.note.id);
-    const meta = courseMetaObject(course);
-    const current = resolvedFlashcardMode(flashcardModesFromMeta(meta)[key], mine.length > 0);
-    if (!flashcardModeAllowed(current, mode)) {
-      throw new HttpError(409, current === "deep"
-        ? "Deep deck already created."
-        : "Rapid already created. Use Deep for a full rundown.");
+    if (!source.documentFiles) {
+      const key = deckKey(sourceDeckInput(source));
+      const listed = await context.db.listStudyCards(context.user.id, course.id, {
+        select: "document_file_id,note_id,deck_key,front",
+        signal: req.signal
+      }) || [];
+      const mine = listed.filter((card) => source.documentFile
+        ? card.document_file_id === source.documentFile.id
+        : card.note_id === source.note.id);
+      const meta = courseMetaObject(course);
+      const current = resolvedFlashcardMode(flashcardModesFromMeta(meta)[key], mine.length > 0);
+      if (!flashcardModeAllowed(current, mode)) {
+        throw new HttpError(409, current === "deep"
+          ? "Deep deck already created."
+          : "Rapid already created. Use Deep for a full rundown.");
+      }
+      if (mode === "deep") existingFronts = mine.map((card) => card.front);
     }
-    if (mode === "deep") existingFronts = mine.map((card) => card.front);
   } else if (type === "quiz") {
     count = clampQuizCount(body.count);
   } else {
@@ -316,15 +352,26 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         onStage: emitStage
       });
       const meta = courseMetaObject(course);
-      const key = deckKey(sourceDeckInput(source));
-      const completedMode = meta.flashcardModes?.[key] === "deep" || mode === "deep" ? "deep" : "rapid";
-      const flashcardModes = {
-        ...(meta.flashcardModes && typeof meta.flashcardModes === "object" ? meta.flashcardModes : {}),
-        [key]: completedMode
-      };
-      await context.db.updateProject(context.user.id, course.id, {
-        meta: { ...meta, flashcardModes }
-      }, { signal });
+      const comboKey = cards.find((card) => card.deck_key)?.deck_key || "";
+      const key = comboKey || (!source.documentFiles ? deckKey(sourceDeckInput(source)) : "");
+      const completedMode = (key && meta.flashcardModes?.[key] === "deep") || mode === "deep" ? "deep" : "rapid";
+      if (key) {
+        const flashcardModes = {
+          ...(meta.flashcardModes && typeof meta.flashcardModes === "object" ? meta.flashcardModes : {}),
+          [key]: completedMode
+        };
+        const nextMeta = { ...meta, flashcardModes };
+        if (comboKey) {
+          const title = (source.documentFiles || []).map((file) => documentTitle(file)).join(", ") || "Deck";
+          nextMeta.deckTitles = {
+            ...deckTitlesFromMeta(meta),
+            [comboKey]: title.length > 120 ? `${title.slice(0, 117)}...` : title
+          };
+        }
+        await context.db.updateProject(context.user.id, course.id, {
+          meta: nextMeta
+        }, { signal });
+      }
       result = {
         type,
         count: cards.length,
@@ -342,6 +389,16 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         onWarning,
         onStage: emitStage
       });
+      if (generated.quiz.deck_key) {
+        const meta = courseMetaObject(course);
+        const title = String(generated.quiz.title || "Quiz").trim().slice(0, 120) || "Quiz";
+        await context.db.updateProject(context.user.id, course.id, {
+          meta: {
+            ...meta,
+            deckTitles: { ...deckTitlesFromMeta(meta), [generated.quiz.deck_key]: title }
+          }
+        }, { signal });
+      }
       result = {
         type,
         id: generated.quiz.id,
@@ -405,7 +462,7 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
     context.db.listProjectDocuments(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyCards(context.user.id, course.id, {
-      select: "id,document_file_id,note_id",
+      select: "id,document_file_id,note_id,deck_key",
       signal: req.signal
     }),
     context.db.listStudyQuizzes(context.user.id, course.id, { signal: req.signal })
@@ -416,21 +473,26 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
   const decks = new Map();
   const manualKey = "manual";
   for (const card of cards || []) {
-    const key = card.document_file_id
-      ? `doc:${card.document_file_id}`
-      : card.note_id
-        ? `note:${card.note_id}`
-        : manualKey;
-    const source = key === manualKey
-      ? { manual: true }
-      : card.document_file_id
-        ? { documentFileId: card.document_file_id }
-        : { noteId: card.note_id };
-    const fallback = key === manualKey
-      ? "Your cards"
-      : card.document_file_id
-        ? (docTitles.get(card.document_file_id) || "Document")
-        : (noteTitles.get(card.note_id) || "Note");
+    const key = card.deck_key
+      || (card.document_file_id
+        ? `doc:${card.document_file_id}`
+        : card.note_id
+          ? `note:${card.note_id}`
+          : manualKey);
+    const source = card.deck_key
+      ? { deckKey: card.deck_key }
+      : key === manualKey
+        ? { manual: true }
+        : card.document_file_id
+          ? { documentFileId: card.document_file_id }
+          : { noteId: card.note_id };
+    const fallback = card.deck_key
+      ? "Deck"
+      : key === manualKey
+        ? "Your cards"
+        : card.document_file_id
+          ? (docTitles.get(card.document_file_id) || "Document")
+          : (noteTitles.get(card.note_id) || "Note");
     const deck = decks.get(key) || {
       id: key,
       ...source,
@@ -468,14 +530,12 @@ export async function handleStudyCourseCards(req, res, config, courseId) {
     if (!quiz || quiz.project_id !== course.id) throw new HttpError(404, "Quiz not found.");
     card.document_file_id = quiz.document_file_id || null;
     card.note_id = quiz.note_id || null;
+    if (quiz.deck_key) card.deck_key = quiz.deck_key;
     const listed = await context.db.listStudyCards(context.user.id, course.id, {
-      select: "id,document_file_id,note_id,front,back",
+      select: "id,document_file_id,note_id,deck_key,front,back",
       signal: req.signal
     }) || [];
-    const existing = listed.find((row) => row.front === front && cardBelongsToSource(row, {
-      documentFileId: card.document_file_id,
-      noteId: card.note_id
-    }));
+    const existing = listed.find((row) => row.front === front && cardBelongsToSource(row, quizCardSource(quiz)));
     if (existing) {
       sendJson(res, 200, { card: existing });
       return;
@@ -493,12 +553,11 @@ export async function handleStudyCourseQueue(req, res, config, courseId) {
   const source = parseDeckSource({
     documentFileId: params.get("documentFileId") || "",
     noteId: params.get("noteId") || "",
+    deckKey: params.get("deckKey") || "",
     manual: params.get("manual") === "1" || params.get("manual") === "true"
   });
   const cards = (await context.db.listStudyCards(context.user.id, course.id, { signal: req.signal }) || []).filter((card) => (
-    source.documentFileId ? card.document_file_id === source.documentFileId
-      : source.noteId ? card.note_id === source.noteId
-        : !card.document_file_id && !card.note_id
+    cardBelongsToSource(card, source)
   ));
   sendJson(res, 200, {
     cards: cards.map((card) => ({
@@ -532,15 +591,25 @@ export async function handleStudyCourseDecks(req, res, config, courseId) {
     documentFileId: source.documentFileId || undefined,
     noteId: source.noteId || undefined,
     manual: source.manual || undefined,
+    deckKey: source.deckKey || undefined,
     signal: req.signal
   });
   const meta = courseMetaObject(course);
   const key = deckKey(source);
   const flashcardModes = flashcardModesFromMeta(meta);
+  const deckTitles = { ...deckTitlesFromMeta(meta) };
+  let metaChanged = false;
   if (flashcardModes[key]) {
     delete flashcardModes[key];
+    metaChanged = true;
+  }
+  if (deckTitles[key]) {
+    delete deckTitles[key];
+    metaChanged = true;
+  }
+  if (metaChanged) {
     await context.db.updateProject(context.user.id, course.id, {
-      meta: { ...meta, flashcardModes }
+      meta: { ...meta, flashcardModes, deckTitles }
     }, { signal: req.signal });
   }
   sendJson(res, 200, { ok: true });
@@ -563,14 +632,11 @@ export async function handleStudyQuizById(req, res, config, quizId) {
   if (!quiz) throw new HttpError(404, "Quiz not found.");
   await requireCourse(context, quiz.project_id, req.signal);
   const listed = await context.db.listStudyCards(context.user.id, quiz.project_id, {
-    select: "document_file_id,note_id,front",
+    select: "document_file_id,note_id,deck_key,front",
     signal: req.signal
   }) || [];
   const existingFronts = listed
-    .filter((card) => cardBelongsToSource(card, {
-      documentFileId: quiz.document_file_id,
-      noteId: quiz.note_id
-    }))
+    .filter((card) => cardBelongsToSource(card, quizCardSource(quiz)))
     .map((card) => card.front);
   sendJson(res, 200, { quiz: publicQuiz(quiz), existingFronts });
 }

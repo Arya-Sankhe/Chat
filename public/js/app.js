@@ -102,7 +102,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260822-quiz-desk";
+import { createStudyHubController } from "./studyHub.js?v=20260822-combo-create";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -639,6 +639,14 @@ const els = {
   courseNameInput: document.querySelector("#courseNameInput"),
   courseTermInput: document.querySelector("#courseTermInput"),
   courseCreateCancel: document.querySelector("#courseCreateCancel"),
+  studyCreateDialog: document.querySelector("#studyCreateDialog"),
+  studyCreateForm: document.querySelector("#studyCreateForm"),
+  studyCreateTitle: document.querySelector("#studyCreateTitle"),
+  studyCreateHint: document.querySelector("#studyCreateHint"),
+  studyCreateSearch: document.querySelector("#studyCreateSearch"),
+  studyCreateList: document.querySelector("#studyCreateList"),
+  studyCreateActions: document.querySelector("#studyCreateActions"),
+  studyCreateCancel: document.querySelector("#studyCreateCancel"),
   courseRenameDialog: document.querySelector("#courseRenameDialog"),
   courseRenameForm: document.querySelector("#courseRenameForm"),
   courseRenameNameInput: document.querySelector("#courseRenameNameInput"),

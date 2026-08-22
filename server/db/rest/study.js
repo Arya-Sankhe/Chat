@@ -1,8 +1,8 @@
 import { single } from "./helpers.js";
 
 const NOTE_SELECT = "id,user_id,project_id,document_file_id,kind,title,content,created_at";
-const CARD_SELECT = "id,user_id,project_id,document_file_id,note_id,front,back,created_at";
-const QUIZ_SELECT = "id,user_id,project_id,document_file_id,note_id,title,questions,created_at";
+const CARD_SELECT = "id,user_id,project_id,document_file_id,note_id,deck_key,front,back,created_at";
+const QUIZ_SELECT = "id,user_id,project_id,document_file_id,note_id,deck_key,title,questions,created_at";
 
 export async function listStudyNotes(client, userId, projectId, { signal } = {}) {
   return client.request("study_notes", {
@@ -90,16 +90,19 @@ export async function deleteStudyCardsForSource(client, userId, {
   documentFileId,
   noteId,
   manual,
+  deckKey,
   signal
 } = {}) {
   const query = { user_id: `eq.${userId}` };
   if (projectId) query.project_id = `eq.${projectId}`;
-  if (documentFileId) query.document_file_id = `eq.${documentFileId}`;
+  if (deckKey) query.deck_key = `eq.${deckKey}`;
+  else if (documentFileId) query.document_file_id = `eq.${documentFileId}`;
   else if (noteId) query.note_id = `eq.${noteId}`;
   else if (manual) {
     if (!projectId) return null;
     query.document_file_id = "is.null";
     query.note_id = "is.null";
+    query.deck_key = "is.null";
   } else {
     return null;
   }

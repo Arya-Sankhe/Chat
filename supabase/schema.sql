@@ -313,10 +313,14 @@ create table if not exists public.study_cards (
   project_id uuid not null references public.projects(id) on delete cascade,
   document_file_id uuid references public.document_files(id) on delete cascade,
   note_id uuid references public.study_notes(id) on delete cascade,
+  deck_key text,
   front text not null,
   back text not null,
   created_at timestamptz not null default now()
 );
+
+alter table public.study_cards
+  add column if not exists deck_key text;
 
 create table if not exists public.study_quizzes (
   id uuid primary key default gen_random_uuid(),
@@ -324,10 +328,14 @@ create table if not exists public.study_quizzes (
   project_id uuid not null references public.projects(id) on delete cascade,
   document_file_id uuid references public.document_files(id) on delete cascade,
   note_id uuid references public.study_notes(id) on delete cascade,
+  deck_key text,
   title text not null default '',
   questions jsonb not null,
   created_at timestamptz not null default now()
 );
+
+alter table public.study_quizzes
+  add column if not exists deck_key text;
 
 create table if not exists public.research_runs (
   id uuid primary key default gen_random_uuid(),

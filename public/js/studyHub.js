@@ -45,6 +45,7 @@ export function createStudyHubController({
   loadProjects
 }) {
   const TABS = ["materials", "chat", "practice"];
+  const CREATE_FILE_CAP = 5;
 
   let pendingUploads = [];
   /** @type {Map<string, object>} in-memory generation cards; survives SPA nav while page stays open */
@@ -54,6 +55,8 @@ export function createStudyHubController({
   let reviewSession = null;
   let quizSession = null;
   let studyNote = null;
+  let createType = "";
+  const createSelected = new Set();
 
   const sound = createSounds(reducedMotion);
 
@@ -146,6 +149,7 @@ export function createStudyHubController({
   }
 
   function deckSourceOf(deck) {
+    if (deck.deckKey) return { deckKey: deck.deckKey };
     if (deck.manual) return { manual: true };
     if (deck.documentFileId) return { documentFileId: deck.documentFileId };
     return { noteId: deck.noteId };
@@ -295,6 +299,14 @@ export function createStudyHubController({
   }
 
   function jobSourceName(job) {
+    const ids = Array.isArray(job?.documentFileIds) ? job.documentFileIds : [];
+    if (ids.length > 1) {
+      const names = ids.map((id) => {
+        const doc = (state.studyMaterials?.documents || []).find((item) => item.id === id);
+        return doc ? documentDisplayName(doc) : "";
+      }).filter(Boolean);
+      if (names.length) return names.join(", ");
+    }
     if (job?.documentFileId) {
       const doc = (state.studyMaterials?.documents || []).find((item) => item.id === job.documentFileId);
       if (doc) return documentDisplayName(doc);
@@ -457,6 +469,8 @@ export function createStudyHubController({
     if (!payload) return `<div class="study-loading">Loading practice...</div>`;
     const decks = payload.decks || [];
     const quizzes = payload.quizzes || [];
+    const createBtn = (type, label) => `
+          <button class="study-chip-btn" type="button" data-practice-create="${type}">${label}</button>`;
     const deckCards = decks.length
       ? decks.map((deck) => {
         const id = deck.id;
@@ -478,24 +492,29 @@ export function createStudyHubController({
             </div>
           </article>`;
       }).join("")
-      : emptyState("No decks yet", "Generate flashcards from a file on Materials.");
+      : emptyState("No decks yet", "Create flashcards from one or more files.");
     const quizCards = quizzes.length
       ? quizzes.map((quiz) => `
           <button class="study-practice-card" type="button" data-open-quiz="${escapeHtml(quiz.id)}">
             <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
             <small>${escapeHtml(String(quiz.questionCount || 0))} questions</small>
           </button>`).join("")
-      : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from Materials.");
+      : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from one or more files.");
     return `
       <div class="study-practice">
+        ${courseGenerationCards().length ? `<div class="study-material-list study-generation-list">${generationCardsMarkup()}</div>` : ""}
         <section class="study-panel">
           <div class="study-section-heading">
             <h2>Decks</h2>
+            ${createBtn("flashcards", "Create flashcards")}
           </div>
           <div class="study-practice-grid">${deckCards}</div>
         </section>
         <section class="study-panel">
-          <h2>Quizzes</h2>
+          <div class="study-section-heading">
+            <h2>Quizzes</h2>
+            ${createBtn("quiz", "Create quiz")}
+          </div>
           <div class="study-practice-grid">${quizCards}</div>
         </section>
       </div>`;
@@ -776,6 +795,7 @@ export function createStudyHubController({
       count: type === "quiz" ? (Number(count) || 10) : undefined,
       documentFileId: kind === "doc" ? id : "",
       noteId: kind === "note" ? id : "",
+      documentFileIds: Array.isArray(body.documentFileIds) ? body.documentFileIds : [],
       body,
       status: "running",
       stage: "",
@@ -831,6 +851,7 @@ export function createStudyHubController({
     pendingUploads = [];
     quizMenuKey = "";
     studyNote = null;
+    closeCreateDialog();
   }
 
   async function openCourses({ replace = false } = {}) {
@@ -1221,11 +1242,127 @@ export function createStudyHubController({
   function retryGeneration(jobId) {
     const job = generations.get(jobId);
     if (!job || job.status !== "failed" || !state.session) return;
+    const ids = Array.isArray(job.body?.documentFileIds) ? job.body.documentFileIds : job.documentFileIds;
+    generations.delete(jobId);
+    if (ids?.length) {
+      void runGenerateFromMaterials(ids, job.type, { count: job.count, mode: job.mode });
+      return;
+    }
     const kind = job.documentFileId ? "doc" : "note";
     const id = job.documentFileId || job.noteId;
     if (!id || !job.type) return;
-    generations.delete(jobId);
     void runGenerate(kind, id, job.type, { count: job.count, mode: job.mode });
+  }
+
+  function runGenerateFromMaterials(ids, type, { count, mode } = {}) {
+    const documentFileIds = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!state.activeCourseId || !state.session || !documentFileIds.length) return;
+    if (documentFileIds.length === 1) {
+      return runGenerate("doc", documentFileIds[0], type, { count, mode });
+    }
+    const courseId = state.activeCourseId;
+    const requestKey = `docs:${documentFileIds.slice().sort().join(",")}:${type}:${mode || ""}:${count || ""}`;
+    if ([...generations.values()].some((job) => job.courseId === courseId && generationMatchesRequest(job, requestKey))) {
+      return;
+    }
+    const body = { type, documentFileIds };
+    if (type === "quiz") body.count = Number(count) || 10;
+    if (type === "flashcards") body.mode = mode === "deep" ? "deep" : "rapid";
+    quizMenuKey = "";
+    startGeneration({
+      kind: "docs",
+      id: "",
+      type,
+      count: body.count,
+      mode: body.mode || "",
+      body,
+      requestKey,
+      courseId
+    });
+    render();
+  }
+
+  function readyCreateDocs() {
+    return (state.studyMaterials?.documents || []).filter((doc) => materialStatus(doc) === "ready");
+  }
+
+  function renderCreateList() {
+    const list = els.studyCreateList;
+    if (!list) return;
+    const query = String(els.studyCreateSearch?.value || "").trim().toLowerCase();
+    const docs = readyCreateDocs().filter((doc) => {
+      if (!query) return true;
+      return documentDisplayName(doc).toLowerCase().includes(query);
+    });
+    const atCap = createSelected.size >= CREATE_FILE_CAP;
+    if (!docs.length) {
+      list.innerHTML = `<p class="study-create-empty">${readyCreateDocs().length ? "No matching files." : "Upload a file on Materials first."}</p>`;
+      renderCreateActions();
+      return;
+    }
+    list.innerHTML = docs.map((doc) => {
+      const id = doc.id;
+      const checked = createSelected.has(id);
+      const disabled = !checked && atCap;
+      return `<label class="study-create-item">
+        <input type="checkbox" value="${escapeHtml(id)}"${checked ? " checked" : ""}${disabled ? " disabled" : ""}>
+        <span>
+          <strong>${escapeHtml(documentDisplayName(doc))}</strong>
+          <small>${escapeHtml(String(doc.kind || "file").toUpperCase())}</small>
+        </span>
+      </label>`;
+    }).join("");
+    renderCreateActions();
+  }
+
+  function renderCreateActions() {
+    const wrap = els.studyCreateActions;
+    if (!wrap) return;
+    const enabled = createSelected.size > 0;
+    const disable = enabled ? "" : " disabled";
+    wrap.innerHTML = createType === "quiz"
+      ? [10, 15, 25].map((n) => `<button type="button" class="project-dialog-primary" data-study-create-go data-count="${n}"${disable}>${n}</button>`).join("")
+      : `<button type="button" class="project-dialog-primary" data-study-create-go data-mode="rapid" title="Key concepts"${disable}>Rapid</button>
+         <button type="button" class="project-dialog-primary" data-study-create-go data-mode="deep" title="Every concept"${disable}>Deep</button>`;
+  }
+
+  function closeCreateDialog() {
+    createType = "";
+    createSelected.clear();
+    if (els.studyCreateSearch) els.studyCreateSearch.value = "";
+    els.studyCreateDialog?.close();
+  }
+
+  async function openCreatePicker(type) {
+    if (!state.activeCourseId || (type !== "flashcards" && type !== "quiz")) return;
+    createType = type;
+    createSelected.clear();
+    if (els.studyCreateTitle) els.studyCreateTitle.textContent = type === "quiz" ? "Create quiz" : "Create flashcards";
+    if (els.studyCreateHint) {
+      els.studyCreateHint.textContent = type === "quiz"
+        ? "Select the chapters to include, then pick a question count."
+        : "Select the chapters to include, then Rapid or Deep.";
+    }
+    if (els.studyCreateSearch) els.studyCreateSearch.value = "";
+    try {
+      if (!state.studyMaterials) await loadMaterials();
+    } catch (error) {
+      showToast(error.message || "Could not load materials.");
+      return;
+    }
+    renderCreateList();
+    els.studyCreateDialog?.showModal();
+    window.requestAnimationFrame(() => els.studyCreateSearch?.focus());
+  }
+
+  function submitCreatePicker(event) {
+    const button = event.target.closest("[data-study-create-go]");
+    if (!button || button.disabled) return;
+    const ids = [...createSelected];
+    if (!ids.length) return;
+    const type = createType;
+    closeCreateDialog();
+    runGenerateFromMaterials(ids, type, { count: button.dataset.count, mode: button.dataset.mode });
   }
 
   async function setTab(tab) {
@@ -2006,6 +2143,10 @@ export function createStudyHubController({
       render();
       return true;
     }
+    if (els.studyCreateDialog?.open) {
+      closeCreateDialog();
+      return true;
+    }
     return false;
   }
 
@@ -2064,6 +2205,11 @@ export function createStudyHubController({
     if (event.target.closest("[data-study-add-files]")) {
       els.studyFileInput?.click();
       return;
+    }
+    const practiceCreate = event.target.closest("[data-practice-create]");
+    if (practiceCreate) {
+      event.stopPropagation();
+      return openCreatePicker(practiceCreate.dataset.practiceCreate);
     }
     const gen = event.target.closest("[data-study-generate]");
     if (gen) {
@@ -2141,6 +2287,30 @@ export function createStudyHubController({
     });
     els.courseCreateForm?.addEventListener("submit", (event) => { void submitCreate(event); });
     els.courseCreateCancel?.addEventListener("click", () => els.courseCreateDialog?.close());
+    els.studyCreateCancel?.addEventListener("click", closeCreateDialog);
+    els.studyCreateForm?.addEventListener("submit", (event) => event.preventDefault());
+    els.studyCreateSearch?.addEventListener("input", () => renderCreateList());
+    els.studyCreateList?.addEventListener("change", (event) => {
+      const input = event.target.closest("input[type=checkbox]");
+      if (!input) return;
+      const id = String(input.value || "").trim();
+      if (!id) return;
+      if (input.checked) {
+        if (createSelected.size >= CREATE_FILE_CAP) {
+          input.checked = false;
+          return;
+        }
+        createSelected.add(id);
+      } else {
+        createSelected.delete(id);
+      }
+      renderCreateList();
+    });
+    els.studyCreateActions?.addEventListener("click", (event) => submitCreatePicker(event));
+    els.studyCreateDialog?.addEventListener("close", () => {
+      createType = "";
+      createSelected.clear();
+    });
     els.courseRenameForm?.addEventListener("submit", (event) => { void submitRename(event); });
     els.courseRenameCancel?.addEventListener("click", () => els.courseRenameDialog?.close());
     els.studyNoteClose?.addEventListener("click", closeNote);

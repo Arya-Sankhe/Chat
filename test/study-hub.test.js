@@ -16,6 +16,27 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(here, "..", "public");
 
+test("practice can create multi-file decks and quizzes", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const html = readFileSync(resolve(publicDir, "index.html"), "utf8");
+  const api = readFileSync(resolve(publicDir, "js/api.js"), "utf8");
+  const schema = readFileSync(resolve(here, "../supabase/schema.sql"), "utf8");
+  const routes = readFileSync(resolve(here, "../server/routes/study.js"), "utf8");
+  const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
+  assert.match(hub, /data-practice-create=/);
+  assert.match(hub, /Create flashcards/);
+  assert.match(hub, /Create quiz/);
+  assert.match(hub, /function openCreatePicker\(/);
+  assert.match(hub, /documentFileIds/);
+  assert.match(hub, /CREATE_FILE_CAP = 5/);
+  assert.match(html, /id="studyCreateDialog"/);
+  assert.match(api, /params\.deckKey/);
+  assert.match(schema, /study_cards \([\s\S]*deck_key text/);
+  assert.match(schema, /study_quizzes \([\s\S]*deck_key text/);
+  assert.match(routes, /source\.documentFiles/);
+  assert.match(generate, /function comboDeckKey\(/);
+});
+
 test("practice decks are openable and have rename/delete menus", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const api = readFileSync(resolve(publicDir, "js/api.js"), "utf8");

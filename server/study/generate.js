@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, resolveProvider } from "../providers.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
@@ -233,7 +234,40 @@ export async function loadMaterialText(db, userId, { documentFile, note, signal 
   return (chunks || []).map((chunk) => String(chunk.text || "").trim()).filter(Boolean).join("\n").trim();
 }
 
+function fileDisplayName(file) {
+  const nested = Array.isArray(file?.attachments) ? file.attachments[0] : file?.attachments;
+  return nested?.file_name || file?.file_name || "Document";
+}
+
+function comboDeckKey() {
+  return `combo_${randomUUID()}`;
+}
+
+async function loadComboSourceText({ context, source, signal }) {
+  const files = source.documentFiles || [];
+  const ids = files.map((file) => file.id).filter(Boolean);
+  const chunks = await context.db.listDocumentChunksForFiles(context.user.id, ids, {
+    limit: 5000,
+    signal
+  }) || [];
+  const parts = [];
+  for (const file of files) {
+    const text = chunks
+      .filter((chunk) => chunk.document_file_id === file.id)
+      .map((chunk) => String(chunk.text || "").trim())
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (text) parts.push(`--- ${fileDisplayName(file)} ---\n${text}`);
+  }
+  const joined = parts.join("\n\n").trim();
+  if (!joined) throw new HttpError(400, "Material has no extracted text.");
+  // ponytail: dump-join, no vision; retrieve/cap per file if 5 fat PDFs start failing the model.
+  return joined.slice(0, NOTE_CONTENT_CAP);
+}
+
 async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage }) {
+  if (source.documentFiles?.length) return loadComboSourceText({ context, source, signal });
   if (source.note) {
     const text = noteBody(source.note).trim();
     if (!text) throw new HttpError(400, "Material has no extracted text.");
@@ -341,7 +375,8 @@ export function collectFlashcardModes(stored, cards) {
   const bag = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
   const has = new Set();
   for (const card of cards || []) {
-    if (card.document_file_id) has.add(`doc:${card.document_file_id}`);
+    if (card.deck_key) has.add(card.deck_key);
+    else if (card.document_file_id) has.add(`doc:${card.document_file_id}`);
     else if (card.note_id) has.add(`note:${card.note_id}`);
   }
   const modes = {};
@@ -381,11 +416,11 @@ export function cleanQuestions(parsed, count) {
 }
 
 function sourceFallbackTitle(source) {
-  if (source.documentFile) {
-    return source.documentFile.attachments?.file_name
-      || source.documentFile.file_name
-      || "Document";
+  if (source.documentFiles?.length) {
+    const joined = source.documentFiles.map((file) => fileDisplayName(file)).join(", ");
+    return joined.length > 120 ? `${joined.slice(0, 117)}...` : (joined || "Quiz");
   }
+  if (source.documentFile) return fileDisplayName(source.documentFile);
   return String(source.note?.title || "Note").trim() || "Note";
 }
 
@@ -434,10 +469,12 @@ export async function generateFlashcards({
   }
   onStage?.("saving");
   throwIfAborted(signal);
+  const deckKey = source.documentFiles?.length ? comboDeckKey() : null;
   return context.db.createStudyCards(context.user.id, cards.map((card) => ({
     project_id: course.id,
     document_file_id: source.documentFile?.id || null,
     note_id: source.note?.id || null,
+    ...(deckKey ? { deck_key: deckKey } : {}),
     front: card.front,
     back: card.back
   })), { signal });
@@ -470,14 +507,16 @@ export async function generateQuiz({
   throwIfAborted(signal);
   const parsed = parseStudyJson(streamed.content);
   const questions = cleanQuestions(parsed.value, questionCount);
-  const title = String(parsed.value.title || "Quiz").trim() || "Quiz";
+  const title = String(parsed.value.title || sourceFallbackTitle(source) || "Quiz").trim() || "Quiz";
   const partial = Boolean(parsed.partial || streamed.partial || streamed.finishReason === "length" || questions.length < questionCount);
   onStage?.("saving");
   throwIfAborted(signal);
+  const deckKey = source.documentFiles?.length ? comboDeckKey() : null;
   const quiz = await context.db.createStudyQuiz(context.user.id, {
     project_id: course.id,
     document_file_id: source.documentFile?.id || null,
     note_id: source.note?.id || null,
+    ...(deckKey ? { deck_key: deckKey } : {}),
     title,
     questions
   }, { signal });

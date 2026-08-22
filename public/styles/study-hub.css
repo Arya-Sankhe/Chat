@@ -1625,6 +1625,64 @@ body.study-session-open .toast {
   text-align: center;
 }
 
+.study-create-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  margin-top: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.study-create-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.study-create-item + .study-create-item {
+  border-top: 1px solid var(--border);
+}
+
+.study-create-item input {
+  width: auto;
+  height: auto;
+  margin-top: 3px;
+}
+
+.study-create-item span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.study-create-item small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.study-create-empty {
+  padding: 16px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.study-create-modes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.study-create-modes button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
 @media (max-width: 980px) {
   .study-course-grid,
   .study-practice-grid,
