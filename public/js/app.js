@@ -53,6 +53,7 @@ import {
   fetchStudyPractice,
   fetchStudyQueue,
   createStudyCard,
+  updateStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
@@ -60,7 +61,7 @@ import {
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote
-} from "./api.js?v=20260821-unlink-file";
+} from "./api.js?v=20260823-review1";
 import {
   clearSession,
   loadSession,
@@ -102,7 +103,7 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260823-modelbox";
+import { createStudyHubController } from "./studyHub.js?v=20260823-review3";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -384,7 +385,11 @@ const sideChatState = {
   running: false,
   abortController: null,
   autoScroll: true,
-  touchY: 0
+  touchY: 0,
+  flashcard: false,
+  role: "",
+  onAddToCard: null,
+  added: new Set()
 };
 
 /** One in-flight client run per conversation (or temporary chat). */
@@ -4472,7 +4477,14 @@ function renderSideChat() {
     const activity = message.role === "assistant"
       ? renderAssistantActivity(message, { streaming })
       : "";
-    return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}</div>`;
+    const add = message.role === "assistant"
+      && sideChatState.onAddToCard
+      && !streaming
+      && !message.error
+      && text.trim()
+      ? `<button class="side-chat-add-card" type="button" data-add-to-card="${index}"${sideChatState.added.has(index) ? " disabled" : ""}>${sideChatState.added.has(index) ? "Added" : "Add to this card"}</button>`
+      : "";
+    return `<div class="side-chat-message ${message.role}">${activity}${body}${message.error ? `<span class="side-chat-error">${escapeHtml(message.error)}</span>` : ""}${add}</div>`;
   }).join("");
   hydrateKluiBars(els.sideChatMessages);
   // Context is always attached — empty prompt is still sendable.
@@ -4491,11 +4503,18 @@ function closeSideChat() {
   sideChatState.context = "";
   sideChatState.messages = [];
   sideChatState.autoScroll = true;
+  sideChatState.flashcard = false;
+  sideChatState.role = "";
+  sideChatState.onAddToCard = null;
+  sideChatState.added = new Set();
   els.sideChatPanel?.classList.add("hidden");
-  if (els.sideChatInput) els.sideChatInput.value = "";
+  if (els.sideChatInput) {
+    els.sideChatInput.value = "";
+    els.sideChatInput.placeholder = "Ask about this";
+  }
 }
 
-function openSideChat(context, anchorRect) {
+function openSideChat(context, anchorRect, options = {}) {
   if (!selectionActionsEnabled() || !els.sideChatPanel) return;
   sideChatState.abortController?.abort();
   sideChatState.context = String(context || "").trim();
@@ -4503,28 +4522,41 @@ function openSideChat(context, anchorRect) {
   sideChatState.running = false;
   sideChatState.abortController = null;
   sideChatState.autoScroll = true;
+  sideChatState.flashcard = Boolean(options.flashcard);
+  sideChatState.role = options.role || "";
+  sideChatState.onAddToCard = typeof options.onAddToCard === "function" ? options.onAddToCard : null;
+  sideChatState.added = new Set();
   els.sideChatContext.textContent = sideChatState.context.replace(/\s+/g, " ").slice(0, 180);
+  if (els.sideChatInput) {
+    els.sideChatInput.value = options.initialText || "";
+    els.sideChatInput.placeholder = sideChatState.flashcard ? "Ask any doubts." : "Ask about this";
+  }
   els.sideChatPanel.classList.remove("hidden");
   const panelWidth = els.sideChatPanel.offsetWidth || 380;
   const panelHeight = els.sideChatPanel.offsetHeight || 480;
-  const preferredLeft = anchorRect.right + 14;
+  const preferredLeft = (anchorRect?.right || 12) + 14;
   const left = preferredLeft + panelWidth <= window.innerWidth - 12
     ? preferredLeft
-    : Math.max(12, anchorRect.left - panelWidth - 14);
-  const top = Math.min(Math.max(12, anchorRect.top), window.innerHeight - panelHeight - 12);
+    : Math.max(12, (anchorRect?.left || 12) - panelWidth - 14);
+  const top = Math.min(Math.max(12, anchorRect?.top || 12), window.innerHeight - panelHeight - 12);
   els.sideChatPanel.style.left = `${left}px`;
   els.sideChatPanel.style.top = `${Math.max(12, top)}px`;
   renderSideChat();
-  els.sideChatInput.focus();
+  els.sideChatInput?.focus();
+  if (options.send && els.sideChatInput?.value.trim()) void sendSideChatMessage();
 }
 
 async function sendSideChatMessage() {
   if (sideChatState.running || !sideChatState.context) return;
   // Highlighted context is enough — empty input still asks about the selection.
-  const text = els.sideChatInput?.value.trim() || "Explain this.";
+  const text = els.sideChatInput?.value.trim() || (sideChatState.flashcard ? "" : "Explain this.");
+  if (!text) return;
 
+  const lead = sideChatState.flashcard
+    ? "Use this flashcard as context for my questions:\n\n"
+    : "Use this selected excerpt from the main chat as context for my questions:\n\n";
   const history = [
-    { role: "user", content: `Use this selected excerpt from the main chat as context for my questions:\n\n${sideChatState.context}` },
+    { role: "user", content: `${lead}${sideChatState.context}` },
     ...sideChatState.messages.slice(-18).map((message) => ({
       role: message.role,
       content: rawTextContent(message.content)
@@ -4545,12 +4577,12 @@ async function sendSideChatMessage() {
     await streamTemporaryChat(state.session, {
       text,
       messages: history,
-      role: selectedSingleRole(),
+      role: sideChatState.role || selectedSingleRole(),
       provider,
       settings: chatRequestSettings(),
       writingStyle: "concise",
-      agentMode: true,
-      webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off"
+      agentMode: !sideChatState.flashcard,
+      webSearch: sideChatState.flashcard ? "off" : (state.settings.webSearchMode !== "off" ? "auto" : "off")
     }, {
       signal: controller.signal,
       onEvent: (event) => {
@@ -6439,6 +6471,7 @@ studyHub = createStudyHubController({
   fetchStudyPractice,
   fetchStudyQueue,
   createStudyCard,
+  updateStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
@@ -6450,7 +6483,10 @@ studyHub = createStudyHubController({
   downloadAttachment,
   flashCopySuccess,
   syncStudyUrl,
-  loadProjects
+  loadProjects,
+  canUseSideChat: selectionActionsEnabled,
+  openSideChat,
+  closeSideChat
 });
 
 function stopExtractedModulePollers() {
@@ -8188,6 +8224,23 @@ function bindEvents() {
   });
   els.sideChatClose?.addEventListener("click", closeSideChat);
   els.sideChatContext?.addEventListener("click", () => openPastedTextDialog(sideChatState.context));
+  els.sideChatMessages?.addEventListener("click", async (event) => {
+    const btn = event.target.closest("[data-add-to-card]");
+    if (!btn || btn.disabled || !sideChatState.onAddToCard) return;
+    const index = Number(btn.dataset.addToCard);
+    const message = sideChatState.messages[index];
+    const text = message?.role === "assistant" ? rawTextContent(message.content).trim() : "";
+    if (!text) return;
+    btn.disabled = true;
+    btn.textContent = "Adding…";
+    if (await sideChatState.onAddToCard(text)) {
+      sideChatState.added.add(index);
+      btn.textContent = "Added";
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Add to this card";
+    }
+  });
   els.sideChatSend?.addEventListener("click", () => { void sendSideChatMessage(); });
   els.sideChatInput?.addEventListener("input", () => {
     els.sideChatSend.disabled = sideChatState.running || !sideChatState.context;

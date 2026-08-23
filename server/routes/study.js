@@ -100,6 +100,15 @@ function cleanCardSide(value, label) {
   return text;
 }
 
+function publicCard(card) {
+  return {
+    id: card.id,
+    front: card.front,
+    back: card.back,
+    starred: card.starred === true
+  };
+}
+
 function courseMetaObject(course) {
   return course?.meta && typeof course.meta === "object" && !Array.isArray(course.meta) ? course.meta : {};
 }
@@ -560,11 +569,7 @@ export async function handleStudyCourseQueue(req, res, config, courseId) {
     cardBelongsToSource(card, source)
   ));
   sendJson(res, 200, {
-    cards: cards.map((card) => ({
-      id: card.id,
-      front: card.front,
-      back: card.back
-    }))
+    cards: cards.map((card) => publicCard(card))
   });
 }
 
@@ -616,13 +621,27 @@ export async function handleStudyCourseDecks(req, res, config, courseId) {
 }
 
 export async function handleStudyCard(req, res, config, cardId) {
-  if (req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
+  if (req.method !== "DELETE" && req.method !== "PATCH") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const card = await context.db.getStudyCard(context.user.id, cardId, { signal: req.signal });
   if (!card) throw new HttpError(404, "Card not found.");
   await requireCourse(context, card.project_id, req.signal);
-  await context.db.deleteStudyCard(context.user.id, card.id, { signal: req.signal });
-  sendJson(res, 200, { ok: true });
+  if (req.method === "DELETE") {
+    await context.db.deleteStudyCard(context.user.id, card.id, { signal: req.signal });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  const body = await parseJsonBody(req);
+  const patch = {};
+  if ("front" in body) patch.front = cleanCardSide(body.front, "front");
+  if ("back" in body) patch.back = cleanCardSide(body.back, "back");
+  if ("starred" in body) {
+    if (typeof body.starred !== "boolean") throw new HttpError(400, "starred must be a boolean.");
+    patch.starred = body.starred;
+  }
+  if (!Object.keys(patch).length) throw new HttpError(400, "No card fields to update.");
+  const updated = await context.db.updateStudyCard(context.user.id, card.id, patch, { signal: req.signal });
+  sendJson(res, 200, { card: publicCard(updated || { ...card, ...patch }) });
 }
 
 export async function handleStudyQuizById(req, res, config, quizId) {

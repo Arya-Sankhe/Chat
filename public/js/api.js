@@ -300,6 +300,17 @@ export async function deleteStudyCard(session, cardId) {
   return response.json();
 }
 
+export async function updateStudyCard(session, cardId, body) {
+  const response = await apiFetch(`/api/study/cards/${encodeURIComponent(cardId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function createStudyCard(session, courseId, body) {
   const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/cards`, {
     session,

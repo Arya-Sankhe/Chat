@@ -32,6 +32,7 @@ export function createStudyHubController({
   fetchStudyPractice,
   fetchStudyQueue,
   createStudyCard,
+  updateStudyCard,
   deleteStudyCard,
   updateStudyDeck,
   deleteStudyDeck,
@@ -43,7 +44,10 @@ export function createStudyHubController({
   downloadAttachment,
   flashCopySuccess,
   syncStudyUrl,
-  loadProjects
+  loadProjects,
+  canUseSideChat,
+  openSideChat,
+  closeSideChat
 }) {
   const TABS = ["materials", "chat", "practice"];
   const CREATE_FILE_CAP = 5;
@@ -146,6 +150,12 @@ export function createStudyHubController({
 
   function kebabIcon() {
     return `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>`;
+  }
+
+  function starIcon(filled) {
+    return filled
+      ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 3.2 2.5 5.9 6.4.6-4.9 4.2 1.5 6.3L12 16.8 6.5 20.2l1.5-6.3-4.9-4.2 6.4-.6z"/></svg>`
+      : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.2 2.5 5.9 6.4.6-4.9 4.2 1.5 6.3L12 16.8 6.5 20.2l1.5-6.3-4.9-4.2 6.4-.6z"/></svg>`;
   }
 
   function sketchStroke(extra = "") {
@@ -1681,6 +1691,7 @@ export function createStudyHubController({
       root.setAttribute("aria-hidden", "true");
     }
     document.body.classList.remove("study-session-open");
+    closeSideChat?.();
     closeNote();
     if (reviewed) render();
   }
@@ -1714,21 +1725,73 @@ export function createStudyHubController({
       </span>`;
   }
 
+  function starredToggleMarkup(session) {
+    const on = Boolean(session.starredOnly);
+    return `
+      <button class="study-chip-btn study-starred-toggle${on ? " is-on" : ""}" type="button" data-starred-only aria-pressed="${on ? "true" : "false"}">
+        ${sketchStroke()}${starIcon(on)}<span class="study-chip-label">Starred</span>
+      </button>`;
+  }
+
+  function askMarkup() {
+    if (!canUseSideChat?.()) return "";
+    return `
+      <form class="study-ask" data-study-ask>
+        <input class="study-ask-input" type="text" maxlength="2000" placeholder="Ask any doubts." autocomplete="off" spellcheck="true">
+        <button class="study-ask-send" type="submit" aria-label="Send">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
+        </button>
+      </form>`;
+  }
+
+  function reviewEditMarkup(card) {
+    return `
+      <div class="study-edit">
+        <div class="study-edit-pair">
+          <div class="study-edit-card">
+            ${sketchStroke()}
+            <span class="study-kicker">Question</span>
+            <div class="study-edit-text" contenteditable="true" role="textbox" data-edit-side="front" spellcheck="true">${escapeHtml(card.front || "")}</div>
+          </div>
+          <div class="study-edit-card">
+            ${sketchStroke()}
+            <span class="study-kicker">Answer</span>
+            <div class="study-edit-text" contenteditable="true" role="textbox" data-edit-side="back" spellcheck="true">${escapeHtml(card.back || "")}</div>
+          </div>
+        </div>
+        <div class="study-edit-actions">
+          <button class="study-chip-btn" type="button" data-edit-cancel>${sketchStroke()}<span class="study-chip-label">Cancel</span></button>
+          <button class="study-primary-btn" type="button" data-edit-save>${sketchStroke()}<span class="study-chip-label">Save</span></button>
+        </div>
+      </div>`;
+  }
+
   function reviewCardMarkup(session) {
+    const emptyLabel = session.starredOnly ? "No starred cards" : "No cards left";
+    const emptyKicker = session.starredOnly ? "Starred" : "Deck empty";
     if (!session.cards.length) {
       return `
+        <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
+        ${starredToggleMarkup(session)}
         <div class="study-session-end">
-          <p class="study-kicker">Deck empty</p>
-          <strong>No cards left</strong>
+          <p class="study-kicker">${emptyKicker}</p>
+          <strong>${emptyLabel}</strong>
           <button class="study-primary-btn" type="button" data-close-session>${sketchStroke()}Close</button>
         </div>`;
     }
     const card = session.cards[session.index];
+    if (session.editing) {
+      return `
+        <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
+        ${reviewEditMarkup(card)}`;
+    }
     const menuOpen = quizMenuKey === "review";
     const atStart = session.index === 0;
     const atEnd = session.index >= session.cards.length - 1;
+    const starred = Boolean(card.starred);
     return `
       <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
+      ${starredToggleMarkup(session)}
       <p class="study-review-hint">Press “Space” to flip, “← / →” to navigate</p>
       <div class="study-review">
         <div class="study-review-glow" aria-hidden="true"></div>
@@ -1739,24 +1802,33 @@ export function createStudyHubController({
               ${reviewFace(card, session, "back")}
             </span>
           </button>
-          <div class="study-card-menu-wrap study-review-menu">
-            <button class="study-icon-btn" type="button" data-toggle-review-menu aria-label="Set options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
-              ${kebabIcon()}
+          <div class="study-review-tools">
+            <button class="study-icon-btn study-review-star${starred ? " is-on" : ""}" type="button" data-review-star aria-pressed="${starred ? "true" : "false"}" aria-label="${starred ? "Unstar card" : "Star card"}">
+              ${starIcon(starred)}
             </button>
-            <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
-              <button class="study-menu-item" type="button" role="menuitem" data-review-restart>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
-                Restart set
+            <div class="study-card-menu-wrap study-review-menu">
+              <button class="study-icon-btn" type="button" data-toggle-review-menu aria-label="Set options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
+                ${kebabIcon()}
               </button>
-              <button class="study-menu-item" type="button" role="menuitem" data-review-shuffle>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
-                Shuffle set
-              </button>
-              <hr class="study-menu-sep">
-              <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-review-delete>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
-                Delete flashcard
-              </button>
+              <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
+                <button class="study-menu-item" type="button" role="menuitem" data-review-edit>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  Edit card
+                </button>
+                <button class="study-menu-item" type="button" role="menuitem" data-review-restart>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+                  Restart set
+                </button>
+                <button class="study-menu-item" type="button" role="menuitem" data-review-shuffle>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
+                  Shuffle set
+                </button>
+                <hr class="study-menu-sep">
+                <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-review-delete>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                  Delete flashcard
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1776,6 +1848,7 @@ export function createStudyHubController({
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
           </button>
         </div>
+        ${askMarkup()}
       </div>`;
   }
 
@@ -1793,19 +1866,182 @@ export function createStudyHubController({
         showToast("This deck has no cards yet.");
         return;
       }
+      const list = (cards || []).map((card) => ({ ...card, starred: card.starred === true }));
       reviewSession = {
-        cards,
-        original: cards.slice(),
+        cards: list.slice(),
+        original: list.slice(),
         index: 0,
         flipped: false,
         reviewed: 0,
         counts: { 1: 0, 2: 0, 3: 0, 4: 0 },
         marks: {},
-        deckId: deck?.id || ""
+        deckId: deck?.id || "",
+        starredOnly: false,
+        editing: false
       };
       renderReview();
     } catch (error) {
       showToast(error.message || "Could not start review.");
+    }
+  }
+
+  function visibleReviewCards() {
+    return reviewSession.starredOnly
+      ? reviewSession.original.filter((card) => card.starred)
+      : reviewSession.original.slice();
+  }
+
+  function syncVisibleCards(keepId) {
+    const next = visibleReviewCards();
+    reviewSession.cards = next;
+    const found = keepId ? next.findIndex((card) => card.id === keepId) : -1;
+    reviewSession.index = found >= 0 ? found : Math.min(reviewSession.index, Math.max(0, next.length - 1));
+    if (reviewSession.index < 0) reviewSession.index = 0;
+  }
+
+  function patchReviewCard(id, patch) {
+    for (const list of [reviewSession.cards, reviewSession.original]) {
+      const card = list.find((item) => item.id === id);
+      if (card) Object.assign(card, patch);
+    }
+  }
+
+  function cardAskContext(card) {
+    return `Question: ${card.front || ""}\n\nAnswer: ${card.back || ""}`;
+  }
+
+  function resetCardAsk() {
+    closeSideChat?.();
+  }
+
+  async function saveCardPatch(card, patch) {
+    const payload = await updateStudyCard(state.session, card.id, patch);
+    const next = payload?.card || {};
+    patchReviewCard(card.id, {
+      front: next.front ?? patch.front ?? card.front,
+      back: next.back ?? patch.back ?? card.back,
+      starred: next.starred ?? patch.starred ?? card.starred
+    });
+  }
+
+  function toggleStarredOnly() {
+    if (!reviewSession) return;
+    const keepId = reviewSession.cards[reviewSession.index]?.id;
+    reviewSession.starredOnly = !reviewSession.starredOnly;
+    reviewSession.flipped = false;
+    reviewSession.editing = false;
+    closeReviewMenu();
+    resetCardAsk();
+    syncVisibleCards(keepId);
+    renderReview();
+  }
+
+  function paintReviewStar(card) {
+    const btn = sessionRoot()?.querySelector("[data-review-star]");
+    if (!btn || !card) return;
+    const on = Boolean(card.starred);
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", String(on));
+    btn.setAttribute("aria-label", on ? "Unstar card" : "Star card");
+    btn.innerHTML = starIcon(on);
+  }
+
+  async function toggleReviewStar() {
+    const card = reviewSession?.cards[reviewSession.index];
+    if (!card) return;
+    const starred = !card.starred;
+    card.starred = starred;
+    paintReviewStar(card);
+    try {
+      await saveCardPatch(card, { starred });
+      if (reviewSession.starredOnly && !starred) {
+        reviewSession.flipped = false;
+        syncVisibleCards();
+        renderReview();
+      }
+    } catch (error) {
+      card.starred = !starred;
+      paintReviewStar(card);
+      showToast(error.message || "Could not star card.");
+    }
+  }
+
+  function openReviewEdit() {
+    if (!reviewSession?.cards.length) return;
+    closeReviewMenu();
+    resetCardAsk();
+    reviewSession.editing = true;
+    renderReview();
+  }
+
+  function cancelReviewEdit() {
+    if (!reviewSession) return;
+    reviewSession.editing = false;
+    renderReview();
+  }
+
+  function editSideText(side) {
+    return String(sessionRoot()?.querySelector(`[data-edit-side="${side}"]`)?.innerText || "").trim();
+  }
+
+  async function saveReviewEdit() {
+    const card = reviewSession?.cards[reviewSession.index];
+    if (!card) return;
+    const front = editSideText("front");
+    const back = editSideText("back");
+    if (!front || !back) {
+      showToast("Question and answer can’t be empty.");
+      return;
+    }
+    if (front.length > 2000 || back.length > 2000) {
+      showToast("That card is too long.");
+      return;
+    }
+    try {
+      await saveCardPatch(card, { front, back });
+      reviewSession.editing = false;
+      renderReview();
+      showToast("Card saved.");
+    } catch (error) {
+      showToast(error.message || "Could not save card.");
+    }
+  }
+
+  function sendCardAsk() {
+    if (!canUseSideChat?.() || !openSideChat) return;
+    const card = reviewSession?.cards[reviewSession.index];
+    const form = sessionRoot()?.querySelector("[data-study-ask]");
+    const input = form?.querySelector(".study-ask-input");
+    const text = input?.value.trim();
+    if (!card || !text) return;
+    const rect = (form || sessionRoot()?.querySelector(".study-review-stage"))?.getBoundingClientRect();
+    input.value = "";
+    openSideChat(cardAskContext(card), rect, {
+      flashcard: true,
+      role: "think",
+      initialText: text,
+      send: true,
+      onAddToCard: addReplyToCard
+    });
+  }
+
+  async function addReplyToCard(text) {
+    const card = reviewSession?.cards[reviewSession.index];
+    const note = String(text || "").trim();
+    if (!card || !note) return false;
+    const back = card.back?.trim() ? `${card.back.trim()}\n\n${note}` : note;
+    if (back.length > 2000) {
+      showToast("That note is too long for this card.");
+      return false;
+    }
+    try {
+      await saveCardPatch(card, { back });
+      if (!reviewSession?.editing) renderReview();
+      showToast("Added to card");
+      return true;
+    } catch (error) {
+      showToast(error.message || "Could not add to card.");
+      return false;
     }
   }
 
@@ -1814,7 +2050,7 @@ export function createStudyHubController({
   }
 
   function flipReview() {
-    if (!reviewSession?.cards.length || reviewSession.animating || confirmOpen()) return;
+    if (!reviewSession?.cards.length || reviewSession.animating || reviewSession.editing || confirmOpen()) return;
     reviewSession.flipped = !reviewSession.flipped;
     sound.flip();
     const root = sessionRoot();
@@ -1860,12 +2096,13 @@ export function createStudyHubController({
   }
 
   function navReview(delta) {
-    if (!reviewSession?.cards.length || reviewSession.animating) return;
+    if (!reviewSession?.cards.length || reviewSession.animating || reviewSession.editing) return;
     const next = reviewSession.index + Number(delta);
     if (next < 0 || next >= reviewSession.cards.length) return;
     reviewSession.index = next;
     reviewSession.flipped = false;
     closeReviewMenu();
+    resetCardAsk();
     renderReview();
   }
 
@@ -1873,8 +2110,10 @@ export function createStudyHubController({
     if (!reviewSession) return;
     clearTimeout(reviewSession.animTimer);
     reviewSession.animating = false;
+    reviewSession.editing = false;
     closeReviewMenu();
-    reviewSession.cards = reviewSession.original.slice();
+    resetCardAsk();
+    reviewSession.cards = visibleReviewCards();
     reviewSession.index = 0;
     reviewSession.flipped = false;
     reviewSession.reviewed = 0;
@@ -1884,10 +2123,11 @@ export function createStudyHubController({
   }
 
   function shuffleReview() {
-    if (!reviewSession?.cards.length) return;
+    if (!reviewSession?.cards.length || reviewSession.editing) return;
     clearTimeout(reviewSession.animTimer);
     reviewSession.animating = false;
     closeReviewMenu();
+    resetCardAsk();
     const cards = reviewSession.cards.slice();
     for (let i = cards.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -1903,17 +2143,14 @@ export function createStudyHubController({
     const card = reviewSession?.cards[reviewSession.index];
     if (!card) return;
     closeReviewMenu();
-    openDeleteConfirm({
-      title: "Delete flashcard?",
-      body: "Delete this card from the deck?",
-      onConfirm: () => deleteReviewCard(card)
-    });
+    void deleteReviewCard(card);
   }
 
   async function deleteReviewCard(card) {
     if (!reviewSession || !card) return;
     try {
       await deleteStudyCard(state.session, card.id);
+      resetCardAsk();
       const mark = reviewSession.marks[card.id];
       if (mark) {
         reviewSession.counts[mark] -= 1;
@@ -1964,7 +2201,7 @@ export function createStudyHubController({
   }
 
   function gradeReview(rating) {
-    if (!reviewSession?.cards.length || reviewSession.animating) return;
+    if (!reviewSession?.cards.length || reviewSession.animating || reviewSession.editing) return;
     const card = reviewSession.cards[reviewSession.index];
     const value = Number(rating);
     if (!card || (value !== 1 && value !== 3)) return;
@@ -2255,6 +2492,11 @@ export function createStudyHubController({
       return;
     }
     if (reviewSession) {
+      if (event.target.closest("[data-starred-only]")) return toggleStarredOnly();
+      if (event.target.closest("[data-review-star]")) return void toggleReviewStar();
+      if (event.target.closest("[data-review-edit]")) return openReviewEdit();
+      if (event.target.closest("[data-edit-cancel]")) return cancelReviewEdit();
+      if (event.target.closest("[data-edit-save]")) return void saveReviewEdit();
       if (event.target.closest("[data-toggle-review-menu]")) {
         toggleReviewMenu();
         return;
@@ -2263,6 +2505,8 @@ export function createStudyHubController({
       if (event.target.closest("[data-review-shuffle]")) return shuffleReview();
       if (event.target.closest("[data-review-delete]")) return confirmDeleteCard();
       if (quizMenuKey === "review" && !event.target.closest(".study-review-menu")) closeReviewMenu();
+      if (reviewSession.editing) return;
+      if (event.target.closest("[data-study-ask]")) return;
       if (event.target.closest("[data-study-flip]")) {
         flipReview();
         return;
@@ -2311,6 +2555,8 @@ export function createStudyHubController({
   function handleSessionKey(event) {
     if (reviewSession?.cards.length) {
       if (confirmOpen()) return;
+      if (event.target.closest?.("input, textarea, [contenteditable=true]")) return;
+      if (reviewSession.editing) return;
       if (event.key === " " || event.code === "Space") {
         event.preventDefault();
         flipReview();
@@ -2408,6 +2654,10 @@ export function createStudyHubController({
   function handleEscape() {
     if (reviewSession && quizMenuKey === "review") {
       closeReviewMenu();
+      return true;
+    }
+    if (reviewSession?.editing) {
+      cancelReviewEdit();
       return true;
     }
     if (confirmOpen()) return false;
@@ -2643,6 +2893,11 @@ export function createStudyHubController({
       if (event.target === els.studyNoteOverlay) closeNote();
     });
     els.studySession?.addEventListener("click", (event) => { void handleSessionClick(event); });
+    els.studySession?.addEventListener("submit", (event) => {
+      if (!event.target.closest("[data-study-ask]")) return;
+      event.preventDefault();
+      sendCardAsk();
+    });
     document.addEventListener("keydown", (event) => {
       if (!reviewSession && !quizSession) return;
       handleSessionKey(event);

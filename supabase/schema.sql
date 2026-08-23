@@ -316,11 +316,15 @@ create table if not exists public.study_cards (
   deck_key text,
   front text not null,
   back text not null,
+  starred boolean not null default false,
   created_at timestamptz not null default now()
 );
 
 alter table public.study_cards
   add column if not exists deck_key text;
+
+alter table public.study_cards
+  add column if not exists starred boolean not null default false;
 
 create table if not exists public.study_quizzes (
   id uuid primary key default gen_random_uuid(),

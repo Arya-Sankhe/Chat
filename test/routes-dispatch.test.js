@@ -184,7 +184,8 @@ const ROUTES = [
   { path: "/api/study/courses/course-1/decks", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/queue", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/courses/course-1/cards", method: "POST", authKind: "chat", enforced405: "GET" },
-  { path: "/api/study/cards/card-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/cards/card-1", method: "PATCH", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/cards/card-1", method: "DELETE", authKind: "chat" },
   { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/notes/note-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
@@ -2028,6 +2029,7 @@ test("study queue returns every card in a deck", async () => {
   const cards = res.json().cards;
   assert.deepEqual(cards.map((card) => card.id), ["later", "due"]);
   assert.equal(cards[0].due, undefined);
+  assert.equal(cards[0].starred, false);
 });
 
 test("study queue can load a combo deck by deckKey", async () => {
@@ -2197,6 +2199,34 @@ test("study course card create returns 201 and rejects an empty front", async ()
   assert.equal(created[2][0].document_file_id, null);
   assert.equal(created[2][0].note_id, null);
   assert.equal(created[2][0].deck_key, "combo_11111111-1111-1111-1111-111111111111");
+});
+
+test("study card patch can star and rewrite a card", async () => {
+  const patches = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyCard() {
+        return { id: "card-1", project_id: "course-1", front: "Q", back: "A", starred: false };
+      },
+      async getProject() {
+        return { id: "course-1", kind: "course", name: "Biology" };
+      },
+      async updateStudyCard(_userId, id, patch) {
+        patches.push({ id, patch });
+        return { id, project_id: "course-1", front: "Q", back: "A", ...patch };
+      }
+    }
+  });
+
+  const ok = await dispatch(authReadyConfig, {
+    method: "PATCH",
+    path: "/api/study/cards/card-1",
+    body: { starred: true },
+    overrides
+  });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().card.starred, true);
+  assert.deepEqual(patches, [{ id: "card-1", patch: { starred: true } }]);
 });
 
 test("study card delete is scoped to the card owner", async () => {

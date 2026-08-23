@@ -84,6 +84,7 @@ test("review session uses tick/x controls and a three-item set menu", () => {
   assert.match(hub, /data-review-shuffle/);
   assert.match(hub, /data-review-delete/);
   assert.match(hub, /deleteStudyCard/);
+  assert.doesNotMatch(hub, /Delete this card from the deck\?/);
   assert.doesNotMatch(hub, /reviewStudyCard/);
   assert.match(hub, /function playGradeAnim\(/);
   assert.match(hub, /classList.add\(value === 3 \? "is-got" : "is-miss"\)/);
@@ -91,8 +92,35 @@ test("review session uses tick/x controls and a three-item set menu", () => {
   assert.doesNotMatch(hub, /data-study-grade="4"/);
   assert.doesNotMatch(hub, /Download set/);
   assert.doesNotMatch(hub, /Add new flashcard/);
-  assert.doesNotMatch(hub, /Edit flashcard/);
+  assert.match(hub, /data-review-edit/);
+  assert.match(hub, /Edit card/);
   assert.match(api, /\/api\/study\/cards\/\$\{encodeURIComponent\(cardId\)\}/);
+});
+
+test("review can star cards in the current deck and edit both sides", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const api = readFileSync(resolve(publicDir, "js/api.js"), "utf8");
+  const schema = readFileSync(resolve(here, "../supabase/schema.sql"), "utf8");
+  const routes = readFileSync(resolve(here, "../server/routes/study.js"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.match(schema, /starred boolean not null default false/);
+  assert.match(routes, /req\.method !== "DELETE" && req\.method !== "PATCH"/);
+  assert.match(routes, /patch\.starred = body\.starred/);
+  assert.match(api, /method: "PATCH"/);
+  assert.match(hub, /data-review-star/);
+  assert.match(hub, /data-starred-only/);
+  assert.match(hub, /function paintReviewStar\(/);
+  assert.match(hub, /function toggleStarredOnly\(/);
+  assert.match(hub, /data-edit-side="front"/);
+  assert.match(hub, /data-edit-side="back"/);
+  assert.match(hub, /Ask any doubts\./);
+  assert.match(hub, /canUseSideChat\?/);
+  assert.match(hub, /role: "think"/);
+  assert.match(hub, /onAddToCard: addReplyToCard/);
+  assert.match(css, /study-starred-toggle/);
+  assert.match(css, /body\.capacitor-native \.study-ask/);
+  assert.match(css, /study-session \.study-ask-input:focus-visible/);
+  assert.match(css, /study-edit-card \.study-sketch-stroke/);
 });
 
 test("materials quiz still uses a count menu", () => {

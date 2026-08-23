@@ -790,6 +790,25 @@ test("deleteStudyCardsForSource can delete a combo deck by deck_key", async () =
   });
 });
 
+test("updateStudyCard PATCHes one card scoped to the user", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "PATCH");
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_cards");
+    assert.equal(parsed.searchParams.get("id"), "eq.card_1");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.equal(options.headers.prefer, "return=representation");
+    const body = JSON.parse(options.body);
+    assert.equal(body.starred, true);
+    return jsonResponse([{ id: "card_1", starred: true, front: "Q", back: "A" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const card = await db.updateStudyCard("user_1", "card_1", { starred: true });
+    assert.equal(card.starred, true);
+  });
+});
+
 test("createStudyCards bulk POSTs card rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");
