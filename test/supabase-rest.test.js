@@ -119,6 +119,40 @@ test("getLatestSubscription orders subscriptions by updated_at desc", async () =
   });
 });
 
+test("content report helpers query content_reports and messages", async () => {
+  const calls = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body });
+    expectServiceHeaders(options.headers, { withBody: Boolean(options.body) });
+    if (String(url).includes("/rest/v1/messages")) {
+      return jsonResponse([{ id: "00000000-0000-4000-8000-000000000001", content: "hi" }]);
+    }
+    if (String(options.method).toUpperCase() === "POST") {
+      return jsonResponse([{ id: "rep_1", status: "open", snippet: "hi" }]);
+    }
+    if (String(options.method).toUpperCase() === "PATCH") {
+      return jsonResponse([{ id: "rep_1", status: "done" }]);
+    }
+    return jsonResponse([{ id: "rep_1", status: "open" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const message = await db.getMessage("user_1", "00000000-0000-4000-8000-000000000001");
+    assert.equal(message.id, "00000000-0000-4000-8000-000000000001");
+    assert.match(calls[0].url, /\/rest\/v1\/messages\?/);
+    assert.match(calls[0].url, /user_id=eq\.user_1/);
+    const existing = await db.getOpenContentReport("user_1", "00000000-0000-4000-8000-000000000001");
+    assert.equal(existing.status, "open");
+    assert.match(calls[1].url, /\/rest\/v1\/content_reports\?/);
+    assert.match(calls[1].url, /status=eq\.open/);
+    const created = await db.createContentReport({ reporter_id: "user_1", snippet: "hi", status: "open" });
+    assert.equal(created.id, "rep_1");
+    assert.equal(calls[2].method, "POST");
+    const resolved = await db.resolveContentReport("rep_1", "admin_1");
+    assert.equal(resolved.status, "done");
+    assert.equal(calls[3].method, "PATCH");
+  });
+});
+
 test("listPaymentRequests scopes payment_requests to the user", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");

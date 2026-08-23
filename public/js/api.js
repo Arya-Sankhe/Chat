@@ -113,6 +113,28 @@ export async function rejectAdminPayment(session, id) {
   return response.json();
 }
 
+export async function createContentReport(session, messageId) {
+  const response = await apiFetch("/api/reports", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ messageId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function resolveAdminReport(session, id) {
+  const response = await apiFetch(`/api/admin/reports/${encodeURIComponent(id)}/done`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchMe(session) {
   const response = await apiFetch("/api/me", { session });
   if (!response.ok) throw new Error(await readProblem(response));

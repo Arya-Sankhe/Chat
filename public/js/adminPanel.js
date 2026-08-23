@@ -5,12 +5,14 @@ export function createAdminPanel({
   updateAdminSettings,
   approveAdminPayment,
   rejectAdminPayment,
+  resolveAdminReport,
   escapeHtml,
   isAdminUser,
   showToast,
   saveSettings,
   syncSettingsInputs
 }) {
+  let queueTab = "payments";
   function formatAdminCredits(value) {
     const n = Number(value || 0);
     if (!Number.isFinite(n)) return "0";
@@ -34,6 +36,7 @@ export function createAdminPanel({
     const totals = summary?.totals || {};
     const plans = Array.isArray(summary?.plans) ? summary.plans : [];
     const pendingPayments = Array.isArray(summary?.pendingPayments) ? summary.pendingPayments : [];
+    const openReports = Array.isArray(summary?.openReports) ? summary.openReports : [];
     const users = Array.isArray(summary?.users) ? summary.users : [];
     const generated = summary?.generatedAt ? new Date(summary.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
     elements.adminOutput.innerHTML = `
@@ -66,7 +69,11 @@ export function createAdminPanel({
         <div class="admin-row-metric">${formatAdminCredits(plan.creditsUsed)} cr</div>
       </div>
     `).join("") : `<div class="admin-row-sub">No plan data yet.</div>`}
-    <div class="admin-subtitle">Pending Ziina Payments</div>
+    <div class="admin-queue-tabs">
+      <button class="admin-queue-tab${queueTab === "payments" ? " active" : ""}" type="button" data-admin-tab="payments">Payments</button>
+      <button class="admin-queue-tab${queueTab === "reports" ? " active" : ""}" type="button" data-admin-tab="reports">Reports${openReports.length ? ` (${openReports.length})` : ""}</button>
+    </div>
+    <div data-admin-panel="payments"${queueTab === "payments" ? "" : " hidden"}>
     ${pendingPayments.length ? pendingPayments.map((payment) => `
       <div class="admin-payment-row">
         <div>
@@ -80,6 +87,21 @@ export function createAdminPanel({
         </div>
       </div>
     `).join("") : `<div class="admin-row-sub">No pending Ziina payments.</div>`}
+    </div>
+    <div data-admin-panel="reports"${queueTab === "reports" ? "" : " hidden"}>
+    ${openReports.length ? openReports.map((report) => `
+      <div class="admin-payment-row">
+        <div>
+          <div class="admin-row-title" title="${escapeHtml(report.email || "")}">${escapeHtml(report.email || "Unknown")}</div>
+          <div class="admin-row-sub" title="${escapeHtml(report.snippet || "")}">${escapeHtml(report.snippet || "(no text)")}</div>
+        </div>
+        <div class="admin-payment-actions">
+          <div class="admin-row-metric">${escapeHtml(formatAdminDate(report.createdAt))}</div>
+          <button class="admin-small-btn" type="button" data-resolve-report="${escapeHtml(report.id)}">Done</button>
+        </div>
+      </div>
+    `).join("") : `<div class="admin-row-sub">No open reports.</div>`}
+    </div>
     <div class="admin-subtitle">Top Users</div>
     ${users.length ? users.map((user) => `
       <div class="admin-user-row">
@@ -139,6 +161,16 @@ export function createAdminPanel({
     }
   }
 
+  function setAdminQueueTab(tab) {
+    queueTab = tab === "reports" ? "reports" : "payments";
+    elements.adminOutput?.querySelectorAll("[data-admin-tab]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.adminTab === queueTab);
+    });
+    elements.adminOutput?.querySelectorAll("[data-admin-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.adminPanel !== queueTab;
+    });
+  }
+
   async function updateAdminPayment(id, action) {
     if (!id) return;
     try {
@@ -150,10 +182,22 @@ export function createAdminPanel({
     }
   }
 
+  async function resolveReport(id) {
+    if (!id) return;
+    try {
+      await resolveAdminReport(state.session, id);
+      await loadAdminDashboard();
+    } catch (err) {
+      showToast(err.message);
+    }
+  }
+
   return {
     renderAdminDashboard,
     loadAdminDashboard,
     saveGlobalSystemPrompt,
-    updateAdminPayment
+    updateAdminPayment,
+    setAdminQueueTab,
+    resolveReport
   };
 }

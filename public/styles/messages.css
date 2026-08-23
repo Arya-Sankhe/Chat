@@ -603,7 +603,8 @@ body.capacitor-native .side-chat-panel {
 
 }
 
-.msg-copy-btn--icon {
+.msg-copy-btn--icon,
+.msg-report-btn {
 
   width: 32px;
 
@@ -613,6 +614,10 @@ body.capacitor-native .side-chat-panel {
 
   padding: 0;
 
+}
+
+.msg-report-btn:hover {
+  color: var(--danger);
 }
 
 .message:hover .msg-copy-btn,

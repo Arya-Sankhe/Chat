@@ -1348,6 +1348,31 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 }
 
+.admin-queue-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0 8px;
+}
+
+.admin-queue-tab {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-queue-tab.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
 .admin-plan-row,
 
 .admin-user-row {

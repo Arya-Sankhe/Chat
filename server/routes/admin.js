@@ -114,6 +114,15 @@ function buildAdminDashboardSummary(raw, config) {
         status: payment.status,
         createdAt: payment.created_at
       })),
+    openReports: (Array.isArray(raw?.reports) ? raw.reports : [])
+      .filter((report) => report.status === "open")
+      .slice(0, 100)
+      .map((report) => ({
+        id: report.id,
+        email: report.reporter_email || profileEmails.get(report.reporter_id) || "Unknown",
+        snippet: report.snippet || "",
+        createdAt: report.created_at
+      })),
     plans: Array.from(planCounts.values())
       .map((plan) => ({ ...plan, creditsUsed: roundCredits(plan.creditsUsed) }))
       .sort((a, b) => b.activeUsers - a.activeUsers || b.users - a.users || a.name.localeCompare(b.name)),

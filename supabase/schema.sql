@@ -112,6 +112,19 @@ create table if not exists public.payment_requests (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.content_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid references public.profiles(id) on delete set null,
+  reporter_email text not null default '',
+  message_id uuid references public.messages(id) on delete set null,
+  conversation_id uuid references public.conversations(id) on delete set null,
+  snippet text not null default '',
+  status text not null default 'open' check (status in ('open', 'done')),
+  resolved_by uuid references public.profiles(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -514,6 +527,8 @@ create index if not exists research_runs_user_message_idx on public.research_run
 create index if not exists research_runs_assistant_message_idx on public.research_runs (assistant_message_id) where assistant_message_id is not null;
 create index if not exists payment_requests_user_created_idx on public.payment_requests (user_id, created_at desc);
 create index if not exists payment_requests_status_created_idx on public.payment_requests (status, created_at desc);
+create index if not exists content_reports_status_created_idx on public.content_reports (status, created_at desc);
+create index if not exists content_reports_open_message_idx on public.content_reports (reporter_id, message_id) where status = 'open';
 
 grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
@@ -521,7 +536,7 @@ grant select on public.profiles, public.subscriptions, public.payment_requests, 
 grant select on public.research_runs to authenticated;
 grant select on public.study_notes, public.study_cards, public.study_quizzes to authenticated;
 grant select on public.usage_api_weekly to authenticated;
-grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache to service_role;
+grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.content_reports, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache to service_role;
 grant all on public.research_runs to service_role;
 grant all on public.study_notes, public.study_cards, public.study_quizzes to service_role;
 
@@ -530,6 +545,7 @@ alter table public.app_settings enable row level security;
 alter table public.plans enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.payment_requests enable row level security;
+alter table public.content_reports enable row level security;
 alter table public.projects enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;

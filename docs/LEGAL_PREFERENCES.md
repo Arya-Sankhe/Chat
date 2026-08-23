@@ -225,6 +225,18 @@ When we do build it: send a deletion confirmation from `DELETE /api/me` (capture
 
 ---
 
+## 17. In-app Report + admin queue — done in code
+
+**Decision:** Report on a message saves a `content_reports` ticket. Admin dashboard has Payments / Reports tabs (open → Done). No 24h/48h in Terms until we staff the queue and can keep the clock.
+
+Must exist before we apply to Apple/Play. Without it the listing is rejected.
+
+Storage is not in the account/admin drawer. File management stays in Settings → Storage.
+
+Skipped: reason categories, Maileroo notify, cooling-off, typed confirm. Add if a store or counsel requires it.
+
+---
+
 ## Still open (code list)
 
-17–22 as previously listed
+18–22 as previously listed

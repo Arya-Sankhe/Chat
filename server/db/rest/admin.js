@@ -29,7 +29,7 @@ export async function upsertAppSetting(client, key, value, updatedBy, { signal }
 }
 
 export async function adminSummary(client, { signal } = {}) {
-  const [profiles, subscriptions, usageRows, paymentRequests] = await Promise.all([
+  const [profiles, subscriptions, usageRows, paymentRequests, reports] = await Promise.all([
     client.request("profiles", {
       query: { select: "id,email,role,created_at", order: "created_at.desc", limit: "500" },
       signal
@@ -57,8 +57,17 @@ export async function adminSummary(client, { signal } = {}) {
         limit: "100"
       },
       signal
+    }),
+    client.request("content_reports", {
+      query: {
+        status: "eq.open",
+        select: "id,reporter_id,reporter_email,snippet,status,created_at",
+        order: "created_at.desc",
+        limit: "100"
+      },
+      signal
     })
   ]);
 
-  return { profiles, subscriptions, usage: usageRows, paymentRequests };
+  return { profiles, subscriptions, usage: usageRows, paymentRequests, reports };
 }

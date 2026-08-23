@@ -4,6 +4,7 @@ import {
   clearMemory,
   cancelResearch,
   cancelPendingDocumentTurn,
+  createContentReport,
   createConversation,
   createProject,
   createResearch,
@@ -37,6 +38,7 @@ import {
   searchChats,
   saveEditableDocument,
   rejectAdminPayment,
+  resolveAdminReport,
   requestClarifications,
   completeUpload,
   presignUpload,
@@ -727,7 +729,6 @@ const els = {
   accountDrawer: document.querySelector("#accountDrawer"),
   closeAccountButton: document.querySelector("#closeAccountButton"),
   accountInfo: document.querySelector("#accountInfo"),
-  accountStorageList: document.querySelector("#accountStorageList"),
   signOutButton: document.querySelector("#signOutButton"),
   adminSection: document.querySelector("#adminSection"),
   loadAdminButton: document.querySelector("#loadAdminButton"),
@@ -2528,9 +2529,6 @@ function openStorageDrawer() {
   closeProfileMenu();
   document.body.classList.remove("sidebar-open");
   renderAccount();
-  if (els.accountStorageList) {
-    els.accountStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
-  }
   els.accountDrawer.classList.add("open");
   els.accountDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -2541,7 +2539,6 @@ function openStorageDrawer() {
       renderProfileMenu();
     })
     .catch(() => {});
-  loadAccountStorage();
 }
 
 function openAdminDrawer() {
@@ -2792,14 +2789,12 @@ function storageItemById(id) {
 }
 
 async function loadAccountStorage() {
-  if (!state.session || (!els.accountStorageList && !els.settingsStorageList)) return;
+  if (!state.session || !els.settingsStorageList) return;
   try {
     state.storage = await fetchStorage(state.session);
     renderAccountStorageList();
   } catch (error) {
-    const markup = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
-    if (els.accountStorageList) els.accountStorageList.innerHTML = markup;
-    if (els.settingsStorageList) els.settingsStorageList.innerHTML = markup;
+    els.settingsStorageList.innerHTML = `<p class="storage-list-empty">${escapeHtml(error.message || "Could not load files.")}</p>`;
   }
 }
 
@@ -2815,13 +2810,13 @@ function refreshAccountStorage() {
 }
 
 function renderAccountStorageList() {
+  if (!els.settingsStorageList) return;
   const items = state.storage?.items || [];
-  const targets = [els.accountStorageList, els.settingsStorageList].filter(Boolean);
   if (!items.length) {
-    targets.forEach((target) => { target.innerHTML = `<p class="storage-list-empty">No files yet.</p>`; });
+    els.settingsStorageList.innerHTML = `<p class="storage-list-empty">No files yet.</p>`;
     return;
   }
-  const markup = items.map((item) => {
+  els.settingsStorageList.innerHTML = items.map((item) => {
     const actions = item.canDelete
       ? `<button class="admin-small-btn danger" type="button" data-storage-delete-file="${escapeHtml(item.id)}">Delete</button>`
       : item.conversationId
@@ -2837,7 +2832,6 @@ function renderAccountStorageList() {
         <div class="storage-row-actions">${actions}</div>
       </div>`;
   }).join("");
-  targets.forEach((target) => { target.innerHTML = markup; });
 }
 
 function handleAccountStorageClick(event) {
@@ -5194,19 +5188,43 @@ function messageCopyButton(msg, { iconOnly = false } = {}) {
   return `<button class="msg-action-btn msg-copy-btn${iconOnly ? " msg-copy-btn--icon" : ""}" type="button" data-copy-msg aria-label="${copyLabel}" title="${copyLabel}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>${label}</button>`;
 }
 
+function messageReportButton(msg) {
+  const id = msg?.id ? String(msg.id) : "";
+  if (!id || id.startsWith("local_")) return "";
+  return `<button class="msg-action-btn msg-report-btn" type="button" data-report-msg="${escapeHtml(id)}" aria-label="Report" title="Report"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></button>`;
+}
+
+function reportMessage(messageId) {
+  if (!requireAuth()) return;
+  openDeleteConfirm({
+    title: "Report this message?",
+    body: "We'll review it. This cannot be undone.",
+    confirmLabel: "Report",
+    onConfirm: async () => {
+      try {
+        await createContentReport(state.session, messageId);
+        showToast("Reported.");
+      } catch (error) {
+        showToast(error.message || "Could not send report.");
+      }
+    }
+  });
+}
+
 function renderMessageFooter(msg, role) {
   if (role === "user") return renderUserMessageFooter(msg);
   if (role !== "assistant") return "";
   // Hide copy/sources while tools are still running or prose is provisional.
   if (isAssistantMessageStreaming(msg) || isProvisionalToolProse(msg)) return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
+  const report = messageReportButton(msg);
   const retry = renderMessageRetry(msg);
   const adjust = renderResponseAdjustmentMenu(msg);
   const citations = renderCitations(msg);
-  if (!copy && !retry && !adjust && !citations) return "";
+  if (!copy && !report && !retry && !adjust && !citations) return "";
   return `
     <div class="message-footer">
-      ${copy || retry || adjust ? `<div class="message-footer-actions">${retry}${copy}${adjust}</div>` : ""}
+      ${copy || report || retry || adjust ? `<div class="message-footer-actions">${retry}${copy}${report}${adjust}</div>` : ""}
       ${citations ? `<div class="message-footer-sources">${citations}</div>` : ""}
     </div>
   `;
@@ -5238,6 +5256,7 @@ function canEditUserMessage(msg) {
 
 function renderUserMessageFooter(msg) {
   const copy = messageCopyButton(msg, { iconOnly: true });
+  const report = messageReportButton(msg);
   const edit = canEditUserMessage(msg)
     ? `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`
     : "";
@@ -5245,10 +5264,10 @@ function renderUserMessageFooter(msg) {
   const time = stamp
     ? `<time class="msg-timestamp" datetime="${escapeHtml(stamp.iso)}" data-full="${escapeHtml(stamp.full)}">${escapeHtml(stamp.short)}</time>`
     : "";
-  if (!copy && !edit && !time) return "";
+  if (!copy && !report && !edit && !time) return "";
   return `
     <div class="message-footer message-footer--user">
-      <div class="message-footer-actions">${time}${copy}${edit}</div>
+      <div class="message-footer-actions">${time}${copy}${report}${edit}</div>
     </div>
   `;
 }
@@ -6156,7 +6175,7 @@ function closeAuthDialog() {
   }
 }
 
-function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null } = {}) {
+function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null, confirmLabel = "Delete" } = {}) {
   closeConversationMenus();
   closePinnedPopup();
   closeProfileMenu();
@@ -6167,6 +6186,7 @@ function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projec
   state.pendingDeleteConfirm = typeof onConfirm === "function" ? onConfirm : null;
   els.confirmTitle.textContent = title;
   els.confirmBody.textContent = body;
+  els.confirmDeleteButton.textContent = confirmLabel;
   els.confirmDialog.classList.add("open");
   els.confirmDialog.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -6187,6 +6207,7 @@ function closeConfirmDialog() {
   state.pendingDeleteAttachmentId = "";
   state.pendingDeleteProjectId = "";
   state.pendingDeleteConfirm = null;
+  els.confirmDeleteButton.textContent = "Delete";
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
@@ -6647,6 +6668,7 @@ adminPanel = createAdminPanel({
   updateAdminSettings,
   approveAdminPayment,
   rejectAdminPayment,
+  resolveAdminReport,
   escapeHtml,
   isAdminUser,
   showToast,
@@ -8664,14 +8686,17 @@ function bindEvents() {
     openSettings();
   });
   els.profileMenuUpgrade?.addEventListener("click", openUpgradePlans);
-  els.profileMenuStorage?.addEventListener("click", openStorageDrawer);
+  els.profileMenuStorage?.addEventListener("click", () => {
+    closeProfileMenu();
+    openSettings();
+    setSettingsTab("storage");
+  });
   els.profileMenuAdmin?.addEventListener("click", openAdminDrawer);
   els.profileMenuSignOut?.addEventListener("click", () => {
     closeProfileMenu();
     signOutAndReset();
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
-  els.accountStorageList?.addEventListener("click", handleAccountStorageClick);
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
   els.settingsButtonAlt?.addEventListener("click", () => {
     closeActionMenu();
@@ -9404,6 +9429,13 @@ function bindEvents() {
       copyText(text).then(() => flashCopySuccess(msgCopy)).catch(() => showToast("Copy failed."));
       return;
     }
+
+    const msgReport = e.target.closest("[data-report-msg]");
+    if (msgReport) {
+      e.preventDefault();
+      reportMessage(msgReport.dataset.reportMsg);
+      return;
+    }
   });
 
   els.messages.addEventListener("keydown", (e) => {
@@ -9646,6 +9678,16 @@ function bindEvents() {
 
   els.loadAdminButton.addEventListener("click", () => { void adminPanel.loadAdminDashboard(); });
   els.adminOutput.addEventListener("click", (e) => {
+    const tab = e.target.closest("[data-admin-tab]");
+    if (tab) {
+      adminPanel.setAdminQueueTab(tab.dataset.adminTab);
+      return;
+    }
+    const done = e.target.closest("[data-resolve-report]");
+    if (done) {
+      adminPanel.resolveReport(done.dataset.resolveReport);
+      return;
+    }
     const approve = e.target.closest("[data-approve-payment]");
     if (approve) {
       adminPanel.updateAdminPayment(approve.dataset.approvePayment, "approve");

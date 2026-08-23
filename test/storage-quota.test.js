@@ -410,7 +410,8 @@ test("account UI hides storage management while Settings keeps the usage meter",
   const html = readFileSync(resolve(here, "../public/index.html"), "utf8");
   const uploads = readFileSync(resolve(here, "../server/routes/uploads.js"), "utf8");
   const storageUi = app.slice(app.indexOf("function openStorageDrawer"), app.indexOf("/* ─── Projects"));
-  assert.match(html, /id="accountStorageList"/);
+  assert.doesNotMatch(html, /id="accountStorageList"/);
+  assert.match(html, /id="settingsStorageList"/);
   assert.match(html, /class="profile-menu-item hidden"[^>]+id="profileMenuStorage"/);
   assert.match(html, /id="settingsStorageSection"/);
   assert.match(html, /role="progressbar"[^>]+aria-label="Storage used"/);

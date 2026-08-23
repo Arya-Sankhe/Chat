@@ -8,6 +8,7 @@ import * as documents from "./rest/documents.js";
 import * as memory from "./rest/memory.js";
 import * as desktop from "./rest/desktop.js";
 import * as payments from "./rest/payments.js";
+import * as reports from "./rest/reports.js";
 import * as profiles from "./rest/profiles.js";
 import * as projects from "./rest/projects.js";
 import * as research from "./rest/research.js";
@@ -118,6 +119,26 @@ export class SupabaseRest {
 
   async updatePaymentRequest(id, patch, options) {
     return payments.updatePaymentRequest(this, id, patch, options);
+  }
+
+  async getMessage(userId, messageId, options) {
+    return reports.getMessage(this, userId, messageId, options);
+  }
+
+  async getOpenContentReport(reporterId, messageId, options) {
+    return reports.getOpenContentReport(this, reporterId, messageId, options);
+  }
+
+  async createContentReport(row, options) {
+    return reports.createContentReport(this, row, options);
+  }
+
+  async getContentReport(id, options) {
+    return reports.getContentReport(this, id, options);
+  }
+
+  async resolveContentReport(id, resolvedBy, options) {
+    return reports.resolveContentReport(this, id, resolvedBy, options);
   }
 
   async listConversations(userId, options) {

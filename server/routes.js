@@ -26,6 +26,7 @@ import {
   handleCreateZiinaPaymentRequest,
   handleListPaymentRequests
 } from "./routes/payments.js";
+import { handleAdminResolveReport, handleCreateReport } from "./routes/reports.js";
 import {
   handleCancelResearch,
   handleCreateResearch,
@@ -138,6 +139,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/me") {
       await handleMe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/reports") {
+      await handleCreateReport(req, res, config);
       return;
     }
 
@@ -389,6 +395,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "payments" && parts[3] && parts[4] && req.method === "POST") {
       await handleAdminUpdatePaymentRequest(req, res, config, parts[3], parts[4]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "reports" && parts[3] && parts[4] === "done" && req.method === "POST") {
+      await handleAdminResolveReport(req, res, config, parts[3]);
       return;
     }
 
