@@ -136,7 +136,7 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
-    if (url.pathname === "/api/me" && req.method === "GET") {
+    if (url.pathname === "/api/me") {
       await handleMe(req, res, config);
       return;
     }

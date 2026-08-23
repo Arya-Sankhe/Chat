@@ -207,6 +207,16 @@ Do not add a date-of-birth field or re-prompt existing sessions.
 
 ---
 
+## 15. Account deletion — done in code
+
+**Decision:** Immediate hard delete. Settings → Account shows Name, Email, and Delete. Confirm, then `DELETE /api/me` removes R2 objects we have keys for, then deletes `auth.users` (profiles and the rest cascade). No 30/90-day hold.
+
+Name is Google’s display name (or the email local-part). There is no username and no edit fields. Apple/Play get the in-app control; Play’s web URL is https://home.klui.ai/account-delete/ (points at Settings → Account). Existing sessions are signed out after a successful delete.
+
+Do not add a cooling-off window, typed “DELETE” confirm, or username unless a store or counsel requires it. Do not list R2 by prefix unless leftover objects show up.
+
+---
+
 ## Still open (code list)
 
-15–22 as previously listed
+16–22 as previously listed

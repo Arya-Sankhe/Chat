@@ -156,6 +156,7 @@ const ROUTES = [
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
   { path: "/api/payments/ziina", method: "GET", authKind: "user" },
   { path: "/api/me", method: "GET", authKind: "user" },
+  { path: "/api/me", method: "DELETE", authKind: "user" },
   { path: "/api/storage", method: "GET", authKind: "chat" },
   {
     path: "/api/models", method: "GET", authKind: "chat",

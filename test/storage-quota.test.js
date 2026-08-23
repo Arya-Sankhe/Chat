@@ -347,6 +347,7 @@ test("/api/me exposes usage.storage", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().usage.storage.usedBytes, 2048);
   assert.equal(res.json().usage.storage.maxBytes, PRO_BYTES);
+  assert.equal(res.json().user.name, "");
 });
 
 test("lite document completion caps extract pages at the plan limit", async () => {
@@ -427,4 +428,70 @@ test("account UI hides storage management while Settings keeps the usage meter",
   assert.match(api, /headers: \{ \.\.\.\(upload\.headers \|\| \{\}\) \}/);
   assert.doesNotMatch(api, /["']content-length["']/);
   assert.match(app, /function renderSettingsStorage\(\)/);
+});
+
+test("DELETE /api/me removes R2 objects then deletes the auth user", async () => {
+  const order = [];
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async listAccountObjectKeys() {
+          order.push("keys");
+          return ["users/user-1/a.png", "users/user-1/doc/pages/page-0001.jpg"];
+        },
+        async deleteAuthUser() { order.push("auth"); }
+      },
+      r2: {
+        async deleteObjects(keys) {
+          order.push("r2");
+          assert.deepEqual(keys, ["users/user-1/a.png", "users/user-1/doc/pages/page-0001.jpg"]);
+        }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { deleted: true });
+  assert.deepEqual(order, ["keys", "r2", "auth"]);
+});
+
+test("DELETE /api/me still deletes the auth user when there are no files", async () => {
+  let deletedAuth = false;
+  let deletedR2 = false;
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async listAccountObjectKeys() { return []; },
+        async deleteAuthUser() { deletedAuth = true; }
+      },
+      r2: {
+        async deleteObjects() { deletedR2 = true; }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(deletedAuth, true);
+  assert.equal(deletedR2, false);
+});
+
+test("DELETE /api/me keeps the account if R2 delete fails", async () => {
+  let deletedAuth = false;
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async listAccountObjectKeys() { return ["users/user-1/a.png"]; },
+        async deleteAuthUser() { deletedAuth = true; }
+      },
+      r2: {
+        async deleteObjects() { throw new Error("R2 unavailable"); }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 500);
+  assert.equal(deletedAuth, false);
 });

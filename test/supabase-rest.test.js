@@ -815,4 +815,51 @@ test("createStudyCards bulk POSTs card rows with return=representation", async (
   });
 });
 
+test("listAccountObjectKeys gathers attachment, document, and page keys", async () => {
+  const paths = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    paths.push(parsed.pathname);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("limit"), "5000");
+    expectServiceHeaders(options.headers);
+    if (parsed.pathname === "/rest/v1/attachments") {
+      return jsonResponse([{ object_key: "users/u/a.png" }]);
+    }
+    if (parsed.pathname === "/rest/v1/document_files") {
+      return jsonResponse([{ extraction_key: "users/u/extract.json", preview_key: null }]);
+    }
+    if (parsed.pathname === "/rest/v1/document_pages") {
+      return jsonResponse([{ image_key: "users/u/pages/page-0001.jpg" }]);
+    }
+    throw new Error(`unexpected ${url}`);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const keys = await db.listAccountObjectKeys("user_1");
+    assert.deepEqual(keys, [
+      "users/u/a.png",
+      "users/u/extract.json",
+      "users/u/pages/page-0001.jpg"
+    ]);
+  });
+  assert.deepEqual(new Set(paths), new Set([
+    "/rest/v1/attachments",
+    "/rest/v1/document_files",
+    "/rest/v1/document_pages"
+  ]));
+});
+
+test("deleteAuthUser calls GoTrue admin delete and treats 404 as success", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(options.method, "DELETE");
+    assert.equal(url, "https://example.supabase.co/auth/v1/admin/users/user_1");
+    expectServiceHeaders(options.headers);
+    return new Response(null, { status: 404 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.equal(await db.deleteAuthUser("user_1"), true);
+  });
+});
+
 

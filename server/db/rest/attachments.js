@@ -72,6 +72,27 @@ export async function listUserStorageAttachments(client, userId, { limit = 200, 
   });
 }
 
+export async function listAccountObjectKeys(client, userId, { signal } = {}) {
+  const scoped = { user_id: `eq.${userId}`, limit: "5000" };
+  const [attachments, documents, pages] = await Promise.all([
+    client.request("attachments", { query: { ...scoped, select: "object_key" }, signal }),
+    client.request("document_files", { query: { ...scoped, select: "extraction_key,preview_key" }, signal }),
+    client.request("document_pages", { query: { ...scoped, select: "image_key" }, signal })
+  ]);
+  const keys = [];
+  for (const row of attachments || []) {
+    if (row.object_key) keys.push(row.object_key);
+  }
+  for (const row of documents || []) {
+    if (row.extraction_key) keys.push(row.extraction_key);
+    if (row.preview_key) keys.push(row.preview_key);
+  }
+  for (const row of pages || []) {
+    if (row.image_key) keys.push(row.image_key);
+  }
+  return keys;
+}
+
 export async function listConversationStorageTotals(client, userId, { signal } = {}) {
   return client.rpc("klui_conversation_storage_totals", { p_user_id: userId }, { signal });
 }

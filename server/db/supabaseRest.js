@@ -336,6 +336,25 @@ export class SupabaseRest {
     return attachments.listUserStorageAttachments(this, userId, options);
   }
 
+  async listAccountObjectKeys(userId, options) {
+    return attachments.listAccountObjectKeys(this, userId, options);
+  }
+
+  async deleteAuthUser(userId, { signal } = {}) {
+    if (!this.configured) throw new HttpError(503, "Supabase is not configured.");
+    const response = await fetch(`${this.url}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: {
+        apikey: this.serviceRoleKey,
+        authorization: `Bearer ${this.serviceRoleKey}`
+      },
+      signal
+    });
+    if (response.status === 404) return true;
+    if (!response.ok) throw new HttpError(502, "Account could not be deleted.");
+    return true;
+  }
+
   async listConversationStorageTotals(userId, options) {
     return attachments.listConversationStorageTotals(this, userId, options);
   }

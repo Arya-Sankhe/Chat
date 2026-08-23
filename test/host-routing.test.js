@@ -439,7 +439,12 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     assert.doesNotMatch(page.body, /id="chatView"/);
     assert.match(page.body, new RegExp(`rel="canonical" href="https://home\\.klui\\.ai${path.replaceAll("/", "\\/")}"`));
     assert.match(page.body, new RegExp(`<h1>${heading}</h1>`));
-    assert.match(page.body, /Not in force yet|Not published yet/);
+    if (path === "/account-delete/") {
+      assert.match(page.body, /Settings, then Account, then Delete/);
+      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
+    } else {
+      assert.match(page.body, /Not in force yet|Not published yet/);
+    }
 
     const preview = await get(server, { host: "localhost", path: `/home${path}` });
     assert.equal(preview.status, 200);
@@ -449,6 +454,9 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
 
   const chat = readFileSync(resolve(publicDir, "index.html"), "utf8");
   assert.match(chat, /class="settings-legal"/);
+  assert.match(chat, /data-settings-tab="account"/);
+  assert.match(chat, /Delete account/);
+  assert.match(chat, /id="deleteAccountButton"/);
   assert.match(chat, /class="auth-legal"/);
   assert.match(chat, /By continuing, you agree to our .*Terms of use.* and .*Privacy policy.*, and confirm you are 18 or older/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/terms\/"/);

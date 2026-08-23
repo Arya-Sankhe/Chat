@@ -119,6 +119,12 @@ export async function fetchMe(session) {
   return response.json();
 }
 
+export async function deleteAccount(session) {
+  const response = await apiFetch("/api/me", { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchMemory(session) {
   const response = await apiFetch("/api/memory", { session });
   if (!response.ok) throw new Error(await readProblem(response));

@@ -15,9 +15,14 @@ import { authContext, requireChatContext } from "./context.js";
 export const modelCache = new Map();
 export const modelCacheTtlMs = 5 * 60 * 1000;
 
+function accountName(user) {
+  const meta = user?.raw?.user_metadata || {};
+  return String(meta.full_name || meta.name || meta.display_name || "").trim();
+}
+
 function publicMe({ user, profile, subscription, plan, usage, config, settings }) {
   return {
-    user: { id: user.id, email: user.email },
+    user: { id: user.id, email: user.email, name: accountName(user) },
     profile: {
       role: profile?.role || "user"
     },
@@ -87,6 +92,14 @@ export function handlePlans(req, res, config) {
 
 export async function handleMe(req, res, config) {
   const context = await authContext(req, config);
+  if (req.method === "DELETE") {
+    const keys = await context.db.listAccountObjectKeys(context.user.id, { signal: req.signal });
+    if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
+    await context.db.deleteAuthUser(context.user.id, { signal: req.signal });
+    sendJson(res, 200, { deleted: true });
+    return;
+  }
+  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const entitlement = await getCurrentEntitlement({
     db: context.db,
     userId: context.user.id,

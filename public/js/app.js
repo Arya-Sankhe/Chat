@@ -8,6 +8,7 @@ import {
   createProject,
   createResearch,
   createZiinaPaymentRequest,
+  deleteAccount,
   deleteAttachment,
   deleteConversation,
   deleteProject,
@@ -711,6 +712,11 @@ const els = {
   settingsStorageTrack: document.querySelector("#settingsStorageTrack"),
   settingsStorageFill: document.querySelector("#settingsStorageFill"),
   settingsStorageList: document.querySelector("#settingsStorageList"),
+  settingsAccountFields: document.querySelector("#settingsAccountFields"),
+  settingsAccountName: document.querySelector("#settingsAccountName"),
+  settingsAccountEmail: document.querySelector("#settingsAccountEmail"),
+  settingsAccountGuest: document.querySelector("#settingsAccountGuest"),
+  deleteAccountButton: document.querySelector("#deleteAccountButton"),
   memoryEnabledInput: document.querySelector("#memoryEnabledInput"),
   memoryContentInput: document.querySelector("#memoryContentInput"),
   memoryEditor: document.querySelector("#memoryEditor"),
@@ -2474,7 +2480,7 @@ function renderProfileMenu() {
   const email = state.me?.user?.email || "";
   const planName = state.me?.plan?.name || "Free";
   if (els.profileAvatar) els.profileAvatar.textContent = state.session ? profileInitials(email) : "K";
-  if (els.profileName) els.profileName.textContent = state.session ? profileDisplayName(email) : "";
+  if (els.profileName) els.profileName.textContent = state.session ? (state.me?.user?.name || profileDisplayName(email)) : "";
   if (els.profilePlan) els.profilePlan.textContent = state.session ? planName : "";
   if (els.profileMeta) els.profileMeta.setAttribute("aria-hidden", state.session ? "false" : "true");
   if (!els.profileMenuEmail || !els.profileMenuUsage) return;
@@ -2548,6 +2554,27 @@ function formatStorageBytes(bytes) {
   if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
   return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
+}
+
+function renderSettingsAccount() {
+  const signedIn = Boolean(state.session);
+  els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
+  els.settingsAccountGuest?.classList.toggle("hidden", signedIn);
+  if (!signedIn) return;
+  const email = state.me?.user?.email || "Signed in";
+  if (els.settingsAccountName) els.settingsAccountName.textContent = state.me?.user?.name || profileDisplayName(email);
+  if (els.settingsAccountEmail) els.settingsAccountEmail.textContent = email;
+}
+
+async function deleteAccountAndReset() {
+  if (!state.session) return;
+  try {
+    await deleteAccount(state.session);
+    await signOutAndReset();
+    showToast("Account deleted.");
+  } catch (error) {
+    showToast(error.message || "Could not delete account.");
+  }
 }
 
 function renderSettingsStorage() {
@@ -6059,7 +6086,7 @@ async function clearMemorySettings() {
 }
 
 function setSettingsTab(tab) {
-  const selected = ["general", "memory", "storage"].includes(tab) ? tab : "general";
+  const selected = ["general", "memory", "storage", "account"].includes(tab) ? tab : "general";
   els.settingsTabs?.querySelectorAll("[data-settings-tab]").forEach((button) => {
     const active = button.dataset.settingsTab === selected;
     button.classList.toggle("active", active);
@@ -6073,6 +6100,10 @@ function setSettingsTab(tab) {
   if (selected === "storage") {
     if (els.settingsStorageList) els.settingsStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
     void Promise.all([loadMe(), loadAccountStorage()]).then(renderSettingsStorage).catch(() => {});
+  }
+  if (selected === "account") {
+    renderSettingsAccount();
+    if (state.session) void loadMe().then(renderSettingsAccount).catch(() => {});
   }
 }
 
@@ -6159,7 +6190,9 @@ function closeConfirmDialog() {
   els.confirmDialog.classList.remove("open");
   els.confirmDialog.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "confirm") {
-    if (els.accountDrawer.classList.contains("open")) {
+    if (els.settingsDrawer.classList.contains("open")) {
+      els.overlay.dataset.mode = "settings";
+    } else if (els.accountDrawer.classList.contains("open")) {
       els.overlay.dataset.mode = "account";
     } else {
       els.overlay.hidden = true;
@@ -8686,6 +8719,13 @@ function bindEvents() {
   els.memoryEnabledInput?.addEventListener("change", (event) => { void setMemoryEnabled(event.target.checked); });
   els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
   els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
+  els.deleteAccountButton?.addEventListener("click", () => {
+    openDeleteConfirm({
+      title: "Delete account?",
+      body: "This permanently deletes your account, chats, files, and data. This cannot be undone.",
+      onConfirm: deleteAccountAndReset
+    });
+  });
   els.settingsDrawer?.addEventListener("click", (event) => {
     if (!els.settingsDrawer.classList.contains("open")) return;
     if (event.target.closest(".settings-panel")) return;
