@@ -67,9 +67,18 @@ Drop any current draft line that says we require every underlying host not to re
 
 ---
 
+## 3. Expire subscriptions at `current_period_end` — deferred
+
+**Decision:** Leave it. Do not expire chat access from `current_period_end` while Ziina is the payment path.
+
+Ziina is a prepaid pass: an admin marks the payment approved, we write `status: "active"` and store `current_period_end` (now + 1 month). Entitlement only looks at `status` (`active` / `trialing`). After the month, the user stays entitled until someone changes status. `current_period_end` is used for usage-window math, not for cutting access.
+
+That is intentional for now. When we switch to **Mamo Pay**, expire access at period end (or whatever Mamo’s recurring model actually is). Do not add a date check in `getCurrentEntitlement` before that switch.
+
+---
+
 ## Still open (code list)
 
-3. Expire subscriptions at `current_period_end`
 4. Hide Upgrade / paywall / Ziina in the Android app
 5. Humanize: remove or rename
 6. Stop “No watermark” on image prompts
