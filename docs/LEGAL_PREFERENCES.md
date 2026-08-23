@@ -217,6 +217,14 @@ Do not add a cooling-off window, typed “DELETE” confirm, or username unless 
 
 ---
 
+## 16. Transactional email — deferred
+
+**Decision:** Vendor is [Maileroo](https://maileroo.com/) (SMTP / Email API). Do not build it now. There is no mailer in the app today; deletion only toasts in-app. Build later, after billing and the other setup that has to land first.
+
+When we do build it: send a deletion confirmation from `DELETE /api/me` (capture the address before wiping `auth.users`). Same send helper is what later DSR / dormancy / Terms-change mail will reuse. Not a newsletter product. Do not add Resend, SendGrid, or a second vendor.
+
+---
+
 ## Still open (code list)
 
-16–22 as previously listed
+17–22 as previously listed
