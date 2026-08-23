@@ -127,7 +127,16 @@ Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subp
 
 ---
 
+## 8. Honor GPC — done in code
+
+**Decision:** Klui does not sell personal information and does not share it for cross-context advertising. There is no ad-tech to turn off. Global Privacy Control is honored as the default for everyone, not only for requests with `Sec-GPC: 1`.
+
+`/.well-known/gpc.json` on `klui.ai` and `home.klui.ai` is `{ "gpc": true, "lastUpdate": "2026-08-24" }`. Privacy later should say we do not sell or share personal information for ads, and that we honor GPC.
+
+Do not add per-request GPC branching unless we later add ad-tech or a real sale/share path.
+
+---
+
 ## Still open (code list)
 
-8. `/.well-known/gpc.json`
 9–22 as previously listed

@@ -161,7 +161,9 @@ function isInside(dir, filePath) {
 
 function isSharedMarketingAsset(filePath) {
   const relative = path.relative(publicDir, filePath);
-  return relative === "favicon.svg" || relative.startsWith(`icons${path.sep}`);
+  return relative === "favicon.svg"
+    || relative === `.well-known${path.sep}gpc.json`
+    || relative.startsWith(`icons${path.sep}`);
 }
 
 async function resolvePublicFile(pathname) {

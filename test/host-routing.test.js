@@ -458,3 +458,16 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
   assert.match(home, /href="privacy\/">Privacy</);
   assert.match(home, /href="legal\/">Legal</);
 });
+
+test("both origins publish /.well-known/gpc.json and do not fall through to the chat app", async (t) => {
+  const server = await startServer();
+  t.after(() => new Promise((resolvePromise) => server.close(resolvePromise)));
+
+  for (const host of ["klui.ai", "home.klui.ai"]) {
+    const res = await get(server, { host, path: "/.well-known/gpc.json", accept: "application/json" });
+    assert.equal(res.status, 200);
+    assert.match(res.headers["content-type"], /application\/json/);
+    assert.doesNotMatch(res.body, /id="chatView"/);
+    assert.deepEqual(JSON.parse(res.body), { gpc: true, lastUpdate: "2026-08-24" });
+  }
+});
