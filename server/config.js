@@ -62,20 +62,7 @@ function readDocumentMode(value) {
   return readBoolean(value, true);
 }
 
-const PLAN_SEARCH_DEFAULTS = {
-  lite: 50,
-  pro: 200,
-  max: 500
-};
 const MIN_ILLUSTRATION_RESERVATION_CREDITS = 0.015;
-
-function loadSearchLimits(env) {
-  const limits = {};
-  for (const [planId, fallback] of Object.entries(PLAN_SEARCH_DEFAULTS)) {
-    limits[planId] = readInt(env[`WEBSEARCH_DAILY_LIMIT_${planId.toUpperCase()}`], fallback);
-  }
-  return limits;
-}
 
 function readList(value, fallback = []) {
   const entries = clean(value)
@@ -255,7 +242,6 @@ export function loadConfig(env = process.env) {
         .split(",")
         .map((entry) => entry.trim().toLowerCase())
         .filter(Boolean),
-      dailyLimits: loadSearchLimits(env),
       searxng: {
         baseUrl: cleanUrl(env.SEARXNG_BASE_URL) || "http://searxng:8080",
         engines: readList(env.SEARXNG_ENGINES, ["duckduckgo", "bing", "mojeek"])

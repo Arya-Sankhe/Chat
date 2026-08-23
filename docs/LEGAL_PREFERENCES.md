@@ -173,6 +173,16 @@ Do not add a shared search cache back. A per-user in-memory cache would still be
 
 ---
 
+## 12. No web-search count limits — done in code
+
+**Decision:** There is no daily or monthly web-search count limit. Users can search as much as they want. Search cost is not gated by Lite 50 / Pro 200 / Max 500 (or any other count).
+
+Dropped `WEBSEARCH_DAILY_LIMIT_*`, `config.websearch.dailyLimits`, and the unused `beforeNetwork` quota hook. The `klui_consume_search` RPC and `usage_daily.search_count` were already removed in `2026_06_08_drop_legacy_usage_counters.sql`. No new migration.
+
+Do not add search-count quotas back. Per-turn `maxToolCallsPerTurn` is a loop bound, not a user quota — leave it. API-credit metering is unrelated.
+
+---
+
 ## Still open (code list)
 
-12–22 as previously listed
+13–22 as previously listed

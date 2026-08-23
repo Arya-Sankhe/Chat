@@ -97,7 +97,6 @@ const baseConfig = {
   fetchTimeoutMs: 5000,
   maxToolCallsPerTurn: 3,
   denyDomains: [],
-  dailyLimits: { pro: 100 },
   searxng: { baseUrl: "http://searxng:8080", engines: ["duckduckgo", "bing"] },
   jina: { apiKey: "test-jina-key", backend: "google", engine: "direct" },
   brave: { apiKey: "test-brave-key" }
@@ -266,18 +265,13 @@ describe("deny domains", () => {
     }
   });
 
-  test("readUrl rejects denied input URLs before quota or network", async () => {
+  test("readUrl rejects denied input URLs before network", async () => {
     let fetchCalled = false;
-    let quotaCalled = false;
     installFetch(async () => {
       fetchCalled = true;
       throw new Error("network should not run");
     });
     const orch = new WebSearchOrchestrator({ config: baseConfig });
-    orch.beforeNetwork = async () => {
-      quotaCalled = true;
-      throw new Error("quota should not run");
-    };
     try {
       const result = await orch.readUrl({ url: "https://www.xvideos.tube/video/1" });
       assert.equal(result.ok, false);
@@ -285,7 +279,6 @@ describe("deny domains", () => {
       assert.equal(result.error.status, 403);
       assert.match(result.error.message, /deny-domain policy/i);
       assert.equal(fetchCalled, false);
-      assert.equal(quotaCalled, false);
     } finally {
       restoreFetch();
     }
@@ -323,6 +316,7 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(config.websearch.primaryProvider, "searxng");
     assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
     assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo", "bing", "mojeek"]);
+    assert.equal(config.websearch.dailyLimits, undefined);
   });
 
   test("SearXNG search success returns normalized snippet-only results", async () => {
@@ -780,22 +774,6 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.ok, true);
     assert.equal(result.provider, "brave");
     assert.equal(called.some((url) => url.includes("s.jina.ai")), false);
-  });
-
-  test("beforeNetwork hook blocks the call when it throws", async () => {
-    installFetch(async () => {
-      throw new Error("should not have been called");
-    });
-    const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
-    orchestrator.beforeNetwork = async () => {
-      const err = new Error("quota exceeded");
-      err.status = 429;
-      throw err;
-    };
-    const result = await orchestrator.search({ query: "blocked" });
-    assert.equal(result.ok, false);
-    assert.equal(result.error.provider, "quota");
-    assert.equal(result.error.status, 429);
   });
 
   test("circuit breaker flips to fallback after consecutive 5xx", async () => {

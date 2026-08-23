@@ -131,23 +131,6 @@ export class WebSearchOrchestrator {
       };
     }
 
-    /* `beforeNetwork` is invoked exactly once before any provider call.
-       The orchestrator caller uses this to charge the per-user quota. */
-    if (typeof this.beforeNetwork === "function") {
-      try {
-        await this.beforeNetwork({ query: normalizedQuery });
-      } catch (error) {
-        return {
-          ok: false,
-          error: {
-            message: error?.message || "Search not permitted.",
-            provider: "quota",
-            status: error?.status || 429
-          }
-        };
-      }
-    }
-
     const chain = this.resolveChain();
     let lastError = null;
 
@@ -215,28 +198,13 @@ export class WebSearchOrchestrator {
   /**
    * Direct URL read via r.jina.ai. Falls back to nothing — Brave doesn't
    * expose a generic URL reader. If Jina is unavailable, return an error.
-   * Denied hosts are rejected at the request boundary before quota/network,
+   * Denied hosts are rejected at the request boundary before network,
    * and again on the final URL Jina returns.
    */
   async readUrl({ url, signal }) {
     const denyDomains = this.effectiveDenyDomains();
     if (isDeniedUrl(url, denyDomains)) {
       return denyPolicyError("URL blocked by deny-domain policy.");
-    }
-
-    if (typeof this.beforeNetwork === "function") {
-      try {
-        await this.beforeNetwork({ url });
-      } catch (error) {
-        return {
-          ok: false,
-          error: {
-            message: error?.message || "Read not permitted.",
-            provider: "quota",
-            status: error?.status || 429
-          }
-        };
-      }
     }
 
     try {
