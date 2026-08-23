@@ -29,9 +29,10 @@ test("planner system prompt stays under 4 KiB and the image suffix stays short",
   assert.ok(Buffer.byteLength(TEXT_FREE_SUFFIX, "utf8") < 400);
   assert.match(PLANNER_SYSTEM_PROMPT, /ONE 16:9 scene/);
   assert.match(PLANNER_SYSTEM_PROMPT, /short English labels/);
+  assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /watermark/i);
   assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /2–4 ordered beats|Do not ask for words|no words, letters/);
   assert.match(TEXT_FREE_SUFFIX, /One scene, one metaphor/);
-  assert.match(TEXT_FREE_SUFFIX, /No watermark/);
+  assert.doesNotMatch(TEXT_FREE_SUFFIX, /watermark/i);
   assert.match(TEXT_FREE_SUFFIX, /Klui/);
   assert.doesNotMatch(TEXT_FREE_SUFFIX, /no visible text/i);
   assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /Xiaohei|Ian Xiaohei/);
@@ -92,11 +93,11 @@ test("normalizeIllustrationPlan keeps one image and rejects prose, lengths, and 
   }), /han/);
 });
 
-test("buildKreaPrompt always appends the no-watermark English-label constraint", () => {
+test("buildKreaPrompt always appends the English-label constraint", () => {
   const prompt = buildKreaPrompt("Klui lifts a heavy process box");
   assert.match(prompt, /Klui lifts a heavy process box/);
   assert.match(prompt, /English labels/i);
-  assert.match(prompt, /No watermark/i);
+  assert.doesNotMatch(prompt, /watermark/i);
   assert.match(prompt, /No Chinese characters/i);
   assert.match(prompt, /16:9/);
   assert.doesNotMatch(prompt, HAN_RE);

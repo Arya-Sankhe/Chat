@@ -1031,7 +1031,7 @@ test("illustration turn plans, stores one image, and streams status plus result"
   assert.match(imageRequests[0].options.headers.authorization, /Bearer or-key/);
   assert.doesNotMatch(imageRequests[0].body.prompt, /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/);
   assert.match(imageRequests[0].body.prompt, /English labels/i);
-  assert.match(imageRequests[0].body.prompt, /No watermark/i);
+  assert.doesNotMatch(imageRequests[0].body.prompt, /watermark/i);
   assert.match(imageRequests[0].body.prompt, /No Chinese characters/i);
   assert.ok(db.calls.some((call) => call.op === "createAttachment"));
   assert.ok(db.calls.some((call) => call.op === "putObject"));

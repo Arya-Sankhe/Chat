@@ -24,7 +24,7 @@ Turn the current request and conversation into one 16:9 editorial illustration.
 
 ## Labels
 
-3–6 handwritten English labels (2–4 words each) with colored arrows pointing at parts of the metaphor. The rule-name sits on the object that enforces it. No numbered step headers. No watermarks. No Chinese characters or other Han glyphs.
+3–6 handwritten English labels (2–4 words each) with colored arrows pointing at parts of the metaphor. The rule-name sits on the object that enforces it. No numbered step headers. No Chinese characters or other Han glyphs.
 
 ## Language
 

@@ -97,9 +97,16 @@ Do not restore “Remove signs of AI generated writing” or “should not sound
 
 ---
 
+## 6. No “No watermark” on image prompts — done in code
+
+**Decision:** Illustration prompts must not ask the image model to omit watermarks. We deleted that constraint. We did not add a Klui watermark.
+
+Do not put “No watermark” / “no watermarks” back in `TEXT_FREE_SUFFIX`, the illustration planner, or `skills/illustration/SKILL.md`.
+
+---
+
 ## Still open (code list)
 
-6. Stop “No watermark” on image prompts
 7. Legal URLs must not load the chat app
 8. `/.well-known/gpc.json`
 9–22 as previously listed
