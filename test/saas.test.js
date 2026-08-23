@@ -99,6 +99,23 @@ test("applyEditedUserText rejects an empty text-only edit", () => {
   assert.throws(() => applyEditedUserText("old", "   "), /empty/i);
 });
 
+test("unset or invalid ACCESS_MODE on process.env refuses to boot", { concurrency: false }, () => {
+  const previous = process.env.ACCESS_MODE;
+  try {
+    delete process.env.ACCESS_MODE;
+    assert.throws(() => loadConfig(), /ACCESS_MODE must be set to testing or subscription/);
+    process.env.ACCESS_MODE = "free";
+    assert.throws(() => loadConfig(), /ACCESS_MODE must be set to testing or subscription/);
+    process.env.ACCESS_MODE = "subscription";
+    assert.equal(loadConfig().access.mode, "subscription");
+    process.env.ACCESS_MODE = "testing";
+    assert.equal(loadConfig().access.mode, "testing");
+  } finally {
+    if (previous === undefined) delete process.env.ACCESS_MODE;
+    else process.env.ACCESS_MODE = previous;
+  }
+});
+
 test("testing access grants the configured plan", async () => {
   const plans = loadPlans();
   const entitlement = await getCurrentEntitlement({

@@ -31,8 +31,9 @@ function readMeteringMode(value) {
 }
 
 function readAccessMode(value) {
-  const mode = clean(value || "testing").toLowerCase();
-  return mode === "subscription" ? "subscription" : "testing";
+  const mode = clean(value).toLowerCase();
+  if (mode === "testing" || mode === "subscription") return mode;
+  throw new Error("ACCESS_MODE must be set to testing or subscription");
 }
 
 function readBoolean(value, fallback = false) {
@@ -91,7 +92,10 @@ export function loadConfig(env = process.env) {
   const defaultBaseUrl = normalizeBaseUrl(env.CROFAI_BASE_URL || DEFAULT_CROFAI_BASE_URL);
   const appUrl = cleanUrl(env.APP_URL) || `http://localhost:${port}`;
   const plans = loadPlans(env);
-  const accessMode = readAccessMode(env.ACCESS_MODE);
+  // ponytail: test fixtures omit ACCESS_MODE; boot via process.env must set it.
+  const accessMode = readAccessMode(
+    Object.hasOwn(env, "ACCESS_MODE") || env === process.env ? env.ACCESS_MODE : "testing"
+  );
   const r2AccountId = clean(env.R2_ACCOUNT_ID);
   const contextMaxTokens = readInt(env.CONTEXT_MAX_TOKENS, 256_000);
   const contextCompactAtTokens = Math.min(
