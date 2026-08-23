@@ -4,6 +4,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { brotliDecompressSync } from "node:zlib";
 
 import {
   hostRedirectLocation,
@@ -30,10 +31,10 @@ function startServer() {
   });
 }
 
-function get(server, { host, path, accept = "text/html", method = "GET" }) {
+function get(server, { host, path, accept = "text/html", method = "GET", headers: extraHeaders = {} }) {
   const { port } = server.address();
   return new Promise((resolvePromise, reject) => {
-    const headers = { host };
+    const headers = { host, ...extraHeaders };
     if (accept != null) headers.accept = accept;
     const req = http.request({
       hostname: "127.0.0.1",
@@ -44,11 +45,15 @@ function get(server, { host, path, accept = "text/html", method = "GET" }) {
     }, (res) => {
       const chunks = [];
       res.on("data", (chunk) => chunks.push(chunk));
-      res.on("end", () => resolvePromise({
-        status: res.statusCode,
-        headers: res.headers,
-        body: Buffer.concat(chunks).toString("utf8")
-      }));
+      res.on("end", () => {
+        const rawBody = Buffer.concat(chunks);
+        resolvePromise({
+          status: res.statusCode,
+          headers: res.headers,
+          rawBody,
+          body: rawBody.toString("utf8")
+        });
+      });
     });
     req.on("error", reject);
     req.end();
@@ -61,6 +66,31 @@ test("www.klui.ai permanently redirects to klui.ai preserving a safe path and qu
     new URL("https://www.klui.ai/download/android?ref=nav")
   );
   assert.equal(location, "https://klui.ai/download/android?ref=nav");
+});
+
+test("static text assets are compressed, version-cached, and revalidated", async (t) => {
+  const server = await startServer();
+  t.after(() => new Promise((resolvePromise) => server.close(resolvePromise)));
+
+  const compressed = await get(server, {
+    host: "klui.ai",
+    path: "/js/app.js?v=test",
+    accept: "text/javascript",
+    headers: { "accept-encoding": "br" }
+  });
+  assert.equal(compressed.status, 200);
+  assert.equal(compressed.headers["content-encoding"], "br");
+  assert.equal(compressed.headers["cache-control"], "public, max-age=31536000, immutable");
+  assert.match(brotliDecompressSync(compressed.rawBody).toString("utf8"), /async function bootstrap/);
+
+  const revalidated = await get(server, {
+    host: "klui.ai",
+    path: "/js/app.js",
+    accept: "text/javascript",
+    headers: { "if-none-match": compressed.headers.etag }
+  });
+  assert.equal(revalidated.status, 304);
+  assert.equal(revalidated.rawBody.length, 0);
 });
 
 test("www.klui.ai redirect cannot become an open redirect", () => {

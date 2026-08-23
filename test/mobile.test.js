@@ -457,6 +457,21 @@ test("service worker excludes APIs and only caches the public shell", async () =
   assert.doesNotMatch(source, /cache\.put\(/);
 });
 
+test("web startup parallelizes metadata and defers rich text and Study Hub code", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [app, html] = await Promise.all([
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  ]);
+  const bootstrap = app.slice(app.indexOf("async function bootstrap()"), app.indexOf("/* ─── Event binding ─── */"));
+  assert.match(bootstrap, /Promise\.all\(\[\s*fetchConfig\(\),\s*fetchPlans\(\),/);
+  assert.match(app, /import\("\.\/studyHub\.js\?v=20260823-perf1"\)/);
+  assert.doesNotMatch(app, /^import .*studyHub\.js/m);
+  assert.doesNotMatch(html, /katex\.min\.js|marked\.umd\.js|highlight\.min\.js/);
+  assert.match(app, /function loadRichTextAssets\(\)/);
+  assert.match(app, /async function startZiinaPayment\(planId\) \{[\s\S]*?await paymentRequestsPromise;/);
+});
+
 test("capacitor composer has an opaque background using defined CSS variables", async () => {
   const source = readStylesheet();
   // The composer must use a defined variable (--bg, --bg-secondary, --surface etc.)

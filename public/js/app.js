@@ -103,7 +103,6 @@ import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
-import { createStudyHubController } from "./studyHub.js?v=20260823-review3";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
@@ -373,8 +372,14 @@ let voiceState = "idle";
 let voiceCommit = true;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
+let paymentRequestsPromise = Promise.resolve();
 let researchController;
-let studyHub;
+let studyHub = {
+  closeSession() {},
+  handleEscape() { return false; },
+  render() {}
+};
+let studyHubPromise;
 let compareController;
 let councilController;
 let adminPanel;
@@ -6439,55 +6444,64 @@ researchController = createResearchController({
   renderImages
 });
 
-studyHub = createStudyHubController({
-  state,
-  els,
-  escapeHtml,
-  renderContent,
-  showToast,
-  requireAuth,
-  blockChatNavigationWhileRunning,
-  parkActiveConversationRun,
-  clearClarification,
-  closeDocumentViewer,
-  renderShell,
-  renderImages,
-  openConversation,
-  openDeleteConfirm,
-  openTitleRename: openRenameDialog,
-  isSupportedDocumentFile,
-  fetchProject,
-  createProject,
-  updateProject,
-  updateConversation,
-  presignUpload,
-  putUploadContent,
-  completeUpload,
-  deleteAttachment,
-  fetchDocumentStatus,
-  fetchStudyMaterials,
-  generateStudyContent,
-  deleteStudyMaterial,
-  fetchStudyPractice,
-  fetchStudyQueue,
-  createStudyCard,
-  updateStudyCard,
-  deleteStudyCard,
-  updateStudyDeck,
-  deleteStudyDeck,
-  fetchStudyQuiz,
-  submitStudyQuizAttempt,
-  exportStudyNote,
-  deleteStudyNote,
-  fetchDocumentJobStatus,
-  downloadAttachment,
-  flashCopySuccess,
-  syncStudyUrl,
-  loadProjects,
-  canUseSideChat: selectionActionsEnabled,
-  openSideChat,
-  closeSideChat
-});
+async function loadStudyHub() {
+  if (!studyHubPromise) {
+    studyHubPromise = import("./studyHub.js?v=20260823-perf1").then(({ createStudyHubController }) => {
+      studyHub = createStudyHubController({
+        state,
+        els,
+        escapeHtml,
+        renderContent,
+        showToast,
+        requireAuth,
+        blockChatNavigationWhileRunning,
+        parkActiveConversationRun,
+        clearClarification,
+        closeDocumentViewer,
+        renderShell,
+        renderImages,
+        openConversation,
+        openDeleteConfirm,
+        openTitleRename: openRenameDialog,
+        isSupportedDocumentFile,
+        fetchProject,
+        createProject,
+        updateProject,
+        updateConversation,
+        presignUpload,
+        putUploadContent,
+        completeUpload,
+        deleteAttachment,
+        fetchDocumentStatus,
+        fetchStudyMaterials,
+        generateStudyContent,
+        deleteStudyMaterial,
+        fetchStudyPractice,
+        fetchStudyQueue,
+        createStudyCard,
+        updateStudyCard,
+        deleteStudyCard,
+        updateStudyDeck,
+        deleteStudyDeck,
+        fetchStudyQuiz,
+        submitStudyQuizAttempt,
+        exportStudyNote,
+        deleteStudyNote,
+        fetchDocumentJobStatus,
+        downloadAttachment,
+        flashCopySuccess,
+        syncStudyUrl,
+        loadProjects,
+        canUseSideChat: selectionActionsEnabled,
+        openSideChat,
+        closeSideChat
+      });
+      studyHub.bindEvents();
+      return studyHub;
+    });
+  }
+  return studyHubPromise;
+}
 
 function stopExtractedModulePollers() {
   researchController.abandonResearchPolling();
@@ -7167,6 +7181,7 @@ async function resumePendingDocumentTurn(run) {
 async function loadChatApp() {
   await Promise.all([loadModels(), loadConversations(), loadProjects()]);
   if (studyRouteFromLocation()) {
+    await loadStudyHub();
     state.studyOpen = true;
     state.projectsOpen = false;
     state.activeCourseId = courseIdFromLocation();
@@ -7257,6 +7272,7 @@ async function addConversation() {
 
 async function startZiinaPayment(planId) {
   if (!requireAuth()) return;
+  await paymentRequestsPromise;
   const plan = state.plans.find((candidate) => candidate.id === planId);
   if (!plan) return;
   const existing = (state.paymentRequests || []).find((request) => request.planId === planId && request.status === "pending");
@@ -8058,6 +8074,31 @@ async function signOutAndReset() {
 
 /* ─── Bootstrap ─── */
 
+let richTextAssetsPromise;
+
+function loadRichTextAssets() {
+  if (richTextAssetsPromise) return richTextAssetsPromise;
+  document.head.insertAdjacentHTML("beforeend", `
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.css">
+    <link rel="stylesheet" id="hljsLight" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github.min.css">
+    <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
+  `);
+  applyCodeHighlightTheme(resolvedAppearance());
+  richTextAssetsPromise = Promise.all([
+    "https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.js",
+    "https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js",
+    "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"
+  ].map((src) => new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  })));
+  return richTextAssetsPromise;
+}
+
 async function hydrateNativeSettings() {
   if (!isNative()) return;
   const saved = await preferences.get(SETTINGS_KEY);
@@ -8071,7 +8112,14 @@ async function bootstrap() {
   applyAppearance();
   applyTextScale();
   try {
-    state.config = await fetchConfig();
+    const [config, plansPayload, session] = await Promise.all([
+      fetchConfig(),
+      fetchPlans(),
+      parseSessionFromUrl() || loadSession()
+    ]);
+    state.config = config;
+    state.plans = plansPayload.plans || [];
+    state.session = session;
     state.composerSkills = Array.isArray(state.config?.skills) ? state.config.skills : [];
     await setupNativeLifecycle();
     configureApiAuth({
@@ -8088,11 +8136,8 @@ async function bootstrap() {
         state.me = null;
       }
     });
-    const plansPayload = await fetchPlans();
-    state.plans = plansPayload.plans || [];
     const authError = parseAuthErrorFromUrl();
     if (authError) showToast(authError);
-    state.session = parseSessionFromUrl() || await loadSession();
     if (state.session) {
       try {
         state.session = await withTimeout(refreshSession(state.config, state.session), 8000, "Session refresh");
@@ -8105,17 +8150,26 @@ async function bootstrap() {
     if (state.session) {
       try {
         await withTimeout(loadMe(), 8000, "Account load");
-        await loadPaymentRequests();
       } catch {
         await clearSession();
         state.session = null;
       }
     }
     renderShell();
+    const richTextReady = loadRichTextAssets().catch(() => {});
+    if (state.session) {
+      paymentRequestsPromise = loadPaymentRequests();
+      void paymentRequestsPromise.then(() => {
+        if (!els.paywallView.classList.contains("hidden")) renderPlans();
+      });
+    }
     if (state.session && hasChatAccess()) {
       // The chat is now visible and authorized. Start focusing before the
       // model/conversation requests below so native startup feels immediate.
       if (!researchIdFromLocation()) focusPromptInputSoon();
+      if (conversationIdFromLocation() || researchIdFromLocation() || studyRouteFromLocation()) {
+        await richTextReady;
+      }
       await loadChatApp();
       await restorePendingDocuments();
       const reportId = researchIdFromLocation();
@@ -8482,18 +8536,17 @@ function bindEvents() {
   });
   els.studyHubButton?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
-    void studyHub.openCourses();
+    void loadStudyHub().then((hub) => hub.openCourses());
   });
   els.projectChatCrumb?.addEventListener("click", () => {
     const courseId = els.projectChatCrumb.dataset.courseId;
     if (courseId) {
-      void studyHub.openCourse(courseId, { tab: "chat" });
+      void loadStudyHub().then(() => studyHub.openCourse(courseId, { tab: "chat" }));
       return;
     }
     const projectId = els.projectChatCrumb.dataset.projectId;
     if (projectId) void openProject(projectId);
   });
-  studyHub.bindEvents();
   els.projectView?.addEventListener("click", (event) => { void handleProjectViewClick(event); });
   els.projectView?.addEventListener("change", (event) => { void handleProjectTitleChange(event); });
   els.projectView?.addEventListener("input", handleProjectSearch);
@@ -8915,6 +8968,7 @@ function bindEvents() {
         await researchController.closeResearchReport({ push: false });
       }
       if (studyRouteFromLocation()) {
+        await loadStudyHub();
         state.studyOpen = true;
         state.projectsOpen = false;
         state.activeProjectId = "";

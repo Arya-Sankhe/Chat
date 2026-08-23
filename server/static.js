@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { applyApiCors } from "./http/cors.js";
 
 const publicDir = path.resolve(process.cwd(), "public");
@@ -35,6 +36,23 @@ const directoryIndexes = new Map([
   ["/home", "/home/index.html"],
   ["/home/", "/home/index.html"]
 ]);
+
+const compressibleTypes = ["text/", "application/json", "application/javascript", "application/xml", "image/svg+xml"];
+
+function responseEncoding(req, type, size) {
+  if (size < 1024 || !compressibleTypes.some((value) => type.startsWith(value))) return "";
+  const accepted = String(req.headers["accept-encoding"] || "");
+  if (/\bbr\b/.test(accepted)) return "br";
+  if (/\bgzip\b/.test(accepted)) return "gzip";
+  return "";
+}
+
+function etagMatches(req, etag) {
+  return String(req.headers["if-none-match"] || "")
+    .split(",")
+    .map((value) => value.trim())
+    .includes(etag);
+}
 
 function hostnameOf(req) {
   return String(req.headers.host || "")
@@ -224,9 +242,27 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
   }
 
   const type = contentTypes.get(path.extname(filePath)) || "application/octet-stream";
-  const cacheControl = type.includes("text/html") || type.includes("text/javascript") || type.includes("text/css")
+  const versioned = url.searchParams.has("v");
+  const cacheControl = type.includes("text/html")
     ? "no-cache"
-    : "public, max-age=300";
+    : versioned
+      ? "public, max-age=31536000, immutable"
+      : type.includes("text/javascript") || type.includes("text/css")
+        ? "no-cache"
+        : "public, max-age=300";
+  const stat = await fs.promises.stat(filePath);
+  const etag = `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+  const variesByEncoding = stat.size >= 1024 && compressibleTypes.some((value) => type.startsWith(value));
+  if (etagMatches(req, etag)) {
+    res.writeHead(304, {
+      "cache-control": cacheControl,
+      etag,
+      ...(variesByEncoding ? { vary: "Accept-Encoding" } : {})
+    });
+    res.end();
+    return;
+  }
+  const encoding = responseEncoding(req, type, stat.size);
   const consentHeaders = pathname.startsWith("/oauth/consent") ? {
     "content-security-policy": `default-src 'self'; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' ${supabaseUrl}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     "referrer-policy": "no-referrer",
@@ -235,7 +271,21 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
   res.writeHead(200, {
     "content-type": type,
     "cache-control": cacheControl,
+    etag,
+    ...(encoding ? { "content-encoding": encoding } : {}),
+    ...(variesByEncoding ? { vary: "Accept-Encoding" } : {}),
     ...consentHeaders
   });
-  fs.createReadStream(filePath).pipe(res);
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  const stream = fs.createReadStream(filePath);
+  if (encoding === "br") {
+    stream.pipe(zlib.createBrotliCompress({
+      params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 }
+    })).pipe(res);
+  }
+  else if (encoding === "gzip") stream.pipe(zlib.createGzip()).pipe(res);
+  else stream.pipe(res);
 }
