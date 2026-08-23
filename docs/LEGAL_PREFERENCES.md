@@ -193,6 +193,20 @@ Do not add credit figures unless counsel asks. Account menu already says “Week
 
 ---
 
+## 14. Age gate is 18+, one line — done in code
+
+**Decision:** 18+, Claude-simple. No DOB, no checkbox, no extra screen, no ID (Yoti/Persona), no guest-paint wall.
+
+Login copy (auth dialog, sidebar Log in, OAuth consent Google button):
+
+> By continuing, you agree to our Terms of use and Privacy policy, and confirm you are 18 or older.
+
+Google click is the assent. Native skips the dialog and goes straight to Google, so the same line sits under the sidebar Log in button. Terms later: must be 18; if we learn someone is under 18, we close the account. Not a teen product, no parental consent flow.
+
+Do not add a date-of-birth field or re-prompt existing sessions.
+
+---
+
 ## Still open (code list)
 
-14–22 as previously listed
+15–22 as previously listed

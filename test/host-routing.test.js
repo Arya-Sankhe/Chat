@@ -450,6 +450,7 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
   const chat = readFileSync(resolve(publicDir, "index.html"), "utf8");
   assert.match(chat, /class="settings-legal"/);
   assert.match(chat, /class="auth-legal"/);
+  assert.match(chat, /By continuing, you agree to our .*Terms of use.* and .*Privacy policy.*, and confirm you are 18 or older/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/terms\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/privacy\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/account-delete\/"/);
