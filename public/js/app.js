@@ -1691,7 +1691,9 @@ function modelModeLabel(mode = selectedModelMode()) {
 
 function composerPlaceholder() {
   if (state.composerSkillIds.length) return "";
-  if (state.session && !hasChatAccess()) return "Choose a plan to start chatting";
+  if (state.session && !hasChatAccess()) {
+    return isNative() ? "Subscribe on the website to start chatting" : "Choose a plan to start chatting";
+  }
   if (state.running) return "Send a follow up message";
   if (state.settings.compareEnabled) {
     return isCouncilMode() ? "Message Klui Council" : "Message Klui Compare";
@@ -2220,10 +2222,15 @@ function showPaywall({ allowReturn = false } = {}) {
 }
 
 function openUpgradePlans() {
-  if (!state.session || !hasUpgradePlans()) return;
+  if (!state.session) return;
   closeProfileMenu();
   document.body.classList.remove("sidebar-open");
   closeAllDrawers();
+  if (isNative()) {
+    showToast("Subscribe on the website.");
+    return;
+  }
+  if (!hasUpgradePlans()) return;
   showPaywall({ allowReturn: true });
 }
 
@@ -2439,7 +2446,7 @@ function renderProfileMenu() {
 
   els.profileMenuEmail.textContent = email || "Signed in";
   els.profileMenuUsage.innerHTML = renderAccountUsageMarkup();
-  els.profileMenuUpgrade?.classList.toggle("hidden", !hasUpgradePlans());
+  els.profileMenuUpgrade?.classList.toggle("hidden", isNative() || !hasUpgradePlans());
   els.profileMenuAdmin?.classList.toggle("hidden", state.me?.profile?.role !== "admin");
 }
 
@@ -7271,6 +7278,7 @@ async function addConversation() {
 }
 
 async function startZiinaPayment(planId) {
+  if (isNative()) return;
   if (!requireAuth()) return;
   await paymentRequestsPromise;
   const plan = state.plans.find((candidate) => candidate.id === planId);

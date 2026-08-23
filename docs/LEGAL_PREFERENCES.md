@@ -77,9 +77,16 @@ That is intentional for now. When we switch to **Mamo Pay**, expire access at pe
 
 ---
 
+## 4. No payment UI in the Android app — done in code
+
+**Decision:** Native (`isNative()` / Capacitor APK) never shows Upgrade, the paywall, or checkout. Unpaid users see “Subscribe on the website.” Website checkout stays as it is (Ziina today).
+
+When we switch the website to **Mamo Pay**, change the web paywall only. Do not put Mamo (or any other) checkout inside the APK. Native stays “subscribe on the website.”
+
+---
+
 ## Still open (code list)
 
-4. Hide Upgrade / paywall / Ziina in the Android app
 5. Humanize: remove or rename
 6. Stop “No watermark” on image prompts
 7. Legal URLs must not load the chat app

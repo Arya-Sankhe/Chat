@@ -654,6 +654,26 @@ test("profile menu handlers close the mobile sidebar before opening drawers", as
   assert.match(source, /function openUpgradePlans\(\) \{[^}]*document\.body\.classList\.remove\("sidebar-open"\)/);
 });
 
+test("native clients do not show checkout; unpaid users are sent to the website", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(
+    source,
+    /function openUpgradePlans\(\) \{[\s\S]*?if \(isNative\(\)\) \{[\s\S]*?Subscribe on the website/
+  );
+  assert.match(source, /async function startZiinaPayment\(planId\) \{[\s\S]*?if \(isNative\(\)\) return;/);
+  assert.match(
+    source,
+    /els\.profileMenuUpgrade\?\.classList\.toggle\("hidden", isNative\(\) \|\| !hasUpgradePlans\(\)\)/
+  );
+  assert.match(
+    source,
+    /isNative\(\) \? "Subscribe on the website to start chatting" : "Choose a plan to start chatting"/
+  );
+  assert.match(source, /Pay with Ziina/);
+});
+
 test("capacitor native sidebar overflow does not clip conversation menus when open", async () => {
   const source = readStylesheet();
   // The closed sidebar keeps overflow: hidden to prevent content leak during
