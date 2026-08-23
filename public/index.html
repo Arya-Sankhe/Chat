@@ -52,12 +52,9 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260823-review3">
+    <link rel="stylesheet" href="/styles.css?v=20260824-storage1">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Orbitron:wght@700&family=Patrick+Hand&family=Shantell+Sans:ital,wght@0,400;0,600;0,800;1,500&display=swap" rel="stylesheet">
-    <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.3.1/dist/purify.min.js"></script>
+    <script defer src="/vendor/dompurify/purify.min.js"></script>
   </head>
   <body>
     <div id="app">
@@ -808,6 +805,12 @@
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+      <aside class="storage-notice hidden" id="storageNotice" role="status">
+        <p id="storageNoticeText">We store settings on this device.</p>
+        <a href="https://home.klui.ai/privacy/" target="_blank" rel="noopener">Privacy</a>
+        <button type="button" id="storageNoticeOk">OK</button>
+      </aside>
+
       <div class="study-session hidden" id="studySession" role="dialog" aria-modal="true" aria-label="Study session" aria-hidden="true"></div>
 
       <section class="study-note-overlay hidden" id="studyNoteOverlay" role="dialog" aria-modal="true" aria-labelledby="studyNoteTitle" aria-hidden="true">
@@ -959,7 +962,7 @@
         });
       }
     </script>
-    <script type="module" src="/js/app.js?v=20260823-perf1"></script>
+    <script type="module" src="/js/app.js?v=20260824-storage1"></script>
     <script type="module" src="/js/pwa.js?v=20260622-mobile-v1"></script>
     <script>
       (function () {

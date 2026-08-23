@@ -850,7 +850,7 @@ test("settings uses appearance and wallpapers without legacy chat themes", async
   assert.doesNotMatch(html, /Cyber Mind|Doodle Luxe|themePreviewGrid/);
   assert.doesNotMatch(js, /data\.chatTheme|settings\.theme|CHAT_THEMES/);
   assert.match(js, /"violet", "teal", "amber"/);
-  assert.match(js, /if \(hadLegacyTheme\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
+  assert.match(js, /if \(hadLegacyTheme && storageNoticeAccepted\(\)\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
   assert.match(css, /\.preview-remove\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?pointer-events:\s*none;/);
   assert.match(css, /\.preview-thumb:hover \.preview-remove\s*\{[\s\S]*?pointer-events:\s*auto;/);
   assert.match(css, /@keyframes preview-spin\s*\{[\s\S]*?rotate\(360deg\)/);

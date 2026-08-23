@@ -320,7 +320,8 @@ test("study hub uses a whiteboard board skin without adding product surfaces", (
   assert.match(css, /study-ink-purple:is\(:hover, \[aria-expanded="true"\]\)/);
   assert.match(css, /\.study-quiz-menu button \+ button/);
   assert.match(css, /background: var\(--study-paper\)/);
-  assert.match(html, /Shantell\+Sans/);
+  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
+  assert.match(app, /Shantell\+Sans/);
   assert.match(html, /id="study-wobble"/);
   assert.doesNotMatch(hub, /Scribbled to-do/);
   assert.doesNotMatch(hub, /Midterm in/);

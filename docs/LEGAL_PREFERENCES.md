@@ -137,6 +137,20 @@ Do not add per-request GPC branching unless we later add ad-tech or a real sale/
 
 ---
 
+## 9. Minimal storage notice — done in code
+
+**Decision:** Not a CMP. No accept/reject categories, no consent log, no per-request cookie branching.
+
+The chat app shows a short “We store settings on this device.” notice. Settings are not written to `localStorage` until the user clicks OK (native Capacitor skips the notice and keeps writing immediately). Auth session storage stays available without the notice; that is sign-in, not a preference cookie.
+
+Google Fonts and jsDelivr are not on first paint. DOMPurify is first-party (`/vendor/dompurify/purify.min.js`). Study fonts load from Google only after OK, or immediately on native. Google Identity still loads only when the sign-in dialog opens. KaTeX / marked / highlight.js stay on jsDelivr after JS bootstrap, not in the HTML head.
+
+Privacy / Cookie policy later should say: we store appearance and similar settings on this device; we do not run ad-tech; we honor GPC; we load Google Fonts after the notice (or in the native app) and Google Identity when you sign in.
+
+Do not add a full consent manager unless we add non-essential cookies or ads.
+
+---
+
 ## Still open (code list)
 
-9–22 as previously listed
+10–22 as previously listed

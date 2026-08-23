@@ -118,6 +118,8 @@ import {
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
+const STORAGE_NOTICE_KEY = "klui.storage-notice.v1";
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Orbitron:wght@700&family=Patrick+Hand&family=Shantell+Sans:ital,wght@0,400;0,600;0,800;1,500&display=swap";
 
 const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
 const MENU_ICON_ATTRS = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
@@ -760,6 +762,8 @@ const els = {
   renameSaveButton: document.querySelector("#renameSaveButton"),
   overlay: document.querySelector("#overlay"),
   toast: document.querySelector("#toast"),
+  storageNotice: document.querySelector("#storageNotice"),
+  storageNoticeOk: document.querySelector("#storageNoticeOk"),
   lightbox: document.querySelector("#lightbox"),
   lightboxClose: document.querySelector("#lightboxClose"),
   lightboxImg: document.querySelector("#lightboxImg"),
@@ -1962,6 +1966,44 @@ function clampTextScale(value) {
   return Math.min(130, Math.max(85, num));
 }
 
+function storageNoticeAccepted() {
+  if (isNative()) return true;
+  try {
+    return localStorage.getItem(STORAGE_NOTICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function loadGoogleFonts() {
+  if (document.getElementById("kluiGoogleFonts")) return;
+  const link = document.createElement("link");
+  link.id = "kluiGoogleFonts";
+  link.rel = "stylesheet";
+  link.href = GOOGLE_FONTS_HREF;
+  document.head.appendChild(link);
+}
+
+function acceptStorageNotice() {
+  try {
+    localStorage.setItem(STORAGE_NOTICE_KEY, "1");
+  } catch {
+    // Notice can show again next visit if storage is blocked.
+  }
+  els.storageNotice?.classList.add("hidden");
+  saveSettings();
+  loadGoogleFonts();
+}
+
+function initStorageNotice() {
+  els.storageNoticeOk?.addEventListener("click", acceptStorageNotice);
+  if (storageNoticeAccepted()) {
+    loadGoogleFonts();
+    return;
+  }
+  els.storageNotice?.classList.remove("hidden");
+}
+
 function loadSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
@@ -1993,7 +2035,7 @@ function loadSettings() {
     loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
-  if (hadLegacyTheme) localStorage.setItem(SETTINGS_KEY, JSON.stringify(loaded));
+  if (hadLegacyTheme && storageNoticeAccepted()) localStorage.setItem(SETTINGS_KEY, JSON.stringify(loaded));
   return loaded;
   } catch {
     return { ...defaultSettings };
@@ -2168,6 +2210,7 @@ function isCouncilMode() {
 }
 
 function saveSettings() {
+  if (!storageNoticeAccepted()) return;
   const value = JSON.stringify(state.settings);
   localStorage.setItem(SETTINGS_KEY, value);
   if (isNative()) void preferences.set(SETTINGS_KEY, value);
@@ -9571,6 +9614,8 @@ function bindEvents() {
     const reject = e.target.closest("[data-reject-payment]");
     if (reject) adminPanel.updateAdminPayment(reject.dataset.rejectPayment, "reject");
   });
+
+  initStorageNotice();
 }
 
 document.body.classList.toggle("capacitor-native", isNative());
