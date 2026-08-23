@@ -88,6 +88,7 @@ test("prompt helper preserves the base prompt and adds a delimited Humanizer blo
   assert.match(prompt, /This is embedded mode/);
   assert.match(prompt, /A synonym pass that keeps the same paragraph plan is a failed rewrite/);
   assert.match(prompt, /Reply with ONLY the final rewrite/);
+  assert.match(prompt, /Stop when the rewrite is finished/);
 });
 
 test("missing malformed duplicate unknown traversal and extra IDs are harmless", () => {

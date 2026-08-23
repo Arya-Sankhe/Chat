@@ -2,5 +2,7 @@
   "repository": "https://github.com/blader/humanizer",
   "commit": "523374dee72d67c7b2b5f858ea0094ffda49c3ac",
   "license": "MIT",
-  "reviewedAt": "2026-08-14"
+  "reviewedAt": "2026-08-14",
+  "locallyModified": true,
+  "modificationNote": "v2.9.1 prompt kept. Local change is output-only: this product streams the reply, so the skill no longer asks for a draft/audit/second pass in the answer."
 }

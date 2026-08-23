@@ -268,12 +268,12 @@ export function illustrationSkillFromIds(value, registry = defaultRegistry()) {
 
 const HUMANIZER_HOST_MODE = [
   "Host mode for this chat product (overrides Invocation Modes in the skill):",
-  "This is embedded mode. Run the draft → audit → final loop privately.",
+  "This is embedded mode.",
   "Reply with ONLY the final rewrite. No draft. No audit bullets. No summary. No preamble such as \"Here's the humanized version\".",
   "Treat the user text as AI-written. A synonym pass that keeps the same paragraph plan is a failed rewrite.",
   "For essays, opinion, and personal writing: apply PERSONALITY AND SOUL. Break the even mid-length cadence. Mix short sentences with longer ones. Merge or drop padded paragraphs. Keep every real claim, but do not keep a five-paragraph school shape.",
   "Do not invent facts, names, dates, quotes, or citations.",
-  "If the would-be final still sounds like a model wrote it, rewrite once more before answering."
+  "Stop when the rewrite is finished. Do not add a second version or any note after it."
 ].join("\n");
 
 function wrapSkillBlock(id, bundle) {
