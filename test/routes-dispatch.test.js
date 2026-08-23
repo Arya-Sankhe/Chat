@@ -238,7 +238,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const humanizer = configBody.skills.find((skill) => skill.id === "humanizer");
   assert.ok(humanizer);
   assert.equal(humanizer.name, "Humanize");
-  assert.equal(humanizer.description, "Remove signs of AI generated writing");
+  assert.equal(humanizer.description, "Cleaner, more natural phrasing, not a detector bypass");
   assert.equal("body" in humanizer, false);
   assert.equal("content" in humanizer, false);
   assert.equal("path" in humanizer, false);

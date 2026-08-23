@@ -39,7 +39,7 @@ test("catalog lists Humanizer metadata only", () => {
   const humanizer = catalog.find((skill) => skill.id === "humanizer");
   assert.ok(humanizer);
   assert.equal(humanizer.name, "Humanize");
-  assert.equal(humanizer.description, "Remove signs of AI generated writing");
+  assert.equal(humanizer.description, "Cleaner, more natural phrasing, not a detector bypass");
   assert.doesNotMatch(humanizer.description, /\n/);
   assert.equal("body" in humanizer, false);
   assert.equal("content" in humanizer, false);
@@ -73,7 +73,7 @@ test("catalog lists Illustration as exclusive and does not inject it", () => {
 
 test("Humanizer multiline YAML description is parsed", () => {
   const humanizer = listComposerSkills().find((skill) => skill.id === "humanizer");
-  assert.equal(humanizer.description, "Remove signs of AI generated writing");
+  assert.equal(humanizer.description, "Cleaner, more natural phrasing, not a detector bypass");
   assert.match(withComposerSkillsSystemPrompt("Base", ["humanizer"]), /# Humanizer: Remove AI Writing Patterns/);
 });
 

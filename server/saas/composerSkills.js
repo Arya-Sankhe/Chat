@@ -23,7 +23,7 @@ function defaultSkillsRoot() {
 
 function publicSkillCopy(id, name, description) {
   if (id === "humanizer") {
-    return { id, name: "Humanize", description: "Remove signs of AI generated writing" };
+    return { id, name: "Humanize", description: "Cleaner, more natural phrasing, not a detector bypass" };
   }
   if (id === "illustration") {
     return { id, name: "Illustration", description: "Draw a clean Klui explainer" };

@@ -85,9 +85,20 @@ When we switch the website to **Mamo Pay**, change the web paywall only. Do not 
 
 ---
 
+## 5. Humanize — done in code
+
+**Decision:** Keep the skill and the name **Humanize**. It is a prose cleaner, not a detector bypass, and we do not claim it hides that the text came from Klui.
+
+Public copy (composer catalog and homepage):
+
+“Cleaner, more natural phrasing, not a detector bypass.”
+
+Do not restore “Remove signs of AI generated writing” or “should not sound like a bot.” Terms / Privacy later must not describe Humanize as origin-hiding, undetectable, or an AI-detector bypass.
+
+---
+
 ## Still open (code list)
 
-5. Humanize: remove or rename
 6. Stop “No watermark” on image prompts
 7. Legal URLs must not load the chat app
 8. `/.well-known/gpc.json`
