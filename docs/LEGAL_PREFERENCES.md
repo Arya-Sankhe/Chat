@@ -183,6 +183,16 @@ Do not add search-count quotas back. Per-turn `maxToolCallsPerTurn` is a loop bo
 
 ---
 
+## 13. Paywall says usage is weekly — done in code
+
+**Decision:** Do not print OpenRouter credit numbers (1.36 / 4.08 / 8.16) or weekly slices. Keep relative copy (“3x more usage”) and the percentage meter. Disclose the window before they pay: usage is weekly, and it resets 4 times each month. That matches how the meter actually works (`monthlyApiCreditLimit / 4`, four windows per billing period).
+
+The legal issue was not “you must show 1.36 credits.” It was omitting a material limit on a monthly-priced plan: you cannot dump a month of usage in one week. UAE consumer-protection / advertising rules (and EU UCPD if we have EU users) treat that kind of omission as misleading. ChatGPT and Claude also sell 5x/20x and meter in %; they still say the session/weekly window in help or on the usage page. We put the window on the paywall and the marketing pricing page.
+
+Do not add credit figures unless counsel asks. Account menu already says “Weekly usage” plus the reset date.
+
+---
+
 ## Still open (code list)
 
-13–22 as previously listed
+14–22 as previously listed
