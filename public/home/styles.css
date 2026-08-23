@@ -467,7 +467,7 @@ h2 {
 
 .footer-mark { justify-self: start; }
 .site-footer p { margin: 0; font-family: var(--display); font-size: 18px; font-style: italic; }
-.site-footer nav { display: flex; justify-self: end; gap: 22px; }
+.site-footer nav { display: flex; flex-wrap: wrap; justify-self: end; gap: 22px; }
 .site-footer a { font-weight: 800; text-decoration: none; }
 
 /* Pricing */
@@ -544,6 +544,48 @@ h2 {
 .is-404 .wordmark { justify-content: start; }
 .is-404 .hero-actions { display: flex; gap: 20px; align-items: center; }
 .text-link { font-weight: 800; }
+
+/* Legal / policy pages */
+.legal-page { background: var(--cream); }
+.legal-page .site-header { position: static; }
+.legal-wrap {
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 100px;
+}
+.legal-kicker {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.legal-wrap h1 {
+  margin: 0 0 18px;
+  font-family: var(--display);
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+.legal-wrap > p { margin: 0 0 16px; font-size: 18px; font-weight: 650; }
+.policy-groups {
+  display: grid;
+  gap: 36px;
+  margin: 48px 0 0;
+  padding: 36px 0 0;
+  border-top: 2px solid var(--ink);
+}
+.policy-groups h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.policy-groups ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.policy-groups a { font-weight: 800; text-decoration: none; }
+.policy-groups a[aria-current="page"] { text-decoration: underline; text-underline-offset: 4px; }
+.policy-groups a:hover { text-decoration: underline; text-underline-offset: 4px; }
 
 @media (max-width: 900px) {
   .bento { grid-template-columns: 1fr 1fr; grid-template-areas: "concept concept" "notes guides" "model writing"; }

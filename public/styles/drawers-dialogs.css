@@ -358,6 +358,25 @@
 
 }
 
+.settings-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+  font-size: 12px;
+}
+
+.settings-legal a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.settings-legal a:hover {
+  text-decoration: underline;
+}
+
 .settings-storage-head {
   display: flex;
   align-items: center;
@@ -1844,6 +1863,18 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
   margin-top: 12px;
 
+}
+
+.auth-dialog .auth-legal {
+  margin: 16px auto 0;
+  max-width: 280px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auth-dialog .auth-legal a {
+  color: var(--text);
 }
 
 /* ─── Search dialog ─── */

@@ -105,8 +105,29 @@ Do not put “No watermark” / “no watermarks” back in `TEXT_FREE_SUFFIX`, 
 
 ---
 
+## 7. Legal URLs live on home.klui.ai — done in code
+
+**Decision:** Legal and policy pages are marketing pages, not the chat app. Product is `klui.ai` (like chatgpt.com / claude.ai). Policies are `home.klui.ai` (like openai.com / anthropic.com).
+
+Canonical URLs:
+
+| Page | URL |
+|---|---|
+| Terms & policies (hub) | https://home.klui.ai/legal/ |
+| Terms of use | https://home.klui.ai/terms/ |
+| Privacy policy | https://home.klui.ai/privacy/ |
+| Cookie policy | https://home.klui.ai/cookies/ |
+| Subprocessors | https://home.klui.ai/subprocessors/ |
+| Delete your account | https://home.klui.ai/account-delete/ |
+| Status | https://home.klui.ai/status/ |
+
+`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. The pages are placeholders (“not in force yet”). Do not write fake Terms/Privacy copy here; the Word drafts come after the code list.
+
+Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status). Footer / Settings / signup link to them.
+
+---
+
 ## Still open (code list)
 
-7. Legal URLs must not load the chat app
 8. `/.well-known/gpc.json`
 9–22 as previously listed

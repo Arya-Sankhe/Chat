@@ -206,6 +206,8 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
   assert.match(homeSitemap.headers["content-type"], /application\/xml/);
   assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/<\/loc>/);
   assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/pricing\/<\/loc>/);
+  assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/legal\/<\/loc>/);
+  assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/privacy\/<\/loc>/);
   assert.doesNotMatch(homeSitemap.body, /<loc>https:\/\/klui\.ai\/<\/loc>/);
 
   const pricing = await get(server, { host: "home.klui.ai", path: "/pricing/" });
@@ -404,4 +406,55 @@ test("stale /moved pages redirect to the primary origin and marketing 404s link 
   assert.match(missing.body, /<a class="wordmark" href="\/">/);
   assert.match(missing.body, /<a class="text-link" href="\/">Back to home\.klui\.ai<\/a>/);
   assert.doesNotMatch(missing.body, /<a [^>]*href="\/home\/"/);
+});
+
+test("legal URLs live on home.klui.ai and never load the chat app", async (t) => {
+  const server = await startServer();
+  t.after(() => new Promise((resolvePromise) => server.close(resolvePromise)));
+
+  const pages = [
+    ["/legal/", "Terms &amp; policies"],
+    ["/privacy/", "Privacy policy"],
+    ["/terms/", "Terms of use"],
+    ["/cookies/", "Cookie policy"],
+    ["/subprocessors/", "Subprocessors"],
+    ["/account-delete/", "Delete your account"],
+    ["/status/", "Status"]
+  ];
+
+  for (const [path, heading] of pages) {
+    const fromChat = await get(server, { host: "klui.ai", path });
+    assert.equal(fromChat.status, 301);
+    assert.equal(fromChat.headers.location, `https://home.klui.ai${path}`);
+    assert.doesNotMatch(fromChat.body, /id="chatView"/);
+
+    const fromWww = await get(server, { host: "www.klui.ai", path: path.replace(/\/$/, "") });
+    assert.equal(fromWww.status, 301);
+    assert.equal(fromWww.headers.location, `https://home.klui.ai${path}`);
+
+    const page = await get(server, { host: "home.klui.ai", path });
+    assert.equal(page.status, 200);
+    assert.doesNotMatch(page.body, /id="chatView"/);
+    assert.match(page.body, new RegExp(`rel="canonical" href="https://home\\.klui\\.ai${path.replaceAll("/", "\\/")}"`));
+    assert.match(page.body, new RegExp(`<h1>${heading}</h1>`));
+    assert.match(page.body, /Not in force yet|Not published yet/);
+
+    const preview = await get(server, { host: "localhost", path: `/home${path}` });
+    assert.equal(preview.status, 200);
+    assert.match(preview.body, new RegExp(`<h1>${heading}</h1>`));
+    assert.doesNotMatch(preview.body, /id="chatView"/);
+  }
+
+  const chat = readFileSync(resolve(publicDir, "index.html"), "utf8");
+  assert.match(chat, /class="settings-legal"/);
+  assert.match(chat, /class="auth-legal"/);
+  assert.match(chat, /href="https:\/\/home\.klui\.ai\/terms\/"/);
+  assert.match(chat, /href="https:\/\/home\.klui\.ai\/privacy\/"/);
+  assert.match(chat, /href="https:\/\/home\.klui\.ai\/account-delete\/"/);
+  assert.match(chat, /href="https:\/\/home\.klui\.ai\/legal\/"/);
+
+  const home = readFileSync(resolve(publicDir, "home/index.html"), "utf8");
+  assert.match(home, /href="terms\/">Terms</);
+  assert.match(home, /href="privacy\/">Privacy</);
+  assert.match(home, /href="legal\/">Legal</);
 });

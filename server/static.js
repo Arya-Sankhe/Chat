@@ -7,6 +7,15 @@ const publicDir = path.resolve(process.cwd(), "public");
 const homeDir = path.join(publicDir, "home");
 const legacyWebHosts = new Set(["klui.tech", "www.klui.tech"]);
 const marketingWebHosts = new Set(["home.klui.ai", "www.home.klui.ai"]);
+const marketingPagePaths = new Set([
+  "/legal",
+  "/privacy",
+  "/terms",
+  "/cookies",
+  "/subprocessors",
+  "/account-delete",
+  "/status"
+]);
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -83,6 +92,14 @@ function isMovedDocumentPath(pathname) {
   return pathname === "/moved" || pathname === "/moved/" || pathname === "/moved/index.html";
 }
 
+export function marketingPageLocation(pathname, search = "") {
+  const stripped = String(pathname || "/").replace(/\/+$/, "") || "/";
+  if (!marketingPagePaths.has(stripped)) return null;
+  const query = String(search || "");
+  if (/[\r\n]/.test(query)) return `https://home.klui.ai${stripped}/`;
+  return `https://home.klui.ai${stripped}/${query}`;
+}
+
 function isAndroidLatestJson(pathname) {
   return pathname === "/downloads/android/latest.json";
 }
@@ -120,12 +137,16 @@ export function hostRedirectLocation(req, url) {
 
   if (hostname === "www.klui.ai") {
     if (pathname === "/home" || pathname.startsWith("/home/")) return "https://home.klui.ai/";
+    const marketingPage = marketingPageLocation(pathname, url.search);
+    if (marketingPage) return marketingPage;
     if (isMovedDocumentPath(pathname)) return "https://klui.ai/";
     return `https://klui.ai${safePathAndQuery(url)}`;
   }
   if (hostname === "www.home.klui.ai") return `https://home.klui.ai${safePathAndQuery(url)}`;
   if (hostname === "klui.ai") {
     if (isHomeDocumentPath(pathname)) return "https://home.klui.ai/";
+    const marketingPage = marketingPageLocation(pathname, url.search);
+    if (marketingPage) return marketingPage;
     if (isMovedDocumentPath(pathname)) return "https://klui.ai/";
     return null;
   }
