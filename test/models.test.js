@@ -42,6 +42,7 @@ test("resolveChatRole maps product roles to the current MODEL_ROUTES models", ()
     OPENROUTER_TEXT_MODEL,
     OPENROUTER_VISION_MODEL
   ]);
+  assert.equal(OPENROUTER_VISION_L2, "qwen/qwen3.7-flash");
   assert.deepEqual(resolveChatRole({ role: "compare", hasMedia: true }).models, [
     OPENROUTER_VISION_MODEL,
     OPENROUTER_VISION_L2
@@ -109,4 +110,6 @@ test("website send path uses role and does not ship OpenRouter IDs", () => {
   assert.doesNotMatch(documentViewer, /model: state\.activeConversation/);
   assert.match(research, /role: selectedModelMode\(\) === "pro" \? "pro" : "think"/);
   assert.doesNotMatch(research, /OPENROUTER_/);
+  assert.match(app, /OPENROUTER_VISION_L2 = "qwen\/qwen3\.7-flash"/);
+  assert.doesNotMatch(app, /google\/gemma-4-31b-it/);
 });

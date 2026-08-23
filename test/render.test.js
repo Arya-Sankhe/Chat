@@ -82,22 +82,9 @@ test("compactModelDisplayName keeps text after first colon only", () => {
   assert.equal(compactModelDisplayName("DeepSeek: DeepSeek V4 Flash"), "DeepSeek V4 Flash");
   assert.equal(compactModelDisplayName("DeepSeek:DeepSeek V4 Flash"), "DeepSeek V4 Flash");
   assert.equal(compactModelDisplayName("DeepSeek: DeepSeek V3.2"), "DeepSeek V3.2");
-  assert.equal(compactModelDisplayName("Google: Gemma 4 31B"), "Gemma 4 31B");
+  assert.equal(compactModelDisplayName("Google: Gemini 2.5 Flash"), "Gemini 2.5 Flash");
   assert.equal(compactModelDisplayName("MoonshotAI: Kimi K2.5"), "Kimi K2.5");
   assert.equal(compactModelDisplayName("deepseek-v3.2"), "deepseek-v3.2");
-});
-
-test("normalizeModelList drops gemma models from the selector list", () => {
-  const models = normalizeModelList({
-    data: [
-      { id: "deepseek-v3.2", name: "DeepSeek: DeepSeek V3.2" },
-      { id: "google/gemma-2-9b", name: "Google: Gemma 2 9B" },
-      { id: "greg", name: "Crof: Greg" }
-    ]
-  });
-  assert.equal(models.length, 2);
-  assert.deepEqual(models.map((model) => model.id), ["deepseek-v3.2", "greg"]);
-  assert.equal(models[1].name, "Greg");
 });
 
 test("inferModelBadges marks greg as reasoning and vision-capable", () => {

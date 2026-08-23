@@ -318,13 +318,13 @@ function contentHasCompareMedia(content) {
   return Array.isArray(content) && content.some((part) => part?.type === "image_url" || part?.type === "file");
 }
 
-function requestHasCompareMedia({ userContent, existingMessages = [], attachments = [] } = {}) {
+export function requestHasCompareMedia({ userContent, existingMessages = [], attachments = [] } = {}) {
   if ((attachments || []).some((attachment) => {
     const category = attachment?.category || "image";
     return category === "image" || category === "document";
   })) return true;
   if (contentHasCompareMedia(userContent)) return true;
-  return (existingMessages || []).some((message) => message?.role === "user" && contentHasCompareMedia(message.content));
+  return (existingMessages || []).some((message) => contentHasCompareMedia(message.content));
 }
 
 export function resolveFixedCompareModels(value, { hasMedia = false } = {}) {
@@ -990,7 +990,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       messages: historyMessages,
       systemPrompt: withModelSystemPrompt(stage1SystemPrompt, model),
       r2: context.r2,
-      imageDescriptions: compareNeedsImageDescribe && !modelSupportsVision(model) ? imageDescriptions : null,
+      imageDescriptions: !modelSupportsVision(model) ? (imageDescriptions || {}) : null,
       contextConfig: config.context,
       summarizeHistory
     });

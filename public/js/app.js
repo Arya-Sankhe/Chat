@@ -132,7 +132,7 @@ const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
 const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
 const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
-const OPENROUTER_VISION_L2 = "google/gemma-4-31b-it";
+const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 // Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
@@ -1648,7 +1648,7 @@ function contentHasVisualOrDocument(content) {
 }
 
 function chatHistoryNeedsVision() {
-  return state.messages.some((message) => message.role === "user" && contentHasVisualOrDocument(message.content));
+  return state.messages.some((message) => contentHasVisualOrDocument(message.content));
 }
 
 function pendingPromptNeedsVision(images = state.images) {
@@ -3702,7 +3702,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
-  if (id === OPENROUTER_VISION_L2) return "Gemma 31B";
+  if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }

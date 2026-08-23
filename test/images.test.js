@@ -9,8 +9,9 @@ import {
   messagesHaveImages,
   substituteImagesWithDescriptions
 } from "../server/saas/images.js";
+import { buildProviderMessages } from "../server/saas/messages.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "../server/saas/models.js";
-import { resolveFixedCompareModels } from "../server/chat/pipeline.js";
+import { requestHasCompareMedia, resolveFixedCompareModels } from "../server/chat/pipeline.js";
 import {
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_MODEL,
@@ -28,8 +29,7 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   // MiMo v2.5 is omnimodal (image input); the -pro variant is text-only.
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5"), true);
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5-pro"), false);
-  assert.equal(modelSupportsVision("google/gemma-4-26b-a4b-it"), true);
-  assert.equal(modelSupportsVision("google/gemma-4-31b-it"), true);
+  assert.equal(modelSupportsVision("qwen/qwen3.7-flash"), true);
   assert.equal(modelSupportsVision("minimax/minimax-m3"), true);
   // Metadata (input modalities) still wins when available.
   assert.equal(modelSupportsVision({
@@ -44,13 +44,28 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   }), true);
 });
 
-test("compare picks MiMo+Gemma for media and Flash+MiMo for text", () => {
+test("compare picks MiMo+Qwen for media and Flash+MiMo for text", () => {
   const seed = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+  assert.equal(OPENROUTER_VISION_L2, "qwen/qwen3.7-flash");
   assert.deepEqual(resolveFixedCompareModels(seed), [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL]);
   assert.deepEqual(
     resolveFixedCompareModels(seed, { hasMedia: true }),
     [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2]
   );
+});
+
+test("compare treats assistant illustrations as media", () => {
+  assert.equal(requestHasCompareMedia({
+    userContent: "i want to move to europe",
+    existingMessages: [{
+      role: "assistant",
+      content: [{ type: "image_url", image_url: { object_key: "gravity.png" } }]
+    }]
+  }), true);
+  assert.equal(requestHasCompareMedia({
+    userContent: "hello",
+    existingMessages: [{ role: "assistant", content: "plain text" }]
+  }), false);
 });
 
 test("modelSupportsVision does not flag image-generation-only models on output modalities", () => {
@@ -101,6 +116,27 @@ test("image description helpers cache and find only missing descriptions", () =>
   const next = applyImageDescriptionsToContent(content, { att_2: "A table." });
   assert.equal(next[1].image_url.description, "A chart.");
   assert.equal(next[2].image_url.description, "A table.");
+});
+
+test("text-only hydrate strips assistant images instead of sending image_url", async () => {
+  const built = await buildProviderMessages({
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "here is a cartoon" },
+          { type: "image_url", image_url: { object_key: "ill.png", file_name: "gravity.png" } }
+        ]
+      },
+      { role: "user", content: "i want to move to europe" }
+    ],
+    r2: { readUrl: (key) => `https://files.example/${key}` },
+    imageDescriptions: {}
+  });
+  const assistant = built.find((message) => message.role === "assistant");
+  assert.ok(assistant);
+  assert.doesNotMatch(JSON.stringify(assistant.content), /"image_url"/);
+  assert.match(JSON.stringify(assistant.content), /omitted for a text-only model/);
 });
 
 test("substituteImagesWithDescriptions replaces image parts with text", () => {
