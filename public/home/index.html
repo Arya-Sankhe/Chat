@@ -21,7 +21,7 @@
     <meta name="twitter:image" content="https://home.klui.ai/assets/og-v4.jpg">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260823-hero8">
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -80,12 +80,28 @@
       <section class="hero" aria-labelledby="hero-title">
         <picture>
           <source srcset="assets/hero-mobile.webp" type="image/webp" media="(max-width: 720px)">
-          <img class="hero-art" src="assets/hero-refined-v4.webp" width="2560" height="1441" alt="An open book beneath blue halftone clouds and a wave of bright orange fire" fetchpriority="high" decoding="async">
+          <img class="hero-art" src="assets/hero-refined-v4.webp" width="1920" height="1076" alt="An open book beneath blue halftone clouds and a wave of bright orange fire" fetchpriority="high" decoding="async">
         </picture>
-        <video class="hero-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true" tabindex="-1" disablepictureinpicture>
-          <source src="assets/hero-loop-mobile.mp4" type="video/mp4" media="(max-width: 720px)">
-          <source src="assets/hero-loop.mp4" type="video/mp4">
+        <video class="hero-video hero-video-desktop" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture>
+          <source src="assets/hero-loop.mp4?v=20260823-hero8" type="video/mp4">
         </video>
+        <video class="hero-video hero-video-mobile" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture>
+          <source src="assets/hero-loop-mobile.mp4?v=20260823-hero" type="video/mp4">
+        </video>
+        <script>
+          (function () {
+            var mobile = window.matchMedia("(max-width: 720px)").matches;
+            document.querySelectorAll(".hero-video").forEach(function (video) {
+              if (video.classList.contains("hero-video-mobile") === mobile) {
+                video.preload = "auto";
+                video.setAttribute("autoplay", "");
+                video.play().catch(function () {});
+                return;
+              }
+              video.remove();
+            });
+          })();
+        </script>
         <div class="hero-copy">
           <h1 id="hero-title">Locked in so you can relax</h1>
           <a class="cta" href="https://klui.ai">Join Klui <span aria-hidden="true">→</span></a>
