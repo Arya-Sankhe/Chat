@@ -1,7 +1,6 @@
 /**
- * Web search orchestrator. Picks a provider, handles caching, runs the
- * fallback chain, and reports a normalized result shape regardless of
- * which provider answered.
+ * Web search orchestrator. Picks a provider, runs the fallback chain, and
+ * reports a normalized result shape regardless of which provider answered.
  *
  * Provider chain (default):
  *   1. SearXNG                  — primary, cheap SERP/snippet discovery
@@ -10,10 +9,12 @@
  *
  * A tiny circuit breaker flips to the fallback for 5 minutes if the
  * primary returns 3 consecutive 5xx/429 within 60 seconds.
+ *
+ * There is no search cache. Each call hits a provider; queries are not
+ * stored or shared across users.
  */
 
 import { braveSearch } from "./brave.js";
-import { hashKey, SearchCache } from "./cache.js";
 import {
   filterDeniedDomains as applyDenyDomainFilter,
   isDeniedUrl,
@@ -74,17 +75,10 @@ class ProviderHealth {
 export class WebSearchOrchestrator {
   /**
    * @param {object} options
-   * @param {object} options.config              - config.websearch slice
-   * @param {object} [options.persistentCache]   - optional { get, set } backing
-   *                                                store (Supabase REST)
+   * @param {object} options.config - config.websearch slice
    */
-  constructor({ config, persistentCache = null } = {}) {
+  constructor({ config } = {}) {
     this.config = config;
-    this.cache = new SearchCache({
-      maxEntries: config.cacheMaxEntries,
-      ttlMs: config.cacheTtlSeconds * 1000,
-      persistent: persistentCache
-    });
     this.health = {
       searxng: new ProviderHealth("searxng"),
       jina: new ProviderHealth("jina"),
@@ -115,7 +109,7 @@ export class WebSearchOrchestrator {
   }
 
   /**
-   * Run a search through the provider chain with caching + circuit breaker.
+   * Run a search through the provider chain with circuit breaker.
    * Always returns a result object — never throws to the caller. Failures
    * surface as { ok: false, error }.
    */
@@ -137,38 +131,8 @@ export class WebSearchOrchestrator {
       };
     }
 
-    const cacheKey = hashKey({
-      kind: "search",
-      qualityVersion: 5,
-      providers: this.resolveChain().filter((provider) => this.providerAvailable(provider)).join(",") || "none",
-      query: normalizedQuery.toLowerCase(),
-      originalQuestion: normalizedQuestion.toLowerCase(),
-      numResults: resultLimit,
-      freshness: freshness || null,
-      country: country || "us",
-      lang: lang || "en"
-    });
-
-    const cached = await this.cache.get(cacheKey);
-    if (cached) {
-      /* Re-filter on every cache hit so deny-list changes and pre-policy
-         cache entries cannot leak denied or malformed URLs. */
-      return {
-        ok: true,
-        cached: true,
-        ...cached,
-        results: selectRelevantResults(
-          this.filterDeniedDomains(cached.results || []),
-          normalizedQuery,
-          normalizedQuestion,
-          resultLimit
-        )
-      };
-    }
-
     /* `beforeNetwork` is invoked exactly once before any provider call.
-       The orchestrator caller uses this to charge the per-user quota
-       only on real network hits (cache hits stay free). */
+       The orchestrator caller uses this to charge the per-user quota. */
     if (typeof this.beforeNetwork === "function") {
       try {
         await this.beforeNetwork({ query: normalizedQuery });
@@ -224,7 +188,6 @@ export class WebSearchOrchestrator {
           fetchedAt: new Date().toISOString()
         };
         this.health[providerName].recordSuccess();
-        await this.cache.set(cacheKey, payload, { query: normalizedQuery, provider: providerName });
         return { ok: true, cached: false, ...payload };
       } catch (error) {
         const wrapped = error instanceof WebSearchError
@@ -252,24 +215,13 @@ export class WebSearchOrchestrator {
   /**
    * Direct URL read via r.jina.ai. Falls back to nothing — Brave doesn't
    * expose a generic URL reader. If Jina is unavailable, return an error.
-   * Denied hosts are rejected at the request boundary before cache/quota/network,
-   * and again on the final URL Jina returns before caching.
+   * Denied hosts are rejected at the request boundary before quota/network,
+   * and again on the final URL Jina returns.
    */
   async readUrl({ url, signal }) {
     const denyDomains = this.effectiveDenyDomains();
     if (isDeniedUrl(url, denyDomains)) {
       return denyPolicyError("URL blocked by deny-domain policy.");
-    }
-
-    const cacheKey = hashKey({ kind: "read", url });
-    const cached = await this.cache.get(cacheKey);
-    if (cached) {
-      /* A previously allowed input may have cached a denied final URL
-         (redirect). Enforce policy on the cached final URL before return. */
-      if (isDeniedUrl(cached.url, denyDomains)) {
-        return denyPolicyError("Final URL blocked by deny-domain policy.");
-      }
-      return { ok: true, cached: true, ...cached };
     }
 
     if (typeof this.beforeNetwork === "function") {
@@ -308,7 +260,6 @@ export class WebSearchOrchestrator {
         publishedAt: data.publishedAt,
         fetchedAt: new Date().toISOString()
       };
-      await this.cache.set(cacheKey, payload, { query: url, provider: "jina-read" });
       return { ok: true, cached: false, ...payload };
     } catch (error) {
       const wrapped = error instanceof WebSearchError

@@ -698,26 +698,6 @@ test("checkApiBudget calls klui_check_api_budget RPC with weekly window fields",
   });
 });
 
-test("getSearchCache reads search_cache by query_hash and swallows errors", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    assert.equal(options.method, "GET");
-    assert.equal(
-      url,
-      "https://example.supabase.co/rest/v1/search_cache?query_hash=eq.abc123&select=*&limit=1"
-    );
-    expectServiceHeaders(options.headers);
-
-    return new Response(JSON.stringify([{ query_hash: "abc123", payload: { hits: 1 } }]), {
-      status: 200,
-      headers: { "content-type": "application/json" }
-    });
-  }, async () => {
-    const db = new SupabaseRest(FAKE_CONFIG);
-    const row = await db.getSearchCache("abc123");
-    assert.deepEqual(row, { query_hash: "abc123", payload: { hits: 1 } });
-  });
-});
-
 test("getAppSetting reads app_settings by key and returns the first row", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");

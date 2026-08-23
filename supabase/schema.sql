@@ -436,20 +436,6 @@ create table if not exists public.model_cache (
   fetched_at timestamptz not null default now()
 );
 
-create table if not exists public.search_cache (
-  query_hash text primary key,
-  query text not null default '',
-  provider text not null,
-  results jsonb not null,
-  created_at timestamptz not null default now(),
-  expires_at timestamptz not null
-);
-
-create index if not exists search_cache_expires_at_idx
-  on public.search_cache (expires_at);
-
-alter table public.search_cache enable row level security;
-
 alter table public.profiles drop column if exists stripe_customer_id;
 alter table public.plans drop column if exists stripe_price_id;
 alter table public.plans alter column price_label set default 'Manual payment';
@@ -535,7 +521,7 @@ grant select on public.profiles, public.subscriptions, public.payment_requests, 
 grant select on public.research_runs to authenticated;
 grant select on public.study_notes, public.study_cards, public.study_quizzes to authenticated;
 grant select on public.usage_api_weekly to authenticated;
-grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache, public.search_cache to service_role;
+grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache to service_role;
 grant all on public.research_runs to service_role;
 grant all on public.study_notes, public.study_cards, public.study_quizzes to service_role;
 
@@ -1024,7 +1010,6 @@ declare
   v_limit integer := least(greatest(coalesce(p_limit, 500), 1), 5000);
   v_grace interval := coalesce(p_grace, interval '7 days');
   v_jobs_deleted integer := 0;
-  v_search_cache_deleted integer := 0;
   v_model_cache_deleted integer := 0;
 begin
   if v_grace < interval '1 day' then
@@ -1051,21 +1036,6 @@ begin
   select count(*) into v_jobs_deleted from deleted;
 
   with doomed as (
-    select query_hash
-    from public.search_cache
-    where expires_at < now()
-    order by expires_at asc
-    limit v_limit
-  ),
-  deleted as (
-    delete from public.search_cache sc
-    using doomed d
-    where sc.query_hash = d.query_hash
-    returning sc.query_hash
-  )
-  select count(*) into v_search_cache_deleted from deleted;
-
-  with doomed as (
     select id
     from public.model_cache
     where fetched_at < now() - v_grace
@@ -1084,7 +1054,6 @@ begin
     'document_jobs_deleted', v_jobs_deleted,
     'attachments_deleted', 0,
     'document_files_deleted', 0,
-    'search_cache_deleted', v_search_cache_deleted,
     'model_cache_deleted', v_model_cache_deleted
   );
 end;

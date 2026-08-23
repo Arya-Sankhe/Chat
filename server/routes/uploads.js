@@ -6,6 +6,7 @@ import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { mapStorageRpcError, STORAGE_LIST_LIMIT, storageUsage, deleteReservedUpload } from "../saas/storageQuota.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
+import { stripImageMetadata } from "../storage/stripImageMetadata.js";
 import { DocumentService } from "../documents/index.js";
 import { transcribeCourseImage } from "../study/generate.js";
 import { requireChatContext } from "./context.js";
@@ -138,11 +139,17 @@ export async function handleUploadContent(req, res, config, uploadId) {
     maxDocumentBytes: documentUploadMaxBytes(context, config)
   });
 
-  const result = await context.r2.putObject(attachment.object_key, raw, {
+  const body = category === "image" ? stripImageMetadata(raw) : raw;
+  const result = await context.r2.putObject(attachment.object_key, body, {
     contentType: attachment.content_type || req.headers["content-type"] || "application/octet-stream",
     expiresSeconds: category === "document" ? config.documents.uploadExpiresSeconds : config.r2.uploadExpiresSeconds,
     signal: req.signal
   });
+  if (body.length !== raw.length) {
+    await context.db.updateAttachment(context.user.id, attachment.id, {
+      size_bytes: body.length
+    }, { signal: req.signal });
+  }
 
   sendJson(res, 200, {
     ok: true,
@@ -174,13 +181,31 @@ export async function handleCompleteUpload(req, res, config) {
   } catch (error) {
     await failComplete(error);
   }
-  const sizeBytes = Number(head.sizeBytes);
+  let sizeBytes = Number(head.sizeBytes);
+  let etag = head.etag || attachment.etag || null;
   const reservedBytes = Number(attachment.size_bytes);
   if (!Number.isInteger(sizeBytes) || sizeBytes !== reservedBytes) {
     await failComplete(new HttpError(400, "Uploaded file size did not match the reserved upload."));
   }
 
   const category = attachment.category || "image";
+  if (category === "image") {
+    try {
+      const stored = await context.r2.getObject(attachment.object_key, { signal: req.signal });
+      const cleaned = stripImageMetadata(stored);
+      if (cleaned.length !== stored.length) {
+        const rewritten = await context.r2.putObject(attachment.object_key, cleaned, {
+          contentType: attachment.content_type || "application/octet-stream",
+          expiresSeconds: config.r2.uploadExpiresSeconds,
+          signal: req.signal
+        });
+        sizeBytes = cleaned.length;
+        etag = rewritten.etag || etag;
+      }
+    } catch (error) {
+      await failComplete(error);
+    }
+  }
   try {
     assertUpload({
       category,
@@ -208,7 +233,7 @@ export async function handleCompleteUpload(req, res, config) {
         userId: context.user.id,
         attachmentId: attachment.id,
         sizeBytes,
-        etag: head.etag || attachment.etag || null,
+        etag,
         kind,
         limits: documentExtractionLimits(config, context.plan),
         projectId: attachment.project_id || null,
@@ -223,7 +248,7 @@ export async function handleCompleteUpload(req, res, config) {
         userId: context.user.id,
         attachmentId: attachment.id,
         sizeBytes,
-        etag: head.etag || null,
+        etag,
         maxBytes: context.plan.maxStorageBytes
       }, { signal: req.signal });
     }

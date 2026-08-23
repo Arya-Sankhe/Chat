@@ -151,6 +151,28 @@ Do not add a full consent manager unless we add non-essential cookies or ads.
 
 ---
 
+## 10. Strip EXIF/GPS from image uploads — done in code
+
+**Decision:** User-uploaded images are stored without EXIF/GPS. Camera photos must not keep location in R2.
+
+JPEG APP1 (EXIF/XMP), APP13 (IPTC), and COM are dropped. PNG eXIf and text/time chunks are dropped. WebP EXIF and XMP chunks are dropped. Pixel data is not re-encoded. GIF is left as-is. Documents and generated illustrations are unchanged. Existing objects already in R2 are not rewritten.
+
+The relay PUT strips before R2. Complete also reads the object and overwrites if a browser PUT still had metadata (presigned URL). Reserved size is checked against the bytes the client sent; the stored size may then shrink.
+
+Privacy later should say uploaded photos are stored without location metadata. Orientation from EXIF is discarded with APP1 — add a pixel rotate later if that becomes a support issue.
+
+---
+
+## 11. No web-search cache — done in code
+
+**Decision:** There is no web-search cache. Queries are not stored, hashed, or shared across users. Each search hits a provider.
+
+Dropped the in-process LRU, the Supabase `search_cache` table (including the plaintext `query` column), `getSearchCache` / `upsertSearchCache`, and `WEBSEARCH_CACHE_*` config. The cleanup RPC no longer purges that table.
+
+Do not add a shared search cache back. A per-user in-memory cache would still be a search-history store; only add something if a profiler says provider cost is the problem, and then isolate it per user with hashed keys and no plaintext query.
+
+---
+
 ## Still open (code list)
 
-10–22 as previously listed
+12–22 as previously listed

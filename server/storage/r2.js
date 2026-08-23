@@ -297,6 +297,17 @@ export class R2Client {
     });
   }
 
+  async getObject(key, { signal } = {}) {
+    const response = await fetch(this.presign("GET", key, this.config.readExpiresSeconds), {
+      method: "GET",
+      signal
+    });
+    if (!response.ok) {
+      throw new HttpError(400, "Uploaded file could not be read.");
+    }
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   deleteUrl(key) {
     return this.presign("DELETE", key, 60);
   }

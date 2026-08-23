@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe, before, after } from "node:test";
 
-import { SearchCache, hashKey } from "../server/websearch/cache.js";
 import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
 import {
   BUILTIN_ADULT_DENY_DOMAINS,
@@ -95,8 +94,6 @@ const baseConfig = {
   maxResults: 5,
   pageContentChars: 1000,
   totalContextChars: 4000,
-  cacheTtlSeconds: 60,
-  cacheMaxEntries: 100,
   fetchTimeoutMs: 5000,
   maxToolCallsPerTurn: 3,
   denyDomains: [],
@@ -269,24 +266,14 @@ describe("deny domains", () => {
     }
   });
 
-  test("readUrl rejects denied input URLs before cache, quota, or network", async () => {
+  test("readUrl rejects denied input URLs before quota or network", async () => {
     let fetchCalled = false;
     let quotaCalled = false;
-    let cacheGets = 0;
     installFetch(async () => {
       fetchCalled = true;
       throw new Error("network should not run");
     });
     const orch = new WebSearchOrchestrator({ config: baseConfig });
-    orch.cache = {
-      async get() {
-        cacheGets += 1;
-        return null;
-      },
-      async set() {
-        throw new Error("cache set should not run");
-      }
-    };
     orch.beforeNetwork = async () => {
       quotaCalled = true;
       throw new Error("quota should not run");
@@ -299,166 +286,32 @@ describe("deny domains", () => {
       assert.match(result.error.message, /deny-domain policy/i);
       assert.equal(fetchCalled, false);
       assert.equal(quotaCalled, false);
-      assert.equal(cacheGets, 0);
     } finally {
       restoreFetch();
     }
   });
 
-  test("readUrl rejects a denied final URL from Jina before caching", async () => {
-    let cacheSets = 0;
+  test("readUrl rejects a denied final URL from Jina", async () => {
     installFetch(async (url) => {
       assert.match(String(url), /^https:\/\/r\.jina\.ai\//);
       return jsonResponse({
         data: {
           title: "Redirected",
           url: "https://xvideos.tube/landed",
-          content: "should not be cached"
+          content: "should not be returned"
         }
       });
     });
     const orch = new WebSearchOrchestrator({ config: baseConfig });
-    orch.cache = {
-      async get() {
-        return null;
-      },
-      async set() {
-        cacheSets += 1;
-      }
-    };
     try {
       const result = await orch.readUrl({ url: "https://example.com/bounce" });
       assert.equal(result.ok, false);
       assert.equal(result.error.provider, "policy");
       assert.equal(result.error.status, 403);
       assert.match(result.error.message, /Final URL blocked/i);
-      assert.equal(cacheSets, 0);
     } finally {
       restoreFetch();
     }
-  });
-
-  test("search re-filters cached results with the current deny list", async () => {
-    let fetchCalls = 0;
-    installFetch(async () => {
-      fetchCalls += 1;
-      throw new Error("network should not run on cache hit");
-    });
-    const orch = new WebSearchOrchestrator({
-      config: { ...baseConfig, denyDomains: ["blocked.test"] }
-    });
-    orch.cache = {
-      async get() {
-        return {
-          query: "legacy query",
-          provider: "jina",
-          results: [
-            { title: "Adult", url: "https://xvideos.tube/a", snippet: "x" },
-            { title: "Blocked", url: "https://blocked.test/page", snippet: "b" },
-            { title: "Malformed", url: "://broken" },
-            { title: "Ok", url: "https://example.com/ok", snippet: "legacy query ok" }
-          ],
-          tokens: null,
-          fetchedAt: "2026-01-01T00:00:00.000Z"
-        };
-      },
-      async set() {
-        throw new Error("cache set should not run");
-      }
-    };
-    try {
-      const result = await orch.search({ query: "legacy query" });
-      assert.equal(result.ok, true);
-      assert.equal(result.cached, true);
-      assert.equal(fetchCalls, 0);
-      assert.deepEqual(result.results.map((entry) => entry.title), ["Ok"]);
-    } finally {
-      restoreFetch();
-    }
-  });
-
-  test("readUrl rejects a cached payload whose final URL is now denied", async () => {
-    let fetchCalled = false;
-    installFetch(async () => {
-      fetchCalled = true;
-      throw new Error("network should not run");
-    });
-    const orch = new WebSearchOrchestrator({ config: baseConfig });
-    orch.cache = {
-      async get() {
-        return {
-          provider: "jina",
-          url: "https://xvideos.tube/landed",
-          title: "Cached redirect",
-          content: "legacy adult content",
-          publishedAt: null,
-          fetchedAt: "2026-01-01T00:00:00.000Z"
-        };
-      },
-      async set() {
-        throw new Error("cache set should not run");
-      }
-    };
-    try {
-      const result = await orch.readUrl({ url: "https://example.com/bounce" });
-      assert.equal(result.ok, false);
-      assert.equal(result.error.provider, "policy");
-      assert.equal(result.error.status, 403);
-      assert.match(result.error.message, /Final URL blocked/i);
-      assert.equal(fetchCalled, false);
-    } finally {
-      restoreFetch();
-    }
-  });
-});
-
-describe("cache", () => {
-  test("LRU returns null on miss and value on hit", async () => {
-    const cache = new SearchCache({ maxEntries: 2, ttlMs: 5000 });
-    const key = hashKey({ query: "abc" });
-    assert.equal(await cache.get(key), null);
-    await cache.set(key, { value: 1 });
-    assert.deepEqual(await cache.get(key), { value: 1 });
-  });
-
-  test("LRU evicts oldest entry past maxEntries", async () => {
-    const cache = new SearchCache({ maxEntries: 2, ttlMs: 5000 });
-    await cache.set("a", 1);
-    await cache.set("b", 2);
-    await cache.set("c", 3);
-    assert.equal(await cache.get("a"), null);
-    assert.equal(await cache.get("b"), 2);
-    assert.equal(await cache.get("c"), 3);
-  });
-
-  test("LRU expires entries past TTL", async () => {
-    const cache = new SearchCache({ maxEntries: 5, ttlMs: 5 });
-    await cache.set("x", "y");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(await cache.get("x"), null);
-  });
-
-  test("persistent backend feeds the LRU on cold start", async () => {
-    let storedRow = null;
-    const persistent = {
-      async get() {
-        return storedRow;
-      },
-      async set(row) {
-        storedRow = row;
-      }
-    };
-    const cache = new SearchCache({ maxEntries: 5, ttlMs: 60_000, persistent });
-    const key = hashKey({ q: "hello" });
-    await cache.set(key, { hello: "world" }, { query: "hello", provider: "test" });
-    cache.clear();
-    /* LRU is empty, so this read must come from the persistent layer. */
-    storedRow = {
-      ...storedRow,
-      expires_at: new Date(Date.now() + 60_000).toISOString(),
-      results: { hello: "world" }
-    };
-    assert.deepEqual(await cache.get(key), { hello: "world" });
   });
 });
 
@@ -770,18 +623,20 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(JSON.parse(capturedOptions.body).q, "latest ai news");
   });
 
-  test("cache short-circuits a repeat query without calling fetch", async () => {
+  test("repeat queries hit the provider again and are not cached", async () => {
     let calls = 0;
     installFetch(async () => {
       calls += 1;
-      return jsonResponse({ data: [{ url: "https://a.example/1", title: "A", content: "x" }] });
+      return jsonResponse({ data: [{ url: "https://a.example/1", title: "A", content: "duplicate query" }] });
     });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
     const first = await orchestrator.search({ query: "duplicate query" });
     const second = await orchestrator.search({ query: "duplicate query" });
     assert.equal(first.ok, true);
-    assert.equal(second.cached, true);
-    assert.equal(calls, 1);
+    assert.equal(second.ok, true);
+    assert.equal(first.cached, false);
+    assert.equal(second.cached, false);
+    assert.equal(calls, 2);
   });
 
   test("falls back to Brave when Jina returns 5xx", async () => {

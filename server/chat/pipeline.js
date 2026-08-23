@@ -346,26 +346,15 @@ function normalizeWebSearchMode(value, fallback) {
 }
 
 /**
- * Builds a per-request WebSearchOrchestrator. The Supabase REST client
- * doubles as the persistent cache backend; search calls are billed through
- * the unified API-credit ledger once provider usage is wired in.
+ * Builds a per-request WebSearchOrchestrator. Search calls are billed
+ * through the unified API-credit ledger once provider usage is wired in.
  */
-export function buildMeteredWebsearch({ config, context, signal }) {
+export function buildMeteredWebsearch({ config }) {
   if (!configuredServices(config).websearch) return null;
   if (config.websearch.defaultMode === "off") return null;
 
-  const persistentCache = {
-    async get(key) {
-      return context.db.getSearchCache(key, { signal });
-    },
-    async set(row) {
-      await context.db.upsertSearchCache(row, { signal });
-    }
-  };
-
   const orchestrator = new WebSearchOrchestrator({
-    config: config.websearch,
-    persistentCache
+    config: config.websearch
   });
   if (!orchestrator.hasAnyProvider) return null;
 

@@ -503,14 +503,6 @@ export class SupabaseRest {
     return admin.adminSummary(this, options);
   }
 
-  async getSearchCache(queryHash, options) {
-    return caches.getSearchCache(this, queryHash, options);
-  }
-
-  async upsertSearchCache(row, options) {
-    return caches.upsertSearchCache(this, row, options);
-  }
-
   async getModelCache(id, options) {
     return caches.getModelCache(this, id, options);
   }

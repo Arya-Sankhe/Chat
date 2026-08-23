@@ -21,8 +21,10 @@ test("database cron retains R2-backed attachment metadata for VPS cleanup", () =
   for (const sql of [migration, schemaCleanup]) {
     assert.doesNotMatch(sql, /delete from public\.attachments/i);
     assert.doesNotMatch(sql, /delete from public\.document_files/i);
-    assert.match(sql, /delete from public\.search_cache/i);
+    assert.match(sql, /delete from public\.model_cache/i);
   }
+  assert.doesNotMatch(schemaCleanup, /search_cache/i);
+  assert.doesNotMatch(schema, /public\.search_cache/i);
 });
 
 test("orphan cleanup removes every Office-derived R2 object before its database row", async () => {

@@ -249,8 +249,6 @@ export function loadConfig(env = process.env) {
       maxResults: readInt(env.WEBSEARCH_MAX_RESULTS, 5),
       pageContentChars: readInt(env.WEBSEARCH_PAGE_CONTENT_CHARS, 4000),
       totalContextChars: readInt(env.WEBSEARCH_TOTAL_CONTEXT_CHARS, 12000),
-      cacheTtlSeconds: readInt(env.WEBSEARCH_CACHE_TTL_SECONDS, 900),
-      cacheMaxEntries: readInt(env.WEBSEARCH_CACHE_MAX_ENTRIES, 500),
       fetchTimeoutMs: readInt(env.WEBSEARCH_FETCH_TIMEOUT_MS, 8000),
       maxToolCallsPerTurn: readInt(env.WEBSEARCH_MAX_TOOL_CALLS_PER_TURN, 75),
       denyDomains: clean(env.WEBSEARCH_DENY_DOMAINS)

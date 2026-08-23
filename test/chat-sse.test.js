@@ -233,6 +233,15 @@ function installProviderFetch({ streamFor, completionFor = null, imageFor = null
       if (completionFor) return jsonResponse(completionFor(body));
       throw new Error(`Unexpected non-stream completion call for ${body.model}`);
     }
+    if (href.includes("searxng:8080")) {
+      return jsonResponse({
+        results: [{
+          url: "https://example.com/ai",
+          title: "AI News",
+          content: "The latest in AI"
+        }]
+      });
+    }
     throw new Error(`Unexpected fetch in SSE test: ${href}`);
   };
 }
@@ -247,28 +256,7 @@ function futureIso(ms = 60_000) {
   return new Date(Date.now() + ms).toISOString();
 }
 
-function searchCacheRow() {
-  return {
-    query_hash: "hash",
-    expires_at: futureIso(),
-    results: {
-      query: "latest ai news",
-      provider: "searxng",
-      results: [{
-        index: 1,
-        title: "AI News",
-        url: "https://example.com/ai",
-        snippet: "The latest in AI",
-        publishedAt: null,
-        content: "Model releases everywhere."
-      }],
-      tokens: null,
-      fetchedAt: "2026-01-01T00:00:00.000Z"
-    }
-  };
-}
-
-function makeDb({ conversation, cachedSearch = null, messages: seedMessages = null } = {}) {
+function makeDb({ conversation, messages: seedMessages = null } = {}) {
   const calls = [];
   let counter = 0;
   const messages = seedMessages ? seedMessages.map((message) => ({ ...message })) : null;
@@ -295,8 +283,6 @@ function makeDb({ conversation, cachedSearch = null, messages: seedMessages = nu
     async getResearchRun() { return null; },
     async getModelCache() { return null; },
     async upsertModelCache() { return {}; },
-    async getSearchCache() { return cachedSearch; },
-    async upsertSearchCache() { return {}; },
     async updateAttachment() { return {}; },
     async deleteAttachment(userId, id) {
       calls.push({ op: "deleteAttachment", userId, id });
@@ -468,7 +454,7 @@ test("single chat with a web-search tool call: canonical transcript, persistence
   });
 
   const config = loadConfig(CONFIG_ENV);
-  const db = makeDb({ conversation: conversationRow, cachedSearch: searchCacheRow() });
+  const db = makeDb({ conversation: conversationRow });
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
     body: { text: "What is the latest AI news today?", model: TEXT_MODEL, agentMode: true }
@@ -495,7 +481,7 @@ test("single chat with a web-search tool call: canonical transcript, persistence
       name: "web_search",
       query: "latest ai news",
       provider: "searxng",
-      cached: true,
+      cached: false,
       /* The SSE event carries the raw tool citations; marker/provider
          enrichment happens only on the persisted metadata copy. */
       citations: [{
