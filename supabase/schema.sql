@@ -744,7 +744,7 @@ begin
     );
   end if;
 
-  if v_limit <= 0 or v_week.api_credit_used >= v_limit then
+  if v_limit <= 0 or v_week.api_credit_used + v_week.api_credit_reserved + v_reserve > v_limit then
     return jsonb_build_object(
       'allowed', false, 'reason', 'usage_exhausted',
       'api_credit_used', v_week.api_credit_used,
@@ -2660,4 +2660,3 @@ revoke execute on function public.klui_message_text(jsonb) from public, anon, au
 revoke execute on function public.klui_search_messages(uuid, text, integer) from public, anon, authenticated;
 grant execute on function public.klui_message_text(jsonb) to service_role;
 grant execute on function public.klui_search_messages(uuid, text, integer) to service_role;
-

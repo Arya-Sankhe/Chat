@@ -464,7 +464,7 @@ test("service worker unregisters, deletes caches, and does not cache the app she
   assert.doesNotMatch(source, /\/api\//);
 });
 
-test("web startup parallelizes metadata and defers rich text and Study Hub code", async () => {
+test("web startup loads Markdown and defers heavier rich text tools and Study Hub code", async () => {
   const { readFile } = await import("node:fs/promises");
   const [app, html] = await Promise.all([
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8"),
@@ -474,8 +474,12 @@ test("web startup parallelizes metadata and defers rich text and Study Hub code"
   assert.match(bootstrap, /Promise\.all\(\[\s*fetchConfig\(\),\s*fetchPlans\(\),/);
   assert.match(app, /import\("\.\/studyHub\.js\?v=20260824-upload1"\)/);
   assert.doesNotMatch(app, /^import .*studyHub\.js/m);
-  assert.doesNotMatch(html, /katex\.min\.js|marked\.umd\.js|highlight\.min\.js/);
+  assert.match(html, /marked\.umd\.js/);
+  assert.match(html, /integrity="sha384-[^"]+" crossorigin="anonymous"/);
+  assert.doesNotMatch(html, /katex\.min\.js|highlight\.min\.js/);
   assert.match(app, /function loadRichTextAssets\(\)/);
+  assert.match(app, /Promise\.allSettled\(/);
+  assert.match(app, /if \(state\.messages\.length\) queueRenderMessages\(\);/);
   assert.match(app, /async function startZiinaPayment\(planId\) \{[\s\S]*?await paymentRequestsPromise;/);
 });
 

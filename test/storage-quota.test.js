@@ -477,6 +477,27 @@ test("DELETE /api/me still deletes the auth user when there are no files", async
   assert.equal(deletedR2, false);
 });
 
+test("DELETE /api/me uses the R2 account prefix when available", async () => {
+  const order = [];
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async listAccountObjectKeysBatch() { throw new Error("database listing should be skipped"); },
+        async deleteAuthUser() { order.push("auth"); }
+      },
+      r2: {
+        async deletePrefix(prefix) {
+          order.push(prefix);
+        }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(order, ["users/user-1/", "auth"]);
+});
+
 test("DELETE /api/me keeps the account if R2 delete fails", async () => {
   let deletedAuth = false;
   const res = await dispatch(authReadyConfig, {
@@ -494,4 +515,41 @@ test("DELETE /api/me keeps the account if R2 delete fails", async () => {
   });
   assert.equal(res.statusCode, 500);
   assert.equal(deletedAuth, false);
+});
+
+test("DELETE /api/me deletes storage in bounded batches before auth for large accounts", async () => {
+  let remaining = 5201;
+  let batches = 0;
+  let deletedObjects = 0;
+  let authDeleted = false;
+  const res = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async listAccountObjectKeysBatch() {
+          batches += 1;
+          const count = Math.min(200, remaining);
+          remaining -= count;
+          return {
+            keys: Array.from({ length: count }, (_, index) => `users/user-1/${batches}-${index}`),
+            cursors: { attachments: String(batches) },
+            hasMore: remaining > 0
+          };
+        },
+        async deleteAuthUser() { authDeleted = true; }
+      },
+      r2: {
+        async deleteObjects(keys) {
+          assert.ok(keys.length <= 200);
+          deletedObjects += keys.length;
+        }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(remaining, 0);
+  assert.equal(batches, 27);
+  assert.equal(deletedObjects, 5201);
+  assert.equal(authDeleted, true);
 });

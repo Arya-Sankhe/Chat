@@ -89,6 +89,17 @@ function r2ErrorDetails(details) {
   };
 }
 
+function decodeXml(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 function uploadErrorMessage(status, details) {
   if (status === 403 && details.code === "AccessDenied") {
     return "Cloudflare R2 denied the upload. Check that the configured R2 access key has Object Read & Write access to R2_BUCKET.";
@@ -310,6 +321,41 @@ export class R2Client {
 
   deleteUrl(key) {
     return this.presign("DELETE", key, 60);
+  }
+
+  listUrl(prefix, continuationToken) {
+    return this.presign("GET", "", 60, {
+      "list-type": "2",
+      "max-keys": "1000",
+      prefix,
+      ...(continuationToken ? { "continuation-token": continuationToken } : {})
+    });
+  }
+
+  async listObjects(prefix, { continuationToken, signal } = {}) {
+    const response = await fetch(this.listUrl(prefix, continuationToken), {
+      method: "GET",
+      signal
+    });
+    if (!response.ok) {
+      throw new HttpError(502, "Uploaded files could not be listed from storage.");
+    }
+    const xml = await response.text();
+    const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXml(match[1]));
+    const isTruncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const nextToken = decodeXml(xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/i)?.[1]);
+    if (isTruncated && !nextToken) throw new HttpError(502, "Storage returned an invalid object listing.");
+    return { keys, isTruncated, nextToken: nextToken || null };
+  }
+
+  async deletePrefix(prefix, { signal } = {}) {
+    if (!String(prefix || "")) throw new HttpError(400, "Storage deletion prefix is required.");
+    let deleted = 0;
+    for (;;) {
+      const page = await this.listObjects(prefix, { signal });
+      if (!page.keys.length) return deleted;
+      deleted += await this.deleteObjects(page.keys, { signal });
+    }
   }
 
   headUrl(key) {

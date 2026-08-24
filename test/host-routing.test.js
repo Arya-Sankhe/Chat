@@ -93,6 +93,35 @@ test("static text assets are compressed, version-cached, and revalidated", async
   assert.equal(revalidated.rawBody.length, 0);
 });
 
+test("static compression honors q-values, wildcards, and no acceptable encoding", async (t) => {
+  const server = await startServer();
+  t.after(() => new Promise((resolvePromise) => server.close(resolvePromise)));
+
+  const gzipOnly = await get(server, {
+    host: "klui.ai",
+    path: "/js/app.js",
+    headers: { "accept-encoding": "br;q=0, gzip;q=0.8" }
+  });
+  assert.equal(gzipOnly.status, 200);
+  assert.equal(gzipOnly.headers["content-encoding"], "gzip");
+
+  const identity = await get(server, {
+    host: "klui.ai",
+    path: "/js/app.js",
+    headers: { "accept-encoding": "gzip;q=0" }
+  });
+  assert.equal(identity.status, 200);
+  assert.equal(identity.headers["content-encoding"], undefined);
+
+  const rejected = await get(server, {
+    host: "klui.ai",
+    path: "/js/app.js",
+    headers: { "accept-encoding": "*;q=0" }
+  });
+  assert.equal(rejected.status, 406);
+  assert.equal(rejected.headers.vary, "Accept-Encoding");
+});
+
 test("www.klui.ai redirect cannot become an open redirect", () => {
   const location = hostRedirectLocation(
     request("www.klui.ai"),
@@ -423,7 +452,7 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     ["/subprocessors/", "Subprocessors"],
     ["/account-delete/", "Delete your account"],
     ["/status/", "Status"],
-    ["/accuracy/", "Klui is AI"]
+    ["/accuracy/", "Can Klui make mistakes\\?"]
   ];
 
   for (const [path, heading] of pages) {
@@ -448,9 +477,10 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
       assert.match(page.body, /fetch\("\/api\/health"/);
       assert.match(page.body, /id="statusKicker"/);
     } else if (path === "/accuracy/") {
-      assert.match(page.body, /Klui is an AI chatbot/);
-      assert.match(page.body, /not an emergency service/);
-      assert.match(page.body, /non-consensual intimate images/);
+      assert.match(page.body, /Why can answers be wrong\?/);
+      assert.match(page.body, /How should I check an important answer\?/);
+      assert.match(page.body, /How can I report a problem\?/);
+      assert.doesNotMatch(page.body, /CSAM|non-consensual intimate images|report it to authorities/);
     } else if (path === "/terms/") {
       assert.match(page.body, /Effective 24 August 2026/);
       assert.match(page.body, /18 or older/);
@@ -495,9 +525,13 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/privacy\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/account-delete\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/legal\/"/);
-  assert.match(chat, /Klui is AI and can make mistakes/);
+  assert.match(chat, /Klui can make mistakes\. Double-check important responses\./);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/accuracy\/"/);
-  assert.match(chat, /Check important info/);
+  assert.match(chat, /class="accuracy-link"/);
+
+  const composerCss = readFileSync(resolve(publicDir, "styles/composer.css"), "utf8");
+  assert.match(composerCss, /body\.chat-empty \.composer-area \.app-footer\s*\{[\s\S]*?display:\s*none/);
+  assert.match(composerCss, /\.composer-area \.app-footer a\s*\{[\s\S]*?text-decoration:\s*none/);
 
   const home = readFileSync(resolve(publicDir, "home/index.html"), "utf8");
   assert.match(home, /href="terms\/">Terms</);

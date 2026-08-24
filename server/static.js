@@ -51,10 +51,30 @@ const compressibleTypes = ["text/", "application/json", "application/javascript"
 
 function responseEncoding(req, type, size) {
   if (size < 1024 || !compressibleTypes.some((value) => type.startsWith(value))) return "";
-  const accepted = String(req.headers["accept-encoding"] || "");
-  if (/\bbr\b/.test(accepted)) return "br";
-  if (/\bgzip\b/.test(accepted)) return "gzip";
-  return "";
+  const header = req.headers["accept-encoding"];
+  if (header == null) return "";
+  const qualities = new Map();
+  let wildcard = null;
+  for (const item of String(header).split(",")) {
+    const [namePart, ...parameters] = item.split(";");
+    const name = namePart.trim().toLowerCase();
+    if (!name) continue;
+    const qParameter = parameters.find((parameter) => /^\s*q\s*=\s*/i.test(parameter));
+    const rawQuality = qParameter?.replace(/^\s*q\s*=\s*/i, "").trim() || "1";
+    const quality = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/.test(rawQuality)
+      ? Number(rawQuality)
+      : 0;
+    if (name === "*") wildcard = Math.max(wildcard ?? 0, quality);
+    else qualities.set(name, Math.max(qualities.get(name) ?? 0, quality));
+  }
+  const qualityFor = (name) => qualities.has(name) ? qualities.get(name) : (wildcard ?? 0);
+  const candidates = ["br", "gzip"]
+    .map((name, preference) => ({ name, quality: qualityFor(name), preference }))
+    .filter((entry) => entry.quality > 0)
+    .sort((a, b) => b.quality - a.quality || a.preference - b.preference);
+  if (candidates[0]) return candidates[0].name;
+  const identityQuality = qualities.has("identity") ? qualities.get("identity") : (wildcard === 0 ? 0 : 1);
+  return identityQuality > 0 ? "" : null;
 }
 
 function etagMatches(req, etag) {
@@ -287,6 +307,11 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
     return;
   }
   const encoding = responseEncoding(req, type, stat.size);
+  if (encoding === null) {
+    res.writeHead(406, { vary: "Accept-Encoding" });
+    res.end();
+    return;
+  }
   const consentHeaders = pathname.startsWith("/oauth/consent") ? {
     "content-security-policy": `default-src 'self'; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' ${supabaseUrl}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     "referrer-policy": "no-referrer",

@@ -94,8 +94,23 @@ export function handlePlans(req, res, config) {
 export async function handleMe(req, res, config) {
   const context = await authContext(req, config);
   if (req.method === "DELETE") {
-    const keys = await context.db.listAccountObjectKeys(context.user.id, { signal: req.signal });
-    if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
+    if (typeof context.r2.deletePrefix === "function") {
+      await context.r2.deletePrefix(`users/${context.user.id}/`, { signal: req.signal });
+    } else if (typeof context.db.listAccountObjectKeysBatch === "function") {
+      let cursors = {};
+      for (;;) {
+        const batch = await context.db.listAccountObjectKeysBatch(context.user.id, {
+          cursors,
+          signal: req.signal
+        });
+        if (batch.keys.length) await context.r2.deleteObjects(batch.keys, { signal: req.signal });
+        cursors = batch.cursors;
+        if (!batch.hasMore) break;
+      }
+    } else {
+      const keys = await context.db.listAccountObjectKeys(context.user.id, { signal: req.signal });
+      if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
+    }
     await context.db.deleteAuthUser(context.user.id, { signal: req.signal });
     sendJson(res, 200, { deleted: true });
     return;

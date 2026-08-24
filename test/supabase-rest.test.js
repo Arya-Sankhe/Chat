@@ -919,6 +919,44 @@ test("listAccountObjectKeys gathers attachment, document, and page keys", async 
   ]));
 });
 
+test("listAccountObjectKeysBatch pages each owned storage table by id", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(options.method, "GET");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(parsed.searchParams.get("limit"), "200");
+    assert.equal(parsed.searchParams.get("order"), "id.asc");
+    assert.equal(parsed.searchParams.get("id"), "gt.cursor-1");
+    expectServiceHeaders(options.headers);
+    if (parsed.pathname === "/rest/v1/attachments") {
+      return jsonResponse([{ id: "attachment-2", object_key: "users/u/a.png" }]);
+    }
+    if (parsed.pathname === "/rest/v1/document_files") {
+      return jsonResponse([{ id: "document-2", extraction_key: "users/u/extract.json", preview_key: null }]);
+    }
+    if (parsed.pathname === "/rest/v1/document_pages") {
+      return jsonResponse([{ id: "page-2", image_key: "users/u/page.jpg" }]);
+    }
+    throw new Error(`unexpected ${url}`);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const batch = await db.listAccountObjectKeysBatch("user_1", {
+      cursors: { attachments: "cursor-1", documents: "cursor-1", pages: "cursor-1" }
+    });
+    assert.deepEqual(batch.keys, [
+      "users/u/a.png",
+      "users/u/extract.json",
+      "users/u/page.jpg"
+    ]);
+    assert.deepEqual(batch.cursors, {
+      attachments: "attachment-2",
+      documents: "document-2",
+      pages: "page-2"
+    });
+    assert.equal(batch.hasMore, false);
+  });
+});
+
 test("deleteAuthUser calls GoTrue admin delete and treats 404 as success", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "DELETE");
@@ -930,5 +968,4 @@ test("deleteAuthUser calls GoTrue admin delete and treats 404 as success", async
     assert.equal(await db.deleteAuthUser("user_1"), true);
   });
 });
-
 

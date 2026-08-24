@@ -1,7 +1,46 @@
-// Drop camera GPS/EXIF/XMP. Pixel data stays; orientation in APP1 is discarded.
+// Drop camera GPS/EXIF/XMP. Keep only a sanitized Orientation tag because this
+// service has no JPEG decoder/encoder; preserving that one tag avoids rotating
+// phone photos while retaining no location or camera metadata.
 
 function asBuffer(bytes) {
   return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+}
+
+function exifOrientation(segment) {
+  if (segment.length < 14 || segment.subarray(0, 6).toString("ascii") !== "Exif\0\0") return 0;
+  const tiff = 6;
+  const little = segment[tiff] === 0x49 && segment[tiff + 1] === 0x49;
+  if (!little && !(segment[tiff] === 0x4d && segment[tiff + 1] === 0x4d)) return 0;
+  const read16 = (offset) => little ? segment.readUInt16LE(offset) : segment.readUInt16BE(offset);
+  const read32 = (offset) => little ? segment.readUInt32LE(offset) : segment.readUInt32BE(offset);
+  if (read16(tiff + 2) !== 42) return 0;
+  const ifd = tiff + read32(tiff + 4);
+  if (ifd + 2 > segment.length) return 0;
+  const count = read16(ifd);
+  for (let index = 0; index < count; index += 1) {
+    const entry = ifd + 2 + index * 12;
+    if (entry + 12 > segment.length) return 0;
+    if (read16(entry) !== 0x0112 || read16(entry + 2) !== 3 || read32(entry + 4) !== 1) continue;
+    const value = read16(entry + 8);
+    return value >= 1 && value <= 8 ? value : 0;
+  }
+  return 0;
+}
+
+function orientationSegment(orientation) {
+  const tiff = Buffer.alloc(26);
+  tiff.write("II", 0, "ascii");
+  tiff.writeUInt16LE(42, 2);
+  tiff.writeUInt32LE(8, 4);
+  tiff.writeUInt16LE(1, 8);
+  tiff.writeUInt16LE(0x0112, 10);
+  tiff.writeUInt16LE(3, 12);
+  tiff.writeUInt32LE(1, 14);
+  tiff.writeUInt16LE(orientation, 18);
+  const payload = Buffer.concat([Buffer.from("Exif\0\0"), tiff]);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(payload.length + 2);
+  return Buffer.concat([Buffer.from([0xff, 0xe1]), length, payload]);
 }
 
 function stripJpegMetadata(bytes) {
@@ -9,6 +48,7 @@ function stripJpegMetadata(bytes) {
   const chunks = [bytes.subarray(0, 2)];
   let offset = 2;
   let changed = false;
+  let orientation = 0;
   while (offset + 1 < bytes.length) {
     if (bytes[offset] !== 0xff) {
       chunks.push(bytes.subarray(offset));
@@ -34,6 +74,10 @@ function stripJpegMetadata(bytes) {
     if (length < 2 || next > bytes.length) {
       chunks.push(bytes.subarray(offset));
       break;
+    }
+    if (marker === 0xe1 && !orientation) {
+      orientation = exifOrientation(bytes.subarray(offset + 4, next));
+      if (orientation) chunks.push(orientationSegment(orientation));
     }
     const drop = marker === 0xe1 || marker === 0xed || marker === 0xfe;
     if (drop) changed = true;

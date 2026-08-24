@@ -16,9 +16,12 @@ function headOf(documentHtml) {
   return match[1];
 }
 
-test("chat HTML has a storage notice and does not load Google Fonts or jsDelivr on first paint", () => {
+test("chat HTML has a storage notice and only loads pinned Markdown on first paint", () => {
   const head = headOf(html);
-  assert.doesNotMatch(head, /fonts\.googleapis\.com|fonts\.gstatic\.com|jsdelivr\.net/);
+  assert.doesNotMatch(head, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+  const externalScripts = [...head.matchAll(/<script\b[^>]*src="(https?:\/\/[^\"]+)"/gi)].map((match) => match[1]);
+  assert.deepEqual(externalScripts, ["https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js"]);
+  assert.match(head, /marked\.umd\.js" integrity="sha384-[^"]+" crossorigin="anonymous"/);
   assert.match(head, /src="\/vendor\/dompurify\/purify\.min\.js"/);
   assert.match(html, /id="storageNotice"/);
   assert.match(html, /We store settings on this device\./);

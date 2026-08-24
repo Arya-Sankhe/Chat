@@ -9,13 +9,13 @@ import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { pipeProviderStreamAndAccumulate } from "../saas/messages/stream.js";
 import { publicPlan } from "../saas/plans.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
-import { validatedAudioDuration } from "../speech/audio.js";
+import { MAX_AUDIO_SECONDS, validatedAudioDuration } from "../speech/audio.js";
 import {
   MAX_AUDIO_BYTES,
   STT_MODEL,
   STT_RESERVATION_CREDITS,
   STT_TIMEOUT_MS,
-  speechUsage,
+  settleSpeechUsage,
   transcribeAudio
 } from "./speech.js";
 import { desktopAuthContext, requireDesktopContext } from "./context.js";
@@ -329,7 +329,7 @@ export async function handleDesktopSpeech(req, res, config) {
   const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
   if (contentType !== "audio/wav" && contentType !== "audio/x-wav") throw new HttpError(415, "Desktop voice input must be WAV audio.");
   const audio = await readRawBody(req, MAX_AUDIO_BYTES);
-  const durationSeconds = validatedAudioDuration(audio, contentType);
+  const durationSeconds = validatedAudioDuration(audio, contentType, { maxSeconds: MAX_AUDIO_SECONDS });
   const window = apiUsageWindow(context.subscription, context.plan);
   const reservation = await context.db.reserveApiUsage({
     userId: context.user.id, requestId, subscriptionId: context.subscription?.id || null,
@@ -349,19 +349,17 @@ export async function handleDesktopSpeech(req, res, config) {
   try {
     response = await transcribeAudio(config, audio, "audio/wav", AbortSignal.timeout(STT_TIMEOUT_MS));
   } catch (error) {
-    await context.db.settleApiUsage({
-      userId: context.user.id, requestId, costCredits: 0,
-      costSource: "openrouter_provider_failure", usage: { duration_seconds: durationSeconds }, estimated: true
-    }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+    await settleSpeechUsage(context, { requestId, durationSeconds, ok: false, signal: AbortSignal.timeout(15_000) }).catch(() => {});
     throw new HttpError(503, "Speech transcription is temporarily unavailable.");
   }
   const payload = await response.json().catch(() => ({}));
-  const usage = speechUsage(payload, durationSeconds);
-  await context.db.settleApiUsage({
-    userId: context.user.id, requestId, costCredits: response.ok ? usage.credits : 0,
-    costSource: response.ok ? "openrouter_stt" : "openrouter_provider_failure",
-    usage: { duration_seconds: usage.durationSeconds }, estimated: !response.ok
-  }, { signal: AbortSignal.timeout(15_000) });
+  const usage = await settleSpeechUsage(context, {
+    requestId,
+    durationSeconds,
+    payload,
+    ok: response.ok,
+    signal: AbortSignal.timeout(15_000)
+  });
   if (!response.ok) throw new HttpError(503, "Speech transcription is temporarily unavailable.");
   sendJson(res, 200, { transcript: String(payload?.text || "").trim(), usage: { credits: usage.credits, durationSeconds: usage.durationSeconds } });
 }

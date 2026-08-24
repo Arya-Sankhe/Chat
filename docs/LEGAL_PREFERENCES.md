@@ -122,7 +122,7 @@ Canonical URLs:
 
 `klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are **in force from 24 August 2026** (rewritten against this file, not the old Word drafts). Account delete, status, and accuracy stay live product pages. Signup agrees to Terms and Privacy.
 
-Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status, accuracy). Footer / Settings / signup link to them. The composer “Check important info” link goes to accuracy.
+Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status, accuracy). Footer / Settings / signup link to them. The composer accuracy text links to the friendly accuracy Q&A and appears only after a conversation starts.
 
 ---
 
@@ -312,10 +312,10 @@ Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first
 
 **Google Play:** we will add [PhotoDNA](https://www.microsoft.com/en-us/photodna) later for the Google Play launch (apply via [Pathways](https://technologycoalition.org/programs/pathways/) or Microsoft’s Cloud Service; both are free if qualified). Scan user image uploads before they stay in R2. Until PhotoDNA is live, **do not list or submit the APK on Google Play.** Own-site APK (`klui.ai/download/android`) and the website are fine. Do not tick Play GenAI “yes” until then.
 
-1. **Terms (in force):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Same short ban stays on https://home.klui.ai/accuracy/.
+1. **Terms (in force):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Keep these rules in Terms rather than the accuracy Q&A.
 2. **Report:** keep the in-app Report. CSAM / NCII tickets are **Reported**, not Done. Reported removes the message and its files. Admin files NCMEC CyberTipline + UAE police. There is no NCMEC API in the app.
 3. **Images stay Claude-shaped:** Illustration is the mascot line-art explainer. Prompt forbids photoreal people, nudes, minors, face swap, undress. Do not add photoreal people generation.
-4. **Art. 50(1):** the product is obviously Klui the chatbot. Composer footer (ChatGPT / Claude pattern): “Klui is AI and can make mistakes. Check important info.” The link opens https://home.klui.ai/accuracy/. No banner on every message.
+4. **Art. 50(1):** the product is obviously Klui the chatbot. After a conversation starts, the composer footer says “Klui can make mistakes. Double-check important responses.” The text links to https://home.klui.ai/accuracy/ without a permanent underline. No banner on every message.
 5. **Art. 50(2) / C2PA:** skip for website launch. Optional later: stamp C2PA on illustration PNGs we write to R2. We cannot watermark OpenRouter text. Do not promise C2PA in Terms.
 
 Skipped until Play: PhotoDNA on uploads, Play Console listing, Play GenAI “yes.” Skipped in general: Thorn Safer (paid extra; PhotoDNA is the planned scanner), SynthID, text watermarks, 24h/48h safety SLAs.

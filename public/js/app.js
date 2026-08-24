@@ -8232,9 +8232,8 @@ function loadRichTextAssets() {
     <link rel="stylesheet" id="hljsDark" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" disabled>
   `);
   applyCodeHighlightTheme(resolvedAppearance());
-  richTextAssetsPromise = Promise.all([
+  richTextAssetsPromise = Promise.allSettled([
     "https://cdn.jsdelivr.net/npm/katex@0.16.46/dist/katex.min.js",
-    "https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js",
     "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"
   ].map((src) => new Promise((resolve, reject) => {
     const script = document.createElement("script");
@@ -8243,7 +8242,12 @@ function loadRichTextAssets() {
     script.onload = resolve;
     script.onerror = reject;
     document.head.appendChild(script);
-  })));
+  }))).then((results) => {
+    // Markdown is loaded in the document head; only the heavier math and
+    // highlighting tools upgrade an already-visible conversation later.
+    if (state.messages.length) queueRenderMessages();
+    return results;
+  });
   return richTextAssetsPromise;
 }
 
@@ -8304,7 +8308,7 @@ async function bootstrap() {
       }
     }
     renderShell();
-    const richTextReady = loadRichTextAssets().catch(() => {});
+    void loadRichTextAssets();
     if (state.session) {
       paymentRequestsPromise = loadPaymentRequests();
       void paymentRequestsPromise.then(() => {
@@ -8315,9 +8319,6 @@ async function bootstrap() {
       // The chat is now visible and authorized. Start focusing before the
       // model/conversation requests below so native startup feels immediate.
       if (!researchIdFromLocation()) focusPromptInputSoon();
-      if (conversationIdFromLocation() || researchIdFromLocation() || studyRouteFromLocation()) {
-        await richTextReady;
-      }
       await loadChatApp();
       await restorePendingDocuments();
       const reportId = researchIdFromLocation();

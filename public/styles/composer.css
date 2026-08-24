@@ -204,7 +204,7 @@
 
   padding: 10px 8px 0;
 
-  font-size: 12px;
+  font-size: 13px;
 
   line-height: 1.35;
 
@@ -216,9 +216,28 @@
 
   color: inherit;
 
-  text-decoration: underline;
+  text-decoration: none;
 
-  text-underline-offset: 2px;
+  border-radius: 6px;
+
+  padding: 2px 5px;
+
+  transition: color 120ms ease, background-color 120ms ease;
+
+}
+
+body.chat-empty .composer-area .app-footer {
+
+  display: none;
+
+}
+
+.composer-area .app-footer a:hover,
+.composer-area .app-footer a:focus-visible {
+
+  color: var(--text);
+
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 
 }
 

@@ -93,6 +93,46 @@ export async function listAccountObjectKeys(client, userId, { signal } = {}) {
   return keys;
 }
 
+export async function listAccountObjectKeysBatch(client, userId, {
+  cursors = {},
+  limit = 200,
+  signal
+} = {}) {
+  const pageSize = Math.max(1, Math.min(Number(limit) || 200, 1000));
+  const query = (select, cursor) => ({
+    user_id: `eq.${userId}`,
+    ...(cursor ? { id: `gt.${cursor}` } : {}),
+    select,
+    order: "id.asc",
+    limit: String(pageSize)
+  });
+  const [attachments, documents, pages] = await Promise.all([
+    client.request("attachments", { query: query("id,object_key", cursors.attachments), signal }),
+    client.request("document_files", { query: query("id,extraction_key,preview_key", cursors.documents), signal }),
+    client.request("document_pages", { query: query("id,image_key", cursors.pages), signal })
+  ]);
+  const keys = [];
+  for (const row of attachments || []) {
+    if (row.object_key) keys.push(row.object_key);
+  }
+  for (const row of documents || []) {
+    if (row.extraction_key) keys.push(row.extraction_key);
+    if (row.preview_key) keys.push(row.preview_key);
+  }
+  for (const row of pages || []) {
+    if (row.image_key) keys.push(row.image_key);
+  }
+  return {
+    keys,
+    cursors: {
+      attachments: attachments?.at(-1)?.id || cursors.attachments || null,
+      documents: documents?.at(-1)?.id || cursors.documents || null,
+      pages: pages?.at(-1)?.id || cursors.pages || null
+    },
+    hasMore: [attachments, documents, pages].some((rows) => rows?.length === pageSize)
+  };
+}
+
 export async function listConversationStorageTotals(client, userId, { signal } = {}) {
   return client.rpc("klui_conversation_storage_totals", { p_user_id: userId }, { signal });
 }

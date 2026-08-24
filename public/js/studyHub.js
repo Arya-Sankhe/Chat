@@ -1393,7 +1393,7 @@ export function createStudyHubController({
     pendingUploads = [...pendingUploads, ...locals];
     render();
     try {
-      await Promise.all(locals.map(async (item) => {
+      const results = await Promise.allSettled(locals.map(async (item) => {
         const category = String(item.file.type || "").startsWith("image/") ? "image" : "document";
         const presigned = await presignUpload(state.session, item.file, category, { projectId: courseId });
         try {
@@ -1430,9 +1430,21 @@ export function createStudyHubController({
           throw error;
         }
       }));
-      if (state.studyOpen && state.activeCourseId === courseId) {
+      const failures = results
+        .map((result, index) => result.status === "rejected" ? {
+          name: locals[index].name,
+          error: result.reason?.message || "Upload failed."
+        } : null)
+        .filter(Boolean);
+      if (state.studyOpen && state.activeCourseId === courseId && results.some((result) => result.status === "fulfilled")) {
         state.studyMaterials = null;
         await loadMaterials();
+      }
+      if (failures.length) {
+        const detail = failures.map(({ name, error }) => `${name}: ${error}`).join("; ");
+        showToast(failures.length === locals.length
+          ? `Files could not be uploaded. ${detail}`
+          : `Some files could not be uploaded. ${detail}`);
       }
     } catch (error) {
       showToast(error.message || "Files could not be uploaded.");

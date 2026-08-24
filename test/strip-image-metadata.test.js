@@ -28,6 +28,30 @@ function jpegWithExif() {
   ]);
 }
 
+function jpegWithOrientation(orientation = 6, littleEndian = true) {
+  const tiff = Buffer.alloc(26);
+  const write16 = (value, offset) => littleEndian ? tiff.writeUInt16LE(value, offset) : tiff.writeUInt16BE(value, offset);
+  const write32 = (value, offset) => littleEndian ? tiff.writeUInt32LE(value, offset) : tiff.writeUInt32BE(value, offset);
+  tiff.write(littleEndian ? "II" : "MM", 0, "ascii");
+  write16(42, 2);
+  write32(8, 4);
+  write16(1, 8);
+  write16(0x0112, 10);
+  write16(3, 12);
+  write32(1, 14);
+  write16(orientation, 18);
+  const app1 = Buffer.concat([Buffer.from("Exif\0\0"), tiff, Buffer.from(GPS)]);
+  const app1Len = Buffer.alloc(2);
+  app1Len.writeUInt16BE(app1.length + 2);
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xe1]),
+    app1Len,
+    app1,
+    Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
+    Buffer.from([0x00, 0xff, 0xd9])
+  ]);
+}
+
 function pngChunk(type, data) {
   const length = Buffer.alloc(4);
   length.writeUInt32BE(data.length);
@@ -143,6 +167,19 @@ test("JPEG APP1 GPS is dropped and JFIF is kept", () => {
   assert.doesNotMatch(cleaned.toString("latin1"), new RegExp(GPS));
   assert.match(cleaned.toString("latin1"), /JFIF/);
   assert.ok(cleaned.length < original.length);
+});
+
+test("JPEG EXIF Orientation is preserved while private metadata is dropped", () => {
+  const cleaned = stripImageMetadata(jpegWithOrientation(6));
+  const exifOffset = cleaned.indexOf(Buffer.from("Exif\0\0"));
+  assert.ok(exifOffset > 0);
+  assert.equal(cleaned.readUInt16LE(exifOffset + 24), 6);
+  assert.doesNotMatch(cleaned.toString("latin1"), new RegExp(GPS));
+
+  const bigEndian = stripImageMetadata(jpegWithOrientation(8, false));
+  const bigEndianExifOffset = bigEndian.indexOf(Buffer.from("Exif\0\0"));
+  assert.ok(bigEndianExifOffset > 0);
+  assert.equal(bigEndian.readUInt16LE(bigEndianExifOffset + 24), 8);
 });
 
 test("PNG eXIf GPS is dropped", () => {

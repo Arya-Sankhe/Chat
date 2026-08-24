@@ -516,6 +516,44 @@ test("R2 deleteObjects signs DELETE requests for uploaded image cleanup", async 
   }
 });
 
+test("R2 deletePrefix lists and removes every object under an account prefix", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  let listed = false;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (options.method === "GET") {
+      assert.equal(new URL(url).searchParams.get("prefix"), "users/user_1/");
+      if (listed) return new Response("<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>", { status: 200 });
+      listed = true;
+      return new Response(
+        "<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>users/user_1/a&amp;b</Key></Contents></ListBucketResult>",
+        { status: 200 }
+      );
+    }
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const r2 = new R2Client({
+      r2: {
+        endpoint: "https://account.r2.cloudflarestorage.com",
+        accessKeyId: "access-key",
+        secretAccessKey: "secret-key",
+        bucket: "klui-chat",
+        uploadExpiresSeconds: 300,
+        readExpiresSeconds: 900
+      }
+    });
+    assert.equal(await r2.deletePrefix("users/user_1/"), 1);
+    assert.equal(calls.length, 3);
+    assert.equal(calls[1].options.method, "DELETE");
+    assert.match(calls[1].url, /users\/user_1\/a%26b/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("R2 putObject uploads through the server without browser CORS", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];

@@ -366,6 +366,10 @@ export class SupabaseRest {
     return attachments.listAccountObjectKeys(this, userId, options);
   }
 
+  async listAccountObjectKeysBatch(userId, options) {
+    return attachments.listAccountObjectKeysBatch(this, userId, options);
+  }
+
   async exportAccountData(userId, options) {
     return accountExport.exportAccountData(this, userId, options);
   }

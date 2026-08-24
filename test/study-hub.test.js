@@ -346,6 +346,9 @@ test("study hub paints before refetching and reuses course payloads", () => {
 
 test("course uploads replace the reading placeholder with fresh materials", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /const results = await Promise\.allSettled\(/);
+  assert.match(hub, /Some files could not be uploaded/);
+  assert.match(hub, /pendingUploads = pendingUploads\.filter\(\(row\) => !locals\.some\(\(item\) => item\.id === row\.id\)\)/);
   assert.match(hub, /await waitForDocument\(completed\.id, item\.name\);/);
   assert.doesNotMatch(hub, /waitForDocument\(completed\.id, item\.name\)\.catch/);
   assert.match(hub, /state\.studyMaterials = null;\s*await loadMaterials\(\);/);

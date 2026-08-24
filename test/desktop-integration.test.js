@@ -11,7 +11,7 @@ import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
 import { desktopBetaAllowed, fundDesktopChat, sendDesktopProblem, validatedChatBody } from "../server/routes/desktop.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
-import { validatedAudioDuration } from "../server/speech/audio.js";
+import { MAX_AUDIO_SECONDS, validatedAudioDuration } from "../server/speech/audio.js";
 
 function jwt(payload) {
   return `x.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.x`;
@@ -389,6 +389,17 @@ test("WAV duration is derived from the container", () => {
   assert.equal(validatedAudioDuration(wav, "audio/wav"), 1);
 });
 
+test("speech audio is capped at ten minutes before provider submission", () => {
+  const dataBytes = 601;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write("RIFF", 0); wav.writeUInt32LE(36 + dataBytes, 4); wav.write("WAVE", 8);
+  wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(1, 24); wav.writeUInt32LE(1, 28); wav.writeUInt16LE(1, 32); wav.writeUInt16LE(8, 34);
+  wav.write("data", 36); wav.writeUInt32LE(dataBytes, 40);
+  assert.equal(MAX_AUDIO_SECONDS, 600);
+  assert.throws(() => validatedAudioDuration(wav, "audio/wav"), /10 minutes/);
+});
+
 test("the desktop repository pins the immutable website OpenAPI artifact", async () => {
   const yaml = (await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.yaml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const declaredHash = await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.sha256", import.meta.url), "utf8");
@@ -429,6 +440,12 @@ test("the per-user kill switch migration scopes ceiling blocks to the offending 
   assert.equal(perUserChecks?.length, 2, "both klui_check_api_budget and klui_reserve_api_usage must match the global and per-user keys");
   assert.match(source, /usage_metering_disabled/);
   assert.match(source, /grant execute on function public\.klui_reserve_api_usage[\s\S]*?to service_role/);
+});
+
+test("the latest reservation migration includes existing and requested holds", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260824220000_count_usage_reservations.sql", import.meta.url), "utf8");
+  assert.match(source, /v_week\.api_credit_used \+ v_week\.api_credit_reserved \+ v_reserve > v_limit/);
+  assert.match(source, /for update/);
 });
 
 test("the schema snapshot includes the complete enforced-metering RPC lifecycle", async () => {

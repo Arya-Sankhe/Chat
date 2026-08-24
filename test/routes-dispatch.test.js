@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
 import { createApiHandler, handleApiRequest } from "../server/routes.js";
+import { settleSpeechUsage, speechUsage, STT_CREDITS_PER_SECOND, STT_RESERVATION_CREDITS } from "../server/routes/speech.js";
 
 /*
  * Phase-0 characterization tests for the API dispatcher.
@@ -142,6 +143,15 @@ function stubbedDeps({ role = "user", db = {} } = {}) {
     }),
     verifyUser: async () => user
   };
+}
+
+function webmWithDuration(seconds) {
+  const audio = Buffer.alloc(32);
+  audio.set([0x2a, 0xd7, 0xb1, 0x84], 0);
+  audio.writeUInt32BE(1_000_000, 4);
+  audio.set([0x44, 0x89, 0x88], 8);
+  audio.writeDoubleBE(seconds * 1_000, 11);
+  return audio;
 }
 
 /*
@@ -378,6 +388,7 @@ test("conversation search returns stubbed matches and skips short queries", asyn
 
 test("speech route forwards Grok STT through OpenRouter and returns the transcript", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
+  const audio = webmWithDuration(1);
   let request;
   globalThis.fetch = async (url, options) => {
     request = { url, options };
@@ -392,8 +403,12 @@ test("speech route forwards Grok STT through OpenRouter and returns the transcri
       method: "POST",
       path: "/api/speech-to-text",
       headers: { "content-type": "audio/webm" },
-      body: "audio-bytes",
-      overrides: stubbedDeps()
+      body: audio,
+      overrides: stubbedDeps({ db: {
+        async reserveApiUsage() { return { allowed: true }; },
+        async markApiUsageSubmitted() {},
+        async settleApiUsage() {}
+      } })
     });
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { transcript: "hello from speech" });
@@ -402,10 +417,60 @@ test("speech route forwards Grok STT through OpenRouter and returns the transcri
     const body = JSON.parse(request.options.body);
     assert.equal(body.model, "x-ai/grok-stt-1.0");
     assert.equal(body.input_audio.format, "webm");
-    assert.equal(body.input_audio.data, Buffer.from("audio-bytes").toString("base64"));
+    assert.equal(body.input_audio.data, audio.toString("base64"));
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("speech usage estimates missing provider cost from the validated duration", () => {
+  const usage = speechUsage({ usage: { seconds: 600 } }, 600);
+  assert.equal(usage.estimated, true);
+  assert.equal(usage.durationSeconds, 600);
+  assert.equal(usage.credits, 600 * STT_CREDITS_PER_SECOND);
+  assert.ok(usage.credits < STT_RESERVATION_CREDITS);
+
+  const zeroCost = speechUsage({ usage: { seconds: 600, cost: 0 } }, 600);
+  assert.equal(zeroCost.estimated, false);
+  assert.equal(zeroCost.credits, 0);
+
+  const missingCost = speechUsage({ usage: { seconds: 600, cost: null } }, 600);
+  assert.equal(missingCost.estimated, true);
+  assert.equal(missingCost.credits, 600 * STT_CREDITS_PER_SECOND);
+});
+
+test("speech settlement preserves provider cost and freezes accounts only on a real overrun", async () => {
+  const settled = [];
+  const settings = [];
+  const context = {
+    user: { id: "user-1" },
+    db: {
+      async settleApiUsage(params) { settled.push(params); },
+      async upsertAppSetting(...args) { settings.push(args); }
+    }
+  };
+
+  await settleSpeechUsage(context, {
+    requestId: "00000000-0000-4000-8000-000000000010",
+    durationSeconds: 600,
+    payload: { usage: { seconds: 600 } },
+    ok: true
+  });
+  assert.equal(settled[0].estimated, true);
+  assert.equal(settled[0].costCredits, 600 * STT_CREDITS_PER_SECOND);
+  assert.equal(settings.length, 0);
+
+  await settleSpeechUsage(context, {
+    requestId: "00000000-0000-4000-8000-000000000011",
+    durationSeconds: 1,
+    payload: { usage: { seconds: 1, cost: STT_RESERVATION_CREDITS + 0.01 } },
+    ok: true
+  });
+  assert.equal(settled[1].estimated, false);
+  assert.equal(settled[1].costCredits, STT_RESERVATION_CREDITS + 0.01);
+  assert.equal(settings.length, 1);
+  assert.equal(settings[0][0], "funded_inference_disabled:user-1");
+  assert.equal(settings[0][1].reason, "stt_reservation_ceiling");
 });
 
 test("enforced speech records but does not bill a provider attempt that fails", { concurrency: false }, async () => {
@@ -447,8 +512,9 @@ test("enforced speech records but does not bill a provider attempt that fails", 
   }
 });
 
-test("enforced speech accepts browser blobs and retries OpenRouter STT", { concurrency: false }, async () => {
+test("enforced speech accepts bounded browser blobs and retries OpenRouter STT", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
+  const audio = webmWithDuration(4.2);
   let attempts = 0;
   globalThis.fetch = async () => {
     attempts += 1;
@@ -475,13 +541,13 @@ test("enforced speech accepts browser blobs and retries OpenRouter STT", { concu
       method: "POST",
       path: "/api/speech-to-text",
       headers: { "content-type": "audio/webm" },
-      body: "valid-browser-blob-without-webm-duration-metadata",
+      body: audio,
       overrides
     });
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { transcript: "long recording" });
     assert.equal(attempts, 2);
-    assert.equal(events[0][1].reservedCredits, 0.5);
+    assert.equal(events[0][1].reservedCredits, 0.02);
     assert.equal(events[0][1].provider, "openrouter");
     assert.equal(events[0][1].model, "x-ai/grok-stt-1.0");
     assert.equal(events[2][1].usage.duration_seconds, 4.2);
