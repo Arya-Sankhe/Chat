@@ -554,7 +554,6 @@ const els = {
   googleButton: document.querySelector("#googleButton"),
   authNotice: document.querySelector("#authNotice"),
   authDialog: document.querySelector("#authDialog"),
-  authDialogClose: document.querySelector("#authDialogClose"),
   guestLoginPanel: document.querySelector("#guestLoginPanel"),
   guestLoginButton: document.querySelector("#guestLoginButton"),
   paywallEmail: document.querySelector("#paywallEmail"),
@@ -2097,6 +2096,8 @@ function applyAppearance() {
   }
   applyCodeHighlightTheme(mode);
   syncAppearanceControls();
+  googleButtonRenderKey = "";
+  if (els.authDialog?.classList.contains("open")) renderAuthOptions();
   // Match the Android notification panel color to the chat surface so the
   // status bar visually merges into the top bar. We read the resolved
   // --bg from CSS so the StatusBar tracks every appearance and color preset.
@@ -2297,6 +2298,7 @@ function showOnly(view) {
 function renderShell() {
   const guest = !state.session;
   document.body.classList.toggle("guest-mode", guest);
+  if (guest) document.body.classList.add("sidebar-expanded");
   els.guestLoginPanel?.classList.toggle("hidden", !guest);
   renderAuthOptions();
   renderTemporaryChatMode();
@@ -2390,11 +2392,12 @@ function renderAuthOptions() {
 
   if (!els.authDialog.classList.contains("open")) return;
 
-  const renderKey = `${state.config.auth.googleClientId}:${els.googleButton.clientWidth || 0}`;
+  const renderKey = `${state.config.auth.googleClientId}:${els.googleButton.clientWidth || 0}:${resolvedAppearance()}`;
   if (googleButtonRenderKey === renderKey && els.googleButton.childElementCount) return;
   googleButtonRenderKey = renderKey;
 
   renderGoogleSignInButton(state.config, els.googleButton, {
+    branded: true,
     onSession: handleAuthenticatedSession,
     onError: (err) => {
       els.authNotice.textContent = err?.message || "Google sign-in failed.";
@@ -3878,7 +3881,9 @@ function toggleSidebar() {
   closeProfileMenu();
   closePinnedPopup();
   closeConversationMenus();
-  if (document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches) {
+  const mobileSidebar = document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches;
+  if (document.body.classList.contains("guest-mode") && !mobileSidebar) return;
+  if (mobileSidebar) {
     document.body.classList.toggle("sidebar-open");
     return;
   }
@@ -8640,7 +8645,6 @@ function bindEvents() {
   }, { passive: true });
 
   els.guestLoginButton.addEventListener("click", startSidebarLogin);
-  els.authDialogClose.addEventListener("click", closeAuthDialog);
   els.paywallPlans.addEventListener("click", (e) => {
     const mamoButton = e.target.closest("[data-start-mamo]");
     if (mamoButton) {

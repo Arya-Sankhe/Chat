@@ -288,6 +288,12 @@ body.sidebar-open .sidebar-header .sidebar-toggle:hover {
   opacity: 1;
 }
 
+@media (min-width: 861px) {
+  body.guest-mode .sidebar-header .sidebar-toggle {
+    display: none;
+  }
+}
+
 /* White brand + toggle only when the header shows the home wallpaper. */
 body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-brand,
 body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-brand,
@@ -1054,43 +1060,15 @@ body.sidebar-expanded .profile-menu {
 
 .guest-login-panel {
 
-  margin: auto 12px 8px;
+  margin: auto 12px 12px;
 
-  padding: 16px 14px;
-
-  border-top: 1px solid var(--border-light);
+  padding: 16px 8px 8px;
 
 }
 
 body:not(.guest-mode) .guest-login-panel {
 
   display: none !important;
-
-}
-
-.guest-login-panel strong {
-
-  display: block;
-
-  margin-bottom: 8px;
-
-  color: var(--text);
-
-  font-size: 13px;
-
-  font-weight: 700;
-
-}
-
-.guest-login-panel p {
-
-  margin: 0 0 16px;
-
-  color: var(--text-secondary);
-
-  font-size: 13px;
-
-  line-height: 1.45;
 
 }
 

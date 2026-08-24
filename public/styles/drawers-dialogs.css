@@ -1831,126 +1831,112 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 /* ─── Sign-in Dialog ─── */
 
+/* MiSans Latin (Xiaomi, free commercial use). Kimi's login wordmark is a
+   custom SVG; this is the closest typeface their product actually ships. */
+@font-face {
+  font-family: "MiSans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/misans-latin-600.woff2") format("woff2");
+  unicode-range: U+20-7E, U+A0-108;
+}
+
 .auth-dialog {
-
   position: fixed;
-
   top: 50%;
-
   left: 50%;
-
-  width: min(420px, calc(100vw - 32px));
-
-  padding: 36px 26px 28px;
-
-  border: 1px solid var(--border-light);
-
-  border-radius: var(--radius-lg);
-
-  background: var(--bg);
-
+  width: min(860px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #fff;
   box-shadow: var(--shadow-lg);
-
   text-align: center;
-
   transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
-
   opacity: 0;
-
   pointer-events: none;
-
-  transition: opacity 140ms ease, transform 140ms ease;
-
+  transition: opacity var(--motion-medium) var(--ease-out), transform var(--motion-medium) var(--ease-out);
   z-index: 45;
+}
 
+body[data-mode="dark"] .auth-dialog {
+  background: #141414;
+  border-color: #2a2a2a;
 }
 
 .auth-dialog.open {
-
   opacity: 1;
-
   pointer-events: auto;
-
   transform: translate(-50%, -50%) scale(1);
-
 }
 
-.auth-dialog-close {
+.auth-dialog-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(260px, 0.92fr);
+  gap: 8px;
+  min-height: 440px;
+  align-items: stretch;
+}
 
-  position: absolute;
+.auth-dialog-art {
+  min-height: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #111;
+}
 
-  top: 14px;
+.auth-dialog-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+}
 
-  right: 14px;
-
-  display: inline-flex;
-
+.auth-dialog-panel {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-
   justify-content: center;
-
-  width: 32px;
-
-  height: 32px;
-
-  border-radius: 8px;
-
-  color: var(--text-secondary);
-
+  min-width: 0;
+  padding: 36px 28px 24px;
 }
 
-.auth-dialog-close:hover {
-
-  background: var(--bg-secondary);
-
+.auth-dialog-brand {
+  margin: 0 0 28px;
   color: var(--text);
-
-}
-
-.auth-dialog h2 {
-
-  margin: 0 0 8px;
-
-  color: var(--text);
-
-  font-size: 26px;
-
-  font-weight: 650;
-
-  letter-spacing: -0.02em;
-
-}
-
-.auth-dialog p {
-
-  margin: 0 auto 24px;
-
-  max-width: 300px;
-
-  color: var(--text-secondary);
-
-  font-size: 15px;
-
-  line-height: 1.5;
-
+  font-family: "MiSans", system-ui, sans-serif;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .auth-dialog .auth-google {
-
+  position: relative;
   display: flex;
-
   justify-content: center;
-
+  width: 100%;
+  max-width: 320px;
+  min-height: 44px;
 }
 
 .auth-dialog .auth-notice {
+  width: 100%;
+  max-width: 320px;
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
 
-  margin-top: 12px;
-
+.auth-dialog .auth-notice:empty {
+  display: none;
 }
 
 .auth-dialog .auth-legal {
-  margin: 16px auto 0;
+  margin: 28px auto 0;
   max-width: 280px;
   color: var(--text-secondary);
   font-size: 12px;
@@ -1959,6 +1945,93 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 .auth-dialog .auth-legal a {
   color: var(--text);
+}
+
+.google-continue {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: #1f1f1f;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease;
+}
+
+.google-continue:active {
+  transform: scale(0.97);
+}
+
+.google-continue-mark {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+}
+
+body[data-mode="dark"] .google-continue {
+  background: #2a2a2a;
+  color: #f2f2f2;
+  border-color: #333;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .google-continue:hover {
+    background: #f7f7f7;
+  }
+
+  body[data-mode="dark"] .google-continue:hover {
+    background: #333;
+  }
+}
+
+.google-continue-gis {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  opacity: 0.02;
+}
+
+.google-continue-gis > div,
+.google-continue-gis iframe {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 720px) {
+  .auth-dialog {
+    width: min(400px, calc(100vw - 24px));
+    padding: 10px;
+  }
+
+  .auth-dialog-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .auth-dialog-art {
+    height: 168px;
+  }
+
+  .auth-dialog-panel {
+    padding: 20px 16px 16px;
+  }
+
+  .auth-dialog-brand {
+    margin-bottom: 20px;
+    font-size: 28px;
+  }
 }
 
 /* ─── Search dialog ─── */

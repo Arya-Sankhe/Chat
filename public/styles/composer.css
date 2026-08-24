@@ -1195,6 +1195,12 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+.composer-style-option + .composer-style-option {
+
+  margin-top: 4px;
+
+}
+
 .composer-style-menu-back:hover,
 
 .composer-style-option:hover,

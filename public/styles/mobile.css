@@ -571,41 +571,22 @@ body.capacitor-native .profile-menu {
 }
 
 body.capacitor-native .auth-dialog {
-
-  top: auto;
-
-  bottom: 0;
-
-  left: 0;
-
-  width: 100%;
-
-  padding: 34px 24px max(28px, calc(20px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom))));
-
-  border-width: 1px 0 0;
-
-  border-radius: 26px 26px 0 0;
-
-  transform: translateY(24px);
-
+  top: 50%;
+  bottom: auto;
+  left: 50%;
+  width: min(400px, calc(100vw - 24px));
+  padding: 10px;
+  border-width: 1px;
+  border-radius: 20px;
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
 }
 
 body.capacitor-native .auth-dialog.open {
-
-  transform: translateY(0);
-
+  transform: translate(-50%, -50%) scale(1);
 }
 
-body.capacitor-native .native-google-button {
-
-  min-height: 52px;
-
-  border-radius: 15px;
-
-  background: var(--text);
-
-  color: var(--bg);
-
+body.capacitor-native .google-continue {
+  min-height: 48px;
 }
 
 .app-update-dialog {
