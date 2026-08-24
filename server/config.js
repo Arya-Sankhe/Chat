@@ -155,6 +155,16 @@ export function loadConfig(env = process.env) {
       mode: accessMode,
       testingPlanId: clean(env.TEST_PLAN_ID) || "pro"
     },
+    mamo: {
+      apiKey: clean(env.MAMO_API_KEY),
+      baseUrl: cleanUrl(env.MAMO_API_BASE) || (
+        readBoolean(env.MAMO_SANDBOX, false)
+          ? "https://sandbox.dev.business.mamopay.com/manage_api/v1"
+          : "https://business.mamopay.com/manage_api/v1"
+      ),
+      // ponytail: Mamo auth_header max 50.
+      webhookAuth: clean(env.MAMO_WEBHOOK_AUTH).slice(0, 50)
+    },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),
       anonKey: clean(env.SUPABASE_ANON_KEY),

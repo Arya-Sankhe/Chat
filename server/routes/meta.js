@@ -30,9 +30,10 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings }
       status: subscription.status,
       planId: subscription.plan_id,
       currentPeriodEnd: subscription.current_period_end,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      provider: subscription.provider || null
     } : null,
-    plan: plan ? publicPlan(plan) : null,
+    plan: plan ? publicPlan(plan, Boolean(config.mamo?.apiKey)) : null,
     usage: usage || {},
     access: {
       mode: config.access.mode,
@@ -87,7 +88,7 @@ export function handleConfig(req, res, config) {
 }
 
 export function handlePlans(req, res, config) {
-  sendJson(res, 200, { plans: config.plans.map(publicPlan) });
+  sendJson(res, 200, { plans: config.plans.map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey))) });
 }
 
 export async function handleMe(req, res, config) {

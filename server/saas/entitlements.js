@@ -2,9 +2,22 @@ import { HttpError } from "../http/responses.js";
 import { findPlanById } from "./plans.js";
 
 const activeStatuses = new Set(["active", "trialing"]);
+const inPeriodStatuses = new Set(["active", "trialing", "past_due"]);
 
-function hasActiveSubscription(subscription) {
-  return activeStatuses.has(subscription?.status);
+function parseDate(value) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime()) ? date : null;
+}
+
+export function hasActiveSubscription(subscription, now = new Date()) {
+  const status = subscription?.status;
+  if (subscription?.provider === "mamo") {
+    if (!inPeriodStatuses.has(status)) return false;
+    const end = parseDate(subscription.current_period_end);
+    if (end && end <= now) return false;
+    return true;
+  }
+  return activeStatuses.has(status);
 }
 
 function testingSubscription(planId) {

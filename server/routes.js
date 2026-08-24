@@ -23,8 +23,11 @@ import {
 import {
   handleAdminPaymentRequests,
   handleAdminUpdatePaymentRequest,
+  handleCancelSubscription,
+  handleCreateMamoPayment,
   handleCreateZiinaPaymentRequest,
-  handleListPaymentRequests
+  handleListPaymentRequests,
+  handleMamoWebhook
 } from "./routes/payments.js";
 import { handleAdminResolveReport, handleCreateReport } from "./routes/reports.js";
 import {
@@ -127,6 +130,11 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (url.pathname === "/api/payments/mamo/webhook") {
+      await handleMamoWebhook(req, res, config);
+      return;
+    }
+
     if (url.pathname === "/api/payments/ziina" && req.method === "POST") {
       await handleCreateZiinaPaymentRequest(req, res, config);
       return;
@@ -137,6 +145,11 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (url.pathname === "/api/payments/mamo" && req.method === "POST") {
+      await handleCreateMamoPayment(req, res, config);
+      return;
+    }
+
     if (url.pathname === "/api/me") {
       await handleMe(req, res, config);
       return;
@@ -144,6 +157,12 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/me/export") {
       await handleMeExport(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/me/subscription/cancel") {
+      if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+      await handleCancelSubscription(req, res, config);
       return;
     }
 

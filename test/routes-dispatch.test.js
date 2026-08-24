@@ -155,9 +155,12 @@ const ROUTES = [
   { path: "/api/plans", method: "GET", public: true },
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
   { path: "/api/payments/ziina", method: "GET", authKind: "user" },
+  { path: "/api/payments/mamo", method: "POST", authKind: "user" },
+  { path: "/api/payments/mamo/webhook", method: "POST", public: true, enforced405: "GET" },
   { path: "/api/me", method: "GET", authKind: "user" },
   { path: "/api/me", method: "DELETE", authKind: "user" },
   { path: "/api/me/export", method: "GET", authKind: "user", enforced405: "POST" },
+  { path: "/api/me/subscription/cancel", method: "POST", authKind: "user", enforced405: "GET" },
   { path: "/api/reports", method: "POST", authKind: "user", enforced405: "GET" },
   { path: "/api/storage", method: "GET", authKind: "chat" },
   {

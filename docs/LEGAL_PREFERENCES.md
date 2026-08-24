@@ -67,21 +67,21 @@ Drop any current draft line that says we require every underlying host not to re
 
 ---
 
-## 3. Expire subscriptions at `current_period_end` — deferred
+## 3. Expire subscriptions at `current_period_end` — Mamo expires, Ziina does not
 
-**Decision:** Leave it. Do not expire chat access from `current_period_end` while Ziina is the payment path.
+**Decision:** Leave Ziina date-expiry off. Mamo rows (`provider === "mamo"`) DO expire at `current_period_end`; Ziina still does not.
 
 Ziina is a prepaid pass: an admin marks the payment approved, we write `status: "active"` and store `current_period_end` (now + 1 month). Entitlement only looks at `status` (`active` / `trialing`). After the month, the user stays entitled until someone changes status. `current_period_end` is used for usage-window math, not for cutting access.
 
-That is intentional for now. When we switch to **Mamo Pay**, expire access at period end (or whatever Mamo’s recurring model actually is). Do not add a date check in `getCurrentEntitlement` before that switch.
+Mamo is recurring. A `provider === "mamo"` row is entitled when status is `active` / `trialing` / `past_due` **and** `current_period_end` is in the future. Period end in the past is not entitled, even if status is still `active`.
 
 ---
 
 ## 4. No payment UI in the Android app — done in code
 
-**Decision:** Native (`isNative()` / Capacitor APK) never shows Upgrade, the paywall, or checkout. Unpaid users see “Subscribe on the website.” Website checkout stays as it is (Ziina today).
+**Decision:** Native (`isNative()` / Capacitor APK) never shows Upgrade, the paywall, or checkout. Unpaid users see “Subscribe on the website.” Website checkout is Mamo when `MAMO_API_KEY` is set, else Ziina.
 
-When we switch the website to **Mamo Pay**, change the web paywall only. Do not put Mamo (or any other) checkout inside the APK. Native stays “subscribe on the website.”
+Do not put Mamo (or any other) checkout inside the APK. Native stays “subscribe on the website.”
 
 ---
 
@@ -257,6 +257,22 @@ Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts e
 
 ---
 
+## 20. Mamo Pay — coded, not live until keys
+
+**Decision:** Precode Mamo; keep Ziina until we test Mamo then delete Ziina.
+
+- **Checkout:** `POST /api/payments/mamo` creates a Mamo payment link (official `POST /links`). Recurring via `subscription_id` + `link_type: inline` if `PLAN_*_MAMO_SUBSCRIPTION_ID` is set, else the legacy monthly `subscription` object on the link.
+- **Access:** webhook `POST /api/payments/mamo/webhook`; `Authorization` header = `MAMO_WEBHOOK_AUTH`. Register the webhook yourself in Mamo (we do not auto-create it): events `payment.succeeded`, `subscription.succeeded`, `payment.refunded`, `subscription.failed`.
+- **Unique Klui sub id** `mamo:${userId}` because Mamo plan ids are shared.
+- **Cancel** in Settings → Account; Mamo `DELETE` subscriber API; access until period end.
+- **Refunds:** Mamo dashboard + `payment.refunded` webhook. No in-app refund button.
+- **VAT:** not a tax engine; `settlement_vat` is Mamo's fee VAT. Prices stay AED inclusive unless counsel says otherwise.
+- **Renewal mail:** not built (Maileroo item 16). Mamo `send_customer_receipt: true`.
+- Do not put checkout in the APK.
+- **Flip live:** sandbox key + three plan subscription ids optional + webhook URL `https://klui.ai/api/payments/mamo/webhook` + `MAMO_WEBHOOK_AUTH` + `ACCESS_MODE=subscription`.
+
+---
+
 ## Still open (code list)
 
-20–22 as previously listed
+21–22 as previously listed

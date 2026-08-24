@@ -71,6 +71,7 @@ export function loadPlans(env = process.env) {
       : plan.amountAed,
     ziinaPaymentUrl: clean(env[envName(plan.id, "ZIINA_PAYMENT_URL")]),
     ziinaQrImageUrl: clean(env[envName(plan.id, "ZIINA_QR_IMAGE_URL")]),
+    mamoSubscriptionId: clean(env[envName(plan.id, "MAMO_SUBSCRIPTION_ID")]),
     monthlyApiCreditLimit: Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")])) > 0
       ? Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")]))
       : plan.monthlyApiCreditLimit,
@@ -84,7 +85,7 @@ export function loadPlans(env = process.env) {
   })).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export function publicPlan(plan) {
+export function publicPlan(plan, mamoEnabled) {
   return {
     id: plan.id,
     name: plan.name,
@@ -94,6 +95,7 @@ export function publicPlan(plan) {
     currency: "AED",
     ziinaPaymentUrl: plan.ziinaPaymentUrl,
     ziinaQrImageUrl: plan.ziinaQrImageUrl,
+    checkout: mamoEnabled ? "mamo" : (plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "ziina" : "none"),
     monthlyApiCreditLimit: plan.monthlyApiCreditLimit,
     maxImagesPerMessage: plan.maxImagesPerMessage,
     maxDocumentsPerMessage: plan.maxDocumentsPerMessage,

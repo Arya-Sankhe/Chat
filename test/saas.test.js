@@ -7,7 +7,7 @@ import { getCurrentEntitlement } from "../server/saas/entitlements.js";
 import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
 import { buildStoredUserContent, imageCountFromContent, normalizePastedTextRange } from "../server/saas/messages.js";
 import { applyEditedUserText } from "../server/routes.js";
-import { loadPlans } from "../server/saas/plans.js";
+import { loadPlans, publicPlan } from "../server/saas/plans.js";
 import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
 
@@ -28,13 +28,18 @@ test("loadPlans maps Klui payment tiers from env", () => {
     PLAN_LITE_MAX_DOCUMENTS_PER_MESSAGE: "5",
     PLAN_LITE_MAX_DOCUMENT_FILE_BYTES: "52428800",
     PLAN_LITE_MAX_DOCUMENT_BYTES_PER_MESSAGE: "52428800",
-    PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite"
+    PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite",
+    PLAN_LITE_MAMO_SUBSCRIPTION_ID: "MPB-SUB-LITE"
   });
 
   assert.equal(plans[0].id, "lite");
   assert.equal(plans[0].priceLabel, "10 AED / month");
   assert.equal(plans[0].amountAed, 10);
   assert.equal(plans[0].ziinaPaymentUrl, "https://ziina.com/pay/lite");
+  assert.equal(plans[0].mamoSubscriptionId, "MPB-SUB-LITE");
+  assert.equal(publicPlan(plans[0], true).checkout, "mamo");
+  assert.equal(publicPlan(plans[0], false).checkout, "ziina");
+  assert.equal("apiKey" in publicPlan(plans[0], true), false);
   assert.equal(plans[0].monthlyApiCreditLimit, 3.5);
   assert.equal(plans[0].maxDocumentsPerMessage, 5);
   assert.equal(plans[0].maxDocumentFileBytes, 52428800);
@@ -114,6 +119,60 @@ test("unset or invalid ACCESS_MODE on process.env refuses to boot", { concurrenc
     if (previous === undefined) delete process.env.ACCESS_MODE;
     else process.env.ACCESS_MODE = previous;
   }
+});
+
+test("mamo entitlement expires at period end; ziina prepaid does not", async () => {
+  const plans = loadPlans();
+  const future = "2099-01-01T00:00:00.000Z";
+  const past = "2020-01-01T00:00:00.000Z";
+
+  const mamoLive = await getCurrentEntitlement({
+    db: {
+      async getLatestSubscription() {
+        return { provider: "mamo", status: "active", plan_id: "lite", current_period_end: future };
+      }
+    },
+    userId: "user_1",
+    plans,
+    access: { mode: "subscription" }
+  });
+  assert.equal(mamoLive.active, true);
+
+  const mamoPastDue = await getCurrentEntitlement({
+    db: {
+      async getLatestSubscription() {
+        return { provider: "mamo", status: "past_due", plan_id: "lite", current_period_end: future };
+      }
+    },
+    userId: "user_1",
+    plans,
+    access: { mode: "subscription" }
+  });
+  assert.equal(mamoPastDue.active, true);
+
+  const mamoExpired = await getCurrentEntitlement({
+    db: {
+      async getLatestSubscription() {
+        return { provider: "mamo", status: "active", plan_id: "lite", current_period_end: past };
+      }
+    },
+    userId: "user_1",
+    plans,
+    access: { mode: "subscription" }
+  });
+  assert.equal(mamoExpired.active, false);
+
+  const ziinaPrepaid = await getCurrentEntitlement({
+    db: {
+      async getLatestSubscription() {
+        return { provider: "ziina", status: "active", plan_id: "lite", current_period_end: past };
+      }
+    },
+    userId: "user_1",
+    plans,
+    access: { mode: "subscription" }
+  });
+  assert.equal(ziinaPrepaid.active, true);
 });
 
 test("testing access grants the configured plan", async () => {

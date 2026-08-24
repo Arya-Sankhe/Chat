@@ -663,6 +663,7 @@ test("native clients do not show checkout; unpaid users are sent to the website"
     /function openUpgradePlans\(\) \{[\s\S]*?if \(isNative\(\)\) \{[\s\S]*?Subscribe on the website/
   );
   assert.match(source, /async function startZiinaPayment\(planId\) \{[\s\S]*?if \(isNative\(\)\) return;/);
+  assert.match(source, /async function startMamoPayment\(planId\) \{[\s\S]*?if \(isNative\(\)\) return;/);
   assert.match(
     source,
     /els\.profileMenuUpgrade\?\.classList\.toggle\("hidden", isNative\(\) \|\| !hasUpgradePlans\(\)\)/
@@ -672,6 +673,8 @@ test("native clients do not show checkout; unpaid users are sent to the website"
     /isNative\(\) \? "Subscribe on the website to start chatting" : "Choose a plan to start chatting"/
   );
   assert.match(source, /Pay with Ziina/);
+  assert.match(source, /Pay with Mamo/);
+  assert.match(source, /data-start-mamo/);
 });
 
 test("capacitor native sidebar overflow does not clip conversation menus when open", async () => {

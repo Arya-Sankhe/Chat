@@ -2,12 +2,14 @@ import {
   configureApiAuth,
   approveAdminPayment,
   clearMemory,
+  cancelMamoSubscription,
   cancelResearch,
   cancelPendingDocumentTurn,
   createContentReport,
   createConversation,
   createProject,
   createResearch,
+  createMamoCheckout,
   createZiinaPaymentRequest,
   deleteAccount,
   downloadAccountData,
@@ -65,7 +67,7 @@ import {
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote
-} from "./api.js?v=20260823-review1";
+} from "./api.js?v=20260824-mamo1";
 import {
   clearSession,
   loadSession,
@@ -719,6 +721,8 @@ const els = {
   settingsAccountName: document.querySelector("#settingsAccountName"),
   settingsAccountEmail: document.querySelector("#settingsAccountEmail"),
   settingsAccountGuest: document.querySelector("#settingsAccountGuest"),
+  settingsAccountCancelRow: document.querySelector("#settingsAccountCancelRow"),
+  cancelSubscriptionButton: document.querySelector("#cancelSubscriptionButton"),
   deleteAccountButton: document.querySelector("#deleteAccountButton"),
   exportAccountButton: document.querySelector("#exportAccountButton"),
   memoryEnabledInput: document.querySelector("#memoryEnabledInput"),
@@ -2446,11 +2450,18 @@ function renderPlans() {
       <ul>
         ${meta.features.map((feature) => `<li><span aria-hidden="true">✓</span>${escapeHtml(feature)}</li>`).join("")}
       </ul>
+      ${plan.checkout === "mamo" ? `
+      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">
+        Pay with Mamo
+      </button>
+      <p class="plan-payment-note">You'll be redirected to Mamo. Access starts after payment.</p>
+      ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
         ${pending ? "Open Ziina payment" : "Pay with Ziina"}
       </button>
       ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? `<p class="plan-payment-note">Access activates after we verify your Ziina payment.</p>` : `<p class="plan-payment-note">Ziina link is not configured yet.</p>`}
+      `}
     </article>
   `;
   }).join("");
@@ -2559,6 +2570,12 @@ function renderSettingsAccount() {
   const signedIn = Boolean(state.session);
   els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
   els.settingsAccountGuest?.classList.toggle("hidden", signedIn);
+  const sub = state.me?.subscription;
+  const canCancel = signedIn
+    && sub?.provider === "mamo"
+    && ["active", "trialing", "past_due"].includes(sub?.status)
+    && !sub?.cancelAtPeriodEnd;
+  els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
   if (!signedIn) return;
   const email = state.me?.user?.email || "Signed in";
   if (els.settingsAccountName) els.settingsAccountName.textContent = state.me?.user?.name || profileDisplayName(email);
@@ -2586,6 +2603,18 @@ async function downloadAccountDataAndSave() {
     showToast(error.message || "Could not download your data.");
   } finally {
     if (els.exportAccountButton) els.exportAccountButton.disabled = false;
+  }
+}
+
+async function cancelMamoSubscriptionAndRefresh() {
+  if (!state.session) return;
+  try {
+    await cancelMamoSubscription(state.session);
+    await loadMe();
+    renderSettingsAccount();
+    showToast("Subscription will end at period end.");
+  } catch (error) {
+    showToast(error.message || "Could not cancel subscription.");
   }
 }
 
@@ -7390,6 +7419,17 @@ async function addConversation() {
   openNewChat();
 }
 
+async function startMamoPayment(planId) {
+  if (isNative()) return;
+  if (!requireAuth()) return;
+  try {
+    const payload = await createMamoCheckout(state.session, planId);
+    if (payload.paymentUrl) await openExternal(payload.paymentUrl);
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
 async function startZiinaPayment(planId) {
   if (isNative()) return;
   if (!requireAuth()) return;
@@ -8614,6 +8654,11 @@ function bindEvents() {
   els.guestLoginButton.addEventListener("click", startSidebarLogin);
   els.authDialogClose.addEventListener("click", closeAuthDialog);
   els.paywallPlans.addEventListener("click", (e) => {
+    const mamoButton = e.target.closest("[data-start-mamo]");
+    if (mamoButton) {
+      startMamoPayment(mamoButton.dataset.startMamo);
+      return;
+    }
     const button = e.target.closest("[data-start-payment]");
     if (!button) return;
     startZiinaPayment(button.dataset.startPayment);
@@ -8760,6 +8805,14 @@ function bindEvents() {
   els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
   els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
   els.exportAccountButton?.addEventListener("click", () => { void downloadAccountDataAndSave(); });
+  els.cancelSubscriptionButton?.addEventListener("click", () => {
+    openDeleteConfirm({
+      title: "Cancel subscription?",
+      body: "You'll keep access until the end of the current period. Then it stops.",
+      confirmLabel: "Cancel",
+      onConfirm: cancelMamoSubscriptionAndRefresh
+    });
+  });
   els.deleteAccountButton?.addEventListener("click", () => {
     openDeleteConfirm({
       title: "Delete account?",

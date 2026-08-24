@@ -91,6 +91,28 @@ export async function fetchZiinaPaymentRequests(session) {
   return response.json();
 }
 
+export async function createMamoCheckout(session, planId) {
+  const response = await apiFetch("/api/payments/mamo", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ planId })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function cancelMamoSubscription(session) {
+  const response = await apiFetch("/api/me/subscription/cancel", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function approveAdminPayment(session, id) {
   const response = await apiFetch(`/api/admin/payments/${encodeURIComponent(id)}/approve`, {
     session,
