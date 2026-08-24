@@ -74,14 +74,16 @@ test("catalog lists Illustration as exclusive and does not inject it", () => {
 test("Humanizer multiline YAML description is parsed", () => {
   const humanizer = listComposerSkills().find((skill) => skill.id === "humanizer");
   assert.equal(humanizer.description, "Cleaner, more natural phrasing, not a detector bypass");
-  assert.match(withComposerSkillsSystemPrompt("Base", ["humanizer"]), /# Humanizer: Remove AI Writing Patterns/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["humanizer"]), /# Humanize/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["humanizer"]), /Do not conceal that Klui is AI/);
 });
 
 test("prompt helper preserves the base prompt and adds a delimited Humanizer block", () => {
   const prompt = withComposerSkillsSystemPrompt("Base prompt", ["humanizer"]);
   assert.match(prompt, /^Base prompt\n\nComposer skill \(humanizer\)/);
   assert.match(prompt, /<klui_composer_skill id="humanizer">/);
-  assert.match(prompt, /# Humanizer: Remove AI Writing Patterns/);
+  assert.match(prompt, /# Humanize/);
+  assert.match(prompt, /Do not conceal that Klui is AI/);
   assert.match(prompt, /<\/klui_composer_skill>/);
   assert.match(prompt, /applies only to this turn/);
   assert.match(prompt, /Do not claim to use files/);

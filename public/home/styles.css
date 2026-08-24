@@ -568,6 +568,50 @@ h2 {
   letter-spacing: -0.04em;
 }
 .legal-wrap > p { margin: 0 0 16px; font-size: 18px; font-weight: 650; }
+.legal-doc { margin: 8px 0 0; }
+.legal-doc h2 {
+  margin: 28px 0 10px;
+  font-family: var(--display);
+  font-size: 1.4rem;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+  text-transform: none;
+}
+.legal-doc h3 {
+  margin: 18px 0 8px;
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+.legal-doc p,
+.legal-doc li {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+.legal-doc p { margin: 0 0 12px; }
+.legal-doc ul,
+.legal-doc ol { margin: 0 0 14px; padding-left: 1.25em; }
+.legal-doc li { margin: 0 0 6px; }
+.legal-doc a {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.legal-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 15px;
+}
+.legal-doc th,
+.legal-doc td {
+  border-bottom: 1px solid rgb(11 27 58 / 0.18);
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+}
+.legal-doc th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .policy-groups {
   display: grid;
   gap: 36px;

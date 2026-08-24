@@ -1,8 +1,6 @@
 # Klui legal / product preferences
 
-Working notes while we close the product-vs-docs gaps. This is **not** the published Terms or Privacy Policy. Counsel has not signed it.
-
-After the remaining code items are done, rewrite the Word drafts against this file.
+Working notes while we close the product-vs-docs gaps. Counsel has not signed the live pages. Live Terms / Privacy / Cookies / Subprocessors on home.klui.ai were rewritten against this file (effective 24 August 2026), not pasted from the old Word drafts.
 
 ---
 
@@ -93,7 +91,7 @@ Public copy (composer catalog and homepage):
 
 “Cleaner, more natural phrasing, not a detector bypass.”
 
-Do not restore “Remove signs of AI generated writing” or “should not sound like a bot.” Terms / Privacy later must not describe Humanize as origin-hiding, undetectable, or an AI-detector bypass.
+Do not restore “Remove signs of AI generated writing” or “should not sound like a bot.” The skill prompt title is “Humanize” and tells the model not to conceal that Klui is AI. Terms must not describe Humanize as origin-hiding, undetectable, or an AI-detector bypass.
 
 ---
 
@@ -122,7 +120,7 @@ Canonical URLs:
 | Status | https://home.klui.ai/status/ |
 | Klui is AI | https://home.klui.ai/accuracy/ |
 
-`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are placeholders (“not in force yet”). Account delete, status, and accuracy are live product pages. Do not write fake Terms/Privacy copy here; the Word drafts come after the code list.
+`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are **in force from 24 August 2026** (rewritten against this file, not the old Word drafts). Account delete, status, and accuracy stay live product pages. Signup agrees to Terms and Privacy.
 
 Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status, accuracy). Footer / Settings / signup link to them. The composer “Check important info” link goes to accuracy.
 
@@ -280,7 +278,7 @@ Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts e
 
 **Decision:** Website PWA is deleted. Remaining iOS work (merge, SIWA, StoreKit vs zero-CTA companion, CORS) waits until we actually launch the native app. Do not implement that now.
 
-Login already links to `home.klui.ai/terms` and `/privacy`. Those pages are still placeholders (“Not in force yet”). Publishing real Terms/Privacy is the next website job, not more step-21 code.
+Login already links to `home.klui.ai/terms` and `/privacy`. Those pages are in force (24 August 2026).
 
 ### PWA (done on `main`)
 
@@ -302,7 +300,7 @@ It predates klui.ai, account delete, reports, native “no checkout,” and PWA 
 
 ### Not built yet (blocked on a billing pick)
 
-Sign in with Apple (App ID capability, native button equal to Google, server JWT verify, Hide My Email / `privaterelay.appleid.com`, account linking). StoreKit or zero-CTA companion. Real Privacy/Terms (placeholders fail 5.1.1 / 2.1). Demo account for Review. `PrivacyInfo.xcprivacy`. `arm64` instead of `armv7`.
+Sign in with Apple (App ID capability, native button equal to Google, server JWT verify, Hide My Email / `privaterelay.appleid.com`, account linking). StoreKit or zero-CTA companion. Demo account for Review. `PrivacyInfo.xcprivacy`. `arm64` instead of `armv7`. Terms/Privacy are live on home.klui.ai (still no Arabic).
 
 Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first). Wrapping Safari.
 
@@ -314,7 +312,7 @@ Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first
 
 **Google Play:** we will add [PhotoDNA](https://www.microsoft.com/en-us/photodna) later for the Google Play launch (apply via [Pathways](https://technologycoalition.org/programs/pathways/) or Microsoft’s Cloud Service; both are free if qualified). Scan user image uploads before they stay in R2. Until PhotoDNA is live, **do not list or submit the APK on Google Play.** Own-site APK (`klui.ai/download/android`) and the website are fine. Do not tick Play GenAI “yes” until then.
 
-1. **Terms (when we publish):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Live public copy of the ban is already on https://home.klui.ai/accuracy/ until Word Terms replace it.
+1. **Terms (in force):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Same short ban stays on https://home.klui.ai/accuracy/.
 2. **Report:** keep the in-app Report. CSAM / NCII tickets are **Reported**, not Done. Reported removes the message and its files. Admin files NCMEC CyberTipline + UAE police. There is no NCMEC API in the app.
 3. **Images stay Claude-shaped:** Illustration is the mascot line-art explainer. Prompt forbids photoreal people, nudes, minors, face swap, undress. Do not add photoreal people generation.
 4. **Art. 50(1):** the product is obviously Klui the chatbot. Composer footer (ChatGPT / Claude pattern): “Klui is AI and can make mistakes. Check important info.” The link opens https://home.klui.ai/accuracy/. No banner on every message.
@@ -326,6 +324,6 @@ Skipped until Play: PhotoDNA on uploads, Play Console listing, Play GenAI “yes
 
 ## Still open
 
-- **Website launch:** rewrite and publish Terms / Privacy / Cookies / Subprocessors from the Word drafts against this file (include the §22 ban, and that we will add PhotoDNA for the Google Play launch). Placeholders are still live; signup already agrees to them.
+- **Ops for website launch:** `ACCESS_MODE=subscription` on production; apply live migrations if missing (`search_cache` drop, `content_reports`, `reported` status); keep the OpenRouter no-training toggle on; Maileroo still later.
 - **22 remainder (Play later):** apply for PhotoDNA, scan uploads, then list on Google Play. Do not submit to Play before that. Optional later: C2PA stamp on illustration files.
 - **21 remainder (mobile later):** merge iOS onto current `main`, `capacitor://localhost` CORS, Sign in with Apple, Apple billing pick.

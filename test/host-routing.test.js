@@ -441,20 +441,38 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     assert.doesNotMatch(page.body, /id="chatView"/);
     assert.match(page.body, new RegExp(`rel="canonical" href="https://home\\.klui\\.ai${path.replaceAll("/", "\\/")}"`));
     assert.match(page.body, new RegExp(`<h1>${heading}</h1>`));
+    assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
     if (path === "/account-delete/") {
       assert.match(page.body, /Settings, then Account, then Delete/);
-      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
     } else if (path === "/status/") {
       assert.match(page.body, /fetch\("\/api\/health"/);
       assert.match(page.body, /id="statusKicker"/);
-      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
     } else if (path === "/accuracy/") {
       assert.match(page.body, /Klui is an AI chatbot/);
       assert.match(page.body, /not an emergency service/);
       assert.match(page.body, /non-consensual intimate images/);
-      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
-    } else {
-      assert.match(page.body, /Not in force yet|Not published yet/);
+    } else if (path === "/terms/") {
+      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /18 or older/);
+      assert.match(page.body, /PhotoDNA/);
+      assert.match(page.body, /non-consensual intimate images/);
+      assert.match(page.body, /We do not promise that we filter CSAM/);
+      assert.match(page.body, /We do not promise 24-hour or 48-hour/);
+      assert.doesNotMatch(page.body, /C2PA is applied/);
+    } else if (path === "/privacy/") {
+      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /do not sell personal information/i);
+      assert.match(page.body, /OpenRouter/);
+    } else if (path === "/cookies/") {
+      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /We store settings on this device/);
+    } else if (path === "/subprocessors/") {
+      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /OpenRouter/);
+      assert.match(page.body, /Supabase/);
+    } else if (path === "/legal/") {
+      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /These documents are in force/);
     }
 
     const preview = await get(server, { host: "localhost", path: `/home${path}` });
