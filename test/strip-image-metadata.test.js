@@ -75,7 +75,6 @@ const SUPABASE_ENV = {
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
   CROFAI_API_KEY: "crof-key",
   OPENROUTER_API_KEY: "or-key",
-  SARVAM_API_KEY: "sarvam-key",
   R2_ACCOUNT_ID: "account-1",
   R2_ACCESS_KEY_ID: "r2-key",
   R2_SECRET_ACCESS_KEY: "r2-secret",

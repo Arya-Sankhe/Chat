@@ -41,13 +41,13 @@
             <tr><th>Company</th><th>What it is for</th><th>What it may see</th></tr>
           </thead>
           <tbody>
-            <tr><td>OpenRouter</td><td>Model routing</td><td>Prompts, history, tool results, images the model needs</td></tr>
+            <tr><td>OpenRouter</td><td>Model routing and speech to text</td><td>Prompts, history, tool results, images the model needs, voice audio in transit</td></tr>
             <tr><td>Model hosts via OpenRouter (including Relace, Baidu Qianfan, CoreWeave, Novita, StreamLake, DeepInfra, OpenAI, Xiaomi, and others in that catalog)</td><td>Inference</td><td>Whatever OpenRouter routes to them. Some may retain prompts; we do not send to hosts marked as training</td></tr>
             <tr><td>Krea (via OpenRouter)</td><td>Illustrations</td><td>Illustration prompts</td></tr>
             <tr><td>Supabase</td><td>Auth and database</td><td>Account, chats, billing metadata, reports</td></tr>
             <tr><td>Cloudflare R2</td><td>File storage</td><td>Uploads and generated files</td></tr>
             <tr><td>Google</td><td>Sign-in, Identity, Fonts</td><td>Name and email from Google; IP when those services load</td></tr>
-            <tr><td>Sarvam</td><td>Speech to text</td><td>Voice audio in transit. Klui does not keep the audio file</td></tr>
+            <tr><td>xAI (via OpenRouter)</td><td>Speech to text</td><td>Voice audio in transit. Klui does not keep the audio file</td></tr>
             <tr><td>Jina</td><td>Search and document embeddings</td><td>Search queries, page text, document text</td></tr>
             <tr><td>Brave Search</td><td>Search</td><td>Search queries</td></tr>
             <tr><td>SearXNG and its engines</td><td>Search</td><td>Search queries</td></tr>

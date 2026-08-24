@@ -242,7 +242,7 @@ const CONTEXT_LIMIT_TOKENS = 256000;
 const LONG_PASTE_MIN_CHARS = 1000;
 const LONG_PASTE_MIN_LINES = 8;
 const LONG_PASTE_MAX_CHARS = 95000;
-const SPEECH_CHUNK_MS = 25_000;
+
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean", "violet", "teal", "amber"]);
 const HOME_WALLPAPERS = new Set(["none", "clouds", "alpine", "valley", "launch"]);
@@ -372,10 +372,7 @@ let lastMessagesTouchY = 0;
 let lastNativeBackAt = 0;
 let voiceRecorder = null;
 let voiceStream = null;
-let voiceChunkTimer = null;
-let voiceQueue = Promise.resolve();
-let voiceTranscriptParts = [];
-let voiceError = null;
+let voiceChunks = [];
 let voiceState = "idle";
 let voiceCommit = true;
 let availableAppUpdate = null;
@@ -6777,59 +6774,42 @@ function preferredRecordingType() {
     .find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
-function queueVoiceChunk(blob) {
-  if (!blob?.size) return;
-  voiceQueue = voiceQueue.then(async () => {
-    try {
-      const result = await transcribeSpeech(state.session, blob);
-      if (result.transcript) voiceTranscriptParts.push(result.transcript.trim());
-    } catch (error) {
-      voiceError ||= error;
-    }
-  });
-}
-
-function startVoiceChunk() {
-  const mimeType = preferredRecordingType();
-  voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
-  voiceRecorder.addEventListener("dataavailable", (event) => queueVoiceChunk(event.data));
-  voiceRecorder.addEventListener("error", (event) => { voiceError ||= event.error || new Error("Recording failed."); });
-  voiceRecorder.addEventListener("stop", () => {
-    if (voiceState === "recording" && voiceStream) startVoiceChunk();
-    else finishVoiceRecording();
-  }, { once: true });
-  voiceRecorder.start();
-  voiceChunkTimer = setTimeout(() => {
-    if (voiceRecorder?.state === "recording") voiceRecorder.stop();
-  }, SPEECH_CHUNK_MS);
-}
-
-function finishVoiceRecording() {
-  clearTimeout(voiceChunkTimer);
-  voiceChunkTimer = null;
+async function finishVoiceRecording() {
+  const chunks = voiceChunks;
+  const commit = voiceCommit;
+  const mimeType = chunks[0]?.type || "audio/webm";
+  voiceChunks = [];
   voiceStream?.getTracks().forEach((track) => track.stop());
   voiceStream = null;
   voiceRecorder = null;
-  setVoiceState("processing");
-  const commit = voiceCommit;
-  voiceQueue.finally(() => {
-    const transcript = voiceTranscriptParts.filter(Boolean).join(" ").trim();
-    if (commit) {
-      if (transcript) {
-        const current = composerPlainText();
-        const marks = composerSkillMarks();
-        setComposerPlainText(`${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`, marks);
-        els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
-        els.promptInput.focus();
-      }
-      if (voiceError) showToast(transcript ? "Part of the recording could not be transcribed." : voiceError.message);
-      else if (!transcript) showToast("No speech was detected.");
-    }
-    voiceTranscriptParts = [];
-    voiceError = null;
-    voiceCommit = true;
+  voiceCommit = true;
+  if (!commit) {
     setVoiceState("idle");
-  });
+    return;
+  }
+  setVoiceState("processing");
+  const blob = new Blob(chunks, { type: mimeType });
+  if (!blob.size) {
+    showToast("No speech was detected.");
+    setVoiceState("idle");
+    return;
+  }
+  try {
+    const result = await transcribeSpeech(state.session, blob);
+    const transcript = String(result.transcript || "").trim();
+    if (transcript) {
+      const current = composerPlainText();
+      const marks = composerSkillMarks();
+      setComposerPlainText(`${current}${current && !/\s$/.test(current) ? " " : ""}${transcript}`, marks);
+      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      els.promptInput.focus();
+    } else {
+      showToast("No speech was detected.");
+    }
+  } catch (error) {
+    showToast(error?.message || "Speech transcription failed.");
+  }
+  setVoiceState("idle");
 }
 
 async function startVoiceRecording() {
@@ -6845,16 +6825,25 @@ async function startVoiceRecording() {
   try {
     setVoiceState("processing");
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    voiceTranscriptParts = [];
-    voiceError = null;
+    voiceChunks = [];
     voiceCommit = true;
-    voiceQueue = Promise.resolve();
+    const mimeType = preferredRecordingType();
+    voiceRecorder = new MediaRecorder(voiceStream, mimeType ? { mimeType } : undefined);
+    voiceRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size) voiceChunks.push(event.data);
+    });
+    voiceRecorder.addEventListener("error", () => {
+      showToast("Recording failed.");
+      stopVoiceRecording({ commit: false });
+    });
+    voiceRecorder.addEventListener("stop", finishVoiceRecording, { once: true });
     setVoiceState("recording");
-    startVoiceChunk();
+    voiceRecorder.start();
   } catch (error) {
     voiceStream?.getTracks().forEach((track) => track.stop());
     voiceStream = null;
     voiceRecorder = null;
+    voiceChunks = [];
     setVoiceState("idle");
     showToast(error?.name === "NotAllowedError" ? "Microphone access was blocked." : "Could not start voice input.");
   }
@@ -6863,8 +6852,6 @@ async function startVoiceRecording() {
 function stopVoiceRecording({ commit }) {
   if (voiceState !== "recording") return;
   voiceCommit = Boolean(commit);
-  clearTimeout(voiceChunkTimer);
-  voiceChunkTimer = null;
   setVoiceState("processing");
   if (voiceRecorder?.state === "recording") voiceRecorder.stop();
   else finishVoiceRecording();

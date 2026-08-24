@@ -10,13 +10,19 @@ import { pipeProviderStreamAndAccumulate } from "../saas/messages/stream.js";
 import { publicPlan } from "../saas/plans.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { validatedAudioDuration } from "../speech/audio.js";
-import { callSarvam } from "./speech.js";
+import {
+  MAX_AUDIO_BYTES,
+  STT_MODEL,
+  STT_RESERVATION_CREDITS,
+  STT_TIMEOUT_MS,
+  speechUsage,
+  transcribeAudio
+} from "./speech.js";
 import { desktopAuthContext, requireDesktopContext } from "./context.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
 const MAX_CHAT_BYTES = 8 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const MAX_SCREENSHOT_EDGE = 2560;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -323,14 +329,13 @@ export async function handleDesktopSpeech(req, res, config) {
   const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
   if (contentType !== "audio/wav" && contentType !== "audio/x-wav") throw new HttpError(415, "Desktop voice input must be WAV audio.");
   const audio = await readRawBody(req, MAX_AUDIO_BYTES);
-  const durationSeconds = validatedAudioDuration(audio, contentType, { wavOnly: true, maxSeconds: 30 });
+  const durationSeconds = validatedAudioDuration(audio, contentType);
   const window = apiUsageWindow(context.subscription, context.plan);
-  const credits = durationSeconds * config.speech.creditsPerSecond;
   const reservation = await context.db.reserveApiUsage({
     userId: context.user.id, requestId, subscriptionId: context.subscription?.id || null,
     planId: context.plan.id, surface: context.user.surface, modality: "stt",
-    oauthClientId: context.user.oauthClientId, provider: "sarvam", model: "saaras:v3",
-    ...window, reservedCredits: credits
+    oauthClientId: context.user.oauthClientId, provider: "openrouter", model: STT_MODEL,
+    ...window, reservedCredits: STT_RESERVATION_CREDITS
   }, { signal: AbortSignal.timeout(15_000) });
   if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
   if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
@@ -342,22 +347,23 @@ export async function handleDesktopSpeech(req, res, config) {
   }
   let response;
   try {
-    response = await callSarvam(config, audio, "audio/wav", AbortSignal.timeout(45_000));
+    response = await transcribeAudio(config, audio, "audio/wav", AbortSignal.timeout(STT_TIMEOUT_MS));
   } catch (error) {
     await context.db.settleApiUsage({
       userId: context.user.id, requestId, costCredits: 0,
-      costSource: "sarvam_provider_failure", usage: { duration_seconds: durationSeconds }, estimated: true
+      costSource: "openrouter_provider_failure", usage: { duration_seconds: durationSeconds }, estimated: true
     }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
     throw new HttpError(503, "Speech transcription is temporarily unavailable.");
   }
   const payload = await response.json().catch(() => ({}));
+  const usage = speechUsage(payload, durationSeconds);
   await context.db.settleApiUsage({
-    userId: context.user.id, requestId, costCredits: response.ok ? credits : 0,
-    costSource: response.ok ? "sarvam_duration" : "sarvam_provider_failure",
-    usage: { duration_seconds: durationSeconds }, estimated: !response.ok
+    userId: context.user.id, requestId, costCredits: response.ok ? usage.credits : 0,
+    costSource: response.ok ? "openrouter_stt" : "openrouter_provider_failure",
+    usage: { duration_seconds: usage.durationSeconds }, estimated: !response.ok
   }, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new HttpError(503, "Speech transcription is temporarily unavailable.");
-  sendJson(res, 200, { transcript: String(payload.transcript || "").trim(), usage: { credits, durationSeconds } });
+  sendJson(res, 200, { transcript: String(payload?.text || "").trim(), usage: { credits: usage.credits, durationSeconds: usage.durationSeconds } });
 }
 
 export async function handleDesktopLogout(req, res, config) {

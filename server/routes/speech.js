@@ -1,39 +1,56 @@
 import { randomUUID } from "node:crypto";
 import { HttpError, readRawBody, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
-import { validatedAudioDuration } from "../speech/audio.js";
 import { requireChatContext } from "./context.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
-const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
-const MAX_AUDIO_SECONDS = 30;
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+export const STT_MODEL = "x-ai/grok-stt-1.0";
+export const STT_RESERVATION_CREDITS = 0.5;
+export const STT_TIMEOUT_MS = 120_000;
 
-function audioExtension(contentType) {
-  if (contentType.includes("mp4")) return "m4a";
-  if (contentType.includes("ogg")) return "ogg";
-  if (contentType.includes("wav")) return "wav";
+function audioFormat(contentType) {
+  const type = String(contentType || "").toLowerCase();
+  if (type.includes("wav")) return "wav";
+  if (type.includes("mp4") || type.includes("m4a")) return "m4a";
   return "webm";
 }
 
-export async function callSarvam(config, audio, contentType, signal) {
-  const form = new FormData();
-  form.append("file", new Blob([audio], { type: contentType }), `speech.${audioExtension(contentType)}`);
-  form.append("model", "saaras:v3");
-  form.append("mode", "codemix");
-  form.append("language_code", "unknown");
-  form.append("with_timestamps", "true");
+export function speechUsage(payload, fallbackSeconds = 0) {
+  const cost = Number(payload?.usage?.cost);
+  const reported = Number(payload?.usage?.seconds ?? payload?.duration);
+  return {
+    credits: Number.isFinite(cost) && cost >= 0 ? cost : 0,
+    durationSeconds: Number.isFinite(reported) && reported > 0 ? reported : Math.max(0, Number(fallbackSeconds) || 0)
+  };
+}
 
-  return fetch(`${config.speech.baseUrl}/speech-to-text`, {
-    method: "POST",
-    headers: { "api-subscription-key": config.speech.apiKey },
-    body: form,
-    signal
+export async function transcribeAudio(config, audio, contentType, signal) {
+  const provider = config.providers?.openrouter;
+  if (!provider?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
+  const headers = {
+    authorization: `Bearer ${provider.apiKey}`,
+    "content-type": "application/json"
+  };
+  const body = JSON.stringify({
+    model: STT_MODEL,
+    input_audio: {
+      data: Buffer.from(audio).toString("base64"),
+      format: audioFormat(contentType)
+    }
   });
+  const url = `${provider.baseUrl}/audio/transcriptions`;
+  let response = await fetch(url, { method: "POST", headers, body, signal });
+  if (response.status === 429 || response.status >= 500) {
+    await response.body?.cancel();
+    response = await fetch(url, { method: "POST", headers, body, signal });
+  }
+  return response;
 }
 
 export async function handleSpeechToText(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-  if (!config.speech?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
+  if (!config.providers?.openrouter?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
   enforceRateLimit(req, "web-stt", 30);
 
   const context = await requireChatContext(req, config);
@@ -46,7 +63,6 @@ export async function handleSpeechToText(req, res, config) {
   const enforce = config.desktop?.meteringMode === "enforce";
   const requestIdHeader = String(req.headers["x-klui-request-id"] || "").trim();
   const requestId = /^[0-9a-f-]{36}$/i.test(requestIdHeader) ? requestIdHeader : randomUUID();
-  const reservationCredits = MAX_AUDIO_SECONDS * Number(config.speech.creditsPerSecond || 0);
   if (enforce) {
     const reservation = await context.db.reserveApiUsage({
       userId: context.user.id,
@@ -56,16 +72,18 @@ export async function handleSpeechToText(req, res, config) {
       surface: "web",
       modality: "stt",
       oauthClientId: null,
-      provider: "sarvam",
-      model: "saaras:v3",
+      provider: "openrouter",
+      model: STT_MODEL,
       ...apiUsageWindow(context.subscription, context.plan),
-      reservedCredits: reservationCredits
+      reservedCredits: STT_RESERVATION_CREDITS
     }, { signal: AbortSignal.timeout(15_000) });
     if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
     if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
   }
 
-  const signal = enforce ? AbortSignal.timeout(45_000) : AbortSignal.any([req.signal, AbortSignal.timeout(45_000)]);
+  const signal = req.signal
+    ? AbortSignal.any([req.signal, AbortSignal.timeout(STT_TIMEOUT_MS)])
+    : AbortSignal.timeout(STT_TIMEOUT_MS);
   if (enforce) {
     try {
       await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });
@@ -76,17 +94,13 @@ export async function handleSpeechToText(req, res, config) {
   }
   let response;
   try {
-    response = await callSarvam(config, audio, contentType, signal);
-    if (response.status === 429 || response.status >= 500) {
-      await response.body?.cancel();
-      response = await callSarvam(config, audio, contentType, signal);
-    }
+    response = await transcribeAudio(config, audio, contentType, signal);
   } catch (error) {
     if (enforce) await context.db.settleApiUsage({
       userId: context.user.id,
       requestId,
       costCredits: 0,
-      costSource: "sarvam_provider_failure",
+      costSource: "openrouter_provider_failure",
       usage: { duration_seconds: 0 },
       estimated: true
     }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
@@ -99,30 +113,22 @@ export async function handleSpeechToText(req, res, config) {
       userId: context.user.id,
       requestId,
       costCredits: 0,
-      costSource: "sarvam_provider_failure",
+      costSource: "openrouter_provider_failure",
       usage: { duration_seconds: 0 },
       estimated: true
     }, { signal: AbortSignal.timeout(15_000) });
     throw new HttpError(502, "Speech transcription failed.");
   }
   const payload = await response.json().catch(() => ({}));
-  const transcript = String(payload.transcript || "").trim();
+  const transcript = String(payload?.text || "").trim();
   if (enforce) {
-    let durationSeconds;
-    try {
-      durationSeconds = validatedAudioDuration(audio, contentType, { maxSeconds: MAX_AUDIO_SECONDS });
-    } catch {
-      const ends = payload.timestamps?.end_time_seconds;
-      durationSeconds = Array.isArray(ends) ? Math.max(0, ...ends.map(Number).filter(Number.isFinite)) : 0;
-    }
-    durationSeconds = Math.min(Math.max(durationSeconds || 0, 0), MAX_AUDIO_SECONDS);
-    const credits = durationSeconds * Number(config.speech.creditsPerSecond || 0);
+    const usage = speechUsage(payload);
     await context.db.settleApiUsage({
       userId: context.user.id,
       requestId,
-      costCredits: credits,
-      costSource: "sarvam_duration",
-      usage: { duration_seconds: durationSeconds }
+      costCredits: usage.credits,
+      costSource: "openrouter_stt",
+      usage: { duration_seconds: usage.durationSeconds }
     }, { signal: AbortSignal.timeout(15_000) });
   }
   if (!transcript) throw new HttpError(502, "Speech transcription returned no text.");

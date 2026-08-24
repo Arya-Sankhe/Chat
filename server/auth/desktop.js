@@ -41,7 +41,7 @@ export function requireDesktopFeature(config, feature) {
   if (feature === "chatEnabled" && !(config.desktop?.chatReservationCredits > 0)) {
     throw new HttpError(503, "Desktop chat reservation pricing is not configured.");
   }
-  if (feature === "sttEnabled" && !(config.speech?.creditsPerSecond > 0)) {
-    throw new HttpError(503, "Desktop voice pricing is not configured.");
+  if (feature === "sttEnabled" && !config.providers?.openrouter?.apiKey) {
+    throw new HttpError(503, "Desktop voice is not configured.");
   }
 }

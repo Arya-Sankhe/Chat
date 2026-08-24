@@ -118,7 +118,7 @@ const SUPABASE_ENV = {
 /* Nothing configured: no Supabase, no model keys. */
 const bareConfig = loadConfig({});
 /* Supabase + model keys configured, so requests fail on the token check. */
-const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key", SARVAM_API_KEY: "sarvam-key" });
+const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key" });
 const documentReadyConfig = loadConfig({
   ...SUPABASE_ENV,
   CROFAI_API_KEY: "crof-key",
@@ -376,12 +376,12 @@ test("conversation search returns stubbed matches and skips short queries", asyn
   assert.deepEqual(calls, []);
 });
 
-test("speech route forwards fixed Sarvam settings and returns the transcript", { concurrency: false }, async () => {
+test("speech route forwards Grok STT through OpenRouter and returns the transcript", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   let request;
   globalThis.fetch = async (url, options) => {
     request = { url, options };
-    return new Response(JSON.stringify({ transcript: "hello from speech" }), {
+    return new Response(JSON.stringify({ text: "hello from speech" }), {
       status: 200,
       headers: { "content-type": "application/json" }
     });
@@ -397,12 +397,12 @@ test("speech route forwards fixed Sarvam settings and returns the transcript", {
     });
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { transcript: "hello from speech" });
-    assert.equal(request.url, "https://api.sarvam.ai/speech-to-text");
-    assert.equal(request.options.headers["api-subscription-key"], "sarvam-key");
-    assert.equal(request.options.body.get("model"), "saaras:v3");
-    assert.equal(request.options.body.get("mode"), "codemix");
-    assert.equal(request.options.body.get("language_code"), "unknown");
-    assert.equal(request.options.body.get("with_timestamps"), "true");
+    assert.equal(request.url, "https://openrouter.ai/api/v1/audio/transcriptions");
+    assert.equal(request.options.headers.authorization, "Bearer or-key");
+    const body = JSON.parse(request.options.body);
+    assert.equal(body.model, "x-ai/grok-stt-1.0");
+    assert.equal(body.input_audio.format, "webm");
+    assert.equal(body.input_audio.data, Buffer.from("audio-bytes").toString("base64"));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -420,10 +420,9 @@ test("enforced speech records but does not bill a provider attempt that fails", 
   wav.write("data", 36); wav.writeUInt32LE(dataBytes, 40);
   const config = loadConfig({
     ...SUPABASE_ENV,
-    SARVAM_API_KEY: "sarvam-key",
+    OPENROUTER_API_KEY: "or-key",
     API_USAGE_METERING_MODE: "enforce",
-    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
-    SARVAM_STT_CREDITS_PER_SECOND: "0.1"
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25"
   });
   const overrides = stubbedDeps({ db: {
     async reserveApiUsage() { events.push("reserve"); return { allowed: true }; },
@@ -448,24 +447,23 @@ test("enforced speech records but does not bill a provider attempt that fails", 
   }
 });
 
-test("enforced speech accepts browser blobs without duration metadata and retries Sarvam", { concurrency: false }, async () => {
+test("enforced speech accepts browser blobs and retries OpenRouter STT", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
   globalThis.fetch = async () => {
     attempts += 1;
     if (attempts === 1) return new Response("busy", { status: 503 });
     return new Response(JSON.stringify({
-      transcript: "long recording",
-      timestamps: { end_time_seconds: [2.1, 4.2] }
+      text: "long recording",
+      usage: { seconds: 4.2, cost: 0.42 }
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   const events = [];
   const config = loadConfig({
     ...SUPABASE_ENV,
-    SARVAM_API_KEY: "sarvam-key",
+    OPENROUTER_API_KEY: "or-key",
     API_USAGE_METERING_MODE: "enforce",
-    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25",
-    SARVAM_STT_CREDITS_PER_SECOND: "0.1"
+    DESKTOP_CHAT_RESERVATION_CREDITS: "0.25"
   });
   const overrides = stubbedDeps({ db: {
     async reserveApiUsage(params) { events.push(["reserve", params]); return { allowed: true }; },
@@ -483,7 +481,9 @@ test("enforced speech accepts browser blobs without duration metadata and retrie
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.json(), { transcript: "long recording" });
     assert.equal(attempts, 2);
-    assert.equal(events[0][1].reservedCredits, 3);
+    assert.equal(events[0][1].reservedCredits, 0.5);
+    assert.equal(events[0][1].provider, "openrouter");
+    assert.equal(events[0][1].model, "x-ai/grok-stt-1.0");
     assert.equal(events[2][1].usage.duration_seconds, 4.2);
     assert.ok(Math.abs(events[2][1].costCredits - 0.42) < Number.EPSILON * 2);
   } finally {

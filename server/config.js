@@ -111,11 +111,6 @@ export function loadConfig(env = process.env) {
         baseUrl: cleanUrl(env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1"
       }
     },
-    speech: {
-      apiKey: clean(env.SARVAM_API_KEY),
-      baseUrl: cleanUrl(env.SARVAM_BASE_URL) || "https://api.sarvam.ai",
-      creditsPerSecond: readPositiveNumber(env.SARVAM_STT_CREDITS_PER_SECOND, 0)
-    },
     desktop: {
       oauthEnabled: readBoolean(env.DESKTOP_OAUTH_ENABLED, false),
       chatEnabled: readBoolean(env.DESKTOP_CHAT_ENABLED, false),
@@ -324,7 +319,7 @@ export function configuredServices(config) {
   return {
     crof: Boolean(config.serverApiKey),
     openrouter: Boolean(config.providers?.openrouter?.apiKey),
-    speech: Boolean(config.speech?.apiKey),
+    speech: Boolean(config.providers?.openrouter?.apiKey),
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
@@ -353,9 +348,6 @@ export function validateRuntimeConfig(config) {
         + "for the configured desktop token and OpenRouter price ceilings."
       );
     }
-    if (config.speech?.apiKey && !(config.speech.creditsPerSecond > 0)) {
-      throw new Error("SARVAM_STT_CREDITS_PER_SECOND must be positive when metering is enforced and Sarvam is enabled.");
-    }
     if (
       config.illustrations?.enabled
       && config.illustrations.reservationCreditsPerImage + Number.EPSILON < MIN_ILLUSTRATION_RESERVATION_CREDITS
@@ -378,11 +370,8 @@ export function validateRuntimeConfig(config) {
   if (config.desktop?.oauthEnabled && !(config.supabase?.url && config.supabase?.anonKey && config.supabase?.serviceRoleKey && config.desktop.clients?.["klui-desktop-windows"]?.providerClientId)) {
     throw new Error("Desktop OAuth requires Supabase URL/keys and SUPABASE_OAUTH_DESKTOP_WINDOWS_CLIENT_ID.");
   }
-  if (config.desktop?.chatEnabled && !config.providers?.openrouter?.apiKey) {
-    throw new Error("OPENROUTER_API_KEY is required when desktop chat is enabled.");
-  }
-  if (config.desktop?.sttEnabled && !config.speech?.apiKey) {
-    throw new Error("SARVAM_API_KEY is required when desktop STT is enabled.");
+  if ((config.desktop?.chatEnabled || config.desktop?.sttEnabled) && !config.providers?.openrouter?.apiKey) {
+    throw new Error("OPENROUTER_API_KEY is required when desktop chat or STT is enabled.");
   }
   return config;
 }

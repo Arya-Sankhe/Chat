@@ -7,7 +7,7 @@
 3. Complete the hosted OAuth conformance matrix.
 4. Confirm the OpenAPI hash in both repositories is `3925e43dc4e4534d11cd76b3de8c9753b3e110ceac7e35a48cc722ea9dc70dd7`.
 5. Configure edge limits in addition to the process-local limiter. Restrict origin traffic so `CF-Connecting-IP` is trustworthy.
-6. Confirm OpenRouter/Sarvam keys exist only in the website deployment.
+6. Confirm OpenRouter keys exist only in the website deployment.
 7. Confirm `funded_inference_disabled.value.disabled` is `false` in `app_settings`.
 
 ## 2. Observe-only meter
@@ -27,7 +27,7 @@ If a cost exceeds the proposed ceiling, increase `DESKTOP_CHAT_RESERVATION_CREDI
 
 Set `API_USAGE_METERING_MODE=enforce` with desktop flags still off. Website LLM and STT now reserve, submit, and settle against the shared weekly row. Watch used/reserved drift, 429 rate, stale events, provider failures, and the 60-second reconciler.
 
-Startup now fails if enforce mode has no positive `DESKTOP_CHAT_RESERVATION_CREDITS`, or if Sarvam is configured without a positive `SARVAM_STT_CREDITS_PER_SECOND`.
+Startup now fails if enforce mode has no positive `DESKTOP_CHAT_RESERVATION_CREDITS`. Speech-to-text uses `OPENROUTER_API_KEY`.
 
 Do not switch back to `legacy` while reservations exist. First allow all submitted events to settle or estimate and all unsubmitted reservations to release.
 

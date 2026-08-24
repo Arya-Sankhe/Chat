@@ -379,7 +379,7 @@ test("an accepted stream is estimated instead of released when submission-state 
   assert.equal(events[2][1].estimated, true);
 });
 
-test("WAV duration is derived from the container and capped at thirty seconds", () => {
+test("WAV duration is derived from the container", () => {
   const dataBytes = 16_000 * 2;
   const wav = Buffer.alloc(44 + dataBytes);
   wav.write("RIFF", 0); wav.writeUInt32LE(36 + dataBytes, 4); wav.write("WAVE", 8);

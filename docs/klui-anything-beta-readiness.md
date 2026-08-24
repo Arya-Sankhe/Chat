@@ -9,7 +9,7 @@ Updated: 2026-08-13
 - Browser authorization has both automatic app handoff and a visible **Open Klui Anything** fallback.
 - Access and refresh tokens use the intended Windows storage boundaries.
 - Active paid plans can use desktop chat and voice through the shared weekly allowance.
-- OpenRouter and Sarvam credentials remain server-only.
+- OpenRouter credentials remain server-only.
 - Chat and STT use atomic reserve/settle metering, with reconciliation and independent kill switches.
 - Website chat, desktop chat, and voice record against the same account ledger.
 - The private download page publishes an exact version, byte count, and SHA-256 checksum.
