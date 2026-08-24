@@ -16,7 +16,7 @@ import {
 export const ILLUSTRATION_MODEL = "krea/krea-2-medium-turbo";
 export const ILLUSTRATION_MAX_BYTES = 3 * 1024 * 1024;
 export const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
-export const TEXT_FREE_SUFFIX = " One scene, one metaphor. Short handwritten English labels with red/blue/orange arrows. No numbered comic panels. No Chinese characters. 16:9 pure white. Sparse uneven black line art. Klui is a cute rounded light-sky-blue squircle with tall navy oval eyes, a tiny smile, rosy cheeks, and short stubby legs. Not a black bean.";
+export const TEXT_FREE_SUFFIX = " One scene, one metaphor. Short handwritten English labels with red/blue/orange arrows. No numbered comic panels. No Chinese characters. 16:9 pure white. Sparse uneven black line art. Klui is a cute rounded light-sky-blue squircle with tall navy oval eyes, a tiny smile, rosy cheeks, and short stubby legs. Not a black bean. No photoreal people, nudes, minors, or face swap.";
 
 export const PLANNER_SYSTEM_PROMPT = `You are Klui's Illustration Planner. The user selected /illustration to EXPLAIN a concept. Invent one physical metaphor that makes the rule obvious in a few seconds.
 
@@ -50,6 +50,7 @@ Visual DNA (Klui):
 - Klui: cute rounded light-sky-blue squircle (#8EC8F0), tall navy oval eyes, tiny smile, rosy cheeks, short stubby legs; friendly, slightly chubby; never pitch-black, never a lumpy black bean;
 - only red, orange, and blue for the handwritten notes and arrows;
 - not photoreal, UI, slide, poster, comic strip, or dense infographic;
+- never nudes, sexual content, minors, face swap, undress, or a real person's face;
 - no Chinese characters or other Han glyphs.
 
 reply: 1–2 sentences that name the concept and how to read the picture. Call the character Klui. Never restate the image prompt. Never start with “Show…”.

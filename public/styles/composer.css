@@ -198,7 +198,27 @@
 
 .composer-area .app-footer {
 
-  display: none;
+  display: block;
+
+  pointer-events: auto;
+
+  padding: 10px 8px 0;
+
+  font-size: 12px;
+
+  line-height: 1.35;
+
+  color: var(--text-tertiary);
+
+}
+
+.composer-area .app-footer a {
+
+  color: inherit;
+
+  text-decoration: underline;
+
+  text-underline-offset: 2px;
 
 }
 

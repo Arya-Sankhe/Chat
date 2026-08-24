@@ -2,6 +2,7 @@ import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { contentText } from "../saas/messages/content.js";
 import { clearAdminSummaryCache } from "./admin.js";
 import { authContext, requireAdminContext } from "./context.js";
+import { purgeMessageStorage } from "./conversations.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -51,16 +52,29 @@ export async function handleCreateReport(req, res, config) {
   sendJson(res, 200, { report: publicReport(row) });
 }
 
-export async function handleAdminResolveReport(req, res, config, id) {
+async function removeReportedMessage(context, config, report, signal) {
+  const messageId = report.message_id;
+  if (!messageId) return;
+  const message = await context.db.getMessageById(messageId, { signal });
+  if (!message?.user_id) return;
+  await purgeMessageStorage({ ...context, user: { id: message.user_id } }, messageId, config, signal);
+}
+
+export async function handleAdminResolveReport(req, res, config, id, action = "done") {
+  const status = action === "reported" ? "reported" : "done";
   const context = await requireAdminContext(req, config);
   const report = await context.db.getContentReport(id, { signal: req.signal });
   if (!report) throw new HttpError(404, "Report was not found.");
-  if (report.status === "done") {
+  if (report.status === "done" || report.status === "reported") {
     sendJson(res, 200, { report: publicReport(report) });
     return;
   }
 
-  const resolved = await context.db.resolveContentReport(id, context.user.id, { signal: req.signal });
+  if (status === "reported") {
+    await removeReportedMessage(context, config, report, req.signal);
+  }
+
+  const resolved = await context.db.resolveContentReport(id, context.user.id, { signal: req.signal, status });
   clearAdminSummaryCache();
   sendJson(res, 200, { report: publicReport(resolved) });
 }

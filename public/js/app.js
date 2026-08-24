@@ -9754,7 +9754,7 @@ function bindEvents() {
     }
     const done = e.target.closest("[data-resolve-report]");
     if (done) {
-      adminPanel.resolveReport(done.dataset.resolveReport);
+      adminPanel.resolveReport(done.dataset.resolveReport, done.dataset.resolveStatus);
       return;
     }
     const approve = e.target.closest("[data-approve-payment]");

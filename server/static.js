@@ -14,7 +14,8 @@ const marketingPagePaths = new Set([
   "/cookies",
   "/subprocessors",
   "/account-delete",
-  "/status"
+  "/status",
+  "/accuracy"
 ]);
 
 const contentTypes = new Map([

@@ -1485,6 +1485,14 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 
 }
 
+.admin-row-sub a {
+
+  color: inherit;
+
+  text-decoration: underline;
+
+}
+
 .admin-row-metric {
 
   align-self: center;

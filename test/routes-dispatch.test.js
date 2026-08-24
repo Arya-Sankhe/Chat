@@ -221,7 +221,8 @@ const ROUTES = [
   { path: "/api/admin/settings", method: "GET", authKind: "admin" },
   { path: "/api/admin/payments", method: "GET", authKind: "admin" },
   { path: "/api/admin/payments/pay-1/approve", method: "POST", authKind: "admin" },
-  { path: "/api/admin/reports/rep-1/done", method: "POST", authKind: "admin" }
+  { path: "/api/admin/reports/rep-1/done", method: "POST", authKind: "admin" },
+  { path: "/api/admin/reports/rep-1/reported", method: "POST", authKind: "admin" }
 ];
 
 test("public routes respond 200 without auth or configured services", async () => {
@@ -1009,7 +1010,8 @@ test("admin routes dispatch to their resource-specific handlers", async () => {
     { method: "GET", path: "/api/admin/settings", dbMethod: "getAppSetting", result: null },
     { method: "GET", path: "/api/admin/payments", dbMethod: "listPendingPaymentRequests", result: [] },
     { method: "POST", path: "/api/admin/payments/pay-1/approve", body: {}, dbMethod: "getPaymentRequest", result: null },
-    { method: "POST", path: "/api/admin/reports/rep-1/done", body: {}, dbMethod: "getContentReport", result: null }
+    { method: "POST", path: "/api/admin/reports/rep-1/done", body: {}, dbMethod: "getContentReport", result: null },
+    { method: "POST", path: "/api/admin/reports/rep-1/reported", body: {}, dbMethod: "getContentReport", result: null }
   ];
 
   for (const route of cases) {

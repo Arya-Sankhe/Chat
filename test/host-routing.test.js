@@ -208,6 +208,7 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
   assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/pricing\/<\/loc>/);
   assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/legal\/<\/loc>/);
   assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/privacy\/<\/loc>/);
+  assert.match(homeSitemap.body, /<loc>https:\/\/home\.klui\.ai\/accuracy\/<\/loc>/);
   assert.doesNotMatch(homeSitemap.body, /<loc>https:\/\/klui\.ai\/<\/loc>/);
 
   const pricing = await get(server, { host: "home.klui.ai", path: "/pricing/" });
@@ -421,7 +422,8 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     ["/cookies/", "Cookie policy"],
     ["/subprocessors/", "Subprocessors"],
     ["/account-delete/", "Delete your account"],
-    ["/status/", "Status"]
+    ["/status/", "Status"],
+    ["/accuracy/", "Klui is AI"]
   ];
 
   for (const [path, heading] of pages) {
@@ -445,6 +447,11 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     } else if (path === "/status/") {
       assert.match(page.body, /fetch\("\/api\/health"/);
       assert.match(page.body, /id="statusKicker"/);
+      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
+    } else if (path === "/accuracy/") {
+      assert.match(page.body, /Klui is an AI chatbot/);
+      assert.match(page.body, /not an emergency service/);
+      assert.match(page.body, /non-consensual intimate images/);
       assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
     } else {
       assert.match(page.body, /Not in force yet|Not published yet/);
@@ -470,6 +477,9 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/privacy\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/account-delete\/"/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/legal\/"/);
+  assert.match(chat, /Klui is AI and can make mistakes/);
+  assert.match(chat, /href="https:\/\/home\.klui\.ai\/accuracy\/"/);
+  assert.match(chat, /Check important info/);
 
   const home = readFileSync(resolve(publicDir, "home/index.html"), "utf8");
   assert.match(home, /href="terms\/">Terms</);

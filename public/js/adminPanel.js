@@ -97,10 +97,12 @@ export function createAdminPanel({
         </div>
         <div class="admin-payment-actions">
           <div class="admin-row-metric">${escapeHtml(formatAdminDate(report.createdAt))}</div>
-          <button class="admin-small-btn" type="button" data-resolve-report="${escapeHtml(report.id)}">Done</button>
+          <button class="admin-small-btn" type="button" data-resolve-report="${escapeHtml(report.id)}" data-resolve-status="done">Done</button>
+          <button class="admin-small-btn danger" type="button" data-resolve-report="${escapeHtml(report.id)}" data-resolve-status="reported">Reported</button>
         </div>
       </div>
     `).join("") : `<div class="admin-row-sub">No open reports.</div>`}
+    <div class="admin-row-sub">CSAM or non-consensual intimate images: file <a href="https://report.cybertip.org/" target="_blank" rel="noopener">NCMEC</a> and UAE police, then tap Reported. That removes the message. Do not tap Done for those.</div>
     </div>
     <div class="admin-subtitle">Top Users</div>
     ${users.length ? users.map((user) => `
@@ -182,10 +184,10 @@ export function createAdminPanel({
     }
   }
 
-  async function resolveReport(id) {
+  async function resolveReport(id, status) {
     if (!id) return;
     try {
-      await resolveAdminReport(state.session, id);
+      await resolveAdminReport(state.session, id, status);
       await loadAdminDashboard();
     } catch (err) {
       showToast(err.message);

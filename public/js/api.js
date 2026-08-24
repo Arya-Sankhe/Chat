@@ -146,8 +146,9 @@ export async function createContentReport(session, messageId) {
   return response.json();
 }
 
-export async function resolveAdminReport(session, id) {
-  const response = await apiFetch(`/api/admin/reports/${encodeURIComponent(id)}/done`, {
+export async function resolveAdminReport(session, id, status = "done") {
+  const action = status === "reported" ? "reported" : "done";
+  const response = await apiFetch(`/api/admin/reports/${encodeURIComponent(id)}/${action}`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },

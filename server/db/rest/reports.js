@@ -13,6 +13,18 @@ export async function getMessage(client, userId, messageId, { signal } = {}) {
   return single(rows);
 }
 
+export async function getMessageById(client, messageId, { signal } = {}) {
+  const rows = await client.request("messages", {
+    query: {
+      id: `eq.${messageId}`,
+      select: "id,user_id,conversation_id,role,content,model,created_at",
+      limit: "1"
+    },
+    signal
+  });
+  return single(rows);
+}
+
 export async function getOpenContentReport(client, reporterId, messageId, { signal } = {}) {
   const rows = await client.request("content_reports", {
     query: {
@@ -49,12 +61,13 @@ export async function getContentReport(client, id, { signal } = {}) {
   return single(rows);
 }
 
-export async function resolveContentReport(client, id, resolvedBy, { signal } = {}) {
+export async function resolveContentReport(client, id, resolvedBy, { signal, status = "done" } = {}) {
+  const nextStatus = status === "reported" ? "reported" : "done";
   const rows = await client.request("content_reports", {
     method: "PATCH",
     query: { id: `eq.${id}` },
     body: {
-      status: "done",
+      status: nextStatus,
       resolved_by: resolvedBy || null,
       resolved_at: new Date().toISOString()
     },

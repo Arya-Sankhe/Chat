@@ -120,10 +120,11 @@ Canonical URLs:
 | Subprocessors | https://home.klui.ai/subprocessors/ |
 | Delete your account | https://home.klui.ai/account-delete/ |
 | Status | https://home.klui.ai/status/ |
+| Klui is AI | https://home.klui.ai/accuracy/ |
 
-`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. The pages are placeholders (“not in force yet”). Do not write fake Terms/Privacy copy here; the Word drafts come after the code list.
+`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are placeholders (“not in force yet”). Account delete, status, and accuracy are live product pages. Do not write fake Terms/Privacy copy here; the Word drafts come after the code list.
 
-Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status). Footer / Settings / signup link to them.
+Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status, accuracy). Footer / Settings / signup link to them. The composer “Check important info” link goes to accuracy.
 
 ---
 
@@ -227,13 +228,15 @@ When we do build it: send a deletion confirmation from `DELETE /api/me` (capture
 
 ## 17. In-app Report + admin queue — done in code
 
-**Decision:** Report on a message saves a `content_reports` ticket. Admin dashboard has Payments / Reports tabs (open → Done). No 24h/48h in Terms until we staff the queue and can keep the clock.
+**Decision:** Report on a message saves a `content_reports` ticket. Admin dashboard has Payments / Reports tabs (open → Done or Reported). No 24h/48h in Terms until we staff the queue and can keep the clock.
 
 Must exist before we apply to Apple/Play. Without it the listing is rejected.
 
+**Done** is ordinary abuse. **Reported** is CSAM / NCII: remove the message (and its R2 attachments), then mark `reported`. File [NCMEC CyberTipline](https://report.cybertip.org/) and UAE police before tapping Reported. Do not tap Done for those.
+
 Storage is not in the account/admin drawer. File management stays in Settings → Storage.
 
-Skipped: reason categories, Maileroo notify, cooling-off, typed confirm. Add if a store or counsel requires it.
+Skipped: reason categories, Maileroo notify, cooling-off, typed confirm, auto-file to NCMEC (needs an ESP account). Add if a store or counsel requires it.
 
 ---
 
@@ -301,12 +304,28 @@ It predates klui.ai, account delete, reports, native “no checkout,” and PWA 
 
 Sign in with Apple (App ID capability, native button equal to Google, server JWT verify, Hide My Email / `privaterelay.appleid.com`, account linking). StoreKit or zero-CTA companion. Real Privacy/Terms (placeholders fail 5.1.1 / 2.1). Demo account for Review. `PrivacyInfo.xcprivacy`. `arm64` instead of `armv7`.
 
-Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first). Wrapping Safari. Item 22.
+Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first). Wrapping Safari.
+
+---
+
+## 22. Generation safety + Art. 50 — website 1–5 done, PhotoDNA later for Play
+
+**Decision:** Match ChatGPT / Claude for the website. Do not build PhotoDNA / Thorn / C2PA now.
+
+**Google Play:** we will add [PhotoDNA](https://www.microsoft.com/en-us/photodna) later for the Google Play launch (apply via [Pathways](https://technologycoalition.org/programs/pathways/) or Microsoft’s Cloud Service; both are free if qualified). Scan user image uploads before they stay in R2. Until PhotoDNA is live, **do not list or submit the APK on Google Play.** Own-site APK (`klui.ai/download/android`) and the website are fine. Do not tick Play GenAI “yes” until then.
+
+1. **Terms (when we publish):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Live public copy of the ban is already on https://home.klui.ai/accuracy/ until Word Terms replace it.
+2. **Report:** keep the in-app Report. CSAM / NCII tickets are **Reported**, not Done. Reported removes the message and its files. Admin files NCMEC CyberTipline + UAE police. There is no NCMEC API in the app.
+3. **Images stay Claude-shaped:** Illustration is the mascot line-art explainer. Prompt forbids photoreal people, nudes, minors, face swap, undress. Do not add photoreal people generation.
+4. **Art. 50(1):** the product is obviously Klui the chatbot. Composer footer (ChatGPT / Claude pattern): “Klui is AI and can make mistakes. Check important info.” The link opens https://home.klui.ai/accuracy/. No banner on every message.
+5. **Art. 50(2) / C2PA:** skip for website launch. Optional later: stamp C2PA on illustration PNGs we write to R2. We cannot watermark OpenRouter text. Do not promise C2PA in Terms.
+
+Skipped until Play: PhotoDNA on uploads, Play Console listing, Play GenAI “yes.” Skipped in general: Thorn Safer (paid extra; PhotoDNA is the planned scanner), SynthID, text watermarks, 24h/48h safety SLAs.
 
 ---
 
 ## Still open
 
-- **Website launch:** rewrite and publish Terms / Privacy / Cookies / Subprocessors from the Word drafts against this file. Placeholders are still live; signup already agrees to them.
-- **22** generation safety (CSAM/NCII) + C2PA / Art 50 — later code, not required to write the website Terms from this file.
+- **Website launch:** rewrite and publish Terms / Privacy / Cookies / Subprocessors from the Word drafts against this file (include the §22 ban, and that we will add PhotoDNA for the Google Play launch). Placeholders are still live; signup already agrees to them.
+- **22 remainder (Play later):** apply for PhotoDNA, scan uploads, then list on Google Play. Do not submit to Play before that. Optional later: C2PA stamp on illustration files.
 - **21 remainder (mobile later):** merge iOS onto current `main`, `capacitor://localhost` CORS, Sign in with Apple, Apple billing pick.

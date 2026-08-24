@@ -119,7 +119,7 @@ create table if not exists public.content_reports (
   message_id uuid references public.messages(id) on delete set null,
   conversation_id uuid references public.conversations(id) on delete set null,
   snippet text not null default '',
-  status text not null default 'open' check (status in ('open', 'done')),
+  status text not null default 'open' check (status in ('open', 'done', 'reported')),
   resolved_by uuid references public.profiles(id) on delete set null,
   resolved_at timestamptz,
   created_at timestamptz not null default now()

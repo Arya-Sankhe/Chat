@@ -422,8 +422,8 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
-    if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "reports" && parts[3] && parts[4] === "done" && req.method === "POST") {
-      await handleAdminResolveReport(req, res, config, parts[3]);
+    if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "reports" && parts[3] && (parts[4] === "done" || parts[4] === "reported") && req.method === "POST") {
+      await handleAdminResolveReport(req, res, config, parts[3], parts[4]);
       return;
     }
 

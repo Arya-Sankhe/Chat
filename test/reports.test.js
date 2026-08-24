@@ -180,9 +180,10 @@ test("admin can mark a report done", async () => {
           assert.equal(id, "rep-1");
           return { id: "rep-1", status: "open", reporter_email: "user@example.com", snippet: "bad" };
         },
-        async resolveContentReport(id, resolvedBy) {
+        async resolveContentReport(id, resolvedBy, options) {
           assert.equal(id, "rep-1");
           assert.equal(resolvedBy, "user-1");
+          assert.equal(options?.status || "done", "done");
           return { id: "rep-1", status: "done", reporter_email: "user@example.com", snippet: "bad", resolved_at: "2026-08-24T00:00:00.000Z" };
         }
       }
@@ -190,6 +191,57 @@ test("admin can mark a report done", async () => {
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().report.status, "done");
+});
+
+test("admin reported path removes the message then marks reported", async () => {
+  const calls = [];
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/admin/reports/rep-1/reported",
+    body: {},
+    overrides: stubbedDeps({
+      role: "admin",
+      db: {
+        async getContentReport(id) {
+          assert.equal(id, "rep-1");
+          return {
+            id: "rep-1",
+            status: "open",
+            reporter_email: "user@example.com",
+            snippet: "bad",
+            message_id: MSG_ID
+          };
+        },
+        async getMessageById(messageId) {
+          calls.push("getMessageById");
+          assert.equal(messageId, MSG_ID);
+          return { id: MSG_ID, user_id: "owner-1" };
+        },
+        async listMessageAttachments(userId, messageId) {
+          calls.push("listMessageAttachments");
+          assert.equal(userId, "owner-1");
+          assert.equal(messageId, MSG_ID);
+          return [];
+        },
+        async deleteMessage(userId, messageId) {
+          calls.push("deleteMessage");
+          assert.equal(userId, "owner-1");
+          assert.equal(messageId, MSG_ID);
+          return { id: MSG_ID };
+        },
+        async resolveContentReport(id, resolvedBy, options) {
+          calls.push("resolveContentReport");
+          assert.equal(id, "rep-1");
+          assert.equal(resolvedBy, "user-1");
+          assert.equal(options.status, "reported");
+          return { id: "rep-1", status: "reported", reporter_email: "user@example.com", snippet: "bad", resolved_at: "2026-08-24T00:00:00.000Z" };
+        }
+      }
+    })
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().report.status, "reported");
+  assert.deepEqual(calls, ["getMessageById", "listMessageAttachments", "deleteMessage", "resolveContentReport"]);
 });
 
 test("non-admin cannot resolve reports", async () => {
@@ -213,5 +265,7 @@ test("report UI is on messages and the admin queue; storage stays in Settings", 
   assert.doesNotMatch(html, /id="accountStorageList"/);
   assert.match(html, /id="settingsStorageList"/);
   assert.match(schema, /create table if not exists public\.content_reports/);
-  assert.match(schema, /status text not null default 'open' check \(status in \('open', 'done'\)\)/);
+  assert.match(schema, /status text not null default 'open' check \(status in \('open', 'done', 'reported'\)\)/);
+  assert.match(admin, /data-resolve-status="reported"/);
+  assert.match(admin, /report\.cybertip\.org/);
 });

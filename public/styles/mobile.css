@@ -384,12 +384,6 @@ body.capacitor-native .mobile-camera-action.hidden {
 
 }
 
-body.capacitor-native .app-footer {
-
-  display: none;
-
-}
-
 body.capacitor-native .sidebar {
 
   z-index: 80;

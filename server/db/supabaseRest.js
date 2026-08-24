@@ -126,6 +126,10 @@ export class SupabaseRest {
     return reports.getMessage(this, userId, messageId, options);
   }
 
+  async getMessageById(messageId, options) {
+    return reports.getMessageById(this, messageId, options);
+  }
+
   async getOpenContentReport(reporterId, messageId, options) {
     return reports.getOpenContentReport(this, reporterId, messageId, options);
   }

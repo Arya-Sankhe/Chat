@@ -34,6 +34,10 @@ test("planner system prompt stays under 4 KiB and the image suffix stays short",
   assert.match(TEXT_FREE_SUFFIX, /One scene, one metaphor/);
   assert.doesNotMatch(TEXT_FREE_SUFFIX, /watermark/i);
   assert.match(TEXT_FREE_SUFFIX, /Klui/);
+  assert.match(TEXT_FREE_SUFFIX, /photoreal people/);
+  assert.match(TEXT_FREE_SUFFIX, /nudes/);
+  assert.match(PLANNER_SYSTEM_PROMPT, /face swap/);
+  assert.match(PLANNER_SYSTEM_PROMPT, /never nudes/);
   assert.doesNotMatch(TEXT_FREE_SUFFIX, /no visible text/i);
   assert.doesNotMatch(PLANNER_SYSTEM_PROMPT, /Xiaohei|Ian Xiaohei/);
   assert.doesNotMatch(TEXT_FREE_SUFFIX, /Xiaohei|Ian Xiaohei/);
