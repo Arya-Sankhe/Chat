@@ -162,61 +162,44 @@ export function createCrofaiUsageMeter({
       baseUrl: params?.baseUrl,
       callSignal: AbortSignal.timeout(15_000)
     });
-    const missingUsage = resolved.source === "missing_usage";
-    const cost = missingUsage ? reservationCredits : resolved.cost;
-    const source = missingUsage ? "reservation_ceiling" : resolved.source;
-    if (cost > reservationCredits) {
-      // Per-user kill switch: block only this account. The bare
-      // "funded_inference_disabled" key remains a manual global ops switch.
+    // Reservation is a hold only. Missing cost bills 0, never the ceiling.
+    // A real cost above the hold still bills the actual amount, then freezes
+    // this account so they cannot send another funded request.
+    await db.settleApiUsage({
+      userId,
+      requestId,
+      costCredits: resolved.cost,
+      costSource: resolved.source,
+      usage: usage || {},
+      generationId,
+      estimated: resolved.source === "missing_usage"
+    }, { signal: AbortSignal.timeout(15_000) });
+    if (resolved.cost > reservationCredits) {
       await db.upsertAppSetting(`funded_inference_disabled:${userId}`, {
         disabled: true,
         reason: "reservation_ceiling",
         detectedAt: new Date().toISOString()
-      }, null, { signal: AbortSignal.timeout(15_000) });
+      }, null, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+      console.error("usage reservation ceiling violated; funded inference disabled for user", {
+        userId, surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: resolved.cost
+      });
+    }
+  }
+
+  async function settleAcceptedFailure({ requestId, params, usage, generationId }) {
+    try {
+      await settleReservation({ requestId, params, usage, generationId });
+    } catch {
       await db.settleApiUsage({
         userId,
         requestId,
-        costCredits: reservationCredits,
-        costSource: "reservation_ceiling",
+        costCredits: 0,
+        costSource: "settlement_failure",
         usage: usage || {},
-        generationId,
+        generationId: generationId || "",
         estimated: true
-      }, { signal: AbortSignal.timeout(15_000) });
-      console.error("usage reservation ceiling violated; funded inference disabled for user", {
-        userId, surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: cost
-      });
-      const error = new HttpError(503, "Usage metering is temporarily unavailable.");
-      error.usageSettled = true;
-      throw error;
+      }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
     }
-    await db.settleApiUsage({
-      userId,
-      requestId,
-      costCredits: cost,
-      costSource: source,
-      usage: usage || {},
-      generationId,
-      estimated: missingUsage
-    }, { signal: AbortSignal.timeout(15_000) });
-  }
-
-  async function settleAcceptedFailure({ requestId, params, usage, generationId, error }) {
-    if (error?.usageSettled) return;
-    try {
-      await settleReservation({ requestId, params, usage, generationId });
-      return;
-    } catch (settleError) {
-      if (settleError?.usageSettled) return;
-    }
-    await db.settleApiUsage({
-      userId,
-      requestId,
-      costCredits: reservationCredits,
-      costSource: "settlement_failure",
-      usage: usage || {},
-      generationId: generationId || "",
-      estimated: true
-    }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
   }
 
   function observeStream(body, { onChunk, onComplete, onFailure }) {
@@ -331,7 +314,7 @@ export function createCrofaiUsageMeter({
       },
       async onFailure(error) {
         flushBuffer();
-        await settleAcceptedFailure({ requestId, params, usage, generationId, error });
+        await settleAcceptedFailure({ requestId, params, usage, generationId });
       }
     });
     return new Response(meteredBody, { status: response.status, statusText: response.statusText, headers: response.headers });
@@ -375,7 +358,7 @@ export function createCrofaiUsageMeter({
             await db.settleApiUsage({
               userId,
               requestId,
-              costCredits: reservationCredits,
+              costCredits: 0,
               costSource: "submission_state_failure",
               usage: {},
               estimated: true
@@ -385,8 +368,7 @@ export function createCrofaiUsageMeter({
               requestId,
               params,
               usage: responseUsage,
-              generationId: responseGenerationId,
-              error
+              generationId: responseGenerationId
             });
           }
           throw error;
@@ -447,7 +429,7 @@ export function createCrofaiUsageMeter({
             await db.settleApiUsage({
               userId,
               requestId,
-              costCredits: reservationCredits,
+              costCredits: 0,
               costSource: "submission_state_failure",
               usage: {},
               estimated: true
@@ -457,8 +439,7 @@ export function createCrofaiUsageMeter({
               requestId,
               params,
               usage: acceptedUsage,
-              generationId: acceptedGenerationId,
-              error
+              generationId: acceptedGenerationId
             });
           }
           throw error;
@@ -493,7 +474,7 @@ export function createCrofaiUsageMeter({
             await db.settleApiUsage({
               userId,
               requestId,
-              costCredits: reservationCredits,
+              costCredits: 0,
               costSource: "submission_state_failure",
               usage: {},
               estimated: true

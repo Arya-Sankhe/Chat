@@ -19,7 +19,7 @@ export function startUsageReconciler(config) {
           generationId: event.generation_id,
           signal: AbortSignal.timeout(10_000)
         }).catch(() => null);
-        if (cost == null || cost > Number(event.reserved_credits)) continue;
+        if (cost == null) continue;
         await db.settleApiUsage({
           userId: event.user_id,
           requestId: event.request_id,

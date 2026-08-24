@@ -305,18 +305,19 @@ test("cancelling an accepted stream settles its reservation", async () => {
 
   assert.equal(settled.length, 1);
   assert.equal(settled[0].generationId, "gen_cancelled");
-  assert.equal(settled[0].costCredits, 0.25);
+  assert.equal(settled[0].costCredits, 0);
   assert.equal(settled[0].estimated, true);
 });
 
-test("a reservation ceiling violation trips the per-user kill switch, not the global one", async () => {
+test("actual cost above the reservation bills the real amount and holds the account", async () => {
   const originalError = console.error;
   console.error = () => {};
   const settings = [];
+  const settled = [];
   const db = {
     async reserveApiUsage() { return { allowed: true }; },
     async markApiUsageSubmitted() {},
-    async settleApiUsage() {},
+    async settleApiUsage(params) { settled.push(params); },
     async releaseApiUsage() {},
     async upsertAppSetting(...args) { settings.push(args); }
   };
@@ -329,15 +330,17 @@ test("a reservation ceiling violation trips the per-user kill switch, not the gl
     }
   });
   try {
-    await assert.rejects(meter.chatCompletion({ providerId: "openrouter", body: { model: "fixed" } }), /metering/);
+    await meter.chatCompletion({ providerId: "openrouter", body: { model: "fixed" } });
     assert.equal(settings[0][0], "funded_inference_disabled:user");
     assert.equal(settings[0][1].disabled, true);
+    assert.equal(settled[0].costCredits, 0.5);
+    assert.equal(settled[0].estimated, false);
   } finally {
     console.error = originalError;
   }
 });
 
-test("missing provider usage settles the reservation ceiling conservatively", async () => {
+test("missing provider usage does not bill the reservation", async () => {
   const settled = [];
   const db = {
     async reserveApiUsage() { return { allowed: true }; },
@@ -352,9 +355,9 @@ test("missing provider usage settles the reservation ceiling conservatively", as
   });
   const response = await meter.streamChatCompletion({ requestId: "00000000-0000-4000-8000-000000000002", providerId: "openrouter", body: { model: "fixed" } });
   await response.text();
-  assert.equal(settled[0].costCredits, 0.25);
+  assert.equal(settled[0].costCredits, 0);
   assert.equal(settled[0].estimated, true);
-  assert.equal(settled[0].costSource, "reservation_ceiling");
+  assert.equal(settled[0].costSource, "missing_usage");
 });
 
 test("an accepted stream is estimated instead of released when submission-state persistence fails", async () => {
@@ -372,7 +375,7 @@ test("an accepted stream is estimated instead of released when submission-state 
   });
   await assert.rejects(meter.streamChatCompletion({ requestId: "00000000-0000-4000-8000-000000000003", providerId: "openrouter", body: { model: "fixed" } }), /database unavailable/);
   assert.deepEqual(events.map((event) => Array.isArray(event) ? event[0] : event), ["reserve", "submit-failed", "settled"]);
-  assert.equal(events[2][1].costCredits, 0.25);
+  assert.equal(events[2][1].costCredits, 0);
   assert.equal(events[2][1].estimated, true);
 });
 
@@ -529,6 +532,14 @@ test("the soft cap ignores temporary reservations and checks settled usage only"
   assert.match(source, /v_row\.api_credit_used >= v_row\.api_credit_limit/);
   assert.doesNotMatch(source, /api_credit_used \+ v_(?:week|row)\.api_credit_reserved/);
   assert.match(source, /grant execute on function public\.klui_reserve_api_usage[^;]+to service_role/);
+});
+
+test("stale submitted usage is not billed at the reservation ceiling", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260824210000_never_bill_usage_reservation.sql", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /actual provider cost exceeds reservation ceiling/);
+  assert.doesNotMatch(source, /reservation_ceiling/);
+  assert.match(source, /request_id, 0,/);
+  assert.match(source, /'missing_usage'/);
 });
 
 test("website and desktop usage bars show settled usage, never temporary reservations", async () => {

@@ -831,9 +831,6 @@ begin
     return jsonb_build_object('status', v_event.status, 'cost_credits', v_event.cost_credits);
   end if;
   if v_event.status = 'released' then raise exception 'released reservation cannot be settled'; end if;
-  if v_cost > v_event.reserved_credits then
-    raise exception 'actual provider cost exceeds reservation ceiling';
-  end if;
 
   update public.usage_api_weekly set
     api_credit_reserved = greatest(api_credit_reserved - v_event.reserved_credits, 0),
@@ -845,7 +842,7 @@ begin
   update public.usage_api_events set
     status = case when p_estimated then 'estimated' else 'settled' end,
     cost_credits = v_cost,
-    cost_source = coalesce(nullif(p_cost_source, ''), case when p_estimated then 'reservation_ceiling' else 'provider' end),
+    cost_source = coalesce(nullif(p_cost_source, ''), case when p_estimated then 'missing_usage' else 'provider' end),
     usage = coalesce(p_usage, '{}'::jsonb),
     generation_id = coalesce(nullif(p_generation_id, ''), generation_id),
     submitted_at = coalesce(submitted_at, now()),
@@ -917,8 +914,8 @@ begin
     for update skip locked
   loop
     perform public.klui_settle_api_usage(
-      v_event.user_id, v_event.request_id, v_event.reserved_credits,
-      'reservation_ceiling', v_event.usage, v_event.generation_id, true
+      v_event.user_id, v_event.request_id, 0,
+      'missing_usage', v_event.usage, v_event.generation_id, true
     );
     v_estimated := v_estimated + 1;
   end loop;
