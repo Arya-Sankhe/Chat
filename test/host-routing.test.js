@@ -442,6 +442,10 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     if (path === "/account-delete/") {
       assert.match(page.body, /Settings, then Account, then Delete/);
       assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
+    } else if (path === "/status/") {
+      assert.match(page.body, /fetch\("\/api\/health"/);
+      assert.match(page.body, /id="statusKicker"/);
+      assert.doesNotMatch(page.body, /Not in force yet|Not published yet/);
     } else {
       assert.match(page.body, /Not in force yet|Not published yet/);
     }

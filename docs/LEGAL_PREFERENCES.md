@@ -247,6 +247,16 @@ Do not add a zip of R2 objects, a Maileroo download link, or printed 30-day SLA 
 
 ---
 
+## 19. Public status page — done in code
+
+**Decision:** Live up/down page at https://home.klui.ai/status/ (not klui.ai/status). The page fetches same-origin `/api/health`. That route is already served on every host of this process, so no CORS and no extra endpoint. `klui.ai/status` still 301s to home.
+
+One check: process answered with `{ ok: true }`. Not a Statuspage, not a per-service board, not a historical incident log. `/api/health` does not ping Supabase or R2.
+
+Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts ever split). Maileroo incident mail. Public history.
+
+---
+
 ## Still open (code list)
 
-19–22 as previously listed
+20–22 as previously listed

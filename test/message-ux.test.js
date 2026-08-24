@@ -60,10 +60,11 @@ test("user message footer always offers copy; edit stays gated behind canEditUse
     "copy must not be gated behind canEditUserMessage"
   );
   assert.match(footer[0], /messageCopyButton\(msg,\s*\{\s*iconOnly:\s*true\s*\}\)/);
+  assert.match(footer[0], /messageReportButton\(msg\)/);
   assert.match(footer[0], /canEditUserMessage\(msg\)/);
   assert.match(footer[0], /formatMessageStamp\(msg\.created_at\)/);
   assert.match(footer[0], /class="msg-timestamp"/);
-  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!edit\s*&&\s*!time\s*\)\s*return\s*""/);
+  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!report\s*&&\s*!edit\s*&&\s*!time\s*\)\s*return\s*""/);
 });
 
 test("user message timestamps appear on hover and expand on date hover", () => {
