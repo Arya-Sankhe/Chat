@@ -174,21 +174,6 @@ export function createStudyHubController({
     return ["red", "green", "blue", "orange"][index % 4];
   }
 
-  function boardCountsLine() {
-    const parts = [];
-    if (state.studyMaterials) {
-      const files = (state.studyMaterials.documents || []).length;
-      parts.push(`${files} ${files === 1 ? "file" : "files"}`);
-    }
-    if (state.studyPractice) {
-      const cards = (state.studyPractice.decks || []).reduce((n, deck) => n + Number(deck.cardCount || 0), 0);
-      const quizzes = (state.studyPractice.quizzes || []).length;
-      parts.push(`${cards} ${cards === 1 ? "card" : "cards"}`);
-      parts.push(`${quizzes} ${quizzes === 1 ? "quiz" : "quizzes"}`);
-    }
-    return parts.join(" · ");
-  }
-
   function statusLine(status, kindLabel = "") {
     const mark = status === "ready" ? "✓ " : status === "failed" ? "✕ " : "";
     const kind = kindLabel ? `${kindLabel} ` : "";
@@ -661,8 +646,6 @@ export function createStudyHubController({
   function courseDetailMarkup() {
     const name = courseName();
     const term = courseMeta(state.studyProjectDetail?.project).term || "";
-    const counts = boardCountsLine();
-    const menuOpen = quizMenuKey === `course:${state.activeCourseId}`;
     return `
       <button class="study-back-btn" type="button" data-study-back>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
@@ -677,19 +660,7 @@ export function createStudyHubController({
             </div>
             ${tabMarkup()}
           </div>
-          <div class="study-detail-meta">
-            ${term ? `<aside class="study-sticky">${sketchPin("green")}<p>${escapeHtml(term)}</p></aside>` : ""}
-            ${counts ? `<p class="study-counts">${escapeHtml(counts)}</p>` : ""}
-            <div class="study-card-menu-wrap">
-              <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(state.activeCourseId)}" aria-label="Course options" aria-expanded="${menuOpen ? "true" : "false"}">
-                ${kebabIcon()}
-              </button>
-              <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(state.activeCourseId)}" role="menu">
-                <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(state.activeCourseId)}">Rename</button>
-                <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-course="${escapeHtml(state.activeCourseId)}">Delete</button>
-              </div>
-            </div>
-          </div>
+          ${term ? `<div class="study-detail-meta"><aside class="study-sticky">${sketchPin("green")}<p>${escapeHtml(term)}</p></aside></div>` : ""}
         </header>
         <div class="study-detail-body">${courseBodyMarkup()}</div>
       </div>`;
@@ -769,9 +740,6 @@ export function createStudyHubController({
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-selected", String(on));
     });
-    const counts = boardCountsLine();
-    const countsNode = detail.querySelector(".study-counts");
-    if (countsNode) countsNode.textContent = counts;
   }
 
   function patchGenerationElapsed(root = els.studyView) {
@@ -1040,12 +1008,7 @@ export function createStudyHubController({
     if (!state.studyPractice) jobs.push(loadPractice());
     if (!state.studyProjectDetail) jobs.push(loadCourseDetail());
     if (!jobs.length) return;
-    Promise.all(jobs.map((job) => job.catch(() => {}))).then(() => {
-      if (!studyVisible() || state.activeCourseId !== id) return;
-      const counts = els.studyView?.querySelector(".study-counts");
-      if (counts) counts.textContent = boardCountsLine();
-      else render();
-    });
+    Promise.all(jobs.map((job) => job.catch(() => {})));
   }
 
   async function loadCourse() {

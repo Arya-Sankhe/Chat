@@ -503,9 +503,7 @@ body[data-mode="dark"] .study-tape {
 
 .study-course-card small,
 .study-practice-card small,
-.study-material-card small,
-.study-term,
-.study-counts {
+.study-material-card small {
   position: relative;
   z-index: 1;
   color: var(--study-muted);
@@ -549,12 +547,6 @@ body[data-mode="dark"] .study-tape {
   top: 10px;
   right: 8px;
   z-index: 3;
-}
-
-.study-detail-header .study-card-menu-wrap {
-  position: relative;
-  top: 0;
-  right: 0;
 }
 
 .study-icon-btn,
@@ -784,11 +776,6 @@ body[data-mode="dark"] .study-tape {
 
 .study-sticky p {
   margin: 0;
-}
-
-.study-counts {
-  margin: 0;
-  font-size: 15px;
 }
 
 .study-tabs {

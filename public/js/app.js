@@ -6594,7 +6594,7 @@ researchController = createResearchController({
 
 async function loadStudyHub() {
   if (!studyHubPromise) {
-    studyHubPromise = import("./studyHub.js?v=20260823-perf1").then(({ createStudyHubController }) => {
+    studyHubPromise = import("./studyHub.js?v=20260824-header1").then(({ createStudyHubController }) => {
       studyHub = createStudyHubController({
         state,
         els,
