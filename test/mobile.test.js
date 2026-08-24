@@ -447,14 +447,21 @@ test("APK publishing refuses unsigned release artifacts", () => {
   assert.match(result.stderr, /Refusing to publish an unsigned APK/);
 });
 
-test("service worker excludes APIs and only caches the public shell", async () => {
+test("service worker unregisters, deletes caches, and does not cache the app shell", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/service-worker.js", import.meta.url), "utf8")
   );
-  assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
-  assert.match(source, /request\.mode === "navigate"/);
-  assert.doesNotMatch(source, /^\s*"\/",?$/m);
+  assert.match(source, /skipWaiting/);
+  assert.match(source, /caches\.delete/);
+  assert.match(source, /registration\.unregister/);
+  assert.match(source, /clients\.claim/);
+  assert.match(source, /\.navigate\(/);
+  assert.doesNotMatch(source, /addEventListener\(\s*["']fetch["']/);
+  assert.doesNotMatch(source, /caches\.open/);
+  assert.doesNotMatch(source, /cache\.addAll/);
   assert.doesNotMatch(source, /cache\.put\(/);
+  assert.doesNotMatch(source, /APP_SHELL/);
+  assert.doesNotMatch(source, /\/api\//);
 });
 
 test("web startup parallelizes metadata and defers rich text and Study Hub code", async () => {

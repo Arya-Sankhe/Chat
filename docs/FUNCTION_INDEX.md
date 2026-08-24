@@ -755,7 +755,7 @@ regex substitutions) are deliberately not listed.
 ### `loadSession`, `saveSession`, `clearSession`, `parseSessionFromUrl`, `parseAuthErrorFromUrl`, `refreshSession`, `signInWithGoogleIdToken`, `renderGoogleSignInButton`, `signOut`, `listenForNativeAuth`
 - **Path**: `public/js/auth.js`
 - **Responsibility**: Session load/save/clear, Google Identity
-  Services loader with iOS-PWA redirect fallback, native auth
+  Services loader with iOS standalone redirect fallback, native auth
   callback bridge. `refreshSession` calls Supabase's
   `token?grant_type=refresh_token` endpoint directly.
 - **Callers**: `public/js/app.js`.

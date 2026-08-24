@@ -1,9 +1,11 @@
 # Klui Mobile MVP
 
-Klui ships the same responsive frontend in two mobile forms:
+Klui ships the same responsive frontend as:
 
 - Android: a bundled Capacitor APK.
-- iPhone: an installable PWA from `https://klui.ai`.
+- Website: `https://klui.ai` in a normal browser (not an installable PWA).
+
+Native iOS lives on `codex/ios-port-latest` (Capacitor) and is not on `main` yet.
 
 The Android package never loads the production website as its WebView. `npm run
 mobile:build` bundles the current `public/` application into `dist-mobile/`,
@@ -42,7 +44,7 @@ tech.klui.app://auth/callback
 ```
 
 Add that callback to the Supabase Auth redirect allow list. Keep
-`https://klui.ai` and `https://klui.ai/**` for the website/PWA.
+`https://klui.ai` and `https://klui.ai/**` for the website.
 The callback must match exactly; otherwise Android returns to Klui immediately
 with a redirect configuration error instead of showing the Google account flow.
 
@@ -200,19 +202,6 @@ The installed APK checks metadata at startup and when resuming, at most once
 every six hours. Increase `versionCode` for every release. Set
 `minimumVersionCode` in `latest.json` only when an old build must be blocked.
 
-## PWA
-
-Deploying the normal website also deploys the PWA manifest, icons, service
-worker and offline page. On iPhone:
-
-1. Open `https://klui.ai` in Safari.
-2. Tap Share.
-3. Tap **Add to Home Screen**.
-
-The service worker caches only public installation assets and the offline page.
-It never caches API requests, chat streams, Supabase responses, R2 objects or
-authenticated documents.
-
 ## Native migration boundary
 
 Capacitor-specific behavior lives in:
@@ -226,4 +215,4 @@ public/js/platform/
 
 The backend contract, stream events and upload flow remain platform-neutral.
 When the Expo application reaches parity, remove those Capacitor paths and
-native dependencies while retaining `public/` as the website/PWA.
+native dependencies while retaining `public/` as the website.

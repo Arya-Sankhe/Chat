@@ -273,6 +273,40 @@ Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts e
 
 ---
 
-## Still open (code list)
+## 21. Sign in with Apple + native iOS — website done, iOS deferred
 
-21–22 as previously listed
+**Decision:** Website PWA is deleted. Remaining iOS work (merge, SIWA, StoreKit vs zero-CTA companion, CORS) waits until we actually launch the native app. Do not implement that now.
+
+Login already links to `home.klui.ai/terms` and `/privacy`. Those pages are still placeholders (“Not in force yet”). Publishing real Terms/Privacy is the next website job, not more step-21 code.
+
+### PWA (done on `main`)
+
+Website stays a normal browser app. Removed: manifest, `pwa.js`, install banner, apple-mobile-web-app metas, `offline.html`. `/service-worker.js` is only an unregisterer for old installs. Icons and `#movedNotice` stayed.
+
+### What the iOS port is
+
+Verified against Apple’s current [App Store Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) (updated 8 Jun 2026) and [Sign in with Apple](https://developer.apple.com/documentation/signinwithapple/authenticating-users-with-sign-in-with-apple).
+
+- **Binary: yes, native.** Xcode app `tech.klui.app`, `AppDelegate.swift`, Capacitor 8 WKWebView, bundled `dist-mobile` (not a Safari load of klui.ai). Keyboard insets, Keychain, camera/mic/photos, share, `tech.klui.app://auth/callback`.
+- **4.2 “beyond a repackaged website”: toss-up, lean reject.** Same `public/` UI as the website. Splash/status bar do not count. SIWA + StoreKit would. Guideline 2.5.6 requires WebKit for web content; Capacitor is not banned; 4.2 is the risk.
+- **4.8 login: fail.** Google is the only social login for the primary Klui account. 4.8 requires an equivalent that (a) collects only name+email, (b) allows private email, (c) does not collect in-app interactions for ads without consent. Sign in with Apple satisfies that. Must be **native** `AuthenticationServices`, not Apple JS in the WebView. Apple: “Native apps only allow the signed-in iCloud user to use Sign in with Apple.”
+- **3.1.1 billing: fail either way today.** Unlocking chat is a digital subscription. **3.1.3(b)** lets iOS *access* a web-bought plan only if the same items are also IAP in the app. **3.1.3(f)** (free companion, no in-app buy and no CTA to buy outside) is a weak fit for the same chat product. The iOS branch still opens the **Ziina paywall**. `main` native is “Subscribe on the website.” Both fail 3.1.1. Pick one: StoreKit for Lite/Pro/Max, or a true companion with **zero** pay/upgrade/subscribe copy in the iOS UI.
+- **Capacity: works** (same `/api/me` entitlement + weekly windows) after merge. Live `main` CORS does **not** include `capacitor://localhost` (iOS origin) — preflight 403 until that is added. Branch default API origin is still `klui.tech`; rebuild against `klui.ai`. Keep the iOS no-op of the APK updater.
+
+### Do not ship `codex/ios-port-latest` unmerged
+
+It predates klui.ai, account delete, reports, native “no checkout,” and PWA removal. Merge `main` into the iOS target first.
+
+### Not built yet (blocked on a billing pick)
+
+Sign in with Apple (App ID capability, native button equal to Google, server JWT verify, Hide My Email / `privaterelay.appleid.com`, account linking). StoreKit or zero-CTA companion. Real Privacy/Terms (placeholders fail 5.1.1 / 2.1). Demo account for Review. `PrivacyInfo.xcprivacy`. `arm64` instead of `armv7`.
+
+Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first). Wrapping Safari. Item 22.
+
+---
+
+## Still open
+
+- **Website launch:** rewrite and publish Terms / Privacy / Cookies / Subprocessors from the Word drafts against this file. Placeholders are still live; signup already agrees to them.
+- **22** generation safety (CSAM/NCII) + C2PA / Art 50 — later code, not required to write the website Terms from this file.
+- **21 remainder (mobile later):** merge iOS onto current `main`, `capacitor://localhost` CORS, Sign in with Apple, Apple billing pick.

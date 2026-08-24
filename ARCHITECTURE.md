@@ -51,7 +51,7 @@ extras.
 
 ```
                     ┌────────────────────────┐
-                    │   Browser (PWA / APK)  │
+                    │   Browser / APK        │
                     │   public/index.html    │
                     │   public/js/*.js       │
                     └──────────┬─────────────┘
@@ -191,12 +191,11 @@ and `config.js` (env loading).
 |---|---|
 | `public/index.html` | The whole single-page shell: setup / paywall / chat / research report views, top bar, sidebar, composer, settings, model selector, dialogs. |
 | `public/styles.css` | Root stylesheet: 13 `@import` lines over `public/styles/*.css` (must match the approved checksum baseline; verified by `npm run check:css-split` / `scripts/verify-css-split.mjs` against `scripts/css-split-baseline.json`). Tests read the concatenated CSS via `test/helpers/styles.js` `readStylesheet()`. |
-| `public/service-worker.js` | Minimal SW for klui.tech PWA only. |
+| `public/service-worker.js` | Leftover unregisterer for old PWA clients; does not cache. |
 | `public/js/platform/index.js` | The platform abstraction. Detects `Capacitor.isNativePlatform()`. Exposes `apiOrigin()`, `apiUrl()`, `storage`, `preferences`, `signInWithGoogle`, `parseAuthCallbackUrl`, `listenForAuthCallback`, `listenForDeepLinks`, `openExternal`, `download`, `copyText`, `appVersion`, `onResume`, `configureNativeChrome`, `setTextZoom`, `registerBackButton`, `exitApp`. All Capacitor plugins are lazy-loaded so the web build never imports them. |
 | `public/js/platform/updates.js` | OTA APK update check: throttled `fetch` to `/downloads/android/latest.json`, versionCode comparison, opens external APK URL. |
 | `public/js/api.js` | `apiFetch` wrapper with auto-refresh on 401. All HTTP entry points. `readSseStream` is the SSE reader shared by `streamConversationMessage` and `streamTemporaryChat`. |
-| `public/js/auth.js` | Session load/save/clear, `refreshSession`, Google Identity Services loader with iOS-PWA redirect fallback, `signInWithGoogleIdToken`, `renderGoogleSignInButton`, `signOut`, `listenForNativeAuth`. |
-| `public/js/pwa.js` | Service worker registration (web only), iOS "Add to Home Screen" hint. |
+| `public/js/auth.js` | Session load/save/clear, `refreshSession`, Google Identity Services loader with iOS standalone redirect fallback, `signInWithGoogleIdToken`, `renderGoogleSignInButton`, `signOut`, `listenForNativeAuth`. |
 | `public/js/render.js` | The renderer pipeline. `escapeHtml`, `renderContent` (the public content renderer that walks content parts and produces HTML), `renderRichText` (marked + KaTeX + hljs + DOMPurify), `protectCodeSpans`/`extractMath`/`restoreCodeSpans` (LaTeX isolation that keeps prices like `$1,600` out of math), `highlightCodeBlocks` (per-code-block source storage for the copy button), `getCodeSource`/`resetCodeSourceStore`, `safeImageUrl`, `compactModelDisplayName`, `modelBrandLogoUrl`, `normalizeModelList`, `resolveDefaultCompareModels`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`/`renderModelDetails`, `formatModelMeta`. |
 | `public/js/reasoning.js` | Client mirror of `server/saas/reasoning.js`. Identical signature: `extractReasoningDelta(delta)`. |
 | `public/js/app.js` | Composition root (~5,331 lines). Owns `state`, `els`, bootstrap, composer, follow-ups, model catalog, image/document upload pipeline, message rendering shell, settings drawer, theme/appearance, account, conversation sidebar (pinned, search, menu), dialogs, and navigation. Constructs feature factories at boot and calls `stopExtractedModulePollers()` on sign-out/navigation. |
@@ -406,7 +405,7 @@ The features and the modules that implement them:
 | Admin dashboard | `app.js` + `public/js/adminPanel.js` | `server/routes/admin.js` `handleAdminSummary` (60s in-process cache) / `handleAdminSettings` | `profiles`, `subscriptions`, `usage_api_weekly`, `payment_requests`, `app_settings` |
 | Settings drawer | `app.js` `openSettings` / `closeSettings` / `saveSettings` | n/a (persisted in `localStorage` / `@capacitor/preferences`) | `klui.chat.controls.v1` |
 | Update check (native) | `public/js/platform/updates.js` `checkForAppUpdate` | `server/static.js` (serves `public/downloads/android/latest.json` with CORS) | `public/downloads/android/` |
-| PWA install | `public/js/pwa.js` | `server/static.js` (serves `manifest.webmanifest`, `service-worker.js`) | n/a |
+| Legacy SW unregister | n/a (clients do not re-register) | `public/service-worker.js` (self-unregisters, deletes caches) | n/a |
 
 ## 6. Request and data flows
 

@@ -113,7 +113,8 @@ The health endpoint is `/api/health`.
 
 ## Mobile MVP
 
-Klui includes an Android Capacitor APK build and an installable iPhone PWA.
+Klui includes an Android Capacitor APK build. iPhone is not a PWA; native iOS
+lives on `codex/ios-port-latest` and is not on `main` yet.
 See [`MOBILE.md`](./MOBILE.md) for Android Studio requirements, native Google
 OAuth, release signing, APK publishing, updates and production configuration.
 
