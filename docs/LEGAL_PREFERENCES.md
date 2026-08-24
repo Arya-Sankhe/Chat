@@ -322,8 +322,57 @@ Skipped until Play: PhotoDNA on uploads, Play Console listing, Play GenAI “yes
 
 ---
 
-## Still open
+## What’s left (24 August 2026)
 
-- **Ops for website launch:** `ACCESS_MODE=subscription` on production; apply live migrations if missing (`search_cache` drop, `content_reports`, `reported` status); keep the OpenRouter no-training toggle on; Maileroo still later.
-- **22 remainder (Play later):** apply for PhotoDNA, scan uploads, then list on Google Play. Do not submit to Play before that. Optional later: C2PA stamp on illustration files.
-- **21 remainder (mobile later):** merge iOS onto current `main`, `capacitor://localhost` CORS, Sign in with Apple, Apple billing pick.
+The 1–22 code list is closed except the items below. Live Terms/Privacy/Cookies/Subprocessors are in force in this repo; they still have to be **deployed** if production is on an older build.
+
+### Do (ops / later product)
+
+| # | What | When |
+|---|---|---|
+| Website go-live | Set `ACCESS_MODE=subscription` on production. Do not delete the variable. | Before real users pay |
+| Migrations | Apply if missing: `20260824120000_drop_search_cache.sql`, `20260824180000_add_content_reports.sql`, `20260824190000_report_status_reported.sql` | Before relying on Report / “no search cache” |
+| OpenRouter | Keep the account **opt out of training** toggle on (paid, and free if used). Not in app code. | Ongoing |
+| Mailbox | Create and staff `privacy@klui.ai` (Terms/Privacy already point there). No mailer in the app yet. | Before you need DSR / abuse mail |
+| Reports | Staff the admin queue. For CSAM/NCII: file NCMEC + UAE police, then tap **Reported** (the button does not file). | Before stores; already required for honest ops |
+| 16 Maileroo | Build later: deletion confirm, DSR, dormancy, Terms-change, Mamo renewal. Vendor is Maileroo only. | After billing is boring |
+| 20 Mamo | Add keys, register webhook, test. Then delete Ziina. Do not put checkout in the APK. | When you want recurring billing |
+| 22 Play | Apply for PhotoDNA (Pathways or Microsoft Cloud Service). Scan uploads before they stay in R2. Then list on Google Play. Do **not** submit the APK or tick GenAI “yes” until that scan is live. Own-site APK + website are fine. | Play launch only |
+| 22 C2PA | Optional later: stamp illustration PNGs. Do not promise it in Terms. | Optional |
+| 21 iOS | Only if iOS is a real ship: merge `main` into the iOS target first (do not ship `codex/ios-port-latest` unmerged), add `capacitor://localhost` CORS, native Sign in with Apple, pick StoreKit **or** a zero-CTA companion. | iOS launch only |
+
+### Review (people, not more code)
+
+| What | Why |
+|---|---|
+| Counsel sign-off | Live pages are in force. Counsel has not signed them. |
+| Company line | Terms/Privacy say **ARCSCALE Group (FZC)**, SRTI Park, Block B Office B59-076, Sharjah, licence **11814**. That came from the old Word drafts, not a registry check. Fix the pages if any of it is wrong. |
+| Arabic | No `terms-ar`. Original drafts promised Arabic as controlling for UAE consumers. Add if counsel says we need it. |
+| VAT / TRN | Prices are AED; we are not a tax engine. Counsel to confirm “inclusive” copy. |
+| EU/UK offer | No Art. 27 representative, no SCCs in-product. Add only if we actually offer there and counsel says so. |
+| Processor DPAs | OpenRouter and others are named. Signed DPAs are a legal/ops job, not code. |
+| “Klui for students” | Marketing is student-shaped; product is **18+**. Counsel/owner to keep or tone down. |
+| Ziina months | Prepaid access does **not** auto-cut at `current_period_end`. Someone has to flip status when a month is over, until Mamo is live. |
+| EXIF orientation | We drop JPEG APP1, so rotation metadata is gone. Add a pixel rotate later if users complain. |
+
+### Changed (original list vs now — do not redo)
+
+These look like leftovers if you re-read the first 22-item punch list. They are closed on purpose.
+
+| Original ask | What we actually did |
+|---|---|
+| 2. Send `data_collection: "deny"`; drop Baidu / StreamLake | **No.** Dashboard blocks training. Log-only hosts stay. Terms say no training, not no logging. |
+| 3. Expire everyone at `current_period_end` | **Mamo only.** Ziina stays status-based until you switch billing. |
+| 5. Remove or rename Humanize | **Kept the name.** Public copy + skill prompt: prose cleaner, not a detector bypass. |
+| 12. Enforce search caps 50 / 200 / 500 | **Dropped.** No search-count limit. Weekly API credits still meter cost. |
+| 13. Print real credit numbers on the paywall | **No.** Relative copy + “usage is weekly, resets 4 times each month.” |
+| 14. 13+ DOB / guest wall | **18+, one line** on login. No DOB. |
+| 16. Transactional email now | **Deferred** (Maileroo later). |
+| 18. Email a ZIP | **In-app JSON** instead. |
+| 20. Stripe + auto-renew story | **Mamo precoded, Ziina until you test Mamo.** |
+| 21. SIWA + iOS now | **Website PWA gone.** iOS waits. |
+| 22. PhotoDNA / C2PA / safety SLAs before website | **Website without them.** PhotoDNA is the Play gate. No 24h/48h. No C2PA claimed. |
+
+### Not left (done)
+
+1 ACCESS_MODE fail-closed · 2 OpenRouter no-train (dashboard) · 3 Mamo expiry · 4 no native checkout · 5 Humanize relabel · 6 no “No watermark” · 7 legal URLs on home.klui.ai, pages in force · 8 GPC · 9 storage notice · 10 EXIF strip · 11 no search cache · 12 no search counts · 13 weekly usage on paywall · 14 18+ line · 15 delete account · 17 Report + Reported · 18 JSON export · 19 status page · 22 website safety copy + Report + Claude-shaped images + “Klui is AI” footer.
