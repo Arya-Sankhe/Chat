@@ -10,6 +10,7 @@ import {
   createResearch,
   createZiinaPaymentRequest,
   deleteAccount,
+  downloadAccountData,
   deleteAttachment,
   deleteConversation,
   deleteProject,
@@ -719,6 +720,7 @@ const els = {
   settingsAccountEmail: document.querySelector("#settingsAccountEmail"),
   settingsAccountGuest: document.querySelector("#settingsAccountGuest"),
   deleteAccountButton: document.querySelector("#deleteAccountButton"),
+  exportAccountButton: document.querySelector("#exportAccountButton"),
   memoryEnabledInput: document.querySelector("#memoryEnabledInput"),
   memoryContentInput: document.querySelector("#memoryContentInput"),
   memoryEditor: document.querySelector("#memoryEditor"),
@@ -2571,6 +2573,19 @@ async function deleteAccountAndReset() {
     showToast("Account deleted.");
   } catch (error) {
     showToast(error.message || "Could not delete account.");
+  }
+}
+
+async function downloadAccountDataAndSave() {
+  if (!state.session) return;
+  if (els.exportAccountButton) els.exportAccountButton.disabled = true;
+  try {
+    await downloadAccountData(state.session);
+    showToast("Download started.");
+  } catch (error) {
+    showToast(error.message || "Could not download your data.");
+  } finally {
+    if (els.exportAccountButton) els.exportAccountButton.disabled = false;
   }
 }
 
@@ -8744,6 +8759,7 @@ function bindEvents() {
   els.memoryEnabledInput?.addEventListener("change", (event) => { void setMemoryEnabled(event.target.checked); });
   els.saveMemoryButton?.addEventListener("click", () => { void saveMemorySettings(); });
   els.clearMemoryButton?.addEventListener("click", () => { void clearMemorySettings(); });
+  els.exportAccountButton?.addEventListener("click", () => { void downloadAccountDataAndSave(); });
   els.deleteAccountButton?.addEventListener("click", () => {
     openDeleteConfirm({
       title: "Delete account?",

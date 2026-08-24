@@ -399,17 +399,29 @@
   word-break: break-word;
 }
 
+.account-export-btn,
 .account-delete-btn {
   flex: 0 0 auto;
   min-height: 32px;
   padding: 4px 14px;
-  border: 1px solid var(--danger);
   border-radius: 999px;
   background: transparent;
-  color: var(--danger);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+.account-export-btn {
+  border: 1px solid var(--border);
+}
+
+.account-export-btn:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.account-delete-btn {
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 
 .account-delete-btn:hover {

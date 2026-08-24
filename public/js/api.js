@@ -1,4 +1,4 @@
-import { apiUrl, download as platformDownload } from "./platform/index.js";
+import { apiUrl, download as platformDownload, saveTextFile } from "./platform/index.js";
 
 async function readProblem(response) {
   try {
@@ -145,6 +145,14 @@ export async function deleteAccount(session) {
   const response = await apiFetch("/api/me", { session, method: "DELETE" });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
+}
+
+export async function downloadAccountData(session) {
+  const response = await apiFetch("/api/me/export", { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  const text = await response.text();
+  const day = new Date().toISOString().slice(0, 10);
+  await saveTextFile(`klui-data-${day}.json`, text);
 }
 
 export async function fetchMemory(session) {

@@ -153,6 +153,117 @@ export async function handleMe(req, res, config) {
   }));
 }
 
+function publicAccountExport(user, profile, raw = {}) {
+  const messagesByConversation = new Map();
+  for (const message of raw.messages || []) {
+    const conversationId = message.conversation_id;
+    const list = messagesByConversation.get(conversationId) || [];
+    list.push({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      model: message.model || null,
+      reasoning: message.reasoning || "",
+      toolCalls: message.tool_calls || [],
+      finishReason: message.finish_reason || null,
+      error: message.error || null,
+      createdAt: message.created_at
+    });
+    messagesByConversation.set(conversationId, list);
+  }
+  return {
+    exportedAt: new Date().toISOString(),
+    truncated: Boolean(raw.truncated),
+    account: {
+      id: user.id,
+      email: user.email || "",
+      name: accountName(user),
+      createdAt: profile?.created_at || null
+    },
+    memory: {
+      enabled: Boolean(raw.memory?.enabled),
+      content: String(raw.memory?.content || ""),
+      updatedAt: raw.memory?.updated_at || null
+    },
+    conversations: (raw.conversations || []).map((conversation) => ({
+      id: conversation.id,
+      title: conversation.title,
+      projectId: conversation.project_id || null,
+      model: conversation.model || null,
+      createdAt: conversation.created_at,
+      updatedAt: conversation.updated_at,
+      deletedAt: conversation.deleted_at || null,
+      messages: messagesByConversation.get(conversation.id) || []
+    })),
+    files: (raw.files || []).map((file) => ({
+      id: file.id,
+      fileName: file.file_name,
+      contentType: file.content_type,
+      category: file.category,
+      status: file.status,
+      sizeBytes: file.size_bytes,
+      conversationId: file.conversation_id || null,
+      projectId: file.project_id || null,
+      createdAt: file.created_at
+    })),
+    projects: (raw.projects || []).map((project) => ({
+      id: project.id,
+      name: project.name,
+      kind: project.kind,
+      instructions: project.instructions || "",
+      createdAt: project.created_at,
+      updatedAt: project.updated_at
+    })),
+    billing: {
+      subscriptions: (raw.subscriptions || []).map((subscription) => ({
+        id: subscription.id,
+        planId: subscription.plan_id,
+        status: subscription.status,
+        provider: subscription.provider,
+        providerCustomerId: subscription.provider_customer_id || null,
+        providerSubscriptionId: subscription.provider_subscription_id || null,
+        currentPeriodEnd: subscription.current_period_end || null,
+        cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+        createdAt: subscription.created_at,
+        updatedAt: subscription.updated_at
+      })),
+      payments: (raw.payments || []).map((payment) => ({
+        id: payment.id,
+        planId: payment.plan_id,
+        amountAed: payment.amount_aed,
+        currency: payment.currency,
+        provider: payment.provider,
+        status: payment.status,
+        referenceCode: payment.reference_code,
+        createdAt: payment.created_at
+      })),
+      usage: (raw.usage || []).map((row) => ({
+        planId: row.plan_id,
+        periodStart: row.period_start,
+        periodEnd: row.period_end,
+        weekIndex: row.week_index,
+        weekStart: row.week_start,
+        weekEnd: row.week_end,
+        used: Number(row.api_credit_used || 0),
+        reserved: Number(row.api_credit_reserved || 0),
+        limit: Number(row.api_credit_limit || 0)
+      }))
+    }
+  };
+}
+
+export async function handleMeExport(req, res, config) {
+  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  const context = await authContext(req, config);
+  const raw = await context.db.exportAccountData(context.user.id, { signal: req.signal });
+  const payload = publicAccountExport(context.user, context.profile, raw);
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "content-disposition": "attachment; filename=\"klui-data.json\""
+  });
+  res.end(JSON.stringify(payload));
+}
+
 export async function handleModels(req, res, config) {
   requireServerCrofKey(config);
   const context = await requireChatContext(req, config);

@@ -251,6 +251,37 @@ function safeFileName(value) {
     .slice(0, 120) || "download";
 }
 
+export async function saveTextFile(fileName, contents, mime = "application/json") {
+  if (!isNative()) {
+    const blob = new Blob([contents], { type: mime });
+    const url = URL.createObjectURL(blob);
+    try {
+      await download(url, fileName);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return;
+  }
+  const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
+    import("@capacitor/filesystem"),
+    import("@capacitor/share")
+  ]);
+  const path = `downloads/${Date.now()}-${safeFileName(fileName)}`;
+  await Filesystem.mkdir({ path: "downloads", directory: Directory.Cache, recursive: true }).catch(() => {});
+  await Filesystem.writeFile({
+    path,
+    data: String(contents || ""),
+    directory: Directory.Cache,
+    encoding: Encoding.UTF8
+  });
+  const target = await Filesystem.getUri({ path, directory: Directory.Cache });
+  await Share.share({
+    title: fileName,
+    url: target.uri,
+    dialogTitle: "Save or open file"
+  });
+}
+
 export async function download(url, fileName = "download") {
   if (!isNative()) {
     const anchor = document.createElement("a");

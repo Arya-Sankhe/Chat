@@ -237,6 +237,16 @@ Skipped: reason categories, Maileroo notify, cooling-off, typed confirm. Add if 
 
 ---
 
+## 18. Data export — done in code
+
+**Decision:** Immediate JSON download. Settings → Account → Download my data. `GET /api/me/export` (signed-in, paid or not). No ZIP, no email, no job queue.
+
+ChatGPT and Claude email a ZIP later (hours to days, link expires in 24h). That needs Maileroo and an async store, which we do not have. Kimi’s in-app “Download copy” is the one that fits: click, get a file. File bytes stay in Settings → Storage; the export lists file metadata only. Study notes, research runs, and per-token usage events are not in this dump.
+
+Do not add a zip of R2 objects, a Maileroo download link, or printed 30-day SLA until an account is actually too large for one response.
+
+---
+
 ## Still open (code list)
 
-18–22 as previously listed
+19–22 as previously listed

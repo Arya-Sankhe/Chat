@@ -457,6 +457,8 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
   assert.match(chat, /data-settings-tab="account"/);
   assert.match(chat, /Delete account/);
   assert.match(chat, /id="deleteAccountButton"/);
+  assert.match(chat, /Download my data/);
+  assert.match(chat, /id="exportAccountButton"/);
   assert.match(chat, /class="auth-legal"/);
   assert.match(chat, /By continuing, you agree to our .*Terms of use.* and .*Privacy policy.*, and confirm you are 18 or older/);
   assert.match(chat, /href="https:\/\/home\.klui\.ai\/terms\/"/);

@@ -849,6 +849,41 @@ test("createStudyCards bulk POSTs card rows with return=representation", async (
   });
 });
 
+test("exportAccountData pages user-scoped tables and omits object keys", async () => {
+  const calls = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    calls.push(parsed.pathname);
+    expectServiceHeaders(options.headers);
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    if (parsed.pathname === "/rest/v1/attachments") {
+      assert.equal(parsed.searchParams.get("select"), "id,file_name,content_type,category,status,size_bytes,created_at,conversation_id,project_id");
+      assert.equal(parsed.searchParams.get("object_key"), null);
+      assert.doesNotMatch(parsed.searchParams.get("select"), /object_key/);
+    }
+    if (parsed.pathname === "/rest/v1/user_memory_profiles") {
+      return jsonResponse([{ enabled: true, content: "Prefers short answers.", updated_at: "2026-08-02T00:00:00.000Z" }]);
+    }
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const dump = await db.exportAccountData("user_1");
+    assert.equal(dump.truncated, false);
+    assert.equal(dump.memory.enabled, true);
+    assert.deepEqual(dump.conversations, []);
+    assert.ok(calls.includes("/rest/v1/conversations"));
+    assert.ok(calls.includes("/rest/v1/messages"));
+    assert.ok(calls.includes("/rest/v1/attachments"));
+    assert.ok(calls.includes("/rest/v1/user_memory_profiles"));
+    assert.ok(calls.includes("/rest/v1/subscriptions"));
+    assert.ok(calls.includes("/rest/v1/payment_requests"));
+    assert.ok(calls.includes("/rest/v1/usage_api_weekly"));
+    assert.ok(calls.includes("/rest/v1/projects"));
+    assert.equal(calls.includes("/rest/v1/usage_api_events"), false);
+    assert.equal(calls.includes("/rest/v1/study_notes"), false);
+  });
+});
+
 test("listAccountObjectKeys gathers attachment, document, and page keys", async () => {
   const paths = [];
   await withStubbedFetch(async (url, options = {}) => {

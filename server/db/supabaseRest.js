@@ -5,6 +5,7 @@ import * as billing from "./rest/billing.js";
 import * as caches from "./rest/caches.js";
 import * as chat from "./rest/chat.js";
 import * as documents from "./rest/documents.js";
+import * as accountExport from "./rest/export.js";
 import * as memory from "./rest/memory.js";
 import * as desktop from "./rest/desktop.js";
 import * as payments from "./rest/payments.js";
@@ -359,6 +360,10 @@ export class SupabaseRest {
 
   async listAccountObjectKeys(userId, options) {
     return attachments.listAccountObjectKeys(this, userId, options);
+  }
+
+  async exportAccountData(userId, options) {
+    return accountExport.exportAccountData(this, userId, options);
   }
 
   async deleteAuthUser(userId, { signal } = {}) {
