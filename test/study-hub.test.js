@@ -344,6 +344,13 @@ test("study hub paints before refetching and reuses course payloads", () => {
   assert.match(app, /renderShell\(\);\s*if \(state\.activeCourseId\)/);
 });
 
+test("course uploads replace the reading placeholder with fresh materials", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /await waitForDocument\(completed\.id, item\.name\);/);
+  assert.doesNotMatch(hub, /waitForDocument\(completed\.id, item\.name\)\.catch/);
+  assert.match(hub, /state\.studyMaterials = null;\s*await loadMaterials\(\);/);
+});
+
 test("course chat list includes newly created course conversations without a refetch", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");

@@ -1423,7 +1423,7 @@ export function createStudyHubController({
           item.status = "reading";
           if (state.activeCourseId === courseId) render();
           if (!completed?.document?.usable) {
-            await waitForDocument(completed.id, item.name).catch(() => null);
+            await waitForDocument(completed.id, item.name);
           }
         } catch (error) {
           await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
@@ -1431,7 +1431,8 @@ export function createStudyHubController({
         }
       }));
       if (state.studyOpen && state.activeCourseId === courseId) {
-        await Promise.all([loadMaterials()]);
+        state.studyMaterials = null;
+        await loadMaterials();
       }
     } catch (error) {
       showToast(error.message || "Files could not be uploaded.");
