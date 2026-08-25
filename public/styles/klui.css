@@ -625,7 +625,6 @@ body[data-wallpaper="none"] .home-wallpaper {
   display: none;
 }
 
-body[data-mode="dark"][data-wallpaper="clouds"] .home-wallpaper,
 body[data-mode="dark"][data-wallpaper="alpine"] .home-wallpaper,
 body[data-mode="dark"][data-wallpaper="valley"] .home-wallpaper {
   background: url("/images/home-night-sky.webp?v=20260723-1") center / cover no-repeat;

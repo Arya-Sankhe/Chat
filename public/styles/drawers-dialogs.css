@@ -543,10 +543,8 @@
 }
 
 body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
-  background-image:
-    url("/images/home-clouds.webp"),
-    url("/images/home-night-sky.webp?v=20260723-1");
-  background-size: contain, cover;
+  background-image: url("/images/home-clouds-dark-v3.webp?v=20260825-clouds-dark-v3");
+  background-size: cover;
 }
 
 body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {

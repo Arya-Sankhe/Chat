@@ -2048,10 +2048,13 @@ function applyAppearance() {
   const wallpaper = HOME_WALLPAPERS.has(state.settings.wallpaper) ? state.settings.wallpaper : "clouds";
   document.body.dataset.wallpaper = wallpaper;
   const hasLightWallpaper = mode === "light" && ["clouds", "alpine", "valley", "launch"].includes(wallpaper);
+  const darkClouds = mode === "dark" && wallpaper === "clouds";
   if (wallpaper !== "none") {
-    const version = isNative() ? "" : "?v=20260825-clouds-b-1080";
-    const wallpaperSrc = `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
-    const usesNightSky = mode === "dark" && ["clouds", "alpine", "valley"].includes(wallpaper);
+    const version = isNative() ? "" : darkClouds ? "?v=20260825-clouds-dark-v3" : "?v=20260825-clouds-b-1080";
+    const wallpaperSrc = darkClouds
+      ? `/images/home-clouds-dark-v3.webp${version}`
+      : `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
+    const usesNightSky = mode === "dark" && ["alpine", "valley"].includes(wallpaper);
     document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
     document.body.style.setProperty(
       "--home-wallpaper-base",

@@ -2,7 +2,7 @@ import { slotText } from "../vendor/slot-text/dist/index.js";
 import { escapeHtml } from "./render.js";
 
 const PHRASES = {
-  thinking: ["cooking…", "locking in…", "big brain time", "connecting the dots…"],
+  thinking: ["cooking…", "locking in…", "big brain time", "connecting the dots…", "clocking it..."],
   reading: ["skimming the page…", "highlighting the good bits", "taking notes…", "speed-reading…"],
   searching: ["digging the web…", "down the rabbit hole", "hunting for sources…", "sifting results…"],
   writing: ["drafting…", "finding the words…", "typing it up…", "making it flow…"],
