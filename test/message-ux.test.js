@@ -200,6 +200,11 @@ test("illustration lightbox caption reads the renderAssistantContent message arg
   assert.doesNotMatch(appJs, /isIllustrationMessage\(msg\)/);
 });
 
+test("late-loaded chat images keep an auto-scrolling conversation pinned", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /addEventListener\("load", \(event\) => \{\s*if \(!event\.target\.closest\?\.\("img\.message-image"\) \|\| !state\.autoScroll\) return;\s*requestAnimationFrame\(pinMessagesToBottom\);\s*\}, true\)/);
+});
+
 test("sent images render in a compact horizontal strip above the user bubble", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();

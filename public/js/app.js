@@ -8493,6 +8493,10 @@ function bindEvents() {
     });
   };
   els.messages.addEventListener("scroll", queueChatNavigationUpdate, { passive: true });
+  els.messages.addEventListener("load", (event) => {
+    if (!event.target.closest?.("img.message-image") || !state.autoScroll) return;
+    requestAnimationFrame(pinMessagesToBottom);
+  }, true);
   window.addEventListener("resize", () => {
     renderChatPromptNavigator();
     queueChatNavigationUpdate();
