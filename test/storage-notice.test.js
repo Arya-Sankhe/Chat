@@ -16,28 +16,24 @@ function headOf(documentHtml) {
   return match[1];
 }
 
-test("chat HTML has a storage notice and only loads pinned Markdown on first paint", () => {
+test("chat has no redundant storage notice and only loads pinned Markdown on first paint", () => {
   const head = headOf(html);
   assert.doesNotMatch(head, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
   const externalScripts = [...head.matchAll(/<script\b[^>]*src="(https?:\/\/[^\"]+)"/gi)].map((match) => match[1]);
   assert.deepEqual(externalScripts, ["https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js"]);
   assert.match(head, /marked\.umd\.js" integrity="sha384-[^"]+" crossorigin="anonymous"/);
   assert.match(head, /src="\/vendor\/dompurify\/purify\.min\.js"/);
-  assert.match(html, /id="storageNotice"/);
-  assert.match(html, /We store settings on this device\./);
-  assert.match(html, /id="storageNoticeOk"/);
+  assert.doesNotMatch(html, /id="storageNotice"|We store settings on this device|id="storageNoticeOk"/);
   assert.doesNotMatch(html, /document\.cookie/);
 });
 
-test("settings persist only after the storage notice, and Google Fonts load then", () => {
-  assert.match(app, /const STORAGE_NOTICE_KEY = "klui\.storage-notice\.v1"/);
-  assert.match(app, /function storageNoticeAccepted\(\)/);
-  assert.match(app, /if \(isNative\(\)\) return true;/);
-  assert.match(app, /function saveSettings\(\) \{\s*if \(!storageNoticeAccepted\(\)\) return;/);
-  assert.match(app, /if \(hadLegacyTheme && storageNoticeAccepted\(\)\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
+test("functional settings persist directly and Google Fonts load after startup", () => {
+  assert.doesNotMatch(app, /STORAGE_NOTICE_KEY|storageNoticeAccepted|initStorageNotice/);
+  assert.match(app, /function saveSettings\(\) \{\s*const value = JSON\.stringify\(state\.settings\);/);
+  assert.match(app, /if \(hadLegacyTheme\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
   assert.match(app, /function loadGoogleFonts\(\)/);
   assert.match(app, /Shantell\+Sans/);
-  assert.match(app, /initStorageNotice\(\)/);
+  assert.match(app, /loadGoogleFonts\(\);\s*\n\}/);
   assert.doesNotMatch(app, /document\.cookie/);
 });
 

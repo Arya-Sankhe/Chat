@@ -1,6 +1,6 @@
 # Klui legal / product preferences
 
-Working notes while we close the product-vs-docs gaps. Counsel has not signed the live pages. Live Terms / Privacy / Cookies / Subprocessors on home.klui.ai were rewritten against this file (effective 24 August 2026), not pasted from the old Word drafts.
+Working notes while we close the product-vs-docs gaps. Counsel has not signed the live pages. Live Terms / Privacy / Cookies / Subprocessors on home.klui.ai were rewritten against this file (updated 25 August 2026), not pasted from the old Word drafts.
 
 ---
 
@@ -120,7 +120,7 @@ Canonical URLs:
 | Status | https://home.klui.ai/status/ |
 | Klui is AI | https://home.klui.ai/accuracy/ |
 
-`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are **in force from 24 August 2026** (rewritten against this file, not the old Word drafts). Account delete, status, and accuracy stay live product pages. Signup agrees to Terms and Privacy.
+`klui.ai` and `www.klui.ai` 301 those paths to `home.klui.ai`. Terms / Privacy / Cookies / Subprocessors are live and were updated on **25 August 2026** (rewritten against this file, not the old Word drafts). Account delete, status, and accuracy stay live product pages. Signup agrees to Terms and Privacy.
 
 Hub grouping matches ChatGPT/Claude: Legal (terms, privacy, cookies), Data (subprocessors, delete account), Service (status, accuracy). Footer / Settings / signup link to them. The composer accuracy text links to the friendly accuracy Q&A and appears only after a conversation starts.
 
@@ -136,15 +136,13 @@ Do not add per-request GPC branching unless we later add ad-tech or a real sale/
 
 ---
 
-## 9. Minimal storage notice — done in code
+## 9. Functional device storage — done in code
 
-**Decision:** Not a CMP. No accept/reject categories, no consent log, no per-request cookie branching.
+**Decision:** Not a CMP. The first-visit acknowledgement was removed because Klui stores only requested functional preferences and does not run advertising or analytics SDKs. Auth session storage remains separate and necessary for sign-in.
 
-The chat app shows a short “We store settings on this device.” notice. Settings are not written to `localStorage` until the user clicks OK (native Capacitor skips the notice and keeps writing immediately). Auth session storage stays available without the notice; that is sign-in, not a preference cookie.
+Google Fonts and jsDelivr are not on first paint. DOMPurify is first-party (`/vendor/dompurify/purify.min.js`). Google Identity still loads only when the sign-in dialog opens. KaTeX / marked / highlight.js stay on jsDelivr after JS bootstrap, not in the HTML head.
 
-Google Fonts and jsDelivr are not on first paint. DOMPurify is first-party (`/vendor/dompurify/purify.min.js`). Study fonts load from Google only after OK, or immediately on native. Google Identity still loads only when the sign-in dialog opens. KaTeX / marked / highlight.js stay on jsDelivr after JS bootstrap, not in the HTML head.
-
-Privacy / Cookie policy later should say: we store appearance and similar settings on this device; we do not run ad-tech; we honor GPC; we load Google Fonts after the notice (or in the native app) and Google Identity when you sign in.
+The Cookie policy explains the local preferences and how to clear them through browser site-data controls.
 
 Do not add a full consent manager unless we add non-essential cookies or ads.
 
@@ -278,7 +276,7 @@ Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts e
 
 **Decision:** Website PWA is deleted. Remaining iOS work (merge, SIWA, StoreKit vs zero-CTA companion, CORS) waits until we actually launch the native app. Do not implement that now.
 
-Login already links to `home.klui.ai/terms` and `/privacy`. Those pages are in force (24 August 2026).
+Login already links to `home.klui.ai/terms` and `/privacy`. Those pages are live and updated 25 August 2026.
 
 ### PWA (done on `main`)
 
@@ -312,7 +310,7 @@ Skipped: SIWA JS on the website (Apple requires an App Store app with SIWA first
 
 **Google Play:** we will add [PhotoDNA](https://www.microsoft.com/en-us/photodna) later for the Google Play launch (apply via [Pathways](https://technologycoalition.org/programs/pathways/) or Microsoft’s Cloud Service; both are free if qualified). Scan user image uploads before they stay in R2. Until PhotoDNA is live, **do not list or submit the APK on Google Play.** Own-site APK (`klui.ai/download/android`) and the website are fine. Do not tick Play GenAI “yes” until then.
 
-1. **Terms (in force):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. No 24h/48h SLA. No “we filter CSAM.” No “C2PA is applied.” Say we **will add PhotoDNA for the Google Play launch**; do not say it is already on. Keep these rules in Terms rather than the accuracy Q&A.
+1. **Terms (in force):** ban CSAM (including AI-generated), sexualization of anyone under 18, NCII / “nudify” / non-consensual deepfakes. We may remove content, close the account, and report to authorities. Keep implementation gaps, store-launch roadmaps, PhotoDNA plans, C2PA, and response-time commentary out of the public Terms. Keep the user-facing safety rules in Terms rather than the accuracy Q&A.
 2. **Report:** keep the in-app Report. CSAM / NCII tickets are **Reported**, not Done. Reported removes the message and its files. Admin files NCMEC CyberTipline + UAE police. There is no NCMEC API in the app.
 3. **Images stay Claude-shaped:** Illustration is the mascot line-art explainer. Prompt forbids photoreal people, nudes, minors, face swap, undress. Do not add photoreal people generation.
 4. **Art. 50(1):** the product is obviously Klui the chatbot. After a conversation starts, the composer footer says “Klui can make mistakes. Double-check important responses.” The text links to https://home.klui.ai/accuracy/ without a permanent underline. No banner on every message.
@@ -322,7 +320,7 @@ Skipped until Play: PhotoDNA on uploads, Play Console listing, Play GenAI “yes
 
 ---
 
-## What’s left (24 August 2026)
+## What’s left (25 August 2026)
 
 The 1–22 code list is closed except the items below. Live Terms/Privacy/Cookies/Subprocessors are in force in this repo; they still have to be **deployed** if production is on an older build.
 
@@ -375,4 +373,4 @@ These look like leftovers if you re-read the first 22-item punch list. They are 
 
 ### Not left (done)
 
-1 ACCESS_MODE fail-closed · 2 OpenRouter no-train (dashboard) · 3 Mamo expiry · 4 no native checkout · 5 Humanize relabel · 6 no “No watermark” · 7 legal URLs on home.klui.ai, pages in force · 8 GPC · 9 storage notice · 10 EXIF strip · 11 no search cache · 12 no search counts · 13 weekly usage on paywall · 14 18+ line · 15 delete account · 17 Report + Reported · 18 JSON export · 19 status page · 22 website safety copy + Report + Claude-shaped images + “Klui is AI” footer.
+1 ACCESS_MODE fail-closed · 2 OpenRouter no-train (dashboard) · 3 Mamo expiry · 4 no native checkout · 5 Humanize relabel · 6 no “No watermark” · 7 legal URLs on home.klui.ai, pages in force · 8 GPC · 9 functional device storage without a redundant popup · 10 EXIF strip · 11 no search cache · 12 no search counts · 13 weekly usage on paywall · 14 18+ line · 15 delete account · 17 Report + Reported · 18 JSON export · 19 status page · 22 website safety copy + Report + Claude-shaped images + “Klui is AI” footer.

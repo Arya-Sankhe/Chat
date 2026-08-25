@@ -567,7 +567,7 @@ h2 {
   line-height: 0.95;
   letter-spacing: -0.04em;
 }
-.legal-wrap > p { margin: 0 0 16px; font-size: 18px; font-weight: 650; }
+.legal-wrap > p { max-width: 66ch; margin: 0 0 16px; font-size: 18px; font-weight: 650; text-wrap: pretty; }
 .legal-doc { margin: 8px 0 0; }
 .legal-doc h2 {
   margin: 28px 0 10px;
@@ -612,8 +612,12 @@ h2 {
   padding: 8px 12px 8px 0;
 }
 .legal-doc th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.table-scroll { overflow-x: auto; }
+.table-scroll:focus-visible { outline: 3px solid var(--yellow); outline-offset: 4px; }
+.table-scroll table { min-width: 680px; }
 .policy-groups {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 36px;
   margin: 48px 0 0;
   padding: 36px 0 0;
@@ -630,6 +634,13 @@ h2 {
 .policy-groups a { font-weight: 800; text-decoration: none; }
 .policy-groups a[aria-current="page"] { text-decoration: underline; text-underline-offset: 4px; }
 .policy-groups a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.legal-hub .legal-wrap { width: min(980px, calc(100% - 48px)); }
+.legal-hub .policy-groups { margin-top: 44px; }
+.legal-hub .policy-groups li + li { margin-top: 14px; }
+.legal-hub .policy-groups a { display: grid; gap: 2px; }
+.legal-hub .policy-groups a:hover { text-decoration: none; }
+.legal-hub .policy-groups a:hover strong { text-decoration: underline; text-underline-offset: 4px; }
+.legal-hub .policy-groups span { color: rgb(11 27 58 / 0.7); font-size: 14px; font-weight: 600; line-height: 1.35; }
 
 @media (max-width: 900px) {
   .bento { grid-template-columns: 1fr 1fr; grid-template-areas: "concept concept" "notes guides" "model writing"; }
@@ -649,6 +660,7 @@ h2 {
   .nav-primary, .nav-balance { display: none; }
   .wordmark { justify-self: start; }
   .nav-mobile { display: block; }
+  .policy-groups { grid-template-columns: 1fr; }
   .hero-video-desktop { display: none; }
   .hero-video-mobile { display: block; }
   .hero-art,

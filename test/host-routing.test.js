@@ -482,27 +482,31 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
       assert.match(page.body, /How can I report a problem\?/);
       assert.doesNotMatch(page.body, /CSAM|non-consensual intimate images|report it to authorities/);
     } else if (path === "/terms/") {
-      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /Effective 25 August 2026/);
       assert.match(page.body, /18 or older/);
-      assert.match(page.body, /PhotoDNA/);
       assert.match(page.body, /non-consensual intimate images/);
-      assert.match(page.body, /We do not promise that we filter CSAM/);
-      assert.match(page.body, /We do not promise 24-hour or 48-hour/);
+      assert.match(page.body, /mandatory consumer rights/);
+      assert.doesNotMatch(page.body, /PhotoDNA|Google Play launch|24-hour or 48-hour/);
       assert.doesNotMatch(page.body, /C2PA is applied/);
     } else if (path === "/privacy/") {
-      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /Last updated 25 August 2026/);
       assert.match(page.body, /do not sell personal information/i);
       assert.match(page.body, /OpenRouter/);
+      assert.match(page.body, /Legal bases/);
+      assert.match(page.body, /international processing/);
+      assert.doesNotMatch(page.body, /storage notice|pentest program|automated mail/);
     } else if (path === "/cookies/") {
-      assert.match(page.body, /Effective 24 August 2026/);
-      assert.match(page.body, /We store settings on this device/);
+      assert.match(page.body, /Last updated 25 August 2026/);
+      assert.match(page.body, /clear Klui's site data in your browser settings/);
+      assert.doesNotMatch(page.body, /accept the storage notice/);
     } else if (path === "/subprocessors/") {
-      assert.match(page.body, /Effective 24 August 2026/);
+      assert.match(page.body, /Last updated 25 August 2026/);
       assert.match(page.body, /OpenRouter/);
       assert.match(page.body, /Supabase/);
+      assert.doesNotMatch(page.body, /PhotoDNA|will add/);
     } else if (path === "/legal/") {
-      assert.match(page.body, /Effective 24 August 2026/);
-      assert.match(page.body, /These documents are in force/);
+      assert.match(page.body, /Last updated 25 August 2026/);
+      assert.match(page.body, /Plain-language information/);
     }
 
     const preview = await get(server, { host: "localhost", path: `/home${path}` });

@@ -6,12 +6,12 @@
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#FFF8E9">
     <title>Subprocessors · Klui</title>
-    <meta name="description" content="Companies that process Klui user data. Effective 24 August 2026.">
+    <meta name="description" content="Service providers that process data to operate Klui.">
     <link rel="canonical" href="https://home.klui.ai/subprocessors/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Klui for students">
     <meta property="og:title" content="Subprocessors">
-    <meta property="og:description" content="Companies that process Klui user data. Effective 24 August 2026.">
+    <meta property="og:description" content="Service providers that process data to operate Klui.">
     <meta property="og:url" content="https://home.klui.ai/subprocessors/">
     <meta property="og:image" content="https://home.klui.ai/assets/og-v4.jpg">
     <meta name="twitter:card" content="summary_large_image">
@@ -32,17 +32,18 @@
       </div>
     </header>
     <main id="content" class="legal-wrap">
-      <p class="legal-kicker">Effective 24 August 2026</p>
+      <p class="legal-kicker">Last updated 25 August 2026</p>
       <h1>Subprocessors</h1>
       <p>These companies process Klui user data to run the product. OpenRouter’s host list can change. We do not route to hosts it classifies as training on prompts. Some hosts may log prompts without training. Details: <a href="../privacy/">Privacy policy</a>.</p>
       <div class="legal-doc">
-        <table>
+        <div class="table-scroll" role="region" aria-label="Klui subprocessors" tabindex="0">
+          <table>
           <thead>
             <tr><th>Company</th><th>What it is for</th><th>What it may see</th></tr>
           </thead>
           <tbody>
             <tr><td>OpenRouter</td><td>Model routing and speech to text</td><td>Prompts, history, tool results, images the model needs, voice audio in transit</td></tr>
-            <tr><td>Model hosts via OpenRouter (including Relace, Baidu Qianfan, CoreWeave, Novita, StreamLake, DeepInfra, OpenAI, Xiaomi, and others in that catalog)</td><td>Inference</td><td>Whatever OpenRouter routes to them. Some may retain prompts; we do not send to hosts marked as training</td></tr>
+            <tr><td>Model providers selected through OpenRouter</td><td>AI inference</td><td>The prompts, history, files, images, and tool results needed for the selected model. Some providers may retain prompts; we exclude providers OpenRouter marks as training on prompts</td></tr>
             <tr><td>Krea (via OpenRouter)</td><td>Illustrations</td><td>Illustration prompts</td></tr>
             <tr><td>Supabase</td><td>Auth and database</td><td>Account, chats, billing metadata, reports</td></tr>
             <tr><td>Cloudflare R2</td><td>File storage</td><td>Uploads and generated files</td></tr>
@@ -50,14 +51,15 @@
             <tr><td>xAI (via OpenRouter)</td><td>Speech to text</td><td>Voice audio in transit. Klui does not keep the audio file</td></tr>
             <tr><td>Jina</td><td>Search and document embeddings</td><td>Search queries, page text, document text</td></tr>
             <tr><td>Brave Search</td><td>Search</td><td>Search queries</td></tr>
-            <tr><td>SearXNG and its engines</td><td>Search</td><td>Search queries</td></tr>
+            <tr><td>Search engines reached through self-hosted SearXNG</td><td>Search</td><td>Search queries</td></tr>
             <tr><td>OpenWeather</td><td>Weather</td><td>Place names you type</td></tr>
             <tr><td>OnlyOffice</td><td>Spreadsheets, when configured</td><td>Spreadsheet files</td></tr>
             <tr><td>Mamo Pay</td><td>Website billing, when configured</td><td>Payment data Mamo collects</td></tr>
             <tr><td>Ziina</td><td>Website billing, when Mamo is not used</td><td>Payment you make to Ziina</td></tr>
           </tbody>
-        </table>
-        <p>We will add Microsoft PhotoDNA later, for a Google Play launch, to scan user image uploads. It is not a subprocessor today.</p>
+          </table>
+        </div>
+        <p>Providers marked “when configured” receive data only when that feature is enabled. For questions about this list, contact <a href="mailto:privacy@klui.ai">privacy@klui.ai</a>.</p>
       </div>
       <div class="policy-groups">
         <section>
