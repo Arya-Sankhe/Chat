@@ -587,6 +587,9 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   assert.match(source, /Illustration works in standard chat\./);
   assert.match(source, /followUpBatchSkillMarks/);
   assert.match(source, /drainAutomaticFollowUps/);
+  assert.match(source, /state\.followUps\.splice\(0, limit\)/, "follow-ups must leave later items queued");
+  assert.match(source, /return drainFollowUps\(1\);/, "automatic follow-ups must send one item per turn");
+  assert.match(source, /state\.followUps\.length >= 2/, "only two follow-ups may be queued");
   assert.ok(
     source.match(/followUpBatchSkillMarks\(queuedFollowUps\)/g)?.length >= 2,
     "both automatic follow-up paths must preserve inline skill positions"

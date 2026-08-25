@@ -1773,8 +1773,8 @@ function addFollowUpFromInput() {
     return;
   }
   if (!text && !images.length) return;
-  if (state.followUps.length >= 3) {
-    showToast("You can queue up to 3 follow-up messages.");
+  if (state.followUps.length >= 2) {
+    showToast("You can queue up to 2 follow-up messages.");
     return;
   }
   state.followUps.push({
@@ -1842,8 +1842,8 @@ function clearFollowUps({ revoke = true } = {}) {
   updateSendButton();
 }
 
-function drainFollowUps() {
-  const queued = state.followUps
+function drainFollowUps(limit = state.followUps.length) {
+  const queued = state.followUps.splice(0, limit)
     .map((item) => ({
       text: item.text.trim(),
       images: Array.isArray(item.images) ? item.images : [],
@@ -1851,7 +1851,8 @@ function drainFollowUps() {
       skillMarks: Array.isArray(item.skillMarks) ? item.skillMarks : []
     }))
     .filter((item) => item.text || item.images.length);
-  clearFollowUps({ revoke: false });
+  renderFollowUps();
+  updateSendButton();
   return queued;
 }
 
@@ -1892,14 +1893,15 @@ function illustrationSendBlocked(skillIds, compareModels = []) {
 }
 
 function drainAutomaticFollowUps() {
-  const skillIds = mergeComposerSkillIds(...state.followUps.map((item) => item.skillIds));
-  const images = followUpBatchImages(state.followUps);
+  const next = state.followUps.slice(0, 1);
+  const skillIds = mergeComposerSkillIds(...next.map((item) => item.skillIds));
+  const images = followUpBatchImages(next);
   const compareModels = resolveCompareModelsForSend({ images });
   if (illustrationSendBlocked(skillIds, compareModels)) {
     showToast("Illustration works in standard chat.");
     return [];
   }
-  return drainFollowUps();
+  return drainFollowUps(1);
 }
 
 function resolveRoutedModel({ images = state.images, userContent = null } = {}) {
@@ -6704,7 +6706,7 @@ function updateSendButton() {
   const hasText = Boolean(composerPlainText().trim() || state.pastedText);
   if (state.running) {
     const hasContent = hasText || state.images.some((item) => item.category === "image");
-    const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 3;
+    const blocked = state.images.some((item) => item.category !== "image") || state.followUps.length >= 2;
     els.sendButton.classList.toggle("active", hasContent && !blocked);
     els.sendButton.disabled = !hasContent || blocked;
     return;
