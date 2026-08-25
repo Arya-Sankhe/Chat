@@ -1,11 +1,23 @@
 import { single } from "./helpers.js";
 
 export async function upsertProfile(client, user, { signal } = {}) {
-  const rows = await client.rpc("klui_ensure_profile", {
-    p_user_id: user.id,
-    p_email: user.email || null
-  }, { signal });
-  return single(rows);
+  try {
+    const rows = await client.rpc("klui_ensure_profile", {
+      p_user_id: user.id,
+      p_email: user.email || null
+    }, { signal });
+    return single(rows);
+  } catch (error) {
+    if (error?.details?.code !== "PGRST202") throw error;
+    const rows = await client.request("profiles", {
+      method: "POST",
+      query: { on_conflict: "id" },
+      body: { id: user.id, email: user.email || null, updated_at: new Date().toISOString() },
+      prefer: "resolution=merge-duplicates,return=representation",
+      signal
+    });
+    return single(rows);
+  }
 }
 
 export async function updateProfile(client, userId, patch, { signal } = {}) {

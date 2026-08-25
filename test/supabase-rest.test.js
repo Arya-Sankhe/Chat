@@ -52,6 +52,34 @@ test("upsertProfile uses the no-op-on-unchanged ensure RPC", async () => {
   });
 });
 
+test("upsertProfile falls back when the ensure RPC is not deployed yet", async () => {
+  let calls = 0;
+  await withStubbedFetch(async (url, options = {}) => {
+    calls += 1;
+    if (calls === 1) {
+      assert.match(url, /\/rpc\/klui_ensure_profile$/);
+      return new Response(JSON.stringify({ code: "PGRST202", message: "Could not find the function" }), {
+        status: 404,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    assert.match(url, /\/profiles\?on_conflict=id$/);
+    assert.equal(options.headers.prefer, "resolution=merge-duplicates,return=representation");
+    const body = JSON.parse(options.body);
+    assert.deepEqual({ ...body, updated_at: "<timestamp>" }, {
+      id: "user_1",
+      email: "a@example.com",
+      updated_at: "<timestamp>"
+    });
+    assert.match(body.updated_at, /^\d{4}-\d{2}-\d{2}T/);
+    return jsonResponse([{ id: "user_1", email: "a@example.com", role: "user" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.equal((await db.upsertProfile({ id: "user_1", email: "a@example.com" })).role, "user");
+  });
+  assert.equal(calls, 2);
+});
+
 test("getProfile issues a scoped profiles GET and returns the first row", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
