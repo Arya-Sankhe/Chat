@@ -144,6 +144,10 @@ test("flashcards use Rapid then Deep, never a fixed count", () => {
   assert.doesNotMatch(hub, /countMenu\("flashcards"/);
   assert.doesNotMatch(hub, /if \(cardMode === "deep"\) return ""/);
   assert.match(generate, /normalizeFlashcardMode/);
+  assert.match(generate, /FLASHCARD_CAPS = \{ rapid: 50, deep: 250 \}/);
+  assert.match(generate, /cleanCards\(parsed\.value, cardCap\)/);
+  assert.match(generate, /First plan the complete relevant coverage, then fit it into no more than \$\{cardCap\} cards/);
+  assert.match(generate, /First identify and rank the most important concepts/);
   assert.match(generate, /fill-in-the-blank/);
   assert.doesNotMatch(generate, /Produce exactly \$\{cardCount\} cards/);
   assert.equal(normalizeFlashcardMode("Deep"), "deep");
@@ -163,6 +167,13 @@ test("flashcards use Rapid then Deep, never a fixed count", () => {
     ]),
     { "doc:doc-1": "rapid", "doc:doc-2": "deep" }
   );
+});
+
+test("completed Study Hub generation force-refreshes visible course data", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /loadMaterials\(true\)\.catch/);
+  assert.match(hub, /loadPractice\(true\)\.catch/);
+  assert.match(hub, /if \(!force && cacheCourseId === id && hasCache\(\)\) return/);
 });
 
 test("materials Notes uses Summary and Detailed, each once", () => {

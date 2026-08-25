@@ -305,7 +305,7 @@ async function loadGenerationSourceText({ context, config, source, signal, onWar
   return text;
 }
 
-const FLASHCARD_CAP = 80;
+const FLASHCARD_CAPS = { rapid: 50, deep: 250 };
 
 function clampPick(count, allowed) {
   const n = Number(count);
@@ -387,7 +387,7 @@ export function collectFlashcardModes(stored, cards) {
   return modes;
 }
 
-function cleanCards(parsed, max = FLASHCARD_CAP) {
+function cleanCards(parsed, max = FLASHCARD_CAPS.rapid) {
   const pairs = Array.isArray(parsed.cards) ? parsed.cards : Array.isArray(parsed.flashcards) ? parsed.flashcards : [];
   return pairs.flatMap((entry) => {
     const front = String(entry?.front || "").trim();
@@ -439,14 +439,15 @@ export async function generateFlashcards({
   const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage });
   throwIfAborted(signal);
   const requested = normalizeFlashcardMode(mode) || "rapid";
+  const cardCap = FLASHCARD_CAPS[requested];
   const skip = (existingFronts || [])
     .map((front) => String(front || "").trim().slice(0, 120))
     .filter(Boolean)
-    .slice(0, FLASHCARD_CAP);
+    .slice(0, FLASHCARD_CAPS.deep);
   const deep = requested === "deep";
   const system = deep
-    ? `You create a Deep study deck from source material. Cover every concept, definition, example, exception, process step, and detail a student needs to fully know this chapter. One idea per card. Exhaustive, not a summary. Use as many cards as needed, at most ${FLASHCARD_CAP}. Mix short Q&A with fill-in-the-blank when a term, name, or formula is the thing to remember (front uses ___ for the blank; back is the missing text). Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. No markdown, no commentary.`
-    : `You create a Rapid review deck from source material. Cover every important concept, definition, formula, and fact a student needs for a chapter review. Skip trivia and padding. Use as many cards as needed, at most ${FLASHCARD_CAP}. Mix short Q&A with fill-in-the-blank when a term, name, or formula is the thing to remember (front uses ___ for the blank; back is the missing text). Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. No markdown, no commentary.`;
+    ? `You create a Deep study deck from source material. First plan the complete relevant coverage, then fit it into no more than ${cardCap} cards. Cover every concept, definition, example, exception, process step, and detail needed to fully know the material. If necessary, combine closely related subpoints in one clear card rather than omitting relevant material. Do not create padding just to reach the limit. Mix short Q&A with fill-in-the-blank when a term, name, or formula is the thing to remember (front uses ___ for the blank; back is the missing text). Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. No markdown, no commentary.`
+    : `You create a Rapid review deck from source material. First identify and rank the most important concepts, definitions, formulas, processes, and facts, then fit that essential coverage into no more than ${cardCap} cards. Prefer broad exam-relevant understanding, combine closely related points when clear, and omit trivia, repetition, and padding. Do not create extra cards just to reach the limit. Mix short Q&A with fill-in-the-blank when a term, name, or formula is the thing to remember (front uses ___ for the blank; back is the missing text). Return ONLY valid JSON: {"cards":[{"front":"...","back":"..."}]}. No markdown, no commentary.`;
   const user = skip.length
     ? `${text}\n\nExisting card fronts (do not repeat or paraphrase):\n${skip.map((front) => `- ${front}`).join("\n")}`
     : text;
@@ -462,7 +463,7 @@ export async function generateFlashcards({
   });
   throwIfAborted(signal);
   const parsed = parseStudyJson(streamed.content);
-  const cards = cleanCards(parsed.value, FLASHCARD_CAP);
+  const cards = cleanCards(parsed.value, cardCap);
   if (!cards.length) throw new HttpError(502, GENERATION_FAILED);
   onStage?.("saving");
   throwIfAborted(signal);

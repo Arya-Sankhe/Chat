@@ -914,8 +914,8 @@ export function createStudyHubController({
       if (studyVisible() && state.activeCourseId === courseId) render();
       if (state.activeCourseId === courseId) {
         await Promise.all([
-          loadMaterials().catch(() => {}),
-          loadPractice().catch(() => {})
+          loadMaterials(true).catch(() => {}),
+          loadPractice(true).catch(() => {})
         ]);
       }
     } catch (error) {
@@ -961,13 +961,16 @@ export function createStudyHubController({
     return job;
   }
 
-  async function loadOnce(kind, hasCache, assign) {
+  async function loadOnce(kind, hasCache, assign, force = false) {
     const id = state.activeCourseId;
     if (!id) return;
-    if (cacheCourseId === id && hasCache()) return;
+    if (!force && cacheCourseId === id && hasCache()) return;
     const key = `${kind}:${id}`;
     const pending = inflight.get(key);
-    if (pending) return pending;
+    if (pending) {
+      await pending;
+      if (!force) return;
+    }
     const promise = assign(id).finally(() => {
       if (inflight.get(key) === promise) inflight.delete(key);
     });
@@ -975,22 +978,22 @@ export function createStudyHubController({
     return promise;
   }
 
-  async function loadMaterials() {
+  async function loadMaterials(force = false) {
     return loadOnce("materials", () => state.studyMaterials, async (id) => {
       const payload = await fetchStudyMaterials(state.session, id);
       if (state.activeCourseId !== id) return;
       state.studyMaterials = payload;
       cacheCourseId = id;
-    });
+    }, force);
   }
 
-  async function loadPractice() {
+  async function loadPractice(force = false) {
     return loadOnce("practice", () => state.studyPractice, async (id) => {
       const payload = await fetchStudyPractice(state.session, id);
       if (state.activeCourseId !== id) return;
       state.studyPractice = payload;
       cacheCourseId = id;
-    });
+    }, force);
   }
 
   async function loadCourseDetail() {
