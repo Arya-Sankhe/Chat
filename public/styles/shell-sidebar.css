@@ -246,9 +246,9 @@ body.sidebar-open .sidebar-header {
 }
 
 /* With a wallpaper, the header is its own unfiltered window onto that artwork. */
-body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header,
-body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-header,
-body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header {
+body.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header,
+body.guest-mode:not([data-wallpaper="none"]) .sidebar-header,
+body.sidebar-open:not([data-wallpaper="none"]) .sidebar-header {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
   background-color: transparent;
@@ -295,12 +295,12 @@ body.sidebar-open .sidebar-header .sidebar-toggle:hover {
 }
 
 /* White brand + toggle only when the header shows the home wallpaper. */
-body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-brand,
-body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-brand,
-body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-brand,
-body.chat-empty.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
-body.chat-empty.guest-mode:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
-body.chat-empty.sidebar-open:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle {
+body.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-brand,
+body.guest-mode:not([data-wallpaper="none"]) .sidebar-brand,
+body.sidebar-open:not([data-wallpaper="none"]) .sidebar-brand,
+body.sidebar-expanded:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
+body.guest-mode:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle,
+body.sidebar-open:not([data-wallpaper="none"]) .sidebar-header .sidebar-toggle {
   color: #fff;
 }
 

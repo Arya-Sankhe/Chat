@@ -592,6 +592,8 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   assert.match(source, /state\.followUps\.splice\(0, limit\)/, "follow-ups must leave later items queued");
   assert.match(source, /return drainFollowUps\(1\);/, "automatic follow-ups must send one item per turn");
   assert.match(source, /state\.followUps\.length >= 2/, "only two follow-ups may be queued");
+  assert.match(source, /function renderFollowUps\(\) \{[\s\S]*run\.followUps = state\.followUps\.slice\(\);/, "conversation refreshes must preserve the live queue");
+  assert.match(source, /followUps: isRunKeyActive\(key\) \? state\.followUps\.slice\(\) : \[\]/, "chained follow-up runs must inherit the remaining queue");
   assert.ok(
     source.match(/followUpBatchSkillMarks\(queuedFollowUps\)/g)?.length >= 2,
     "both automatic follow-up paths must preserve inline skill positions"
@@ -873,6 +875,9 @@ test("settings uses appearance and wallpapers without legacy chat themes", async
   assert.match(css, /\.preview-remove\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?pointer-events:\s*none;/);
   assert.match(css, /\.preview-thumb:hover \.preview-remove\s*\{[\s\S]*?pointer-events:\s*auto;/);
   assert.match(css, /@keyframes preview-spin\s*\{[\s\S]*?rotate\(360deg\)/);
+  assert.match(css, /body\.sidebar-expanded:not\(\[data-wallpaper="none"\]\) \.sidebar-header,/);
+  assert.match(css, /background-image:\s*var\(--home-wallpaper-image\), var\(--home-wallpaper-base, none\)/);
+  assert.doesNotMatch(css, /body\.chat-empty\.sidebar-expanded:not\(\[data-wallpaper="none"\]\) \.sidebar-header/);
 });
 
 test("native top-bar mode picker activates compare and council modes", async () => {

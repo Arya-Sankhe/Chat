@@ -466,7 +466,7 @@ function beginConversationRun(key, {
     mode,
     abortController,
     messages: null,
-    followUps: [],
+    followUps: isRunKeyActive(key) ? state.followUps.slice() : [],
     turnRunId: "",
     turnWaiting: false,
     cancelRequested: false,
@@ -1728,6 +1728,8 @@ function updateComposerPlaceholder() {
 }
 
 function renderFollowUps() {
+  const run = getConversationRun();
+  if (run) run.followUps = state.followUps.slice();
   if (!els.followupQueue) return;
   if (!state.followUps.length) {
     els.followupQueue.classList.add("hidden");
