@@ -25,6 +25,7 @@ const contentTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".svg", "image/svg+xml"],
   [".png", "image/png"],
+  [".ico", "image/x-icon"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
   [".webp", "image/webp"],
@@ -183,6 +184,7 @@ function isInside(dir, filePath) {
 function isSharedMarketingAsset(filePath) {
   const relative = path.relative(publicDir, filePath);
   return relative === "favicon.svg"
+    || relative === "favicon.ico"
     || relative === `.well-known${path.sep}gpc.json`
     || relative.startsWith(`icons${path.sep}`);
 }

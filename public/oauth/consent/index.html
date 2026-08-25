@@ -6,7 +6,8 @@
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#07111f">
     <title>Continue to Klui Anything</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.svg?v=20260825-icon" type="image/svg+xml">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=20260825-icon">
     <style>
       :root {
         --ink: #1c2430;
@@ -103,11 +104,10 @@
         animation: bob 3.8s ease-in-out infinite;
       }
 
-      .mascot svg {
+      .mascot img {
         display: block;
         width: 100%;
         height: 100%;
-        overflow: visible;
         filter: drop-shadow(0 10px 16px rgba(110, 155, 230, 0.28));
       }
 
@@ -351,42 +351,7 @@
     <main>
       <span class="beta">Klui Anything beta</span>
       <div class="mascot" aria-hidden="true">
-        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="klui-face" cx="40%" cy="30%" r="68%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="62%" stop-color="#ffffff"/>
-              <stop offset="100%" stop-color="#e8f1fc"/>
-            </radialGradient>
-            <radialGradient id="klui-rim" cx="50%" cy="48%" r="58%">
-              <stop offset="54%" stop-color="#9ec0f0" stop-opacity="0"/>
-              <stop offset="76%" stop-color="#9ec0f0" stop-opacity=".55"/>
-              <stop offset="100%" stop-color="#7eacf0" stop-opacity=".95"/>
-            </radialGradient>
-            <radialGradient id="klui-hi" cx="30%" cy="22%" r="42%">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-            </radialGradient>
-            <linearGradient id="klui-shade" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="55%" stop-color="#7eacf0" stop-opacity="0"/>
-              <stop offset="100%" stop-color="#7eacf0" stop-opacity=".18"/>
-            </linearGradient>
-          </defs>
-          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-face)"/>
-          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-rim)"/>
-          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-hi)"/>
-          <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#klui-shade)"/>
-          <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" ry="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
-          <g class="eyes">
-            <rect class="eye" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
-            <rect class="eye" x="46" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
-            <g class="fx fx-happy" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round">
-              <path d="M24 34 Q30 26 36 34"/>
-              <path d="M44 34 Q50 26 56 34"/>
-            </g>
-          </g>
-          <path class="mouth-normal" d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
-        </svg>
+        <img src="/home/assets/klui-icon.svg?v=20260825-icon" alt="" width="104" height="104">
       </div>
       <header>
         <h1>Let’s get you into Klui</h1>

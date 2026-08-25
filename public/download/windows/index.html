@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#07111f">
     <title>Klui Anything for Windows</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.svg?v=20260825-icon" type="image/svg+xml">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=20260825-icon">
     <style>
       :root {
         color-scheme: light;
@@ -93,7 +94,7 @@
         filter: drop-shadow(0 12px 18px rgba(69, 105, 166, .2));
         animation: bob 4.8s ease-in-out infinite;
       }
-      .mascot svg { display: block; width: 100%; height: 100%; }
+      .mascot img { display: block; width: 100%; height: 100%; }
       .eyes { transform-origin: center; animation: blink 5.2s infinite; }
 
       h1 {
@@ -187,17 +188,7 @@
     <main>
       <span class="beta" id="channel">Klui Anything beta</span>
       <div class="mascot" aria-hidden="true">
-        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="face" cx="40%" cy="30%" r="68%"><stop offset="0" stop-color="#fff"/><stop offset="62%" stop-color="#fff"/><stop offset="100%" stop-color="#e8f1fc"/></radialGradient>
-            <radialGradient id="rim" cx="50%" cy="48%" r="58%"><stop offset="54%" stop-color="#9ec0f0" stop-opacity="0"/><stop offset="76%" stop-color="#9ec0f0" stop-opacity=".55"/><stop offset="100%" stop-color="#7eacf0" stop-opacity=".95"/></radialGradient>
-          </defs>
-          <rect x="8" y="8" width="64" height="64" rx="21" fill="url(#face)"/>
-          <rect x="8" y="8" width="64" height="64" rx="21" fill="url(#rim)"/>
-          <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
-          <g class="eyes" fill="#4f74b8"><rect x="26" y="24" width="8" height="18" rx="4"/><rect x="46" y="24" width="8" height="18" rx="4"/></g>
-          <path d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
-        </svg>
+        <img src="/home/assets/klui-icon.svg?v=20260825-icon" alt="" width="92" height="92">
       </div>
       <h1>Let’s put Klui here.</h1>
       <p class="lead">Your Klui plan and weekly usage come with you. Download the Windows beta, log in, and you’re ready.</p>
