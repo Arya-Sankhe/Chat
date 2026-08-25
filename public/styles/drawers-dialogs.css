@@ -550,7 +550,7 @@ body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="c
 }
 
 body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="clouds"] .wallpaper-thumb {
-  background-image: url("/images/home-clouds-light.webp?v=20260723-3");
+  background-image: url("/images/home-clouds-light.webp?v=20260825-clouds-b-1080");
 }
 
 .settings-drawer.open .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
@@ -565,7 +565,7 @@ body[data-mode="dark"] .settings-drawer.open .wallpaper-option[data-wallpaper="a
 }
 
 body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="alpine"] .wallpaper-thumb {
-  background-image: url("/images/home-alpine-light.webp?v=20260723-3");
+  background-image: url("/images/home-alpine-light.webp?v=20260825-sky-swap");
 }
 
 .settings-drawer.open .wallpaper-option[data-wallpaper="valley"] .wallpaper-thumb {

@@ -2045,7 +2045,7 @@ function applyAppearance() {
   document.body.dataset.wallpaper = wallpaper;
   const hasLightWallpaper = mode === "light" && ["clouds", "alpine", "valley", "launch"].includes(wallpaper);
   if (wallpaper !== "none") {
-    const version = isNative() ? "" : "?v=20260723-4";
+    const version = isNative() ? "" : "?v=20260825-clouds-b-1080";
     const wallpaperSrc = `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
     const usesNightSky = mode === "dark" && ["clouds", "alpine", "valley"].includes(wallpaper);
     document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
