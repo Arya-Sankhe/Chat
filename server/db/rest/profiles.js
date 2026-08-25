@@ -1,20 +1,10 @@
 import { single } from "./helpers.js";
 
 export async function upsertProfile(client, user, { signal } = {}) {
-  const payload = {
-    id: user.id,
-    email: user.email || null,
-    updated_at: new Date().toISOString()
-  };
-
-  const rows = await client.request("profiles", {
-    method: "POST",
-    query: { on_conflict: "id" },
-    body: payload,
-    prefer: "resolution=merge-duplicates,return=representation",
-    signal
-  });
-
+  const rows = await client.rpc("klui_ensure_profile", {
+    p_user_id: user.id,
+    p_email: user.email || null
+  }, { signal });
   return single(rows);
 }
 

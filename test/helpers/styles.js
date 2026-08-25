@@ -10,6 +10,6 @@ const publicDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 export function readStylesheet() {
   const root = readFileSync(resolve(publicDir, "styles.css"), "utf8");
   return root.replace(/^@import url\("\.\/(.+?)"\);\n?/gm, (_, relativePath) =>
-    readFileSync(resolve(publicDir, relativePath), "utf8")
+    readFileSync(resolve(publicDir, relativePath.replace(/[?#].*$/, "")), "utf8")
   );
 }

@@ -349,6 +349,33 @@ test("/api/me exposes usage.storage", async () => {
   assert.equal(res.json().user.name, "");
 });
 
+test("/api/me loads usage and storage concurrently", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const started = [];
+  const pending = dispatch(authReadyConfig, {
+    path: "/api/me",
+    overrides: stubbedDeps({
+      db: {
+        async getApiWeeklyUsage() {
+          started.push("usage");
+          await gate;
+          return { api_credit_used: 0, api_credit_limit: 10 };
+        },
+        async accountStorageUsed() {
+          started.push("storage");
+          await gate;
+          return 2048;
+        }
+      }
+    })
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started.sort(), ["storage", "usage"]);
+  release();
+  assert.equal((await pending).statusCode, 200);
+});
+
 test("lite document completion caps extract pages at the plan limit", async () => {
   const calls = [];
   const liteConfig = loadConfig({ ...SUPABASE_ENV, TEST_PLAN_ID: "lite" });

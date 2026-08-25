@@ -36,6 +36,22 @@ function expectServiceHeaders(headers, { withBody = false } = {}) {
   }
 }
 
+test("upsertProfile uses the no-op-on-unchanged ensure RPC", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_ensure_profile");
+    assert.equal(options.method, "POST");
+    expectServiceHeaders(options.headers, { withBody: true });
+    assert.deepEqual(JSON.parse(options.body), {
+      p_user_id: "user_1",
+      p_email: "a@example.com"
+    });
+    return jsonResponse([{ id: "user_1", email: "a@example.com", role: "user" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.equal((await db.upsertProfile({ id: "user_1", email: "a@example.com" })).role, "user");
+  });
+});
+
 test("getProfile issues a scoped profiles GET and returns the first row", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "GET");
@@ -968,4 +984,3 @@ test("deleteAuthUser calls GoTrue admin delete and treats 404 as success", async
     assert.equal(await db.deleteAuthUser("user_1"), true);
   });
 });
-

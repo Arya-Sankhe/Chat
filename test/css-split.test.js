@@ -31,6 +31,23 @@ test("parseImports accepts only @import-only roots", () => {
   assert.throws(() => parseImports("/* empty */\n"), /No @import/);
 });
 
+test("versioned imports resolve to the underlying CSS file", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "css-split-versioned-"));
+  try {
+    const stylesDir = path.join(tempDir, "styles");
+    fs.mkdirSync(stylesDir);
+    fs.writeFileSync(path.join(stylesDir, "a.css"), "body {}\n", "utf8");
+    const result = verifyCssSplit({
+      rootContent: '@import url("./styles/a.css?v=1");\n',
+      publicDirectory: tempDir,
+      baseline: checksumUtf8("body {}\n")
+    });
+    assert.equal(result.ok, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("verifyCssSplit passes current public stylesheet against the committed baseline", () => {
   const root = fs.readFileSync(path.join(repoRoot, "public", "styles.css"), "utf8");
   const result = verifyCssSplit({ rootContent: root });

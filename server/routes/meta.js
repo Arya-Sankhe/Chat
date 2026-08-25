@@ -123,49 +123,49 @@ export async function handleMe(req, res, config) {
     access: config.access,
     signal: req.signal
   });
-  let apiUsage = null;
-  if (entitlement.plan) {
-    const window = apiUsageWindow(entitlement.subscription, entitlement.plan);
-    const row = await context.db.getApiWeeklyUsage(context.user.id, {
+  const window = entitlement.plan ? apiUsageWindow(entitlement.subscription, entitlement.plan) : null;
+  const [apiUsageRow, usedBytes, systemPrompt] = await Promise.all([
+    window ? context.db.getApiWeeklyUsage(context.user.id, {
       periodStart: window.periodStart,
       weekIndex: window.weekIndex,
       signal: req.signal
-    }).catch(() => null);
-    const used = Number(row?.api_credit_used || 0);
-    const reserved = Number(row?.api_credit_reserved || 0);
-    const limit = Number(row?.api_credit_limit || window.weeklyLimit || 0);
-    apiUsage = {
-      used,
-      reserved,
-      remaining: Math.max(0, limit - used),
-      limit,
-      percent: limit > 0 ? Math.max(0, Math.floor((used / limit) * 100)) : 0,
-      periodStart: window.periodStart,
-      periodEnd: window.periodEnd,
-      weekStart: window.weekStart,
-      weekEnd: window.weekEnd,
-      weekIndex: window.weekIndex
-    };
-  }
-  let storageUsageRow = null;
-  if (entitlement.plan) {
-    const usedBytes = await context.db.accountStorageUsed(context.user.id, { signal: req.signal }).catch(() => 0);
-    storageUsageRow = storageUsage(usedBytes, entitlement.plan.maxStorageBytes);
-  }
+    }).catch(() => null) : null,
+    entitlement.plan
+      ? context.db.accountStorageUsed(context.user.id, { signal: req.signal }).catch(() => 0)
+      : null,
+    context.profile?.role === "admin"
+      ? loadGlobalSystemPrompt(context.db, { signal: req.signal })
+      : null
+  ]);
+  const used = Number(apiUsageRow?.api_credit_used || 0);
+  const reserved = Number(apiUsageRow?.api_credit_reserved || 0);
+  const limit = Number(apiUsageRow?.api_credit_limit || window?.weeklyLimit || 0);
+  const apiUsage = window ? {
+    used,
+    reserved,
+    remaining: Math.max(0, limit - used),
+    limit,
+    percent: limit > 0 ? Math.max(0, Math.floor((used / limit) * 100)) : 0,
+    periodStart: window.periodStart,
+    periodEnd: window.periodEnd,
+    weekStart: window.weekStart,
+    weekEnd: window.weekEnd,
+    weekIndex: window.weekIndex
+  } : null;
+  const storageUsageRow = entitlement.plan
+    ? storageUsage(usedBytes, entitlement.plan.maxStorageBytes)
+    : null;
   const usage = {
     ...(apiUsage ? { api: apiUsage } : {}),
     ...(storageUsageRow ? { storage: storageUsageRow } : {})
   };
-  const settings = context.profile?.role === "admin"
-    ? { systemPrompt: await loadGlobalSystemPrompt(context.db, { signal: req.signal }) }
-    : {};
   sendJson(res, 200, publicMe({
     ...context,
     subscription: entitlement.subscription,
     plan: entitlement.plan,
     usage,
     config,
-    settings
+    settings: systemPrompt === null ? {} : { systemPrompt }
   }));
 }
 

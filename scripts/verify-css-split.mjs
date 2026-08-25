@@ -50,7 +50,7 @@ export function parseImports(stylesRootContent) {
 export function concatenateImports(imports, { publicDirectory = publicDir, readFile = fs.readFileSync } = {}) {
   let out = "";
   for (const rel of imports) {
-    const filePath = path.join(publicDirectory, rel.replace(/^\.\//, ""));
+    const filePath = path.join(publicDirectory, rel.replace(/[?#].*$/, "").replace(/^\.\//, ""));
     if (!fs.existsSync(filePath)) {
       throw new Error(`Missing imported file: ${rel} (${filePath})`);
     }
