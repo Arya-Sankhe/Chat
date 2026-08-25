@@ -141,12 +141,14 @@ test("streaming callbacks are scoped to the active conversation run", async () =
   assert.match(source, /els\.stopButton\.addEventListener\("click"[\s\S]*?const run = getConversationRun\(\)/);
 });
 
-test("stopping a sent message restores its draft and removes its local turn", async () => {
+test("stopping a sent message discards an aborted first turn and restores later drafts", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
   assert.match(source, /activeRun\.userMessage = localUser;[\s\S]*activeRun\.draft = \{ text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks \};/);
-  assert.match(source, /function restoreCancelledTurnDraft[\s\S]*state\.messages = state\.messages\.filter/);
+  assert.match(source, /function restoreCancelledTurnDraft[\s\S]*const remainingMessages = state\.messages\.filter/);
+  assert.match(source, /if \(!remainingMessages\.length\) \{[\s\S]*setComposerPlainText\(""\);[\s\S]*clearFollowUps\(\);/);
+  assert.match(source, /if \(!remainingMessages\.length\)[\s\S]*return true;[\s\S]*setComposerPlainText\(restoredText, restoredMarks\);/);
   assert.match(source, /cancelPendingDocumentTurn[\s\S]*restoreCancelledTurnDraft\(result, run\)/);
   assert.match(source, /restoreCancelledTurnDraft\(\{ run: \{ status: "cancelled" \} \}, run\);/);
 });

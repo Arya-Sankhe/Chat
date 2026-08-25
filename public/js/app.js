@@ -7183,6 +7183,24 @@ function restoredTurnAttachment(part) {
 function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   if (result?.run?.status !== "cancelled") return false;
   if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
+  const remainingMessages = state.messages.filter((message) =>
+    message !== run?.userMessage && message !== run?.assistantMessage);
+  state.messages = remainingMessages;
+  if (run) run.messages = remainingMessages;
+  if (!remainingMessages.length) {
+    for (const item of [...state.images, ...(run?.draft?.images || [])]) {
+      forgetPendingDocument(item);
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    }
+    setComposerPlainText("");
+    state.pastedText = "";
+    state.images = [];
+    clearFollowUps();
+    renderImages();
+    applyComposerHeight();
+    renderMessages();
+    return true;
+  }
   const content = result.user_message?.content;
   const restoredText = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
   const restoredMarks = result.user_message?.metadata?.skillMarks
@@ -7192,9 +7210,6 @@ function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   state.images = parts.length
     ? parts.map(restoredTurnAttachment).filter(Boolean)
     : (run?.draft?.images || []);
-  state.messages = state.messages.filter((message) =>
-    message !== run?.userMessage && message !== run?.assistantMessage);
-  if (run) run.messages = state.messages;
   for (const item of state.images) {
     if (item.category !== "document") continue;
     rememberPendingDocument(item);
