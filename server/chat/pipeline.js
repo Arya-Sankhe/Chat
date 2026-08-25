@@ -405,6 +405,9 @@ export function withAvailableTools(chatRequest, { config, webMode, webHint, read
     hints.push(buildDocumentSystemHint({ readyDocuments, selection: documentSkills }));
     enabled.documents = true;
   }
+  if (tools.length) {
+    hints.push("You have tool-calling capabilities. Use the tools provided with this request whenever they help; do not claim a listed capability is unavailable without attempting the relevant tool.");
+  }
   if (tools.length && String(chatRequest?.model || "").trim().toLowerCase() === OPENROUTER_PRO_MODEL) {
     hints.push([
       "Use native tool calls only; never write tool calls as text, XML, or DSML.",

@@ -849,9 +849,14 @@ test("temporary chat keeps document tools disabled and explains the limitation",
   installProviderFetch({
     streamFor: (body) => {
       assert.equal(body.tools?.some((tool) => tool.function.name === "create_document"), false);
+      assert.equal(body.tools?.some((tool) => tool.function.name === "web_search"), true);
       assert.match(
         body.messages.find((message) => message.role === "system")?.content || "",
         /I can’t create documents in temporary chat\. I can only create documents in a normal chat\./
+      );
+      assert.match(
+        body.messages.find((message) => message.role === "system")?.content || "",
+        /do not claim a listed capability is unavailable/
       );
       return [contentDelta("I can’t create documents in temporary chat. I can only create documents in a normal chat."), usageChunk()];
     }
