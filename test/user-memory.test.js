@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { userAuthoredText, withUserMemorySystemPrompt } from "../server/saas/userMemory.js";
+import { MEMORY_PROFILE_INSTRUCTIONS, userAuthoredText, withUserMemorySystemPrompt } from "../server/saas/userMemory.js";
 
 test("memory reads only user-authored text parts", () => {
   assert.equal(userAuthoredText("plain message"), "plain message");
@@ -18,6 +18,12 @@ test("memory is clearly delimited as context, never instructions", () => {
   assert.match(prompt, /<user_memory>[\s\S]*Prefers concise replies\.[\s\S]*<\/user_memory>/);
 });
 
+test("memory keeps durable context, not social small talk", () => {
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Relevant Context/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Do not retain greetings, small talk, weather/);
+  assert.doesNotMatch(MEMORY_PROFILE_INSTRUCTIONS, /relationships/i);
+});
+
 test("memory storage is backend-only and collection queries only user messages", () => {
   const migration = fs.readFileSync(new URL("../supabase/migrations/20260820153000_add_user_memory_profiles.sql", import.meta.url), "utf8");
   const rest = fs.readFileSync(new URL("../server/db/rest/memory.js", import.meta.url), "utf8");
@@ -27,4 +33,3 @@ test("memory storage is backend-only and collection queries only user messages",
   assert.match(rest, /role: "eq\.user"/);
   assert.match(rest, /created_at: `gt\.\$\{after\}`/);
 });
-
