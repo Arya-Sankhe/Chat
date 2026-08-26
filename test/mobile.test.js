@@ -688,6 +688,10 @@ test("native clients do not show checkout; unpaid users are sent to the website"
   );
   assert.match(
     source,
+    /function hasUpgradePlans\(\) \{\s*return state\.me\?\.access\?\.mode !== "testing" && Array\.isArray\(state\.plans\) && state\.plans\.length > 0;/
+  );
+  assert.match(
+    source,
     /isNative\(\) \? "Subscribe on the website to start chatting" : "Choose a plan to start chatting"/
   );
   assert.match(source, /Pay with Ziina/);

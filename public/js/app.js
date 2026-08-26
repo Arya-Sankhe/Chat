@@ -2238,7 +2238,7 @@ function hasChatAccess() {
 }
 
 function hasUpgradePlans() {
-  return Array.isArray(state.plans) && state.plans.length > 0;
+  return state.me?.access?.mode !== "testing" && Array.isArray(state.plans) && state.plans.length > 0;
 }
 
 function showPaywall({ allowReturn = false } = {}) {
@@ -4098,6 +4098,7 @@ function toolStatusLabel(tool = {}) {
   if (name === "create_document") return "Creating document";
   if (name === "edit_document") return "Editing document";
   if (name === "export_document") return "Exporting document";
+  if (name === "load_tools") return "Preparing tools";
   if (name === "limit") return "Wrapping up";
   return "Working";
 }

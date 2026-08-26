@@ -16,7 +16,7 @@ import {
 } from "../server/websearch/index.js";
 import { searxngSearch, selectRelevantResults } from "../server/websearch/searxng.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
-import { buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
+import { buildLoadToolsTool, buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
 import { estimateContextTokens } from "../server/saas/messages.js";
@@ -863,6 +863,246 @@ describe("tool", () => {
     assert.equal(tools.length, 2);
     assert.equal(tools[0].function.name, "web_search");
     assert.equal(tools[1].function.name, "read_url");
+  });
+
+  test("runChatWithToolLoop can discover and use a deferred document tool", async () => {
+    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
+    const loadTools = buildLoadToolsTool(deferredTools);
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return streamResponse([toolCallDelta({
+            name: "load_tools",
+            args: { capabilities: ["documents.create"] }
+          })]);
+        }
+        if (bodies.length === 2) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: { format: "docx", title: "Summary", content: "Complete summary." }
+          })]);
+        }
+        return streamResponse([contentDelta("The document is ready.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "attach it" }],
+        tools: [loadTools],
+        tool_choice: "auto"
+      },
+      deferredTools,
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 3, maxToolResultChars: 5000 }
+      },
+      signal: new AbortController().signal,
+      websearch: null,
+      documents: {
+        async createDocument() {
+          return {
+            ok: true,
+            output: {
+              attachment_id: "att-deferred",
+              document_file_id: "doc-deferred",
+              file_name: "Summary.docx",
+              kind: "docx",
+              status: "ready"
+            }
+          };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.deepEqual(bodies[0].tools.map((tool) => tool.function.name), ["load_tools"]);
+    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["create_document"]);
+    assert.equal(result.toolCallCount, 2);
+    assert.equal(result.artifacts[0].attachment_id, "att-deferred");
+    assert.equal(result.accumulated.content, "The document is ready.");
+  });
+
+  test("runChatWithToolLoop rejects a false refusal and loads deferred document creation", async () => {
+    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return streamResponse([contentDelta("I cannot create or attach a DOCX because the available tools are read-only.")]);
+        }
+        if (bodies.length === 2) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: { format: "docx", title: "Summary", content: "Complete summary." }
+          })]);
+        }
+        return streamResponse([contentDelta("The document is ready.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "attach it" }],
+        tools: [buildLoadToolsTool(deferredTools)],
+        tool_choice: "auto"
+      },
+      deferredTools,
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 2, maxToolResultChars: 5000 }
+      },
+      signal: new AbortController().signal,
+      websearch: null,
+      documents: {
+        async createDocument() {
+          return {
+            ok: true,
+            output: {
+              attachment_id: "att-rescued",
+              document_file_id: "doc-rescued",
+              file_name: "Summary.docx",
+              kind: "docx",
+              status: "ready"
+            }
+          };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["create_document"]);
+    assert.equal(bodies[1].tool_choice, "required");
+    assert.equal(result.artifacts[0].attachment_id, "att-rescued");
+    assert.equal(result.accumulated.content, "The document is ready.");
+  });
+
+  test("runChatWithToolLoop keeps load_tools retryable after a failed discovery call and coerces string capabilities", async () => {
+    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
+    const loadTools = buildLoadToolsTool(deferredTools);
+    const bodies = [];
+    const toolEvents = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return streamResponse([toolCallDelta({
+            name: "load_tools",
+            args: { capabilities: ["nonsense.group"] }
+          })]);
+        }
+        if (bodies.length === 2) {
+          // A bare string instead of an array, as models often produce.
+          return streamResponse([toolCallDelta({
+            name: "load_tools",
+            args: { capabilities: "documents.create" }
+          })]);
+        }
+        if (bodies.length === 3) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: { format: "docx", title: "Summary", content: "Complete summary." }
+          })]);
+        }
+        return streamResponse([contentDelta("The document is ready.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "attach it" }],
+        tools: [loadTools],
+        tool_choice: "auto"
+      },
+      deferredTools,
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 4, maxToolResultChars: 5000 }
+      },
+      signal: new AbortController().signal,
+      websearch: null,
+      documents: {
+        async createDocument() {
+          return {
+            ok: true,
+            output: {
+              attachment_id: "att-retried",
+              document_file_id: "doc-retried",
+              file_name: "Summary.docx",
+              kind: "docx",
+              status: "ready"
+            }
+          };
+        }
+      },
+      onUpstreamEvent: () => {},
+      onToolEvent: (event) => toolEvents.push(event)
+    });
+
+    // The failed call must not burn discovery: load_tools stays advertised.
+    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["load_tools"]);
+    const failedLoad = toolEvents.find((event) => event.type === "tool:error" && event.name === "load_tools");
+    assert.match(failedLoad.error.message, /documents\.create/);
+    // The retried string-form call loads the deferred tool.
+    assert.deepEqual(bodies[2].tools.map((tool) => tool.function.name), ["create_document"]);
+    assert.equal(result.artifacts[0].attachment_id, "att-retried");
+    assert.equal(result.accumulated.content, "The document is ready.");
+  });
+
+  test("runChatWithToolLoop degrades tool-less when tools are rejected and document tools are only deferred", async () => {
+    const deferredTools = buildDocumentTools();
+    const bodies = [];
+    const crofai = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if ("tool_choice" in body || "tools" in body) {
+          throw new Error("This model does not support tools.");
+        }
+        return streamResponse([contentDelta("Plain answer")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "inclusionai/ling-3.0-flash",
+        messages: [{ role: "user", content: "hello" }],
+        tools: [buildLoadToolsTool(deferredTools), ...buildWebSearchTools()],
+        tool_choice: "auto"
+      },
+      deferredTools,
+      crofai,
+      config: {
+        serverApiKey: "k",
+        defaultBaseUrl: "https://crof.ai/v1",
+        websearch: { maxToolCallsPerTurn: 3 },
+        documents: { maxToolCallsPerTurn: 3, maxToolResultChars: 5000 }
+      },
+      provider: { id: "openrouter", apiKey: "k", baseUrl: "https://openrouter.ai/api/v1" },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      documents: {},
+      onUpstreamEvent: () => {}
+    });
+
+    // Deferred artifact tools must not force a document-model switch or a throw.
+    assert.equal(result.accumulated.content, "Plain answer");
+    assert.equal(bodies.every((body) => body.model === "inclusionai/ling-3.0-flash"), true);
+    assert.equal("tools" in bodies.at(-1), false);
   });
 
   test("executeToolCall returns error JSON when args are malformed", async () => {

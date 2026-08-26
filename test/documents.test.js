@@ -291,10 +291,35 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   assert.match(excelHint, /conditional_formats/);
   assert.match(excelHint, /data\.cover/);
   assert.match(excelHint, /Do not offer CSV text, Python scripts, or manual spreadsheet instructions as a substitute/);
-  assert.match(excelHint, /create_document can create downloadable DOCX, XLSX, PPTX, and PDF files/);
+  assert.match(excelHint, /create_document creates and writes downloadable DOCX, XLSX, PPTX, and PDF files/);
+  assert.match(excelHint, /It is not read-only/);
   assert.doesNotMatch(excelHint, /Professional Word document creation skill/);
   assert.doesNotMatch(excelHint, /Professional PDF creation skill/);
   assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
+});
+
+test("buildDocumentSystemHint advertises deferred creation instead of read-only routing", () => {
+  const selection = selectDocumentSkills({
+    text: "summarize this",
+    readyDocuments: [{ attachment_id: "a1", kind: "pdf", attachments: { file_name: "Report.pdf" } }],
+    messageHasDocuments: false
+  });
+  assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
+
+  const hint = buildDocumentSystemHint({
+    readyDocuments: [],
+    selection,
+    deferredToolNames: ["create_document", "edit_document", "export_document"]
+  });
+  assert.match(hint, /call load_tools to enable it instead of refusing/);
+  assert.match(hint, /Additional document tools available on demand via load_tools: create_document, edit_document, export_document/);
+  assert.match(hint, /calling load_tools with \["documents\.create"\] and then create_document/);
+  assert.match(hint, /You are not read-only/);
+  assert.doesNotMatch(hint, /Use only the selected document tools/);
+
+  const undeferredHint = buildDocumentSystemHint({ readyDocuments: [], selection });
+  assert.match(undeferredHint, /Use only the selected document tools/);
+  assert.doesNotMatch(undeferredHint, /load_tools/);
 });
 
 test("Markdown requests use the editable document creation path", () => {

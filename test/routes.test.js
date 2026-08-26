@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { loadConfig } from "../server/config.js";
 import { withAvailableTools } from "../server/chat/pipeline.js";
+import { buildDocumentTools } from "../server/documents/tool.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
 import {
   buildDirectPdfVisualContext,
@@ -142,6 +143,25 @@ test("withAvailableTools gives GPT-5.6 Luna strict native tool-call instructions
   assert.match(result.request.messages[0].content, /native tool calls only/);
   assert.match(result.request.messages[0].content, /valid JSON object/);
   assert.match(result.request.messages[0].content, /complete final answer/);
+});
+
+test("withAvailableTools advertises deferred document capabilities through load_tools", () => {
+  const result = withAvailableTools({
+    model: "test",
+    messages: [{ role: "system", content: "base" }, { role: "user", content: "help" }]
+  }, {
+    config: loadConfig({}),
+    webMode: "off",
+    webHint: "",
+    readyDocuments: [],
+    deferredTools: buildDocumentTools()
+  });
+
+  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["load_tools"]);
+  assert.match(result.request.messages[0].content, /call load_tools to discover and enable additional tools/);
+  assert.match(result.request.messages[0].content, /Never refuse a request because a tool is not yet listed/);
+  assert.match(result.request.tools[0].function.description, /documents\.create: create and write/);
+  assert.equal(result.deferredTools.length, 6);
 });
 
 test("weather prompts expose weather without web search", () => {

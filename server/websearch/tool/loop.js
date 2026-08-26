@@ -97,6 +97,65 @@ function assistantLooksLikeDocumentArtifactHandoff(content) {
 
 /* ── Tool schema ── */
 
+const TOOL_CAPABILITIES = {
+  "documents.read": {
+    description: "search, read, and inspect uploaded documents and tables",
+    tools: ["search_document", "read_document", "extract_tables"]
+  },
+  "documents.create": {
+    description: "create and write downloadable Markdown, DOCX, XLSX, PPTX, or PDF files",
+    tools: ["create_document"]
+  },
+  "documents.edit": {
+    description: "edit an existing document into a new version",
+    tools: ["edit_document"]
+  },
+  "documents.export": {
+    description: "export an existing document to another supported format",
+    tools: ["export_document"]
+  }
+};
+
+function toolName(tool) {
+  return tool?.function?.name || "";
+}
+
+function availableDeferredCapabilities(deferredTools = []) {
+  const names = new Set(deferredTools.map(toolName));
+  return Object.entries(TOOL_CAPABILITIES)
+    .filter(([, capability]) => capability.tools.some((name) => names.has(name)))
+    .map(([name]) => name);
+}
+
+export function buildLoadToolsTool(deferredTools = []) {
+  const capabilities = availableDeferredCapabilities(deferredTools);
+  if (!capabilities.length) return null;
+  const catalog = capabilities
+    .map((name) => `${name}: ${TOOL_CAPABILITIES[name].description}`)
+    .join("; ");
+  return {
+    type: "function",
+    function: {
+      name: "load_tools",
+      description: `Discover and enable additional tools for the current task. If a needed capability is missing from your current tools, call this instead of claiming you cannot do the task. Available capability groups: ${catalog}.`,
+      parameters: {
+        type: "object",
+        properties: {
+          capabilities: {
+            type: "array",
+            items: { type: "string", enum: capabilities },
+            minItems: 1,
+            maxItems: capabilities.length,
+            uniqueItems: true,
+            description: "Capability groups needed to finish the user's current task."
+          }
+        },
+        required: ["capabilities"]
+      }
+    }
+  };
+}
+
 export function buildWebSearchTools({ maxResults = 5 } = {}) {
   return [
     {
@@ -401,6 +460,7 @@ export async function runChatWithToolLoop({
   websearch,
   weather = null,
   documents = null,
+  deferredTools = [],
   visualDocuments = false,
   onUpstreamEvent,
   onToolEvent = () => {},
@@ -417,6 +477,8 @@ export async function runChatWithToolLoop({
   // correction, a forced final answer, and the empty-answer recovery.
   const maxIterations = Math.max(4, maxToolCalls + 4);
   const messages = [...chatRequest.messages];
+  let activeTools = Array.isArray(chatRequest.tools) ? [...chatRequest.tools] : [];
+  const deferredByName = new Map(deferredTools.map((tool) => [toolName(tool), tool]));
   const citations = [];
   const artifacts = [];
   const providers = new Set();
@@ -447,6 +509,15 @@ export async function runChatWithToolLoop({
         messages: requestMessages,
         ...(requireArtifactTool ? { tool_choice: "required" } : {})
       };
+      /* `activeTools` is the single source of truth: never let a stale
+         chatRequest.tools (e.g. an already-consumed load_tools schema)
+         leak through when the active set changes mid-turn. */
+      if (activeTools.length) {
+        request.tools = activeTools;
+      } else {
+        delete request.tools;
+        delete request.tool_choice;
+      }
       let body;
       if (forceFinalWithoutTools) {
         // Removing the schemas is more reliable than asking inconsistent
@@ -469,7 +540,10 @@ export async function runChatWithToolLoop({
            honor tools/tool_choice. Degrade one step and retry instead of
            failing the whole turn. (Skipped once we've already tool-called
            successfully, i.e. forceFinalWithoutTools.) */
-        const needsDocumentArtifact = documents && hasDocumentArtifactTool(chatRequest);
+        /* Only tools actually exposed this iteration count: merely-deferred
+           artifact tools (behind load_tools) must not force a model switch
+           or a hard failure on turns that never needed them. */
+        const needsDocumentArtifact = documents && hasDocumentArtifactTool({ tools: activeTools });
         if (
           !forceFinalWithoutTools
           && toolFallbackLevel === 1
@@ -523,15 +597,21 @@ export async function runChatWithToolLoop({
     }
 
     if (!hasToolCalls || !finishedForTools) {
+      const deferredArtifactTools = ["create_document", "edit_document", "export_document"]
+        .filter((name) => deferredByName.has(name));
       if (
         documents
         && !forceFinalWithoutTools
         && toolFallbackLevel < 2
         && !artifactHandoffCorrectionSent
         && artifacts.length === 0
-        && hasDocumentArtifactTool(chatRequest)
+        && (hasDocumentArtifactTool({ tools: activeTools }) || deferredArtifactTools.length > 0)
         && assistantLooksLikeDocumentArtifactHandoff(accumulated.content)
       ) {
+        if (!hasDocumentArtifactTool({ tools: activeTools })) {
+          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
+          for (const name of deferredArtifactTools) activeTools.push(deferredByName.get(name));
+        }
         artifactHandoffCorrectionSent = true;
         requireArtifactTool = true;
         onToolEvent({ type: "response:reset" });
@@ -606,16 +686,76 @@ export async function runChatWithToolLoop({
         arguments: call.function?.arguments || ""
       });
 
-      const result = await executeToolCall({
-        toolCall: call,
-        websearch,
-        weather,
-        documents,
-        maxToolResultChars: config.documents?.maxToolResultChars,
-        originalQuestion,
-        citationOffset: citations.length,
-        signal
-      });
+      let result;
+      if (call.function?.name === "load_tools") {
+        const args = safeParseArgs(call.function?.arguments);
+        /* Models frequently pass a bare string instead of an array. */
+        const rawCapabilities = args?.capabilities;
+        const requested = Array.isArray(rawCapabilities)
+          ? rawCapabilities
+          : (typeof rawCapabilities === "string" && rawCapabilities.trim() ? [rawCapabilities.trim()] : []);
+        const knownCapabilities = Array.from(new Set(requested.filter((name) => TOOL_CAPABILITIES[name])));
+        const requestedNames = Array.from(new Set(knownCapabilities.flatMap((name) => TOOL_CAPABILITIES[name].tools)));
+        const activeNames = new Set(activeTools.map(toolName));
+        const loaded = requestedNames.filter((name) => deferredByName.has(name) && !activeNames.has(name));
+
+        if (loaded.length) {
+          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
+          for (const name of loaded) activeTools.push(deferredByName.get(name));
+          result = {
+            ok: true,
+            name: "load_tools",
+            citations: [],
+            toolResultJson: JSON.stringify({
+              loaded_tools: loaded.map((name) => ({
+                name,
+                description: deferredByName.get(name)?.function?.description || ""
+              })),
+              instruction: "Continue the original task now using the newly loaded tools. Do not merely describe them or claim they are unavailable."
+            })
+          };
+        } else if (requestedNames.length && requestedNames.every((name) => activeNames.has(name))) {
+          /* Everything requested is already active: discovery is done. */
+          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
+          result = {
+            ok: true,
+            name: "load_tools",
+            citations: [],
+            toolResultJson: JSON.stringify({
+              loaded_tools: [],
+              instruction: "The requested tools are already in your current tool list. Continue the task using them now."
+            })
+          };
+        } else {
+          /* Malformed args or unknown capability names. Keep load_tools
+             available so one bad call cannot kill discovery for the turn. */
+          const loadable = Object.entries(TOOL_CAPABILITIES)
+            .filter(([, capability]) => capability.tools.some((name) => deferredByName.has(name) && !activeNames.has(name)))
+            .map(([name]) => name);
+          if (!loadable.length) activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
+          const message = loadable.length
+            ? `No tools were loaded. Call load_tools again with {"capabilities": [...]} using only these values: ${loadable.join(", ")}.`
+            : "No additional tools are available to load. Continue with your current tools.";
+          result = {
+            ok: false,
+            name: "load_tools",
+            citations: [],
+            toolResultJson: JSON.stringify({ error: message }),
+            error: { message }
+          };
+        }
+      } else {
+        result = await executeToolCall({
+          toolCall: call,
+          websearch,
+          weather,
+          documents,
+          maxToolResultChars: config.documents?.maxToolResultChars,
+          originalQuestion,
+          citationOffset: citations.length,
+          signal
+        });
+      }
 
       const citationOffset = citations.length;
       if (result.ok && Array.isArray(result.citations) && result.citations.length) {

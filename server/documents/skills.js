@@ -146,14 +146,18 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   };
 }
 
-export function buildDocumentSystemHint({ readyDocuments = [], selection } = {}) {
+export function buildDocumentSystemHint({ readyDocuments = [], selection, deferredToolNames = [] } = {}) {
   if (!selection?.enabled) return "";
   const selectedSkillNames = selection.skills || [];
   const selectedSkills = selectedSkillNames.filter(isKnownDocumentSkill);
+  const deferred = (deferredToolNames || []).filter((name) => ALL_DOCUMENT_TOOLS.includes(name));
   const sections = [
-    "Document tool routing for this turn. Use only the selected document tools/skills when they are needed; avoid unrelated tools and formats.",
+    deferred.length
+      ? "Document tool routing for this turn. Prefer the selected document tools/skills; if the task needs a document capability that is not currently selected, call load_tools to enable it instead of refusing or claiming you are limited to reading files."
+      : "Document tool routing for this turn. Use only the selected document tools/skills when they are needed; avoid unrelated tools and formats.",
     `Selected skills: ${selectedSkillNames.join(", ") || "none"}.`,
     `Available document tools this turn: ${(selection.toolNames || []).join(", ") || "none"}.`,
+    deferred.length ? `Additional document tools available on demand via load_tools: ${deferred.join(", ")}.` : "",
     ...selectedSkills.map(documentSkillText)
   ];
 
@@ -163,7 +167,9 @@ export function buildDocumentSystemHint({ readyDocuments = [], selection } = {})
   }
 
   if ((selection.toolNames || []).includes("create_document")) {
-    sections.push("Capability check: create_document can create downloadable DOCX, XLSX, PPTX, and PDF files plus editable Markdown documents. Do not claim you lack this capability when this tool is available; call it for requested artifacts or explain the real tool error if it fails.");
+    sections.push("Capability check: create_document creates and writes downloadable DOCX, XLSX, PPTX, and PDF files plus editable Markdown documents. It is not read-only. Never say the available document tools can only read or inspect files when create_document is listed; call it for requested artifacts or explain the real tool error if it fails.");
+  } else if (deferred.includes("create_document")) {
+    sections.push("Capability check: you can create and write downloadable DOCX, XLSX, PPTX, and PDF files plus editable Markdown documents by calling load_tools with [\"documents.create\"] and then create_document. You are not read-only. Never say you cannot create, write, or attach files.");
   }
 
   sections.push("When a document tool returns output.download_url, mention the generated file briefly without including a URL or markdown link. The app will render an artifact card that opens the document viewer, where it can be downloaded.");

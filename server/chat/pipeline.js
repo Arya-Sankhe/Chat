@@ -45,9 +45,10 @@ import {
 } from "../saas/writingStyles.js";
 import { DocumentService, buildUntrustedDocumentContext } from "../documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
-import { buildDocumentTools } from "../documents/tool.js";
+import { buildDocumentTools, isDocumentToolName } from "../documents/tool.js";
 import { WebSearchOrchestrator, formatResultsForModel } from "../websearch/index.js";
 import {
+  buildLoadToolsTool,
   buildWebSearchTools,
   prepareVisualPagesForModel,
   runChatWithToolLoop,
@@ -385,7 +386,7 @@ export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, doc
   return Number(detection?.score || 0) === 0;
 }
 
-export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, userText = "" }) {
+export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, deferredTools = [], userText = "" }) {
   const tools = [];
   const hints = [];
   const enabled = { websearch: false, weather: false, documents: false };
@@ -402,8 +403,24 @@ export function withAvailableTools(chatRequest, { config, webMode, webHint, read
   }
   if (documentSkills?.enabled) {
     tools.push(...buildDocumentTools({ toolNames: documentSkills.toolNames || [] }));
-    hints.push(buildDocumentSystemHint({ readyDocuments, selection: documentSkills }));
     enabled.documents = true;
+  }
+  const activeNames = new Set(tools.map((tool) => tool.function?.name));
+  const missingTools = deferredTools.filter((tool) => !activeNames.has(tool.function?.name));
+  if (documentSkills?.enabled) {
+    hints.push(buildDocumentSystemHint({
+      readyDocuments,
+      selection: documentSkills,
+      deferredToolNames: missingTools
+        .map((tool) => tool.function?.name)
+        .filter((name) => isDocumentToolName(name))
+    }));
+  }
+  const loadTools = buildLoadToolsTool(missingTools);
+  if (loadTools) {
+    tools.push(loadTools);
+    if (missingTools.some((tool) => isDocumentToolName(tool.function?.name))) enabled.documents = true;
+    hints.push("If the current tools are insufficient for the user's request, call load_tools to discover and enable additional tools, then continue the task. Never refuse a request because a tool is not yet listed.");
   }
   if (tools.length) {
     hints.push("You have tool-calling capabilities. Use the tools provided with this request whenever they help; do not claim a listed capability is unavailable without attempting the relevant tool.");
@@ -432,7 +449,8 @@ export function withAvailableTools(chatRequest, { config, webMode, webHint, read
   return {
     request: { ...chatRequest, tools, tool_choice: "auto", messages },
     augmented: true,
-    enabled
+    enabled,
+    deferredTools: missingTools
   };
 }
 
@@ -1209,6 +1227,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     readyDocuments,
     messageHasDocuments: attachments.some((attachment) => attachment.category === "document")
   }) : null;
+  const deferredTools = documents ? buildDocumentTools() : [];
   const detection = webSearchMode !== "off"
     ? detectSearchNeed(promptText)
     : { score: 0, reasons: [], hasUrls: false, urls: [] };
@@ -1225,6 +1244,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         webHint: hint,
         readyDocuments,
         documentSkills,
+        deferredTools,
         userText: promptText
       })
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
@@ -1296,6 +1316,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           websearch,
           weather: config.weather,
           documents,
+          deferredTools: toolSetup.deferredTools,
           visualDocuments: selectedModelSupportsVision,
           onUpstreamEvent: (event) => {
             writeSse(res, sanitizeProviderEvent(event, { includeReasoning }));
