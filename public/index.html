@@ -329,10 +329,6 @@
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M18 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M6 13.5V7a2 2 0 0 1 2-2h2M18 13.5V7a2 2 0 0 0-2-2h-2M10 5h4M10 13.5h4"/></svg>
                           <span>Deep research</span>
                         </button>
-                        <button class="composer-action-menu-item hidden" type="button" id="settingsButtonAlt" role="menuitem">
-                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-                          <span>Model parameters</span>
-                        </button>
                       </div>
                       <div class="composer-action-menu composer-style-menu hidden" id="writingStyleMenu" role="menu" aria-label="Writing styles">
                         <button class="composer-style-menu-back" type="button" id="writingStyleBack" aria-label="Back to more actions">
@@ -621,28 +617,6 @@
                 <input type="range" id="textScaleInput" min="85" max="130" step="5" value="100" aria-label="Text size">
                 <span class="text-scale-icon text-scale-icon-lg" aria-hidden="true">A</span>
                 <span class="text-scale-value" id="textScaleValue">100%</span>
-              </div>
-            </section>
-
-            <section class="settings-section hidden" id="settingsModelParamsSection" data-settings-panel="general">
-              <h2>Model parameters</h2>
-              <div class="field-grid">
-                <label>
-                  <span>Temperature</span>
-                  <input id="temperatureInput" type="number" min="0" max="2" step="0.1">
-                </label>
-                <label>
-                  <span>Top P</span>
-                  <input id="topPInput" type="number" min="0" max="1" step="0.05">
-                </label>
-                <label>
-                  <span>Max tokens</span>
-                  <input id="maxTokensInput" type="number" min="1" step="1">
-                </label>
-                <label>
-                  <span>Seed</span>
-                  <input id="seedInput" type="number" min="0" step="1">
-                </label>
               </div>
             </section>
 

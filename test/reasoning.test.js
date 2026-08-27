@@ -301,6 +301,15 @@ test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias"
   );
 });
 
+test("adaptChatRequestForProvider does not inject sampling params for MiniMax", () => {
+  const adapted = adaptChatRequestForProvider({
+    model: "minimax/minimax-m3",
+    messages: [{ role: "user", content: "hi" }]
+  }, "openrouter");
+  assert.equal(adapted.temperature, undefined);
+  assert.equal(adapted.top_p, undefined);
+});
+
 test("streamChatCompletion sends OpenRouter reasoning effort in request body", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody;
@@ -526,8 +535,8 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
     });
     assert.deepEqual(requests[0].reasoning, { effort: "xhigh", exclude: false });
     assert.equal(requests[1].model, "minimax/minimax-m3");
-    assert.equal(requests[1].temperature, 1);
-    assert.equal(requests[1].top_p, 0.95);
+    assert.equal(requests[1].temperature, undefined);
+    assert.equal(requests[1].top_p, undefined);
     assert.equal(requests[1].provider, undefined);
   } finally {
     globalThis.fetch = originalFetch;

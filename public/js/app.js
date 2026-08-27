@@ -258,10 +258,6 @@ const WRITING_STYLE_LABELS = Object.freeze({
 const defaultSettings = {
   model: OPENROUTER_TEXT_MODEL,
   modelMode: "thinking",
-  temperature: 0.7,
-  top_p: 0.95,
-  max_tokens: "",
-  seed: "",
   systemPrompt: "",
   thinkingEffort: DEFAULT_REASONING_EFFORT,
   spectrumLevel: 1,
@@ -687,18 +683,12 @@ const els = {
   sendButton: document.querySelector("#sendButton"),
   voiceButton: document.querySelector("#voiceButton"),
   stopButton: document.querySelector("#stopButton"),
-  settingsButtonAlt: document.querySelector("#settingsButtonAlt"),
-  settingsModelParamsSection: document.querySelector("#settingsModelParamsSection"),
   settingsReasoningSection: document.querySelector("#settingsReasoningSection"),
   settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
   settingsDrawer: document.querySelector("#settingsDrawer"),
   settingsTabs: document.querySelector("#settingsTabs"),
   settingsTitle: document.querySelector("#settingsTitle"),
   closeSettingsButton: document.querySelector("#closeSettingsButton"),
-  temperatureInput: document.querySelector("#temperatureInput"),
-  topPInput: document.querySelector("#topPInput"),
-  maxTokensInput: document.querySelector("#maxTokensInput"),
-  seedInput: document.querySelector("#seedInput"),
   systemPromptInput: document.querySelector("#systemPromptInput"),
   showModelReasoningInput: document.querySelector("#showModelReasoningInput"),
   saveSystemPromptButton: document.querySelector("#saveSystemPromptButton"),
@@ -1693,8 +1683,8 @@ function selectedChatRole() {
 }
 
 function chatRequestSettings() {
-  const { temperature, top_p, max_tokens, seed, stop, systemPrompt } = state.settings;
-  return { temperature, top_p, max_tokens, seed, stop, systemPrompt };
+  const { systemPrompt } = state.settings;
+  return { systemPrompt };
 }
 
 function modelModeLabel(mode = selectedModelMode()) {
@@ -2009,8 +1999,6 @@ function loadSettings() {
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
     loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
-    loaded.temperature = 0.7;
-    loaded.top_p = 0.95;
     loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
     delete loaded.theme;
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
@@ -4071,10 +4059,8 @@ function isAdminUser() {
 
 function renderAdminOnlyControls() {
   const admin = isAdminUser();
-  els.settingsModelParamsSection?.classList.toggle("hidden", !admin);
   els.settingsReasoningSection?.classList.toggle("hidden", !admin);
   els.settingsSystemPromptSection?.classList.toggle("hidden", !admin);
-  els.settingsButtonAlt?.classList.toggle("hidden", !admin);
 }
 
 function reasoningSummaryLabel(message, { streaming = false } = {}) {
@@ -6418,10 +6404,6 @@ function closeAllDrawers() {
 }
 
 function syncSettingsInputs() {
-  els.temperatureInput.value = state.settings.temperature;
-  els.topPInput.value = state.settings.top_p;
-  els.maxTokensInput.value = state.settings.max_tokens;
-  els.seedInput.value = state.settings.seed;
   els.systemPromptInput.value = state.settings.systemPrompt;
   if (els.showModelReasoningInput) {
     els.showModelReasoningInput.checked = state.settings.showModelReasoning !== false;
@@ -8748,10 +8730,6 @@ function bindEvents() {
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
-  els.settingsButtonAlt?.addEventListener("click", () => {
-    closeActionMenu();
-    openSettings();
-  });
   els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
   els.researchModeClose?.addEventListener("click", () => setResearchMode(false));
   els.writingStyleButton?.addEventListener("click", openWritingStyleMenu);
@@ -9698,10 +9676,6 @@ function bindEvents() {
     syncSkillMenu();
   });
 
-  els.temperatureInput.addEventListener("input", (e) => updateSetting("temperature", Number(e.target.value)));
-  els.topPInput.addEventListener("input", (e) => updateSetting("top_p", Number(e.target.value)));
-  els.maxTokensInput.addEventListener("input", (e) => updateSetting("max_tokens", e.target.value));
-  els.seedInput.addEventListener("input", (e) => updateSetting("seed", e.target.value));
   els.systemPromptInput.addEventListener("input", (e) => { state.settings.systemPrompt = e.target.value; });
   els.showModelReasoningInput?.addEventListener("change", (e) => {
     updateSetting("showModelReasoning", e.target.checked);

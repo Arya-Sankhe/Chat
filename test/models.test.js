@@ -99,6 +99,10 @@ test("website send path uses role and does not ship OpenRouter IDs", () => {
   assert.match(app, /function selectedChatRole\(\)/);
   assert.ok(requestSettings);
   assert.doesNotMatch(requestSettings, /\bmodel\b|compareModels|kluiModel|reasoning_effort|thinkingEffort/);
+  assert.doesNotMatch(requestSettings, /temperature|top_p|max_tokens|seed/);
+  const index = readFileSync(resolve(here, "../public/index.html"), "utf8");
+  assert.doesNotMatch(index, /settingsModelParamsSection|temperatureInput|topPInput|maxTokensInput|id="seedInput"/);
+  assert.doesNotMatch(index, /Model parameters/);
   assert.match(retryPath, /role: selectedSingleRole\(\)/);
   assert.doesNotMatch(retryPath, /role: selectedChatRole\(\)/);
   assert.match(app, /role: selectedChatRole\(\)/);
