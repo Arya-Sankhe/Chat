@@ -64,6 +64,8 @@ import {
   updateStudyDeck,
   deleteStudyDeck,
   fetchStudyQuiz,
+  updateStudyQuiz,
+  deleteStudyQuiz,
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote
@@ -6609,6 +6611,8 @@ async function loadStudyHub() {
         updateStudyDeck,
         deleteStudyDeck,
         fetchStudyQuiz,
+        updateStudyQuiz,
+        deleteStudyQuiz,
         submitStudyQuizAttempt,
         exportStudyNote,
         deleteStudyNote,

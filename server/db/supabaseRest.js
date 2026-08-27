@@ -234,6 +234,14 @@ export class SupabaseRest {
     return study.createStudyQuiz(this, userId, quiz, options);
   }
 
+  async updateStudyQuiz(userId, id, patch, options) {
+    return study.updateStudyQuiz(this, userId, id, patch, options);
+  }
+
+  async deleteStudyQuiz(userId, id, options) {
+    return study.deleteStudyQuiz(this, userId, id, options);
+  }
+
   async createConversation(userId, conversation, options) {
     return chat.createConversation(this, userId, conversation, options);
   }

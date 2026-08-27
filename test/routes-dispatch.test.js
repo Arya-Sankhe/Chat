@@ -204,6 +204,8 @@ const ROUTES = [
   { path: "/api/study/cards/card-1", method: "DELETE", authKind: "chat" },
   { path: "/api/study/quizzes/quiz-1/attempts", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/quizzes/quiz-1", method: "PATCH", authKind: "chat" },
+  { path: "/api/study/quizzes/quiz-1", method: "DELETE", authKind: "chat" },
   { path: "/api/study/notes/note-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/notes/note-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/research", method: "POST", authKind: "chat" },
@@ -2414,6 +2416,58 @@ test("study quiz GET includes answers for in-session reveal", async () => {
     explanation: "secret",
     whys: ["no", "no", "yes", "no"]
   }]);
+});
+
+test("study quiz PATCH renames and DELETE removes", async () => {
+  const patches = [];
+  const deleted = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getStudyQuiz() {
+        return { id: "quiz-1", title: "Cells", project_id: "course-1", questions: [] };
+      },
+      async getProject() { return { id: "course-1", kind: "course" }; },
+      async updateStudyQuiz(_userId, id, patch) {
+        patches.push({ id, patch });
+        return { id, title: patch.title, project_id: "course-1" };
+      },
+      async deleteStudyQuiz(_userId, id) {
+        deleted.push(id);
+        return null;
+      }
+    }
+  });
+
+  const renamed = await dispatch(authReadyConfig, {
+    method: "PATCH",
+    path: "/api/study/quizzes/quiz-1",
+    body: { title: "  Syntax quiz  " },
+    overrides
+  });
+  assert.equal(renamed.statusCode, 200);
+  assert.equal(renamed.json().title, "Syntax quiz");
+  assert.equal(patches[0].id, "quiz-1");
+  assert.equal(patches[0].patch.title, "Syntax quiz");
+
+  const removed = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/quizzes/quiz-1",
+    overrides
+  });
+  assert.equal(removed.statusCode, 200);
+  assert.equal(removed.json().ok, true);
+  assert.deepEqual(deleted, ["quiz-1"]);
+
+  const missing = await dispatch(authReadyConfig, {
+    method: "DELETE",
+    path: "/api/study/quizzes/missing",
+    overrides: stubbedDeps({
+      db: {
+        async getStudyQuiz() { return null; }
+      }
+    })
+  });
+  assert.equal(missing.statusCode, 404);
 });
 
 test("study quiz attempt grades in-session without storing", async () => {

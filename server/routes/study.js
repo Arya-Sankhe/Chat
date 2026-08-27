@@ -645,11 +645,25 @@ export async function handleStudyCard(req, res, config, cardId) {
 }
 
 export async function handleStudyQuizById(req, res, config, quizId) {
-  if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
+  if (req.method !== "GET" && req.method !== "PATCH" && req.method !== "DELETE") {
+    throw new HttpError(405, "Method not allowed.");
+  }
   const context = await requireChatContext(req, config);
   const quiz = await context.db.getStudyQuiz(context.user.id, quizId, { signal: req.signal });
   if (!quiz) throw new HttpError(404, "Quiz not found.");
   await requireCourse(context, quiz.project_id, req.signal);
+  if (req.method === "PATCH") {
+    const body = await parseJsonBody(req);
+    const title = cleanDeckTitle(body.title);
+    const updated = await context.db.updateStudyQuiz(context.user.id, quiz.id, { title }, { signal: req.signal });
+    sendJson(res, 200, { title: updated?.title || title });
+    return;
+  }
+  if (req.method === "DELETE") {
+    await context.db.deleteStudyQuiz(context.user.id, quiz.id, { signal: req.signal });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   const listed = await context.db.listStudyCards(context.user.id, quiz.project_id, {
     select: "document_file_id,note_id,deck_key,front",
     signal: req.signal

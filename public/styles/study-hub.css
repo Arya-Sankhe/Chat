@@ -518,6 +518,18 @@ body[data-mode="dark"] .study-tape {
   transform: translateY(-1px);
 }
 
+@keyframes study-card-leave {
+  to {
+    opacity: 0;
+    transform: scale(0.86) rotate(-1.5deg);
+  }
+}
+
+.study-practice-card.is-leaving {
+  animation: study-card-leave 0.22s ease forwards;
+  pointer-events: none;
+}
+
 .study-course-card:active,
 .study-practice-card:active,
 .study-primary-btn:active,
@@ -2767,6 +2779,11 @@ body.study-open .study-composer-slot .composer-prompt:focus-visible,
   .study-quiz-verdict,
   .study-quiz-recap {
     transition: none;
+  }
+
+  .study-practice-card.is-leaving {
+    animation: none;
+    opacity: 0;
   }
 
   .study-course-card,

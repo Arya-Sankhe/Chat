@@ -37,6 +37,8 @@ export function createStudyHubController({
   updateStudyDeck,
   deleteStudyDeck,
   fetchStudyQuiz,
+  updateStudyQuiz,
+  deleteStudyQuiz,
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote,
@@ -135,6 +137,26 @@ export function createStudyHubController({
       </div>`;
   }
 
+  function practiceMenu(kind, id) {
+    const key = `${kind}:${id}`;
+    const open = quizMenuKey === key;
+    const toggle = kind === "deck"
+      ? `data-toggle-deck-menu="${escapeHtml(id)}"`
+      : `data-toggle-quiz-menu="${escapeHtml(key)}"`;
+    const rename = kind === "deck" ? `data-rename-deck="${escapeHtml(id)}"` : `data-rename-quiz="${escapeHtml(id)}"`;
+    const del = kind === "deck" ? `data-delete-deck="${escapeHtml(id)}"` : `data-delete-quiz="${escapeHtml(id)}"`;
+    return `
+      <div class="study-card-menu-wrap">
+        <button class="study-icon-btn" type="button" ${toggle} aria-label="${kind === "deck" ? "Deck options" : "Quiz options"}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+          ${kebabIcon()}
+        </button>
+        <div class="study-menu${open ? "" : " hidden"}" role="menu">
+          <button class="study-menu-item" type="button" role="menuitem" ${rename}>Rename</button>
+          <button class="study-menu-item study-menu-danger" type="button" role="menuitem" ${del}>Delete</button>
+        </div>
+      </div>`;
+  }
+
   function materialStatus(doc) {
     if (doc?.text_ready_at || doc?.usable || doc?.processing_status === "ready") return "ready";
     if (doc?.processing_status === "failed") return "failed";
@@ -204,6 +226,10 @@ export function createStudyHubController({
 
   function findDeck(deckId) {
     return (state.studyPractice?.decks || []).find((deck) => deck.id === deckId) || null;
+  }
+
+  function findQuiz(quizId) {
+    return (state.studyPractice?.quizzes || []).find((quiz) => quiz.id === quizId) || null;
   }
 
   function spinner() {
@@ -574,7 +600,6 @@ export function createStudyHubController({
     const deckCards = decks.length
       ? decks.map((deck, index) => {
         const id = deck.id;
-        const menuOpen = quizMenuKey === `deck:${id}`;
         return `
           <article class="study-practice-card is-stack">
             ${index === 0 ? sketchTape() : ""}
@@ -585,26 +610,24 @@ export function createStudyHubController({
               <strong>${escapeHtml(deck.title || "Deck")}</strong>
               <small class="study-ink-orange">${escapeHtml(String(deck.cardCount || 0))} cards</small>
             </button>
-            <div class="study-card-menu-wrap">
-              <button class="study-icon-btn" type="button" data-toggle-deck-menu="${escapeHtml(id)}" aria-label="Deck options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
-                ${kebabIcon()}
-              </button>
-              <div class="study-menu${menuOpen ? "" : " hidden"}" data-deck-menu="${escapeHtml(id)}" role="menu">
-                <button class="study-menu-item" type="button" role="menuitem" data-rename-deck="${escapeHtml(id)}">Rename</button>
-                <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-deck="${escapeHtml(id)}">Delete</button>
-              </div>
-            </div>
+            ${practiceMenu("deck", id)}
           </article>`;
       }).join("")
       : emptyState("No decks yet", "Create flashcards from one or more files.");
     const quizCards = quizzes.length
-      ? quizzes.map((quiz, index) => `
-          <button class="study-practice-card" type="button" data-open-quiz="${escapeHtml(quiz.id)}">
+      ? quizzes.map((quiz, index) => {
+        const id = quiz.id;
+        return `
+          <article class="study-practice-card">
             ${index === 0 ? sketchTape() : sketchPin("orange")}
             ${sketchStroke()}
-            <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
-            <small class="study-ink-green">${escapeHtml(String(quiz.questionCount || 0))} questions</small>
-          </button>`).join("")
+            <button class="study-practice-open" type="button" data-open-quiz="${escapeHtml(id)}">
+              <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
+              <small class="study-ink-green">${escapeHtml(String(quiz.questionCount || 0))} questions</small>
+            </button>
+            ${practiceMenu("quiz", id)}
+          </article>`;
+      }).join("")
       : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from one or more files.");
     return `
       <div class="study-practice">
@@ -1249,6 +1272,45 @@ export function createStudyHubController({
     });
   }
 
+  function practiceCardEl(attr, id) {
+    const nodes = els.studyView?.querySelectorAll(`[${attr}]`) || [];
+    for (const node of nodes) {
+      if (node.getAttribute(attr) === id) return node.closest(".study-practice-card") || node;
+    }
+    return null;
+  }
+
+  function leavePracticeCard(el) {
+    if (!el || reducedMotion()) return Promise.resolve();
+    el.classList.add("is-leaving");
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      el.addEventListener("animationend", finish, { once: true });
+      setTimeout(finish, 280);
+    });
+  }
+
+  function dropPractice(listKey, id) {
+    if (!state.studyPractice?.[listKey]) return;
+    state.studyPractice = {
+      ...state.studyPractice,
+      [listKey]: state.studyPractice[listKey].filter((item) => item.id !== id)
+    };
+  }
+
+  function patchPracticeTitle(listKey, id, title) {
+    if (!state.studyPractice?.[listKey]) return;
+    state.studyPractice = {
+      ...state.studyPractice,
+      [listKey]: state.studyPractice[listKey].map((item) => item.id === id ? { ...item, title } : item)
+    };
+  }
+
   function openRenameDeckDialog(deckId) {
     const deck = findDeck(deckId);
     if (!deck) return;
@@ -1268,13 +1330,7 @@ export function createStudyHubController({
       ...deckSourceOf(deck),
       title
     });
-    const nextTitle = payload?.title || title;
-    if (state.studyPractice?.decks) {
-      state.studyPractice = {
-        ...state.studyPractice,
-        decks: state.studyPractice.decks.map((item) => item.id === deckId ? { ...item, title: nextTitle } : item)
-      };
-    }
+    patchPracticeTitle("decks", deckId, payload?.title || title);
     render();
     showToast("Deck renamed.");
   }
@@ -1296,11 +1352,65 @@ export function createStudyHubController({
     if (!state.activeCourseId) return;
     try {
       await deleteStudyDeck(state.session, state.activeCourseId, deckSourceOf(deck));
-      await Promise.all([loadPractice().catch(() => {})]);
+      if (reviewSession?.deckId === deck.id) closeSession();
+      await leavePracticeCard(practiceCardEl("data-open-deck", deck.id));
+      dropPractice("decks", deck.id);
       render();
       showToast("Deck deleted.");
+      loadPractice(true).catch(() => {});
     } catch (error) {
       showToast(error.message || "Deck could not be deleted.");
+    }
+  }
+
+  function openRenameQuizDialog(quizId) {
+    const quiz = findQuiz(quizId);
+    if (!quiz) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename quiz",
+      value: quiz.title || "",
+      onSave: (title) => saveQuizTitle(quiz.id, title)
+    });
+  }
+
+  async function saveQuizTitle(quizId, title) {
+    const quiz = findQuiz(quizId);
+    if (!quiz) return;
+    const payload = await updateStudyQuiz(state.session, quizId, { title });
+    const nextTitle = payload?.title || title;
+    patchPracticeTitle("quizzes", quizId, nextTitle);
+    if (quizSession?.quiz?.id === quizId) quizSession.quiz.title = nextTitle;
+    render();
+    showToast("Quiz renamed.");
+  }
+
+  function confirmDeleteQuiz(quizId) {
+    const quiz = findQuiz(quizId);
+    if (!quiz) return;
+    quizMenuKey = "";
+    render();
+    const count = Number(quiz.questionCount) || 0;
+    openDeleteConfirm({
+      title: "Delete quiz?",
+      body: `Delete "${quiz.title || "this quiz"}" and its ${count} question${count === 1 ? "" : "s"}?`,
+      onConfirm: () => deleteQuiz(quiz)
+    });
+  }
+
+  async function deleteQuiz(quiz) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyQuiz(state.session, quiz.id);
+      if (quizSession?.quiz?.id === quiz.id) closeSession();
+      await leavePracticeCard(practiceCardEl("data-open-quiz", quiz.id));
+      dropPractice("quizzes", quiz.id);
+      render();
+      showToast("Quiz deleted.");
+      loadPractice(true).catch(() => {});
+    } catch (error) {
+      showToast(error.message || "Quiz could not be deleted.");
     }
   }
 
@@ -2143,14 +2253,20 @@ export function createStudyHubController({
       }
       reviewSession.flipped = false;
       if (state.studyPractice?.decks && reviewSession.deckId) {
+        const deckId = reviewSession.deckId;
         state.studyPractice = {
           ...state.studyPractice,
-          decks: state.studyPractice.decks.map((deck) => (
-            deck.id === reviewSession.deckId
-              ? { ...deck, cardCount: Math.max(0, Number(deck.cardCount || 0) - 1) }
-              : deck
-          ))
+          decks: state.studyPractice.decks.flatMap((deck) => {
+            if (deck.id !== deckId) return [deck];
+            const cardCount = Math.max(0, Number(deck.cardCount || 0) - 1);
+            return cardCount ? [{ ...deck, cardCount }] : [];
+          })
         };
+      }
+      if (!reviewSession.cards.length) {
+        closeSession();
+        render();
+        return;
       }
       renderReview();
     } catch (error) {
@@ -2765,6 +2881,10 @@ export function createStudyHubController({
     if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
     const removeDeck = event.target.closest("[data-delete-deck]");
     if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
+    const renameQuiz = event.target.closest("[data-rename-quiz]");
+    if (renameQuiz) return openRenameQuizDialog(renameQuiz.dataset.renameQuiz);
+    const removeQuiz = event.target.closest("[data-delete-quiz]");
+    if (removeQuiz) return confirmDeleteQuiz(removeQuiz.dataset.deleteQuiz);
     const renameChat = event.target.closest("[data-rename-chat]");
     if (renameChat) {
       event.stopPropagation();

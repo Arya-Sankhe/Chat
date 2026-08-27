@@ -155,4 +155,24 @@ export async function createStudyQuiz(client, userId, quiz, { signal } = {}) {
   return single(rows);
 }
 
+export async function updateStudyQuiz(client, userId, id, patch, { signal } = {}) {
+  const rows = await client.request("study_quizzes", {
+    method: "PATCH",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    body: patch,
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
+export async function deleteStudyQuiz(client, userId, id, { signal } = {}) {
+  return client.request("study_quizzes", {
+    method: "DELETE",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    prefer: "return=minimal",
+    signal
+  });
+}
+
 

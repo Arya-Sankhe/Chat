@@ -387,6 +387,26 @@ export async function fetchStudyQuiz(session, quizId) {
   return response.json();
 }
 
+export async function updateStudyQuiz(session, quizId, body) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyQuiz(session, quizId) {
+  const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function submitStudyQuizAttempt(session, quizId, answers) {
   const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}/attempts`, {
     session,

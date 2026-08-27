@@ -867,6 +867,27 @@ test("updateStudyCard PATCHes one card scoped to the user", async () => {
   });
 });
 
+test("updateStudyQuiz and deleteStudyQuiz are user-scoped", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, "/rest/v1/study_quizzes");
+    assert.equal(parsed.searchParams.get("id"), "eq.quiz_1");
+    assert.equal(parsed.searchParams.get("user_id"), "eq.user_1");
+    expectServiceHeaders(options.headers, options.method === "PATCH" ? { withBody: true } : {});
+    if (options.method === "PATCH") {
+      assert.equal(JSON.parse(options.body).title, "Renamed");
+      return jsonResponse([{ id: "quiz_1", title: "Renamed" }]);
+    }
+    assert.equal(options.method, "DELETE");
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const quiz = await db.updateStudyQuiz("user_1", "quiz_1", { title: "Renamed" });
+    assert.equal(quiz.title, "Renamed");
+    await db.deleteStudyQuiz("user_1", "quiz_1");
+  });
+});
+
 test("createStudyCards bulk POSTs card rows with return=representation", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");
