@@ -4,7 +4,7 @@ import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
 import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
-import { handleConfig, handleHealth, handleMe, handleMeExport, handleModels, handlePlans } from "./routes/meta.js";
+import { handleBuild, handleConfig, handleHealth, handleMe, handleMeExport, handleModels, handlePlans } from "./routes/meta.js";
 import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
@@ -84,6 +84,20 @@ function pathParts(url) {
   return url.pathname.split("/").filter(Boolean);
 }
 
+function rejectStaleBuild(res, buildId) {
+  res.writeHead(426, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store, no-cache, must-revalidate",
+    pragma: "no-cache",
+    expires: "0"
+  });
+  res.end(JSON.stringify({
+    error: "This tab is out of date. Reload to continue.",
+    code: "stale_client_build",
+    buildId
+  }));
+}
+
 export function createApiHandler(config, overrides = {}) {
   const validOverrides = Object.fromEntries(
     ["createDb", "createR2", "verifyUser", "verifyDesktopUser"]
@@ -115,8 +129,20 @@ export async function handleApiRequest(req, res, url, config) {
   try {
     const parts = pathParts(url);
 
+    const clientBuildId = String(req.headers["x-klui-build-id"] || "").trim();
+    const buildCheckExempt = ["/api/build", "/api/config", "/api/health"].includes(url.pathname);
+    if (clientBuildId && !buildCheckExempt && clientBuildId !== config.buildId) {
+      rejectStaleBuild(res, config.buildId);
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/health") {
       handleHealth(req, res, config);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/build") {
+      handleBuild(req, res, config);
       return;
     }
 

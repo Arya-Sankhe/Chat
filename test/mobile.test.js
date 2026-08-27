@@ -474,7 +474,7 @@ test("web startup loads Markdown and defers heavier rich text tools and Study Hu
   ]);
   const bootstrap = app.slice(app.indexOf("async function bootstrap()"), app.indexOf("/* ─── Event binding ─── */"));
   assert.match(bootstrap, /Promise\.all\(\[\s*fetchConfig\(\),\s*fetchPlans\(\),/);
-  assert.match(app, /import\("\.\/studyHub\.js\?v=20260824-upload1"\)/);
+  assert.match(app, /import\("\.\/studyHub\.js"\)/);
   assert.doesNotMatch(app, /^import .*studyHub\.js/m);
   assert.match(html, /marked\.umd\.js/);
   assert.match(html, /integrity="sha384-[^"]+" crossorigin="anonymous"/);

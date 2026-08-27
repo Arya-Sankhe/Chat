@@ -13,6 +13,10 @@ COPY public ./public
 COPY scripts ./scripts
 COPY skills ./skills
 
+# Fingerprint shipped app contents so every code/content change produces a
+# new client-visible build.
+RUN find server public -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 > .build-id
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

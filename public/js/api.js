@@ -1,4 +1,4 @@
-import { apiUrl, download as platformDownload, saveTextFile } from "./platform/index.js";
+import { apiUrl, download as platformDownload, isNative, saveTextFile } from "./platform/index.js";
 
 async function readProblem(response) {
   try {
@@ -12,6 +12,7 @@ async function readProblem(response) {
 function apiHeaders(session, extra = {}) {
   return {
     ...extra,
+    ...(!isNative() && authRuntime.buildId ? { "x-klui-build-id": authRuntime.buildId } : {}),
     ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {})
   };
 }
@@ -20,14 +21,18 @@ const authRuntime = {
   getSession: null,
   refresh: null,
   onSession: null,
-  onExpired: null
+  onExpired: null,
+  buildCheck: null,
+  buildId: ""
 };
 
-export function configureApiAuth({ getSession, refresh, onSession, onExpired } = {}) {
+export function configureApiAuth({ getSession, refresh, onSession, onExpired, buildCheck, buildId } = {}) {
   authRuntime.getSession = typeof getSession === "function" ? getSession : null;
   authRuntime.refresh = typeof refresh === "function" ? refresh : null;
   authRuntime.onSession = typeof onSession === "function" ? onSession : null;
   authRuntime.onExpired = typeof onExpired === "function" ? onExpired : null;
+  authRuntime.buildCheck = typeof buildCheck === "function" ? buildCheck : null;
+  authRuntime.buildId = String(buildId || "");
 }
 
 async function resolveSession(session, { force = false } = {}) {
@@ -59,11 +64,19 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
     }
   }
 
+  if (!response.ok && [404, 410, 426].includes(response.status)) void authRuntime.buildCheck?.();
+
   return response;
 }
 
 export async function fetchConfig() {
-  const response = await fetch(apiUrl("/api/config"));
+  const response = await fetch(apiUrl("/api/config"), { cache: "no-store" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchBuild() {
+  const response = await fetch(apiUrl("/api/build"), { cache: "no-store" });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }

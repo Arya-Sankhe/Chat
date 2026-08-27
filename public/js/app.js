@@ -24,6 +24,7 @@ import {
   fetchAttachmentView,
   fetchAdminSummary,
   fetchConfig,
+  fetchBuild,
   fetchConversation,
   fetchDocumentJobStatus,
   fetchDocumentStatus,
@@ -69,7 +70,7 @@ import {
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote
-} from "./api.js?v=20260824-mamo1";
+} from "./api.js";
 import {
   clearSession,
   loadSession,
@@ -106,7 +107,7 @@ import {
   renderPlainText,
   renderContent,
   resetCodeSourceStore
-} from "./render.js?v=20260710-code-copy-svg-v3";
+} from "./render.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { createDocumentViewer } from "./documentViewer.js";
@@ -122,7 +123,7 @@ import {
   startHomeGreeting,
   stopHomeGreeting,
   updateKluiBar
-} from "./klui.js?v=20260816-stirring-ink";
+} from "./klui.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -280,6 +281,7 @@ const defaultSettings = {
 
 const state = {
   config: null,
+  buildId: "",
   session: null,
   me: null,
   plans: [],
@@ -374,6 +376,8 @@ let voiceState = "idle";
 let voiceCommit = true;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
+let webBuildCheckPromise = null;
+let webBuildPollTimer = null;
 let paymentRequestsPromise = Promise.resolve();
 let researchController;
 let studyHub = {
@@ -762,6 +766,8 @@ const els = {
   renameSaveButton: document.querySelector("#renameSaveButton"),
   overlay: document.querySelector("#overlay"),
   toast: document.querySelector("#toast"),
+  appUpdateToast: document.querySelector("#appUpdateToast"),
+  appUpdateReload: document.querySelector("#appUpdateReload"),
   lightbox: document.querySelector("#lightbox"),
   lightboxClose: document.querySelector("#lightboxClose"),
   lightboxImg: document.querySelector("#lightboxImg"),
@@ -2207,6 +2213,38 @@ function showToast(message) {
   els.toast.classList.add("visible");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => els.toast.classList.remove("visible"), 3200);
+}
+
+function showWebBuildUpdate() {
+  els.appUpdateToast?.classList.add("visible");
+}
+
+async function checkWebBuild({ force = false } = {}) {
+  if (isNative() || !state.buildId || (!force && document.visibilityState !== "visible")) return false;
+  if (webBuildCheckPromise) return webBuildCheckPromise;
+  webBuildCheckPromise = fetchBuild()
+    .then((payload) => {
+      const nextBuildId = String(payload?.buildId || "");
+      if (!nextBuildId || nextBuildId === state.buildId) return false;
+      showWebBuildUpdate();
+      return true;
+    })
+    .catch(() => false)
+    .finally(() => {
+      webBuildCheckPromise = null;
+    });
+  return webBuildCheckPromise;
+}
+
+function startWebBuildMonitor() {
+  if (isNative() || webBuildPollTimer) return;
+  const checkWhenVisible = () => {
+    if (document.visibilityState === "visible") void checkWebBuild();
+  };
+  document.addEventListener("visibilitychange", checkWhenVisible);
+  window.addEventListener("focus", checkWhenVisible);
+  webBuildPollTimer = window.setInterval(checkWhenVisible, 5 * 60 * 1000);
+  checkWhenVisible();
 }
 
 function withTimeout(promise, ms, label) {
@@ -6555,7 +6593,7 @@ researchController = createResearchController({
 
 async function loadStudyHub() {
   if (!studyHubPromise) {
-    studyHubPromise = import("./studyHub.js?v=20260824-upload1").then(({ createStudyHubController }) => {
+    studyHubPromise = import("./studyHub.js").then(({ createStudyHubController }) => {
       studyHub = createStudyHubController({
         state,
         els,
@@ -8251,6 +8289,7 @@ async function bootstrap() {
       parseSessionFromUrl() || loadSession()
     ]);
     state.config = config;
+    state.buildId = String(config?.buildId || "");
     state.plans = plansPayload.plans || [];
     state.session = session;
     state.composerSkills = Array.isArray(state.config?.skills) ? state.config.skills : [];
@@ -8267,8 +8306,11 @@ async function bootstrap() {
         stopExtractedModulePollers();
         state.session = null;
         state.me = null;
-      }
+      },
+      buildCheck: () => checkWebBuild({ force: true }),
+      buildId: state.buildId
     });
+    startWebBuildMonitor();
     const authError = parseAuthErrorFromUrl();
     if (authError) showToast(authError);
     if (state.session) {
@@ -8384,6 +8426,13 @@ function setAutoScroll(enabled) {
 
 function bindEvents() {
   initDocumentViewerWidth();
+  els.appUpdateReload?.addEventListener("click", () => {
+    if (state.running || composerHasPendingContent()) {
+      showToast("Finish the current response or send/save your draft before reloading.");
+      return;
+    }
+    window.location.reload();
+  });
   if (els.messages) els.messages.style.overflowAnchor = "none";
 
   document.addEventListener("pointerup", (event) => {

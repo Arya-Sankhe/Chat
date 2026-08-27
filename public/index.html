@@ -52,7 +52,7 @@
         ]
       }
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260825-startup">
+    <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/vendor/slot-text/style.css">
     <script defer src="/vendor/dompurify/purify.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js" integrity="sha384-coEhNYf+uY/IAdm3afqLaaHhP4vzpDHARAMbRvTGjDwDSCD7DnG5dAKe4sDoUupt" crossorigin="anonymous"></script>
@@ -810,6 +810,10 @@
       </section>
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <div class="toast app-update-toast" id="appUpdateToast" role="alert" aria-live="assertive">
+        <span>Your Klui tab is out of date.</span>
+        <button id="appUpdateReload" type="button">Reload</button>
+      </div>
 
       <div class="study-session hidden" id="studySession" role="dialog" aria-modal="true" aria-label="Study session" aria-hidden="true"></div>
 
@@ -953,7 +957,7 @@
         });
       }
     </script>
-    <script type="module" src="/js/app.js?v=20260825-clouds-b-1080"></script>
+    <script type="module" src="/js/app.js"></script>
     <script>
       (function () {
         const url = new URL(window.location.href);

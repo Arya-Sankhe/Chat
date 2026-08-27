@@ -1,6 +1,8 @@
 import { CROFAI_BASE_URLS, DEFAULT_CROFAI_BASE_URL, normalizeBaseUrl } from "./crofai/constants.js";
 import { loadPlans } from "./saas/plans.js";
 import { normalizeAllowedOrigins } from "./http/cors.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 function readPort(value) {
   const port = Number.parseInt(value || "3000", 10);
@@ -53,6 +55,14 @@ function readSearchProvider(value) {
   return "searxng";
 }
 
+function readBuildId() {
+  try {
+    return clean(readFileSync(path.resolve(process.cwd(), ".build-id"), "utf8")) || "dev";
+  } catch {
+    return "dev";
+  }
+}
+
 function readJinaEngine(value) {
   const engine = clean(value || "direct").toLowerCase();
   return engine === "browser" ? "browser" : "direct";
@@ -99,6 +109,7 @@ export function loadConfig(env = process.env) {
   ]);
 
   return {
+    buildId: readBuildId(),
     host: env.HOST || "0.0.0.0",
     port,
     appUrl,

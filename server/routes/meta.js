@@ -73,9 +73,20 @@ export function handleHealth(req, res, config) {
   });
 }
 
+export function handleBuild(req, res, config) {
+  res.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store, no-cache, must-revalidate",
+    pragma: "no-cache",
+    expires: "0"
+  });
+  res.end(JSON.stringify({ buildId: config.buildId }));
+}
+
 export function handleConfig(req, res, config) {
   sendJson(res, 200, {
     app: "klui-chat",
+    buildId: config.buildId,
     supabaseUrl: config.supabase.url,
     supabaseAnonKey: config.supabase.anonKey,
     auth: config.auth,

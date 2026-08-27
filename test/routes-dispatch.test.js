@@ -161,6 +161,7 @@ function webmWithDuration(seconds) {
  */
 const ROUTES = [
   { path: "/api/health", method: "GET", public: true },
+  { path: "/api/build", method: "GET", public: true },
   { path: "/api/config", method: "GET", public: true },
   { path: "/api/plans", method: "GET", public: true },
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
@@ -249,10 +250,16 @@ test("public routes respond 200 without auth or configured services", async () =
     ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
   );
 
+  const build = await dispatch(bareConfig, { path: "/api/build" });
+  assert.equal(build.statusCode, 200);
+  assert.equal(build.headers["cache-control"], "no-store, no-cache, must-revalidate");
+  assert.equal(build.headers.pragma, "no-cache");
+  assert.deepEqual(build.json(), { buildId: "dev" });
+
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
   assert.equal(configRes.statusCode, 200);
   const configBody = configRes.json();
-  for (const key of ["app", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles", "skills"]) {
+  for (const key of ["app", "buildId", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles", "skills"]) {
     assert.ok(key in configBody, `config payload exposes ${key}`);
   }
   const humanizer = configBody.skills.find((skill) => skill.id === "humanizer");
@@ -274,6 +281,40 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.equal(plans.statusCode, 200);
   const planIds = plans.json().plans.map((plan) => plan.id);
   assert.deepEqual(planIds, ["lite", "pro", "max"]);
+});
+
+test("stale web API builds are rejected before route effects", async () => {
+  const config = loadConfig(SUPABASE_ENV);
+  config.buildId = "current-build";
+  let verifyCalls = 0;
+  const overrides = {
+    ...stubbedDeps(),
+    verifyUser: async () => {
+      verifyCalls += 1;
+      return { id: "user-1", email: "user@example.com", raw: {} };
+    }
+  };
+
+  const stale = await dispatch(config, {
+    method: "POST",
+    path: "/api/reports",
+    headers: { "x-klui-build-id": "old-build" },
+    overrides
+  });
+  assert.equal(stale.statusCode, 426);
+  assert.equal(stale.headers["cache-control"], "no-store, no-cache, must-revalidate");
+  assert.equal(stale.json().code, "stale_client_build");
+  assert.equal(verifyCalls, 0);
+
+  const current = await dispatch(config, {
+    method: "POST", path: "/api/reports", headers: { "x-klui-build-id": "current-build" }, overrides
+  });
+  assert.equal(current.statusCode, 400);
+  assert.equal(verifyCalls, 1);
+
+  const legacy = await dispatch(config, { method: "POST", path: "/api/reports", overrides });
+  assert.equal(legacy.statusCode, 400);
+  assert.equal(verifyCalls, 2);
 });
 
 test("every auth-requiring route returns 503 problem JSON when Supabase is unconfigured", async () => {
