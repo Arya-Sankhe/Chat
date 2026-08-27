@@ -18,6 +18,7 @@ import {
   contentText,
   createConversationSummarizer,
   generateConversationTitle,
+  isGenericConversationTitle,
   hydrateMessagesForClient,
   imageCountFromContent,
   normalizeMessageSettings,
@@ -1032,7 +1033,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const titleContent = existingMessages.find((message) => message.role === "user")?.content || userContent;
   const titleNeedsGeneration = !conversation.title
     || conversation.title === "New chat"
-    || conversation.title === conversationTitleFallback(titleContent);
+    || conversation.title === conversationTitleFallback(titleContent)
+    || isGenericConversationTitle(conversation.title);
   const titlePromise = titleNeedsGeneration
     ? generateConversationTitle({
         content: titleContent,

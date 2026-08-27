@@ -1,11 +1,13 @@
 import {
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
+  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_L2,
+  OPENROUTER_VISION_L3,
   OPENROUTER_VISION_MODEL
 } from "./providers.js";
 
@@ -44,6 +46,12 @@ export const MODEL_ROUTES = Object.freeze({
       { model: OPENROUTER_COUNCIL_HY3_MODEL, label: "Hy3" },
       { model: OPENROUTER_VISION_MODEL, label: "MiMo" },
       { model: OPENROUTER_COUNCIL_MIMO_PRO_MODEL, label: "MiMo Pro" }
+    ],
+    mediaModels: [
+      OPENROUTER_VISION_MODEL,
+      OPENROUTER_GLM_FLASH_MODEL,
+      OPENROUTER_VISION_L3,
+      OPENROUTER_VISION_L2
     ]
   }
 });
@@ -86,7 +94,9 @@ function compareListLength(value) {
 export function modelsForRole(role, { hasMedia = false } = {}) {
   const route = MODEL_ROUTES[role];
   if (!route) return [];
-  if (role === "council") return route.panel.map((panelist) => panelist.model);
+  if (role === "council") {
+    return (hasMedia && route.mediaModels ? route.mediaModels : route.panel.map((panelist) => panelist.model)).slice();
+  }
   if (role === "compare") return (hasMedia ? route.mediaModels : route.models).slice();
   if (hasMedia && route.visionModel) return [route.visionModel];
   return route.model ? [route.model] : [];

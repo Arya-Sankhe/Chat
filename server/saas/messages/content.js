@@ -38,6 +38,15 @@ export function conversationTitleFallback(content) {
         : "New chat";
 }
 
+function genericImagePrompt(text) {
+  return /^(help|solve|explain|summari[sz]e|analy[sz]e|review|look at|what is|what's|who is|where is|read)( (this|that|it|these|those|image|photo|picture))?[?.!]*$/i.test(String(text || "").trim());
+}
+
+export function isGenericConversationTitle(value) {
+  const title = String(value || "").trim();
+  return genericImagePrompt(title) || /^(new chat|review uploaded image|review \d+ images)$/i.test(title);
+}
+
 export async function generateConversationTitle({ content, crofai, config, r2, signal }) {
   const text = contentText(content).trim();
   const parts = Array.isArray(content) ? content : [];
@@ -46,10 +55,12 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
   const vagueWithImage = images.length > 0 && (
     !text
     || text.length < 24
-    || /^(help|solve|explain|summari[sz]e|analy[sz]e|review|look at|what is|what's|who is|where is|read)( (this|that|it|these|those|image|photo|picture))?[?.!]*$/i.test(text)
+    || genericImagePrompt(text)
   );
   const fileNames = files.map((part) => part.file?.file_name).filter(Boolean);
-  const fallback = conversationTitleFallback(content);
+  const fallback = vagueWithImage && genericImagePrompt(text)
+    ? (images.length > 1 ? `Review ${images.length} images` : "Review uploaded image")
+    : conversationTitleFallback(content);
   const provider = config?.providers?.openrouter;
   if (!crofai?.chatCompletion || !provider?.apiKey) return fallback;
   const titleSignal = signal
@@ -95,7 +106,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
           { role: "user", content: userContent }
         ],
         temperature: 0.1,
-        max_tokens: 64
+        max_tokens: vagueWithImage ? 512 : 64
       }
     });
     const clean = String(result || "")
@@ -106,7 +117,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
       .replace(/\s+/g, " ")
       .trim();
     const concise = clean.length > 42 ? clean.slice(0, 42).replace(/\s+\S*$/, "").trim() : clean;
-    return concise && !/^new chat$/i.test(concise) ? concise : fallback;
+    return concise && !isGenericConversationTitle(concise) ? concise : fallback;
   } catch {
     return fallback;
   }

@@ -417,7 +417,7 @@ export function formatModelMeta(model) {
   return meta;
 }
 
-const VISION_HINT = /\bvision\b|\bvisual\b|\bvlm\b|multimodal|omni|gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|claude-(3|4)|sonnet|opus|haiku|qwen[\w.-]*vl|qwen2-vl|qwen3-vl|qwen3\.7-flash|llama-?4|llama-3\.2[\w.-]*vision|internvl|molmo|minicpm|llava|pixtral|kimi|moonshot|grok|x-ai|glm-4[\w.-]*v|mimo-v2\.5(?!-pro)|mimo-v2-omni|minimax|\bgreg\b/i;
+const VISION_HINT = /\bvision\b|\bvisual\b|\bvlm\b|multimodal|omni|gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|claude-(3|4)|sonnet|opus|haiku|qwen[\w.-]*vl|qwen2-vl|qwen3-vl|qwen3\.[78]-flash|llama-?4|llama-3\.2[\w.-]*vision|internvl|molmo|minicpm|llava|pixtral|kimi|moonshot|grok|x-ai|glm-4[\w.-]*v|glm-5\.3-flash|mimo-v2\.5(?!-pro)|mimo-v2-omni|minimax|\bgreg\b/i;
 
 function inputModalityTokens(model) {
   if (!model || typeof model !== "object") return [];

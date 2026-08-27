@@ -8,6 +8,7 @@ import {
   COUNCIL_STAGE1_SYSTEM_PROMPT,
   generateNonce,
   parseRanking,
+  runPeerReview,
   selectChairman,
   withCouncilSystemPrompt
 } from "../server/saas/council.js";
@@ -62,6 +63,8 @@ test("buildPeerReviewPrompt wraps each response in its nonce tag", () => {
   assert.match(prompt, /<response-feedface>\s*Five\.\s*<\/response-feedface>/);
   assert.match(prompt, /RANKING:/);
   assert.match(prompt, /What is 2\+2\?/);
+  assert.match(prompt, /reason briefly and do not overthink/i);
+  assert.match(prompt, /concise review in 1-2 sentences/i);
 });
 
 test("parseRanking extracts ordered modelIds from a well-formed ballot", () => {
@@ -123,6 +126,31 @@ test("parseRanking skips unknown nonces and duplicates", () => {
   const parsed = parseRanking(raw, { aaaa: "alpha", bbbb: "beta" });
   assert.ok(parsed);
   assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
+});
+
+test("runPeerReview gives reviewers a 10k output budget without disabling reasoning", async () => {
+  const bodies = [];
+  const panelists = [
+    { modelId: "alpha", responseText: "Answer alpha." },
+    { modelId: "beta", responseText: "Answer beta." },
+    { modelId: "gamma", responseText: "Answer gamma." }
+  ];
+  const result = await runPeerReview({
+    panelists,
+    originalUserPrompt: "Which answer is best?",
+    config: {},
+    provider: { apiKey: "key", baseUrl: "https://example.test" },
+    chatCompletionFn: async ({ body }) => {
+      bodies.push(body);
+      const nonce = [...body.messages[0].content.matchAll(/<response-([a-f0-9]{4,})>/g)].map((match) => match[1]);
+      return `RANKING:\n${nonce.map((tag, index) => `${index + 1}. response-${tag} — useful`).join("\n")}`;
+    }
+  });
+
+  assert.equal(result.ballots.filter((ballot) => ballot.valid).length, 3);
+  assert.equal(bodies.length, 3);
+  assert.ok(bodies.every((body) => body.max_tokens === 10_000));
+  assert.ok(bodies.every((body) => !("reasoning" in body)));
 });
 
 test("aggregateBordaCount computes mean Borda points per model", () => {

@@ -73,14 +73,27 @@
 
 .app-update-toast button {
   flex: 0 0 auto;
-  padding: 6px 10px;
-  border: 1px solid currentColor;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
   color: inherit;
   background: transparent;
-  font: inherit;
-  font-weight: 700;
   cursor: pointer;
+}
+
+.app-update-toast button:focus-visible {
+  background: color-mix(in srgb, var(--accent-contrast) 14%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-update-toast button:hover {
+    background: color-mix(in srgb, var(--accent-contrast) 14%, transparent);
+  }
 }
 
 .ios-install-hint {

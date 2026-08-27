@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { generateConversationTitle } from "../server/saas/messages.js";
+import { generateConversationTitle, isGenericConversationTitle } from "../server/saas/messages.js";
 
 const config = {
   providers: {
@@ -51,7 +51,8 @@ test("conversation titles use Laguna for text and MiMo only when an image carrie
     "deepseek/deepseek-v4-flash-0731"
   ]);
   assert.deepEqual(requests[0].body.reasoning, { enabled: false });
-  assert.equal(requests[1].body.max_tokens, 64);
+  assert.equal(requests[0].body.max_tokens, 64);
+  assert.equal(requests[1].body.max_tokens, 512);
 });
 
 test("specific image prompts stay text-only and title failures have a usable fallback", async () => {
@@ -88,4 +89,21 @@ test("specific image prompts stay text-only and title failures have a usable fal
   assert.equal(typeof request.body.messages[1].content, "string");
   assert.equal(signed, false);
   assert.equal(fallback, "Review uploaded image");
+});
+
+test("generic image prompts never persist the raw request as the chat title", async () => {
+  const title = await generateConversationTitle({
+    content: [
+      { type: "text", text: "solve this" },
+      { type: "image_url", image_url: { object_key: "question.png" } }
+    ],
+    crofai: { async chatCompletion() { return "solve this"; } },
+    config,
+    r2: { readUrl: () => "https://signed.example/question.png" }
+  });
+
+  assert.equal(title, "Review uploaded image");
+  assert.equal(isGenericConversationTitle("solve this"), true);
+  assert.equal(isGenericConversationTitle("Review uploaded image"), true);
+  assert.equal(isGenericConversationTitle("Review 2 images"), true);
 });

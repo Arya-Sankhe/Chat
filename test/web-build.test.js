@@ -17,7 +17,9 @@ test("web build monitor is wired to a no-store endpoint and safe reload action",
   assert.match(app, /window\.addEventListener\("focus", checkWhenVisible\)/);
   assert.match(app, /state\.running \|\| composerHasPendingContent\(\)/);
   assert.match(index, /id="appUpdateToast"/);
+  assert.match(index, /Klui has updated\./);
   assert.match(index, /id="appUpdateReload"/);
+  assert.match(index, /aria-label="Reload"/);
   assert.match(index, /src="\/js\/app\.js"/);
   assert.match(index, /href="\/styles\.css"/);
   assert.doesNotMatch(styles, /\?v=/);

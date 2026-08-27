@@ -156,8 +156,19 @@ test("compare and council finish by patching live cards instead of requiring a r
   assert.match(councilJs, /function patchCouncilMessage\(article, council\)/);
   assert.match(councilJs, /if \(!article\?\.classList\.contains\("council-message"\) \|\| !council\) return false/);
   assert.match(councilJs, /lanes\.length !== panelists\.length/);
+  assert.match(councilJs, /synthesis\.outerHTML = renderCouncilSynthesis\(council\.chairman, panelists\)/);
   assert.match(appJs, /compareController\.patchCompareMessage\(article, view\.messages\)/);
   assert.match(appJs, /councilController\.patchCouncilMessage\(article, view\.council\)/);
+});
+
+test("council hydration normalizes persisted finish reasons and keeps media aliases positional", () => {
+  const appJs = readPublic("js/app.js");
+  const councilJs = readPublic("js/council.js");
+  assert.match(appJs, /finishReason:\s*msg\.finishReason \|\| msg\.finish_reason \|\| ""/);
+  assert.match(appJs, /stage1Status:\s*panelists\.every\(\(panelist\) => panelist\.finishReason \|\| panelist\.error\) \? "done" : "active"/);
+  assert.match(councilJs, /if \(fallbackIndex >= 0\) return compareModelAlias\(fallbackIndex\)/);
+  assert.doesNotMatch(councilJs, /COUNCIL_MEDIA_MODELS/);
+  assert.match(councilJs, /panelists\.findIndex\(\(panelist\) => panelist\.model === reviewerId\)/);
 });
 
 test("message tables are wrapped for horizontal scroll", () => {
@@ -254,6 +265,13 @@ test("temporary chat reuses the image upload path but keeps documents blocked", 
   assert.match(appJs, /for \(const img of images\)/);
   assert.match(appJs, /Temporary chat supports images only/);
   assert.match(appJs, /if \(String\(url\)\.startsWith\("blob:"\)\) URL\.revokeObjectURL\(url\)/);
+});
+
+test("composer plus rotates into an x and the send button travels like a keycap", () => {
+  const css = readStylesheet();
+  assert.match(css, /\.composer-plus-btn\[aria-expanded="true"\] svg \{[\s\S]*?transform:\s*rotate\(45deg\)/);
+  assert.match(css, /\.send-btn\.active \{[\s\S]*?transform:\s*translateY\(-3px\)/);
+  assert.match(css, /\.send-btn\.active:active \{[\s\S]*?transform:\s*translateY\(4px\)/);
 });
 
 test("voice input rolls the native recorder through the shared composer", () => {

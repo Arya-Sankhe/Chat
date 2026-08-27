@@ -1053,6 +1053,32 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+.composer-plus-btn svg {
+
+  display: block;
+
+  transform-origin: 50% 50%;
+
+  transition: transform var(--motion-medium) var(--ease-out);
+
+}
+
+.composer-plus-btn[aria-expanded="true"] svg {
+
+  transform: rotate(45deg);
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .composer-plus-btn svg {
+
+    transition-duration: 0.01ms;
+
+  }
+
+}
+
 .composer-action-menu {
 
   position: absolute;
@@ -2759,11 +2785,32 @@ body.chat-empty .skill-command-menu {
 
   opacity: 0.3;
 
+  transform: translateY(3px);
+
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent-contrast) 28%, transparent),
+    inset 0 -2px 4px color-mix(in srgb, #000 18%, transparent),
+    0 1px 0 color-mix(in srgb, var(--accent) 45%, #000);
+
+  transition:
+    transform var(--motion-medium) var(--ease-out),
+    box-shadow var(--motion-medium) var(--ease-out),
+    opacity var(--transition),
+    background var(--transition);
+
 }
 
 .send-btn.active {
 
   opacity: 1;
+
+  transform: translateY(-3px);
+
+  box-shadow:
+    inset 0 1.5px 0 color-mix(in srgb, var(--accent-contrast) 32%, transparent),
+    inset 0 -2px 4px color-mix(in srgb, #000 16%, transparent),
+    0 6px 0 color-mix(in srgb, var(--accent) 52%, #000),
+    0 9px 14px color-mix(in srgb, #000 24%, transparent);
 
 }
 
@@ -2773,9 +2820,30 @@ body.chat-empty .skill-command-menu {
 
 }
 
+.send-btn.active:active {
+
+  transform: translateY(4px);
+
+  box-shadow:
+    inset 0 2px 4px color-mix(in srgb, #000 22%, transparent),
+    0 1px 0 color-mix(in srgb, var(--accent) 45%, #000),
+    0 2px 4px color-mix(in srgb, #000 16%, transparent);
+
+  transition-duration: 90ms;
+
+}
+
 .send-btn:disabled {
 
   cursor: not-allowed;
+
+}
+
+body.capacitor-native .send-btn {
+
+  transform: none;
+
+  box-shadow: none;
 
 }
 

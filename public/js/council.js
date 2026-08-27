@@ -14,9 +14,10 @@ export function createCouncilController({
   let councilDetailsOpenIds = new Set();
 
   function councilModelAlias(modelId, fallbackIndex = -1) {
+    if (fallbackIndex >= 0) return compareModelAlias(fallbackIndex);
     const index = DEFAULT_COUNCIL_MODELS.indexOf(modelId);
     if (index >= 0) return compareModelAlias(index);
-    return compareModelAlias(fallbackIndex >= 0 ? fallbackIndex : 0);
+    return compareModelAlias(0);
   }
 
   async function activateCouncilMode() {
@@ -98,7 +99,7 @@ export function createCouncilController({
   `;
   }
 
-  function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false) {
+  function renderCouncilPanelist(panelist, index, totalRanked, peerReviewActive = false, panelists = []) {
     const msg = normalizeMessage(panelist);
     const modelId = msg.model || "";
     const modelAlias = councilModelAlias(modelId, index);
@@ -116,7 +117,7 @@ export function createCouncilController({
     <div class="council-justifications">
       <div class="council-justifications-title">Peer notes</div>
       ${justKeys.map((reviewerId) => {
-        const reviewer = councilModelAlias(reviewerId);
+        const reviewer = councilModelAlias(reviewerId, panelists.findIndex((panelist) => panelist.model === reviewerId));
         return `<div class="council-justification"><strong>${escapeHtml(reviewer)}:</strong> ${escapeHtml(justifications[reviewerId] || "")}</div>`;
       }).join("")}
     </div>` : "";
@@ -137,7 +138,7 @@ export function createCouncilController({
   `;
   }
 
-  function renderCouncilSynthesis(chairman) {
+  function renderCouncilSynthesis(chairman, panelists = []) {
     if (!chairman) {
       return `<div class="council-synthesis">
       <div class="council-synthesis-head">
@@ -150,7 +151,7 @@ export function createCouncilController({
     const msg = normalizeMessage(chairman);
     const modelId = msg.model || "";
     const rawText = rawTextContent(msg.content);
-    const modelName = councilModelAlias(modelId);
+    const modelName = councilModelAlias(modelId, panelists.findIndex((panelist) => panelist.model === modelId));
     const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
 
     return `
@@ -210,7 +211,7 @@ export function createCouncilController({
     let synthesis = article.querySelector(".council-synthesis");
     if (!synthesis) return false;
     if (council.chairman && synthesis.querySelector(".council-synthesis-pending")) {
-      synthesis.outerHTML = renderCouncilSynthesis(council.chairman);
+      synthesis.outerHTML = renderCouncilSynthesis(council.chairman, panelists);
       synthesis = article.querySelector(".council-synthesis");
       if (!synthesis) return false;
     }
@@ -254,7 +255,7 @@ export function createCouncilController({
           <span class="council-header-sub">${panelists.length} panelists${chairman ? " · 1 chairman" : ""}</span>
         </header>
         ${renderCouncilProgress(council)}
-        ${renderCouncilSynthesis(chairman)}
+        ${renderCouncilSynthesis(chairman, panelists)}
         <details class="council-details"${detailsOpen} data-council-id="${escapeHtml(councilId)}">
           <summary>
             <span>How the council worked</span>
@@ -265,7 +266,7 @@ export function createCouncilController({
             ${peerStatusText ? `<div class="council-peer-status">${escapeHtml(peerStatusText)}</div>` : ""}
             <div class="council-section-label">Individual answers</div>
             <div class="council-panel-grid">
-              ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive)).join("")}
+              ${panelists.map((p, idx) => renderCouncilPanelist(p, idx, hasAnyRank ? panelists.length : 0, peerReviewActive, panelists)).join("")}
             </div>
           </div>
         </details>

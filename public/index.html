@@ -811,8 +811,10 @@
 
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="toast app-update-toast" id="appUpdateToast" role="alert" aria-live="assertive">
-        <span>Your Klui tab is out of date.</span>
-        <button id="appUpdateReload" type="button">Reload</button>
+        <span>Klui has updated.</span>
+        <button id="appUpdateReload" type="button" aria-label="Reload" title="Reload">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.3-8.6"/><path d="M21 3v5h-5"/></svg>
+        </button>
       </div>
 
       <div class="study-session hidden" id="studySession" role="dialog" aria-modal="true" aria-label="Study session" aria-hidden="true"></div>

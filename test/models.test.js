@@ -13,10 +13,12 @@ import {
 } from "../server/models.js";
 import {
   OPENROUTER_COUNCIL_HY3_MODEL,
+  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_L2,
+  OPENROUTER_VISION_L3,
   OPENROUTER_VISION_MODEL
 } from "../server/providers.js";
 
@@ -43,11 +45,19 @@ test("resolveChatRole maps product roles to the current MODEL_ROUTES models", ()
     OPENROUTER_VISION_MODEL
   ]);
   assert.equal(OPENROUTER_VISION_L2, "qwen/qwen3.7-flash");
+  assert.equal(OPENROUTER_VISION_L3, "qwen/qwen3.8-flash");
+  assert.equal(OPENROUTER_GLM_FLASH_MODEL, "z-ai/glm-5.3-flash");
   assert.deepEqual(resolveChatRole({ role: "compare", hasMedia: true }).models, [
     OPENROUTER_VISION_MODEL,
     OPENROUTER_VISION_L2
   ]);
   assert.equal(resolveChatRole({ role: "council" }).models.length, 4);
+  assert.deepEqual(resolveChatRole({ role: "council", hasMedia: true }).models, [
+    OPENROUTER_VISION_MODEL,
+    OPENROUTER_GLM_FLASH_MODEL,
+    OPENROUTER_VISION_L3,
+    OPENROUTER_VISION_L2
+  ]);
   assert.equal(resolveChatRole({ role: "think", hasMedia: true }).models[0], OPENROUTER_VISION_MODEL);
   assert.equal(resolveChatRole({ role: "nitro", hasMedia: true }).role, "think");
 });
@@ -85,7 +95,7 @@ test("public chat roles expose labels without vendor IDs", () => {
   assert.deepEqual(roles.map((role) => role.id), ["nitro", "think", "pro", "compare", "council"]);
   assert.ok(roles.find((role) => role.id === "council").panelists.includes("DeepSeek"));
   const json = JSON.stringify(roles);
-  assert.doesNotMatch(json, /openrouter|deepseek\/|openai\/|inclusionai\/|xiaomi\/|tencent\//);
+  assert.doesNotMatch(json, /openrouter|deepseek\/|openai\/|inclusionai\/|xiaomi\/|tencent\/|z-ai\/|qwen\//);
   assert.equal(MODEL_ROUTES.think.model, OPENROUTER_TEXT_MODEL);
 });
 
@@ -115,5 +125,7 @@ test("website send path uses role and does not ship OpenRouter IDs", () => {
   assert.match(research, /role: selectedModelMode\(\) === "pro" \? "pro" : "think"/);
   assert.doesNotMatch(research, /OPENROUTER_/);
   assert.match(app, /OPENROUTER_VISION_L2 = "qwen\/qwen3\.7-flash"/);
+  assert.match(app, /OPENROUTER_VISION_L3 = "qwen\/qwen3\.8-flash"/);
+  assert.match(app, /OPENROUTER_GLM_FLASH_MODEL = "z-ai\/glm-5\.3-flash"/);
   assert.doesNotMatch(app, /google\/gemma-4-31b-it/);
 });

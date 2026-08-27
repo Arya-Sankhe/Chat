@@ -143,6 +143,8 @@ const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
 const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
+const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
+const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
 // Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
@@ -151,6 +153,12 @@ const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
   OPENROUTER_COUNCIL_MIMO_PRO_MODEL
+];
+const COUNCIL_MEDIA_MODELS = [
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_GLM_FLASH_MODEL,
+  OPENROUTER_VISION_L3,
+  OPENROUTER_VISION_L2
 ];
 const DEFAULT_REASONING_EFFORT = "high";
 const SPECTRUM_N = 3;
@@ -1926,11 +1934,12 @@ function compareIncludesTextOnlyModels(modelIds) {
 
 function resolveCompareModelsForSend({ images = state.images, userContent = null, keepAttachments = [] } = {}) {
   const base = compareController.activeCompareModelIds();
-  if (!base.length || isCouncilMode()) return base;
+  if (!base.length) return base;
   const needsVision = pendingPromptNeedsVision(images)
     || chatHistoryNeedsVision()
     || contentHasVisualOrDocument(userContent)
     || keepAttachments.some((item) => item.category === "image" || item.category === "document");
+  if (isCouncilMode()) return needsVision ? COUNCIL_MEDIA_MODELS.slice() : DEFAULT_COUNCIL_MODELS.slice();
   return needsVision ? COMPARE_MEDIA_MODELS.slice() : DEFAULT_COMPARE_MODELS.slice();
 }
 
@@ -3820,6 +3829,8 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
+  if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";
+  if (id === OPENROUTER_GLM_FLASH_MODEL) return "GLM 5.3 Flash";
   const model = modelById(id);
   return compactModelDisplayName(model?.name || model?.rawName || id) || id;
 }
@@ -3912,7 +3923,11 @@ function renderModelOptions() {
 /* ─── Messages ─── */
 
 function normalizeMessage(msg) {
-  return { ...msg, toolCalls: msg.toolCalls || msg.tool_calls || [] };
+  return {
+    ...msg,
+    finishReason: msg.finishReason || msg.finish_reason || "",
+    toolCalls: msg.toolCalls || msg.tool_calls || []
+  };
 }
 
 function councilSessionId(msg) {
@@ -3973,7 +3988,7 @@ function messageViews(messages) {
             sessionId,
             panelists,
             chairman,
-            stage1Done: true,
+            stage1Status: panelists.every((panelist) => panelist.finishReason || panelist.error) ? "done" : "active",
             stage2Status: councilPeerReviewStatus(panelists, chairman),
             stage3Status: chairman ? (chairman.error ? "error" : (chairman.content ? "done" : "pending")) : "pending"
           }

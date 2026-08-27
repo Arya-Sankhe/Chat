@@ -30,6 +30,8 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5"), true);
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5-pro"), false);
   assert.equal(modelSupportsVision("qwen/qwen3.7-flash"), true);
+  assert.equal(modelSupportsVision("qwen/qwen3.8-flash"), true);
+  assert.equal(modelSupportsVision("z-ai/glm-5.3-flash"), true);
   assert.equal(modelSupportsVision("minimax/minimax-m3"), true);
   // Metadata (input modalities) still wins when available.
   assert.equal(modelSupportsVision({
