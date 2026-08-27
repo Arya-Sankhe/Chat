@@ -55,8 +55,12 @@ body.study-open .app-shell {
   background-color: var(--study-board);
   background-image:
     linear-gradient(to right, var(--study-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--study-grid) 1px, transparent 1px);
-  background-size: var(--study-cell) var(--study-cell);
+    linear-gradient(to bottom, var(--study-grid) 1px, transparent 1px),
+    var(--home-wallpaper-image, none),
+    var(--home-wallpaper-base, none);
+  background-size: var(--study-cell) var(--study-cell), var(--study-cell) var(--study-cell), cover, cover;
+  background-position: 0 0, 0 0, center bottom, center bottom;
+  background-repeat: repeat, repeat, no-repeat, no-repeat;
 }
 
 body.study-open .app-shell::before,
@@ -114,20 +118,19 @@ body.study-open.guest-mode .sidebar {
   border-right-color: color-mix(in srgb, var(--study-ink) 14%, transparent);
 }
 
-body.study-open.sidebar-expanded .sidebar-header,
-body.study-open.guest-mode .sidebar-header,
-body.study-open.sidebar-open .sidebar-header {
+body.study-open[data-wallpaper="none"].sidebar-expanded .sidebar-header,
+body.study-open[data-wallpaper="none"].guest-mode .sidebar-header,
+body.study-open[data-wallpaper="none"].sidebar-open .sidebar-header {
   background-image: none;
   background-color: color-mix(in srgb, var(--study-board) 55%, transparent);
-  border: 1px solid color-mix(in srgb, var(--study-ink) 14%, transparent);
 }
 
-body.study-open.sidebar-expanded .sidebar-brand,
-body.study-open.guest-mode .sidebar-brand,
-body.study-open.sidebar-open .sidebar-brand,
-body.study-open.sidebar-expanded .sidebar-header .sidebar-toggle,
-body.study-open.guest-mode .sidebar-header .sidebar-toggle,
-body.study-open.sidebar-open .sidebar-header .sidebar-toggle {
+body.study-open[data-wallpaper="none"].sidebar-expanded .sidebar-brand,
+body.study-open[data-wallpaper="none"].guest-mode .sidebar-brand,
+body.study-open[data-wallpaper="none"].sidebar-open .sidebar-brand,
+body.study-open[data-wallpaper="none"].sidebar-expanded .sidebar-header .sidebar-toggle,
+body.study-open[data-wallpaper="none"].guest-mode .sidebar-header .sidebar-toggle,
+body.study-open[data-wallpaper="none"].sidebar-open .sidebar-header .sidebar-toggle {
   color: var(--study-ink);
 }
 

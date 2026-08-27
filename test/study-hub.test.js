@@ -336,6 +336,7 @@ test("study hub uses a whiteboard board skin without adding product surfaces", (
   assert.match(css, /--study-board/);
   assert.match(css, /#study-wobble/);
   assert.match(css, /body\.study-open \.home-wallpaper/);
+  assert.match(css, /body\.study-open \.app-shell \{[\s\S]*?--home-wallpaper-image/);
   assert.match(hub, /study-chip-label/);
   assert.match(css, /study-ink-blue:is\(:hover, \[aria-expanded="true"\]\)/);
   assert.match(css, /study-ink-orange:is\(:hover, \[aria-expanded="true"\]\)/);
