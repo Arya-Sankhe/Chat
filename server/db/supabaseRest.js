@@ -306,6 +306,10 @@ export class SupabaseRest {
     return memory.listUserMemoryMessages(this, userId, after, options);
   }
 
+  async listConversationUserMessagesBefore(userId, conversationIds, after, before, options) {
+    return memory.listConversationUserMessagesBefore(this, userId, conversationIds, after, before, options);
+  }
+
   async submitDocumentTurn(params, options) {
     return turns.submitDocumentTurn(this, params, options);
   }

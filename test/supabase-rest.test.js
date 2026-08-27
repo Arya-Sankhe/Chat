@@ -1033,3 +1033,29 @@ test("deleteAuthUser calls GoTrue admin delete and treats 404 as success", async
     assert.equal(await db.deleteAuthUser("user_1"), true);
   });
 });
+
+test("listConversationUserMessagesBefore bounds each conversation to the memory opt-in window", async () => {
+  const requests = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    requests.push(new URL(url));
+    assert.equal(options.method, "GET");
+    expectServiceHeaders(options.headers);
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.deepEqual(await db.listConversationUserMessagesBefore(
+      "user_1",
+      ["conversation_a", "conversation_b"],
+      "2026-08-01T00:00:00.000Z",
+      "2026-08-27T00:00:00.000Z"
+    ), []);
+  });
+  assert.equal(requests.length, 2);
+  for (const request of requests) {
+    assert.equal(request.pathname, "/rest/v1/messages");
+    assert.equal(request.searchParams.get("user_id"), "eq.user_1");
+    assert.equal(request.searchParams.get("role"), "eq.user");
+    assert.equal(request.searchParams.get("and"), "(created_at.gt.2026-08-01T00:00:00.000Z,created_at.lte.2026-08-27T00:00:00.000Z)");
+    assert.equal(request.searchParams.get("limit"), "6");
+  }
+});

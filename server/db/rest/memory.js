@@ -36,7 +36,7 @@ export async function listUserMemoryMessages(client, userId, after, { signal, li
       user_id: `eq.${userId}`,
       role: "eq.user",
       created_at: `gt.${after}`,
-      select: "id,content,created_at",
+      select: "id,content,created_at,conversation_id",
       order: "created_at.asc,id.asc",
       limit: String(limit)
     },
@@ -44,3 +44,27 @@ export async function listUserMemoryMessages(client, userId, after, { signal, li
   });
 }
 
+export async function listConversationUserMessagesBefore(
+  client,
+  userId,
+  conversationIds,
+  after,
+  before,
+  { signal, limit = 6 } = {}
+) {
+  const ids = [...new Set((conversationIds || []).filter(Boolean))];
+  if (!ids.length || !after || !before) return [];
+  const rows = await Promise.all(ids.map((conversationId) => client.request("messages", {
+    query: {
+      user_id: `eq.${userId}`,
+      role: "eq.user",
+      conversation_id: `eq.${conversationId}`,
+      and: `(created_at.gt.${after},created_at.lte.${before})`,
+      select: "id,content,created_at,conversation_id",
+      order: "created_at.desc,id.desc",
+      limit: String(limit)
+    },
+    signal
+  })));
+  return rows.flat();
+}
