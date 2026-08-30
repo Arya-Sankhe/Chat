@@ -11,6 +11,15 @@ export function renderPlainText(value) {
   return escapeHtml(value);
 }
 
+export function stripRedundantSourcesFooter(value, citations = []) {
+  const text = String(value ?? "");
+  if (!citations.length) return text;
+  return text.replace(
+    /\n+(?:#{1,6}\s*)?(?:sources|references)\s*:?\s*(?=(?:[-*]\s*)?(?:\[[^\]\n]+\]\(https?:\/\/|https?:\/\/|\[\d+\]))[\s\S]*$/i,
+    ""
+  ).trimEnd();
+}
+
 /* Fallback renderer (when CDN libs haven't loaded) */
 
 function renderFallback(text) {

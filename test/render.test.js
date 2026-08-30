@@ -10,7 +10,8 @@ import {
   renderContent,
   renderPlainText,
   resetCodeSourceStore,
-  resolveDefaultCompareModels
+  resolveDefaultCompareModels,
+  stripRedundantSourcesFooter
 } from "../public/js/render.js";
 
 test("renderPlainText preserves pasted text without Markdown formatting", () => {
@@ -18,6 +19,16 @@ test("renderPlainText preserves pasted text without Markdown formatting", () => 
   const html = renderPlainText(pasted);
   assert.equal(html, "## Heading\n```js\nconst key = &#039;&lt;secret&gt;&#039;;\n```\n**bold**");
   assert.doesNotMatch(html, /<pre|<code|<h2|<strong/);
+});
+
+test("stripRedundantSourcesFooter leaves citations to the Sources pill", () => {
+  const citations = [{ url: "https://example.com/a" }];
+  assert.equal(
+    stripRedundantSourcesFooter("Answer.\n\nSources: [A](https://example.com/a), [B](https://example.com/b)", citations),
+    "Answer."
+  );
+  assert.equal(stripRedundantSourcesFooter("Answer.\n\nSources: primary data", citations), "Answer.\n\nSources: primary data");
+  assert.equal(stripRedundantSourcesFooter("Answer.\n\nSources: [A](https://example.com/a)"), "Answer.\n\nSources: [A](https://example.com/a)");
 });
 
 test("resolveDefaultCompareModels picks the standard compare lineup", () => {

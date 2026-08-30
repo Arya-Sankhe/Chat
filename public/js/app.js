@@ -106,7 +106,8 @@ import {
   normalizeModelList,
   renderPlainText,
   renderContent,
-  resetCodeSourceStore
+  resetCodeSourceStore,
+  stripRedundantSourcesFooter
 } from "./render.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
@@ -4792,7 +4793,10 @@ function restoreCitationPlaceholders(html, slots) {
 }
 
 function renderAssistantText(text, citations) {
-  const cleaned = stripLeakedToolMarkup(stripLeakedCitationHtml(text));
+  const cleaned = stripRedundantSourcesFooter(
+    stripLeakedToolMarkup(stripLeakedCitationHtml(text)),
+    citations
+  );
   if (!cleaned.trim()) return "";
   if (!citations.length) return renderContent(cleaned);
   const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
@@ -5361,7 +5365,9 @@ function renderUserEditForm(msg, rawText) {
 function renderStandardMessage(raw) {
   const msg = normalizeMessage(raw);
   const role = msg.role === "user" ? "user" : "assistant";
-  const rawText = rawTextContent(msg.content);
+  const rawText = role === "assistant"
+    ? stripRedundantSourcesFooter(rawTextContent(msg.content), citationListFromMessage(msg))
+    : rawTextContent(msg.content);
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
   const userImages = role === "user" ? renderUserImages(msg) : "";
@@ -5476,7 +5482,9 @@ function patchStandardArticle(article, msg) {
   if (article.classList.contains("compare-message") || article.classList.contains("council-message")) return false;
   const role = msg.role === "user" ? "user" : "assistant";
   if (msg.id) article.dataset.messageId = String(msg.id);
-  article.dataset.rawText = rawTextContent(msg.content);
+  article.dataset.rawText = role === "assistant"
+    ? stripRedundantSourcesFooter(rawTextContent(msg.content), citationListFromMessage(msg))
+    : rawTextContent(msg.content);
   const reasoning = article.querySelector("details.reasoning");
   if (reasoning && msg.id) reasoning.dataset.messageId = String(msg.id);
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
