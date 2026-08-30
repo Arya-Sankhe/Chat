@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { adaptChatRequestForProvider } from "../server/providers.js";
+import {
+  adaptChatRequestForProvider,
+  deepSeekProviderOrderFromEndpoints
+} from "../server/providers.js";
 import {
   applyStreamEvent,
   stripLeakedReasoningMarkup,
@@ -60,7 +63,7 @@ test("adaptChatRequestForProvider enables reasoning without effort for Ling", ()
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
   assert.deepEqual(adapted.provider, { require_parameters: true });
   assert.equal(adapted.top_p, 0.95);
-  assert.equal(adapted.models, undefined);
+  assert.deepEqual(adapted.models, ["deepseek/deepseek-v4-flash-0731"]);
 });
 
 test("adaptChatRequestForProvider honors explicitly disabled reasoning", () => {
@@ -164,7 +167,7 @@ test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback",
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"],
+    order: ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"],
     allow_fallbacks: true
   });
 });
@@ -177,10 +180,21 @@ test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present"
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"],
+    order: ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"],
     allow_fallbacks: true,
     require_parameters: true
   });
+});
+
+test("DeepSeek routing promotes Baidu only when both token prices are no higher than Relace", () => {
+  const endpoints = [
+    { tag: "baidu/fp8", pricing: { prompt: "0.03", completion: "0.10" } },
+    { tag: "relace/fp4", pricing: { prompt: "0.03", completion: "0.18" } }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["baidu/fp8", "relace/fp4"]);
+
+  endpoints[0].pricing.completion = "0.19";
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["relace/fp4", "baidu/fp8"]);
 });
 
 test("adaptChatRequestForProvider preserves caller provider routing alongside require_parameters", () => {

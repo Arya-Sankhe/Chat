@@ -28,6 +28,12 @@ export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 
+const DEEPSEEK_PROVIDER_ORDER = ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"];
+const DEEPSEEK_PRICE_TTL_MS = 5 * 60 * 1000;
+let deepSeekProviderOrder = DEEPSEEK_PROVIDER_ORDER;
+let deepSeekPriceExpiresAt = 0;
+let deepSeekPriceRefresh = null;
+
 const PROVIDER_LABELS = {
   klui: "Klui",
   openrouter: "OpenRouter"
@@ -113,6 +119,46 @@ export function openRouterModelSupportsTopP(model) {
   return !id.startsWith("poolside/");
 }
 
+export function deepSeekProviderOrderFromEndpoints(endpoints) {
+  const byTag = new Map((Array.isArray(endpoints) ? endpoints : []).map((endpoint) => [endpoint?.tag, endpoint?.pricing]));
+  const baidu = byTag.get("baidu/fp8");
+  const relace = byTag.get("relace/fp4");
+  const baiduIsCheaper = ["prompt", "completion"].every((field) => {
+    const baiduPrice = Number(baidu?.[field]);
+    const relacePrice = Number(relace?.[field]);
+    return Number.isFinite(baiduPrice) && Number.isFinite(relacePrice) && baiduPrice <= relacePrice;
+  });
+  return baiduIsCheaper
+    ? ["baidu/fp8", "relace/fp4", ...DEEPSEEK_PROVIDER_ORDER.slice(2)]
+    : [...DEEPSEEK_PROVIDER_ORDER];
+}
+
+export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTER_BASE_URL } = {}) {
+  if (Date.now() < deepSeekPriceExpiresAt) return deepSeekProviderOrder;
+  if (deepSeekPriceRefresh) return deepSeekPriceRefresh;
+
+  deepSeekPriceRefresh = (async () => {
+    try {
+      const response = await fetch(`${baseUrl}/models/${OPENROUTER_TEXT_MODEL}/endpoints`, {
+        headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+        signal: AbortSignal.timeout(3000)
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        deepSeekProviderOrder = deepSeekProviderOrderFromEndpoints(payload?.data?.endpoints);
+      }
+    } catch {
+      // Pricing is an optimization; retain the stable Relace-first order on failure.
+    } finally {
+      deepSeekPriceExpiresAt = Date.now() + DEEPSEEK_PRICE_TTL_MS;
+      deepSeekPriceRefresh = null;
+    }
+    return deepSeekProviderOrder;
+  })();
+
+  return deepSeekPriceRefresh;
+}
+
 /**
  * Map our shared chat request shape to provider-specific fields.
  * OpenRouter expects `reasoning: { effort }` instead of `reasoning_effort`.
@@ -169,6 +215,9 @@ export function adaptChatRequestForProvider(body, providerId) {
     // ponytail: S is often rate-limited; one fallback to DeepSeek Flash.
     adapted.models = [OPENROUTER_LAGUNA_S, OPENROUTER_TEXT_MODEL];
   }
+  if (modelId === OPENROUTER_NITRO_MODEL) {
+    adapted.models = [OPENROUTER_TEXT_MODEL];
+  }
 
   const isDeepSeekModel = modelId.startsWith("deepseek/");
   const providerPrefs = {
@@ -176,7 +225,7 @@ export function adaptChatRequestForProvider(body, providerId) {
   };
 
   if (isDeepSeekModel) {
-    providerPrefs.order = ["relace", "baidu", "coreweave", "novita", "streamlake", "deepinfra"];
+    providerPrefs.order = [...deepSeekProviderOrder];
     providerPrefs.allow_fallbacks = true;
   }
   if (isProModel) {

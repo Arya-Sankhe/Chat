@@ -2,7 +2,8 @@ import { HttpError } from "../http/responses.js";
 import {
   adaptChatRequestForProvider,
   OPENROUTER_PRO_FALLBACK_MODEL,
-  OPENROUTER_PRO_MODEL
+  OPENROUTER_PRO_MODEL,
+  refreshDeepSeekProviderOrder
 } from "../providers.js";
 import { stripLeakedReasoningMarkup } from "../saas/messages/content.js";
 
@@ -144,6 +145,9 @@ export async function listModels({ apiKey, baseUrl, signal }) {
 }
 
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
+  if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
+    await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
+  }
   let requestBody = {
     ...adaptChatRequestForProvider(body, providerId),
     stream: true,
@@ -167,6 +171,9 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
 }
 
 export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponseStarted, onResponsePayload }) {
+  if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
+    await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
+  }
   let requestBody = { ...adaptChatRequestForProvider(body, providerId), stream: false };
   let response;
   try {
