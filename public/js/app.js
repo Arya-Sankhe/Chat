@@ -4201,9 +4201,20 @@ function renderToolCalls() {
   return "";
 }
 
+const RELOADABLE_MESSAGE_ERRORS = new Set([
+  "Failed to fetch",
+  "Load failed",
+  "NetworkError when attempting to fetch resource.",
+  "This tab is out of date. Reload to continue."
+]);
+
 function renderMessageError(message) {
-  if (!message.error) return "";
-  return `<div class="message-error"><span>${escapeHtml(message.error)}</span></div>`;
+  const error = String(message.error || "");
+  if (!error) return "";
+  const reload = RELOADABLE_MESSAGE_ERRORS.has(error)
+    ? `<button class="msg-action-btn message-error-reload" type="button" data-message-error-reload aria-label="Reload" title="Reload"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.3-8.6"/><path d="M21 3v5h-5"/></svg></button>`
+    : "";
+  return `<div class="message-error"><span>${escapeHtml(error)}</span>${reload}</div>`;
 }
 
 function canRetryAssistant(message) {
@@ -8388,6 +8399,14 @@ function composerHasPendingContent() {
   return Boolean(composerPlainText().trim() || state.pastedText || state.images?.length);
 }
 
+function reloadAppIfSafe() {
+  if (state.running || composerHasPendingContent()) {
+    showToast("Finish the current response or send/save your draft before reloading.");
+    return;
+  }
+  window.location.reload();
+}
+
 function composerHasFocus() {
   return Boolean(els.composer?.contains(document.activeElement));
 }
@@ -8441,12 +8460,9 @@ function setAutoScroll(enabled) {
 
 function bindEvents() {
   initDocumentViewerWidth();
-  els.appUpdateReload?.addEventListener("click", () => {
-    if (state.running || composerHasPendingContent()) {
-      showToast("Finish the current response or send/save your draft before reloading.");
-      return;
-    }
-    window.location.reload();
+  els.appUpdateReload?.addEventListener("click", reloadAppIfSafe);
+  els.messages?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-message-error-reload]")) reloadAppIfSafe();
   });
   if (els.messages) els.messages.style.overflowAnchor = "none";
 

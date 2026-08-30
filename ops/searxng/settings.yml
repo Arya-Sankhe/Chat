@@ -2,8 +2,6 @@ use_default_settings:
   engines:
     keep_only:
       - duckduckgo
-      - bing
-      - mojeek
 
 search:
   safe_search: 1
@@ -23,11 +21,18 @@ ui:
   static_use_hash: true
 
 engines:
+  # DDG's public IP-facing HTML endpoint is CAPTCHA-prone. Use its official
+  # onion endpoint through the private Tor sidecar instead. Keep it on its
+  # first page: asking for a follow-up page without its vqd token is treated
+  # as bot traffic.
   - name: duckduckgo
-    disabled: false
-  - name: bing
-    disabled: false
-  # Trial engine: keyless and stable. Agreement across engines only boosts
-  # ranking in Klui's relevance filter; it is never required.
-  - name: mojeek
+    ddg_url: "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html/"
+    proxies:
+      http:
+        - socks5h://tor:9050
+      https:
+        - socks5h://tor:9050
+    using_tor_proxy: true
+    paging: false
+    timeout: 15.0
     disabled: false

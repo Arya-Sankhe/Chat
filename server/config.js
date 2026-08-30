@@ -50,9 +50,9 @@ function readSearchMode(value) {
 }
 
 function readSearchProvider(value) {
-  const provider = clean(value || "searxng").toLowerCase();
-  if (provider === "jina" || provider === "brave" || provider === "searxng") return provider;
-  return "searxng";
+  const provider = clean(value || "tinyfish").toLowerCase();
+  if (["searxng", "tinyfish", "jina", "brave"].includes(provider)) return provider;
+  return "tinyfish";
 }
 
 function readBuildId() {
@@ -252,7 +252,7 @@ export function loadConfig(env = process.env) {
       maxResults: readInt(env.WEBSEARCH_MAX_RESULTS, 5),
       pageContentChars: readInt(env.WEBSEARCH_PAGE_CONTENT_CHARS, 4000),
       totalContextChars: readInt(env.WEBSEARCH_TOTAL_CONTEXT_CHARS, 12000),
-      fetchTimeoutMs: readInt(env.WEBSEARCH_FETCH_TIMEOUT_MS, 8000),
+      fetchTimeoutMs: readInt(env.WEBSEARCH_FETCH_TIMEOUT_MS, 20_000),
       maxToolCallsPerTurn: readInt(env.WEBSEARCH_MAX_TOOL_CALLS_PER_TURN, 75),
       denyDomains: clean(env.WEBSEARCH_DENY_DOMAINS)
         .split(",")
@@ -260,7 +260,12 @@ export function loadConfig(env = process.env) {
         .filter(Boolean),
       searxng: {
         baseUrl: cleanUrl(env.SEARXNG_BASE_URL) || "http://searxng:8080",
-        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo", "bing", "mojeek"])
+        // Keyless engines are the paid-search-free primary path. Individual
+        // upstream failures are isolated by SearXNG; TinyFish is free fallback.
+        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo"])
+      },
+      tinyfish: {
+        apiKey: clean(env.TINYFISH_API_KEY)
       },
       jina: {
         apiKey: clean(env.JINA_API_KEY),
@@ -334,7 +339,7 @@ export function configuredServices(config) {
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
-    websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
+    websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.tinyfish?.apiKey || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
     weather: Boolean(config.weather?.apiKey),
     documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
     research: Boolean(config.research?.enabled && config.websearch?.searxng?.baseUrl && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)

@@ -15,6 +15,7 @@ import {
   formatResultsForModel
 } from "../server/websearch/index.js";
 import { searxngSearch, selectRelevantResults } from "../server/websearch/searxng.js";
+import { tinyfishSearch } from "../server/websearch/tinyfish.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
 import { buildLoadToolsTool, buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
@@ -98,6 +99,7 @@ const baseConfig = {
   maxToolCallsPerTurn: 3,
   denyDomains: [],
   searxng: { baseUrl: "http://searxng:8080", engines: ["duckduckgo", "bing"] },
+  tinyfish: { apiKey: "" },
   jina: { apiKey: "test-jina-key", backend: "google", engine: "direct" },
   brave: { apiKey: "test-brave-key" }
 };
@@ -311,12 +313,102 @@ describe("deny domains", () => {
 describe("WebSearchOrchestrator", () => {
   after(() => restoreFetch());
 
-  test("config defaults to SearXNG search with internal Docker URL", () => {
+  test("config defaults to TinyFish-first with internal SearXNG fallback", () => {
     const config = loadConfig({});
-    assert.equal(config.websearch.primaryProvider, "searxng");
+    assert.equal(config.websearch.primaryProvider, "tinyfish");
     assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
-    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo", "bing", "mojeek"]);
+    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo"]);
+    assert.equal(config.websearch.fetchTimeoutMs, 20_000);
     assert.equal(config.websearch.dailyLimits, undefined);
+  });
+
+  test("TinyFish search uses only the Search API and normalizes results", async () => {
+    let capturedUrl;
+    let capturedOptions;
+    installFetch(async (url, options) => {
+      capturedUrl = new URL(String(url));
+      capturedOptions = options;
+      return jsonResponse({
+        query: "latest ai news",
+        results: [{ title: "AI update", url: "https://example.com/ai", snippet: "Latest AI news", date: "2026-08-28" }]
+      });
+    });
+
+    const result = await tinyfishSearch({
+      query: "latest ai news",
+      originalQuestion: "What is the latest AI news?",
+      country: "ae",
+      lang: "en",
+      freshness: "day",
+      apiKey: "secret"
+    });
+
+    assert.equal(capturedUrl.origin, "https://api.search.tinyfish.ai");
+    assert.equal(capturedUrl.pathname, "/");
+    assert.equal(capturedUrl.searchParams.get("query"), "latest ai news");
+    assert.equal(capturedUrl.searchParams.get("purpose"), "What is the latest AI news?");
+    assert.equal(capturedUrl.searchParams.get("location"), "AE");
+    assert.equal(capturedUrl.searchParams.get("recency_minutes"), "1440");
+    assert.equal(capturedOptions.headers["x-api-key"], "secret");
+    assert.deepEqual(result.results[0], {
+      index: 1,
+      title: "AI update",
+      url: "https://example.com/ai",
+      snippet: "Latest AI news",
+      content: "",
+      publishedAt: "2026-08-28"
+    });
+  });
+
+  test("SearXNG failure uses free TinyFish before paid Brave", async () => {
+    const calls = [];
+    installFetch(async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("searxng:8080")) return new Response("down", { status: 502 });
+      if (String(url).includes("api.search.tinyfish.ai")) {
+        return jsonResponse({ results: [{ title: "Tiny result", url: "https://example.com/tiny", snippet: "tiny query" }] });
+      }
+      throw new Error("Brave must not be called");
+    });
+
+    const config = { ...baseConfig, primaryProvider: "searxng", tinyfish: { apiKey: "test-tinyfish-key" } };
+    const result = await new WebSearchOrchestrator({ config }).search({ query: "tiny query" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "tinyfish");
+    assert.equal(calls.length, 2);
+    assert.equal(calls.some((url) => url.includes("api.search.brave.com")), false);
+  });
+
+  test("TinyFish rate limiting falls back to SearXNG", async () => {
+    installFetch(async (url) => {
+      if (String(url).includes("api.search.tinyfish.ai")) return new Response("rate limited", { status: 429 });
+      return jsonResponse({ results: [{ title: "SearX result", url: "https://example.com/searx", content: "fallback query" }] });
+    });
+
+    const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" } };
+    const result = await new WebSearchOrchestrator({ config }).search({ query: "fallback query" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "searxng");
+  });
+
+  test("irrelevant TinyFish and SearXNG results fall through to Brave", async () => {
+    installFetch(async (url) => {
+      if (String(url).includes("api.search.tinyfish.ai")) {
+        return jsonResponse({ results: [{ title: "Weather", url: "https://example.com/weather", snippet: "Rain tomorrow" }] });
+      }
+      if (String(url).includes("searxng:8080")) {
+        return jsonResponse({ results: [{ title: "Dictionary", url: "https://example.com/dictionary", content: "Word definition" }] });
+      }
+      return jsonResponse({
+        grounding: { generic: [{ title: "Dubai restaurants", url: "https://example.com/food", snippets: ["Best places to eat in Dubai"] }] },
+        sources: {}
+      });
+    });
+
+    const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" } };
+    const result = await new WebSearchOrchestrator({ config }).search({ query: "best places to eat in Dubai" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "brave");
   });
 
   test("SearXNG search success returns normalized snippet-only results", async () => {
@@ -591,6 +683,22 @@ describe("WebSearchOrchestrator", () => {
     assert.deepEqual(result.results, []);
   });
 
+  test("empty SearXNG results skip Jina and reach the final fallback", async () => {
+    const calls = [];
+    installFetch(async (url) => {
+      calls.push(String(url));
+      return jsonResponse({ results: [] });
+    });
+
+    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
+    const result = await orchestrator.search({ query: "best places to eat in Dubai", numResults: 5 });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "brave");
+    assert.deepEqual(result.results, []);
+    assert.equal(calls.filter((url) => url.includes("s.jina.ai/search")).length, 0);
+  });
+
   test("Jina search success returns normalized results", async () => {
     let capturedUrl;
     let capturedOptions;
@@ -621,7 +729,7 @@ describe("WebSearchOrchestrator", () => {
     let calls = 0;
     installFetch(async () => {
       calls += 1;
-      return jsonResponse({ data: [{ url: "https://a.example/1", title: "A", content: "duplicate query" }] });
+      return jsonResponse({ data: [{ url: "https://a.example/1", title: "A", description: "duplicate query", content: "duplicate query" }] });
     });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
     const first = await orchestrator.search({ query: "duplicate query" });
@@ -657,15 +765,19 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.results[0].publishedAt, "2026-05-22");
   });
 
-  test("falls back from SearXNG to Jina when SearXNG fails", async () => {
-    let stage = "searxng";
+  test("SearXNG errors skip Jina and use Brave only as paid fallback", async () => {
+    const calls = [];
     installFetch(async (url) => {
+      calls.push(String(url));
       if (String(url).includes("searxng:8080")) {
         return new Response("upstream busy", { status: 502 });
       }
-      stage = "jina";
       return jsonResponse({
-        data: [{ url: "https://j.example/1", title: "Jina A", description: "jina snippet", content: "jina content" }]
+        grounding: {
+          generic: [{ url: "https://b.example/1", title: "Brave A", snippets: ["brave snippet"] }],
+          map: []
+        },
+        sources: { "https://b.example/1": { title: "Brave A", hostname: "b.example" } }
       });
     });
 
@@ -673,9 +785,32 @@ describe("WebSearchOrchestrator", () => {
     const orchestrator = new WebSearchOrchestrator({ config });
     const result = await orchestrator.search({ query: "jina" });
     assert.equal(result.ok, true);
-    assert.equal(result.provider, "jina");
-    assert.equal(stage, "jina");
-    assert.equal(result.results[0].content, "jina content");
+    assert.equal(result.provider, "brave");
+    assert.equal(calls.length, 2);
+    assert.equal(calls.some((url) => url.includes("s.jina.ai/search")), false);
+    assert.equal(calls.some((url) => url.includes("api.search.brave.com")), true);
+  });
+
+  test("SearXNG all-unresponsive JSON uses Brave fallback", async () => {
+    installFetch(async (url) => {
+      if (String(url).includes("searxng:8080")) {
+        return jsonResponse({
+          results: [],
+          unresponsive_engines: [["duckduckgo", "Suspended"], ["bing", "Suspended"]]
+        });
+      }
+      return jsonResponse({
+        grounding: {
+          generic: [{ url: "https://b.example/1", title: "Brave A", snippets: ["brave snippet"] }],
+          map: []
+        },
+        sources: { "https://b.example/1": { title: "Brave A", hostname: "b.example" } }
+      });
+    });
+
+    const result = await new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } }).search({ query: "jina" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "brave");
   });
 
   test("SearXNG 403 surfaces a JSON-format configuration error", async () => {
@@ -783,7 +918,7 @@ describe("WebSearchOrchestrator", () => {
         jinaCalls += 1;
         return new Response("err", { status: 500 });
       }
-      return jsonResponse({ results: [{ url: "https://x", title: "B", description: "" }] });
+      return jsonResponse({ results: [{ url: "https://x", title: "B", description: "q0 q1 q2 after cooldown" }] });
     });
     const orchestrator = new WebSearchOrchestrator({ config: baseConfig });
     for (let i = 0; i < 3; i++) {
@@ -2048,6 +2183,28 @@ describe("Phase 5 relevance and reader regression", () => {
     // Same search query for both; only the original question carries the extra intent.
     const ranked = selectRelevantResults(candidates, "durasol", "durasol facade aluminium coating for buildings", 8);
     assert.deepEqual(ranked.map((r) => r.url), ["https://y.example/facade", "https://x.example/news"]);
+  });
+
+  test("whole-token relevance rejects substring matches from generic search noise", () => {
+    const ranked = selectRelevantResults([
+      {
+        title: "BEST Definition & Meaning - Merriam-Webster",
+        url: "https://www.merriam-webster.com/dictionary/best",
+        snippet: "In the best of all possible worlds, no one would be without food and water."
+      },
+      {
+        title: "THE 10 BEST Restaurants in Kigali",
+        url: "https://www.tripadvisor.com/Restaurants-g293829-Kigali_Kigali_Province.html",
+        snippet: "Best Dining in Kigali: traveler reviews of Kigali restaurants."
+      },
+      {
+        title: "Best places to eat in Dubai",
+        url: "https://visit.example/dubai-restaurants",
+        snippet: "A Dubai guide to places to eat and the best restaurants."
+      }
+    ], "best places to eat in Dubai", "best places to eat in Dubai", 5);
+
+    assert.deepEqual(ranked.map((entry) => entry.url), ["https://visit.example/dubai-restaurants"]);
   });
 
   test("selectRelevantResults caps a single domain at two results", () => {

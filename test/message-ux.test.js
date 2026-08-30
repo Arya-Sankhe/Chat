@@ -136,6 +136,21 @@ test("thinking status is block-level and omitted once final answer text exists",
   assert.match(css, /\.thinking-status\.is-leaving/);
 });
 
+test("message errors stay compact and only network or stale-build errors offer safe reload", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  const render = appJs.match(/function renderMessageError\(message\)\s*\{[\s\S]*?\n\}/);
+  assert.ok(render, "renderMessageError not found");
+  assert.match(render[0], /data-message-error-reload/);
+  assert.match(appJs, /Failed to fetch/);
+  assert.match(appJs, /This tab is out of date\. Reload to continue\./);
+  assert.match(appJs, /els\.messages\?\.addEventListener\("click"/);
+  assert.match(appJs, /function reloadAppIfSafe\(\)/);
+  assert.match(appJs, /state\.running \|\| composerHasPendingContent\(\)/);
+  assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
+  assert.doesNotMatch(css, /\.message-retry-btn\s*\{/);
+});
+
 test("streamed answer text gets a short blur reveal without animating reduced-motion clients", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();

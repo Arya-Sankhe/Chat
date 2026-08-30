@@ -2,13 +2,11 @@
  * Web search orchestrator. Picks a provider, runs the fallback chain, and
  * reports a normalized result shape regardless of which provider answered.
  *
- * Provider chain (default):
- *   1. SearXNG                  — primary, cheap SERP/snippet discovery
- *   2. Jina  (s.jina.ai)        — fallback, search + extracted content
- *   3. Brave (LLM Context)      — fallback when paid/search providers fail
+ * TinyFish is the default web_search provider, followed by self-hosted
+ * SearXNG and Brave; Jina is retained for read_url and explicit provider mode.
  *
- * A tiny circuit breaker flips to the fallback for 5 minutes if the
- * primary returns 3 consecutive 5xx/429 within 60 seconds.
+ * A tiny circuit breaker pauses a provider for 5 minutes after 3 consecutive
+ * 5xx/429 responses within 60 seconds.
  *
  * There is no search cache. Each call hits a provider; queries are not
  * stored or shared across users.
@@ -22,6 +20,7 @@ import {
 } from "./deny-domains.js";
 import { jinaRead, jinaSearch, WebSearchError } from "./jina.js";
 import { searxngSearch, selectRelevantResults } from "./searxng.js";
+import { tinyfishSearch } from "./tinyfish.js";
 
 export {
   BUILTIN_ADULT_DENY_DOMAINS,
@@ -81,23 +80,25 @@ export class WebSearchOrchestrator {
     this.config = config;
     this.health = {
       searxng: new ProviderHealth("searxng"),
+      tinyfish: new ProviderHealth("tinyfish"),
       jina: new ProviderHealth("jina"),
       brave: new ProviderHealth("brave")
     };
   }
 
   get hasAnyProvider() {
-    return Boolean(this.config.searxng?.baseUrl || this.config.jina?.apiKey || this.config.brave?.apiKey);
+    return Boolean(this.config.searxng?.baseUrl || this.config.tinyfish?.apiKey || this.config.jina?.apiKey || this.config.brave?.apiKey);
   }
 
   resolveChain() {
-    const providers = ["searxng", "jina", "brave"];
+    const providers = ["searxng", "tinyfish", "jina", "brave"];
     const requested = providers.includes(this.config.primaryProvider)
       ? this.config.primaryProvider
-      : "searxng";
+      : "tinyfish";
     if (requested === "jina") return ["jina", "brave", "searxng"];
     if (requested === "brave") return ["brave", "searxng", "jina"];
-    return ["searxng", "jina", "brave"];
+    if (requested === "tinyfish") return ["tinyfish", "searxng", "brave"];
+    return ["searxng", "tinyfish", "brave"];
   }
 
   effectiveDenyDomains() {
@@ -134,7 +135,7 @@ export class WebSearchOrchestrator {
     const chain = this.resolveChain();
     let lastError = null;
 
-    for (const providerName of chain) {
+    for (const [providerIndex, providerName] of chain.entries()) {
       if (!this.providerAvailable(providerName)) continue;
       const healthy = this.health[providerName].isHealthy();
       if (!healthy) {
@@ -157,12 +158,31 @@ export class WebSearchOrchestrator {
           signal
         });
 
+        // SearXNG returns HTTP 200 even when every selected upstream engine is
+        // suspended. Only spend the paid fallback in that explicit case.
+        if (providerName === "searxng" && !(raw.results || []).length) {
+          const unavailable = Array.isArray(raw.unresponsiveEngines) ? raw.unresponsiveEngines : [];
+          const selected = Array.isArray(this.config.searxng?.engines) ? this.config.searxng.engines : [];
+          const unavailableNames = new Set(unavailable.map((entry) => Array.isArray(entry) ? entry[0] : entry?.engine || entry?.name));
+          if (selected.length && selected.every((name) => unavailableNames.has(name))) {
+            throw new WebSearchError("All configured SearXNG engines are unavailable.", {
+              status: 502,
+              provider: "searxng",
+              retryable: true,
+              details: unavailable
+            });
+          }
+        }
+
         const cleanResults = selectRelevantResults(
           this.filterDeniedDomains(raw.results || []),
           normalizedQuery,
           normalizedQuestion,
           resultLimit
         );
+        if (!cleanResults.length && chain.slice(providerIndex + 1).some((name) => this.providerAvailable(name))) {
+          continue;
+        }
         const payload = {
           query: raw.query,
           provider: providerName,
@@ -247,6 +267,7 @@ export class WebSearchOrchestrator {
 
   providerAvailable(name) {
     if (name === "searxng") return Boolean(this.config.searxng?.baseUrl);
+    if (name === "tinyfish") return Boolean(this.config.tinyfish?.apiKey);
     /* s.jina.ai (search) requires an API key. r.jina.ai (reader) is the
        only Jina endpoint with a real anonymous tier, so readUrl can still
        call Jina without a key — but plain search cannot. */
@@ -261,6 +282,13 @@ export class WebSearchOrchestrator {
         ...params,
         baseUrl: this.config.searxng.baseUrl,
         engines: this.config.searxng.engines,
+        timeoutMs: this.config.fetchTimeoutMs
+      });
+    }
+    if (name === "tinyfish") {
+      return tinyfishSearch({
+        ...params,
+        apiKey: this.config.tinyfish.apiKey,
         timeoutMs: this.config.fetchTimeoutMs
       });
     }

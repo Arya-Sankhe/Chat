@@ -31,9 +31,9 @@ in-house feature set:
   budget per plan.
 - Compare mode (2–4 models streaming in parallel) and Council mode
   (panel → anonymized peer review → chairman synthesis).
-- Web search backed by SearXNG (primary), Jina (`s.jina.ai`) and Brave
-  LLM Context (fallbacks), invoked through OpenAI-style tool calls with
-  per-plan daily quotas and a two-tier cache.
+- Web search backed by self-hosted SearXNG, free TinyFish Search, and paid
+  Brave fallback, invoked through OpenAI-style tool calls. Jina remains
+  available for direct page reads.
 - Deep Research: long-running Node worker that plans, searches, fetches,
   extracts, and synthesizes a long-form report with citation validation.
 - Document skills: PDF/DOCX/XLSX/PPTX/CSV/TSV upload, read, search,
@@ -114,7 +114,7 @@ extras.
 | Node web server | `server/index.js` | `npm start` or `node server/index.js` (the Docker image default) |
 | Research worker | `server/research/worker.js` | `npm run research:worker` (a separate container in `docker-compose.yml`) |
 | Document worker | `worker/worker.py` (Python) | `python -m worker.worker` (the `document-worker` service in `docker-compose.yml`) |
-| Internal SearXNG | `searxng/searxng:latest` | the `searxng` service in `docker-compose.yml` |
+| Internal SearXNG | `searxng/searxng:2026.8.22-9fea41204` | the `searxng` service in `docker-compose.yml` |
 | Android APK | `android/app/...` | built by `npm run mobile:apk:release` and shipped via `public/downloads/android/` (the download landing page is `public/download/android/index.html`) |
 
 ## 3. Module ownership and dependency direction
@@ -147,7 +147,7 @@ extras.
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
 | `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `extract_tables`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
-| `server/websearch/index.js` | `WebSearchOrchestrator` — provider chain (SearXNG → Jina → Brave) with per-provider circuit breaker, two-tier LRU+Supabase cache via `SearchCache`, and `readUrl` for direct page reads through Jina's `r.jina.ai`. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./cache.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js` |
+| `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → SearXNG → paid Brave fallback) with per-provider circuit breaker and `readUrl` for direct page reads through Jina's `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js`, `./tinyfish.js` |
 | `server/websearch/deny-domains.js` | Shared hostname deny list for web search and Deep Research. Built-in adult domains are always enforced; `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive via `mergeDenyDomains`. | — |
 | `server/websearch/searxng.js` | SearXNG `/search?format=json` caller with a chat-tuned relevance re-ranker (tokenization, stopword filter, host quality bonus, noise blacklist, GitHub-generic filter, "restaurants"-term filter) and a `raw` mode for deep research. | `./jina.js` (for `WebSearchError`) |
 | `server/websearch/jina.js` | `jinaSearch` calls `https://s.jina.ai/search` (returns search results + extracted markdown in one call), `jinaRead` calls `https://r.jina.ai/<url>` for a single URL. | `./http/responses.js` |
@@ -329,6 +329,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | Supabase GoTrue (`<project>.supabase.co/auth/v1/*`) | `server/auth/supabase.js` (`requireUser`); client-side PKCE / magic link / `signInWithIdToken` for Google in `public/js/auth.js`. |
 | Cloudflare R2 (S3-compatible at `<accountId>.r2.cloudflarestorage.com`) | `server/storage/r2.js` (presign, putObject, headObject, deleteObject, deleteObjects, readUrl). |
 | Jina Search Foundation (`s.jina.ai/search`) | `server/websearch/jina.js` `jinaSearch`. Requires `JINA_API_KEY`. |
+| TinyFish Search (`api.search.tinyfish.ai`) | `server/websearch/tinyfish.js` `tinyfishSearch`. Free 30 RPM per API key; search only. |
 | Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Works anonymously. |
 | Jina Embeddings (`api.jina.ai/v1/embeddings`) | `server/documents/index.js` `embedQuery` for document page vector search. |
 | Brave Search LLM Context (`api.search.brave.com/res/v1/llm/context`) | `server/websearch/brave.js`. |

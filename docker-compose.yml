@@ -13,8 +13,11 @@ services:
       HOST: 0.0.0.0
       ONLYOFFICE_PUBLIC_URL: ${ONLYOFFICE_PUBLIC_URL:-http://localhost:8082}
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
-      WEBSEARCH_PRIMARY_PROVIDER: searxng
+      WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
       SEARXNG_BASE_URL: http://searxng:8080
+      SEARXNG_ENGINES: duckduckgo
+      # Tor-backed DDG can take longer than a direct upstream request.
+      WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
     depends_on:
       searxng:
@@ -49,7 +52,12 @@ services:
     restart: unless-stopped
 
   searxng:
-    image: searxng/searxng:latest
+    # Pin the known engine bundle; latest can silently change upstream
+    # request behavior and reintroduce bot-block regressions.
+    image: searxng/searxng:2026.8.22-9fea41204
+    depends_on:
+      tor:
+        condition: service_healthy
     expose:
       - "8080"
     volumes:
@@ -65,6 +73,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  # Private egress used only by SearXNG's DuckDuckGo engine. It has no
+  # published port; the application never talks to Tor directly.
+  tor:
+    build:
+      context: ./ops/tor
+    expose:
+      - "9050"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   document-worker:
@@ -94,8 +117,10 @@ services:
       - path: .env
         required: false
     environment:
-      WEBSEARCH_PRIMARY_PROVIDER: searxng
+      WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
       SEARXNG_BASE_URL: http://searxng:8080
+      SEARXNG_ENGINES: duckduckgo
+      WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
       RESEARCH_WORKER_POLL_MS: ${RESEARCH_WORKER_POLL_MS:-5000}

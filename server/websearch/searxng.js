@@ -35,6 +35,10 @@ function terms(value) {
   )];
 }
 
+function termSet(value) {
+  return new Set(terms(value));
+}
+
 function resultHost(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
@@ -46,9 +50,11 @@ function resultHost(url) {
 function overlapScore(result, queryTerms, questionTerms, exactQuery) {
   const title = String(result.title || "").toLowerCase();
   const body = `${result.title || ""} ${result.snippet || ""} ${result.url || ""}`.toLowerCase();
-  const queryHits = queryTerms.filter((term) => body.includes(term)).length;
-  const questionHits = questionTerms.filter((term) => body.includes(term)).length;
-  const titleHits = queryTerms.filter((term) => title.includes(term)).length;
+  const bodyTerms = termSet(body);
+  const titleTerms = termSet(title);
+  const queryHits = queryTerms.filter((term) => bodyTerms.has(term)).length;
+  const questionHits = questionTerms.filter((term) => bodyTerms.has(term)).length;
+  const titleHits = queryTerms.filter((term) => titleTerms.has(term)).length;
   // Cross-engine agreement is a ranking boost, never a requirement.
   const engineBoost = Array.isArray(result.engines) && result.engines.length > 1 ? 1 : 0;
   return {
@@ -186,6 +192,7 @@ export async function searxngSearch({
     provider: "searxng",
     query: searchQuery,
     results: selectRelevantResults(candidates, searchQuery, originalQuestion, limit),
+    unresponsiveEngines: Array.isArray(payload?.unresponsive_engines) ? payload.unresponsive_engines : [],
     tokens: null
   };
 }

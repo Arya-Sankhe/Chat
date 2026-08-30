@@ -1835,13 +1835,23 @@ body.capacitor-native .side-chat-panel {
 
 .message-error {
 
-  display: flex;
+  display: inline-flex;
+
+  width: fit-content;
+
+  max-width: 100%;
+
+  border-radius: 999px;
+
+  padding: 5px 8px;
+
+  font-size: 12px;
 
   align-items: center;
 
   justify-content: space-between;
 
-  gap: 12px;
+  gap: 6px;
 
   color: var(--danger);
 
@@ -1851,41 +1861,23 @@ body.capacitor-native .side-chat-panel {
 
 }
 
-.message-retry-btn {
+.message-error-reload {
 
   flex: 0 0 auto;
 
-  padding: 6px 12px;
+  width: 24px;
 
-  border-radius: 999px;
+  height: 24px;
 
-  border: 1px solid #fca5a5;
+  padding: 3px;
 
-  background: #fff;
-
-  color: var(--danger);
-
-  font-size: 12px;
-
-  font-weight: 600;
-
-  transition: background var(--transition), border-color var(--transition), color var(--transition);
+  color: inherit;
 
 }
 
-.message-retry-btn:hover {
+.message-error-reload:hover {
 
   background: #fee2e2;
-
-  border-color: #f87171;
-
-}
-
-.message-retry-btn:disabled {
-
-  opacity: 0.6;
-
-  cursor: not-allowed;
 
 }
 

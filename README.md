@@ -13,7 +13,7 @@ Klui Chat is a Dockerized managed B2C SaaS chat app for the Crof-compatible mode
 - Document tools for PDF, DOCX, XLSX, PPTX, CSV, and TSV: read/search attached files, extract tables, create new DOCX/XLSX/PPTX/PDF files, edit DOCX/XLSX copies, and export DOCX/XLSX/PPTX to PDF through a Docker worker.
 - Docker and Docker Compose hosting.
 
-- Optional web search backed by a self-hosted SearXNG instance (primary, bundled in `docker-compose.yml`) with Jina Search Foundation (`s.jina.ai`) and Brave LLM Context as fallbacks. The model decides when to call it via OpenAI-style tool calls; a per-chat Auto/Off toggle lives next to the image button.
+- Optional web search backed by self-hosted SearXNG, with free TinyFish Search before the paid Brave fallback. Jina Reader remains available for reading selected result pages. The model decides when to call search via OpenAI-style tool calls; a per-chat Auto/Off toggle lives next to the image button.
 
 No BYOK, local chat migration, multi-provider routing, prompt marketplace, OCR, or LibreChat extras are included.
 
@@ -84,13 +84,14 @@ The document worker uses open-source local libraries. Uploaded PDF and Office fi
 
 Optional for web search:
 
-- `SEARXNG_BASE_URL` (default `http://searxng:8080`, the SearXNG container in `docker-compose.yml`). SearXNG is the primary, keyless provider; `SEARXNG_ENGINES` picks its upstream engines (default `duckduckgo,bing`).
-- `JINA_API_KEY` (first fallback; `s.jina.ai` search requires a key — new keys include a 10M-token free trial).
-- `BRAVE_SEARCH_API_KEY` (second fallback; $5/month free credit).
-- `WEBSEARCH_PRIMARY_PROVIDER` reorders the chain (`searxng` | `jina` | `brave`; default `searxng`).
+- `SEARXNG_BASE_URL` (default `http://searxng:8080`, the SearXNG container in `docker-compose.yml`). SearXNG is the primary, keyless provider; the compose deployment routes DuckDuckGo through its private Tor sidecar and uses the official DDG onion endpoint (default `SEARXNG_ENGINES=duckduckgo`).
+- `TINYFISH_API_KEY` enables TinyFish's free Search API with a 30 requests/minute quota.
+- `JINA_API_KEY` (only used when `WEBSEARCH_PRIMARY_PROVIDER=jina`; `s.jina.ai` search requires a key).
+- `BRAVE_SEARCH_API_KEY` (paid final fallback; $5/month free credit).
+- `WEBSEARCH_PRIMARY_PROVIDER` reorders the chain (`tinyfish` | `searxng` | `jina` | `brave`; default `tinyfish`).
 - `WEBSEARCH_*` knobs (default mode, per-plan daily search quotas, cache TTL, max tool calls per turn). See `.env.example`.
 
-The provider chain degrades in order (default SearXNG → Jina → Brave) with per-provider circuit breakers. The reader endpoint `r.jina.ai` used by the `read_url` tool works anonymously when no Jina key is set. If no provider is configured at all the toggle is hidden from the UI and the tool is never offered to the model.
+The default provider chain is TinyFish (when keyed) → SearXNG → Brave. Failures, rate limits, and empty/irrelevant result sets advance to the next available provider; Jina is available when explicitly selected. The reader endpoint `r.jina.ai` used by the `read_url` tool works anonymously when no Jina key is set. If no provider is configured at all the toggle is hidden from the UI and the tool is never offered to the model.
 
 ## Run Locally
 
