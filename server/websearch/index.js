@@ -87,7 +87,14 @@ export class WebSearchOrchestrator {
   }
 
   get hasAnyProvider() {
-    return Boolean(this.config.searxng?.baseUrl || this.config.tinyfish?.apiKey || this.config.jina?.apiKey || this.config.brave?.apiKey);
+    return Boolean(this.config.searxng?.baseUrl || this.tinyfishApiKeys().length || this.config.jina?.apiKey || this.config.brave?.apiKey);
+  }
+
+  tinyfishApiKeys() {
+    const configured = Array.isArray(this.config.tinyfish?.apiKeys)
+      ? this.config.tinyfish.apiKeys
+      : [this.config.tinyfish?.apiKey];
+    return [...new Set(configured.map((key) => String(key || "").trim()).filter(Boolean))];
   }
 
   resolveChain() {
@@ -267,7 +274,7 @@ export class WebSearchOrchestrator {
 
   providerAvailable(name) {
     if (name === "searxng") return Boolean(this.config.searxng?.baseUrl);
-    if (name === "tinyfish") return Boolean(this.config.tinyfish?.apiKey);
+    if (name === "tinyfish") return this.tinyfishApiKeys().length > 0;
     /* s.jina.ai (search) requires an API key. r.jina.ai (reader) is the
        only Jina endpoint with a real anonymous tier, so readUrl can still
        call Jina without a key — but plain search cannot. */
@@ -286,11 +293,16 @@ export class WebSearchOrchestrator {
       });
     }
     if (name === "tinyfish") {
-      return tinyfishSearch({
-        ...params,
-        apiKey: this.config.tinyfish.apiKey,
-        timeoutMs: this.config.fetchTimeoutMs
-      });
+      let lastError;
+      for (const apiKey of this.tinyfishApiKeys()) {
+        try {
+          return await tinyfishSearch({ ...params, apiKey, timeoutMs: this.config.fetchTimeoutMs });
+        } catch (error) {
+          lastError = error;
+          if (params.signal?.aborted) throw error;
+        }
+      }
+      throw lastError || new WebSearchError("TinyFish Search API key is not configured.", { provider: "tinyfish" });
     }
     if (name === "jina") {
       return jinaSearch({

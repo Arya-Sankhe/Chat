@@ -1,12 +1,14 @@
 import { WebSearchError, isAbortError, requestSignal } from "./jina.js";
 
 const ENDPOINT = "https://api.search.tinyfish.ai";
-const requestTimes = [];
+const requestTimesByKey = new Map();
 
-function reserveRequest(now = Date.now()) {
+function reserveRequest(apiKey, now = Date.now()) {
+  const requestTimes = requestTimesByKey.get(apiKey) || [];
   while (requestTimes.length && now - requestTimes[0] >= 60_000) requestTimes.shift();
   if (requestTimes.length >= 30) return false;
   requestTimes.push(now);
+  requestTimesByKey.set(apiKey, requestTimes);
   return true;
 }
 
@@ -32,9 +34,9 @@ export async function tinyfishSearch({
   if (!apiKey) {
     throw new WebSearchError("TinyFish Search API key is not configured.", { status: 503, provider: "tinyfish" });
   }
-  // ponytail: process-local guard matches today's single app container; TinyFish's
-  // own HTTP 429 remains authoritative if the same key is later shared elsewhere.
-  if (!reserveRequest()) {
+  // ponytail: per-key, process-local guard matches today's single app container;
+  // TinyFish's own HTTP 429 remains authoritative if a key is shared elsewhere.
+  if (!reserveRequest(apiKey)) {
     throw new WebSearchError("TinyFish search rate limit reached.", {
       status: 429,
       provider: "tinyfish",

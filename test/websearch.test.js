@@ -99,7 +99,7 @@ const baseConfig = {
   maxToolCallsPerTurn: 3,
   denyDomains: [],
   searxng: { baseUrl: "http://searxng:8080", engines: ["duckduckgo", "bing"] },
-  tinyfish: { apiKey: "" },
+  tinyfish: { apiKey: "", apiKeys: [] },
   jina: { apiKey: "test-jina-key", backend: "google", engine: "direct" },
   brave: { apiKey: "test-brave-key" }
 };
@@ -389,6 +389,28 @@ describe("WebSearchOrchestrator", () => {
     const result = await new WebSearchOrchestrator({ config }).search({ query: "fallback query" });
     assert.equal(result.ok, true);
     assert.equal(result.provider, "searxng");
+  });
+
+  test("TinyFish retries the second key before falling back to SearXNG", async () => {
+    const keys = [];
+    installFetch(async (url, options) => {
+      if (String(url).includes("api.search.tinyfish.ai")) {
+        keys.push(options.headers["x-api-key"]);
+        if (keys.length === 1) return new Response("rate limited", { status: 429 });
+        return jsonResponse({ results: [{ title: "Tiny result", url: "https://example.com/tiny", snippet: "fallback key" }] });
+      }
+      throw new Error("SearXNG must not be called when the second TinyFish key works");
+    });
+
+    const config = {
+      ...baseConfig,
+      primaryProvider: "tinyfish",
+      tinyfish: { apiKey: "primary-key", apiKeys: ["primary-key", "secondary-key"] }
+    };
+    const result = await new WebSearchOrchestrator({ config }).search({ query: "fallback key" });
+    assert.equal(result.ok, true);
+    assert.equal(result.provider, "tinyfish");
+    assert.deepEqual(keys, ["primary-key", "secondary-key"]);
   });
 
   test("irrelevant TinyFish and SearXNG results fall through to Brave", async () => {

@@ -85,13 +85,13 @@ The document worker uses open-source local libraries. Uploaded PDF and Office fi
 Optional for web search:
 
 - `SEARXNG_BASE_URL` (default `http://searxng:8080`, the SearXNG container in `docker-compose.yml`). SearXNG is the primary, keyless provider; the compose deployment routes DuckDuckGo through its private Tor sidecar and uses the official DDG onion endpoint (default `SEARXNG_ENGINES=duckduckgo`).
-- `TINYFISH_API_KEY` enables TinyFish's free Search API with a 30 requests/minute quota.
+- `TINYFISH_API_KEY` enables TinyFish's free Search API with a 30 requests/minute quota; `TINYFISH_API_KEY_2` is tried immediately if the primary key fails.
 - `JINA_API_KEY` (only used when `WEBSEARCH_PRIMARY_PROVIDER=jina`; `s.jina.ai` search requires a key).
 - `BRAVE_SEARCH_API_KEY` (paid final fallback; $5/month free credit).
 - `WEBSEARCH_PRIMARY_PROVIDER` reorders the chain (`tinyfish` | `searxng` | `jina` | `brave`; default `tinyfish`).
 - `WEBSEARCH_*` knobs (default mode, per-plan daily search quotas, cache TTL, max tool calls per turn). See `.env.example`.
 
-The default provider chain is TinyFish (when keyed) → SearXNG → Brave. Failures, rate limits, and empty/irrelevant result sets advance to the next available provider; Jina is available when explicitly selected. The reader endpoint `r.jina.ai` used by the `read_url` tool works anonymously when no Jina key is set. If no provider is configured at all the toggle is hidden from the UI and the tool is never offered to the model.
+The default provider chain is TinyFish (keys tried in order) → SearXNG → Brave. Failures and rate limits retry the next TinyFish key before advancing; empty/irrelevant result sets advance to the next provider. Jina is available when explicitly selected. The reader endpoint `r.jina.ai` used by the `read_url` tool works anonymously when no Jina key is set. If no provider is configured at all the toggle is hidden from the UI and the tool is never offered to the model.
 
 ## Run Locally
 

@@ -265,7 +265,8 @@ export function loadConfig(env = process.env) {
         engines: readList(env.SEARXNG_ENGINES, ["duckduckgo"])
       },
       tinyfish: {
-        apiKey: clean(env.TINYFISH_API_KEY)
+        apiKey: clean(env.TINYFISH_API_KEY),
+        apiKeys: [clean(env.TINYFISH_API_KEY), clean(env.TINYFISH_API_KEY_2)].filter(Boolean)
       },
       jina: {
         apiKey: clean(env.JINA_API_KEY),
