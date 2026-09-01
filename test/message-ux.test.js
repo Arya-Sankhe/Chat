@@ -136,6 +136,21 @@ test("thinking status is block-level and omitted once final answer text exists",
   assert.match(css, /\.thinking-status\.is-leaving/);
 });
 
+test("thinking status briefly rolls real tool updates through its existing heading", () => {
+  const appJs = readPublic("js/app.js");
+  const kluiJs = readPublic("js/klui.js");
+  const css = readStylesheet();
+  assert.match(appJs, /function currentThinkingUpdate\(message, \{ streaming = false \} = \{\}\)/);
+  assert.match(appJs, /text: toolTaskLabel\(runningTool\)/);
+  assert.match(appJs, /name === "web_search"\) return detail \? `Searching for \$\{detail\}`/);
+  assert.match(kluiJs, /class="klui-copy"/);
+  assert.match(kluiJs, /class="klui-phrase"/);
+  assert.match(kluiJs, /function startPhraseCycle\(\)/);
+  assert.match(kluiJs, /function showUpdate\(update, updateKey\)/);
+  assert.match(kluiJs, /\}, 2800\);/);
+  assert.match(css, /\.klui-copy\s*\{[^}]*display:\s*grid/);
+});
+
 test("message errors stay compact and only network or stale-build errors offer safe reload", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
