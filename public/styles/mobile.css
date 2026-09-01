@@ -3530,3 +3530,26 @@ body.capacitor-native.chat-empty .composer-area {
   top: auto !important;
   bottom: var(--native-keyboard-height) !important;
 }
+
+/* Final mobile composer sizing: leave the wallpaper's bottom detail visible. */
+body.capacitor-native .native-mobile-mode-item .mode-dot-nitro {
+  background: #34c759;
+}
+
+body.capacitor-native .composer-area,
+body.capacitor-native.chat-empty .composer-area {
+  bottom: calc(var(--native-keyboard-height) + 26px) !important;
+}
+
+body.capacitor-native .composer-area .composer-wrap {
+  width: min(84%, 560px);
+  margin-inline: auto;
+}
+
+body.capacitor-native .composer:not(.compact),
+body.capacitor-native.chat-empty .composer:not(.compact) {
+  min-height: 56px;
+  padding: 9px 10px !important;
+  border-radius: 32px;
+  background: color-mix(in srgb, var(--bg) 84%, var(--text)) !important;
+}
