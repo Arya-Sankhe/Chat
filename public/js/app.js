@@ -7684,6 +7684,10 @@ async function sendPrompt({
   skipClarification = false
 } = {}) {
   hideAttachmentModelNotice();
+  if (document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.blur();
+    void hideNativeKeyboard();
+  }
   if (state.clarificationChecking) return;
   if (state.clarification && textOverride == null) {
     continueClarification();
@@ -9711,7 +9715,18 @@ function bindEvents() {
 
   window.addEventListener("message", (event) => applyVisualizeFrameMessage(event));
 
+  let mobileSendHandledOnPointerDown = false;
+  els.sendButton.addEventListener("pointerdown", (event) => {
+    if (!document.body.classList.contains("capacitor-native") || voiceState === "recording") return;
+    event.preventDefault();
+    mobileSendHandledOnPointerDown = true;
+    void sendPrompt();
+  });
   els.sendButton.addEventListener("click", () => {
+    if (mobileSendHandledOnPointerDown) {
+      mobileSendHandledOnPointerDown = false;
+      return;
+    }
     if (voiceState === "recording") {
       stopVoiceRecording({ commit: true });
       return;

@@ -66,6 +66,18 @@ test("mobile places the accuracy note beneath only the latest completed response
   assert.match(appJs, /class="message-accuracy-note"[\s\S]*?Klui can make mistakes/);
 });
 
+test("mobile sends from pointerdown so the keyboard cannot consume the first send tap", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(
+    appJs,
+    /els\.sendButton\.addEventListener\("pointerdown", \(event\) => \{[\s\S]*?document\.body\.classList\.contains\("capacitor-native"\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?void sendPrompt\(\);/
+  );
+  assert.match(
+    appJs,
+    /async function sendPrompt[\s\S]*?els\.promptInput\?\.blur\(\);[\s\S]*?void hideNativeKeyboard\(\);/
+  );
+});
+
 test("the top bar markup order: hamburger → mode chip → temp-chat label → temp-chat icon → new-chat", () => {
   const html = readPublic("index.html");
   const idxMenu = html.indexOf('id="nativeMobileMenu"');
