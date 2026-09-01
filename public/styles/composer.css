@@ -1415,6 +1415,12 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+.composer-skill-token[data-skill-id="visualize"] {
+
+  color: #8b5cf6;
+
+}
+
 .composer-skill-token-fly {
 
   position: fixed;
@@ -1540,6 +1546,12 @@ body.chat-empty .skill-command-menu {
 .skill-command-option[data-skill-id="illustration"] .skill-command-icon {
 
   color: #2e86de;
+
+}
+
+.skill-command-option[data-skill-id="visualize"] .skill-command-icon {
+
+  color: #8b5cf6;
 
 }
 

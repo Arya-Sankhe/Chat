@@ -98,6 +98,7 @@ import {
 } from "./platform/index.js";
 import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
 import {
+  applyVisualizeFrameMessage,
   compactModelDisplayName,
   escapeHtml,
   getCodeSource,
@@ -1075,6 +1076,7 @@ function setWritingStyle(value) {
 
 const HUMANIZER_ICON_SVG = '<svg viewBox="0 0 45 46" aria-hidden="true"><defs><mask id="humanizer-cut"><rect width="45" height="46" fill="#fff"/><path d="M7 40 38 6" stroke="#000" stroke-width="4.2" stroke-linecap="round"/></mask></defs><path d="M21.5 7.86C21.79 8.63 22.07 9.4 22.36 10.17C24.69 10.55 27.57 9.69 29.66 11.19C32.33 13.1 31.43 21.34 29.74 23.58C29.12 24.4 27.81 24.86 27.03 25.5C29.74 28.1 31.54 29.05 32.13 33.15C32.28 34.16 32.99 35.07 32.17 35.85C29.92 35.96 30.45 33.14 29.91 31.55C29.62 30.72 28.31 28.8 27.64 28.2C23.4 24.4 16.24 25.36 13.14 29.96C11.86 31.85 12.1 34.6 10.5 36.16C6.91 34.03 12.74 27.12 14.93 25.5C14.12 24.9 12.86 24.39 12.24 23.59C10.22 20.97 9.6 13.41 12.42 11.26C14.4 9.74 17.39 10.54 19.64 10.17C20.26 8.84 19.78 8.03 21.5 7.86ZM14.6 12.49C12.12 13.31 12.23 19.68 13.33 21.49C15.14 24.5 18.6 23.31 21.46 23.48C23.92 23.62 27.21 24.1 28.74 21.58C29.29 20.67 29.12 19.2 29.16 18.17C29.22 16.79 29.63 14.3 28.66 13.17C27.77 12.12 26.39 12.3 25.17 12.3C22.99 12.3 16.22 11.94 14.6 12.49ZM18.5 16.5C18.26 18.61 16.07 18.46 16.17 16.33C17.13 15.79 17.59 15.86 18.5 16.5ZM25.9 16.36C25.9 16.82 25.9 17.29 25.9 17.75C24.44 18.33 23.67 18.09 23.5 16.5C24.42 15.93 24.91 15.92 25.9 16.36Z" fill="currentColor" fill-rule="evenodd" mask="url(#humanizer-cut)"/><path d="M7 40 38 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>';
 const ILLUSTRATION_ICON_SVG = '<svg viewBox="2 3.6 20 16.8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.2" y="5" width="17.6" height="14" rx="3.2"/><circle cx="16.2" cy="9.35" r="1.55"/><path d="M4.45 16.4 9.15 11.45l3.15 3.15 2.4-2.8 4.85 4.55"/></svg>';
+const VISUALIZE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m8 15 3.1-3.1 2.4 2.1 3.7-5"/><circle cx="17.5" cy="7.5" r="1" fill="currentColor" stroke="none"/></svg>';
 const DEFAULT_SKILL_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5 12 8l2.5 2.5"/></svg>';
 
 function composerSkillById(id) {
@@ -1088,6 +1090,7 @@ function skillDisplayName(skill) {
 function skillIconMarkup(id) {
   if (id === "humanizer") return HUMANIZER_ICON_SVG;
   if (id === "illustration") return ILLUSTRATION_ICON_SVG;
+  if (id === "visualize") return VISUALIZE_ICON_SVG;
   return DEFAULT_SKILL_ICON_SVG;
 }
 
@@ -1524,8 +1527,14 @@ function removeSlashQuery() {
 
 function selectComposerSkill(skill, fromEl) {
   if (!skill) return;
-  if (skill.exclusive && (state.temporaryChat || state.settings.compareEnabled)) {
+  if (skill.id === "illustration" && (state.temporaryChat || state.settings.compareEnabled)) {
     showToast("Illustration works in standard chat.");
+    removeSlashQuery();
+    closeSkillMenu();
+    return;
+  }
+  if (skill.id === "visualize" && state.settings.compareEnabled) {
+    showToast("Visualize works with one model at a time.");
     removeSlashQuery();
     closeSkillMenu();
     return;
@@ -1901,6 +1910,10 @@ function illustrationSendBlocked(skillIds, compareModels = []) {
     && (state.temporaryChat || compareModels.length > 0);
 }
 
+function visualizeSendBlocked(skillIds, compareModels = []) {
+  return normalizeClientSkillIds(skillIds).includes("visualize") && compareModels.length > 0;
+}
+
 function drainAutomaticFollowUps() {
   const next = state.followUps.slice(0, 1);
   const skillIds = mergeComposerSkillIds(...next.map((item) => item.skillIds));
@@ -1908,6 +1921,10 @@ function drainAutomaticFollowUps() {
   const compareModels = resolveCompareModelsForSend({ images });
   if (illustrationSendBlocked(skillIds, compareModels)) {
     showToast("Illustration works in standard chat.");
+    return [];
+  }
+  if (visualizeSendBlocked(skillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
     return [];
   }
   return drainFollowUps(1);
@@ -4218,12 +4235,16 @@ function renderMessageError(message) {
   return `<div class="message-error"><span>${escapeHtml(error)}</span>${reload}</div>`;
 }
 
+function isStoppedMessage(message) {
+  return Boolean(message?.stopped || message?.error === "Stopped by user.");
+}
+
 function canRetryAssistant(message) {
   if (state.running) return false;
   if (message?.councilGroup || message?.compareGroup) return false;
   const id = message?.id ? String(message.id) : "";
   if (!id || id.startsWith("local_")) return false;
-  if (message.error === "Stopped by user.") return false;
+  if (isStoppedMessage(message)) return false;
   return true;
 }
 
@@ -4244,22 +4265,26 @@ function canAdjustAssistant(message) {
   return String(latest?.id || "") === String(message.id || "");
 }
 
-function renderResponseAdjustmentMenu(message) {
-  if (!canAdjustAssistant(message)) return "";
+function renderAssistantMoreMenu(message) {
   const id = escapeHtml(String(message.id));
-  return `<details class="message-more-menu">
-    <summary class="msg-action-btn" aria-label="More response actions" title="More response actions">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
-    </summary>
-    <div class="message-more-popover" role="menu">
-      <button type="button" role="menuitem" data-adjust-response="longer" data-adjust-assistant-id="${id}">
+  const adjustments = canAdjustAssistant(message)
+    ? `<button type="button" role="menuitem" data-adjust-response="longer" data-adjust-assistant-id="${id}">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8M12 3v18M8 21h8"/><path d="m9 7 3-3 3 3M9 17l3 3 3-3"/></svg>
         <span>Longer</span>
       </button>
       <button type="button" role="menuitem" data-adjust-response="shorter" data-adjust-assistant-id="${id}">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8M12 3v18M8 21h8"/><path d="m9 10 3 3 3-3M9 14l3-3 3 3"/></svg>
         <span>Shorter</span>
-      </button>
+      </button>`
+    : "";
+  const report = messageReportMenuItem(message);
+  if (!adjustments && !report) return "";
+  return `<details class="message-more-menu">
+    <summary class="msg-action-btn" aria-label="More response actions" title="More response actions">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+    </summary>
+    <div class="message-more-popover" role="menu">
+      ${adjustments}${report}
     </div>
   </details>`;
 }
@@ -4495,13 +4520,21 @@ function renderInlineSourcePill(sources) {
 
 function stripLeakedCitationHtml(text) {
   let s = String(text ?? "");
+  // Hoist visualize fences first: their HTML legitimately contains <details>,
+  // which the leak strippers below would otherwise delete or corrupt.
+  const heldVisualize = [];
+  s = s.replace(/```visualize[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/gi, (block) => {
+    heldVisualize.push(block);
+    return `KLUIVISKEEP${heldVisualize.length - 1}END`;
+  });
   s = s.replace(/<details\b[^>]*\binline-source-pill\b[\s\S]*?<\/details>/gi, "");
   s = s.replace(/<details\b[^>]*\binline-source-pill\b[\s\S]*?(?=\n\n|```|$)/gi, "");
   s = s.replace(/<\/?(?:details|summary|div|span|a|img)\b[^>]*\binline-source-[\w-]+\b[^>]*>/gi, "");
   s = s.replace(/```[\w-]*\n[\s\S]*?(?:inline-source-|<\/details>)[\s\S]*?```/gi, "");
   s = s.replace(/```php-template\n[\s\S]*?```/gi, "");
   s = s.replace(/<\/details>/gi, "");
-  return s.replace(/\n{3,}/g, "\n\n").trim();
+  s = s.replace(/\n{3,}/g, "\n\n").trim();
+  return s.replace(/KLUIVISKEEP(\d+)END/g, (_, i) => heldVisualize[Number(i)] ?? "");
 }
 
 // Keep in sync with the mirrored copy in server/saas/messages.js (client/server bundles are separate).
@@ -4922,7 +4955,8 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderUserContent(msg);
-  return `${renderAssistantActivity(msg, { streaming })}${renderArtifacts(msg, (artifact) => artifact?.type === "weather")}${renderAssistantContent(content, msg)}${renderArtifacts(msg, (artifact) => artifact?.type !== "weather")}${renderMessageError(msg)}${renderMessageNote(msg)}${renderMissingFinal(msg, role)}`;
+  if (isStoppedMessage(msg)) return `<div class="message-stopped" role="status">Stopped by user.</div>`;
+  return `${renderAssistantActivity(msg, { streaming })}${renderArtifacts(msg, (artifact) => artifact?.type === "weather")}${renderAssistantContent(content, msg)}${renderArtifacts(msg, (artifact) => artifact?.type !== "weather")}${renderMessageError(msg)}${renderMissingFinal(msg, role)}`;
 }
 
 function renderCitations(message) {
@@ -5214,10 +5248,6 @@ function renderArtifacts(message, predicate = null) {
   return `<div class="artifact-list">${rows}</div>`;
 }
 
-function renderMessageNote(message) {
-  return message.stopped ? `<div class="message-note">Stopped by user.</div>` : "";
-}
-
 function renderMissingFinal(message, role) {
   const hasFinal = String(message.content || "").trim()
     || (Array.isArray(message.toolCalls) && message.toolCalls.length)
@@ -5265,10 +5295,10 @@ function messageCopyButton(msg, { iconOnly = false } = {}) {
   return `<button class="msg-action-btn msg-copy-btn${iconOnly ? " msg-copy-btn--icon" : ""}" type="button" data-copy-msg aria-label="${copyLabel}" title="${copyLabel}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>${label}</button>`;
 }
 
-function messageReportButton(msg) {
+function messageReportMenuItem(msg) {
   const id = msg?.id ? String(msg.id) : "";
   if (!id || id.startsWith("local_")) return "";
-  return `<button class="msg-action-btn msg-report-btn" type="button" data-report-msg="${escapeHtml(id)}" aria-label="Report" title="Report"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></button>`;
+  return `<button type="button" role="menuitem" data-report-msg="${escapeHtml(id)}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg><span>Report</span></button>`;
 }
 
 function reportMessage(messageId) {
@@ -5294,14 +5324,13 @@ function renderMessageFooter(msg, role) {
   // Hide copy/sources while tools are still running or prose is provisional.
   if (isAssistantMessageStreaming(msg) || isProvisionalToolProse(msg)) return "";
   const copy = messageCopyButton(msg, { iconOnly: true });
-  const report = messageReportButton(msg);
   const retry = renderMessageRetry(msg);
-  const adjust = renderResponseAdjustmentMenu(msg);
+  const more = renderAssistantMoreMenu(msg);
   const citations = renderCitations(msg);
-  if (!copy && !report && !retry && !adjust && !citations) return "";
+  if (!copy && !retry && !more && !citations) return "";
   return `
     <div class="message-footer">
-      ${copy || report || retry || adjust ? `<div class="message-footer-actions">${retry}${copy}${report}${adjust}</div>` : ""}
+      ${copy || retry || more ? `<div class="message-footer-actions">${retry}${copy}${more}</div>` : ""}
       ${citations ? `<div class="message-footer-sources">${citations}</div>` : ""}
     </div>
   `;
@@ -5333,7 +5362,6 @@ function canEditUserMessage(msg) {
 
 function renderUserMessageFooter(msg) {
   const copy = messageCopyButton(msg, { iconOnly: true });
-  const report = messageReportButton(msg);
   const edit = canEditUserMessage(msg)
     ? `<button class="msg-action-btn msg-edit-btn" type="button" data-edit-msg="${escapeHtml(String(msg.id))}" aria-label="Edit" title="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>`
     : "";
@@ -5341,10 +5369,10 @@ function renderUserMessageFooter(msg) {
   const time = stamp
     ? `<time class="msg-timestamp" datetime="${escapeHtml(stamp.iso)}" data-full="${escapeHtml(stamp.full)}">${escapeHtml(stamp.short)}</time>`
     : "";
-  if (!copy && !report && !edit && !time) return "";
+  if (!copy && !edit && !time) return "";
   return `
     <div class="message-footer message-footer--user">
-      <div class="message-footer-actions">${time}${copy}${report}${edit}</div>
+      <div class="message-footer-actions">${time}${copy}${edit}</div>
     </div>
   `;
 }
@@ -5388,7 +5416,25 @@ function renderStandardMessage(raw) {
   `;
 }
 
+function collapseExpandedVisualize(except = null) {
+  for (const card of document.querySelectorAll(".visualize-card.is-expanded")) {
+    if (card === except) continue;
+    card.classList.remove("is-expanded");
+    const button = card.querySelector("[data-visualize-expand]");
+    if (button) {
+      button.textContent = "Expand";
+      button.setAttribute("aria-pressed", "false");
+    }
+    card.querySelector("iframe[data-visualize-id]")?.contentWindow?.postMessage({
+      type: "klui:visualize:expanded",
+      expanded: false
+    }, "*");
+  }
+  document.body.classList.toggle("visualize-expanded", Boolean(document.querySelector(".visualize-card.is-expanded")));
+}
+
 function renderMessages() {
+  collapseExpandedVisualize();
   resetCodeSourceStore();
   const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
   document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
@@ -5477,6 +5523,31 @@ function adoptUnchangedTableScrolls(liveEl, nextRoot) {
   }
 }
 
+// Keep the loading surface mounted while its code changes so its animation
+// does not restart on every streamed token. Returns true when the live card
+// was patched in place; callers must then skip swapping children, because
+// detaching the card (even momentarily) cancels its CSS shimmer animation.
+// Safe to skip: once the fence is open, every new token lands inside it.
+function adoptLiveVisualizeBuilding(liveEl, nextRoot) {
+  const live = liveEl.querySelector(".visualize-building");
+  const next = nextRoot.querySelector(".visualize-building");
+  if (!live || !next) return false;
+  const liveCode = live.querySelector(".visualize-building-code code");
+  const nextCode = next.querySelector(".visualize-building-code code");
+  if (liveCode && nextCode && liveCode.textContent !== nextCode.textContent) {
+    liveCode.textContent = nextCode.textContent;
+  }
+  return true;
+}
+
+function adoptLiveVisualizeFrame(liveEl, nextRoot) {
+  const live = liveEl.querySelector("iframe[data-visualize-id]")?.closest(".visualize-card");
+  const next = nextRoot.querySelector("iframe[data-visualize-id]")?.closest(".visualize-card");
+  if (!live || !next) return false;
+  next.replaceWith(live);
+  return true;
+}
+
 function patchStandardArticle(article, msg) {
   if (researchController.researchMeta(msg)) return false;
   if (article.classList.contains("compare-message") || article.classList.contains("council-message")) return false;
@@ -5490,6 +5561,13 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
+  if (role === "assistant" && (isStoppedMessage(msg) || rawTextContent(msg.content).includes("```visualize"))) {
+    const content = body.querySelector(":scope > .message-content");
+    if (content && (!content.querySelector("iframe[data-visualize-id]") || isStoppedMessage(msg))) {
+      collapseExpandedVisualize();
+      content.innerHTML = renderAssistantMessageContent(msg, role);
+    }
+  }
   if (role === "user") {
     const nextImages = renderUserImages(msg);
     const prevImages = body.querySelector(":scope > .user-image-strip");
@@ -5619,11 +5697,11 @@ function scrollToChatPrompt(messageId) {
 }
 
 function animateNewestStreamingText(root, addedCharacters) {
-  if (!root || addedCharacters < 1) return;
+  if (!root || addedCharacters < 1 || root.querySelector(".visualize-building")) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
-      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .message-note, .sources-pill, pre, code, .katex, button, svg")) {
+      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .sources-pill, .visualize-building, pre, code, .katex, button, svg")) {
         return NodeFilter.FILTER_REJECT;
       }
       return NodeFilter.FILTER_ACCEPT;
@@ -5651,7 +5729,8 @@ function renderStreamingMessageSurface(message) {
   preserveMessageScroll(() => {
     const rawText = rawTextContent(message.content);
     const previousRawText = surface.dataset.rawText || "";
-    const addedCharacters = rawText.startsWith(previousRawText)
+    const appendOnly = rawText.startsWith(previousRawText);
+    const addedCharacters = appendOnly
       ? rawText.length - previousRawText.length
       : rawText.length;
     surface.dataset.rawText = rawText;
@@ -5665,10 +5744,14 @@ function renderStreamingMessageSurface(message) {
       tmp.innerHTML = renderAssistantMessageContent(message);
       tmp.querySelector(".thinking-status")?.remove();
       adoptUnchangedTableScrolls(contentEl, tmp);
-      for (const node of [...contentEl.childNodes]) {
-        if (node !== statusEl) node.remove();
+      const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
+      if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
+        if (!keptFrame) collapseExpandedVisualize();
+        for (const node of [...contentEl.childNodes]) {
+          if (node !== statusEl) node.remove();
+        }
+        while (tmp.firstChild) contentEl.appendChild(tmp.firstChild);
       }
-      while (tmp.firstChild) contentEl.appendChild(tmp.firstChild);
       if (provisional) {
         // Interim tool-loop prose: keep Klui visible alongside the one-liner.
         statusEl.classList.remove("is-leaving");
@@ -5702,8 +5785,12 @@ function renderStreamingMessageSurface(message) {
       const tmp = document.createElement("div");
       tmp.innerHTML = renderAssistantMessageContent(message);
       adoptUnchangedTableScrolls(contentEl, tmp);
-      contentEl.replaceChildren(...tmp.childNodes);
-      hydrateKluiBars(contentEl);
+      const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
+      if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
+        if (!keptFrame) collapseExpandedVisualize();
+        contentEl.replaceChildren(...tmp.childNodes);
+        hydrateKluiBars(contentEl);
+      }
     }
     animateNewestStreamingText(contentEl, addedCharacters);
   });
@@ -7628,6 +7715,10 @@ async function sendPrompt({
       showToast("Illustration works in standard chat.");
       return;
     }
+    if (visualizeSendBlocked(candidateSkillIds, candidateCompareModels)) {
+      showToast("Visualize works with one model at a time.");
+      return;
+    }
   }
   if (textOverride == null && !text && state.followUps.length) {
     const queued = drainFollowUps();
@@ -7683,6 +7774,10 @@ async function sendPrompt({
   const compareModels = resolveCompareModelsForSend({ images: pendingImages });
   if (sendSkillIds.includes("illustration") && (state.temporaryChat || compareModels.length)) {
     showToast("Illustration works in standard chat.");
+    return;
+  }
+  if (visualizeSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
     return;
   }
   if (state.temporaryChat && compareModels.length) {
@@ -7978,6 +8073,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
   const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
   if (illustrationSendBlocked(sendSkillIds, compareModels)) {
     showToast("Illustration works in standard chat.");
+    return;
+  }
+  if (visualizeSendBlocked(sendSkillIds, compareModels)) {
+    showToast("Visualize works with one model at a time.");
     return;
   }
 
@@ -9155,6 +9254,8 @@ function bindEvents() {
     if (e.key === "Escape") {
       closeTopBarModeDropdown();
       closePastedTextDialog();
+      const card = document.querySelector(".visualize-card.is-expanded");
+      if (card) card.querySelector("[data-visualize-expand]")?.click();
     }
   });
 
@@ -9424,6 +9525,20 @@ function bindEvents() {
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
   els.messages.addEventListener("click", async (e) => {
+    const visualizeExpand = e.target.closest("[data-visualize-expand]");
+    if (visualizeExpand) {
+      const card = visualizeExpand.closest(".visualize-card");
+      if (!card?.classList.contains("is-expanded")) collapseExpandedVisualize(card);
+      const expanded = card?.classList.toggle("is-expanded");
+      visualizeExpand.textContent = expanded ? "Close" : "Expand";
+      visualizeExpand.setAttribute("aria-pressed", String(Boolean(expanded)));
+      document.body.classList.toggle("visualize-expanded", Boolean(document.querySelector(".visualize-card.is-expanded")));
+      card?.querySelector("iframe[data-visualize-id]")?.contentWindow?.postMessage({
+        type: "klui:visualize:expanded",
+        expanded: Boolean(expanded)
+      }, "*");
+      return;
+    }
     const weatherUnit = e.target.closest("[data-weather-units]");
     if (weatherUnit) {
       e.preventDefault();
@@ -9585,6 +9700,8 @@ function bindEvents() {
     const input = e.target.closest("[data-edit-input]");
     if (input) autoSizeEditInput(input);
   });
+
+  window.addEventListener("message", (event) => applyVisualizeFrameMessage(event));
 
   els.sendButton.addEventListener("click", () => {
     if (voiceState === "recording") {

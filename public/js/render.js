@@ -149,6 +149,8 @@ function normalizeCodeLanguage(value) {
 
 const codeSourceStore = new Map();
 let codeSourceCounter = 0;
+const MAX_VISUALIZE_BYTES = 120 * 1024;
+const VISUALIZE_CSP = "default-src 'none'; base-uri about:; object-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'; img-src data: blob:; media-src data: blob:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'";
 
 export function getCodeSource(id) {
   return codeSourceStore.get(String(id || ""));
@@ -157,6 +159,108 @@ export function getCodeSource(id) {
 export function resetCodeSourceStore() {
   codeSourceStore.clear();
   codeSourceCounter = 0;
+}
+
+function visualizeDocument(source, id) {
+  const bridge = `<script>(()=>{const post=(type,data={})=>parent.postMessage({type,id:"${id}",...data},"*");let p=false;const send=()=>{if(p)return;p=true;requestAnimationFrame(()=>{p=false;const d=document.documentElement,b=document.body;post("klui:visualize:resize",{height:Math.max(d?.scrollHeight||0,b?.scrollHeight||0,b?.getBoundingClientRect?.().height||0)})})};addEventListener("message",e=>{if(e.source!==parent||e.data?.type!=="klui:visualize:expanded")return;document.documentElement.dataset.kluiExpanded=String(Boolean(e.data.expanded));send()});addEventListener("error",e=>post("klui:visualize:error",{message:String(e.message||"Runtime error").slice(0,160)}));addEventListener("unhandledrejection",e=>post("klui:visualize:error",{message:String(e.reason?.message||e.reason||"Promise failed").slice(0,160)}));addEventListener("DOMContentLoaded",send);addEventListener("load",send);addEventListener("resize",send);new ResizeObserver(send).observe(document.documentElement)})();</script>`;
+  const expanded = `<style>@media (min-width:900px){html[data-klui-expanded="true"]{zoom:1.2}html[data-klui-expanded="true"] body>*{max-width:min(1120px,92vw)!important}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}}</style>`;
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${VISUALIZE_CSP}"><base href="about:srcdoc">${expanded}${bridge}`;
+  let html = String(source || "")
+    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?Content-Security-Policy)[^>]*>/gi, "")
+    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, "")
+    .replace(/<base\b[^>]*>/gi, "");
+  if (/<head\b[^>]*>/i.test(html)) {
+    html = html.replace(/<head\b[^>]*>/i, (tag) => `${tag}${policy}`);
+  } else if (/<html\b[^>]*>/i.test(html)) {
+    html = html.replace(/<html\b[^>]*>/i, (tag) => `${tag}<head>${policy}</head>`);
+  } else {
+    html = `<!doctype html><html><head>${policy}</head><body>${html}</body></html>`;
+  }
+  return html;
+}
+
+function visualizeCard(source, id, error = "") {
+  if (error) {
+    return `<div class="visualize-card visualize-error" role="status"><strong>Visualization unavailable</strong><span>${escapeHtml(error)}</span></div>`;
+  }
+  const srcdoc = visualizeDocument(source, id);
+  return `<section class="visualize-card" data-visualize-card="${id}">
+    <header class="visualize-toolbar">
+      <span class="visualize-label">Interactive</span>
+      <span class="visualize-actions">
+        <button type="button" data-visualize-expand>Expand</button>
+      </span>
+    </header>
+    <div class="visualize-stage">
+      <iframe data-visualize-id="${id}" title="Interactive visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" csp="${escapeHtml(VISUALIZE_CSP)}" srcdoc="${escapeHtml(srcdoc)}"></iframe>
+    </div>
+    <div class="visualize-runtime-error" role="alert" hidden></div>
+  </section>`;
+}
+
+function visualizeBuilding(source) {
+  const tail = String(source || "").slice(-16_000);
+  return `<section class="visualize-card visualize-building" role="status" aria-live="polite" aria-label="Building interactive visualization">
+    <header class="visualize-toolbar"><span class="visualize-label">Interactive</span></header>
+    <div class="visualize-building-code" aria-hidden="true"><pre><code>${escapeHtml(tail)}</code></pre></div>
+    <div class="visualize-building-status"><span><b data-label="Taking shape">Taking shape</b></span></div>
+  </section>`;
+}
+
+function extractVisualizations(text) {
+  const slots = [];
+  const processed = String(text || "").replace(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, (_, raw) => {
+    const source = String(raw || "").trim();
+    const token = `KLUIVISUALHOLD${slots.length}END`;
+    if (!source) {
+      slots.push({ token, error: "The generated document was empty." });
+    } else if (new TextEncoder().encode(source).byteLength > MAX_VISUALIZE_BYTES) {
+      slots.push({ token, error: "The generated document exceeded the 120 KiB limit." });
+    } else {
+      const id = `v${++codeSourceCounter}`;
+      slots.push({ token, source, id });
+    }
+    return token;
+  });
+  const withBuilding = processed.replace(/```visualize[ \t]*\r?\n([\s\S]*)$/i, (_, raw) => {
+    const token = `KLUIVISUALHOLD${slots.length}END`;
+    slots.push({ token, source: String(raw || ""), building: true });
+    return token;
+  });
+  return { text: withBuilding, slots };
+}
+
+function restoreVisualizations(html, slots) {
+  let output = html;
+  for (const slot of slots) {
+    const card = slot.building ? visualizeBuilding(slot.source) : visualizeCard(slot.source, slot.id, slot.error);
+    output = output.replaceAll(`<p>${slot.token}</p>`, card).replaceAll(slot.token, card);
+  }
+  return output;
+}
+
+export function applyVisualizeFrameMessage(event, root = globalThis.document) {
+  const data = event?.data;
+  if (!["klui:visualize:resize", "klui:visualize:error"].includes(data?.type) || !/^v\d+$/.test(String(data.id || ""))) return false;
+  if (!root?.querySelectorAll) return false;
+  const frame = [...root.querySelectorAll("iframe[data-visualize-id]")]
+    .find((item) => item.dataset.visualizeId === data.id && item.contentWindow === event.source);
+  if (!frame) return false;
+  const card = frame.closest(".visualize-card");
+  if (data.type === "klui:visualize:error") {
+    const error = card?.querySelector(".visualize-runtime-error");
+    if (error) {
+      error.textContent = String(data.message || "The visualization could not run.").slice(0, 160);
+      error.hidden = false;
+    }
+    card?.classList.add("has-error");
+    return true;
+  }
+  const height = Number(data.height);
+  if (!Number.isFinite(height)) return false;
+  frame.style.height = `${Math.max(280, Math.min(640, Math.ceil(height)))}px`;
+  card?.classList.add("is-ready");
+  return true;
 }
 
 function highlightCodeBlocks(html) {
@@ -264,12 +368,16 @@ function renderRichText(raw) {
   const text = String(raw ?? "");
   if (!text) return "";
 
+  const visualizations = extractVisualizations(text);
+
   const m = globalThis.marked;
-  if (!m || typeof m.parse !== "function") return renderFallback(text);
+  if (!m || typeof m.parse !== "function") {
+    return restoreVisualizations(renderFallback(visualizations.text), visualizations.slots);
+  }
 
   ensureMarkedConfig();
 
-  const { text: processed, slots } = extractMath(text);
+  const { text: processed, slots } = extractMath(visualizations.text);
   let html = m.parse(processed);
   html = restoreMath(html, slots);
   html = sanitizeRenderedHtml(html);
@@ -277,6 +385,7 @@ function renderRichText(raw) {
   // model content so DOMPurify cannot remove a layer of its SVG icon.
   html = highlightCodeBlocks(html);
   html = wrapMessageTables(html);
+  html = restoreVisualizations(html, visualizations.slots);
 
   return html;
 }

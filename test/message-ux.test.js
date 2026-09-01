@@ -50,7 +50,7 @@ test("chat search has no global Ctrl or Command K shortcut", () => {
   assert.doesNotMatch(appJs, /\(e\.ctrlKey \|\| e\.metaKey\)[\s\S]{0,160}e\.key\.toLowerCase\(\) === "k"/);
 });
 
-test("user message footer always offers copy; edit stays gated behind canEditUserMessage", () => {
+test("user message footer offers copy and edit without a self-report action", () => {
   const appJs = readPublic("js/app.js");
   const footer = appJs.match(/function renderUserMessageFooter\(msg\)\s*\{[\s\S]*?\n\}/);
   assert.ok(footer, "renderUserMessageFooter not found");
@@ -60,11 +60,11 @@ test("user message footer always offers copy; edit stays gated behind canEditUse
     "copy must not be gated behind canEditUserMessage"
   );
   assert.match(footer[0], /messageCopyButton\(msg,\s*\{\s*iconOnly:\s*true\s*\}\)/);
-  assert.match(footer[0], /messageReportButton\(msg\)/);
+  assert.doesNotMatch(footer[0], /report|data-report-msg/i);
   assert.match(footer[0], /canEditUserMessage\(msg\)/);
   assert.match(footer[0], /formatMessageStamp\(msg\.created_at\)/);
   assert.match(footer[0], /class="msg-timestamp"/);
-  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!report\s*&&\s*!edit\s*&&\s*!time\s*\)\s*return\s*""/);
+  assert.match(footer[0], /if\s*\(\s*!copy\s*&&\s*!edit\s*&&\s*!time\s*\)\s*return\s*""/);
 });
 
 test("user message timestamps appear on hover and expand on date hover", () => {
@@ -148,6 +148,12 @@ test("message errors stay compact and only network or stale-build errors offer s
   assert.match(appJs, /function reloadAppIfSafe\(\)/);
   assert.match(appJs, /state\.running \|\| composerHasPendingContent\(\)/);
   assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
+  assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">Stopped by user\.<\/div>`/);
+  assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| rawTextContent\(msg\.content\)\.includes\("```visualize"\)\)[\s\S]*?content\.innerHTML = renderAssistantMessageContent\(msg, role\)/);
+  const stopped = css.match(/\.message-stopped\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(stopped, /color:/);
+  assert.doesNotMatch(stopped, /background|border|padding|width/);
+  assert.doesNotMatch(appJs, /class="message-note"/);
   assert.doesNotMatch(css, /\.message-retry-btn\s*\{/);
 });
 
@@ -156,9 +162,51 @@ test("streamed answer text gets a short blur reveal without animating reduced-mo
   const css = readStylesheet();
   assert.match(appJs, /function animateNewestStreamingText\(root, addedCharacters\)/);
   assert.match(appJs, /animateNewestStreamingText\(contentEl, addedCharacters\)/);
+  assert.match(appJs, /root\.querySelector\("\.visualize-building"\)/);
+  assert.match(appJs, /\.visualize-building, pre, code/);
+  assert.match(appJs, /function adoptLiveVisualizeBuilding\(liveEl, nextRoot\)/);
+  // The swap must be skipped while the live build card is adopted, or the
+  // detach/reattach cancels its CSS shimmer animation on every stream tick.
+  assert.match(appJs, /if \(!adoptLiveVisualizeBuilding\(contentEl, tmp\)\)/);
+  const buildAdopter = appJs.match(/function adoptLiveVisualizeBuilding\(liveEl, nextRoot\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(buildAdopter, /next\.replaceWith\(live\)/);
   assert.match(css, /\.streaming-text-reveal\s*\{[^}]*160ms[^}]*cubic-bezier\(0\.23, 1, 0\.32, 1\)/s);
   assert.match(css, /@keyframes streaming-text-reveal\s*\{[\s\S]*?filter:\s*blur\(2px\)[\s\S]*?filter:\s*blur\(0\)/);
+  assert.match(css, /\.visualize-building-status b::after\s*\{[\s\S]*?background-clip:\s*text[\s\S]*?animation:\s*thinking-status-shimmer 1\.2s linear infinite/s);
+  assert.match(css, /@keyframes visualize-build-drift[\s\S]*?translate3d\(0, -1px, 0\)/);
+  assert.doesNotMatch(css, /visualize-build-spin|visualize-build-sheen/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.streaming-text-reveal\s*\{[^}]*animation:\s*none/s);
+});
+
+test("visualize stays available in temporary chat and preserves live expanded frames", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /skill\.id === "illustration" && \(state\.temporaryChat \|\| state\.settings\.compareEnabled\)/);
+  assert.match(appJs, /skill\.id === "visualize" && state\.settings\.compareEnabled/);
+  assert.doesNotMatch(appJs, /skill\.id === "visualize" && state\.temporaryChat/);
+  assert.match(appJs, /function adoptLiveVisualizeFrame\(liveEl, nextRoot\)/);
+  assert.match(appJs, /const keptFrame = appendOnly && adoptLiveVisualizeFrame\(contentEl, tmp\)/);
+  assert.match(appJs, /if \(!keptFrame\) collapseExpandedVisualize\(\)/);
+  assert.match(appJs, /!content\.querySelector\("iframe\[data-visualize-id\]"\) \|\| isStoppedMessage\(msg\)/);
+  assert.match(appJs, /function collapseExpandedVisualize\(except = null\)/);
+  assert.match(appJs, /function renderMessages\(\) \{\s*collapseExpandedVisualize\(\)/);
+});
+
+test("visualize fences survive citation leak stripping even when they contain details elements", () => {
+  const appJs = readPublic("js/app.js");
+  const src = appJs.match(/function stripLeakedCitationHtml\(text\)\s*\{[\s\S]*?\n\}/)?.[0];
+  assert.ok(src, "stripLeakedCitationHtml not found");
+  const strip = new Function(`${src}; return stripLeakedCitationHtml;`)();
+  const fence = "```visualize\n<!doctype html><html><body><details><summary>Advanced</summary><input></details></body></html>\n```";
+  assert.equal(strip(`Intro.\n\n${fence}`), `Intro.\n\n${fence}`);
+  const open = "```visualize\n<canvas></canvas><details><summary>Advanced</summary>";
+  assert.ok(strip(open).includes("<details><summary>Advanced</summary>"), "open fence must keep its details markup");
+  assert.equal(strip("```js\ncode with </details> leak\n```"), "", "leaked citation fences are still removed");
+});
+
+test("completed visualize messages replace their streamed build surface during settlement", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /isStoppedMessage\(msg\) \|\| rawTextContent\(msg\.content\)\.includes\("```visualize"\)/);
+  assert.match(appJs, /content\.innerHTML = renderAssistantMessageContent\(msg, role\)/);
 });
 
 test("compare and council finish by patching live cards instead of requiring a remount", () => {

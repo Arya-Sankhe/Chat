@@ -27,7 +27,7 @@ import {
   withAvailableTools
 } from "./pipeline.js";
 import { hasAssistantOutput, writeSse } from "./shared.js";
-import { streamSingleChat } from "./single.js";
+import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
 
 function normalizeTemporaryHistory(messages) {
   if (!Array.isArray(messages)) return [];
@@ -130,13 +130,14 @@ export async function handleTemporaryChat(req, res, config) {
     ...settings
   });
   const agentMode = normalizeAgentMode(body.agentMode);
+  const visualizing = Array.isArray(body.skillIds) && body.skillIds.includes("visualize");
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
   const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
   const detection = webSearchMode !== "off"
     ? detectSearchNeed(promptText)
     : { score: 0, reasons: [], hasUrls: false, urls: [] };
   const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
-  const toolSetup = agentMode
+  const toolSetup = agentMode && !visualizing
     ? withAvailableTools(baseChatRequest, {
         config,
         webMode: webSearchMode,
@@ -160,7 +161,7 @@ export async function handleTemporaryChat(req, res, config) {
       "x-accel-buffering": "no",
       "x-klui-temporary-chat": "1"
     });
-    const { accumulated, artifacts = [] } = toolSetup.augmented
+    let response = toolSetup.augmented
       ? await runChatWithToolLoop({
           chatRequest,
           crofai,
@@ -185,6 +186,19 @@ export async function handleTemporaryChat(req, res, config) {
           res,
           includeReasoning
         });
+    response = await ensureVisualizeResponse({
+      required: visualizing,
+      result: response,
+      chatRequest,
+      crofai,
+      config,
+      provider,
+      signal: controller.signal,
+      res,
+      includeReasoning,
+      onReset: () => writeSse(res, { type: "response:reset" })
+    });
+    const { accumulated, artifacts = [] } = response;
     if (!hasAssistantOutput(accumulated, artifacts)) {
       throw new HttpError(502, "Klui returned an empty response.");
     }

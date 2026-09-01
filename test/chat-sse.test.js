@@ -809,6 +809,29 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
   );
 });
 
+test("temporary chat runs Visualize without enabling generic tools", async (t) => {
+  t.after(restoreFetch);
+  const visual = "```visualize\n<!doctype html><html><body><button>Run demo</button></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      assert.match(body.messages.find((message) => message.role === "system")?.content || "", /<klui_composer_skill id="visualize">/);
+      assert.equal(body.tools, undefined);
+      return [contentDelta(visual), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/temporary-chat",
+    body: { text: "Show gravity.", model: TEXT_MODEL, agentMode: true, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.match(res.body, /```visualize/);
+  assert.equal(db.calls.some((call) => call.op === "insertMessage"), false);
+});
+
 test("temporary chat sends an uploaded image without persisting it", async (t) => {
   t.after(restoreFetch);
   let providerBody = null;
@@ -939,6 +962,162 @@ test("composer skills reach normal and temporary prompts without leaking skillId
   const userInsert = db.calls.find((call) => call.op === "insertMessage" && call.message.role === "user");
   assert.deepEqual(userInsert.message.metadata.skillIds, ["humanizer"]);
   assert.deepEqual(userInsert.message.metadata.skillMarks, [{ id: "humanizer", at: 8 }]);
+});
+
+test("visualize replaces a plain model answer with an interactive document", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  const visual = "```visualize\n<!doctype html><html><body><button>Send request</button></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(requests.length === 1 ? "Rate limiting controls request volume." : visual), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Explain rate limiting.", model: TEXT_MODEL, agentMode: false, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].messages[0].content, /output contract is mandatory/);
+  assert.match(requests[1].messages.at(-1).content, /Replace the previous response completely/);
+  assert.equal("tools" in requests[1], false);
+  assert.ok(parseSse(res.body).some((event) => event.type === "response:reset"));
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(finalUpdate.patch.content, visual);
+});
+
+test("visualize preserves complete HTML when the model omits doctype and the final fence", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  const visual = "```visualize\n<html><body><button>Run demo</button></body></html>";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(visual), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Show merge sort.", model: TEXT_MODEL, agentMode: false, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 1);
+  assert.ok(parseSse(res.body).some((event) => event.choices?.[0]?.delta?.content === "\n```"));
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(finalUpdate.patch.content, `${visual}\n\`\`\``);
+});
+
+test("visualize fixes a script parse error with the cheap model instead of regenerating", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  let nitroBody = null;
+  const broken = "```visualize\n<!doctype html><html><body><button>Run demo</button><script>run(1,;</script></body></html>\n```";
+  const fixed = "```visualize\n<!doctype html><html><body><button>Run demo</button><script>run(1);</script></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(broken), usageChunk()];
+    },
+    completionFor: (body) => {
+      nitroBody = body;
+      return {
+        choices: [{ message: { content: fixed } }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0.00001 }
+      };
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Show orbits.", model: TEXT_MODEL, agentMode: false, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 1, "no expensive regeneration when the cheap fix holds");
+  assert.equal(nitroBody.model, "inclusionai/ling-3.0-flash");
+  assert.match(nitroBody.messages[0].content, /SyntaxError/);
+  assert.ok(parseSse(res.body).some((event) => event.type === "response:reset"));
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(finalUpdate.patch.content, fixed);
+});
+
+test("visualize repairs valid code that depends on a blocked CDN", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  let nitroBody = null;
+  const broken = "```visualize\n<!doctype html><html><body><canvas></canvas><script src=\"https://cdn.example/three.js\"></script></body></html>\n```";
+  const fixed = "```visualize\n<!doctype html><html><body><canvas></canvas><script>document.querySelector('canvas').title='Gravity demo';</script></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(broken), usageChunk()];
+    },
+    completionFor: (body) => {
+      nitroBody = body;
+      return {
+        choices: [{ message: { content: fixed } }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0.00001 }
+      };
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Show gravity.", model: TEXT_MODEL, agentMode: false, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 1);
+  assert.match(nitroBody.messages[0].content, /External scripts cannot load/);
+  assert.ok(parseSse(res.body).some((event) => event.type === "response:reset"));
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(finalUpdate.patch.content, fixed);
+});
+
+test("visualize falls back to full regeneration when the cheap fix does not parse", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  const broken = "```visualize\n<!doctype html><html><body><button>Run demo</button><script>run(1,;</script></body></html>\n```";
+  const fixed = "```visualize\n<!doctype html><html><body><button>Run demo</button><script>run(1);</script></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(requests.length === 1 ? broken : fixed), usageChunk()];
+    },
+    completionFor: () => ({
+      choices: [{ message: { content: "Sorry, I cannot fix this." } }],
+      usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0.00001 }
+    })
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Show orbits.", model: TEXT_MODEL, agentMode: false, skillIds: ["visualize"] }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].messages.at(-1).content, /SyntaxError/);
+  assert.match(requests[1].messages.at(-1).content, /Replace the previous response completely/);
+  assert.ok(parseSse(res.body).some((event) => event.type === "response:reset"));
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(finalUpdate.patch.content, fixed);
 });
 
 const ILLUSTRATION_ENV = {
@@ -1189,6 +1368,37 @@ test("retry: deletes failed assistant, reuses user message, streams fresh assist
   assert.equal(finalUpdate.patch.finish_reason, "stop");
   assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
   assert.equal("skillIds" in providerRequest, false);
+});
+
+test("visualize retry restores the skill without exposing document tools", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  const visual = "```visualize\n<!doctype html><html><body><button>Run demo</button></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(visual), usageChunk()];
+    }
+  });
+
+  const history = [
+    { id: "user-visualize", role: "user", content: "Explain merge sort.", metadata: { skillIds: ["visualize"] } },
+    { id: "asst-visualize", role: "assistant", content: "", error: "Model request failed.", finish_reason: "error" }
+  ];
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { retryAssistantMessageId: "asst-visualize", model: TEXT_MODEL, agentMode: true }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].messages[0].content, /<klui_composer_skill id="visualize">/);
+  assert.equal("tools" in requests[0], false);
+  assert.equal("tool_choice" in requests[0], false);
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
+  assert.equal(finalUpdate.patch.content, visual);
 });
 
 test("longer retry rewrites the existing answer without adding a user message", async (t) => {

@@ -1,0 +1,5 @@
+{
+  "execution": "prompt",
+  "exclusive": true,
+  "injectPrompt": true
+}

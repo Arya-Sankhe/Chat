@@ -258,7 +258,11 @@ test("report UI is on messages and the admin queue; storage stays in Settings", 
   const html = readFileSync(resolve(here, "../public/index.html"), "utf8");
   const admin = readFileSync(resolve(here, "../public/js/adminPanel.js"), "utf8");
   const schema = readFileSync(resolve(here, "../supabase/schema.sql"), "utf8");
+  const assistantMenu = app.slice(app.indexOf("function renderAssistantMoreMenu"), app.indexOf("function renderToolStatuses"));
+  const userFooter = app.slice(app.indexOf("function renderUserMessageFooter"), app.indexOf("function renderUserEditForm"));
   assert.match(app, /data-report-msg/);
+  assert.match(assistantMenu, /messageReportMenuItem/);
+  assert.doesNotMatch(userFooter, /messageReportMenuItem|data-report-msg/);
   assert.match(admin, /data-admin-tab="reports"/);
   assert.match(admin, /data-resolve-report/);
   assert.doesNotMatch(html, /id="accountStorageList"/);

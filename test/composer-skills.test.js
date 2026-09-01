@@ -71,6 +71,20 @@ test("catalog lists Illustration as exclusive and does not inject it", () => {
   assert.deepEqual(normalizeComposerSkillMarks([{ id: "illustration", at: -1 }], ["illustration"]), []);
 });
 
+test("catalog lists Visualize as an exclusive prompt skill", () => {
+  const visualize = listComposerSkills().find((skill) => skill.id === "visualize");
+  assert.ok(visualize);
+  assert.equal(visualize.name, "Visualize");
+  assert.equal(visualize.description, "Turn ideas into interactive visuals.");
+  assert.equal(visualize.exclusive, true);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /```visualize/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /output contract is mandatory/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /Run demo/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /Advanced/);
+  assert.deepEqual(normalizeComposerSkillIds(["humanizer", "visualize"]), ["visualize"]);
+  assert.ok(existsSync(new URL("../skills/visualize/COMPOSER.json", import.meta.url)));
+});
+
 test("Humanizer multiline YAML description is parsed", () => {
   const humanizer = listComposerSkills().find((skill) => skill.id === "humanizer");
   assert.equal(humanizer.description, "Cleaner, more natural phrasing, not a detector bypass");

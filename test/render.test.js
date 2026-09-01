@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyVisualizeFrameMessage,
   compactModelDisplayName,
   formatModelMeta,
   getCodeSource,
@@ -13,6 +14,89 @@ import {
   resolveDefaultCompareModels,
   stripRedundantSourcesFooter
 } from "../public/js/render.js";
+
+test("renderContent turns a completed visualize fence into an offline sandbox", () => {
+  delete globalThis.marked;
+  resetCodeSourceStore();
+  const source = "<!doctype html><html><head></head><body><button>Explore</button><script>document.body.dataset.ready='1'</script></body></html>";
+  const html = renderContent(`Built for the chat.\n\n\`\`\`visualize\n${source}\n\`\`\``);
+  const id = html.match(/data-visualize-id="(v\d+)"/)?.[1];
+  assert.ok(id);
+  assert.equal(getCodeSource(id), undefined);
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.match(html, /connect-src &#039;none&#039;/);
+  assert.match(html, /referrerpolicy="no-referrer"/);
+  assert.doesNotMatch(html, /allow-same-origin|allow-forms|allow-popups|allow-top-navigation/);
+  assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /data-visualize-expand/);
+  assert.doesNotMatch(html, /Copy code|data-code-id="v/);
+  assert.match(html, /klui:visualize:expanded/);
+});
+
+test("renderContent turns an incomplete visualize fence into a blurred build state", () => {
+  delete globalThis.marked;
+  const html = renderContent("```visualize\n<script>parent.document.body.remove()</script>");
+  assert.doesNotMatch(html, /<iframe|data-visualize-id/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /visualize-building/);
+  assert.match(html, /Taking shape/);
+  assert.doesNotMatch(html, /data-code-id|Copy code/);
+});
+
+test("visualize srcdoc strips hostile policy, base, and refresh tags", () => {
+  delete globalThis.marked;
+  resetCodeSourceStore();
+  const source = '<html><head><base href="https://evil.example/"><meta http-equiv="refresh" content="0;url=/settings"><meta http-equiv="Content-Security-Policy" content="script-src https://evil.example"></head><body>Safe</body></html>';
+  const html = renderContent(`\`\`\`visualize\n${source}\n\`\`\``);
+  assert.match(html, /base-uri about:/);
+  assert.match(html, /&lt;base href=&quot;about:srcdoc&quot;&gt;/);
+  assert.doesNotMatch(html, /evil\.example|url=\/settings/);
+});
+
+test("renderContent refuses oversized visualize documents", () => {
+  delete globalThis.marked;
+  resetCodeSourceStore();
+  const html = renderContent(`\`\`\`visualize\n<div>${"x".repeat(121 * 1024)}</div>\n\`\`\``);
+  assert.match(html, /Visualization unavailable/);
+  assert.match(html, /exceeded the 120 KiB limit/);
+  assert.doesNotMatch(html, /<iframe|srcdoc=/);
+});
+
+test("visualize resize messages require the matching iframe window and clamp height", () => {
+  const sourceWindow = {};
+  const classes = new Set();
+  const frame = {
+    dataset: { visualizeId: "v4" },
+    contentWindow: sourceWindow,
+    style: {},
+    closest() { return { classList: { add(value) { classes.add(value); } } }; }
+  };
+  const root = { querySelectorAll() { return [frame]; } };
+  assert.equal(applyVisualizeFrameMessage({ data: { type: "klui:visualize:resize", id: "v4", height: 9000 }, source: {} }, root), false);
+  assert.equal(applyVisualizeFrameMessage({ data: { type: "klui:visualize:resize", id: "v4", height: 9000 }, source: sourceWindow }, root), true);
+  assert.equal(frame.style.height, "640px");
+  assert.ok(classes.has("is-ready"));
+});
+
+test("visualize runtime errors stay inside the matching card", () => {
+  const sourceWindow = {};
+  const classes = new Set();
+  const error = { textContent: "", hidden: true };
+  const card = {
+    classList: { add(value) { classes.add(value); } },
+    querySelector() { return error; }
+  };
+  const frame = {
+    dataset: { visualizeId: "v7" },
+    contentWindow: sourceWindow,
+    closest() { return card; }
+  };
+  const root = { querySelectorAll() { return [frame]; } };
+  assert.equal(applyVisualizeFrameMessage({ data: { type: "klui:visualize:error", id: "v7", message: "Bad syntax" }, source: sourceWindow }, root), true);
+  assert.equal(error.textContent, "Bad syntax");
+  assert.equal(error.hidden, false);
+  assert.ok(classes.has("has-error"));
+});
 
 test("renderPlainText preserves pasted text without Markdown formatting", () => {
   const pasted = "## Heading\n```js\nconst key = '<secret>';\n```\n**bold**";

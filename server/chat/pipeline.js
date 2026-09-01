@@ -79,7 +79,7 @@ import {
   updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
-import { streamSingleChat } from "./single.js";
+import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
 import {
   PENDING_TURN_LEASE_SECONDS,
   documentHasUsableCapability,
@@ -850,6 +850,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const skillIds = isRetry || isEdit
     ? normalizeComposerSkillIds(userMessage?.metadata?.skillIds)
     : normalizeComposerSkillIds(body.skillIds);
+  const visualizing = skillIds.includes("visualize");
   const illustrationSkill = illustrationSkillFromIds(skillIds);
   if (illustrationSkill) {
     if (councilEnabled || compareModels.length) {
@@ -1224,12 +1225,12 @@ async function executeConversationMessage(req, res, config, conversationId, {
   });
   const selectedModelSupportsVision = modelSupportsVision(selectedModelMetadata || chatRequest.model);
   const readyDocuments = documents ? await documents.readyDocuments() : [];
-  const documentSkills = agentMode && documents ? selectDocumentSkills({
+  const documentSkills = agentMode && !visualizing && documents ? selectDocumentSkills({
     text: promptText,
     readyDocuments,
     messageHasDocuments: attachments.some((attachment) => attachment.category === "document")
   }) : null;
-  const deferredTools = documents ? buildDocumentTools() : [];
+  const deferredTools = documents && !visualizing ? buildDocumentTools() : [];
   const detection = webSearchMode !== "off"
     ? detectSearchNeed(promptText)
     : { score: 0, reasons: [], hasUrls: false, urls: [] };
@@ -1239,7 +1240,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     documentSkills
   }) ? "off" : webSearchMode;
   const hint = effectiveWebSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
-  let toolSetup = agentMode
+  let toolSetup = agentMode && !visualizing
     ? withAvailableTools(chatRequest, {
         config,
         webMode: effectiveWebSearchMode,
@@ -1260,7 +1261,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       contentType: attachment.content_type
     }) === "pdf";
   });
-  if (!agentMode || turnHasPdfAttachment) {
+  if (!agentMode || visualizing || turnHasPdfAttachment) {
     directPdfContext = await buildDirectPdfVisualContext({
       documents,
       readyDocuments,
@@ -1308,7 +1309,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     });
 
     const allCitations = [];
-    const { accumulated, citations, artifacts, providers, toolCallCount } = augmented
+    let response = augmented
       ? await runChatWithToolLoop({
           chatRequest: equippedRequest,
           crofai,
@@ -1334,6 +1335,19 @@ async function executeConversationMessage(req, res, config, conversationId, {
           res,
           includeReasoning
         });
+    response = await ensureVisualizeResponse({
+      required: skillIds.includes("visualize"),
+      result: response,
+      chatRequest: equippedRequest,
+      crofai,
+      config,
+      provider,
+      signal: controller.signal,
+      res,
+      includeReasoning,
+      onReset: () => writeSse(res, { type: "response:reset" })
+    });
+    const { accumulated, citations, artifacts, providers, toolCallCount } = response;
 
     if (Array.isArray(citations) && citations.length) allCitations.push(...citations);
     if (Array.isArray(directPdfContext.citations) && directPdfContext.citations.length) {
