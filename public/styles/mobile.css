@@ -3551,5 +3551,5 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
   min-height: 56px;
   padding: 9px 10px !important;
   border-radius: 32px;
-  background: color-mix(in srgb, var(--bg) 84%, var(--text)) !important;
+  background: var(--bg) !important;
 }

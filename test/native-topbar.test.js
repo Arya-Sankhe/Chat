@@ -46,14 +46,14 @@ test("the APK top bar exposes a Nitro/Thinking/Pro/Compare/Council mode dropdown
   );
 });
 
-test("mobile composer uses a lifted, compact surface and mode dots retain their colors", () => {
+test("mobile composer uses a lifted, compact layout and mode dots retain their colors", () => {
   const css = readStylesheet();
   assert.match(css, /grid-template-columns:\s*36px minmax\(0, 1fr\) 74px/);
   assert.match(css, /body\.capacitor-native \.composer-plus-btn\[aria-expanded="true"\]\s*\{[\s\S]*?background:\s*var\(--accent\)\s*!important/);
   assert.match(css, /\.mode-dot-nitro\s*\{\s*background:\s*#34c759/);
   assert.match(css, /\.composer-area \.composer-wrap\s*\{\s*width:\s*min\(84%, 560px\)/);
   assert.match(css, /bottom:\s*calc\(var\(--native-keyboard-height\) \+ 26px\)\s*!important/);
-  assert.match(css, /min-height:\s*56px[\s\S]*?background:\s*color-mix\(in srgb, var\(--bg\) 84%, var\(--text\)\)\s*!important/);
+  assert.match(css, /min-height:\s*56px[\s\S]*?background:\s*var\(--bg\)\s*!important/);
 });
 
 test("the top bar markup order: hamburger → mode chip → temp-chat label → temp-chat icon → new-chat", () => {
