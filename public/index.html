@@ -944,9 +944,12 @@
     </div>
 
     <script>
+      const sidebarCloseButton = `<button class="sidebar-icon sidebar-close" id="sidebarCloseButton" type="button" aria-label="Close navigation" title="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>`;
+      if (window.androidBridge || window.matchMedia("(max-width: 860px)").matches) {
+        document.querySelector("#sidebarButton")?.insertAdjacentHTML("afterend", sidebarCloseButton);
+      }
       if (window.androidBridge) {
         document.body.classList.add("capacitor-native", "chat-empty");
-        document.querySelector("#sidebarButton")?.insertAdjacentHTML("afterend", `<button class="sidebar-icon sidebar-close" id="sidebarCloseButton" type="button" aria-label="Close navigation" title="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>`);
         document.querySelector("#homeWallpaper").decoding = "sync";
         if (window.location.pathname === "/") {
           const greetings = [
