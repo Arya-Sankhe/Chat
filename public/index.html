@@ -58,6 +58,11 @@
     <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js" integrity="sha384-coEhNYf+uY/IAdm3afqLaaHhP4vzpDHARAMbRvTGjDwDSCD7DnG5dAKe4sDoUupt" crossorigin="anonymous"></script>
   </head>
   <body>
+    <script>
+      if (window.matchMedia("(max-width: 860px) and (pointer: coarse)").matches) {
+        document.body.classList.add("capacitor-native");
+      }
+    </script>
     <div id="app">
 
       <section class="fullscreen-view hidden" id="setupView">

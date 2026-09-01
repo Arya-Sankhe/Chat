@@ -9938,7 +9938,10 @@ function bindEvents() {
   loadGoogleFonts();
 }
 
-document.body.classList.toggle("capacitor-native", isNative());
+document.body.classList.toggle(
+  "capacitor-native",
+  isNative() || window.matchMedia("(max-width: 860px) and (pointer: coarse)").matches
+);
 bindEvents();
 if (location.hash === "#settings") {
   history.replaceState(null, "", `${location.pathname}${location.search}`);

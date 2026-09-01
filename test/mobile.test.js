@@ -116,6 +116,19 @@ test("chat shell is visible before JavaScript finishes booting", async () => {
   assert.doesNotMatch(source, /class="app-shell hidden" id="chatView"/);
 });
 
+test("touch phones use the existing native mobile layout before app boot", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  const appJs = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const mobileQuery = /window\.matchMedia\("\(max-width: 860px\) and \(pointer: coarse\)"\)\.matches/;
+  assert.match(source, mobileQuery);
+  assert.match(source, /classList\.add\("capacitor-native"\)/);
+  assert.match(appJs, mobileQuery);
+});
+
 test("chat navigation allows switching while another conversation is running", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
