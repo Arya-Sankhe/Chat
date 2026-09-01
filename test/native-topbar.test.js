@@ -48,6 +48,10 @@ test("the APK top bar exposes a Nitro/Thinking/Pro/Compare/Council mode dropdown
 
 test("mobile composer uses a lifted, compact layout and mode dots retain their colors", () => {
   const css = readStylesheet();
+  assert.match(
+    css,
+    /body\.capacitor-native \.app-shell,[\s\S]*?body\.capacitor-native \.chat-panel\s*\{[\s\S]*?height:\s*100dvh;[\s\S]*?min-height:\s*100dvh;/
+  );
   assert.match(css, /grid-template-columns:\s*36px minmax\(0, 1fr\) 74px/);
   assert.match(css, /body\.capacitor-native \.composer-plus-btn\[aria-expanded="true"\]\s*\{[\s\S]*?background:\s*var\(--accent\)\s*!important/);
   assert.match(css, /\.mode-dot-nitro\s*\{\s*background:\s*#34c759/);

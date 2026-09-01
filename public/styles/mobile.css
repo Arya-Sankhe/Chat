@@ -3521,8 +3521,8 @@ body.capacitor-native {
 
 body.capacitor-native .app-shell,
 body.capacitor-native .chat-panel {
-  height: 100vh;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
 }
 
 body.capacitor-native .composer-area,
