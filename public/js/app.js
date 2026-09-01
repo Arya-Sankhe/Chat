@@ -9940,7 +9940,7 @@ function bindEvents() {
 
 document.body.classList.toggle(
   "capacitor-native",
-  isNative() || window.matchMedia("(max-width: 860px) and (pointer: coarse)").matches
+  isNative() || window.matchMedia("(max-width: 860px)").matches
 );
 bindEvents();
 if (location.hash === "#settings") {
