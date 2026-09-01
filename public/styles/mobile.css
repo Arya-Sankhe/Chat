@@ -3196,7 +3196,7 @@ body.capacitor-native .native-mobile-mode-dropdown.hidden {
 body.capacitor-native .composer,
 body.capacitor-native.chat-empty .composer {
   display: grid !important;
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  grid-template-columns: 36px minmax(0, 1fr) 74px;
   align-items: center;
   column-gap: 8px;
   min-height: 48px;
@@ -3271,6 +3271,11 @@ body.capacitor-native .composer-tool:active,
 body.capacitor-native .send-btn:active,
 body.capacitor-native .stop-btn:active {
   transform: scale(0.94);
+}
+body.capacitor-native .composer-plus-btn[aria-expanded="true"] {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-contrast) !important;
 }
 
 /* Scrolling mini composer: a small, solid centered pill. No text/buttons, no

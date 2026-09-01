@@ -30,10 +30,11 @@ function findLastNativeRule(css, selectorFragment) {
   return result;
 }
 
-test("the APK top bar exposes a Thinking/Pro/Compare/Council mode dropdown and no longer shows the Klui wordmark", () => {
+test("the APK top bar exposes a Nitro/Thinking/Pro/Compare/Council mode dropdown and no longer shows the Klui wordmark", () => {
   const html = readPublic("index.html");
   assert.match(html, /id="nativeMobileModeButton"/, "mode chip button missing");
   assert.match(html, /id="nativeMobileModeDropdown"/, "mode dropdown missing");
+  assert.match(html, /data-mode="nitro"/, "Nitro option missing");
   assert.match(html, /data-mode="thinking"/, "Thinking option missing");
   assert.match(html, /data-mode="pro"/, "Pro option missing");
   assert.match(html, /data-mode="compare"/, "Compare option missing");
@@ -43,6 +44,12 @@ test("the APK top bar exposes a Thinking/Pro/Compare/Council mode dropdown and n
     /<span class="native-mobile-brand">Klui<\/span>/,
     "Klui wordmark should be removed from the APK top bar"
   );
+});
+
+test("mobile composer reserves room for voice and send controls and keeps the opened plus accented", () => {
+  const css = readStylesheet();
+  assert.match(css, /grid-template-columns:\s*36px minmax\(0, 1fr\) 74px/);
+  assert.match(css, /body\.capacitor-native \.composer-plus-btn\[aria-expanded="true"\]\s*\{[\s\S]*?background:\s*var\(--accent\)\s*!important/);
 });
 
 test("the top bar markup order: hamburger → mode chip → temp-chat label → temp-chat icon → new-chat", () => {

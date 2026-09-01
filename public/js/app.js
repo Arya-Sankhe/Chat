@@ -1978,7 +1978,8 @@ function syncCompareContextBanner(modelIds = compareController.selectedCompareMo
 function currentNativeTopBarMode() {
   if (state.settings.compareEnabled && state.settings.compareMode === "council") return "council";
   if (state.settings.compareEnabled) return "compare";
-  return state.settings.modelMode === "pro" ? "pro" : "thinking";
+  const level = spectrumLevelFromSettings();
+  return level === 0 ? "nitro" : level === SPECTRUM_N - 1 ? "pro" : "thinking";
 }
 
 function applyNativeTopBarMode(mode) {
@@ -1991,8 +1992,7 @@ function applyNativeTopBarMode(mode) {
     return;
   }
   if (state.settings.compareEnabled) compareController.cancelCompareMode();
-  const modelMode = mode === "pro" ? "pro" : "thinking";
-  applySpectrumLevel(modelMode === "pro" ? 2 : 1);
+  applySpectrumLevel(mode === "nitro" ? 0 : mode === "pro" ? SPECTRUM_N - 1 : 1);
 }
 
 function clampTextScale(value) {
@@ -9190,7 +9190,8 @@ function bindEvents() {
     const mode = currentNativeTopBarMode();
     const label = els.nativeMobileModeLabel;
     if (label) {
-      const display = mode === "thinking" ? "Think"
+      const display = mode === "nitro" ? "Nitro"
+        : mode === "thinking" ? "Think"
         : mode === "pro" ? "Pro"
         : mode === "compare" ? "Compare"
         : mode === "council" ? "Council"
