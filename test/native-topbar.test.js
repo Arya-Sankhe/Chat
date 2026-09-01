@@ -56,6 +56,16 @@ test("mobile composer uses a lifted, compact layout and mode dots retain their c
   assert.match(css, /min-height:\s*56px[\s\S]*?background:\s*var\(--bg\)\s*!important/);
 });
 
+test("mobile places the accuracy note beneath only the latest completed response", () => {
+  const css = readStylesheet();
+  const appJs = readPublic("js/app.js");
+  assert.match(css, /body\.capacitor-native \.composer-area \.app-footer\s*\{\s*display:\s*none/);
+  assert.match(css, /body\.capacitor-native \.message-accuracy-note\s*\{[\s\S]*?text-align:\s*right/);
+  assert.match(appJs, /document\.body\.classList\.contains\("capacitor-native"\)[\s\S]*?!state\.running/);
+  assert.match(appJs, /latestAssistant\?\.id[\s\S]*?msg\.id/);
+  assert.match(appJs, /class="message-accuracy-note"[\s\S]*?Klui can make mistakes/);
+});
+
 test("the top bar markup order: hamburger → mode chip → temp-chat label → temp-chat icon → new-chat", () => {
   const html = readPublic("index.html");
   const idxMenu = html.indexOf('id="nativeMobileMenu"');

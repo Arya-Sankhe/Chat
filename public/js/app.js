@@ -5323,15 +5323,22 @@ function renderMessageFooter(msg, role) {
   if (role !== "assistant") return "";
   // Hide copy/sources while tools are still running or prose is provisional.
   if (isAssistantMessageStreaming(msg) || isProvisionalToolProse(msg)) return "";
+  const latestAssistant = [...state.messages].reverse().find((item) => item.role === "assistant");
+  const accuracy = document.body.classList.contains("capacitor-native")
+    && !state.running
+    && String(latestAssistant?.id || "") === String(msg.id || "")
+    ? `<a class="message-accuracy-note" href="https://home.klui.ai/accuracy/" target="_blank" rel="noopener"><span>Klui can make mistakes.</span><span>Double-check important responses.</span></a>`
+    : "";
   const copy = messageCopyButton(msg, { iconOnly: true });
   const retry = renderMessageRetry(msg);
   const more = renderAssistantMoreMenu(msg);
   const citations = renderCitations(msg);
-  if (!copy && !retry && !more && !citations) return "";
+  if (!copy && !retry && !more && !citations && !accuracy) return "";
   return `
     <div class="message-footer">
       ${copy || retry || more ? `<div class="message-footer-actions">${retry}${copy}${more}</div>` : ""}
       ${citations ? `<div class="message-footer-sources">${citations}</div>` : ""}
+      ${accuracy}
     </div>
   `;
 }

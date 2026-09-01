@@ -3553,3 +3553,26 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
   border-radius: 32px;
   background: var(--bg) !important;
 }
+
+/* Mobile keeps the accuracy note with the latest completed response, not the composer. */
+body.capacitor-native .composer-area .app-footer {
+  display: none;
+}
+
+body.capacitor-native .message.assistant .message-footer {
+  flex-wrap: wrap;
+}
+
+body.capacitor-native .message-accuracy-note {
+  flex: 1 0 100%;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+  text-decoration: none;
+}
+
+body.capacitor-native .message-accuracy-note span {
+  display: block;
+}
