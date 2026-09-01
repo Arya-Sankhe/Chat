@@ -7684,10 +7684,6 @@ async function sendPrompt({
   skipClarification = false
 } = {}) {
   hideAttachmentModelNotice();
-  if (document.body.classList.contains("capacitor-native")) {
-    els.promptInput?.blur();
-    void hideNativeKeyboard();
-  }
   if (state.clarificationChecking) return;
   if (state.clarification && textOverride == null) {
     continueClarification();
@@ -7703,6 +7699,10 @@ async function sendPrompt({
     return;
   }
   let text = textOverride == null ? composerSnapshot().text : String(textOverride).trim();
+  if (document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.blur();
+    void hideNativeKeyboard();
+  }
   if (state.running) {
     if (state.activeResearchId) {
       showToast("Wait for Deep Research to finish or cancel it first.");
