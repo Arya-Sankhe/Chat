@@ -101,7 +101,7 @@ services:
     environment:
       DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
       DOCUMENT_WORKER_MAX_IDLE_SECONDS: ${DOCUMENT_WORKER_MAX_IDLE_SECONDS:-10}
-    mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-3g}
+    mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-6g}
     healthcheck:
       test: ["CMD", "python", "-m", "worker.healthcheck"]
       interval: 30s
