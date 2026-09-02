@@ -162,7 +162,7 @@ test("sources popover chooses the roomier side and caps its visible rows", () =>
   assert.match(css, /\.sources-pill\.opens-down \.sources-panel\s*\{[^}]*top:\s*calc\(100% \+ 6px\)[^}]*bottom:\s*auto/s);
 });
 
-test("message errors stay compact and only network or stale-build errors offer safe reload", () => {
+test("message errors stay compact and only network or stale-build errors offer reload", () => {
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
   const render = appJs.match(/function renderMessageError\(message\)\s*\{[\s\S]*?\n\}/);
@@ -172,7 +172,7 @@ test("message errors stay compact and only network or stale-build errors offer s
   assert.match(appJs, /This tab is out of date\. Reload to continue\./);
   assert.match(appJs, /els\.messages\?\.addEventListener\("click"/);
   assert.match(appJs, /function reloadAppIfSafe\(\)/);
-  assert.match(appJs, /state\.running \|\| composerHasPendingContent\(\)/);
+  assert.doesNotMatch(appJs, /Finish the current response or send\/save your draft before reloading\./);
   assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
   assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">Stopped by user\.<\/div>`/);
   assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| rawTextContent\(msg\.content\)\.includes\("```visualize"\)\)[\s\S]*?content\.innerHTML = renderAssistantMessageContent\(msg, role\)/);
@@ -181,6 +181,12 @@ test("message errors stay compact and only network or stale-build errors offer s
   assert.doesNotMatch(stopped, /background|border|padding|width/);
   assert.doesNotMatch(appJs, /class="message-note"/);
   assert.doesNotMatch(css, /\.message-retry-btn\s*\{/);
+});
+
+test("the default composer prompt asks Klui", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /return "Ask Klui";/);
+  assert.doesNotMatch(appJs, /return "Message Klui agent";/);
 });
 
 test("streamed answer text gets a short blur reveal without animating reduced-motion clients", () => {

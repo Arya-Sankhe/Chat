@@ -3445,6 +3445,11 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
     opacity: 1;
     pointer-events: auto;
   }
+
+  body:not(.capacitor-native).sidebar-open .confirm-dialog.open {
+    left: calc(min(320px, 86vw) / 2);
+    width: calc(min(320px, 86vw) - 24px);
+  }
 }
 
 @media (max-width: 860px) and (prefers-reduced-motion: reduce) {

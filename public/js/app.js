@@ -1730,7 +1730,7 @@ function composerPlaceholder() {
   if (state.studyOpen && state.activeCourseId && !state.activeConversationId) {
     return `Message ${state.studyProjectDetail?.project?.name || "this course"}`;
   }
-  return "Message Klui agent";
+  return "Ask Klui";
 }
 
 function updateComposerPlaceholder() {
@@ -8570,10 +8570,6 @@ function composerHasPendingContent() {
 }
 
 function reloadAppIfSafe() {
-  if (state.running || composerHasPendingContent()) {
-    showToast("Finish the current response or send/save your draft before reloading.");
-    return;
-  }
   window.location.reload();
 }
 

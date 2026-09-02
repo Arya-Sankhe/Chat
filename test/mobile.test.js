@@ -796,6 +796,11 @@ test("native sidebar rename and delete actions close drawer before opening dialo
   );
 });
 
+test("mobile web chat deletion keeps its confirmation inside the open sidebar", () => {
+  const source = readStylesheet();
+  assert.match(source, /body:not\(\.capacitor-native\)\.sidebar-open \.confirm-dialog\.open\s*\{[\s\S]*?left:\s*calc\(min\(320px, 86vw\) \/ 2\);[\s\S]*?width:\s*calc\(min\(320px, 86vw\) - 24px\);/);
+});
+
 
 test("native top bar blends with system bars and has no bottom border", async () => {
   const source = readStylesheet();
