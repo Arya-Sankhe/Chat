@@ -187,6 +187,33 @@ test("completed Study Hub generation force-refreshes visible course data", () =>
   assert.match(hub, /if \(!force && cacheCourseId === id && hasCache\(\)\) return/);
 });
 
+test("Study Hub keeps compact generation status in Materials", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.match(hub, /state\.activeCourseTab === "materials" \? generationCardsMarkup\(\) : ""/);
+  assert.doesNotMatch(hub, /study-practice[\s\S]{0,180}study-generation-list/);
+  assert.match(css, /\.study-gen-card\s*\{[\s\S]*?border-radius: 999px/s);
+  assert.doesNotMatch(css, /var\(--home-wallpaper-image, none\)/);
+});
+
+test("practice cards keep their outlines closed around long titles", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.doesNotMatch(hub, /sketchStroke\("is-stack-/);
+  assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.study-practice-grid\s*\{[\s\S]*?padding: 10px 14px 38px 10px/s);
+});
+
+test("small materials layout keeps the upload panel content-sized", () => {
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.match(css, /\.study-materials\s*\{[\s\S]*?align-content: start/s);
+  assert.match(css, /grid-template-areas: "upload" "board"/);
+  assert.match(css, /\.study-dropzone\s*\{[^}]*width: min\(100%, 420px\)[^}]*min-height: 170px/s);
+  assert.match(css, /@media \(max-width: 980px\)[\s\S]*?\.study-dropzone\s*\{[^}]*position: relative/s);
+  assert.match(css, /grid-template-columns: minmax\(0, 1fr\)/);
+  assert.doesNotMatch(css, /\.study-dropzone\s*\{[^}]*position: sticky/s);
+});
+
 test("materials Notes uses Summary and Detailed, each once", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
@@ -226,6 +253,11 @@ test("materials cards have a delete menu", () => {
   assert.match(hub, /deleteStudyNote/);
   assert.match(api, /\/api\/study\/courses\/\$\{encodeURIComponent\(courseId\)\}\/materials/);
   assert.match(api, /\/api\/study\/notes\/\$\{encodeURIComponent\(noteId\)\}/);
+});
+
+test("deleting a note warns that linked practice content is also deleted", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /This will also delete its flashcard decks and quizzes\./);
 });
 
 test("quiz recap is a fixed card with review, retake, and lookback", () => {
@@ -291,7 +323,7 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.doesNotMatch(hub, /Import syllabus dates/);
   assert.doesNotMatch(hub, /overviewMarkup/);
   assert.doesNotMatch(hub, /computeStreak/);
-  assert.match(hub, /courseGenerationCards\(\)\.length \? `<div class="study-material-board study-generation-list"/);
+  assert.match(hub, /state\.activeCourseTab === "materials" \? generationCardsMarkup\(\) : ""/);
   assert.match(hub, /activeFor\("flashcards"\)/);
   assert.match(hub, /abortAllGenerations/);
   assert.doesNotMatch(hub, /let generatingKey/);
@@ -336,7 +368,7 @@ test("study hub uses a whiteboard board skin without adding product surfaces", (
   assert.match(css, /--study-board/);
   assert.match(css, /#study-wobble/);
   assert.match(css, /body\.study-open \.home-wallpaper/);
-  assert.match(css, /body\.study-open \.app-shell \{[\s\S]*?--home-wallpaper-image/);
+  assert.doesNotMatch(css, /body\.study-open \.app-shell \{[\s\S]*?--home-wallpaper-image/);
   assert.match(hub, /study-chip-label/);
   assert.match(css, /study-ink-blue:is\(:hover, \[aria-expanded="true"\]\)/);
   assert.match(css, /study-ink-orange:is\(:hover, \[aria-expanded="true"\]\)/);

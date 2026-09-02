@@ -51,6 +51,11 @@ const TEMP_LINES = [
 const controllers = new WeakMap();
 let greetingRun = 0;
 
+function accentFlash() {
+  const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#6366f1";
+  return (index, total) => `color-mix(in srgb, ${accent} ${Math.round(55 + (total <= 1 ? 0.5 : index / (total - 1)) * 45)}%, white)`;
+}
+
 function shuffle(list) {
   const out = [...list];
   for (let i = out.length - 1; i > 0; i--) {
@@ -261,6 +266,7 @@ function mountBar(bar) {
         direction: dirUp ? "up" : "down",
         skipUnchanged: true,
         interrupt: false,
+        color: accentFlash(),
       });
     };
     roll();
@@ -278,10 +284,10 @@ function mountBar(bar) {
     if (!update || !updateKey || updateKey === bar.dataset.updateKey) return false;
     clearTimeout(updateTimer);
     bar.dataset.updateKey = updateKey;
-    stateSlot.set(update, { direction: "up", skipUnchanged: true, interrupt: false });
+    stateSlot.set(update, { direction: "up", skipUnchanged: true, interrupt: false, color: accentFlash() });
     updateTimer = setTimeout(() => {
       if (bar.isConnected) {
-        stateSlot.set(bar.dataset.label || initialLabel, { direction: "down", skipUnchanged: true, interrupt: false });
+        stateSlot.set(bar.dataset.label || initialLabel, { direction: "down", skipUnchanged: true, interrupt: false, color: accentFlash() });
       }
     }, 2800);
     return true;
@@ -297,7 +303,7 @@ function mountBar(bar) {
     bar.classList.toggle("is-done", !active);
     setFaceExtras(bar, next);
     if (!showUpdate(update, updateKey) && labelChanged && !updateTimer) {
-      stateSlot.set(label, { direction: "up", skipUnchanged: true, interrupt: false });
+      stateSlot.set(label, { direction: "up", skipUnchanged: true, interrupt: false, color: accentFlash() });
     }
     state = next;
     if (stateChanged || !phraseTimer) startPhraseCycle();

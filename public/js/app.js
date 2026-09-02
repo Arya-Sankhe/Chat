@@ -5045,6 +5045,19 @@ function closeOpenSourcesPills() {
   });
 }
 
+function positionSourcesPill(pill) {
+  if (!pill?.open) return;
+  const trigger = pill.querySelector(".sources-pill-trigger");
+  const panel = pill.querySelector(".sources-panel");
+  if (!trigger || !panel) return;
+  const rect = trigger.getBoundingClientRect();
+  const above = rect.top - 12;
+  const below = window.innerHeight - rect.bottom - 12;
+  const opensDown = below > above;
+  pill.classList.toggle("opens-down", opensDown);
+  panel.style.maxHeight = `${Math.max(80, Math.min(340, Math.floor(opensDown ? below : above)))}px`;
+}
+
 function artifactLabel(artifact) {
   const fileName = String(artifact?.file_name || "Generated document").trim();
   return fileName || "Generated document";
@@ -8711,6 +8724,10 @@ function bindEvents() {
   });
 
   els.messages.addEventListener("scroll", closeOpenSourcesPills, { passive: true });
+  els.messages.addEventListener("click", (event) => {
+    const pill = event.target.closest(".sources-pill");
+    if (pill) requestAnimationFrame(() => positionSourcesPill(pill));
+  });
   let chatNavigationFrame = 0;
   const queueChatNavigationUpdate = () => {
     if (chatNavigationFrame) return;

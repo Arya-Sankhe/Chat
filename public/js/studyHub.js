@@ -451,34 +451,22 @@ export function createStudyHubController({
   function generationCardsMarkup() {
     const cards = courseGenerationCards();
     if (!cards.length) return "";
-    return cards.map((job) => {
+    return `<div class="study-generation-list">${cards.map((job) => {
       const active = job.status === "running";
       const pillClass = job.status === "failed" ? "failed" : "reading";
       const stage = job.stage ? ` · ${job.stage}` : "";
       const elapsed = formatElapsed(job);
       const meta = jobMetaLine(job);
       return `
-        <article class="study-material-card study-gen-card is-${escapeHtml(job.status || "running")}" data-gen-id="${escapeHtml(job.id)}">
-          ${sketchStroke()}
-          <div class="study-material-copy">
-            <strong>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(jobSourceName(job))}</strong>
-            ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-            <span class="study-status is-${escapeHtml(pillClass)}" aria-live="polite">
-              ${active ? spinner() : ""}${escapeHtml(jobStatusLabel(job.status))}${escapeHtml(stage)}
-            </span>
-            ${elapsed ? `<small class="study-gen-elapsed">${escapeHtml(elapsed)}</small>` : ""}
-          </div>
-          ${active ? `
-            <div class="study-gen-actions">
-              <button class="study-chip-btn" type="button" data-cancel-generation="${escapeHtml(job.id)}">${sketchStroke()}Cancel</button>
-            </div>` : ""}
-          ${job.status === "failed" ? `
-            <p class="study-gen-error">${escapeHtml(job.error || "Generation failed.")}</p>
-            <div class="study-gen-actions">
-              <button class="study-chip-btn" type="button" data-retry-generation="${escapeHtml(job.id)}">${sketchStroke()}Retry</button>
-            </div>` : ""}
+        <article class="study-gen-card is-${escapeHtml(job.status || "running")}" data-gen-id="${escapeHtml(job.id)}">
+          <strong title="${escapeHtml(`${jobTypeLabel(job.type)} · ${jobSourceName(job)}`)}">${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(jobSourceName(job))}</strong>
+          ${meta ? `<span class="study-gen-meta">${escapeHtml(meta)}</span>` : ""}
+          <span class="study-status is-${escapeHtml(pillClass)}" aria-live="polite">${active ? spinner() : ""}${escapeHtml(jobStatusLabel(job.status))}${escapeHtml(stage)}</span>
+          ${elapsed ? `<span class="study-gen-elapsed">${escapeHtml(elapsed)}</span>` : ""}
+          ${active ? `<button class="study-chip-btn" type="button" data-cancel-generation="${escapeHtml(job.id)}">Cancel</button>` : ""}
+          ${job.status === "failed" ? `<span class="study-gen-error" title="${escapeHtml(job.error || "Generation failed.")}">${escapeHtml(job.error || "Generation failed.")}</span><button class="study-chip-btn" type="button" data-retry-generation="${escapeHtml(job.id)}">Retry</button>` : ""}
         </article>`;
-    }).join("");
+    }).join("")}</div>`;
   }
 
   function materialsMarkup() {
@@ -601,10 +589,8 @@ export function createStudyHubController({
       ? decks.map((deck, index) => {
         const id = deck.id;
         return `
-          <article class="study-practice-card is-stack">
+          <article class="study-practice-card">
             ${index === 0 ? sketchTape() : ""}
-            ${sketchStroke("is-stack-2")}
-            ${sketchStroke("is-stack-1")}
             ${sketchStroke()}
             <button class="study-practice-open" type="button" data-open-deck="${escapeHtml(id)}">
               <strong>${escapeHtml(deck.title || "Deck")}</strong>
@@ -631,7 +617,6 @@ export function createStudyHubController({
       : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from one or more files.");
     return `
       <div class="study-practice">
-        ${courseGenerationCards().length ? `<div class="study-material-board study-generation-list">${generationCardsMarkup()}</div>` : ""}
         <section class="study-practice-col">
           <div class="study-section-heading">
             <h2 class="study-marker study-ink-blue">Decks</h2>
@@ -661,8 +646,7 @@ export function createStudyHubController({
       : state.activeCourseTab === "chat" ? chatMarkup()
         : state.activeCourseTab === "practice" ? practiceMarkup()
           : materialsMarkup();
-    const gens = state.activeCourseTab === "practice" ? ""
-      : (courseGenerationCards().length ? `<div class="study-material-board study-generation-list">${generationCardsMarkup()}</div>` : "");
+    const gens = state.activeCourseTab === "materials" ? generationCardsMarkup() : "";
     return `${gens}<div class="study-tab-panel" data-study-tab-panel="${escapeHtml(state.activeCourseTab)}">${body}</div>`;
   }
 
@@ -1451,7 +1435,7 @@ export function createStudyHubController({
     render();
     openDeleteConfirm({
       title: "Delete note?",
-      body: `Delete "${note.title || noteKindLabel(note)}"?`,
+      body: `Delete "${note.title || noteKindLabel(note)}"? This will also delete its flashcard decks and quizzes.`,
       onConfirm: () => deleteNote(note)
     });
   }

@@ -147,8 +147,19 @@ test("thinking status briefly rolls real tool updates through its existing headi
   assert.match(kluiJs, /class="klui-phrase"/);
   assert.match(kluiJs, /function startPhraseCycle\(\)/);
   assert.match(kluiJs, /function showUpdate\(update, updateKey\)/);
+  assert.match(kluiJs, /function accentFlash\(\)/);
+  assert.ok((kluiJs.match(/color: accentFlash\(\)/g) || []).length >= 4);
   assert.match(kluiJs, /\}, 2800\);/);
   assert.match(css, /\.klui-copy\s*\{[^}]*display:\s*grid/);
+});
+
+test("sources popover chooses the roomier side and caps its visible rows", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  assert.match(appJs, /function positionSourcesPill\(pill\)/);
+  assert.match(appJs, /const opensDown = below > above/);
+  assert.match(appJs, /Math\.max\(80, Math\.min\(340,/);
+  assert.match(css, /\.sources-pill\.opens-down \.sources-panel\s*\{[^}]*top:\s*calc\(100% \+ 6px\)[^}]*bottom:\s*auto/s);
 });
 
 test("message errors stay compact and only network or stale-build errors offer safe reload", () => {
