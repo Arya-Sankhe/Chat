@@ -4856,19 +4856,20 @@ function restoreCitationPlaceholders(html, slots) {
   return out;
 }
 
-function renderAssistantText(text, citations) {
+function renderAssistantText(text, citations, { holdVisualize = false } = {}) {
   const cleaned = stripRedundantSourcesFooter(
     stripLeakedToolMarkup(stripLeakedCitationHtml(text)),
     citations
   );
   if (!cleaned.trim()) return "";
-  if (!citations.length) return renderContent(cleaned);
+  if (!citations.length) return renderContent(cleaned, { holdVisualize });
   const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
-  return restoreCitationPlaceholders(renderContent(prepared), slots);
+  return restoreCitationPlaceholders(renderContent(prepared, { holdVisualize }), slots);
 }
 
 function renderAssistantContent(content, message) {
   const citations = citationListFromMessage(message);
+  const holdVisualize = state.running && Boolean(message?.id) && String(state.messages.at(-1)?.id || "") === String(message.id);
   const hasContent = Array.isArray(content)
     ? content.some((part) => part?.type === "text" ? String(part.text || "").trim() : part?.type === "image_url")
     : Boolean(String(content || "").trim());
@@ -4877,7 +4878,7 @@ function renderAssistantContent(content, message) {
     if (!hasContent) return "";
     return content
       .map((part) => {
-        if (part?.type === "text") return renderAssistantText(part.text || "", citations);
+        if (part?.type === "text") return renderAssistantText(part.text || "", citations, { holdVisualize });
         if (part?.type === "image_url") {
           const url = part.image_url?.url;
           if (!url) return "";
@@ -4895,7 +4896,7 @@ function renderAssistantContent(content, message) {
   }
 
   const text = typeof content === "string" ? content : "";
-  return renderAssistantText(text, citations);
+  return renderAssistantText(text, citations, { holdVisualize });
 }
 
 function pastedTextFromMessage(message) {

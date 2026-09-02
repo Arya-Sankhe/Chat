@@ -43,6 +43,13 @@ test("renderContent turns an incomplete visualize fence into a blurred build sta
   assert.doesNotMatch(html, /data-code-id|Copy code/);
 });
 
+test("renderContent keeps a completed visualization blurred until its turn is final", () => {
+  delete globalThis.marked;
+  const html = renderContent("```visualize\n<!doctype html><html><body>Still validating</body></html>\n```", { holdVisualize: true });
+  assert.match(html, /visualize-building/);
+  assert.doesNotMatch(html, /<iframe|data-visualize-id/);
+});
+
 test("visualize srcdoc strips hostile policy, base, and refresh tags", () => {
   delete globalThis.marked;
   resetCodeSourceStore();

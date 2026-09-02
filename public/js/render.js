@@ -207,7 +207,7 @@ function visualizeBuilding(source) {
   </section>`;
 }
 
-function extractVisualizations(text) {
+function extractVisualizations(text, { holdCompleted = false } = {}) {
   const slots = [];
   const processed = String(text || "").replace(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, (_, raw) => {
     const source = String(raw || "").trim();
@@ -218,7 +218,7 @@ function extractVisualizations(text) {
       slots.push({ token, error: "The generated document exceeded the 120 KiB limit." });
     } else {
       const id = `v${++codeSourceCounter}`;
-      slots.push({ token, source, id });
+      slots.push({ token, source, id, building: holdCompleted });
     }
     return token;
   });
@@ -364,11 +364,11 @@ function wrapMessageTables(html) {
   return String(html).replace(/<table\b[\s\S]*?<\/table>/gi, (table) => `<div class="table-scroll">${table}</div>`);
 }
 
-function renderRichText(raw) {
+function renderRichText(raw, { holdVisualize = false } = {}) {
   const text = String(raw ?? "");
   if (!text) return "";
 
-  const visualizations = extractVisualizations(text);
+  const visualizations = extractVisualizations(text, { holdCompleted: holdVisualize });
 
   const m = globalThis.marked;
   if (!m || typeof m.parse !== "function") {
@@ -406,11 +406,11 @@ function safeImageUrl(url) {
 
 /* Public content renderer */
 
-export function renderContent(content) {
+export function renderContent(content, { holdVisualize = false } = {}) {
   if (Array.isArray(content)) {
     return content
       .map((part) => {
-        if (part.type === "text") return renderRichText(part.text);
+        if (part.type === "text") return renderRichText(part.text, { holdVisualize });
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" data-preview-src="${escapeHtml(url)}" alt="User supplied image" role="button" tabindex="0">` : "";
@@ -435,7 +435,7 @@ export function renderContent(content) {
       })
       .join("");
   }
-  return renderRichText(content);
+  return renderRichText(content, { holdVisualize });
 }
 
 /**

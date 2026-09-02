@@ -508,8 +508,8 @@ h2 {
 }
 
 .plan + .plan { border-left: 0; }
-.plan-pro { margin: -22px 0 22px; background-color: var(--yellow); box-shadow: 7px 7px 0 var(--ink); z-index: 1; }
-.plan-max { background-color: var(--sky); }
+.plan-pro { margin: -22px 0 22px; background-color: var(--sky); box-shadow: 7px 7px 0 var(--ink); z-index: 1; }
+.plan-max { background-color: var(--yellow); }
 
 .plan-tag {
   position: absolute;
