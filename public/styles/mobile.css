@@ -3446,9 +3446,8 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
     pointer-events: auto;
   }
 
-  body:not(.capacitor-native).sidebar-open .confirm-dialog.open {
-    left: calc(min(320px, 86vw) / 2);
-    width: calc(min(320px, 86vw) - 24px);
+  body.sidebar-open .confirm-dialog.open {
+    z-index: 81;
   }
 }
 
