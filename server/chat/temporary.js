@@ -8,7 +8,7 @@ import {
   normalizeMessageSettings,
   sanitizeProviderEvent
 } from "../saas/messages.js";
-import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
+import { loadGlobalSystemPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { illustrationSkillFromIds, withComposerSkillsSystemPrompt } from "../saas/composerSkills.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
@@ -95,6 +95,7 @@ export async function handleTemporaryChat(req, res, config) {
   );
   settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, body.skillIds);
   settings.systemPrompt += "\n\nTemporary chat cannot create, edit, or export documents. If the user asks for a document, tell them: “I can’t create documents in temporary chat. I can only create documents in a normal chat.” Do not claim document tools are generally unavailable or list unrelated capabilities.";
+  settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt);
   const userContent = buildStoredUserContent(body.text, attachments);
   const promptText = contentText(userContent);
   const historyMessages = [

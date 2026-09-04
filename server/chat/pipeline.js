@@ -28,7 +28,7 @@ import {
   streamProviderAndAccumulate
 } from "../saas/messages.js";
 import { modelSupportsVision } from "../saas/models.js";
-import { loadGlobalSystemPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
+import { loadGlobalSystemPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { loadUserMemory, maybeRefreshUserMemory, withUserMemorySystemPrompt } from "../saas/userMemory.js";
 import {
@@ -882,6 +882,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   if (project?.instructions) {
     settings.systemPrompt = `${settings.systemPrompt || ""}\n\nProject instructions from the user:\n${project.instructions}`.trim();
   }
+  settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt);
   const providerCrofai = wrapProviderCallsWithTurnFence({
     crofai: { chatCompletion, streamChatCompletion },
     db: context.db,

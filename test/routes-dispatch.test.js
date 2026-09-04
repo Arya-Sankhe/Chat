@@ -225,6 +225,7 @@ const ROUTES = [
     path: "/api/temporary-chat", method: "POST", authKind: "chat", enforced405: "GET",
     preGate: { status: 503, error: "Klui model API key is not configured on the server." }
   },
+  { path: "/api/email/revise", method: "POST", authKind: "chat", enforced405: "GET" },
   {
     path: "/api/speech-to-text", method: "POST", authKind: "chat", enforced405: "GET",
     preGate: { status: 503, error: "Speech transcription is not configured on the server." }
@@ -979,6 +980,88 @@ test("editable document revise returns replacement markdown without a chat messa
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().replacement, "Warmer world");
     assert.equal(chatCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("email revise returns a fenced draft without a chat message", async () => {
+  const originalFetch = globalThis.fetch;
+  let chatCalls = 0;
+  let saved = null;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/chat/completions")) {
+      chatCalls += 1;
+      const body = JSON.parse(String(init.body || "{}"));
+      assert.match(body.messages?.[1]?.content || "", /Come up with a good excuse/);
+      assert.match(body.messages?.[1]?.content || "", /Current draft:/);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        async json() {
+          return {
+            id: "gen-email",
+            choices: [{ message: { content: "```email\nTo:\nSubject: Extension\nDear [Name],\n\nHi.\n```" } }],
+            usage: { cost: 0.0001 }
+          };
+        },
+        async text() {
+          return "";
+        }
+      };
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  try {
+    const config = loadConfig({
+      ...SUPABASE_ENV,
+      OPENROUTER_API_KEY: "or-key"
+    });
+    const overrides = stubbedDeps({
+      db: {
+        async checkApiBudget() {
+          return { allowed: true };
+        },
+        async recordApiUsageCost() {
+          return {};
+        },
+        async getMessage() {
+          return {
+            id: "msg-1",
+            role: "assistant",
+            content: [
+              { type: "text", text: "Here is the draft." },
+              { type: "text", text: "```email\nTo:\nSubject: Old\nHi\n```" }
+            ]
+          };
+        },
+        async updateMessage(_userId, id, patch) {
+          saved = { id, patch };
+          return { id, ...patch };
+        }
+      }
+    });
+
+    const res = await dispatch(config, {
+      method: "POST",
+      path: "/api/email/revise",
+      body: {
+        draft: "Subject: Old\n\nHi",
+        instruction: "Come up with a good excuse",
+        messageId: "msg-1"
+      },
+      overrides
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.match(res.json().source, /Subject: Extension/);
+    assert.equal(chatCalls, 1);
+    assert.equal(saved.id, "msg-1");
+    assert.equal(saved.patch.content[0].text, "Here is the draft.");
+    assert.match(saved.patch.content[1].text, /Subject: Extension/);
+    assert.equal(saved.patch.content.filter((part) => /```email\b/.test(part.text)).length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -175,7 +175,7 @@ test("message errors stay compact and only network or stale-build errors offer r
   assert.doesNotMatch(appJs, /Finish the current response or send\/save your draft before reloading\./);
   assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
   assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">Stopped by user\.<\/div>`/);
-  assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| rawTextContent\(msg\.content\)\.includes\("```visualize"\)\)[\s\S]*?content\.innerHTML = renderAssistantMessageContent\(msg, role\)/);
+  assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\/\.test\(rawTextContent\(msg\.content\)\)\)[\s\S]*?content\.replaceChildren\(\.\.\.next\.childNodes\)/);
   const stopped = css.match(/\.message-stopped\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(stopped, /color:/);
   assert.doesNotMatch(stopped, /background|border|padding|width/);
@@ -193,9 +193,10 @@ test("streamed answer text gets a short blur reveal without animating reduced-mo
   const appJs = readPublic("js/app.js");
   const css = readStylesheet();
   assert.match(appJs, /function animateNewestStreamingText\(root, addedCharacters\)/);
-  assert.match(appJs, /animateNewestStreamingText\(contentEl, addedCharacters\)/);
+  assert.match(appJs, /animateNewestStreamingText\(contentEl, contentEl\.querySelector\("\[data-email-card\]"\) \? 0 : addedCharacters\)/);
+  assert.doesNotMatch(appJs, /animateNewestStreamingText\(contentEl, tmp\./);
   assert.match(appJs, /root\.querySelector\("\.visualize-building"\)/);
-  assert.match(appJs, /\.visualize-building, pre, code/);
+  assert.match(appJs, /\.visualize-building, \.klui-email, pre, code/);
   assert.match(appJs, /function adoptLiveVisualizeBuilding\(liveEl, nextRoot\)/);
   // The swap must be skipped while the live build card is adopted, or the
   // detach/reattach cancels its CSS shimmer animation on every stream tick.
@@ -218,7 +219,7 @@ test("visualize stays available in temporary chat and preserves live expanded fr
   assert.match(appJs, /function adoptLiveVisualizeFrame\(liveEl, nextRoot\)/);
   assert.match(appJs, /const keptFrame = appendOnly && adoptLiveVisualizeFrame\(contentEl, tmp\)/);
   assert.match(appJs, /if \(!keptFrame\) collapseExpandedVisualize\(\)/);
-  assert.match(appJs, /!content\.querySelector\("iframe\[data-visualize-id\]"\) \|\| isStoppedMessage\(msg\)/);
+  assert.match(appJs, /visualizeNeedsMount = \/```visualize\/\.test\(raw\) && !content\?\.querySelector\("iframe\[data-visualize-id\]"\)/);
   assert.match(appJs, /function collapseExpandedVisualize\(except = null\)/);
   assert.match(appJs, /function renderMessages\(\) \{\s*collapseExpandedVisualize\(\)/);
 });
@@ -237,8 +238,16 @@ test("visualize fences survive citation leak stripping even when they contain de
 
 test("completed visualize messages replace their streamed build surface during settlement", () => {
   const appJs = readPublic("js/app.js");
-  assert.match(appJs, /isStoppedMessage\(msg\) \|\| rawTextContent\(msg\.content\)\.includes\("```visualize"\)/);
-  assert.match(appJs, /content\.innerHTML = renderAssistantMessageContent\(msg, role\)/);
+  assert.match(appJs, /isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\/\.test\(rawTextContent\(msg\.content\)\)/);
+  assert.match(appJs, /visualizeNeedsMount[\s\S]*?emailNeedsMount[\s\S]*?adoptLiveVisualizeFrame\(content, next\);[\s\S]*?adoptLiveEmailCards\(content, next\);/);
+});
+
+test("a successful email revision closes its edit form after leaving the revising state", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /input\.value = "";\s*card\.classList\.remove\("is-revising"\);\s*setEmailEditing\(card, false\);/);
+  assert.match(appJs, /card\.inert = true;[\s\S]*?finally \{[\s\S]*?card\.inert = false;/);
+  assert.match(appJs, /const headers = \[to && `To: \$\{to\}`, subject && `Subject: \$\{subject\}`\][\s\S]*?join\("\\n"\)[\s\S]*?\[headers, body\][\s\S]*?join\("\\n\\n"\)/);
+  assert.match(appJs, /if \(history\.entries\.length > 100\) history\.entries\.shift\(\)/);
 });
 
 test("compare and council finish by patching live cards instead of requiring a remount", () => {

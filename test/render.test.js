@@ -5,9 +5,13 @@ import {
   compactModelDisplayName,
   formatModelMeta,
   getCodeSource,
+  gmailComposeUrl,
   inferModelBadges,
+  mailtoComposeUrl,
   modelBrandLogoUrl,
   normalizeModelList,
+  outlookComposeUrl,
+  parseEmailFence,
   renderContent,
   renderPlainText,
   resetCodeSourceStore,
@@ -419,4 +423,54 @@ test("renderContent allows safe br tags without allowing arbitrary HTML", async 
   assert.match(html, /^<br>/);
   assert.match(html, /&lt;img src=x/);
   assert.doesNotMatch(html, /<img/i);
+});
+
+test("renderContent turns an email fence into an editable card with highlighted placeholders", () => {
+  delete globalThis.marked;
+  const html = renderContent("```email\nTo: [Name]\nSubject: Hello\nDear [Name],\n\nBody here.\n\nThanks,\n[Your Name]\n```", { emailCards: true });
+  assert.match(html, /data-email-card/);
+  assert.match(html, /data-email-field="to" value="" placeholder="Recipients"/);
+  assert.match(html, /data-email-field="subject"[^>]*>Hello</);
+  assert.match(html, /data-email-field="subject"[^>]*role="textbox"[^>]*aria-label="Subject"/);
+  assert.match(html, /contenteditable="true" data-email-field="body"[^>]*role="textbox"[^>]*aria-label="Email body"[^>]*aria-multiline="true"/);
+  assert.match(html, /Dear <span class="klui-email-ph">\[Name\]<\/span>/);
+  assert.match(html, /data-email-open="gmail"/);
+  assert.match(html, /data-email-open="outlook"/);
+  assert.match(html, /data-email-open="mailto"/);
+  assert.match(html, /data-email-copy/);
+  assert.match(html, /data-email-undo/);
+  assert.match(html, /data-email-edit/);
+  assert.match(renderContent("```email\nTo: boss@work.com\nSubject: Hi\nHello\n```", { emailCards: true }), /value="boss@work.com"/);
+  assert.match(html, /data-email-revise-form/);
+  assert.match(html, /Thanks,/);
+  const kept = renderContent("```email\nTo: [office]\nSubject: About [Project]\nPlease extend [Project] until [Date].\nCheers,\n[Your Name]\n```", { emailCards: true });
+  assert.match(kept, /data-email-field="subject"[^>]*>About <span class="klui-email-ph">\[Project\]<\/span></);
+  assert.match(kept, /\[Project\]/);
+  assert.match(kept, /\[Date\]/);
+  assert.match(kept, /Cheers,/);
+  const prose = renderContent("**Subject:** Extension Request\n\nDear [Name],\n\nMay I have an extension?\n");
+  assert.doesNotMatch(prose, /data-email-card/);
+  assert.doesNotMatch(renderContent("```email\nTo:\nSubject: Hi\nHello\n```"), /data-email-card/);
+});
+
+test("email fence parsing and compose URLs carry to, subject, and body", () => {
+  const parsed = parseEmailFence("To: a@b.c\nSubject: Hello\nDear X,\n\nHi.\n\nBest,\nY");
+  assert.equal(parsed.to, "a@b.c");
+  assert.equal(parsed.subject, "Hello");
+  assert.match(parsed.body, /^Dear X,/);
+  assert.deepEqual(parseEmailFence("To: a@b.c\n\nSubject: Hello\n\nBody"), { to: "a@b.c", subject: "Hello", body: "Body" });
+  const gmail = gmailComposeUrl({ to: "", subject: "Hello", body: "Dear [T],\n\nHi." });
+  assert.ok(gmail.startsWith("https://mail.google.com/mail/u/0/?tf=cm&to=&su=Hello&body=Dear%20%5BT%5D"));
+  const outlook = outlookComposeUrl({ to: "a@b.c", subject: "S", body: "B" });
+  assert.match(outlook, /^https:\/\/outlook\.live\.com\/owa\/\?path=\/mail\/action\/compose&to=a%40b\.c&subject=S&body=B/);
+  assert.equal(mailtoComposeUrl({ to: "a@b.c", subject: "S", body: "B" }), "mailto:a%40b.c?subject=S&body=B");
+  assert.equal(parseEmailFence("To: a@b.c\nSubject: **Hello**\nHi").subject, "Hello");
+  const streaming = renderContent("Here is your email:\n\n```email\nTo:\nSubject: Hi\nDear X,\nHalf-written body", { holdVisualize: true, emailCards: true });
+  assert.doesNotMatch(streaming, /data-email-card|<pre|Half-written/);
+  assert.match(streaming, /Here is your email/);
+  const streamingClosed = renderContent("Here is your email:\n\n```email\nTo:\nSubject: Hi\nHello\n```\n\nTips later.", { holdVisualize: true, emailCards: true });
+  assert.doesNotMatch(streamingClosed, /data-email-card|Hello/);
+  assert.match(streamingClosed, /Here is your email/);
+  assert.match(streamingClosed, /Tips later/);
+  assert.match(renderContent("Here is your email:\n\n```email\nTo:\nSubject: Hi\nDear X,\nHalf-written body", { emailCards: true }), /data-email-card/);
 });

@@ -668,6 +668,18 @@ export async function reviseEditableDocument(session, attachmentId, { markdown, 
   return response.json();
 }
 
+export async function reviseEmailDraft(session, { draft, instruction, messageId, signal }) {
+  const response = await apiFetch("/api/email/revise", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ draft, instruction, messageId }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function exportEditableDocument(session, attachmentId, format, markdown) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/export`, {
     session,

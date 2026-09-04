@@ -34,6 +34,16 @@ Use the lightest structure that best fits the task-short paragraphs, bullets, st
 
 Reply in the user's language. For English prompts, answer in English. also dont use emojis and "em dash" if not needed.`;
 
+// Code-level rule (not part of the editable stored prompt): the stored admin
+// prompt overrides DEFAULT_GLOBAL_SYSTEM_PROMPT, so email formatting must be
+// appended at request time or the model never sees it.
+const EMAIL_COMPOSER_RULE = `When the user asks you to write or draft an email, put the email in an email fenced block (triple backticks + "email"): To: and Subject: header lines first, then the body. One short intro line before the block and brief tips after it are fine; never repeat the email as prose. In the body, use [bracketed placeholders] like [Name] for any detail you don't know. Write a complete, plain subject line with no placeholders or markdown. Greeting and sign-off should fit the situation; do not always use the same closing. Blank line between the greeting, each paragraph, and the sign-off.`;
+
+export function withEmailComposerPrompt(systemPrompt) {
+  const base = String(systemPrompt || "").trim();
+  return base ? `${base}\n\n${EMAIL_COMPOSER_RULE}` : EMAIL_COMPOSER_RULE;
+}
+
 export function normalizeGlobalSystemPrompt(value) {
   const text = typeof value === "string" ? value : value?.text;
   return String(text || "").trim().slice(0, 20000);

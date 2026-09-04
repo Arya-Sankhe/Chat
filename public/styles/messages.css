@@ -2207,3 +2207,351 @@ body[data-mode="dark"] .message-stopped {
   .msg-skeleton-bar { animation: none; }
 
 }
+
+/* ─── Email composer card ─── */
+
+.klui-email {
+  width: 100%;
+  margin: 16px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  transform-origin: center;
+  animation: klui-email-in 400ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.klui-email-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.klui-email-edit,
+.klui-email-revise,
+.klui-email-icon-btn,
+.klui-email-send,
+.klui-email-menu button { font: inherit; }
+
+.klui-email-edit[hidden],
+.klui-email-revise[hidden],
+.klui-email-menu[hidden] { display: none; }
+
+.klui-email-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease-out, transform 160ms ease-out;
+}
+
+.klui-email-edit svg,
+.klui-email-icon-btn svg,
+.klui-email-send svg,
+.klui-email-revise > svg,
+.klui-email-revise button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.klui-email-revise {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(320px, 55vw);
+  min-height: 40px;
+  padding: 4px 5px 4px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.klui-email-revise input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.klui-email-revise button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent, #2f7df6) 35%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 160ms ease-out, background 160ms ease-out;
+}
+
+.klui-email-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.klui-email-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 160ms ease-out, transform 160ms ease-out;
+}
+
+.klui-email-icon-btn:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.klui-email-history {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.klui-email-history[hidden] { display: none; }
+
+.klui-email-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 4px;
+  background: var(--border);
+}
+
+.klui-email-send-wrap { position: relative; }
+
+.klui-email-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease-out, transform 160ms ease-out;
+}
+
+.klui-email-send:hover { background: #1765cc; }
+
+.klui-email-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.klui-email-row > span {
+  flex: 0 0 32px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.klui-email-row--subject > span { display: none; }
+
+.klui-email-row input,
+.klui-email-subject {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.klui-email-subject {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.klui-email-subject:empty::before {
+  content: "Subject";
+  color: var(--text-tertiary);
+}
+
+.klui-email-body {
+  min-height: 220px;
+  padding: 20px 22px 24px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  outline: none;
+  overflow-wrap: break-word;
+}
+
+.klui-email-body:empty::before {
+  content: "Write your email…";
+  color: var(--text-tertiary);
+}
+
+.klui-email-ph {
+  background: rgba(26, 115, 232, 0.14);
+  color: #1a73e8;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.klui-email-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 218px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-md);
+  padding: 7px;
+  z-index: 20;
+  transform-origin: top right;
+  animation: klui-email-menu-in 160ms ease-out both;
+}
+
+.klui-email-menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.klui-email-brand {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: block;
+  overflow: visible;
+  border-radius: 5px;
+  fill: none;
+  stroke: none;
+}
+
+body[data-mode="dark"] .klui-email-ph {
+  background: rgba(138, 180, 248, 0.18);
+  color: #8ab4f8;
+}
+
+body[data-mode="dark"] .klui-email-send {
+  background: #8ab4f8;
+  color: #202124;
+}
+
+body[data-mode="dark"] .klui-email-send:hover { background: #aecbfa; }
+
+@media (hover: hover) {
+  .klui-email-edit:hover,
+  .klui-email-icon-btn:not(:disabled):hover,
+  .klui-email-menu button:hover { background: var(--bg-secondary); }
+  .klui-email-revise button:hover { background: color-mix(in srgb, var(--accent, #2f7df6) 50%, transparent); }
+}
+
+.klui-email-edit:active,
+.klui-email-icon-btn:active,
+.klui-email-send:active,
+.klui-email-revise button:active { transform: scale(0.96); }
+
+.klui-email.is-revising [data-email-field="subject"],
+.klui-email.is-revising [data-email-field="body"] {
+  border-radius: 4px;
+  color: transparent;
+  background-image: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--text-secondary) 35%, transparent) 0%,
+    color-mix(in srgb, var(--text) 70%, transparent) 45%,
+    color-mix(in srgb, var(--text-secondary) 35%, transparent) 90%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  filter: blur(1.2px);
+  animation: doc-revise-shimmer 1.15s linear infinite;
+  pointer-events: none;
+}
+
+.klui-email.is-revising .klui-email-ph {
+  background: transparent;
+  color: transparent;
+}
+
+@keyframes klui-email-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
+@keyframes klui-email-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+@media (max-width: 600px) {
+  .klui-email { border-radius: 20px; }
+  .klui-email-toolbar { padding: 12px; }
+  .klui-email.is-editing .klui-email-toolbar { flex-wrap: wrap; }
+  .klui-email-revise { order: 2; width: 100%; }
+  .klui-email-row { padding: 0 16px; }
+  .klui-email-body { min-height: 180px; padding: 18px 16px 22px; }
+  .klui-email-menu { right: -2px; min-width: 205px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .klui-email,
+  .klui-email-menu { animation: none; }
+  .klui-email-edit,
+  .klui-email-icon-btn,
+  .klui-email-send,
+  .klui-email-revise button { transition: none; }
+  .klui-email.is-revising [data-email-field="subject"],
+  .klui-email.is-revising [data-email-field="body"] {
+    animation: none;
+    filter: blur(0.6px);
+    opacity: 0.72;
+  }
+}

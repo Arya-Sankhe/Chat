@@ -52,6 +52,7 @@ import {
 } from "./routes/uploads.js";
 import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./chat/pipeline.js";
 import { handleTemporaryChat } from "./chat/temporary.js";
+import { handleEmailRevise } from "./chat/emailRevise.js";
 import { handleSpeechToText } from "./routes/speech.js";
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
@@ -415,6 +416,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/temporary-chat") {
       await handleTemporaryChat(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/email/revise") {
+      await handleEmailRevise(req, res, config);
       return;
     }
 

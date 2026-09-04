@@ -239,6 +239,122 @@ function restoreVisualizations(html, slots) {
   return output;
 }
 
+/* Email composer cards */
+
+export function parseEmailFence(source) {
+  const cleanLine = (value) => String(value ?? "").replace(/\*\*|__/g, "").trim();
+  const lines = String(source ?? "").trim().split("\n");
+  let to = "";
+  let subject = "";
+  let i = 0;
+  for (; i < lines.length; i += 1) {
+    if (!lines[i].trim() && !subject) continue;
+    const toMatch = lines[i].match(/^\s*to\s*:\s*(.*)$/i);
+    if (toMatch) { to = cleanLine(toMatch[1]); continue; }
+    const subjectMatch = lines[i].match(/^\s*subject\s*:\s*(.*)$/i);
+    if (subjectMatch) { subject = cleanLine(subjectMatch[1]); continue; }
+    break;
+  }
+  const rest = lines.slice(i);
+  if (rest.length && /^\s*body\s*:\s*$/i.test(rest[0])) rest.shift();
+  return { to, subject, body: rest.join("\n").trim() };
+}
+
+function encodeMail(value) {
+  return encodeURIComponent(String(value ?? ""));
+}
+
+export function gmailComposeUrl({ to = "", subject = "", body = "" } = {}) {
+  return `https://mail.google.com/mail/u/0/?tf=cm&to=${encodeMail(to)}&su=${encodeMail(subject)}&body=${encodeMail(body)}`;
+}
+
+export function outlookComposeUrl({ to = "", subject = "", body = "" } = {}) {
+  return `https://outlook.live.com/owa/?path=/mail/action/compose&to=${encodeMail(to)}&subject=${encodeMail(subject)}&body=${encodeMail(body)}`;
+}
+
+export function mailtoComposeUrl({ to = "", subject = "", body = "" } = {}) {
+  return `mailto:${encodeMail(to)}?subject=${encodeMail(subject)}&body=${encodeMail(body)}`;
+}
+
+function highlightEmailPlaceholders(escaped) {
+  return escaped.replace(/(\[[^\[\]\n]{1,80}\])/g, `<span class="klui-email-ph">$1</span>`);
+}
+
+export function emailFieldHtml(text, { multiline = false } = {}) {
+  const html = highlightEmailPlaceholders(escapeHtml(text));
+  return multiline ? html.replace(/\n/g, "<br>") : html;
+}
+
+const emailIcons = {
+  edit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4Z"/></svg>`,
+  copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2h3"/></svg>`,
+  send: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`,
+  undo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>`,
+  redo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>`,
+  arrow: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>`,
+  gmail: `<svg class="klui-email-brand" viewBox="48 38 96 74" aria-hidden="true"><path fill="#4285f4" d="M58 108h14V74L52 59v43c0 3.32 2.69 6 6 6"/><path fill="#34a853" d="M120 108h14c3.32 0 6-2.69 6-6V59l-20 15"/><path fill="#fbbc04" d="M120 48v26l20-15v-8c0-7.42-8.47-11.65-14.4-7.2"/><path fill="#ea4335" d="M72 74V48l24 18 24-18v26L96 92"/><path fill="#c5221f" d="M52 51v8l20 15V48l-5.6-4.2c-5.94-4.45-14.4-.22-14.4 7.2"/></svg>`,
+  outlook: `<svg class="klui-email-brand" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0A2767" d="M14 21H4.2A2.2 2.2 0 0 1 2 18.8V6.6L14 21Z"/><path fill="#28A8EA" d="M22 8.4v10.4A2.2 2.2 0 0 1 19.8 21H14V8.4Z"/><path fill="#0078D4" d="M14 3v18L2 6.6V5.2A2.2 2.2 0 0 1 4.2 3H14Z"/><path fill="#fff" fill-rule="evenodd" d="M8.15 7.35c2.15 0 3.6 1.5 3.6 4.05s-1.45 4.05-3.6 4.05-3.6-1.5-3.6-4.05 1.45-4.05 3.6-4.05Zm0 1.7c-1.1 0-1.85.85-1.85 2.35s.75 2.35 1.85 2.35 1.85-.85 1.85-2.35-.75-2.35-1.85-2.35Z"/></svg>`,
+  mail: `<svg class="klui-email-brand klui-email-brand--mail" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#0A84FF"/><path fill="#fff" d="M5.4 7.5h13.2A1.4 1.4 0 0 1 20 8.9v6.7a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 15.6V8.9a1.4 1.4 0 0 1 1.4-1.4Zm.55 1.55v1.35L12 14.3l6.05-3.9V9.05L12 12.85 5.95 9.05Z"/></svg>`
+};
+
+export function emailCardFields(source) {
+  const parsed = parseEmailFence(source);
+  return {
+    to: /^\[[^\]]*\]$/.test(parsed.to) ? "" : parsed.to,
+    subjectHtml: emailFieldHtml(parsed.subject),
+    bodyHtml: emailFieldHtml(parsed.body, { multiline: true })
+  };
+}
+
+function emailCard(source) {
+  const fields = emailCardFields(source);
+  return `<section class="klui-email" data-email-card>`
+    + `<div class="klui-email-toolbar">`
+    + `<button class="klui-email-edit" type="button" data-email-edit>${emailIcons.edit}<span>Edit</span></button>`
+    + `<form class="klui-email-revise" data-email-revise-form hidden>${emailIcons.edit}<input data-email-revise-input aria-label="Ask for email changes" placeholder="Ask for changes" autocomplete="off"><button type="submit" aria-label="Apply changes">${emailIcons.arrow}</button></form>`
+    + `<div class="klui-email-actions">`
+    + `<div class="klui-email-history" hidden><button class="klui-email-icon-btn" type="button" data-email-undo aria-label="Undo" title="Undo" disabled>${emailIcons.undo}</button><button class="klui-email-icon-btn" type="button" data-email-redo aria-label="Redo" title="Redo" disabled>${emailIcons.redo}</button><span class="klui-email-divider"></span></div>`
+    + `<button class="klui-email-icon-btn" type="button" data-email-copy aria-label="Copy email" title="Copy email">${emailIcons.copy}</button>`
+    + `<div class="klui-email-send-wrap"><button class="klui-email-send" type="button" data-email-send aria-haspopup="menu" aria-expanded="false">${emailIcons.send}<span>Send</span></button>`
+    + `<div class="klui-email-menu" role="menu" hidden><button type="button" role="menuitem" data-email-open="gmail">${emailIcons.gmail}<span>Gmail</span></button><button type="button" role="menuitem" data-email-open="outlook">${emailIcons.outlook}<span>Outlook</span></button><button type="button" role="menuitem" data-email-open="mailto">${emailIcons.mail}<span>Default email app</span></button></div></div></div></div>`
+    + `<label class="klui-email-row"><span>To</span><input aria-label="To" data-email-field="to" value="${escapeHtml(fields.to)}" placeholder="Recipients" autocomplete="off" spellcheck="false"></label>`
+    + `<div class="klui-email-row klui-email-row--subject"><span>Subject</span><div class="klui-email-subject" contenteditable="true" data-email-field="subject" role="textbox" aria-label="Subject" spellcheck="true">${fields.subjectHtml}</div></div>`
+    + `<div class="klui-email-body" contenteditable="true" data-email-field="body" role="textbox" aria-label="Email body" aria-multiline="true" spellcheck="true">${fields.bodyHtml}</div>`
+    + `</section>`;
+}
+
+function extractEmails(text, { streaming = false } = {}) {
+  const source = String(text || "");
+  // Hide every email fence until the reply finishes so the card mounts once.
+  if (streaming) {
+    return {
+      text: source
+        .replace(/```email[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/gi, "")
+        .replace(/```email[ \t]*$/gi, ""),
+      slots: []
+    };
+  }
+  const slots = [];
+  const hold = (_, raw) => {
+    const token = `KLUIEMAILHOLD${slots.length}END`;
+    slots.push({ token, source: String(raw || "").trim() });
+    return token;
+  };
+  const processed = source
+    .replace(/```email[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, hold)
+    .replace(/```email[ \t]*\r?\n([\s\S]*)$/i, hold);
+  return { text: processed, slots };
+}
+
+function restoreEmails(html, slots) {
+  let output = String(html ?? "");
+  for (const slot of slots) {
+    const card = emailCard(slot.source);
+    output = output.replaceAll(`<p>${slot.token}</p>`, card).replaceAll(slot.token, card);
+  }
+  return output;
+}
+
 export function applyVisualizeFrameMessage(event, root = globalThis.document) {
   const data = event?.data;
   if (!["klui:visualize:resize", "klui:visualize:error"].includes(data?.type) || !/^v\d+$/.test(String(data.id || ""))) return false;
@@ -364,15 +480,16 @@ function wrapMessageTables(html) {
   return String(html).replace(/<table\b[\s\S]*?<\/table>/gi, (table) => `<div class="table-scroll">${table}</div>`);
 }
 
-function renderRichText(raw, { holdVisualize = false } = {}) {
+function renderRichText(raw, { holdVisualize = false, emailCards = false } = {}) {
   const text = String(raw ?? "");
   if (!text) return "";
 
-  const visualizations = extractVisualizations(text, { holdCompleted: holdVisualize });
+  const emails = emailCards ? extractEmails(text, { streaming: holdVisualize }) : { text, slots: [] };
+  const visualizations = extractVisualizations(emails.text, { holdCompleted: holdVisualize });
 
   const m = globalThis.marked;
   if (!m || typeof m.parse !== "function") {
-    return restoreVisualizations(renderFallback(visualizations.text), visualizations.slots);
+    return restoreEmails(restoreVisualizations(renderFallback(visualizations.text), visualizations.slots), emails.slots);
   }
 
   ensureMarkedConfig();
@@ -385,7 +502,10 @@ function renderRichText(raw, { holdVisualize = false } = {}) {
   // model content so DOMPurify cannot remove a layer of its SVG icon.
   html = highlightCodeBlocks(html);
   html = wrapMessageTables(html);
+  // Email cards are trusted UI too — add after sanitizing so contenteditable,
+  // inputs, and the highlight spans survive.
   html = restoreVisualizations(html, visualizations.slots);
+  html = restoreEmails(html, emails.slots);
 
   return html;
 }
@@ -406,11 +526,11 @@ function safeImageUrl(url) {
 
 /* Public content renderer */
 
-export function renderContent(content, { holdVisualize = false } = {}) {
+export function renderContent(content, { holdVisualize = false, emailCards = false } = {}) {
   if (Array.isArray(content)) {
     return content
       .map((part) => {
-        if (part.type === "text") return renderRichText(part.text, { holdVisualize });
+        if (part.type === "text") return renderRichText(part.text, { holdVisualize, emailCards });
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" data-preview-src="${escapeHtml(url)}" alt="User supplied image" role="button" tabindex="0">` : "";
@@ -435,7 +555,7 @@ export function renderContent(content, { holdVisualize = false } = {}) {
       })
       .join("");
   }
-  return renderRichText(content, { holdVisualize });
+  return renderRichText(content, { holdVisualize, emailCards });
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   downloadAttachment,
   exportEditableDocument,
   reviseEditableDocument,
+  reviseEmailDraft,
   fetchAttachmentView,
   fetchAdminSummary,
   fetchConfig,
@@ -100,11 +101,15 @@ import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
 import {
   applyVisualizeFrameMessage,
   compactModelDisplayName,
+  emailCardFields,
   escapeHtml,
   getCodeSource,
+  gmailComposeUrl,
+  mailtoComposeUrl,
   modelBrandLogoUrl,
   modelSupportsVision,
   normalizeModelList,
+  outlookComposeUrl,
   renderPlainText,
   renderContent,
   resetCodeSourceStore,
@@ -4554,7 +4559,7 @@ function stripLeakedCitationHtml(text) {
   // Hoist visualize fences first: their HTML legitimately contains <details>,
   // which the leak strippers below would otherwise delete or corrupt.
   const heldVisualize = [];
-  s = s.replace(/```visualize[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/gi, (block) => {
+  s = s.replace(/```(?:visualize|email)[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/gi, (block) => {
     heldVisualize.push(block);
     return `KLUIVISKEEP${heldVisualize.length - 1}END`;
   });
@@ -4862,9 +4867,9 @@ function renderAssistantText(text, citations, { holdVisualize = false } = {}) {
     citations
   );
   if (!cleaned.trim()) return "";
-  if (!citations.length) return renderContent(cleaned, { holdVisualize });
+  if (!citations.length) return renderContent(cleaned, { holdVisualize, emailCards: true });
   const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
-  return restoreCitationPlaceholders(renderContent(prepared, { holdVisualize }), slots);
+  return restoreCitationPlaceholders(renderContent(prepared, { holdVisualize, emailCards: true }), slots);
 }
 
 function renderAssistantContent(content, message) {
@@ -5600,6 +5605,189 @@ function adoptLiveVisualizeFrame(liveEl, nextRoot) {
   return true;
 }
 
+// Transplant edited email cards positionally so rerenders keep local edits.
+function adoptLiveEmailCards(liveEl, nextRoot) {
+  const live = [...liveEl.querySelectorAll("[data-email-card]")];
+  const next = [...nextRoot.querySelectorAll("[data-email-card]")];
+  if (!live.length || live.length !== next.length) return false;
+  next.forEach((node, index) => node.replaceWith(live[index]));
+  return true;
+}
+
+function closeEmailMenus() {
+  for (const menu of document.querySelectorAll(".klui-email-menu:not([hidden])")) {
+    menu.hidden = true;
+    menu.closest("[data-email-card]")?.querySelector("[data-email-send]")?.setAttribute("aria-expanded", "false");
+  }
+}
+
+function setEmailEditing(card, editing) {
+  if (!card || (card.classList.contains("is-revising") && !editing)) return;
+  card.classList.toggle("is-editing", editing);
+  const edit = card.querySelector("[data-email-edit]");
+  const revise = card.querySelector("[data-email-revise-form]");
+  if (edit) edit.hidden = editing;
+  if (revise) revise.hidden = !editing;
+  if (editing) requestAnimationFrame(() => revise?.querySelector("input")?.focus());
+}
+
+function emailFieldText(el) {
+  return ((el?.isContentEditable ? el.innerText : el?.value) || "").trim();
+}
+
+function emailCardValues(card) {
+  return {
+    to: emailFieldText(card?.querySelector('[data-email-field="to"]')),
+    subject: emailFieldText(card?.querySelector('[data-email-field="subject"]')),
+    body: emailFieldText(card?.querySelector('[data-email-field="body"]'))
+  };
+}
+
+function emailCardText(card) {
+  const { to, subject, body } = emailCardValues(card);
+  const headers = [to && `To: ${to}`, subject && `Subject: ${subject}`].filter(Boolean).join("\n");
+  return [headers, body].filter(Boolean).join("\n\n");
+}
+
+const emailComposeUrls = { gmail: gmailComposeUrl, outlook: outlookComposeUrl, mailto: mailtoComposeUrl };
+
+// Placeholders like [Name] are hints, not text: the first edit touching one
+// removes the whole highlighted token so the user's typing is plain.
+function clearEmailPlaceholderAtCaret(card, event) {
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  if (!anchor || !selection.isCollapsed) return;
+  const element = anchor.nodeType === Node.TEXT_NODE ? anchor.parentElement : anchor;
+  let ph = element?.closest(".klui-email-ph");
+  if (!ph && event.inputType === "deleteContentBackward" && selection.anchorOffset === 0) {
+    ph = anchor.previousSibling?.classList?.contains("klui-email-ph") ? anchor.previousSibling : null;
+  }
+  if (!ph) return;
+  const range = document.createRange();
+  range.setStartBefore(ph);
+  range.collapse(true);
+  ph.remove();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  if (!event.inputType.startsWith("delete")) return;
+  event.preventDefault();
+  recordEmailEdit(card);
+}
+
+// Per-card undo/redo over recent field snapshots.
+const emailHistories = new WeakMap();
+
+function emailSnapshot(card) {
+  return {
+    to: card.querySelector('[data-email-field="to"]').value,
+    subject: card.querySelector('[data-email-field="subject"]').innerHTML,
+    body: card.querySelector('[data-email-field="body"]').innerHTML
+  };
+}
+
+// Baseline is captured lazily on the first beforeinput, before the edit lands.
+function emailHistory(card) {
+  let history = emailHistories.get(card);
+  if (!history) emailHistories.set(card, history = { entries: [emailSnapshot(card)], index: 0 });
+  return history;
+}
+
+function syncEmailHistoryButtons(card, history) {
+  card.querySelector(".klui-email-history").hidden = history.entries.length < 2;
+  card.querySelector("[data-email-undo]").disabled = history.index === 0;
+  card.querySelector("[data-email-redo]").disabled = history.index === history.entries.length - 1;
+}
+
+function recordEmailEdit(card) {
+  const history = emailHistory(card);
+  history.entries.length = history.index + 1;
+  history.entries.push(emailSnapshot(card));
+  if (history.entries.length > 100) history.entries.shift();
+  history.index = history.entries.length - 1;
+  syncEmailHistoryButtons(card, history);
+}
+
+function stepEmailHistory(card, delta) {
+  const history = emailHistories.get(card);
+  const next = history?.entries[history.index + delta];
+  if (!next) return;
+  history.index += delta;
+  card.querySelector('[data-email-field="to"]').value = next.to;
+  card.querySelector('[data-email-field="subject"]').innerHTML = next.subject;
+  card.querySelector('[data-email-field="body"]').innerHTML = next.body;
+  syncEmailHistoryButtons(card, history);
+}
+
+function applyEmailSource(card, source) {
+  emailHistory(card);
+  const fields = emailCardFields(source);
+  card.querySelector('[data-email-field="to"]').value = fields.to;
+  card.querySelector('[data-email-field="subject"]').innerHTML = fields.subjectHtml;
+  card.querySelector('[data-email-field="body"]').innerHTML = fields.bodyHtml;
+  recordEmailEdit(card);
+}
+
+function replaceEmailFenceInContent(content, source) {
+  const fence = `\`\`\`email\n${source}\n\`\`\``;
+  const swap = (text) => (/```email\b/i.test(text)
+    ? String(text).replace(/```email[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/i, fence)
+    : `${text}\n\n${fence}`);
+  if (Array.isArray(content)) {
+    const textParts = content.map((part, index) => part?.type === "text" ? index : -1).filter((index) => index >= 0);
+    const target = textParts.find((index) => /```email\b/i.test(content[index].text || "")) ?? textParts[0];
+    return content.map((part, index) => index === target ? { ...part, text: swap(part.text || "") } : part);
+  }
+  return swap(String(content || ""));
+}
+
+function persistEmailRevisionLocally(messageId, source) {
+  const message = state.messages.find((item) => String(item?.id || "") === String(messageId || ""));
+  if (!message) return;
+  message.content = replaceEmailFenceInContent(message.content, source);
+}
+
+async function submitEmailRevise(form) {
+  const input = form.querySelector("[data-email-revise-input]");
+  const instruction = input?.value.trim() || "";
+  const card = form.closest("[data-email-card]");
+  if (!instruction) { input?.focus(); return; }
+  if (!card || card.classList.contains("is-revising")) return;
+  if (state.running) { showToast("Wait for the current response to finish."); return; }
+  const messageId = card.closest("[data-message-id]")?.dataset.messageId || "";
+  card.classList.add("is-revising");
+  card.inert = true;
+  input.disabled = true;
+  form.querySelector("button[type='submit']")?.setAttribute("disabled", "");
+  try {
+    const result = await reviseEmailDraft(state.session, {
+      draft: emailCardText(card),
+      instruction,
+      messageId
+    });
+    const source = String(result?.source || "").trim();
+    if (!source) throw new Error("No revision returned.");
+    applyEmailSource(card, source);
+    persistEmailRevisionLocally(messageId, source);
+    input.value = "";
+    card.classList.remove("is-revising");
+    setEmailEditing(card, false);
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    showToast(error.message || "Could not revise email.");
+  } finally {
+    card.classList.remove("is-revising");
+    card.inert = false;
+    input.disabled = false;
+    form.querySelector("button[type='submit']")?.removeAttribute("disabled");
+  }
+}
+
+function stripOpenEmailFence(raw) {
+  const text = String(raw || "");
+  if (/```email[ \t]*\r?\n[\s\S]*?\r?\n```/i.test(text)) return text;
+  return text.replace(/```email[ \t]*\r?\n[\s\S]*$/i, "").replace(/```email[ \t]*$/i, "");
+}
+
 function patchStandardArticle(article, msg) {
   if (researchController.researchMeta(msg)) return false;
   if (article.classList.contains("compare-message") || article.classList.contains("council-message")) return false;
@@ -5613,11 +5801,21 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
-  if (role === "assistant" && (isStoppedMessage(msg) || rawTextContent(msg.content).includes("```visualize"))) {
+  if (role === "assistant" && (isStoppedMessage(msg) || /```(?:visualize|email)/.test(rawTextContent(msg.content)))) {
     const content = body.querySelector(":scope > .message-content");
-    if (content && (!content.querySelector("iframe[data-visualize-id]") || isStoppedMessage(msg))) {
-      collapseExpandedVisualize();
-      content.innerHTML = renderAssistantMessageContent(msg, role);
+    const raw = rawTextContent(msg.content);
+    const stopped = isStoppedMessage(msg);
+    const visualizeNeedsMount = /```visualize/.test(raw) && !content?.querySelector("iframe[data-visualize-id]");
+    const emailNeedsMount = /```email/.test(raw) && !content?.querySelector("[data-email-card]");
+    if (content && (stopped || visualizeNeedsMount || emailNeedsMount)) {
+      if (stopped || visualizeNeedsMount) collapseExpandedVisualize();
+      const next = document.createElement("div");
+      next.innerHTML = renderAssistantMessageContent(msg, role);
+      if (!stopped) {
+        adoptLiveVisualizeFrame(content, next);
+        adoptLiveEmailCards(content, next);
+      }
+      content.replaceChildren(...next.childNodes);
     }
   }
   if (role === "user") {
@@ -5753,7 +5951,7 @@ function animateNewestStreamingText(root, addedCharacters) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
-      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .sources-pill, .visualize-building, pre, code, .katex, button, svg")) {
+      if (!node.data.trim() || parent?.closest(".thinking-status, .klui-bar, .artifact-list, .weather-card, .message-error, .sources-pill, .visualize-building, .klui-email, pre, code, .katex, button, svg")) {
         return NodeFilter.FILTER_REJECT;
       }
       return NodeFilter.FILTER_ACCEPT;
@@ -5786,6 +5984,12 @@ function renderStreamingMessageSurface(message) {
       ? rawText.length - previousRawText.length
       : rawText.length;
     surface.dataset.rawText = rawText;
+    // Intro stays mounted while an unclosed email fence streams; the card
+    // appears once, complete. Otherwise every hidden token remounts the
+    // intro and retriggers streaming-text-reveal.
+    if (stripOpenEmailFence(rawText) === stripOpenEmailFence(previousRawText) && addedCharacters > 0) {
+      return;
+    }
     const statusEl = contentEl.querySelector(".thinking-status");
     const hasContent = rawText.trim().length > 0;
     const provisional = isProvisionalToolProse(message);
@@ -5796,6 +6000,7 @@ function renderStreamingMessageSurface(message) {
       tmp.innerHTML = renderAssistantMessageContent(message);
       tmp.querySelector(".thinking-status")?.remove();
       adoptUnchangedTableScrolls(contentEl, tmp);
+      adoptLiveEmailCards(contentEl, tmp);
       const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
       if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
         if (!keptFrame) collapseExpandedVisualize();
@@ -5843,6 +6048,7 @@ function renderStreamingMessageSurface(message) {
       const tmp = document.createElement("div");
       tmp.innerHTML = renderAssistantMessageContent(message);
       adoptUnchangedTableScrolls(contentEl, tmp);
+      adoptLiveEmailCards(contentEl, tmp);
       const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
       if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
         if (!keptFrame) collapseExpandedVisualize();
@@ -5850,7 +6056,7 @@ function renderStreamingMessageSurface(message) {
         hydrateKluiBars(contentEl);
       }
     }
-    animateNewestStreamingText(contentEl, addedCharacters);
+    animateNewestStreamingText(contentEl, contentEl.querySelector("[data-email-card]") ? 0 : addedCharacters);
   });
   syncPendingArtifactPolls();
   renderContextMeter();
@@ -9068,6 +9274,10 @@ function bindEvents() {
     if (!event.target.closest(".sources-pill")) {
       closeOpenSourcesPills();
     }
+    if (!event.target.closest(".klui-email-send-wrap")) closeEmailMenus();
+    if (!event.target.closest("[data-email-revise-form], [data-email-edit]")) {
+      document.querySelectorAll("[data-email-card].is-editing").forEach((card) => setEmailEditing(card, false));
+    }
   });
 
   document.addEventListener("pointerdown", (event) => {
@@ -9078,6 +9288,9 @@ function bindEvents() {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (document.querySelector(".klui-email-menu:not([hidden])")) { closeEmailMenus(); return; }
+    const editingEmail = document.querySelector("[data-email-card].is-editing");
+    if (editingEmail) { setEmailEditing(editingEmail, false); return; }
     if (studyHub.handleEscape()) return;
     if (state.skillMenu.open) { closeSkillMenu(); return; }
     if (isProfileMenuOpen()) { closeProfileMenu(); return; }
@@ -9726,6 +9939,47 @@ function bindEvents() {
       return;
     }
 
+    const emailUndo = e.target.closest("[data-email-undo], [data-email-redo]");
+    if (emailUndo) {
+      e.preventDefault();
+      stepEmailHistory(emailUndo.closest("[data-email-card]"), emailUndo.hasAttribute("data-email-undo") ? -1 : 1);
+      return;
+    }
+    const emailEdit = e.target.closest("[data-email-edit]");
+    if (emailEdit) {
+      e.preventDefault();
+      setEmailEditing(emailEdit.closest("[data-email-card]"), true);
+      return;
+    }
+    const emailCopy = e.target.closest("[data-email-copy]");
+    if (emailCopy) {
+      e.preventDefault();
+      copyText(emailCardText(emailCopy.closest("[data-email-card]")))
+        .then(() => flashCopySuccess(emailCopy))
+        .catch(() => showToast("Copy failed."));
+      return;
+    }
+    const emailSend = e.target.closest("[data-email-send]");
+    if (emailSend) {
+      e.preventDefault();
+      const card = emailSend.closest("[data-email-card]");
+      const menu = card?.querySelector(".klui-email-menu");
+      if (!card || !menu) return;
+      const open = menu.hidden;
+      closeEmailMenus();
+      menu.hidden = !open;
+      emailSend.setAttribute("aria-expanded", String(open));
+      return;
+    }
+    const emailChoice = e.target.closest("[data-email-open]");
+    if (emailChoice) {
+      e.preventDefault();
+      const url = emailComposeUrls[emailChoice.dataset.emailOpen](emailCardValues(emailChoice.closest("[data-email-card]")));
+      closeEmailMenus();
+      openExternal(url).catch(() => showToast("Could not open email."));
+      return;
+    }
+
     const msgCopy = e.target.closest("[data-copy-msg]");
     if (msgCopy) {
       const container = msgCopy.closest("[data-raw-text]");
@@ -9740,6 +9994,13 @@ function bindEvents() {
       reportMessage(msgReport.dataset.reportMsg);
       return;
     }
+  });
+
+  els.messages.addEventListener("submit", (e) => {
+    const form = e.target.closest("[data-email-revise-form]");
+    if (!form) return;
+    e.preventDefault();
+    void submitEmailRevise(form);
   });
 
   els.messages.addEventListener("keydown", (e) => {
@@ -9763,6 +10024,20 @@ function bindEvents() {
   els.messages.addEventListener("input", (e) => {
     const input = e.target.closest("[data-edit-input]");
     if (input) autoSizeEditInput(input);
+    const emailCard = e.target.closest("[data-email-field]")?.closest("[data-email-card]");
+    if (emailCard) recordEmailEdit(emailCard);
+  });
+
+  els.messages.addEventListener("beforeinput", (e) => {
+    const field = e.target.closest("[data-email-field]");
+    if (!field) return;
+    const card = field.closest("[data-email-card]");
+    if (field.dataset.emailField === "subject" && (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak")) {
+      e.preventDefault();
+      return;
+    }
+    emailHistory(card);
+    if (field.isContentEditable) clearEmailPlaceholderAtCaret(card, e);
   });
 
   window.addEventListener("message", (event) => applyVisualizeFrameMessage(event));
