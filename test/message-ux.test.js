@@ -388,7 +388,9 @@ test("voice input rolls the native recorder through the shared composer", () => 
   assert.doesNotMatch(appJs, /SPEECH_CHUNK_MS/);
   assert.match(appJs, /voiceChunks\.push\(event\.data\)/);
   assert.match(appJs, /new Blob\(chunks,/);
-  assert.match(appJs, /transcribeSpeech\(state\.session, blob\)/);
+  assert.match(appJs, /transcribeSpeech\(state\.session, await voiceRecordingWav\(blob\)\)/);
+  assert.match(appJs, /new Offline\(1, frames, rate\)/);
+  assert.match(appJs, /type: "audio\/wav"/);
   assert.match(appJs, /stopVoiceRecording\(\{ commit: false \}\)/);
   assert.match(appJs, /stopVoiceRecording\(\{ commit: true \}\)/);
   assert.match(css, /\.voice-btn\.is-recording \.voice-icon-cancel/);

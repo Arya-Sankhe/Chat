@@ -16,7 +16,7 @@ Create separate staging and production public OAuth applications. The production
 
 Reserve `klui-desktop-macos` and `tech.klui.anything.macos://oauth/callback`; do not enable it until the macOS implementation exists.
 
-The server flags default off. Desktop chat and STT additionally fail closed unless `API_USAGE_METERING_MODE=enforce` and the chat reservation ceiling is positive. Voice uses the same OpenRouter key as chat (`x-ai/grok-stt-1.0`).
+The server flags default off. Desktop chat and STT additionally fail closed unless `API_USAGE_METERING_MODE=enforce` and the chat reservation ceiling is positive. Voice uses the same OpenRouter key as chat (`microsoft/mai-transcribe-2`).
 
 STT charges successful OpenRouter responses from `usage.cost` when present. Network failures and non-2xx provider responses are recorded as estimated zero-cost events and release the reservation without charging the user.
 

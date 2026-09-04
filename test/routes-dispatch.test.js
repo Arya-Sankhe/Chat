@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
 import { createApiHandler, handleApiRequest } from "../server/routes.js";
-import { settleSpeechUsage, speechUsage, STT_CREDITS_PER_SECOND, STT_RESERVATION_CREDITS } from "../server/routes/speech.js";
+import { settleSpeechUsage, speechUsage, STT_CREDITS_PER_SECOND, STT_MODEL, STT_RESERVATION_CREDITS } from "../server/routes/speech.js";
 
 /*
  * Phase-0 characterization tests for the API dispatcher.
@@ -430,7 +430,7 @@ test("conversation search returns stubbed matches and skips short queries", asyn
   assert.deepEqual(calls, []);
 });
 
-test("speech route forwards Grok STT through OpenRouter and returns the transcript", { concurrency: false }, async () => {
+test("speech route forwards OpenRouter STT and returns the transcript", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
   const audio = webmWithDuration(1);
   let request;
@@ -459,7 +459,7 @@ test("speech route forwards Grok STT through OpenRouter and returns the transcri
     assert.equal(request.url, "https://openrouter.ai/api/v1/audio/transcriptions");
     assert.equal(request.options.headers.authorization, "Bearer or-key");
     const body = JSON.parse(request.options.body);
-    assert.equal(body.model, "x-ai/grok-stt-1.0");
+    assert.equal(body.model, STT_MODEL);
     assert.equal(body.input_audio.format, "webm");
     assert.equal(body.input_audio.data, audio.toString("base64"));
   } finally {
@@ -593,7 +593,7 @@ test("enforced speech accepts bounded browser blobs and retries OpenRouter STT",
     assert.equal(attempts, 2);
     assert.equal(events[0][1].reservedCredits, 0.02);
     assert.equal(events[0][1].provider, "openrouter");
-    assert.equal(events[0][1].model, "x-ai/grok-stt-1.0");
+    assert.equal(events[0][1].model, STT_MODEL);
     assert.equal(events[2][1].usage.duration_seconds, 4.2);
     assert.ok(Math.abs(events[2][1].costCredits - 0.42) < Number.EPSILON * 2);
   } finally {

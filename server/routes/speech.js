@@ -6,8 +6,8 @@ import { requireChatContext } from "./context.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-export const STT_MODEL = "x-ai/grok-stt-1.0";
-// OpenRouter currently lists Grok STT at $0.10/audio hour: ten minutes is
+export const STT_MODEL = "microsoft/mai-transcribe-2";
+// OpenRouter lists MAI-Transcribe 2 at $0.10/audio hour: ten minutes is
 // $0.0167, so $0.02 holds the full request with a small fee/rounding margin.
 export const STT_RESERVATION_CREDITS = 0.02;
 export const STT_CREDITS_PER_SECOND = 0.10 / (60 * 60);
