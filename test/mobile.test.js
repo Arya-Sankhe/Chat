@@ -129,6 +129,14 @@ test("narrow viewports use the existing native mobile layout before app boot", a
   assert.match(appJs, mobileQuery);
 });
 
+test("hidden app update toast cannot intercept the mobile send button", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/styles/overlay-toast.css", import.meta.url), "utf8")
+  );
+  assert.doesNotMatch(source, /\.app-update-toast\s*\{[^}]*pointer-events:\s*auto/);
+  assert.match(source, /\.app-update-toast\.visible\s*\{[^}]*pointer-events:\s*auto/);
+});
+
 test("chat navigation allows switching while another conversation is running", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")

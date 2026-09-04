@@ -68,6 +68,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.app-update-toast.visible {
   pointer-events: auto;
 }
 
