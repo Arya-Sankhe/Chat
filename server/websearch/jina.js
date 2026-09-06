@@ -51,8 +51,9 @@ function buildReadHeaders({ apiKey }) {
   return headers;
 }
 
-function clampContent(text, maxChars) {
+export function clampContent(text, maxChars) {
   if (typeof text !== "string") return "";
+  if (!Number.isFinite(maxChars)) return text;
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n…[truncated for context budget]`;
 }

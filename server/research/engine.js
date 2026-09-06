@@ -1,5 +1,5 @@
-import { fetchPublicPage } from "./fetcher.js";
-import { extractPageText, untrustedSourceBlock } from "./extract.js";
+import { untrustedSourceBlock } from "./extract.js";
+import { readWebPage } from "../websearch/index.js";
 import { searchResearchQueries } from "./search.js";
 import { isDeniedUrl, mergeDenyDomains } from "../websearch/deny-domains.js";
 import {
@@ -155,9 +155,9 @@ export async function runDeepResearch({
   signal,
   now = new Date(),
   searchFn = searchResearchQueries,
-  fetchPage = fetchPublicPage,
-  extractText = extractPageText
+  readPage,
 }) {
+  const readPageFn = readPage || ((pageUrl, opts = {}) => readWebPage({ url: pageUrl, config, signal, ...opts }));
   const settings = config.research;
   const denyDomains = mergeDenyDomains(config.websearch?.denyDomains);
   const started = Date.now();
@@ -243,19 +243,20 @@ export async function runDeepResearch({
     const roundFindings = await mapLimit(candidates, settings.fetchConcurrency, async (result) => {
       fetchedUrls.add(result.url);
       try {
-        const page = await fetchPage(result.url, {
+        const page = await readPageFn(result.url, {
           timeoutMs: settings.fetchTimeoutMs,
-          maxBytes: settings.fetchMaxBytes,
-          signal,
-          denyDomains
+          maxChars: settings.maxExtractedChars,
+          signal
         });
-        // Defense in depth for injected/custom fetchers that skip the boundary check.
+        // Defense in depth for readers that follow redirects past the boundary check.
         if (isDeniedUrl(page.url, denyDomains)) return null;
-        const extracted = extractText(page.html, { maxChars: settings.maxExtractedChars });
+        // Skip stubs/empty pages before spending an LLM relevance call on them.
+        const body = String(page.content || "").trim();
+        if (body.length < 300) return null;
         const raw = await callModel({
           model: cheapModel,
           system: RESEARCH_SYSTEM,
-          prompt: `${extractPrompt(run.query)}\n\n${untrustedSourceBlock({ url: page.url, text: extracted.text })}`,
+          prompt: `${extractPrompt(run.query)}\n\n${untrustedSourceBlock({ url: page.url, text: body })}`,
           maxTokens: settings.extractMaxTokens
         });
         const parsed = parseJsonObject(raw);
@@ -263,7 +264,7 @@ export async function runDeepResearch({
         if (parsed?.relevant === false || isLowQuality(summary)) return null;
         return {
           url: page.url,
-          title: extracted.title || result.title || page.url,
+          title: page.title || result.title || page.url,
           snippet: result.snippet || "",
           summary,
           evidence: parsed?.evidence || ""

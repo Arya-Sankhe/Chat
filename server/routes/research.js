@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { configuredServices } from "../config.js";
+import { DocumentService } from "../documents/index.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
@@ -198,4 +199,57 @@ export async function handleResearchReport(req, res, config, runId) {
   }
   res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
   res.end(json);
+}
+
+export async function handleResearchExport(req, res, config, runId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const run = await context.db.getResearchRun(context.user.id, runId, { signal: req.signal });
+  if (!run) throw new HttpError(404, "Research run not found.");
+  const body = await parseJsonBody(req);
+  const format = String(body.format || "").toLowerCase();
+  if (!["docx", "pdf"].includes(format)) throw new HttpError(400, "Export format must be docx or pdf.");
+  const { report, title } = sanitizeResearchPublicView(run, config);
+  const markdown = String(report || "").trim();
+  if (!markdown) throw new HttpError(409, "Research report is not ready.");
+  const documents = new DocumentService({
+    config,
+    db: context.db,
+    r2: context.r2,
+    userId: context.user.id,
+    conversationId: null,
+    plan: context.plan,
+    signal: req.signal
+  });
+  const result = await documents.enqueueAndWait({
+    jobType: `document.create.${format}`,
+    generatedCount: 1,
+    input: {
+      format,
+      title: String(title || "Research report").trim() || "Research report",
+      instructions: "",
+      content: markdown,
+      content_source: "research_report",
+      sections: [],
+      tables: [],
+      data: {},
+      editor_markdown: markdown
+    }
+  });
+  const output = result.output || {};
+  if (result.pending) {
+    sendJson(res, 202, { status: "processing", jobId: result.job?.id || output.job_id });
+    return;
+  }
+  if (!result.ok || !output.attachment_id) {
+    throw new HttpError(502, result.error?.message || "Document export failed.");
+  }
+  sendJson(res, 200, {
+    status: "ready",
+    artifact: {
+      attachment_id: output.attachment_id,
+      file_name: output.file_name,
+      format: output.kind
+    }
+  });
 }

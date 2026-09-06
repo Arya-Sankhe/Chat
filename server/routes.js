@@ -33,6 +33,7 @@ import { handleAdminResolveReport, handleCreateReport } from "./routes/reports.j
 import {
   handleCancelResearch,
   handleCreateResearch,
+  handleResearchExport,
   handleResearchReport,
   handleResearchStatus
 } from "./routes/research.js";
@@ -395,6 +396,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "research" && parts[2] && parts[3] === "report") {
       await handleResearchReport(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "research" && parts[2] && parts[3] === "export") {
+      await handleResearchExport(req, res, config, parts[2]);
       return;
     }
 

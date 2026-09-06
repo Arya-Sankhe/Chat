@@ -5,8 +5,7 @@ import test from "node:test";
 import { readStylesheet } from "./helpers/styles.js";
 
 import { loadConfig } from "../server/config.js";
-import { extractPageText, untrustedSourceBlock } from "../server/research/extract.js";
-import { fetchPublicPage, resolvePublicUrl } from "../server/research/fetcher.js";
+import { untrustedSourceBlock } from "../server/research/extract.js";
 import { partialReport, runDeepResearch, validateReportLinks } from "../server/research/engine.js";
 import { searchResearchQueries } from "../server/research/search.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
@@ -29,17 +28,6 @@ test("research config uses bounded VPS-friendly defaults", () => {
   assert.equal(config.research.followupQueries, 3);
   assert.equal(config.research.searchResultsPerQuery, 10);
   assert.equal(config.research.finalMaxTokens, 25_000);
-});
-
-test("research extraction removes page chrome and scripts", () => {
-  const article = "Useful evidence sentence. ".repeat(30);
-  const result = extractPageText(`
-    <html><head><title>Useful report</title><script>steal()</script></head>
-    <body><nav>Navigation noise</nav><article>${article}</article><footer>Footer noise</footer></body></html>
-  `);
-  assert.equal(result.title, "Useful report");
-  assert.match(result.text, /Useful evidence/);
-  assert.doesNotMatch(result.text, /Navigation noise|Footer noise|steal/);
 });
 
 test("research source text is explicitly isolated as untrusted", () => {
@@ -69,12 +57,6 @@ test("partial reports retain only validated citations", () => {
   assert.match(report, /^# Partial research:/);
   assert.match(report, /Budget exhausted/);
   assert.doesNotMatch(report, /bad\.example/);
-});
-
-test("research fetcher rejects private and metadata destinations", async () => {
-  await assert.rejects(() => resolvePublicUrl("http://127.0.0.1/private"), /non-public/i);
-  await assert.rejects(() => resolvePublicUrl("http://metadata.google.internal/"), /not allowed/i);
-  await assert.rejects(() => resolvePublicUrl("file:///etc/passwd"), /Only public HTTP/i);
 });
 
 test("Deep Research discovery deny list includes observed adult hosts and configured extras", () => {
@@ -123,11 +105,10 @@ test("Deep Research never fetches denied discovery candidates", async () => {
       { title: "Blocked", url: "https://blocked.test/page", snippet: "" },
       { title: "Good", url: "https://pubmed.ncbi.nlm.nih.gov/1", snippet: "" }
     ],
-    fetchPage: async (url) => {
+    readPage: async (url) => {
       fetched.push(url);
-      return { url, html: "<article>" + "Text. ".repeat(80) + "</article>" };
-    },
-    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+      return { provider: "test", url, title: "Page", content: "Text. ".repeat(80) };
+    }
   });
   assert.deepEqual(fetched, ["https://pubmed.ncbi.nlm.nih.gov/1"]);
   assert.equal(result.sources.length, 1);
@@ -161,35 +142,24 @@ test("Deep Research excludes pages that redirect onto a denied final URL", async
       { title: "Redirect bait", url: "https://example.com/bounce", snippet: "" },
       { title: "Safe", url: "https://example.com/safe", snippet: "" }
     ],
-    fetchPage: async (url) => {
+    readPage: async (url) => {
       if (url === "https://example.com/bounce") {
         return {
+          provider: "test",
           url: "https://xvideos.tube/landed",
-          html: "<article>" + "Adult text. ".repeat(80) + "</article>"
+          title: "Adult",
+          content: "Adult text. ".repeat(80)
         };
       }
-      return { url, html: "<article>" + "Safe text. ".repeat(80) + "</article>" };
-    },
-    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+      return { provider: "test", url, title: "Page", content: "Safe text. ".repeat(80) };
+    }
   });
   assert.equal(result.sources.length, 1);
   assert.equal(result.sources[0].url, "https://example.com/safe");
   assert.doesNotMatch(result.report, /xvideos/);
 });
 
-test("fetchPublicPage hard-blocks denied URLs before DNS or network work", async () => {
-  const deny = mergeDenyDomains([]);
-  await assert.rejects(
-    () => fetchPublicPage("https://xvideos.tube/video/1", { denyDomains: deny }),
-    /deny-domain policy/i
-  );
-  await assert.rejects(
-    () => fetchPublicPage("https://cdn.inxxx.com/clip", { denyDomains: deny }),
-    /deny-domain policy/i
-  );
-});
-
-test("runDeepResearch passes the merged deny list into fetchPage options", async () => {
+test("runDeepResearch passes read options into readPage", async () => {
   const config = loadConfig({
     RESEARCH_INITIAL_QUERIES: "1",
     RESEARCH_MAX_ROUNDS: "1",
@@ -217,16 +187,14 @@ test("runDeepResearch passes the merged deny list into fetchPage options", async
     searchFn: async () => [
       { title: "Good", url: "https://pubmed.ncbi.nlm.nih.gov/1", snippet: "" }
     ],
-    fetchPage: async (url, options = {}) => {
+    readPage: async (url, options = {}) => {
       fetchOptions.push(options);
-      assert.ok(Array.isArray(options.denyDomains));
-      assert.ok(options.denyDomains.includes("xvideos.tube"));
-      assert.ok(options.denyDomains.includes("blocked.test"));
-      return { url, html: "<article>" + "Text. ".repeat(80) + "</article>" };
-    },
-    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+      return { provider: "test", url, title: "Page", content: "Text. ".repeat(80) };
+    }
   });
   assert.equal(fetchOptions.length, 1);
+  assert.equal(fetchOptions[0].timeoutMs, config.research.fetchTimeoutMs);
+  assert.equal(fetchOptions[0].maxChars, config.research.maxExtractedChars);
 });
 
 test("searchResearchQueries applies shared deny filtering before returning candidates", async () => {
@@ -242,6 +210,29 @@ test("searchResearchQueries applies shared deny filtering before returning candi
   try {
     const results = await searchResearchQueries(["q"], { config });
     assert.deepEqual(results.map((entry) => entry.title), ["WHO"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("searchResearchQueries falls back to TinyFish Search when SearXNG finds nothing", async () => {
+  const config = loadConfig({ WEBSEARCH_PRIMARY_PROVIDER: "searxng", TINYFISH_API_KEY: "test-key" });
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("tinyfish")) {
+      return new Response(JSON.stringify({ results: [
+        { title: "Cheap fragrances", url: "https://example.com/cheap", snippet: "cheap mens fragrances" }
+      ] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const results = await searchResearchQueries(["best cheap mens fragrances"], { config });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].url, "https://example.com/cheap");
+    assert.ok(calls.some((url) => url.includes("tinyfish")));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -332,8 +323,7 @@ test("research engine uses cheap models for research and the selected model for 
     callModel,
     onProgress: async (phase) => phases.push(phase),
     searchFn: async () => [{ title: "Source", url: "https://example.com/source", snippet: "Evidence" }],
-    fetchPage: async (url) => ({ url, html: "<article>" + "Evidence sentence. ".repeat(30) + "</article>" }),
-    extractText: (html) => ({ title: "Source", text: html.replace(/<[^>]+>/g, "") })
+    readPage: async (url) => ({ provider: "test", url, title: "Source", content: "Evidence sentence. ".repeat(30) })
   });
   assert.equal(calls.at(-1).model, "minimax/minimax-m3");
   assert.ok(calls.slice(0, -1).every((call) => call.model === config.research.cheapModel));
@@ -369,28 +359,62 @@ test("research engine drops irrelevant pages instead of citing them", async () =
       { title: "Junk", url: "https://junk.example/noise", snippet: "" },
       { title: "Good", url: "https://example.com/relevant-source", snippet: "" }
     ],
-    fetchPage: async (url) => ({ url, html: "<article>" + "Text. ".repeat(80) + "</article>" }),
-    extractText: (html) => ({ title: "Page", text: html.replace(/<[^>]+>/g, "") })
+    readPage: async (url) => ({ provider: "test", url, title: "Page", content: "Text. ".repeat(80) })
   });
   assert.equal(result.sources.length, 1);
   assert.equal(result.sources[0].url, "https://example.com/relevant-source");
 });
 
-test("research path is SearXNG-only and exposes both report modes", () => {
+test("research engine skips pages with no readable text before any LLM extract call", async () => {
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1"
+  });
+  let extractCalls = 0;
+  const callModel = async (call) => {
+    if (call.prompt.includes("Research goal:")) extractCalls += 1;
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("updating an evolving research report")) return "Report.";
+    return "# Report\n\nLong enough body.";
+  };
+  await assert.rejects(
+    () => runDeepResearch({
+      run: { query: "Research this", model: "user/model" },
+      config,
+      callModel,
+      searchFn: async () => [{ title: "Empty", url: "https://example.com/empty", snippet: "" }],
+      readPage: async (url) => ({ provider: "test", url, title: "Empty", content: "   " })
+    }),
+    /No relevant public sources/
+  );
+  assert.equal(extractCalls, 0);
+});
+
+test("research path uses the shared search chain and exposes both report modes", () => {
   const search = fs.readFileSync(new URL("../server/research/search.js", import.meta.url), "utf8");
   const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const researchJs = fs.readFileSync(new URL("../public/js/research.js", import.meta.url), "utf8");
   const app = fs.readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
   const styles = readStylesheet();
   const schema = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
-  assert.match(search, /searxngSearch/);
-  assert.doesNotMatch(search, /jina|brave|read_url/i);
+  assert.match(search, /WebSearchOrchestrator/);
+  assert.doesNotMatch(search, /searxngSearch|tinyfishSearch/);
   assert.match(html, />Visual report</);
   assert.match(html, />Text only</);
+  assert.match(html, />Download</);
+  assert.match(html, /data-research-export="pdf"/);
+  assert.match(html, /data-research-export="docx"/);
+  assert.doesNotMatch(html, />Print</);
   assert.match(researchJs, /research-card-footer/);
   assert.match(researchJs, /is-active.*is-complete.*is-stopped/);
   assert.match(app, /flashCopySuccess\(els\.researchCopy\)/);
   assert.match(app, /researchReportView\.scrollTo/);
+  assert.match(researchJs, /downloadReport\(button\.dataset\.researchExport\)/);
+  assert.doesNotMatch(app, /window\.print\(\)/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
   assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
   assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);

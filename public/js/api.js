@@ -531,6 +531,17 @@ export async function fetchResearchReport(session, id) {
   return response.json();
 }
 
+export async function exportResearchReport(session, id, format) {
+  const response = await apiFetch(`/api/research/${encodeURIComponent(id)}/export`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format })
+  });
+  if (!response.ok && response.status !== 202) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }

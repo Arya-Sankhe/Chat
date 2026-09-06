@@ -1,5 +1,5 @@
 import { filterDeniedDomains, mergeDenyDomains } from "../websearch/deny-domains.js";
-import { searxngSearch } from "../websearch/searxng.js";
+import { WebSearchOrchestrator } from "../websearch/index.js";
 
 function normalizedUrl(value) {
   try {
@@ -16,12 +16,10 @@ function normalizedUrl(value) {
 
 export async function searchResearchQueries(queries, { config, signal }) {
   const denyDomains = mergeDenyDomains(config.websearch?.denyDomains);
-  const searches = await Promise.all(queries.map((query) => searxngSearch({
+  const orchestrator = new WebSearchOrchestrator({ config: config.websearch });
+  const searches = await Promise.all(queries.map((query) => orchestrator.search({
     query,
     numResults: config.research.searchResultsPerQuery,
-    baseUrl: config.websearch.searxng.baseUrl,
-    engines: config.websearch.searxng.engines,
-    timeoutMs: config.websearch.fetchTimeoutMs,
     signal
   }).catch(() => ({ query, results: [] }))));
 

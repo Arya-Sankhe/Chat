@@ -817,7 +817,16 @@
           </div>
           <div class="research-report-actions">
             <button id="researchCopy" type="button"><span>Copy</span></button>
-            <button id="researchPrint" type="button">Print</button>
+            <div class="research-download-wrap">
+              <button id="researchDownload" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span>Download</span>
+                <span class="document-download-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+              </button>
+              <div class="document-download-menu hidden" id="researchDownloadMenu" role="menu">
+                <button type="button" role="menuitem" data-research-export="pdf"><span>PDF</span><small>.pdf</small></button>
+                <button type="button" role="menuitem" data-research-export="docx"><span>Word</span><small>.docx</small></button>
+              </div>
+            </div>
           </div>
         </header>
         <div class="research-report-loading" id="researchReportLoading">Loading report...</div>

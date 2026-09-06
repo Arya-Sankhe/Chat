@@ -12,10 +12,12 @@ import {
   WebSearchOrchestrator,
   citationsFromResults,
   filterCitationsForAnswer,
-  formatResultsForModel
+  formatResultsForModel,
+  readWebPage
 } from "../server/websearch/index.js";
 import { searxngSearch, selectRelevantResults } from "../server/websearch/searxng.js";
 import { tinyfishSearch } from "../server/websearch/tinyfish.js";
+import { tinyfetchRead } from "../server/websearch/tinyfetch.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
 import { buildLoadToolsTool, buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
@@ -2280,10 +2282,166 @@ describe("Phase 5 relevance and reader regression", () => {
     assert.equal(calls[1].auth, "Bearer test-jina-key");
   });
 
+  test("tinyfetchRead normalizes a TinyFetch markdown response", async () => {
+    let captured = null;
+    installFetch(async (url, options) => {
+      captured = { url: String(url), body: JSON.parse(options.body), key: options.headers["x-api-key"] };
+      return jsonResponse({
+        results: [{ url: "https://example.com/a", final_url: "https://example.com/a?x=1", title: "Page A", text: "# A\n\nBody." }],
+        errors: []
+      });
+    });
+    const page = await tinyfetchRead({ url: "https://example.com/a", apiKey: "key-1" });
+    assert.equal(captured.url, "https://api.fetch.tinyfish.ai");
+    assert.deepEqual(captured.body, { urls: ["https://example.com/a"], format: "markdown", per_url_timeout_ms: 8000 });
+    assert.equal(captured.key, "key-1");
+    assert.deepEqual(page, {
+      provider: "tinyfetch",
+      url: "https://example.com/a?x=1",
+      title: "Page A",
+      content: "# A\n\nBody.",
+      publishedAt: null
+    });
+  });
+
+  test("tinyfetchRead surfaces per-URL failures", async () => {
+    installFetch(async () => jsonResponse({ results: [], errors: [{ url: "https://example.com/a", error: "blocked" }] }));
+    await assert.rejects(
+      () => tinyfetchRead({ url: "https://example.com/a", apiKey: "key-1" }),
+      /blocked/
+    );
+  });
+
+  test("tinyfetchRead treats empty text as a failed read", async () => {
+    installFetch(async () => jsonResponse({ results: [{ url: "https://example.com/a", text: "   " }], errors: [] }));
+    await assert.rejects(
+      () => tinyfetchRead({ url: "https://example.com/a", apiKey: "key-1" }),
+      (error) => error.status === 502 && /no content/i.test(error.message)
+    );
+  });
+
+  test("tinyfetchRead maps a stalled JSON body abort to a timeout", async () => {
+    installFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+    }));
+    await assert.rejects(
+      () => tinyfetchRead({ url: "https://example.com/a", apiKey: "key-1" }),
+      (error) => error.status === 504 && error.retryable === true && /timed out/i.test(error.message)
+    );
+  });
+
+  test("tinyfetchRead rethrows a caller abort during JSON parse", async () => {
+    const controller = new AbortController();
+    installFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        controller.abort();
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+    }));
+    await assert.rejects(
+      () => tinyfetchRead({ url: "https://example.com/a", apiKey: "key-1", signal: controller.signal }),
+      (error) => error.name === "AbortError"
+    );
+  });
+
+  test("readUrl prefers TinyFetch and skips Jina entirely on success", async () => {
+    const calls = [];
+    installFetch(async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("api.fetch.tinyfish.ai")) {
+        return jsonResponse({ results: [{ url: "https://example.com/a", title: "Fetched A", text: "tinyfetch body" }], errors: [] });
+      }
+      throw new Error(`Jina must not be called when TinyFetch works: ${url}`);
+    });
+    const config = { ...baseConfig, tinyfish: { apiKey: "key-1", apiKeys: ["key-1"] } };
+    const read = await new WebSearchOrchestrator({ config }).readUrl({ url: "https://example.com/a" });
+    assert.equal(read.ok, true);
+    assert.equal(read.provider, "tinyfetch");
+    assert.equal(read.content, "tinyfetch body");
+    assert.equal(calls.length, 1);
+  });
+
+  test("readUrl tries each TinyFetch key, then the Jina readers", async () => {
+    const keys = [];
+    const calls = [];
+    installFetch(async (url, options) => {
+      calls.push(String(url));
+      if (String(url).includes("api.fetch.tinyfish.ai")) {
+        keys.push(options.headers["x-api-key"]);
+        return new Response("limited", { status: 429 });
+      }
+      if (String(url).startsWith("http://jina-reader:8081/")) return new Response("reader crashed", { status: 502 });
+      if (String(url).startsWith("https://r.jina.ai/")) return jsonResponse({ data: { title: "Hosted Read", content: "hosted page content" } });
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const config = {
+      ...baseConfig,
+      tinyfish: { apiKey: "key-1", apiKeys: ["key-1", "key-2", "key-3"] },
+      jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081", readerFallbackUrl: "https://r.jina.ai" }
+    };
+    const read = await new WebSearchOrchestrator({ config }).readUrl({ url: "https://example.com/a" });
+    assert.equal(read.ok, true);
+    assert.equal(read.provider, "jina");
+    assert.equal(read.content, "hosted page content");
+    assert.deepEqual(keys, ["key-1", "key-2", "key-3"]);
+    assert.equal(calls.at(-2), "http://jina-reader:8081/https://example.com/a");
+    assert.equal(calls.at(-1), "https://r.jina.ai/https://example.com/a");
+  });
+
+  test("readUrl falls through to Jina when TinyFetch returns empty text", async () => {
+    const keys = [];
+    installFetch(async (url, options) => {
+      if (String(url).includes("api.fetch.tinyfish.ai")) {
+        keys.push(options.headers["x-api-key"]);
+        return jsonResponse({ results: [{ url: "https://example.com/a", title: "Empty", text: "" }], errors: [] });
+      }
+      if (String(url).startsWith("https://r.jina.ai/")) {
+        return jsonResponse({ data: { title: "Hosted Read", content: "hosted page content" } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const config = { ...baseConfig, tinyfish: { apiKey: "key-1", apiKeys: ["key-1", "key-2"] } };
+    const read = await new WebSearchOrchestrator({ config }).readUrl({ url: "https://example.com/a" });
+    assert.equal(read.ok, true);
+    assert.equal(read.provider, "jina");
+    assert.equal(read.content, "hosted page content");
+    assert.deepEqual(keys, ["key-1"]);
+  });
+
+  test("readUrl skips remaining TinyFetch keys after a timeout and uses Jina", async () => {
+    const keys = [];
+    installFetch(async (url, options) => {
+      if (String(url).includes("api.fetch.tinyfish.ai")) {
+        keys.push(options.headers["x-api-key"]);
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      if (String(url).startsWith("https://r.jina.ai/")) {
+        return jsonResponse({ data: { title: "Hosted Read", content: "hosted page content" } });
+      }
+      throw new Error(`unexpected URL ${url}`);
+    });
+    const config = { ...baseConfig, tinyfish: { apiKey: "key-1", apiKeys: ["key-1", "key-2", "key-3"] } };
+    const read = await new WebSearchOrchestrator({ config }).readUrl({ url: "https://example.com/a" });
+    assert.equal(read.ok, true);
+    assert.equal(read.provider, "jina");
+    assert.equal(read.content, "hosted page content");
+    assert.deepEqual(keys, ["key-1"]);
+  });
+
   test("readUrl rejects private, loopback, and link-local targets before any network call", async () => {
     let fetched = false;
     installFetch(async () => { fetched = true; return jsonResponse({}); });
-    const config = { ...baseConfig, jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081" } };
+    const config = {
+      ...baseConfig,
+      tinyfish: { apiKey: "key-1", apiKeys: ["key-1", "key-2"] },
+      jina: { ...baseConfig.jina, readerBaseUrl: "http://jina-reader:8081" }
+    };
     const orchestrator = new WebSearchOrchestrator({ config });
     for (const url of [
       "http://169.254.169.254/latest/meta-data/",
@@ -2295,6 +2453,17 @@ describe("Phase 5 relevance and reader regression", () => {
       assert.equal(read.ok, false);
       assert.match(read.error.message, /private or internal|blocked/i);
     }
+    assert.equal(fetched, false);
+  });
+
+  test("readWebPage refuses hosts that resolve to non-public addresses", async () => {
+    let fetched = false;
+    installFetch(async () => { fetched = true; return jsonResponse({}); });
+    const config = { ...baseConfig, tinyfish: { apiKey: "key-1", apiKeys: ["key-1"] } };
+    await assert.rejects(
+      () => readWebPage({ url: "https://no-such-host.invalid/", config, timeoutMs: 5000, maxChars: 1000 }),
+      /non-public/
+    );
     assert.equal(fetched, false);
   });
 

@@ -621,6 +621,14 @@ test("desktop composer uses the same headered mode card as mobile", () => {
   );
 });
 
+test("clarification card stays readable on small viewports", () => {
+  const source = readStylesheet();
+  assert.match(
+    source,
+    /@media \(max-width:\s*480px\)\s*\{[\s\S]*?\.clarification-body h2\s*\{[\s\S]*?position:\s*sticky/
+  );
+});
+
 test("plus menu nests styles and web search under More", async () => {
   const html = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/index.html", import.meta.url), "utf8")

@@ -214,6 +214,7 @@ const ROUTES = [
   { path: "/api/research/run-1/status", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/research/run-1/cancel", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/research/run-1/report", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/research/run-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/conversations/conv-1", method: "GET", authKind: "chat" },
   { path: "/api/conversations/conv-1/messages", method: "POST", authKind: "chat", enforced405: "GET" },
   {
@@ -2787,4 +2788,53 @@ test("study note export uses the document create pipeline", async () => {
   assert.equal(created[0].job_type, "document.create.pdf");
   assert.equal(created[0].input.content, "# Hello\n\nWorld");
   assert.equal(created[0].input.instructions, "");
+});
+
+test("research report export uses the document create pipeline", async () => {
+  const created = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getResearchRun() {
+        return { id: "run-1", title: "Cheap fragrances", report_markdown: "# Hello\n\nWorld", sources: [] };
+      },
+      async createDocumentJob(job) {
+        created.push(job);
+        return { id: "job-1", status: "queued", job_type: job.job_type };
+      },
+      async getDocumentJob() {
+        return {
+          id: "job-1",
+          status: "succeeded",
+          output: { attachment_id: "att-1", file_name: "Cheap fragrances.pdf", kind: "pdf" }
+        };
+      }
+    }
+  });
+  const missing = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/research/missing/export",
+    body: { format: "pdf" },
+    overrides: stubbedDeps({ db: { async getResearchRun() { return null; } } })
+  });
+  assert.equal(missing.statusCode, 404);
+
+  const bad = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/research/run-1/export",
+    body: { format: "md" },
+    overrides
+  });
+  assert.equal(bad.statusCode, 400);
+
+  const res = await dispatch(authReadyConfig, {
+    method: "POST",
+    path: "/api/research/run-1/export",
+    body: { format: "pdf" },
+    overrides
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().artifact.attachment_id, "att-1");
+  assert.equal(created[0].job_type, "document.create.pdf");
+  assert.equal(created[0].input.content, "# Hello\n\nWorld");
+  assert.equal(created[0].input.format, "pdf");
 });

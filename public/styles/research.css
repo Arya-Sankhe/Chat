@@ -22,7 +22,7 @@
 .research-card-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-tertiary); font-size: 12px; }
 .research-card-meta span + span::before { content: "·"; margin-right: 14px; }
 .research-card-actions { display: flex; flex: 0 0 auto; gap: 7px; }
-.research-card-actions button, .research-report-header button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.research-card-actions button, .research-report-header button:not([role="menuitem"]) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .research-card-actions button:not(.secondary) { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .research-report-header #researchCopy.copy-flash { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
 .research-report-view { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: var(--bg); color: var(--text); }
@@ -33,6 +33,9 @@
 .research-report-tabs button { border: 0; background: transparent; }
 .research-report-tabs button.active { background: var(--bg); box-shadow: var(--shadow-sm); }
 .research-report-actions { justify-self: end; display: flex; gap: 7px; }
+.research-download-wrap { position: relative; }
+.research-download-wrap .document-download-menu { left: auto; right: 0; }
+.research-report-header button:disabled { opacity: .55; cursor: default; }
 .research-report-loading { max-width: 760px; margin: 20vh auto; padding: 24px; text-align: center; color: var(--text-secondary); }
 .research-report-layout { width: min(1180px, calc(100% - 40px)); margin: 46px auto 100px; display: grid; grid-template-columns: 210px minmax(0, 760px); justify-content: center; gap: 52px; }
 .research-report-layout.hidden { display: none; }

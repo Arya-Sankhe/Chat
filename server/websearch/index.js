@@ -3,7 +3,7 @@
  * reports a normalized result shape regardless of which provider answered.
  *
  * TinyFish is the default web_search provider, followed by self-hosted
- * SearXNG and Brave; Jina is retained for read_url and explicit provider mode.
+ * SearXNG and Brave. read_url uses TinyFetch, then Jina Reader.
  *
  * A tiny circuit breaker pauses a provider for 5 minutes after 3 consecutive
  * 5xx/429 responses within 60 seconds.
@@ -12,14 +12,17 @@
  * stored or shared across users.
  */
 
+import dns from "node:dns/promises";
+import ipaddr from "ipaddr.js";
 import { braveSearch } from "./brave.js";
 import {
   filterDeniedDomains as applyDenyDomainFilter,
   isDeniedUrl,
   mergeDenyDomains
 } from "./deny-domains.js";
-import { jinaRead, jinaSearch, WebSearchError } from "./jina.js";
+import { jinaRead, jinaSearch, WebSearchError, clampContent, isPrivateHostname } from "./jina.js";
 import { searxngSearch, selectRelevantResults } from "./searxng.js";
+import { tinyfetchRead } from "./tinyfetch.js";
 import { tinyfishSearch } from "./tinyfish.js";
 
 export {
@@ -38,6 +41,74 @@ function denyPolicyError(message = "URL blocked by deny-domain policy.") {
       status: 403
     }
   };
+}
+
+async function resolvesToPublicAddress(hostname) {
+  let addresses;
+  try {
+    addresses = await dns.lookup(String(hostname || ""), { all: true });
+  } catch {
+    return false;
+  }
+  if (!addresses.length) return false;
+  return addresses.every(({ address }) => {
+    try {
+      let parsed = ipaddr.parse(address);
+      if (parsed.kind() === "ipv6" && parsed.isIPv4MappedAddress()) parsed = parsed.toIPv4Address();
+      return parsed.range() === "unicast";
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Read a web page through the shared reader chain: TinyFetch (each
+ * configured key in order), then the self-hosted Jina Reader, then the
+ * hosted Jina Reader (both inside jinaRead). Returns jina-shaped
+ * { provider, url, title, content, publishedAt }.
+ */
+export async function readWebPage({ url, config, signal, timeoutMs, maxChars } = {}) {
+  const websearch = config?.websearch || config;
+  let parsed;
+  try {
+    parsed = new URL(String(url || ""));
+  } catch {
+    throw new WebSearchError("URL is invalid.", { status: 400, provider: "reader" });
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new WebSearchError("Only http(s) URLs are supported.", { status: 400, provider: "reader" });
+  }
+  // Refuse private/loopback hosts before TinyFetch (third-party) or the
+  // self-hosted Jina reader. Short-TTL rebinding can still slip the gap
+  // between this DNS check and the reader's fetch — isolate the reader
+  // container's network if that matters.
+  if (isPrivateHostname(parsed.hostname)) {
+    throw new WebSearchError("URL points to a private or internal address.", { status: 400, provider: "reader" });
+  }
+  if (!(await resolvesToPublicAddress(parsed.hostname))) {
+    throw new WebSearchError("URL resolved to a non-public address.", { status: 400, provider: "reader" });
+  }
+
+  const keys = (Array.isArray(websearch?.tinyfish?.apiKeys) ? websearch.tinyfish.apiKeys : [websearch?.tinyfish?.apiKey]).filter(Boolean);
+  for (const apiKey of keys) {
+    try {
+      const page = await tinyfetchRead({ url, apiKey, timeoutMs, signal });
+      return { ...page, content: clampContent(page.content, maxChars) };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error?.status !== 401 && error?.status !== 429) break;
+    }
+  }
+  return jinaRead({
+    url,
+    apiKey: websearch?.jina?.apiKey,
+    baseUrl: websearch?.jina?.readerBaseUrl,
+    fallbackUrl: websearch?.jina?.readerFallbackUrl,
+    pageContentChars: maxChars,
+    timeoutMs,
+    signal
+  });
 }
 
 const CIRCUIT_BREAKER_THRESHOLD = 3;
@@ -223,10 +294,10 @@ export class WebSearchOrchestrator {
   }
 
   /**
-   * Direct URL read via r.jina.ai. Falls back to nothing — Brave doesn't
-   * expose a generic URL reader. If Jina is unavailable, return an error.
-   * Denied hosts are rejected at the request boundary before network,
-   * and again on the final URL Jina returns.
+   * Direct URL read through the shared reader chain (TinyFetch, then
+   * self-hosted Jina Reader, then hosted Jina Reader). Denied hosts are
+   * rejected at the request boundary before network, and again on the
+   * final URL the reader returns.
    */
   async readUrl({ url, signal }) {
     const denyDomains = this.effectiveDenyDomains();
@@ -235,12 +306,10 @@ export class WebSearchOrchestrator {
     }
 
     try {
-      const data = await jinaRead({
+      const data = await readWebPage({
         url,
-        apiKey: this.config.jina.apiKey,
-        baseUrl: this.config.jina.readerBaseUrl,
-        fallbackUrl: this.config.jina.readerFallbackUrl,
-        pageContentChars: this.config.pageContentChars,
+        config: this.config,
+        maxChars: this.config.pageContentChars,
         timeoutMs: this.config.fetchTimeoutMs,
         signal
       });
@@ -248,7 +317,7 @@ export class WebSearchOrchestrator {
         return denyPolicyError("Final URL blocked by deny-domain policy.");
       }
       const payload = {
-        provider: "jina",
+        provider: data.provider,
         url: data.url,
         title: data.title,
         content: data.content,
@@ -259,13 +328,13 @@ export class WebSearchOrchestrator {
     } catch (error) {
       const wrapped = error instanceof WebSearchError
         ? error
-        : new WebSearchError(error?.message || "URL read failed.", { provider: "jina" });
+        : new WebSearchError(error?.message || "URL read failed.", { provider: "reader" });
       return {
         ok: false,
         error: {
           message: wrapped.message,
           status: wrapped.status || null,
-          provider: "jina",
+          provider: wrapped.provider || "reader",
           retryable: wrapped.retryable === true
         }
       };

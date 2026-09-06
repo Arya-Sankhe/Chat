@@ -147,20 +147,20 @@ extras.
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
 | `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `extract_tables`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
-| `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → SearXNG → paid Brave fallback) with per-provider circuit breaker and `readUrl` for direct page reads through Jina's `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js`, `./tinyfish.js` |
+| `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → SearXNG → paid Brave fallback) with per-provider circuit breaker. `readUrl` reads through TinyFetch, then the self-hosted Jina Reader, then hosted `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js`, `./tinyfetch.js`, `./tinyfish.js` |
 | `server/websearch/deny-domains.js` | Shared hostname deny list for web search and Deep Research. Built-in adult domains are always enforced; `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive via `mergeDenyDomains`. | — |
 | `server/websearch/searxng.js` | SearXNG `/search?format=json` caller with a chat-tuned relevance re-ranker (tokenization, stopword filter, host quality bonus, noise blacklist, GitHub-generic filter, "restaurants"-term filter) and a `raw` mode for deep research. | `./jina.js` (for `WebSearchError`) |
 | `server/websearch/jina.js` | `jinaSearch` calls `https://s.jina.ai/search` (returns search results + extracted markdown in one call), `jinaRead` calls `https://r.jina.ai/<url>` for a single URL. | `./http/responses.js` |
+| `server/websearch/tinyfetch.js` | TinyFetch reader (`POST https://api.fetch.tinyfish.ai`). Primary page reader for `read_url` and Deep Research; empty or failed reads fall through to `jinaRead`. | `./jina.js` |
 | `server/websearch/brave.js` | Brave LLM Context API (`https://api.search.brave.com/res/v1/llm/context`) fallback. | `./jina.js` |
 | `server/websearch/cache.js` | Two-tier cache: in-process LRU Map + persistent Supabase `search_cache`. | `node:crypto` |
 | `server/websearch/detect.js` | Cheap heuristic detector (`detectSearchNeed`) that decides whether to nudge the model toward `web_search` or `read_url`. | — |
 | `server/websearch/tool.js` | Re-export barrel over `server/websearch/tool/{loop,visual,unsupported}.js`. `loop.js` (~530 lines) owns `runChatWithToolLoop` (streams the model, intercepts `tool_calls`, reinjects `role: "tool"` results, artifact-handoff guard, empty-answer retry, per-turn iteration cap) and dynamically imports `saas/messages.js` for `streamProviderAndAccumulate`. `visual.js` and `unsupported.js` own the PDF-page pipeline and tools-unsupported degradation. | `./tool/loop.js`, `./tool/visual.js`, `./tool/unsupported.js`, `../documents/tool.js` |
 | `server/research/worker.js` | Long-running Node process. Polls `klui_claim_research_run` RPC, runs `runDeepResearch`, writes progress every ~2s via `updateResearchRun`, finalizes the run + the linked assistant message on success/cancel/failure. Heartbeats every `leaseSeconds/2` to keep the lease alive and honour `cancel_requested`. | `node:crypto`, `../config.js`, `../db/supabaseRest.js`, `../saas/entitlements.js`, `../saas/usageMeter.js`, `../providers.js`, `./engine.js` |
-| `server/research/engine.js` | The actual research loop. Plan → category classify → for each round: generate queries (cheap model) → SearXNG search → fetch + extract pages (pinned DNS, SSRF guard) → relevance filter → synthesize evolving report → stop-decision (model says YES/NO). Final stage writes the report with the user's selected model. `validateReportLinks` strips/redirects any link not in the allowed sources list. | `./fetcher.js`, `./extract.js`, `./search.js`, `./prompts.js` |
+| `server/research/engine.js` | The actual research loop. Plan → category classify → for each round: generate queries (cheap model) → `WebSearchOrchestrator` search → `readWebPage` (TinyFetch, then Jina) → relevance filter → synthesize evolving report → stop-decision (model says YES/NO). Final stage writes the report with the user's selected model. `validateReportLinks` strips/redirects any link not in the allowed sources list. | `../websearch/index.js`, `./extract.js`, `./search.js`, `./prompts.js` |
 | `server/research/public.js` | Read-time public sanitizer for stored research runs. Filters denied sources, re-validates report/title/summary links against the filtered registry, and is shared by the research HTTP route and chat follow-up context hydration. Does not mutate DB rows. | `./engine.js`, `../websearch/deny-domains.js` |
-| `server/research/search.js` | Calls `searxngSearch` once per query, normalizes URLs (strip utm, trailing slash), dedupes across queries, caps each domain at 2 results. | `../websearch/searxng.js` |
-| `server/research/fetcher.js` | SSRF-safe HTTP fetcher for research. Resolves DNS, rejects private/loopback addresses, blocks `.local`/`.internal`/metadata hosts, throttles per-host to 350 ms, follows up to 5 redirects, retries 429/503, enforces `maxBytes`. Pure node `http`/`https`, pinned to the resolved address. | `node:dns/promises`, `node:http`, `node:https`, `ipaddr.js` |
-| `server/research/extract.js` | Cheerio-based HTML → text extraction. | `cheerio` |
+| `server/research/search.js` | Calls `WebSearchOrchestrator` once per query (same provider chain as chat search), normalizes URLs (strip utm, trailing slash), dedupes across queries, caps each domain at 2 results. | `../websearch/index.js`, `../websearch/deny-domains.js` |
+| `server/research/extract.js` | `untrustedSourceBlock` wraps untrusted page text for the extract prompt. | — |
 | `server/research/prompts.js` | All research prompts: `planPrompt`, `queryPrompt`, `extractPrompt`, `synthesizePrompt`, `stopPrompt`, `finalReportPrompt` with category-specific guidance (`product` / `comparison` / `howto` / `factcheck`). | — |
 | `server/routes.js` | Thin HTTP dispatcher (~233 lines): `handleApiRequest`, `createApiHandler`, CORS preflight, `installStableRequestSignal`, error-to-problem-JSON, and re-exports of chat helpers used by tests. Per-resource handlers live in `server/routes/{context,meta,payments,admin,uploads,research,conversations}.js`. Chat orchestration lives in `server/chat/{pipeline,single,compare,council,temporary,shared}.js`. | `./routes/*.js`, `./chat/*.js`, (handlers pull from the rest of `server/`) |
 | `server/http/cors.js` | CORS primitives for the mobile webview. | — |
@@ -330,10 +330,11 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | Cloudflare R2 (S3-compatible at `<accountId>.r2.cloudflarestorage.com`) | `server/storage/r2.js` (presign, putObject, headObject, deleteObject, deleteObjects, readUrl). |
 | Jina Search Foundation (`s.jina.ai/search`) | `server/websearch/jina.js` `jinaSearch`. Requires `JINA_API_KEY`. |
 | TinyFish Search (`api.search.tinyfish.ai`) | `server/websearch/tinyfish.js` `tinyfishSearch`. Free 30 RPM per API key; search only. |
-| Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Works anonymously. |
+| TinyFetch (`api.fetch.tinyfish.ai`) | `server/websearch/tinyfetch.js` `tinyfetchRead`. Primary `read_url` / Deep Research page reader. |
+| Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Fallback reader after TinyFetch; works anonymously. |
 | Jina Embeddings (`api.jina.ai/v1/embeddings`) | `server/documents/index.js` `embedQuery` for document page vector search. |
 | Brave Search LLM Context (`api.search.brave.com/res/v1/llm/context`) | `server/websearch/brave.js`. |
-| Internal SearXNG (`http://searxng:8080/search?format=json` in compose, `http://localhost:8080/…` standalone) | `server/websearch/searxng.js`; `server/research/search.js` uses `raw: true` mode. |
+| Internal SearXNG (`http://searxng:8080/search?format=json` in compose, `http://localhost:8080/…` standalone) | `server/websearch/searxng.js`. Deep Research search goes through `WebSearchOrchestrator`. |
 | Document worker (Python container) | Decoupled through `document_jobs` table. The Node server `enqueueAndWait` inserts a job; the worker `claim`s it; the server polls `GET /api/documents/jobs/:id/status` for the artifact. |
 | Research worker (separate Node process) | Decoupled through `research_runs` table. The web tier `POST /api/research` inserts a row; the worker `claim`s it; the web tier polls `GET /api/research/:id/status`. |
 | Android deep link (`tech.klui.app://auth/callback`) | `public/js/platform/index.js` `parseAuthCallbackUrl`, `listenForAuthCallback`. |
@@ -520,9 +521,9 @@ sequenceDiagram
     end
 ```
 
-The `readUrl` flow uses `r.jina.ai/<url>` directly. The orchestrator
-caches by `hashKey({kind: "read", url})` against the same `search_cache`
-table.
+The `readUrl` flow tries TinyFetch first, then `jinaRead` (self-hosted
+reader, then `r.jina.ai/<url>`). Private and non-public hosts are
+rejected before any network call.
 
 ### 6.5 Document skills
 

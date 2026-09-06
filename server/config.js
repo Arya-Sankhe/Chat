@@ -292,7 +292,6 @@ export function loadConfig(env = process.env) {
       maxPollMs: readInt(env.RESEARCH_WORKER_MAX_POLL_MS, 10_000),
       maxRunMs: readInt(env.RESEARCH_MAX_RUN_MS, 20 * 60 * 1000),
       fetchTimeoutMs: readInt(env.RESEARCH_FETCH_TIMEOUT_MS, 12_000),
-      fetchMaxBytes: readInt(env.RESEARCH_FETCH_MAX_BYTES, 5 * 1024 * 1024),
       maxExtractedChars: readInt(env.RESEARCH_MAX_EXTRACTED_CHARS, 18_000),
       maxPages: readInt(env.RESEARCH_MAX_PAGES, 18),
       fetchConcurrency: readInt(env.RESEARCH_FETCH_CONCURRENCY, 3),

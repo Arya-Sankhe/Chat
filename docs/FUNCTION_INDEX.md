@@ -414,19 +414,22 @@ regex substitutions) are deliberately not listed.
 
 ## K. Web search: orchestrator, providers, tool loop
 
-### `class WebSearchOrchestrator`, `formatResultsForModel`, `citationsFromResults` ← mixed
+### `class WebSearchOrchestrator`, `readWebPage`, `formatResultsForModel`, `citationsFromResults` ← mixed
 - **Path**: `server/websearch/index.js`
-- **Responsibility**: The provider chain (SearXNG → Jina → Brave)
-  with per-provider circuit breaker, two-tier LRU+Supabase cache
-  via `SearchCache`, and `readUrl` for direct page reads. Exposes
-  a normalized `{ok, results, citations, cached}` shape regardless
-  of provider. Applies the shared deny-domain filter on search and
-  read paths.
+- **Responsibility**: The provider chain (TinyFish → SearXNG → Brave)
+  with per-provider circuit breaker, and `readUrl` / `readWebPage` for
+  direct page reads (TinyFetch, then self-hosted Jina Reader, then
+  hosted `r.jina.ai`). Exposes a normalized `{ok, results}` shape
+  regardless of provider. Applies the shared deny-domain filter on
+  search and read paths. Private/non-public hosts are rejected before
+  any network call.
 - **Callers**: `server/chat/pipeline.js` (single chat and shared
-  pre-search for Compare/Council).
+  pre-search for Compare/Council), `server/research/engine.js`,
+  `server/research/search.js`.
 - **Major dependencies**: `server/websearch/brave.js`,
-  `server/websearch/cache.js`, `server/websearch/deny-domains.js`,
-  `server/websearch/jina.js`, `server/websearch/searxng.js`.
+  `server/websearch/deny-domains.js`, `server/websearch/jina.js`,
+  `server/websearch/searxng.js`, `server/websearch/tinyfetch.js`,
+  `server/websearch/tinyfish.js`.
 
 ### `BUILTIN_ADULT_DENY_DOMAINS`, `mergeDenyDomains`, `filterDeniedDomains`, `isDeniedUrl`, `hostnameMatchesDenied`, `normalizeDenyDomain` ← pure
 - **Path**: `server/websearch/deny-domains.js`
@@ -435,8 +438,7 @@ regex substitutions) are deliberately not listed.
   `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive
   via `mergeDenyDomains` — never a replacement.
 - **Callers**: `server/websearch/index.js`, `server/research/search.js`,
-  `server/research/engine.js`, `server/research/fetcher.js`,
-  `server/research/public.js`.
+  `server/research/engine.js`, `server/research/public.js`.
 - **Major dependencies**: none.
 
 ### `class WebSearchError`, `jinaSearch`, `jinaRead`
@@ -444,9 +446,18 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: `jinaSearch` calls `https://s.jina.ai/search`
   (returns search results + extracted markdown in one call, requires
   `JINA_API_KEY`). `jinaRead` calls `https://r.jina.ai/<url>` for a
-  single URL (works anonymously).
+  single URL (works anonymously). Fallback reader after TinyFetch.
 - **Callers**: `server/websearch/index.js`.
 - **Major dependencies**: `server/http/responses.js`.
+
+### `tinyfetchRead`
+- **Path**: `server/websearch/tinyfetch.js`
+- **Responsibility**: TinyFetch reader (`POST https://api.fetch.tinyfish.ai`).
+  Primary page reader for `read_url` and Deep Research. Times out the
+  whole request (headers and body), treats empty text as a failed read,
+  and sends `per_url_timeout_ms` aligned with the client budget.
+- **Callers**: `server/websearch/index.js` (`readWebPage`).
+- **Major dependencies**: `server/websearch/jina.js`.
 
 ### `braveSearch`
 - **Path**: `server/websearch/brave.js`
@@ -540,42 +551,33 @@ regex substitutions) are deliberately not listed.
 - **Path**: `server/research/engine.js`
 - **Responsibility**: The actual research loop. Plan → category
   classify → for each round: generate queries (cheap model) →
-  SearXNG search → fetch + extract pages (pinned DNS, SSRF guard)
-  → relevance filter → synthesize evolving report → stop-decision
-  (model says YES/NO). Final stage writes the report with the
-  user's selected model. `validateReportLinks` strips/redirects
+  `WebSearchOrchestrator` search → `readWebPage` (TinyFetch, then
+  Jina) → relevance filter → synthesize evolving report →
+  stop-decision (model says YES/NO). Final stage writes the report
+  with the user's selected model. `validateReportLinks` strips/redirects
   any link not in the allowed sources list. `partialReport` is
   rendered on cancel.
 - **Callers**: `server/research/worker.js`.
-- **Major dependencies**: `server/research/fetcher.js`,
+- **Major dependencies**: `server/websearch/index.js`,
   `server/research/extract.js`, `server/research/search.js`,
   `server/research/prompts.js`.
 
 ### `searchResearchQueries`
 - **Path**: `server/research/search.js`
-- **Responsibility**: Calls `searxngSearch` once per query (with
-  `raw: true`), normalizes URLs (strip utm, trailing slash),
-  dedupes across queries, caps each domain at 2 results.
+- **Responsibility**: Calls `WebSearchOrchestrator` once per query
+  (same provider chain as chat search), normalizes URLs (strip utm,
+  trailing slash), dedupes across queries, caps each domain at 2
+  results.
 - **Callers**: `server/research/engine.js`.
-- **Major dependencies**: `server/websearch/searxng.js`.
+- **Major dependencies**: `server/websearch/index.js`,
+  `server/websearch/deny-domains.js`.
 
-### `resolvePublicUrl`, `fetchPublicPage` ← mixed
-- **Path**: `server/research/fetcher.js`
-- **Responsibility**: SSRF-safe HTTP fetcher for research. Resolves
-  DNS, rejects private/loopback addresses, blocks `.local`/`.internal`/metadata
-  hosts, throttles per-host to 350 ms, follows up to 5 redirects,
-  retries 429/503, enforces `maxBytes`. Pure node `http`/`https`,
-  pinned to the resolved address.
-- **Callers**: `server/research/engine.js`.
-- **Major dependencies**: `node:dns/promises`, `node:http`,
-  `node:https`, `ipaddr.js`.
-
-### `extractPageText`, `untrustedSourceBlock`
+### `untrustedSourceBlock`
 - **Path**: `server/research/extract.js`
-- **Responsibility**: Cheerio-based HTML → text extraction. Tries
-  main selectors first, falls back to body.
+- **Responsibility**: Wraps untrusted page text for the extract
+  prompt so the model ignores instructions inside the source.
 - **Callers**: `server/research/engine.js`.
-- **Major dependencies**: `cheerio`.
+- **Major dependencies**: none.
 
 ### `RESEARCH_SYSTEM`, `currentDateContext`, `planPrompt`, `RESEARCH_CATEGORIES`, `categoryPrompt`, `queryPrompt`, `extractPrompt`, `synthesizePrompt`, `stopPrompt`, `finalReportPrompt`
 - **Path**: `server/research/prompts.js`

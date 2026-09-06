@@ -35,6 +35,7 @@ import {
   fetchPlans,
   fetchProject,
   fetchStorage,
+  exportResearchReport,
   fetchResearchReport,
   fetchResearchStatus,
   fetchZiinaPaymentRequests,
@@ -561,7 +562,8 @@ const els = {
   researchVisualTab: document.querySelector("#researchVisualTab"),
   researchTextTab: document.querySelector("#researchTextTab"),
   researchCopy: document.querySelector("#researchCopy"),
-  researchPrint: document.querySelector("#researchPrint"),
+  researchDownload: document.querySelector("#researchDownload"),
+  researchDownloadMenu: document.querySelector("#researchDownloadMenu"),
   researchReportLoading: document.querySelector("#researchReportLoading"),
   researchReportLayout: document.querySelector("#researchReportLayout"),
   researchReportToc: document.querySelector("#researchReportToc"),
@@ -6993,7 +6995,8 @@ researchController = createResearchController({
     researchVisualTab: els.researchVisualTab,
     researchTextTab: els.researchTextTab,
     researchCopy: els.researchCopy,
-    researchPrint: els.researchPrint,
+    researchDownload: els.researchDownload,
+    researchDownloadMenu: els.researchDownloadMenu,
     researchReportLoading: els.researchReportLoading,
     researchReportLayout: els.researchReportLayout,
     researchReportToc: els.researchReportToc,
@@ -7005,8 +7008,11 @@ researchController = createResearchController({
   },
   state,
   createResearch,
+  exportResearchReport,
   fetchResearchStatus,
   fetchResearchReport,
+  fetchDocumentJobStatus,
+  downloadAttachment,
   escapeHtml,
   renderContent,
   renderMessages,
@@ -9332,7 +9338,6 @@ function bindEvents() {
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
     });
   });
-  els.researchPrint?.addEventListener("click", () => window.print());
   els.closeSettingsButton.addEventListener("click", closeSettings);
   els.settingsTabs?.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-settings-tab]");

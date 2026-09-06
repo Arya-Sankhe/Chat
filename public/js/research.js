@@ -2,8 +2,11 @@ export function createResearchController({
   elements,
   state,
   createResearch,
+  exportResearchReport,
   fetchResearchStatus,
   fetchResearchReport,
+  fetchDocumentJobStatus,
+  downloadAttachment,
   escapeHtml,
   renderContent,
   renderMessages,
@@ -310,6 +313,7 @@ export function createResearchController({
   }
 
   async function closeResearchReport({ push = true } = {}) {
+    closeDownloadMenu();
     const conversationId = state.researchReport?.run?.conversationId || state.activeConversationId;
     state.researchReport = null;
     if (push) window.history.pushState({ conversationId }, "", conversationUrl(conversationId));
@@ -362,6 +366,66 @@ export function createResearchController({
       showToast(error.message);
     }
   }
+
+  function closeDownloadMenu() {
+    elements.researchDownloadMenu?.classList.add("hidden");
+    elements.researchDownload?.setAttribute("aria-expanded", "false");
+  }
+
+  function setDownloadBusy(busy) {
+    if (!elements.researchDownload) return;
+    elements.researchDownload.disabled = busy;
+    elements.researchDownload.setAttribute("aria-busy", String(busy));
+  }
+
+  async function waitForExport(jobId) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const payload = await fetchDocumentJobStatus(state.session, jobId);
+      if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) return payload.artifact;
+      if (["failed", "expired"].includes(payload?.job?.status)) {
+        throw new Error(payload.job.error?.message || "Download failed.");
+      }
+    }
+    throw new Error("Download is still processing. Try again shortly.");
+  }
+
+  async function downloadReport(format) {
+    const runId = state.researchReport?.run?.id;
+    if (!runId) return;
+    if (!state.session?.access_token) return showToast("Please sign in to download.");
+    setDownloadBusy(true);
+    try {
+      const result = await exportResearchReport(state.session, runId, format);
+      const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
+      if (!artifact?.attachment_id) throw new Error("Download did not return a file.");
+      await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `research.${format}`);
+    } finally {
+      setDownloadBusy(false);
+    }
+  }
+
+  elements.researchDownload?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!elements.researchDownloadMenu || elements.researchDownload.disabled) return;
+    const open = elements.researchDownloadMenu.classList.toggle("hidden") === false;
+    elements.researchDownload.setAttribute("aria-expanded", String(open));
+  });
+  elements.researchDownloadMenu?.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-research-export]");
+    if (!button) return;
+    closeDownloadMenu();
+    try {
+      await downloadReport(button.dataset.researchExport);
+    } catch (error) {
+      showToast(error.message || "Download failed.");
+    }
+  });
+  globalThis.document?.addEventListener("pointerdown", (event) => {
+    if (!elements.researchDownloadMenu || elements.researchDownloadMenu.classList.contains("hidden")) return;
+    if (elements.researchDownload?.contains(event.target) || elements.researchDownloadMenu.contains(event.target)) return;
+    closeDownloadMenu();
+  });
 
   return {
     researchMeta,

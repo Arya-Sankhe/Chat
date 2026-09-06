@@ -408,6 +408,28 @@ body.chat-empty .composer-area .app-footer {
 .clarification-continue { background: var(--accent); color: var(--accent-contrast); }
 .clarification-continue:disabled { opacity: .4; cursor: default; }
 
+/* Small viewports: compact the questions card and pin the question to the
+   top of the scroll area so long option lists can't push it out of view. */
+@media (max-width: 480px) {
+  .clarification-card { max-height: 52vh; border-radius: 16px; margin-bottom: 8px; }
+  .clarification-header { padding: 10px 12px 6px; font-size: 13px; }
+  .clarification-body { padding: 0 8px 8px; }
+  .clarification-body h2 {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 0 8px;
+    padding: 8px 4px;
+    background: var(--bg);
+    font-size: 15px;
+  }
+  .clarification-options { gap: 4px; }
+  .clarification-option { gap: 6px; padding: 7px 8px; font-size: 13px; }
+  .clarification-key { width: 23px; height: 23px; }
+  .clarification-footer { padding: 8px 10px 10px; }
+  .clarification-footer button { min-height: 34px; }
+}
+
 .clarification-loading {
   display: flex;
   align-items: center;
