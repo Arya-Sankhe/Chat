@@ -321,6 +321,7 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
     assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo"]);
     assert.equal(config.websearch.fetchTimeoutMs, 20_000);
+    assert.equal(config.websearch.pageContentChars, 15_000);
     assert.equal(config.websearch.dailyLimits, undefined);
   });
 

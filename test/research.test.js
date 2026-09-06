@@ -19,7 +19,7 @@ test("research config uses bounded VPS-friendly defaults", () => {
   assert.equal(config.research.maxPollMs, 10_000);
   assert.equal(config.research.maxPages, 18);
   assert.equal(config.research.maxRunMs, 1_200_000);
-  assert.equal(config.research.maxExtractedChars, 18_000);
+  assert.equal(config.research.maxExtractedChars, 50_000);
   assert.equal(config.research.maxRounds, 5);
   assert.equal(config.research.minRounds, 2);
   assert.equal(config.research.maxEmptyRounds, 2);
@@ -416,6 +416,7 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(researchJs, /downloadReport\(button\.dataset\.researchExport\)/);
   assert.doesNotMatch(app, /window\.print\(\)/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
+  assert.match(styles, /research-report-tabs button\[aria-selected="true"\]/);
   assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
   assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
