@@ -104,6 +104,7 @@ export async function handleCreateResearch(req, res, config) {
       query,
       model,
       provider: provider.id,
+      queue: config.research.queue,
       progress: { label: "Research queued", percent: 0 }
     }, { signal: req.signal });
   } catch (error) {

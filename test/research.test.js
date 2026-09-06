@@ -13,6 +13,7 @@ import { filterDeniedDomains, mergeDenyDomains } from "../server/websearch/deny-
 
 test("research config uses bounded VPS-friendly defaults", () => {
   const config = loadConfig({});
+  assert.equal(config.research.queue, "local");
   assert.equal(config.research.workerConcurrency, 3);
   assert.equal(config.research.fetchConcurrency, 3);
   assert.equal(config.research.pollMs, 5000);
@@ -28,6 +29,12 @@ test("research config uses bounded VPS-friendly defaults", () => {
   assert.equal(config.research.followupQueries, 3);
   assert.equal(config.research.searchResultsPerQuery, 10);
   assert.equal(config.research.finalMaxTokens, 25_000);
+});
+
+test("research queue defaults to local and only accepts a short slug", () => {
+  assert.equal(loadConfig({ RESEARCH_QUEUE: "production" }).research.queue, "production");
+  assert.equal(loadConfig({ RESEARCH_QUEUE: " LOCAL " }).research.queue, "local");
+  assert.equal(loadConfig({ RESEARCH_QUEUE: "prod jobs" }).research.queue, "local");
 });
 
 test("research source text is explicitly isolated as untrusted", () => {
@@ -429,6 +436,7 @@ test("research path uses the shared search chain and exposes both report modes",
 
 test("research cancellation and lease cleanup remain durable", () => {
   const worker = fs.readFileSync(new URL("../server/research/worker.js", import.meta.url), "utf8");
+  const route = fs.readFileSync(new URL("../server/routes/research.js", import.meta.url), "utf8");
   const researchJs = fs.readFileSync(new URL("../public/js/research.js", import.meta.url), "utf8");
   const schema = fs.readFileSync(new URL("../supabase/schema.sql", import.meta.url), "utf8");
   const migration = fs.readFileSync(new URL("../supabase/migrations/2026_06_29_add_research_runs.sql", import.meta.url), "utf8");
@@ -438,9 +446,13 @@ test("research cancellation and lease cleanup remain durable", () => {
   assert.match(worker, /const IDLE_POLL_MS = \[1_000, 2_000, 5_000, 10_000\]/);
   assert.match(worker, /emptyClaims \+= 1/);
   assert.match(worker, /emptyClaims = 0/);
+  assert.match(worker, /claimResearchRun\(workerId, config\.research\.leaseSeconds, \{ queue: config\.research\.queue \}\)/);
+  assert.match(worker, /failExpiredResearchRuns\(\{ queue: config\.research\.queue \}\)/);
+  assert.match(route, /queue: config\.research\.queue/);
   assert.match(researchJs, /failedAttempts < 1/);
   assert.match(researchJs, /researchPollGeneration/);
-  assert.match(schema, /where status = 'queued' and cancel_requested = false/);
+  assert.match(schema, /and queue = v_queue/);
+  assert.match(schema, /p_queue text default 'local'/);
   assert.match(migration, /where status = 'queued' and cancel_requested = false/);
 });
 

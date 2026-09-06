@@ -375,6 +375,7 @@ create table if not exists public.research_runs (
   worker_id text,
   lease_until timestamptz,
   attempt_count integer not null default 0,
+  queue text not null default 'production' check (queue ~ '^[a-z][a-z0-9_-]{0,31}$'),
   elapsed_ms integer,
   created_at timestamptz not null default now(),
   started_at timestamptz,
@@ -518,7 +519,7 @@ create index if not exists document_jobs_conversation_idx on public.document_job
 create index if not exists document_jobs_message_idx on public.document_jobs (message_id) where message_id is not null;
 create index if not exists document_jobs_orphan_cleanup_idx on public.document_jobs (created_at) where conversation_id is null and message_id is null and document_file_id is null and status in ('succeeded', 'failed', 'expired');
 create unique index if not exists document_jobs_extract_once_idx on public.document_jobs (document_file_id, job_type) where document_file_id is not null and job_type like 'document.extract.%';
-create index if not exists research_runs_claim_idx on public.research_runs (created_at asc) where status = 'queued';
+create index if not exists research_runs_claim_idx on public.research_runs (queue, created_at asc) where status = 'queued';
 create index if not exists research_runs_lease_idx on public.research_runs (lease_until) where status = 'running';
 create index if not exists research_runs_user_status_idx on public.research_runs (user_id, status);
 create unique index if not exists research_runs_one_active_per_conversation_idx on public.research_runs (user_id, conversation_id) where status in ('queued', 'running');
@@ -1145,20 +1146,30 @@ revoke all on function public.klui_claim_document_job(text, integer)
   from public, anon, authenticated;
 grant execute on function public.klui_claim_document_job(text, integer) to service_role;
 
+drop function if exists public.klui_claim_research_run(text, integer);
+
 create or replace function public.klui_claim_research_run(
   p_worker_id text,
-  p_lease_seconds integer default 120
+  p_lease_seconds integer default 120,
+  p_queue text default 'local'
 ) returns setof public.research_runs
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_queue text := lower(trim(coalesce(p_queue, '')));
 begin
+  if v_queue !~ '^[a-z][a-z0-9_-]{0,31}$' then
+    v_queue := 'local';
+  end if;
+
   return query
   with next_run as (
     select id
     from public.research_runs
     where status = 'queued' and cancel_requested = false
+      and queue = v_queue
     order by created_at asc
     for update skip locked
     limit 1
@@ -1178,8 +1189,8 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_claim_research_run(text, integer) from public, anon, authenticated;
-grant execute on function public.klui_claim_research_run(text, integer) to service_role;
+revoke all on function public.klui_claim_research_run(text, integer, text) from public, anon, authenticated;
+grant execute on function public.klui_claim_research_run(text, integer, text) to service_role;
 
 create or replace function public.klui_search_document_chunks(
   p_user_id uuid,

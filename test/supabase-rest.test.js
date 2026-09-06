@@ -740,6 +740,30 @@ test("createResearchRun POSTs research_runs rows with return=representation", as
   });
 });
 
+test("claimResearchRun and expired cleanup are scoped to the worker queue", async () => {
+  await withStubbedFetch(async (url, options = {}) => {
+    if (String(url).includes("rpc/klui_claim_research_run")) {
+      assert.equal(options.method, "POST");
+      assert.deepEqual(JSON.parse(options.body), {
+        p_worker_id: "research-1",
+        p_lease_seconds: 120,
+        p_queue: "production"
+      });
+      return jsonResponse([{ id: "run_1", status: "running", queue: "production" }]);
+    }
+    assert.equal(options.method, "PATCH");
+    assert.match(String(url), /queue=eq\.production/);
+    assert.match(String(url), /status=eq\.running/);
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const run = await db.claimResearchRun("research-1", 120, { queue: "production" });
+    assert.equal(run.queue, "production");
+    const expired = await db.failExpiredResearchRuns({ queue: "production" });
+    assert.deepEqual(expired, []);
+  });
+});
+
 test("checkApiBudget calls klui_check_api_budget RPC with weekly window fields", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "POST");

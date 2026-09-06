@@ -68,6 +68,11 @@ function readJinaEngine(value) {
   return engine === "browser" ? "browser" : "direct";
 }
 
+function readResearchQueue(value) {
+  const queue = clean(value).toLowerCase();
+  return /^[a-z][a-z0-9_-]{0,31}$/.test(queue) ? queue : "local";
+}
+
 function readDocumentMode(value) {
   return readBoolean(value, true);
 }
@@ -285,6 +290,7 @@ export function loadConfig(env = process.env) {
     },
     research: {
       enabled: readBoolean(env.RESEARCH_ENABLED, true),
+      queue: readResearchQueue(env.RESEARCH_QUEUE),
       cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash-0731",
       workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 3),
       leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),

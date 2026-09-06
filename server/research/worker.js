@@ -174,7 +174,7 @@ async function processRun(run) {
 
 async function failExpiredRuns() {
   lastExpiredCleanupAt = Date.now();
-  const expired = await db.failExpiredResearchRuns().catch((error) => {
+  const expired = await db.failExpiredResearchRuns({ queue: config.research.queue }).catch((error) => {
     console.error("Expired research cleanup failed", error);
     return [];
   });
@@ -201,7 +201,7 @@ async function loop() {
   while (!stopping) {
     if (Date.now() - lastExpiredCleanupAt >= 60_000) await failExpiredRuns();
     while (!stopping && active.size < config.research.workerConcurrency) {
-      const run = await db.claimResearchRun(workerId, config.research.leaseSeconds).catch((error) => {
+      const run = await db.claimResearchRun(workerId, config.research.leaseSeconds, { queue: config.research.queue }).catch((error) => {
         console.error("Research claim failed", error?.message || error);
         return null;
       });
