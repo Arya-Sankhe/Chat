@@ -872,6 +872,77 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
 }
 
+@keyframes composer-mode-pop {
+  from { transform: scale(0.97); }
+  to { transform: scale(1); }
+}
+
+body:not(.capacitor-native) .composer {
+  transition: border-radius 220ms cubic-bezier(0.32, 0.72, 0, 1), padding 220ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) {
+  padding: 8px 12px 10px;
+  border-radius: 20px;
+  animation: composer-mode-pop 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip:not(.hidden) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 2px 2px 8px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .research-mode-mark {
+  flex: 0 0 auto;
+  color: var(--text);
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+  line-height: 0;
+  cursor: pointer;
+}
+
+body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip button:active {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) {
+    animation: none;
+  }
+}
+
 .composer-input {
 
   display: flex;

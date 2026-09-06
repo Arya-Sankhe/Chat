@@ -214,7 +214,7 @@ function applySpectrumLevel(level) {
   updateSetting("model", step.model);
   paintSpectrum(n);
   renderModelOptions();
-  if (typeof renderTopBarMode === "function") renderTopBarMode();
+  syncNativeTopBarMode();
 }
 
 function paintSpectrum(level = spectrumLevelFromSettings()) {
@@ -928,29 +928,19 @@ function renderTemporaryChatMode() {
 function renderComposerModeChip() {
   const chip = els.researchModeChip;
   if (!chip) return;
-  const mobile = document.body.classList.contains("capacitor-native");
   const councilOn = isCouncilMode();
   const compareOn = Boolean(state.settings.compareEnabled) && !councilOn;
-  const mode = state.researchMode ? "research" : mobile && councilOn ? "council" : mobile && compareOn ? "compare" : "";
+  const mode = state.researchMode ? "research" : (councilOn ? "council" : (compareOn ? "compare" : ""));
   const labels = { research: "Deep research", compare: "Compare", council: "Council" };
   chip.classList.toggle("hidden", !mode);
   chip.dataset.mode = mode;
-  const label = chip.querySelector("span");
+  const label = chip.querySelector(".research-mode-chip-label");
   if (label && mode) label.textContent = labels[mode];
   chip.querySelectorAll("[data-chip-icon]").forEach((icon) => {
     icon.classList.toggle("hidden", icon.dataset.chipIcon !== mode);
   });
   if (els.researchModeClose && mode) {
     els.researchModeClose.setAttribute("aria-label", mode === "research" ? "Turn off Deep Research" : `Turn off ${labels[mode]}`);
-  }
-  if (!mode && els.nativeMobileModeLabel) {
-    const top = currentNativeTopBarMode();
-    els.nativeMobileModeLabel.textContent = top === "nitro" ? "Nitro"
-      : top === "thinking" ? "Think"
-      : top === "pro" ? "Pro"
-      : top === "compare" ? "Compare"
-      : top === "council" ? "Council"
-      : top;
   }
 }
 
@@ -962,6 +952,7 @@ function renderResearchMode() {
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = state.running || !available;
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.researchMode;
   renderComposerModeChip();
+  syncNativeTopBarMode();
 }
 
 function clearClarification() {
@@ -2020,13 +2011,29 @@ function currentNativeTopBarMode() {
   return level === 0 ? "nitro" : level === SPECTRUM_N - 1 ? "pro" : "thinking";
 }
 
+function nativeTopBarModeLabel(mode = currentNativeTopBarMode()) {
+  return mode === "nitro" ? "Nitro"
+    : mode === "thinking" ? "Think"
+    : mode === "pro" ? "Pro"
+    : mode === "compare" ? "Compare"
+    : mode === "council" ? "Council"
+    : mode;
+}
+
+function syncNativeTopBarMode() {
+  const mode = currentNativeTopBarMode();
+  if (els.nativeMobileModeLabel) els.nativeMobileModeLabel.textContent = nativeTopBarModeLabel(mode);
+  els.nativeMobileModeDropdown?.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.mode === mode);
+    btn.setAttribute("aria-selected", btn.dataset.mode === mode ? "true" : "false");
+  });
+}
+
 function applyNativeTopBarMode(mode) {
-  if (mode === "compare") {
-    compareController.activateCompareMode();
-    return;
-  }
-  if (mode === "council") {
-    councilController.activateCouncilMode();
+  if (mode === "compare" || mode === "council") {
+    if (state.researchMode) setResearchMode(false);
+    if (mode === "compare") compareController.activateCompareMode();
+    else councilController.activateCouncilMode();
     return;
   }
   if (state.settings.compareEnabled) compareController.cancelCompareMode();
@@ -3942,6 +3949,8 @@ function openActionMenuRoot() {
   els.writingStyleMenu?.classList.add("hidden");
   els.composerActionMenu?.classList.remove("hidden");
   setActionMenuPage("root");
+  els.actionMenuButton?.setAttribute("aria-expanded", "true");
+  els.composerActionMenuWrap?.classList.add("is-open");
 }
 
 function openActionMenuMore() {
@@ -7124,7 +7133,8 @@ councilController = createCouncilController({
   renderAssistantMessageContent,
   isPlaceholderPeerReason,
   compareModelAlias: (...args) => compareController.compareModelAlias(...args),
-  renderCompareControls: () => compareController.renderCompareControls()
+  renderCompareControls: () => compareController.renderCompareControls(),
+  renderResearchMode
 });
 
 adminPanel = createAdminPanel({
@@ -9275,7 +9285,10 @@ function bindEvents() {
   });
   els.closeAccountButton.addEventListener("click", closeAccount);
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
-  els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
+  els.deepResearchToggle?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setResearchMode(!state.researchMode);
+  });
   els.researchModeClose?.addEventListener("click", () => {
     if (state.researchMode) setResearchMode(false);
     else if (state.settings.compareEnabled) compareController.cancelCompareMode();
@@ -9563,25 +9576,7 @@ function bindEvents() {
   // Renders the current mode label inside the top-bar chip and wires
   // the dropdown open/close + selection handlers.
   function renderTopBarMode() {
-    const mode = currentNativeTopBarMode();
-    const label = els.nativeMobileModeLabel;
-    if (label) {
-      const display = mode === "nitro" ? "Nitro"
-        : mode === "thinking" ? "Think"
-        : mode === "pro" ? "Pro"
-        : mode === "compare" ? "Compare"
-        : mode === "council" ? "Council"
-        : mode;
-      label.textContent = display;
-    }
-    // Mark the active item in the dropdown
-    const dropdown = els.nativeMobileModeDropdown;
-    if (dropdown) {
-      dropdown.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
-        btn.classList.toggle("is-active", btn.dataset.mode === mode);
-        btn.setAttribute("aria-selected", btn.dataset.mode === mode ? "true" : "false");
-      });
-    }
+    syncNativeTopBarMode();
   }
 
   function closeTopBarModeDropdown() {

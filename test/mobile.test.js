@@ -196,8 +196,10 @@ test("mobile compare and council reuse the composer mode chip", async () => {
   assert.match(html, /data-chip-icon="compare"/);
   assert.match(html, /data-chip-icon="council"/);
   assert.match(appJs, /function renderComposerModeChip\(\)/);
-  assert.match(appJs, /state\.researchMode \? "research" : mobile && councilOn \? "council" : mobile && compareOn \? "compare"/);
+  assert.match(appJs, /state\.researchMode \? "research" : \(councilOn \? "council" : \(compareOn \? "compare" : ""\)\)/);
   assert.match(appJs, /els\.researchModeClose\?\.addEventListener\("click", \(\) => \{[\s\S]*?compareController\.cancelCompareMode\(\)/);
+  assert.match(appJs, /function setResearchMode\(enabled\) \{/);
+  assert.match(appJs, /els\.deepResearchToggle\?\.addEventListener\("click", \(event\) => \{[\s\S]*?setResearchMode\(!state\.researchMode\);/);
 });
 
 test("mobile and desktop default to Think", async () => {
@@ -611,6 +613,14 @@ test("camera action button exists in the + menu", async () => {
   assert.match(source, /Take photo/, "camera action button must have label 'Take photo'");
 });
 
+test("desktop composer uses the same headered mode card as mobile", () => {
+  const source = readStylesheet();
+  assert.match(
+    source,
+    /body:not\(\.capacitor-native\) \.composer:has\(#researchModeChip:not\(\.hidden\)\)\s*\{[\s\S]*?animation:\s*composer-mode-pop/
+  );
+});
+
 test("plus menu nests styles and web search under More", async () => {
   const html = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
@@ -991,8 +1001,10 @@ test("native top-bar mode picker activates compare and council modes", async () 
     )
   ]);
   assert.match(appJs, /function applyNativeTopBarMode\(mode\)/);
+  assert.match(appJs, /mode === "compare" \|\| mode === "council"[\s\S]*?if \(state\.researchMode\) setResearchMode\(false\)/);
   assert.match(appJs, /mode === "compare"[\s\S]*?compareController\.activateCompareMode\(\)/);
-  assert.match(appJs, /mode === "council"[\s\S]*?councilController\.activateCouncilMode\(\)/);
+  assert.match(appJs, /councilController\.activateCouncilMode\(\)/);
+  assert.match(councilJs, /renderResearchMode\?\.\(\)/);
   assert.match(compareJs, /function activateCompareMode\(/);
   assert.match(councilJs, /function activateCouncilMode\(/);
   assert.match(appJs, /function currentNativeTopBarMode\(\)[\s\S]*?compareEnabled[\s\S]*?compareMode/);

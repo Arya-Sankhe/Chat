@@ -9,7 +9,8 @@ export function createCouncilController({
   renderAssistantMessageContent,
   isPlaceholderPeerReason,
   compareModelAlias,
-  renderCompareControls
+  renderCompareControls,
+  renderResearchMode
 }) {
   let councilDetailsOpenIds = new Set();
 
@@ -26,6 +27,7 @@ export function createCouncilController({
     updateSetting("compareEnabled", true);
     state.compareDescribeImages = false;
     renderCompareControls();
+    renderResearchMode?.();
   }
 
   function captureCouncilDetailsOpenState() {
