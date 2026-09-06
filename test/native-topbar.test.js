@@ -74,7 +74,7 @@ test("mobile sends from pointerdown so the keyboard cannot consume the first sen
   const appJs = readPublic("js/app.js");
   assert.match(
     appJs,
-    /els\.sendButton\.addEventListener\("pointerdown", \(event\) => \{[\s\S]*?document\.body\.classList\.contains\("capacitor-native"\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?void sendPrompt\(\);/
+    /els\.sendButton\.addEventListener\("pointerdown", \(event\) => \{[\s\S]*?document\.body\.classList\.contains\("capacitor-native"\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?els\.sendButton\.click\(\);/
   );
   assert.match(
     appJs,

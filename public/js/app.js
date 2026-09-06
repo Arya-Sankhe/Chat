@@ -10082,18 +10082,15 @@ function bindEvents() {
 
   window.addEventListener("message", (event) => applyVisualizeFrameMessage(event));
 
-  let mobileSendHandledOnPointerDown = false;
   els.sendButton.addEventListener("pointerdown", (event) => {
-    if (!document.body.classList.contains("capacitor-native") || voiceState === "recording") return;
+    if (!document.body.classList.contains("capacitor-native") || event.button !== 0 || !event.isPrimary) return;
     event.preventDefault();
-    mobileSendHandledOnPointerDown = true;
-    void sendPrompt();
+    els.sendButton.click();
   });
-  els.sendButton.addEventListener("click", () => {
-    if (mobileSendHandledOnPointerDown) {
-      mobileSendHandledOnPointerDown = false;
-      return;
-    }
+  els.sendButton.addEventListener("click", (event) => {
+    // Native pointer gestures act on pointerdown; detail=0 keeps keyboard/AT clicks working.
+    if (document.body.classList.contains("capacitor-native") && event.detail > 0) return;
+    if (els.sendButton.disabled || voiceState === "processing") return;
     if (voiceState === "recording") {
       stopVoiceRecording({ commit: true });
       return;

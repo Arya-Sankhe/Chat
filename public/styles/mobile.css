@@ -2171,17 +2171,13 @@ body.capacitor-native .send-btn {
 
 }
 
-body.capacitor-native .composer-tool:hover,
-
-body.capacitor-native .send-btn:hover {
+body.capacitor-native .composer-tool:hover {
 
   background: color-mix(in srgb, var(--text) 6%, transparent);
 
 }
 
-body.capacitor-native .composer-tool:active,
-
-body.capacitor-native .send-btn:active {
+body.capacitor-native .composer-tool:active {
 
   transform: scale(0.94);
 
@@ -2368,8 +2364,6 @@ body.capacitor-native .composer.compact:active::after { opacity: 1; }
   body.capacitor-native .native-mobile-mode-btn:hover,
 
   body.capacitor-native .composer-tool:hover,
-
-  body.capacitor-native .send-btn:hover,
 
   body.capacitor-native .native-mobile-mode-item:hover {
 
@@ -2878,7 +2872,6 @@ body.capacitor-native .stop-btn {
   transition: background var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
 }
 
-body.capacitor-native .send-btn:active,
 body.capacitor-native .stop-btn:active {
   transform: scale(0.94);
   background: color-mix(in srgb, var(--text) 10%, transparent);
@@ -3111,9 +3104,7 @@ body.capacitor-native.document-viewer-open .document-viewer-resizer {
 
   }
 
-  body.capacitor-native .composer-tool:hover,
-
-  body.capacitor-native .send-btn:hover {
+  body.capacitor-native .composer-tool:hover {
 
     background: color-mix(in srgb, var(--text) 6%, transparent);
 
