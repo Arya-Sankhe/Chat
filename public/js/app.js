@@ -117,6 +117,7 @@ import {
 } from "./render.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
+import { replaceEmailFence } from "./email.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
@@ -5727,23 +5728,10 @@ function applyEmailSource(card, source) {
   recordEmailEdit(card);
 }
 
-function replaceEmailFenceInContent(content, source) {
-  const fence = `\`\`\`email\n${source}\n\`\`\``;
-  const swap = (text) => (/```email\b/i.test(text)
-    ? String(text).replace(/```email[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/i, fence)
-    : `${text}\n\n${fence}`);
-  if (Array.isArray(content)) {
-    const textParts = content.map((part, index) => part?.type === "text" ? index : -1).filter((index) => index >= 0);
-    const target = textParts.find((index) => /```email\b/i.test(content[index].text || "")) ?? textParts[0];
-    return content.map((part, index) => index === target ? { ...part, text: swap(part.text || "") } : part);
-  }
-  return swap(String(content || ""));
-}
-
-function persistEmailRevisionLocally(messageId, source) {
+function persistEmailRevisionLocally(messageId, source, emailIndex) {
   const message = state.messages.find((item) => String(item?.id || "") === String(messageId || ""));
   if (!message) return;
-  message.content = replaceEmailFenceInContent(message.content, source);
+  message.content = replaceEmailFence(message.content, source, emailIndex);
 }
 
 async function submitEmailRevise(form) {
@@ -5753,21 +5741,25 @@ async function submitEmailRevise(form) {
   if (!instruction) { input?.focus(); return; }
   if (!card || card.classList.contains("is-revising")) return;
   if (state.running) { showToast("Wait for the current response to finish."); return; }
-  const messageId = card.closest("[data-message-id]")?.dataset.messageId || "";
+  const article = card.closest("[data-message-id]");
+  const messageId = article?.dataset.messageId || "";
+  const emailIndex = article ? [...article.querySelectorAll("[data-email-card]")].indexOf(card) : 0;
+  const { to, subject, body } = emailCardValues(card);
   card.classList.add("is-revising");
   card.inert = true;
   input.disabled = true;
   form.querySelector("button[type='submit']")?.setAttribute("disabled", "");
   try {
     const result = await reviseEmailDraft(state.session, {
-      draft: emailCardText(card),
+      draft: `To: ${to}\nSubject: ${subject}\n\n${body}`,
       instruction,
-      messageId
+      messageId: state.temporaryChat ? "" : messageId,
+      emailIndex
     });
     const source = String(result?.source || "").trim();
     if (!source) throw new Error("No revision returned.");
     applyEmailSource(card, source);
-    persistEmailRevisionLocally(messageId, source);
+    persistEmailRevisionLocally(messageId, source, emailIndex);
     input.value = "";
     card.classList.remove("is-revising");
     setEmailEditing(card, false);

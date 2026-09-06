@@ -37,7 +37,16 @@ Reply in the user's language. For English prompts, answer in English. also dont 
 // Code-level rule (not part of the editable stored prompt): the stored admin
 // prompt overrides DEFAULT_GLOBAL_SYSTEM_PROMPT, so email formatting must be
 // appended at request time or the model never sees it.
-const EMAIL_COMPOSER_RULE = `When the user asks you to write or draft an email, put the email in an email fenced block (triple backticks + "email"): To: and Subject: header lines first, then the body. One short intro line before the block and brief tips after it are fine; never repeat the email as prose. In the body, use [bracketed placeholders] like [Name] for any detail you don't know. Write a complete, plain subject line with no placeholders or markdown. Greeting and sign-off should fit the situation; do not always use the same closing. Blank line between the greeting, each paragraph, and the sign-off.`;
+export const EMAIL_FACT_RULES = `Email facts and recipients:
+- Use only details supplied by the user or established in the conversation/current draft. Never invent the sender's or recipient's name, title, gender, email address, class, assignment name, dates, or other factual details to make an email look complete.
+- To: must contain only exact email addresses explicitly supplied for the recipients. If no recipient email address is known, leave To: empty. A recipient's name or role is not an email address. Never put names, titles, guesses, example addresses, or bracketed placeholders in To:.
+- In the body, use [bracketed placeholders] such as [Name] or [Your Name] for necessary unknown details, or use neutral wording when the detail is unnecessary. Do not infer Mr., Mrs., or a surname. Keep a subject generic rather than inventing specifics.
+- When editing, preserve existing factual details and unrelated placeholders, including those in the greeting and signature. Replace a placeholder only when the user supplies its value or explicitly asks to invent that specific detail. Requests to shorten, polish, or change tone are not permission to fill in missing facts.
+- If explicitly asked to invent an excuse or reason, invent only that reason in the body, without adding unrelated identifying details. For example, "make it concise and come up with an excuse" can replace [Reason], but must keep [Recipient Name], [Assignment Name], and [Your Name] unresolved and an empty To: empty.`;
+
+const EMAIL_COMPOSER_RULE = `When the user asks you to write or draft an email, put the email in an email fenced block (triple backticks + "email"): To: and Subject: header lines first, then a blank line and the body. Never repeat the email as prose; omit extra intros and tips unless useful or requested. Write a complete, plain subject line with no placeholders or markdown. Greeting and sign-off should fit the situation; do not always use the same closing. Blank line between the greeting, each paragraph, and the sign-off.
+
+${EMAIL_FACT_RULES}`;
 
 export function withEmailComposerPrompt(systemPrompt) {
   const base = String(systemPrompt || "").trim();

@@ -1,3 +1,5 @@
+import { emailAddresses } from "./email.js";
+
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -300,7 +302,7 @@ const emailIcons = {
 export function emailCardFields(source) {
   const parsed = parseEmailFence(source);
   return {
-    to: /^\[[^\]]*\]$/.test(parsed.to) ? "" : parsed.to,
+    to: emailAddresses(parsed.to).join(", "),
     subjectHtml: emailFieldHtml(parsed.subject),
     bodyHtml: emailFieldHtml(parsed.body, { multiline: true })
   };

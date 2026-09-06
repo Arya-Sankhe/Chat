@@ -248,6 +248,10 @@ test("a successful email revision closes its edit form after leaving the revisin
   assert.match(appJs, /card\.inert = true;[\s\S]*?finally \{[\s\S]*?card\.inert = false;/);
   assert.match(appJs, /const headers = \[to && `To: \$\{to\}`, subject && `Subject: \$\{subject\}`\][\s\S]*?join\("\\n"\)[\s\S]*?\[headers, body\][\s\S]*?join\("\\n\\n"\)/);
   assert.match(appJs, /if \(history\.entries\.length > 100\) history\.entries\.shift\(\)/);
+  assert.match(appJs, /draft: `To: \$\{to\}\\nSubject: \$\{subject\}\\n\\n\$\{body\}`/);
+  assert.match(appJs, /querySelectorAll\("\[data-email-card\]"\)\]\.indexOf\(card\)/);
+  assert.match(appJs, /messageId: state\.temporaryChat \? "" : messageId/);
+  assert.match(appJs, /persistEmailRevisionLocally\(messageId, source, emailIndex\)/);
 });
 
 test("compare and council finish by patching live cards instead of requiring a remount", () => {

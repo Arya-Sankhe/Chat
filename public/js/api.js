@@ -668,12 +668,12 @@ export async function reviseEditableDocument(session, attachmentId, { markdown, 
   return response.json();
 }
 
-export async function reviseEmailDraft(session, { draft, instruction, messageId, signal }) {
+export async function reviseEmailDraft(session, { draft, instruction, messageId, emailIndex, signal }) {
   const response = await apiFetch("/api/email/revise", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ draft, instruction, messageId }),
+    body: JSON.stringify({ draft, instruction, messageId, emailIndex }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));

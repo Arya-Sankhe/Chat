@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
 import { createApiHandler, handleApiRequest } from "../server/routes.js";
 import { settleSpeechUsage, speechUsage, STT_CREDITS_PER_SECOND, STT_MODEL, STT_RESERVATION_CREDITS } from "../server/routes/speech.js";
+import { EMAIL_FACT_RULES } from "../server/saas/systemPrompt.js";
 
 /*
  * Phase-0 characterization tests for the API dispatcher.
@@ -985,7 +986,7 @@ test("editable document revise returns replacement markdown without a chat messa
   }
 });
 
-test("email revise returns a fenced draft without a chat message", async () => {
+test("email revise sends shared fact rules and removes an invented recipient before saving", async () => {
   const originalFetch = globalThis.fetch;
   let chatCalls = 0;
   let saved = null;
@@ -993,6 +994,7 @@ test("email revise returns a fenced draft without a chat message", async () => {
     if (String(url).includes("/chat/completions")) {
       chatCalls += 1;
       const body = JSON.parse(String(init.body || "{}"));
+      assert.ok(body.messages.find((message) => message.role === "system")?.content.includes(EMAIL_FACT_RULES));
       assert.match(body.messages?.[1]?.content || "", /Come up with a good excuse/);
       assert.match(body.messages?.[1]?.content || "", /Current draft:/);
       return {
@@ -1002,7 +1004,7 @@ test("email revise returns a fenced draft without a chat message", async () => {
         async json() {
           return {
             id: "gen-email",
-            choices: [{ message: { content: "```email\nTo:\nSubject: Extension\nDear [Name],\n\nHi.\n```" } }],
+            choices: [{ message: { content: "```email\nTo: invented@example.com\nSubject: Extension\nDear [Name],\n\nHi.\n```" } }],
             usage: { cost: 0.0001 }
           };
         },
@@ -1048,7 +1050,7 @@ test("email revise returns a fenced draft without a chat message", async () => {
       method: "POST",
       path: "/api/email/revise",
       body: {
-        draft: "Subject: Old\n\nHi",
+        draft: "To:\nSubject: Old\n\nHi",
         instruction: "Come up with a good excuse",
         messageId: "msg-1"
       },
@@ -1056,14 +1058,131 @@ test("email revise returns a fenced draft without a chat message", async () => {
     });
 
     assert.equal(res.statusCode, 200);
-    assert.match(res.json().source, /Subject: Extension/);
+    assert.equal(res.json().source, "To:\nSubject: Extension\nDear [Name],\n\nHi.");
     assert.equal(chatCalls, 1);
     assert.equal(saved.id, "msg-1");
     assert.equal(saved.patch.content[0].text, "Here is the draft.");
-    assert.match(saved.patch.content[1].text, /Subject: Extension/);
+    assert.equal(saved.patch.content[1].text, `\`\`\`email\n${res.json().source}\n\`\`\``);
     assert.equal(saved.patch.content.filter((part) => /```email\b/.test(part.text)).length, 1);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("email revise recipient, selection, and failure regressions", { concurrency: false }, async (t) => {
+  const draft = "To: supplied@example.com\nSubject: Old\n\nHi.";
+  const revised = "To: supplied@example.com\nSubject: Revised\n\nHello.";
+  const replacement = "To: replacement@example.com\nSubject: Revised\n\nHello.";
+  const first = "```email\nTo: first@example.com\nSubject: First\n\nKeep this.\n```";
+  const originalFence = `\`\`\`email\n${draft}\n\`\`\``;
+  const revisedFence = `\`\`\`email\n${revised}\n\`\`\``;
+  const image = { type: "image_url", image_url: { url: "https://example.com/image.png" } };
+  const cases = [
+    { name: "retains the supplied recipient" },
+    {
+      name: "allows an explicit replacement address",
+      instruction: "Send it to replacement@example.com instead",
+      output: replacement,
+      expectedSource: replacement
+    },
+    {
+      name: "saves the second email in the same text without overwriting the first",
+      emailIndex: 1,
+      content: `Before\n${first}\nBetween\n${originalFence}\nAfter`,
+      expectedContent: `Before\n${first}\nBetween\n${revisedFence}\nAfter`
+    },
+    {
+      name: "saves the second email across multipart text without changing other parts",
+      emailIndex: 1,
+      content: [{ type: "text", text: first }, image, { type: "text", text: `Before\n${originalFence}\nAfter` }],
+      expectedContent: [{ type: "text", text: first }, image, { type: "text", text: `Before\n${revisedFence}\nAfter` }]
+    },
+    ...[
+      "Here is your revised email.",
+      "To: supplied@example.com\nSubject:\n\nHello.",
+      "To: supplied@example.com\nSubject: Revised"
+    ].map((output) => ({
+      name: `rejects malformed nonempty output: ${JSON.stringify(output)}`,
+      output,
+      status: 502,
+      error: "The model returned an incomplete email. Try again."
+    })),
+    {
+      name: "propagates getMessage errors without saving",
+      lookupError: new Error("Message lookup failed"),
+      status: 500,
+      error: "Message lookup failed"
+    },
+    {
+      name: "fails when the saved message is missing",
+      missing: true,
+      status: 404,
+      error: "The email draft could not be found. Reload the conversation and try again."
+    }
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      const originalFetch = globalThis.fetch;
+      const saved = [];
+      const lookups = [];
+      let chatCalls = 0;
+      globalThis.fetch = async (url) => {
+        assert.equal(String(url), "https://openrouter.ai/api/v1/chat/completions");
+        chatCalls += 1;
+        return new Response(JSON.stringify({
+          id: "gen-email",
+          choices: [{ message: { content: `\`\`\`email\n${scenario.output ?? revised}\n\`\`\`` } }],
+          usage: { cost: 0.0001 }
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      };
+
+      try {
+        const res = await dispatch(authReadyConfig, {
+          method: "POST",
+          path: "/api/email/revise",
+          body: {
+            draft,
+            instruction: scenario.instruction ?? "Make it warmer",
+            messageId: "msg-1",
+            emailIndex: scenario.emailIndex ?? 0
+          },
+          overrides: stubbedDeps({ db: {
+            async checkApiBudget() { return { allowed: true }; },
+            async recordApiUsageCost() { return {}; },
+            async getMessage(userId, id) {
+              lookups.push({ userId, id });
+              if (scenario.lookupError) throw scenario.lookupError;
+              return scenario.missing ? null : {
+                id, role: "assistant", content: scenario.content ?? originalFence
+              };
+            },
+            async updateMessage(userId, id, patch) {
+              saved.push({ userId, id, patch });
+              return { id, ...patch };
+            }
+          } })
+        });
+
+        assert.equal(chatCalls, 1);
+        assert.equal(res.statusCode, scenario.status ?? 200);
+        assert.deepEqual(lookups, scenario.status === 502 ? [] : [{ userId: "user-1", id: "msg-1" }]);
+        if (scenario.status) {
+          assert.deepEqual(res.json(), { error: scenario.error });
+          assert.deepEqual(saved, []);
+        } else {
+          const source = scenario.expectedSource ?? revised;
+          assert.deepEqual(res.json(), { source });
+          assert.deepEqual(saved, [{
+            userId: "user-1",
+            id: "msg-1",
+            patch: { content: scenario.expectedContent ?? `\`\`\`email\n${source}\n\`\`\`` }
+          }]);
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   }
 });
 
