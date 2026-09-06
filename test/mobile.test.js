@@ -809,6 +809,12 @@ test("mobile web chat deletion keeps its confirmation inside the open sidebar", 
   assert.match(source, /body\.sidebar-open \.confirm-dialog\.open\s*\{\s*z-index:\s*81;/);
 });
 
+test("auth dialog stacks above the native sidebar", () => {
+  const source = readStylesheet();
+  assert.match(source, /body\.capacitor-native \.overlay\[data-mode="auth"\]\s*\{\s*z-index:\s*81;/);
+  assert.match(source, /body\.capacitor-native \.auth-dialog\s*\{[\s\S]*?z-index:\s*82;/);
+});
+
 
 test("native top bar blends with system bars and has no bottom border", async () => {
   const source = readStylesheet();

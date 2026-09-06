@@ -570,6 +570,10 @@ body.capacitor-native .profile-menu {
 
 }
 
+body.capacitor-native .overlay[data-mode="auth"] {
+  z-index: 81;
+}
+
 body.capacitor-native .auth-dialog {
   top: 50%;
   bottom: auto;
@@ -579,6 +583,7 @@ body.capacitor-native .auth-dialog {
   border-width: 1px;
   border-radius: 20px;
   transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
+  z-index: 82;
 }
 
 body.capacitor-native .auth-dialog.open {
