@@ -6,6 +6,7 @@ import {
   formatModelMeta,
   getCodeSource,
   gmailComposeUrl,
+  hasEmailCardBlock,
   inferModelBadges,
   mailtoComposeUrl,
   modelBrandLogoUrl,
@@ -451,6 +452,17 @@ test("renderContent turns an email fence into an editable card with highlighted 
   const prose = renderContent("**Subject:** Extension Request\n\nDear [Name],\n\nMay I have an extension?\n");
   assert.doesNotMatch(prose, /data-email-card/);
   assert.doesNotMatch(renderContent("```email\nTo:\nSubject: Hi\nHello\n```"), /data-email-card/);
+});
+
+test("renderContent recovers an email mislabeled as a text fence", () => {
+  const mislabeled = "```text\nTo:\nSubject: Final grade request\n\nDear Professor,\n\nCould we discuss my grade?\n```";
+  const html = renderContent(mislabeled, { emailCards: true });
+  assert.equal(hasEmailCardBlock(mislabeled), true);
+  assert.match(html, /data-email-card/);
+  assert.match(html, /Final grade request/);
+  assert.doesNotMatch(html, /<pre/);
+  assert.equal(hasEmailCardBlock("```text\nSubject: debugging\nconsole.log('hi')\n```"), false);
+  assert.match(renderContent("```text\nSubject: debugging\nconsole.log('hi')\n```", { emailCards: true }), /<pre/);
 });
 
 test("email cards highlight long placeholders", () => {

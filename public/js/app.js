@@ -105,6 +105,7 @@ import {
   escapeHtml,
   getCodeSource,
   gmailComposeUrl,
+  hasEmailCardBlock,
   mailtoComposeUrl,
   modelBrandLogoUrl,
   modelSupportsVision,
@@ -5794,12 +5795,12 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
-  if (role === "assistant" && (isStoppedMessage(msg) || /```(?:visualize|email)|<email[\s>]/i.test(rawTextContent(msg.content)))) {
+  if (role === "assistant" && (isStoppedMessage(msg) || /```visualize/i.test(rawTextContent(msg.content)) || hasEmailCardBlock(rawTextContent(msg.content)))) {
     const content = body.querySelector(":scope > .message-content");
     const raw = rawTextContent(msg.content);
     const stopped = isStoppedMessage(msg);
     const visualizeNeedsMount = /```visualize/.test(raw) && !content?.querySelector("iframe[data-visualize-id]");
-    const emailNeedsMount = /```email|<email[\s>]/i.test(raw) && !content?.querySelector("[data-email-card]");
+    const emailNeedsMount = hasEmailCardBlock(raw) && !content?.querySelector("[data-email-card]");
     if (content && (stopped || visualizeNeedsMount || emailNeedsMount)) {
       if (stopped || visualizeNeedsMount) collapseExpandedVisualize();
       const next = document.createElement("div");

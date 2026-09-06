@@ -325,12 +325,20 @@ function emailCard(source) {
     + `</section>`;
 }
 
-// The model sometimes emits <email>...</email> instead of a fenced block.
-// Normalize tag form to fence form first so every consumer mounts the card.
+// Normalize known email-shaped variants so every consumer mounts the card.
 function normalizeEmailTags(source) {
   return String(source ?? "")
+    .replace(/```(?:text|plaintext)[ \t]*\r?\n([\s\S]*?)(?:\r?\n```|$)/gi, (block, inner) => {
+      const email = String(inner ?? "").trim();
+      const { subject, body } = parseEmailFence(email);
+      return /^\s*to\s*:/i.test(email) && subject && body ? `\`\`\`email\n${email}\n\`\`\`` : block;
+    })
     .replace(/<email\b[^>]*>\r?\n?([\s\S]*?)\r?\n?<\/email\s*>/gi, (_, inner) => `\`\`\`email\n${String(inner ?? "").trim()}\n\`\`\``)
     .replace(/<email\b[^>]*>\r?\n?([\s\S]*)$/i, (_, inner) => `\`\`\`email\n${String(inner ?? "").trim()}`);
+}
+
+export function hasEmailCardBlock(source) {
+  return /```email[ \t]*(?:\r?\n|$)/i.test(normalizeEmailTags(source));
 }
 
 function extractEmails(text, { streaming = false } = {}) {
