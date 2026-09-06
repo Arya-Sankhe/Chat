@@ -266,7 +266,7 @@ export function loadConfig(env = process.env) {
       },
       tinyfish: {
         apiKey: clean(env.TINYFISH_API_KEY),
-        apiKeys: [clean(env.TINYFISH_API_KEY), clean(env.TINYFISH_API_KEY_2)].filter(Boolean)
+        apiKeys: [clean(env.TINYFISH_API_KEY), clean(env.TINYFISH_API_KEY_2), clean(env.TINYFISH_API_KEY_3)].filter(Boolean)
       },
       jina: {
         apiKey: clean(env.JINA_API_KEY),

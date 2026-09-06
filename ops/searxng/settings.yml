@@ -2,6 +2,7 @@ use_default_settings:
   engines:
     keep_only:
       - duckduckgo
+      - bing
 
 search:
   safe_search: 1
@@ -21,18 +22,23 @@ ui:
   static_use_hash: true
 
 engines:
-  # DDG's public IP-facing HTML endpoint is CAPTCHA-prone. Use its official
-  # onion endpoint through the private Tor sidecar instead. Keep it on its
-  # first page: asking for a follow-up page without its vqd token is treated
-  # as bot traffic.
+  # NOTE (2026-09-06): DDG's onion endpoint rejects SearXNG's no-JS form POST
+  # with HTTP 406, which returned zero results for every query and took down
+  # Deep Research (SearXNG is its only search backend). Clearnet html DDG
+  # answers fine from this host, so query it directly instead of the Tor
+  # sidecar. Keep it on its first page: asking for a follow-up page without
+  # its vqd token is treated as bot traffic.
   - name: duckduckgo
-    ddg_url: "https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html/"
-    proxies:
-      http:
-        - socks5h://tor:9050
-      https:
-        - socks5h://tor:9050
-    using_tor_proxy: true
     paging: false
     timeout: 15.0
     disabled: false
+  # Keyless redundancy for Deep Research (SearXNG is its only search backend).
+  # DDG alone is unreliable from this host (Tor onion endpoint 406s; clearnet
+  # IP gets CAPTCHA-challenged after a request or two), so keep Bing on a
+  # direct connection. Per-engine failures are isolated by SearXNG.
+  - name: bing
+    paging: false
+    timeout: 15.0
+    disabled: false
+  # NOTE: mojeek deliberately NOT enabled — it serves a Captcha page to this
+  # host's IP (verified 2026-09-06), which the engine parses as zero results.

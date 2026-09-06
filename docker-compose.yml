@@ -15,7 +15,7 @@ services:
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
       WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
       SEARXNG_BASE_URL: http://searxng:8080
-      SEARXNG_ENGINES: duckduckgo
+      SEARXNG_ENGINES: ${SEARXNG_ENGINES:-duckduckgo,bing}
       # Tor-backed DDG can take longer than a direct upstream request.
       WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
@@ -119,7 +119,7 @@ services:
     environment:
       WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
       SEARXNG_BASE_URL: http://searxng:8080
-      SEARXNG_ENGINES: duckduckgo
+      SEARXNG_ENGINES: ${SEARXNG_ENGINES:-duckduckgo,bing}
       WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
