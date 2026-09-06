@@ -1027,6 +1027,12 @@ body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .resea
 
 }
 
+.composer .composer-prompt.is-placeholder {
+
+  height: auto !important;
+
+}
+
 .composer textarea::placeholder,
 .composer .composer-prompt.is-placeholder::before {
 
@@ -1041,6 +1047,12 @@ body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .resea
   pointer-events: none;
 
   position: absolute;
+
+  left: 0;
+
+  top: 50%;
+
+  transform: translateY(-50%);
 
 }
 

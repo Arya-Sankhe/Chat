@@ -202,21 +202,6 @@ export function createStudyHubController({
     return `<span class="study-status is-${escapeHtml(status)}">${status === "uploading" || status === "reading" ? spinner() : ""}${escapeHtml(kind)}${mark}${escapeHtml(String(statusLabel(status) || "").toLowerCase())}</span>`;
   }
 
-  function syncStudyComposerPlaceholder(chatReady) {
-    const input = els.promptInput;
-    if (!input) return;
-    if (chatReady) {
-      const label = `Message ${courseName()}...`;
-      input.dataset.placeholder = label;
-      input.setAttribute("aria-label", label);
-      return;
-    }
-    if (input.dataset.placeholder !== "Message Klui") {
-      input.dataset.placeholder = "Message Klui";
-      input.setAttribute("aria-label", "Message Klui");
-    }
-  }
-
   function deckSourceOf(deck) {
     if (deck.deckKey) return { deckKey: deck.deckKey };
     if (deck.manual) return { manual: true };
@@ -765,7 +750,6 @@ export function createStudyHubController({
       const slot = els.studyView.querySelector(".study-composer-slot");
       if (slot && els.composerArea) slot.append(els.composerArea);
     }
-    syncStudyComposerPlaceholder(chatReady);
     if (state.activeCourseTab === "materials") bindMaterialsDnD();
     renderNoteOverlay();
   }
@@ -793,7 +777,6 @@ export function createStudyHubController({
     const chatReady = Boolean(visible && state.activeCourseId && state.activeCourseTab === "chat");
     if (visible) els.composerArea?.classList.toggle("hidden", !chatReady);
     if (!visible) {
-      syncStudyComposerPlaceholder(false);
       renderNoteOverlay();
       return;
     }

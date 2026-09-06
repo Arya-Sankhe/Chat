@@ -185,8 +185,12 @@ test("message errors stay compact and only network or stale-build errors offer r
 
 test("the default composer prompt asks Klui", () => {
   const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
   assert.match(appJs, /return "Ask Klui";/);
   assert.doesNotMatch(appJs, /return "Message Klui agent";/);
+  assert.doesNotMatch(appJs, /Message Klui Compare/);
+  assert.doesNotMatch(appJs, /Message Klui Council/);
+  assert.match(css, /\.composer \.composer-prompt\.is-placeholder::before\s*\{[\s\S]*?top:\s*50%;[\s\S]*?transform:\s*translateY\(-50%\)/);
 });
 
 test("streamed answer text gets a short blur reveal without animating reduced-motion clients", () => {

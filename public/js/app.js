@@ -1751,16 +1751,6 @@ function composerPlaceholder() {
   if (state.session && !hasChatAccess()) {
     return isNative() ? "Subscribe on the website to start chatting" : "Choose a plan to start chatting";
   }
-  if (state.running) return "Send a follow up message";
-  if (state.settings.compareEnabled) {
-    return isCouncilMode() ? "Message Klui Council" : "Message Klui Compare";
-  }
-  if (state.projectsOpen && state.activeProjectId && !state.activeConversationId) {
-    return `Message ${state.activeProject?.project?.name || "this project"}`;
-  }
-  if (state.studyOpen && state.activeCourseId && !state.activeConversationId) {
-    return `Message ${state.studyProjectDetail?.project?.name || "this course"}`;
-  }
   return "Ask Klui";
 }
 
@@ -1769,7 +1759,7 @@ function updateComposerPlaceholder() {
   if (!input) return;
   const placeholder = composerPlaceholder();
   input.dataset.placeholder = placeholder;
-  input.setAttribute("aria-label", placeholder || "Message Klui");
+  input.setAttribute("aria-label", placeholder || "Ask Klui");
   const empty = !composerPlainText().trim() && !state.composerSkillIds.length;
   input.classList.toggle("is-placeholder", empty && Boolean(placeholder));
 }

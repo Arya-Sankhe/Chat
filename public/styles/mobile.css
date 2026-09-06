@@ -382,7 +382,7 @@ body.capacitor-native #settingsTextScaleSection.hidden {
   display: block !important;
 }
 
-body.capacitor-native .mobile-camera-action.hidden {
+body.capacitor-native .composer-action-menu[data-page="root"] .mobile-camera-action.hidden {
 
   display: flex !important;
 

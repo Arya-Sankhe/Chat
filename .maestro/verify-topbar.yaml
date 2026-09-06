@@ -2,7 +2,7 @@ appId: tech.klui.app
 ---
 - launchApp
 - extendedWaitUntil:
-    visible: "Message Klui"
+    visible: "Ask Klui"
     timeout: 20000
 - takeScreenshot: artifacts/r2/01_launch.png
 

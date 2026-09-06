@@ -312,7 +312,7 @@
                   </button>
                 </div>
                 <div class="composer-input">
-                  <div id="promptInput" class="composer-prompt is-placeholder" contenteditable="true" role="textbox" aria-label="Message Klui" aria-multiline="true" spellcheck="true" data-placeholder="Message Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false"></div>
+                  <div id="promptInput" class="composer-prompt is-placeholder" contenteditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellcheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false"></div>
                 </div>
                 <div class="composer-bottom">
                   <div class="composer-actions">
@@ -810,15 +810,22 @@
 
       <section class="research-report-view hidden" id="researchReportView" aria-label="Deep research report">
         <header class="research-report-header">
-          <button class="research-report-back" id="researchReportBack" type="button">Back to chat</button>
+          <button class="research-report-back" id="researchReportBack" type="button" aria-label="Back to chat">
+            <svg class="research-report-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+            <span>Back to chat</span>
+          </button>
           <div class="research-report-tabs" role="tablist" aria-label="Report view">
             <button class="active" id="researchVisualTab" type="button" role="tab" aria-selected="true">Visual report</button>
             <button id="researchTextTab" type="button" role="tab" aria-selected="false">Text only</button>
           </div>
           <div class="research-report-actions">
-            <button id="researchCopy" type="button"><span>Copy</span></button>
+            <button id="researchCopy" type="button" aria-label="Copy">
+              <svg class="research-report-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              <span>Copy</span>
+            </button>
             <div class="research-download-wrap">
-              <button id="researchDownload" type="button" aria-haspopup="menu" aria-expanded="false">
+              <button id="researchDownload" type="button" aria-label="Download" aria-haspopup="menu" aria-expanded="false">
+                <svg class="research-report-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
                 <span>Download</span>
                 <span class="document-download-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
               </button>

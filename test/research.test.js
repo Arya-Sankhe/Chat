@@ -417,6 +417,9 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.doesNotMatch(app, /window\.print\(\)/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
   assert.match(styles, /research-report-tabs button\[aria-selected="true"\]/);
+  assert.match(html, /aria-label="Back to chat"/);
+  assert.match(styles, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.research-report-icon \{ display: block/);
+  assert.doesNotMatch(styles, /\.research-report-tabs \{ grid-row: 2/);
   assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
   assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);
   assert.match(styles, /prefers-reduced-motion: reduce/);

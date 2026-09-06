@@ -680,7 +680,7 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
   assert.match(html, /composer-prompt/);
   assert.match(html, /class="composer-input"/);
   assert.match(html, /contenteditable="true"/);
-  assert.match(html, /id="promptInput"[^>]*aria-label="Message Klui"/);
+  assert.match(html, /id="promptInput"[^>]*aria-label="Ask Klui"/);
   assert.match(html, /aria-haspopup="listbox"/);
   assert.match(source, /HUMANIZER_ICON_SVG/);
   assert.match(source, /skillIds:\s*sendSkillIds/);
@@ -721,7 +721,7 @@ test("slash skills expose composer markup and send skill IDs only", async () => 
 
 test("camera action is only shown inside the Capacitor mobile app", async () => {
   const source = readStylesheet();
-  assert.match(source, /body\.capacitor-native \.mobile-camera-action\.hidden\s*\{[\s\S]*?display:\s*flex\s*!important/);
+  assert.match(source, /body\.capacitor-native \.composer-action-menu\[data-page="root"\] \.mobile-camera-action\.hidden\s*\{[\s\S]*?display:\s*flex\s*!important/);
 });
 
 test("camera button and input are wired in app.js", async () => {

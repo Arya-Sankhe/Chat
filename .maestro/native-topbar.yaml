@@ -4,7 +4,7 @@
 - clearState
 - launchApp
 - extendedWaitUntil:
-    visible: "Message Klui"
+    visible: "Ask Klui"
     timeout: 20000
 
 # The old "Klui" wordmark is gone; the top bar should now show hamburger,
