@@ -28,7 +28,9 @@ test("research config uses bounded VPS-friendly defaults", () => {
   assert.equal(config.research.initialQueries, 4);
   assert.equal(config.research.followupQueries, 3);
   assert.equal(config.research.searchResultsPerQuery, 10);
-  assert.equal(config.research.finalMaxTokens, 25_000);
+  assert.equal(config.research.extractMaxTokens, 5000);
+  assert.equal(config.research.synthesisMaxTokens, 25_000);
+  assert.equal(config.research.finalMaxTokens, 100_000);
 });
 
 test("research queue defaults to local and only accepts a short slug", () => {

@@ -187,7 +187,7 @@ export async function runDeepResearch({
     model: cheapModel,
     system: RESEARCH_SYSTEM,
     prompt: planPrompt(run.query, now),
-    maxTokens: 900
+    maxTokens: 5000
   }).catch(() => "");
   const plan = planSummary(parseJsonObject(planRaw)) || stripCodeFence(planRaw);
 
@@ -195,7 +195,7 @@ export async function runDeepResearch({
     model: cheapModel,
     system: RESEARCH_SYSTEM,
     prompt: categoryPrompt(run.query),
-    maxTokens: 12,
+    maxTokens: 5000,
     temperature: 0
   }).catch(() => "");
   const categoryWord = String(categoryRaw || "").toLowerCase().trim().split(/\s+/)[0]?.replace(/[^a-z]/g, "") || "";
@@ -217,7 +217,7 @@ export async function runDeepResearch({
       model: cheapModel,
       system: RESEARCH_SYSTEM,
       prompt: queryPrompt({ question: run.query, plan, report, round, count, now }),
-      maxTokens: 600,
+      maxTokens: 5000,
       temperature: 0.5
     }).catch(() => "");
     let queries = parseJsonArray(queryRaw).filter((query) => !queriesUsed.has(query)).slice(0, count);
@@ -310,7 +310,7 @@ export async function runDeepResearch({
         model: cheapModel,
         system: RESEARCH_SYSTEM,
         prompt: stopPrompt(run.query, report, round, settings.maxRounds),
-        maxTokens: 80,
+        maxTokens: 5000,
         temperature: 0
       }).catch(() => "");
       if (/^[\s*_`"'>#-]*yes/i.test(String(decision || ""))) break;
@@ -328,9 +328,13 @@ export async function runDeepResearch({
     model: run.model,
     system: RESEARCH_SYSTEM,
     prompt: finalReportPrompt({ question: run.query, report, sources, category, now }),
-    maxTokens: settings.finalMaxTokens
+    maxTokens: settings.finalMaxTokens,
+    reasoningEffort: "high"
   });
-  const finalReport = validateReportLinks(reportRaw, sources);
+  let finalReport = validateReportLinks(reportRaw, sources);
+  if (finalReport.trim().length < 100 && report && report.trim().length >= 100) {
+    finalReport = validateReportLinks(report, sources);
+  }
   if (finalReport.trim().length < 100) throw new Error("The research model returned an incomplete report.");
   const meta = reportMeta(finalReport, run.query);
   return {

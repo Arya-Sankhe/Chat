@@ -311,9 +311,9 @@ export function loadConfig(env = process.env) {
       initialQueries: readInt(env.RESEARCH_INITIAL_QUERIES, 4),
       followupQueries: readInt(env.RESEARCH_FOLLOWUP_QUERIES, 3),
       searchResultsPerQuery: readInt(env.RESEARCH_SEARCH_RESULTS, 10),
-      extractMaxTokens: readInt(env.RESEARCH_EXTRACT_MAX_TOKENS, 1200),
-      synthesisMaxTokens: readInt(env.RESEARCH_SYNTHESIS_MAX_TOKENS, 6000),
-      finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 25_000),
+      extractMaxTokens: readInt(env.RESEARCH_EXTRACT_MAX_TOKENS, 5000),
+      synthesisMaxTokens: readInt(env.RESEARCH_SYNTHESIS_MAX_TOKENS, 25_000),
+      finalMaxTokens: readInt(env.RESEARCH_FINAL_MAX_TOKENS, 100_000),
       minSources: readInt(env.RESEARCH_MIN_SOURCES, 3)
     },
     study: {

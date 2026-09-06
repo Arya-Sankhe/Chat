@@ -68,7 +68,14 @@ async function processRun(run) {
       meteringMode: config.desktop.meteringMode,
       reservationCredits: config.desktop.chatReservationCredits
     });
-    const callModel = ({ model, system, prompt, maxTokens = 2500, temperature = 0.2 }) => meter.chatCompletion({
+    const callModel = ({
+      model,
+      system,
+      prompt,
+      maxTokens = 5000,
+      temperature = 0.2,
+      reasoningEffort = "medium"
+    }) => meter.chatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id,
@@ -80,7 +87,8 @@ async function processRun(run) {
           { role: "user", content: prompt }
         ],
         temperature,
-        max_tokens: maxTokens
+        max_tokens: maxTokens,
+        reasoning: { effort: reasoningEffort, exclude: false }
       }
     });
 
