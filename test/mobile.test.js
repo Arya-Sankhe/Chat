@@ -199,6 +199,10 @@ test("mobile compare and council reuse the composer mode chip", async () => {
   assert.match(appJs, /state\.researchMode \? "research" : \(councilOn \? "council" : \(compareOn \? "compare" : ""\)\)/);
   assert.match(appJs, /els\.researchModeClose\?\.addEventListener\("click", \(\) => \{[\s\S]*?compareController\.cancelCompareMode\(\)/);
   assert.match(appJs, /function setResearchMode\(enabled\) \{/);
+  assert.match(
+    appJs,
+    /function setResearchMode\(enabled\) \{[\s\S]*?if \(next \|\| !document\.body\.classList\.contains\("capacitor-native"\)\) \{[\s\S]*?els\.promptInput\?\.focus\(\);[\s\S]*?if \(els\.composer\?\.contains\(document\.activeElement\)\) document\.activeElement\.blur\(\);/
+  );
   assert.match(appJs, /els\.deepResearchToggle\?\.addEventListener\("click", \(event\) => \{[\s\S]*?setResearchMode\(!state\.researchMode\);/);
 });
 

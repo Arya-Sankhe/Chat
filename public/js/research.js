@@ -371,9 +371,11 @@ export function createResearchController({
   }
 
   function setDownloadBusy(busy) {
-    if (!elements.researchDownload) return;
-    elements.researchDownload.disabled = busy;
-    elements.researchDownload.setAttribute("aria-busy", String(busy));
+    if (elements.researchDownload) {
+      elements.researchDownload.disabled = busy;
+      elements.researchDownload.setAttribute("aria-busy", String(busy));
+    }
+    elements.researchReportView?.querySelector("#researchDownloadStatus")?.classList.toggle("hidden", !busy);
   }
 
   async function waitForExport(jobId) {

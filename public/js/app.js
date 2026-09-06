@@ -1631,7 +1631,12 @@ function setResearchMode(enabled) {
   if (next && state.settings.compareEnabled) compareController.cancelCompareMode();
   renderResearchMode();
   closeActionMenu();
-  els.promptInput?.focus();
+  if (next || !document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.focus();
+    return;
+  }
+  if (els.composer?.contains(document.activeElement)) document.activeElement.blur();
+  void hideNativeKeyboard();
 }
 
 function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
