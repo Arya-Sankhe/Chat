@@ -322,6 +322,11 @@ describe("WebSearchOrchestrator", () => {
     assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo"]);
     assert.equal(config.websearch.fetchTimeoutMs, 20_000);
     assert.equal(config.websearch.pageContentChars, 15_000);
+    assert.equal(config.websearch.totalContextChars, 45_000);
+    assert.equal(loadConfig({
+      WEBSEARCH_PAGE_CONTENT_CHARS: "15000",
+      WEBSEARCH_TOTAL_CONTEXT_CHARS: "12000"
+    }).websearch.totalContextChars, 15_000);
     assert.equal(config.websearch.dailyLimits, undefined);
   });
 

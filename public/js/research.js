@@ -184,8 +184,6 @@ export function createResearchController({
   function setResearchReportView(mode) {
     const textOnly = mode === "text";
     elements.researchReportView.classList.toggle("text-only", textOnly);
-    elements.researchVisualTab.classList.toggle("active", !textOnly);
-    elements.researchTextTab.classList.toggle("active", textOnly);
     elements.researchVisualTab.setAttribute("aria-selected", String(!textOnly));
     elements.researchTextTab.setAttribute("aria-selected", String(textOnly));
   }

@@ -1,9 +1,5 @@
+import { readResearchQueue } from "../../config.js";
 import { single } from "./helpers.js";
-
-function researchQueue(value) {
-  const queue = String(value || "").trim().toLowerCase();
-  return /^[a-z][a-z0-9_-]{0,31}$/.test(queue) ? queue : "local";
-}
 
 export async function createResearchRun(client, run, { signal } = {}) {
   const rows = await client.request("research_runs", {
@@ -57,17 +53,16 @@ export async function claimResearchRun(client, workerId, leaseSeconds = 120, { s
   const rows = await client.rpc("klui_claim_research_run", {
     p_worker_id: workerId,
     p_lease_seconds: leaseSeconds,
-    p_queue: researchQueue(queue)
+    p_queue: readResearchQueue(queue)
   }, { signal });
   return single(rows);
 }
 
-export async function failExpiredResearchRuns(client, { signal, queue = "local" } = {}) {
+export async function failExpiredResearchRuns(client, { signal } = {}) {
   return client.request("research_runs", {
     method: "PATCH",
     query: {
       status: "eq.running",
-      queue: `eq.${researchQueue(queue)}`,
       lease_until: `lt.${new Date().toISOString()}`
     },
     body: {

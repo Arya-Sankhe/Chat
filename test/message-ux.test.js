@@ -190,7 +190,9 @@ test("the default composer prompt asks Klui", () => {
   assert.doesNotMatch(appJs, /return "Message Klui agent";/);
   assert.doesNotMatch(appJs, /Message Klui Compare/);
   assert.doesNotMatch(appJs, /Message Klui Council/);
-  assert.match(css, /\.composer \.composer-prompt\.is-placeholder::before\s*\{[\s\S]*?top:\s*50%;[\s\S]*?transform:\s*translateY\(-50%\)/);
+  assert.match(css, /\.composer \.composer-prompt\.is-placeholder::before\s*\{[\s\S]*?top:\s*0;/);
+  assert.doesNotMatch(css, /is-placeholder::before[\s\S]{0,200}translateY\(-50%\)/);
+  assert.doesNotMatch(css, /\.composer-prompt\.is-placeholder \{[\s\S]{0,80}height:\s*auto !important/);
 });
 
 test("streamed answer text gets a short blur reveal without animating reduced-motion clients", () => {

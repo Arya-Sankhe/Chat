@@ -1,0 +1,7 @@
+services:
+  klui-chat:
+    environment:
+      RESEARCH_QUEUE: production
+  research-worker:
+    environment:
+      RESEARCH_QUEUE: production

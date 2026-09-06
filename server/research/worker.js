@@ -174,7 +174,7 @@ async function processRun(run) {
 
 async function failExpiredRuns() {
   lastExpiredCleanupAt = Date.now();
-  const expired = await db.failExpiredResearchRuns({ queue: config.research.queue }).catch((error) => {
+  const expired = await db.failExpiredResearchRuns().catch((error) => {
     console.error("Expired research cleanup failed", error);
     return [];
   });

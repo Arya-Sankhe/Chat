@@ -740,7 +740,7 @@ test("createResearchRun POSTs research_runs rows with return=representation", as
   });
 });
 
-test("claimResearchRun and expired cleanup are scoped to the worker queue", async () => {
+test("claimResearchRun is queue-scoped and expired cleanup is global", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     if (String(url).includes("rpc/klui_claim_research_run")) {
       assert.equal(options.method, "POST");
@@ -752,14 +752,14 @@ test("claimResearchRun and expired cleanup are scoped to the worker queue", asyn
       return jsonResponse([{ id: "run_1", status: "running", queue: "production" }]);
     }
     assert.equal(options.method, "PATCH");
-    assert.match(String(url), /queue=eq\.production/);
     assert.match(String(url), /status=eq\.running/);
+    assert.doesNotMatch(String(url), /queue=eq\./);
     return jsonResponse([]);
   }, async () => {
     const db = new SupabaseRest(FAKE_CONFIG);
     const run = await db.claimResearchRun("research-1", 120, { queue: "production" });
     assert.equal(run.queue, "production");
-    const expired = await db.failExpiredResearchRuns({ queue: "production" });
+    const expired = await db.failExpiredResearchRuns();
     assert.deepEqual(expired, []);
   });
 });

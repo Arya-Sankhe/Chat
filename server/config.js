@@ -68,7 +68,7 @@ function readJinaEngine(value) {
   return engine === "browser" ? "browser" : "direct";
 }
 
-function readResearchQueue(value) {
+export function readResearchQueue(value) {
   const queue = clean(value).toLowerCase();
   return /^[a-z][a-z0-9_-]{0,31}$/.test(queue) ? queue : "local";
 }
@@ -256,7 +256,10 @@ export function loadConfig(env = process.env) {
       primaryProvider: readSearchProvider(env.WEBSEARCH_PRIMARY_PROVIDER),
       maxResults: readInt(env.WEBSEARCH_MAX_RESULTS, 5),
       pageContentChars: readInt(env.WEBSEARCH_PAGE_CONTENT_CHARS, 15_000),
-      totalContextChars: readInt(env.WEBSEARCH_TOTAL_CONTEXT_CHARS, 12000),
+      totalContextChars: Math.max(
+        readInt(env.WEBSEARCH_TOTAL_CONTEXT_CHARS, 45_000),
+        readInt(env.WEBSEARCH_PAGE_CONTENT_CHARS, 15_000)
+      ),
       fetchTimeoutMs: readInt(env.WEBSEARCH_FETCH_TIMEOUT_MS, 20_000),
       maxToolCallsPerTurn: readInt(env.WEBSEARCH_MAX_TOOL_CALLS_PER_TURN, 75),
       denyDomains: clean(env.WEBSEARCH_DENY_DOMAINS)

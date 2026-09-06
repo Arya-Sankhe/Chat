@@ -94,8 +94,8 @@ export async function braveSearch({
   lang = "en",
   freshness,
   apiKey,
-  pageContentChars = 4000,
-  totalContextChars = 12000,
+  pageContentChars = 15_000,
+  totalContextChars = 45_000,
   timeoutMs = 8000,
   signal
 }) {

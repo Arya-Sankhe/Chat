@@ -108,6 +108,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Production:
+
+```sh
+npm run compose:prod -- up --build
+```
+
 Compose starts two services: `klui-chat` for the Node app and `document-worker` for extraction/conversion jobs. The worker has no exposed public port, runs with `init: true`, and is capped at `1500m` memory / `1.5` CPUs by default.
 
 The health endpoint is `/api/health`.

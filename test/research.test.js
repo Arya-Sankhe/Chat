@@ -424,6 +424,8 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.doesNotMatch(app, /window\.print\(\)/);
   assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
   assert.match(styles, /research-report-tabs button\[aria-selected="true"\]/);
+  assert.doesNotMatch(researchJs, /researchVisualTab\.classList\.toggle\("active"/);
+  assert.doesNotMatch(html, /id="researchVisualTab"[^>]*class="active"|class="active"[^>]*id="researchVisualTab"/);
   assert.match(html, /aria-label="Back to chat"/);
   assert.match(styles, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.research-report-icon \{ display: block/);
   assert.doesNotMatch(styles, /\.research-report-tabs \{ grid-row: 2/);
@@ -447,7 +449,10 @@ test("research cancellation and lease cleanup remain durable", () => {
   assert.match(worker, /emptyClaims \+= 1/);
   assert.match(worker, /emptyClaims = 0/);
   assert.match(worker, /claimResearchRun\(workerId, config\.research\.leaseSeconds, \{ queue: config\.research\.queue \}\)/);
-  assert.match(worker, /failExpiredResearchRuns\(\{ queue: config\.research\.queue \}\)/);
+  assert.match(worker, /failExpiredResearchRuns\(\)\.catch/);
+  assert.doesNotMatch(worker, /failExpiredResearchRuns\(\{ queue:/);
+  assert.match(fs.readFileSync(new URL("../deploy/docker-compose.prod.yml", import.meta.url), "utf8"), /RESEARCH_QUEUE: production/);
+  assert.match(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"), /-f deploy\/docker-compose\.prod\.yml/);
   assert.match(route, /queue: config\.research\.queue/);
   assert.match(researchJs, /failedAttempts < 1/);
   assert.match(researchJs, /researchPollGeneration/);
