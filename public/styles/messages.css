@@ -2243,6 +2243,7 @@ body[data-mode="dark"] .message-stopped {
 .klui-email-edit {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 7px;
   min-height: 38px;
   padding: 0 13px;
@@ -2252,6 +2253,7 @@ body[data-mode="dark"] .message-stopped {
   color: var(--text);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 160ms ease-out, transform 160ms ease-out;
 }
@@ -2354,6 +2356,7 @@ body[data-mode="dark"] .message-stopped {
 .klui-email-send {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 8px;
   min-height: 40px;
   padding: 0 16px;
@@ -2363,6 +2366,7 @@ body[data-mode="dark"] .message-stopped {
   color: #fff;
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 160ms ease-out, transform 160ms ease-out;
 }
@@ -2533,7 +2537,13 @@ body[data-mode="dark"] .klui-email-send:hover { background: #aecbfa; }
 
 @media (max-width: 600px) {
   .klui-email { border-radius: 20px; }
-  .klui-email-toolbar { padding: 12px; }
+  .klui-email-toolbar { gap: 6px; padding: 12px; }
+  .klui-email-actions { gap: 4px; }
+  .klui-email-history { gap: 2px; }
+  .klui-email-icon-btn { width: 34px; height: 38px; }
+  .klui-email-divider { margin: 0 2px; }
+  .klui-email-edit { padding: 0 10px; }
+  .klui-email-send { gap: 6px; padding: 0 12px; }
   .klui-email.is-editing .klui-email-toolbar { flex-wrap: wrap; }
   .klui-email-revise { order: 2; width: 100%; }
   .klui-email-row { padding: 0 16px; }
