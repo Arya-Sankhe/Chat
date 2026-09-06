@@ -119,6 +119,12 @@ import {
 } from "./render.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
+import {
+  guestDraftHasPreview,
+  guestPreviewContent,
+  liveGuestImages,
+  serializeGuestDraft
+} from "./guestSend.js";
 import { replaceEmailFence } from "./email.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
@@ -377,6 +383,7 @@ const state = {
 };
 
 const PENDING_DOCUMENTS_STORAGE_PREFIX = "klui_pending_documents_v1";
+const GUEST_SEND_KEY = "klui.guestSend.v1";
 
 let renderQueued = false;
 let streamingRenderQueued = false;
@@ -394,6 +401,7 @@ let voiceState = "idle";
 let voiceCommit = true;
 let availableAppUpdate = null;
 let pendingNativeConversationId = "";
+let pendingGuestSend = null;
 let webBuildCheckPromise = null;
 let webBuildPollTimer = null;
 let paymentRequestsPromise = Promise.resolve();
@@ -576,6 +584,8 @@ const els = {
   authDialog: document.querySelector("#authDialog"),
   guestLoginPanel: document.querySelector("#guestLoginPanel"),
   guestLoginButton: document.querySelector("#guestLoginButton"),
+  guestContinue: document.querySelector("#guestContinue"),
+  guestContinueSignup: document.querySelector("#guestContinueSignup"),
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
@@ -5545,6 +5555,11 @@ function collapseExpandedVisualize(except = null) {
 }
 
 function renderMessages() {
+  parkGuestContinue();
+  if (!state.messages.length) {
+    const draft = pendingGuestSend || readGuestSend();
+    if (guestDraftHasPreview(draft)) state.messages = [guestPreviewMessage(draft)];
+  }
   collapseExpandedVisualize();
   resetCodeSourceStore();
   const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
@@ -5583,6 +5598,7 @@ function renderMessages() {
     .join("");
 
   hydrateKluiBars(els.messages);
+  mountGuestContinue();
 
   if (beforePinned) {
     pinMessagesToBottom();
@@ -6362,14 +6378,19 @@ async function startDocumentUpload(item) {
 }
 
 function acceptPendingFiles(files) {
-  if (!requireAuth()) return;
   if (state.researchMode) {
     showToast("Turn off Deep Research before adding attachments.");
     return;
   }
   const draft = composerSnapshot();
   const plan = state.me?.plan || {};
-  const allFiles = [...files];
+  let allFiles = [...files];
+  if (!state.session) {
+    const imagesOnly = allFiles.filter((file) => fileCategory(file) === "image");
+    if (imagesOnly.length < allFiles.length) showToast("Sign up to attach documents.");
+    allFiles = imagesOnly;
+    if (!allFiles.length) return;
+  }
   const accepted = allFiles.filter((file) => state.temporaryChat
     ? fileCategory(file) === "image"
     : state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
@@ -7483,6 +7504,10 @@ function closeTopNativeSurface() {
     closeAuthDialog();
     return true;
   }
+  if (isGuestContinueOpen()) {
+    dismissGuestContinue();
+    return true;
+  }
   if (els.confirmDialog.classList.contains("open")) {
     closeConfirmDialog();
     return true;
@@ -7542,6 +7567,7 @@ async function handleAuthenticatedSession(session) {
   await saveSession(session);
   els.authNotice.textContent = "";
   closeAuthDialog();
+  closeGuestContinue();
   renderShell();
   try {
     await withTimeout(loadMe(), 8000, "Account load");
@@ -7550,8 +7576,12 @@ async function handleAuthenticatedSession(session) {
     if (hasChatAccess()) {
       await loadChatApp();
       await restorePendingDocuments();
+      await resumeGuestSend();
+    } else {
+      closeGuestContinue();
     }
   } catch (err) {
+    closeGuestContinue();
     els.authNotice.textContent = err?.message || "Signed in, but your account could not be loaded.";
     showToast(els.authNotice.textContent);
   }
@@ -7609,7 +7639,7 @@ async function loadConversations() {
       renderShell();
       await restorePendingDocuments();
     }
-  } else {
+  } else if (!guestDraftHasPreview(pendingGuestSend || readGuestSend())) {
     state.messages = [];
     stopExtractedModulePollers();
   }
@@ -7862,6 +7892,154 @@ async function loadChatApp() {
 
 /* ─── Actions ─── */
 
+function persistGuestSend(draft) {
+  try {
+    sessionStorage.setItem(GUEST_SEND_KEY, JSON.stringify(serializeGuestDraft(draft)));
+  } catch {}
+}
+
+function readGuestSend() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(GUEST_SEND_KEY) || "null");
+    return parsed && typeof parsed === "object" ? serializeGuestDraft(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isGuestContinueOpen() {
+  return Boolean(els.guestContinue && !els.guestContinue.classList.contains("hidden"));
+}
+
+function parkGuestContinue() {
+  const node = els.guestContinue;
+  if (!node || !els.messages?.contains(node)) return;
+  els.messages.after(node);
+}
+
+function mountGuestContinue() {
+  if (!els.guestContinue || !els.messages) return;
+  if (els.guestContinue.classList.contains("hidden")) return;
+  els.messages.appendChild(els.guestContinue);
+}
+
+function closeGuestContinue() {
+  els.guestContinue?.classList.add("hidden");
+  els.guestContinue?.setAttribute("aria-hidden", "true");
+  parkGuestContinue();
+}
+
+function openGuestContinue() {
+  closeAuthDialog();
+  if (!els.guestContinue || !els.messages) return;
+  els.messages.appendChild(els.guestContinue);
+  els.guestContinue.classList.remove("hidden");
+  els.guestContinue.setAttribute("aria-hidden", "false");
+  pinMessagesToBottom();
+}
+
+function clearGuestSend() {
+  pendingGuestSend = null;
+  try { sessionStorage.removeItem(GUEST_SEND_KEY); } catch {}
+  closeGuestContinue();
+}
+
+function guestPreviewMessage(draft) {
+  const stored = serializeGuestDraft(draft);
+  return {
+    id: "local_guest",
+    role: "user",
+    ...(stored.skillIds.length ? {
+      metadata: {
+        skillIds: stored.skillIds,
+        ...(stored.skillMarks.length ? { skillMarks: stored.skillMarks } : {})
+      }
+    } : {}),
+    content: guestPreviewContent(draft)
+  };
+}
+
+function stageGuestSend(draft) {
+  pendingGuestSend = draft;
+  persistGuestSend(draft);
+  state.messages = [guestPreviewMessage(draft)];
+  setComposerPlainText("");
+  state.pastedText = "";
+  state.images = [];
+  renderImages();
+  applyComposerHeight();
+  renderMessages();
+  pinMessagesToBottom();
+  openGuestContinue();
+  if (document.body.classList.contains("capacitor-native")) {
+    els.promptInput?.blur();
+    void hideNativeKeyboard();
+  }
+}
+
+function restoreGuestSendPreview() {
+  if (state.session) return;
+  const draft = pendingGuestSend || readGuestSend();
+  if (!guestDraftHasPreview(draft)) {
+    clearGuestSend();
+    return;
+  }
+  if (!pendingGuestSend) pendingGuestSend = draft;
+  state.messages = [guestPreviewMessage(draft)];
+  renderMessages();
+  openGuestContinue();
+}
+
+function dismissGuestContinue() {
+  const draft = pendingGuestSend || readGuestSend();
+  const liveImages = liveGuestImages(draft?.images);
+  const text = draft?.text || "";
+  const marks = draft?.skillMarks || [];
+  clearGuestSend();
+  if (state.session) return;
+  state.messages = [];
+  setComposerPlainText(text, marks);
+  state.images = liveImages;
+  renderImages();
+  applyComposerHeight();
+  renderMessages();
+}
+
+async function resumeGuestSend() {
+  const memory = pendingGuestSend;
+  const stored = serializeGuestDraft(memory || readGuestSend() || {});
+  const liveImages = liveGuestImages(memory?.images);
+  if (!guestDraftHasPreview({ ...stored, images: liveImages })) {
+    clearGuestSend();
+    return;
+  }
+  closeAuthDialog();
+  closeGuestContinue();
+  if (!hasChatAccess()) {
+    if (memory) persistGuestSend(memory);
+    return;
+  }
+  if (stored.attachments.length && !liveImages.length) {
+    setComposerPlainText(stored.text, stored.skillMarks);
+    clearGuestSend();
+    state.messages = [];
+    renderImages();
+    applyComposerHeight();
+    renderMessages();
+    showToast("Add your image again to send this message.");
+    return;
+  }
+  setComposerPlainText(stored.text, stored.skillMarks);
+  state.images = liveImages;
+  renderImages();
+  applyComposerHeight();
+  if (stored.researchMode) state.researchMode = true;
+  await sendPrompt({ skipClarification: true });
+  if (state.activeConversationId || state.messages.some((message) => message.id !== "local_guest")) {
+    clearGuestSend();
+  }
+}
+
 function requireAuth() {
   if (state.session) return true;
   openAuthDialog();
@@ -7870,10 +8048,11 @@ function requireAuth() {
 
 function openNewChat({ replaceUrl = false } = {}) {
   if (blockChatNavigationWhileRunning()) return;
-  if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
+  if (state.session && state.images.some((item) => item.category === "document" && !item.attachmentId)) {
     showToast("Wait for the document upload to finish before switching chats.");
     return;
   }
+  clearGuestSend();
   parkActiveConversationRun();
   clearClarification();
   researchController.stopResearchPolling();
@@ -8123,6 +8302,22 @@ async function sendPrompt({
     return;
   }
   if (!text && !state.images.length) return;
+  if (!state.session) {
+    stageGuestSend({
+      text,
+      images: state.images.map((img) => ({
+        file: img.file,
+        category: img.category,
+        previewUrl: img.previewUrl,
+        attachmentId: img.attachmentId,
+        uploaded: img.uploaded
+      })),
+      skillIds: sendSkillIds,
+      skillMarks: sendSkillMarks,
+      researchMode: state.researchMode
+    });
+    return;
+  }
   if (!requireAuth()) return;
   if (state.researchMode && !skipClarification && await maybeRequestClarifications(text, paste)) return;
   if (state.researchMode) {
@@ -8462,7 +8657,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
     state.activeConversationId = payload.conversation.id;
     state.projectsOpen = false;
     state.studyOpen = false;
-    state.messages = [];
     createdConversation = true;
     syncConversationUrl();
     renderConversations();
@@ -8510,7 +8704,11 @@ async function executeSend({ text, images, compareModels, council = false, descr
       return !(m.compareGroup || m.councilGroup);
     });
   }
-  state.messages.push(localUser, localAssistant);
+  if (createdConversation) {
+    state.messages = [localUser, localAssistant];
+  } else {
+    state.messages.push(localUser, localAssistant);
+  }
   setComposerPlainText("");
   state.pastedText = "";
   if (!editMessageId) {
@@ -8721,6 +8919,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
 async function signOutAndReset() {
   await signOut(state.config, state.session);
   stopExtractedModulePollers();
+  clearGuestSend();
   state.session = null;
   state.me = null;
   state.memory = null;
@@ -8846,10 +9045,13 @@ async function bootstrap() {
       if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
       await restorePendingDocuments();
+      await resumeGuestSend();
       const reportId = researchIdFromLocation();
       if (reportId) await researchController.openResearchReport(reportId, { push: false });
+    } else if (!state.session) {
+      restoreGuestSendPreview();
     }
-    focusPromptInputSoon();
+    if (!isGuestContinueOpen()) focusPromptInputSoon();
     await checkAndShowAppUpdate();
   } catch (err) {
     state.session = null;
@@ -8857,6 +9059,7 @@ async function bootstrap() {
     state.conversations = [];
     state.messages = [];
     renderShell();
+    if (!state.session) restoreGuestSendPreview();
     showToast(err.message);
   }
 }
@@ -9181,6 +9384,7 @@ function bindEvents() {
   }, { passive: true });
 
   els.guestLoginButton.addEventListener("click", startSidebarLogin);
+  els.guestContinueSignup?.addEventListener("click", startSidebarLogin);
   els.paywallPlans.addEventListener("click", (e) => {
     const mamoButton = e.target.closest("[data-start-mamo]");
     if (mamoButton) {
@@ -9418,6 +9622,7 @@ function bindEvents() {
     if (!els.compareDropdown.classList.contains("hidden")) { compareController.closeCompareDropdown(); return; }
     if (els.composerModelWrap?.classList.contains("is-open")) { closeModelDropdown(); return; }
     if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }
+    if (isGuestContinueOpen()) { dismissGuestContinue(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
     if (els.settingsDrawer.classList.contains("open")) { closeSettings(); return; }
   });
@@ -9781,7 +9986,6 @@ function bindEvents() {
 
   els.imageToggle.addEventListener("click", () => {
     closeActionMenu();
-    if (!requireAuth()) return;
     els.imageFileInput.click();
   });
   els.imageFileInput.addEventListener("change", (e) => {
@@ -9790,7 +9994,6 @@ function bindEvents() {
   });
   els.cameraAction?.addEventListener("click", () => {
     closeActionMenu();
-    if (!requireAuth()) return;
     els.cameraFileInput?.click();
   });
   els.cameraFileInput?.addEventListener("change", (e) => {
@@ -10313,7 +10516,7 @@ function bindEvents() {
     const pasted = e.clipboardData?.getData("text/plain") || "";
     const isLongPaste = pasted.length >= LONG_PASTE_MIN_CHARS || pasted.split("\n").length >= LONG_PASTE_MIN_LINES;
     e.preventDefault();
-    if (isLongPaste && !state.running) {
+    if (isLongPaste && !state.running && state.session) {
       addTextToComposerPaste(pasted);
       return;
     }

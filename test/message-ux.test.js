@@ -227,7 +227,7 @@ test("visualize stays available in temporary chat and preserves live expanded fr
   assert.match(appJs, /if \(!keptFrame\) collapseExpandedVisualize\(\)/);
   assert.match(appJs, /visualizeNeedsMount = \/```visualize\/\.test\(raw\) && !content\?\.querySelector\("iframe\[data-visualize-id\]"\)/);
   assert.match(appJs, /function collapseExpandedVisualize\(except = null\)/);
-  assert.match(appJs, /function renderMessages\(\) \{\s*collapseExpandedVisualize\(\)/);
+  assert.match(appJs, /function renderMessages\(\) \{\s*parkGuestContinue\(\);[\s\S]*?collapseExpandedVisualize\(\)/);
 });
 
 test("visualize fences survive citation leak stripping even when they contain details elements", () => {

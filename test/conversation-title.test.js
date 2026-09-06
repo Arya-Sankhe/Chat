@@ -106,4 +106,26 @@ test("generic image prompts never persist the raw request as the chat title", as
   assert.equal(isGenericConversationTitle("solve this"), true);
   assert.equal(isGenericConversationTitle("Review uploaded image"), true);
   assert.equal(isGenericConversationTitle("Review 2 images"), true);
+  assert.equal(isGenericConversationTitle("User request"), true);
+  assert.equal(isGenericConversationTitle("User request: hey"), true);
+  assert.equal(isGenericConversationTitle("User Request Analysis"), false);
+});
+
+test("title model output never keeps a User request prefix", async () => {
+  const title = await generateConversationTitle({
+    content: "hey",
+    crofai: { async chatCompletion() { return "User request: hey"; } },
+    config,
+    r2: { readUrl: () => "" }
+  });
+  const generic = await generateConversationTitle({
+    content: "hey",
+    crofai: { async chatCompletion() { return "User request"; } },
+    config,
+    r2: { readUrl: () => "" }
+  });
+
+  assert.equal(title, "hey");
+  assert.equal(generic, "hey");
+  assert.equal(isGenericConversationTitle("Casual hello"), false);
 });

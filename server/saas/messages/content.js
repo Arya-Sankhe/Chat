@@ -44,7 +44,7 @@ function genericImagePrompt(text) {
 
 export function isGenericConversationTitle(value) {
   const title = String(value || "").trim();
-  return genericImagePrompt(title) || /^(new chat|review uploaded image|review \d+ images)$/i.test(title);
+  return genericImagePrompt(title) || /^(new chat|review uploaded image|review \d+ images|user request(?:\s*:.*)?)$/i.test(title);
 }
 
 export async function generateConversationTitle({ content, crofai, config, r2, signal }) {
@@ -71,7 +71,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
     ? `${text.slice(0, 2500)}\n...\n${text.slice(-500)}`
     : text;
   const context = [
-    excerpt && `User request: ${excerpt}`,
+    excerpt,
     fileNames.length && `Uploaded files: ${fileNames.join(", ")}`,
     images.length > 1 && `${images.length} images were uploaded.`
   ].filter(Boolean).join("\n") || "The user uploaded an image without text.";
@@ -101,7 +101,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
         messages: [
           {
             role: "system",
-            content: "Write a specific chat-history title that captures what the user wanted accomplished. Return only 3-7 words, at most 42 characters. Never use generic titles such as Chat, Help, Solve, Summarize, Image, or New Chat. No label, quotes, markdown, or ending punctuation."
+            content: "Write a specific chat-history title that captures what the user wanted accomplished. Return only 3-7 words, at most 42 characters. Never use generic titles such as Chat, Help, Solve, Summarize, Image, New Chat, or User request. No label, quotes, markdown, or ending punctuation."
           },
           { role: "user", content: userContent }
         ],
@@ -113,6 +113,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
       .trim()
       .split(/\r?\n/, 1)[0]
       .replace(/^title\s*:\s*/i, "")
+      .replace(/^user request\s*:\s*/i, "")
       .replace(/^["'`*_]+|["'`*_.!?]+$/g, "")
       .replace(/\s+/g, " ")
       .trim();
