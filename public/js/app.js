@@ -383,8 +383,6 @@ const state = {
 };
 
 const PENDING_DOCUMENTS_STORAGE_PREFIX = "klui_pending_documents_v1";
-const GUEST_SEND_KEY = "klui.guestSend.v1";
-
 let renderQueued = false;
 let streamingRenderQueued = false;
 const streamingRenderTargets = new Map();
@@ -5557,7 +5555,7 @@ function collapseExpandedVisualize(except = null) {
 function renderMessages() {
   parkGuestContinue();
   if (!state.messages.length) {
-    const draft = pendingGuestSend || readGuestSend();
+    const draft = pendingGuestSend;
     if (guestDraftHasPreview(draft)) state.messages = [guestPreviewMessage(draft)];
   }
   collapseExpandedVisualize();
@@ -7639,7 +7637,7 @@ async function loadConversations() {
       renderShell();
       await restorePendingDocuments();
     }
-  } else if (!guestDraftHasPreview(pendingGuestSend || readGuestSend())) {
+  } else if (!guestDraftHasPreview(pendingGuestSend)) {
     state.messages = [];
     stopExtractedModulePollers();
   }
@@ -7892,21 +7890,6 @@ async function loadChatApp() {
 
 /* ─── Actions ─── */
 
-function persistGuestSend(draft) {
-  try {
-    sessionStorage.setItem(GUEST_SEND_KEY, JSON.stringify(serializeGuestDraft(draft)));
-  } catch {}
-}
-
-function readGuestSend() {
-  try {
-    const parsed = JSON.parse(sessionStorage.getItem(GUEST_SEND_KEY) || "null");
-    return parsed && typeof parsed === "object" ? serializeGuestDraft(parsed) : null;
-  } catch {
-    return null;
-  }
-}
-
 function isGuestContinueOpen() {
   return Boolean(els.guestContinue && !els.guestContinue.classList.contains("hidden"));
 }
@@ -7940,7 +7923,6 @@ function openGuestContinue() {
 
 function clearGuestSend() {
   pendingGuestSend = null;
-  try { sessionStorage.removeItem(GUEST_SEND_KEY); } catch {}
   closeGuestContinue();
 }
 
@@ -7961,7 +7943,6 @@ function guestPreviewMessage(draft) {
 
 function stageGuestSend(draft) {
   pendingGuestSend = draft;
-  persistGuestSend(draft);
   state.messages = [guestPreviewMessage(draft)];
   setComposerPlainText("");
   state.pastedText = "";
@@ -7977,21 +7958,8 @@ function stageGuestSend(draft) {
   }
 }
 
-function restoreGuestSendPreview() {
-  if (state.session) return;
-  const draft = pendingGuestSend || readGuestSend();
-  if (!guestDraftHasPreview(draft)) {
-    clearGuestSend();
-    return;
-  }
-  if (!pendingGuestSend) pendingGuestSend = draft;
-  state.messages = [guestPreviewMessage(draft)];
-  renderMessages();
-  openGuestContinue();
-}
-
 function dismissGuestContinue() {
-  const draft = pendingGuestSend || readGuestSend();
+  const draft = pendingGuestSend;
   const liveImages = liveGuestImages(draft?.images);
   const text = draft?.text || "";
   const marks = draft?.skillMarks || [];
@@ -8007,7 +7975,7 @@ function dismissGuestContinue() {
 
 async function resumeGuestSend() {
   const memory = pendingGuestSend;
-  const stored = serializeGuestDraft(memory || readGuestSend() || {});
+  const stored = serializeGuestDraft(memory || {});
   const liveImages = liveGuestImages(memory?.images);
   if (!guestDraftHasPreview({ ...stored, images: liveImages })) {
     clearGuestSend();
@@ -8015,20 +7983,7 @@ async function resumeGuestSend() {
   }
   closeAuthDialog();
   closeGuestContinue();
-  if (!hasChatAccess()) {
-    if (memory) persistGuestSend(memory);
-    return;
-  }
-  if (stored.attachments.length && !liveImages.length) {
-    setComposerPlainText(stored.text, stored.skillMarks);
-    clearGuestSend();
-    state.messages = [];
-    renderImages();
-    applyComposerHeight();
-    renderMessages();
-    showToast("Add your image again to send this message.");
-    return;
-  }
+  if (!hasChatAccess()) return;
   setComposerPlainText(stored.text, stored.skillMarks);
   state.images = liveImages;
   renderImages();
@@ -9045,11 +9000,8 @@ async function bootstrap() {
       if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
       await restorePendingDocuments();
-      await resumeGuestSend();
       const reportId = researchIdFromLocation();
       if (reportId) await researchController.openResearchReport(reportId, { push: false });
-    } else if (!state.session) {
-      restoreGuestSendPreview();
     }
     if (!isGuestContinueOpen()) focusPromptInputSoon();
     await checkAndShowAppUpdate();
@@ -9059,7 +9011,6 @@ async function bootstrap() {
     state.conversations = [];
     state.messages = [];
     renderShell();
-    if (!state.session) restoreGuestSendPreview();
     showToast(err.message);
   }
 }

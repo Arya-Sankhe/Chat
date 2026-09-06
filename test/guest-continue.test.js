@@ -6,7 +6,6 @@ import { dirname, resolve } from "node:path";
 
 import {
   guestDraftHasPreview,
-  guestPreviewContent,
   liveGuestImages,
   serializeGuestDraft
 } from "../public/js/guestSend.js";
@@ -18,7 +17,7 @@ function readPublic(path) {
   return readFileSync(resolve(publicDir, path), "utf8");
 }
 
-test("serializeGuestDraft keeps previewable text and attachment names, not File objects", () => {
+test("guest drafts stay in memory and keep live image previews", () => {
   const stored = serializeGuestDraft({
     text: "Hey",
     images: [{
@@ -28,10 +27,8 @@ test("serializeGuestDraft keeps previewable text and attachment names, not File 
     }]
   });
   assert.equal(stored.text, "Hey");
-  assert.equal(stored.attachments[0].name, "shot.png");
-  assert.equal(stored.attachments[0].previewUrl, "");
-  assert.equal(JSON.stringify(stored).includes("blob:"), false);
-  assert.ok(guestDraftHasPreview(stored));
+  assert.equal("attachments" in stored, false);
+  assert.ok(guestDraftHasPreview({ ...stored, images: [{ file: { size: 12 } }] }));
 });
 
 test("guest pasted content stays plain text", () => {
@@ -43,23 +40,12 @@ test("guest pasted content stays plain text", () => {
   assert.equal("paste" in stored, false);
 });
 
-test("restore does not reopen an empty continue card, but can rebuild a text preview without files", () => {
+test("empty drafts stay empty", () => {
   assert.equal(guestDraftHasPreview(serializeGuestDraft({})), false);
-  assert.equal(guestDraftHasPreview({ text: "   ", attachments: [] }), false);
-  const stored = serializeGuestDraft({
-    text: "Look at this",
-    images: [{ file: { name: "notes.csv", type: "text/csv", size: 4 }, category: "document" }]
-  });
-  const restored = serializeGuestDraft({ ...stored, images: [] });
-  assert.equal(guestDraftHasPreview(restored), true);
-  assert.deepEqual(guestPreviewContent(restored), [
-    { type: "text", text: "Look at this" },
-    { type: "file", file: { file_name: "notes.csv", content_type: "text/csv" } }
-  ]);
-  assert.deepEqual(liveGuestImages(restored.images), []);
+  assert.equal(guestDraftHasPreview({ text: "   ", images: [] }), false);
 });
 
-test("liveGuestImages drops staged files that did not survive reload", () => {
+test("liveGuestImages keeps only usable in-memory files", () => {
   const live = { file: { name: "a.png", type: "image/png", size: 8 }, category: "image" };
   const dead = { category: "image", previewUrl: "", file: undefined };
   assert.deepEqual(liveGuestImages([live, dead, { file: "nope" }]), [live]);
@@ -74,10 +60,10 @@ test("unsigned users stage a send, then resume through sendPrompt after login", 
   assert.doesNotMatch(html, /guestContinueClose|Maybe later|Use, compare, and cancel/);
   assert.match(app, /els\.messages\.appendChild\(els\.guestContinue\)/);
   assert.match(app, /if \(!state\.session\) \{\s*stageGuestSend\(/);
-  assert.match(app, /if \(!state\.messages\.length\) \{\s*const draft = pendingGuestSend \|\| readGuestSend\(\)/);
+  assert.match(app, /if \(!state\.messages\.length\) \{\s*const draft = pendingGuestSend/);
   assert.match(app, /await sendPrompt\(\{ skipClarification: true \}\);\s*if \(state\.activeConversationId/);
-  assert.match(app, /if \(stored\.attachments\.length && !liveImages\.length\) \{[\s\S]*?showToast\("Add your image again to send this message\."\);\s*return;/);
-  assert.match(app, /else if \(!guestDraftHasPreview\(pendingGuestSend \|\| readGuestSend\(\)\)\)/);
+  assert.doesNotMatch(app, /sessionStorage|GUEST_SEND_KEY|restoreGuestSendPreview/);
+  assert.match(app, /else if \(!guestDraftHasPreview\(pendingGuestSend\)\)/);
   assert.match(app, /Sign up to attach documents/);
   assert.match(app, /if \(isLongPaste && !state\.running && state\.session\) \{/);
   assert.doesNotMatch(app, /item\.status = "ready";\s*item\.progress = 100;/);
