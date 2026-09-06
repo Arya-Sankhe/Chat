@@ -175,7 +175,7 @@ test("message errors stay compact and only network or stale-build errors offer r
   assert.doesNotMatch(appJs, /Finish the current response or send\/save your draft before reloading\./);
   assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
   assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">Stopped by user\.<\/div>`/);
-  assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\/\.test\(rawTextContent\(msg\.content\)\)\)[\s\S]*?content\.replaceChildren\(\.\.\.next\.childNodes\)/);
+  assert.match(appJs, /role === "assistant" && \(isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\|<email\[\\s>\]\/i\.test\(rawTextContent\(msg\.content\)\)\)[\s\S]*?content\.replaceChildren\(\.\.\.next\.childNodes\)/);
   const stopped = css.match(/\.message-stopped\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(stopped, /color:/);
   assert.doesNotMatch(stopped, /background|border|padding|width/);
@@ -238,8 +238,10 @@ test("visualize fences survive citation leak stripping even when they contain de
 
 test("completed visualize messages replace their streamed build surface during settlement", () => {
   const appJs = readPublic("js/app.js");
-  assert.match(appJs, /isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\/\.test\(rawTextContent\(msg\.content\)\)/);
+  assert.match(appJs, /isStoppedMessage\(msg\) \|\| \/```\(\?:visualize\|email\)\|<email\[\\s>\]\/i\.test\(rawTextContent\(msg\.content\)\)/);
   assert.match(appJs, /visualizeNeedsMount[\s\S]*?emailNeedsMount[\s\S]*?adoptLiveVisualizeFrame\(content, next\);[\s\S]*?adoptLiveEmailCards\(content, next\);/);
+  assert.match(appJs, /emailNeedsMount = \/```email\|<email\[\\s>\]\/i\.test\(raw\)/);
+  assert.match(appJs, /function stripOpenEmailFence\(raw\)[\s\S]*?<email\\b/);
 });
 
 test("a successful email revision closes its edit form after leaving the revising state", () => {

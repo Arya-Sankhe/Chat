@@ -453,6 +453,30 @@ test("renderContent turns an email fence into an editable card with highlighted 
   assert.doesNotMatch(renderContent("```email\nTo:\nSubject: Hi\nHello\n```"), /data-email-card/);
 });
 
+test("email cards highlight long placeholders", () => {
+  const placeholder = "[Briefly explain your reason, such as a heavy workload, illness, or an unexpected situation.]";
+  const html = renderContent(`\`\`\`email\nTo:\nSubject: Extension request\n\n${placeholder}\n\`\`\``, { emailCards: true });
+  assert.match(html, new RegExp(`<span class="klui-email-ph">${placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</span>`));
+});
+
+test("renderContent mounts an email card for <email> tag blocks", () => {
+  delete globalThis.marked;
+  const html = renderContent("Here you go:\n\n<email>\nTo: boss@work.com\nSubject: Hi\n\nHello\n</email>", { emailCards: true });
+  assert.match(html, /data-email-card/);
+  assert.match(html, /value="boss@work.com"/);
+  assert.doesNotMatch(html, /<email>/i);
+  assert.match(renderContent('<EMAIL class="x">\nTo: boss@work.com\nSubject: Hi\n\nHello\n</EMAIL>', { emailCards: true }), /data-email-card/);
+  assert.match(renderContent("Intro\n<email>To: boss@work.com\nSubject: Hi\n\nHello", { emailCards: true }), /data-email-card/);
+});
+
+test("an unclosed <email> tag stays hidden while streaming, then mounts", () => {
+  delete globalThis.marked;
+  const streaming = renderContent("Here is your email:\n\n<email>\nTo:\nSubject: Hi\nDear X,\nHalf-written body", { holdVisualize: true, emailCards: true });
+  assert.doesNotMatch(streaming, /data-email-card|Half-written/);
+  assert.match(streaming, /Here is your email/);
+  assert.match(renderContent("Here is your email:\n\n<email>\nTo:\nSubject: Hi\nDear X,\nHalf-written body", { emailCards: true }), /data-email-card/);
+});
+
 test("email fence parsing and compose URLs carry to, subject, and body", () => {
   const parsed = parseEmailFence("To: a@b.c\nSubject: Hello\nDear X,\n\nHi.\n\nBest,\nY");
   assert.equal(parsed.to, "a@b.c");

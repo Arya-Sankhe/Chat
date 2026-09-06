@@ -5777,7 +5777,8 @@ async function submitEmailRevise(form) {
 function stripOpenEmailFence(raw) {
   const text = String(raw || "");
   if (/```email[ \t]*\r?\n[\s\S]*?\r?\n```/i.test(text)) return text;
-  return text.replace(/```email[ \t]*\r?\n[\s\S]*$/i, "").replace(/```email[ \t]*$/i, "");
+  if (/<email\b[^>]*>[\s\S]*?<\/email\s*>/i.test(text)) return text;
+  return text.replace(/```email[ \t]*\r?\n[\s\S]*$/i, "").replace(/```email[ \t]*$/i, "").replace(/<email\b[^>]*>[\s\S]*$/i, "");
 }
 
 function patchStandardArticle(article, msg) {
@@ -5793,12 +5794,12 @@ function patchStandardArticle(article, msg) {
   article.querySelectorAll(".thinking-status").forEach((node) => node.remove());
   const body = article.querySelector(".message-body");
   if (!body) return false;
-  if (role === "assistant" && (isStoppedMessage(msg) || /```(?:visualize|email)/.test(rawTextContent(msg.content)))) {
+  if (role === "assistant" && (isStoppedMessage(msg) || /```(?:visualize|email)|<email[\s>]/i.test(rawTextContent(msg.content)))) {
     const content = body.querySelector(":scope > .message-content");
     const raw = rawTextContent(msg.content);
     const stopped = isStoppedMessage(msg);
     const visualizeNeedsMount = /```visualize/.test(raw) && !content?.querySelector("iframe[data-visualize-id]");
-    const emailNeedsMount = /```email/.test(raw) && !content?.querySelector("[data-email-card]");
+    const emailNeedsMount = /```email|<email[\s>]/i.test(raw) && !content?.querySelector("[data-email-card]");
     if (content && (stopped || visualizeNeedsMount || emailNeedsMount)) {
       if (stopped || visualizeNeedsMount) collapseExpandedVisualize();
       const next = document.createElement("div");

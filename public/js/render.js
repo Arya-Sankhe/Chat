@@ -279,7 +279,7 @@ export function mailtoComposeUrl({ to = "", subject = "", body = "" } = {}) {
 }
 
 function highlightEmailPlaceholders(escaped) {
-  return escaped.replace(/(\[[^\[\]\n]{1,80}\])/g, `<span class="klui-email-ph">$1</span>`);
+  return escaped.replace(/(\[[^\[\]\n]+\])/g, `<span class="klui-email-ph">$1</span>`);
 }
 
 export function emailFieldHtml(text, { multiline = false } = {}) {
@@ -325,8 +325,16 @@ function emailCard(source) {
     + `</section>`;
 }
 
+// The model sometimes emits <email>...</email> instead of a fenced block.
+// Normalize tag form to fence form first so every consumer mounts the card.
+function normalizeEmailTags(source) {
+  return String(source ?? "")
+    .replace(/<email\b[^>]*>\r?\n?([\s\S]*?)\r?\n?<\/email\s*>/gi, (_, inner) => `\`\`\`email\n${String(inner ?? "").trim()}\n\`\`\``)
+    .replace(/<email\b[^>]*>\r?\n?([\s\S]*)$/i, (_, inner) => `\`\`\`email\n${String(inner ?? "").trim()}`);
+}
+
 function extractEmails(text, { streaming = false } = {}) {
-  const source = String(text || "");
+  const source = normalizeEmailTags(text);
   // Hide every email fence until the reply finishes so the card mounts once.
   if (streaming) {
     return {

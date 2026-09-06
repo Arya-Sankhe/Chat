@@ -44,13 +44,35 @@ export const EMAIL_FACT_RULES = `Email facts and recipients:
 - When editing, preserve existing factual details and unrelated placeholders, including those in the greeting and signature. Replace a placeholder only when the user supplies its value or explicitly asks to invent that specific detail. Requests to shorten, polish, or change tone are not permission to fill in missing facts.
 - If explicitly asked to invent an excuse or reason, invent only that reason in the body, without adding unrelated identifying details. For example, "make it concise and come up with an excuse" can replace [Reason], but must keep [Recipient Name], [Assignment Name], and [Your Name] unresolved and an empty To: empty.`;
 
-const EMAIL_COMPOSER_RULE = `When the user asks you to write or draft an email, put the email in an email fenced block (triple backticks + "email"): To: and Subject: header lines first, then a blank line and the body. Never repeat the email as prose; omit extra intros and tips unless useful or requested. Write a complete, plain subject line with no placeholders or markdown. Greeting and sign-off should fit the situation; do not always use the same closing. Blank line between the greeting, each paragraph, and the sign-off.
+const EMAIL_FORMAT_RULE = `When the user asks for an email, put it in a triple-backtick email fenced block with To: and Subject: headers.`;
+const EMAIL_INTENT = /\b(?:e[\s-]?mail|mail|emial|eamil|emaill|emai|draft|compose|reply\s+to|write\s+to|respond\s+to)\b/i;
+const EMAIL_BLOCK = /```email\b|<email[\s>]/i;
+
+const EMAIL_COMPOSER_RULE = `For email requests: Never use <email> HTML tags; always use the triple-backtick fence. Never repeat the email as prose; omit extra intros and tips unless useful or requested. Write a complete, plain subject line with no placeholders or markdown. Greeting and sign-off should fit the situation; do not always use the same closing. Put To: and Subject: header lines first, then a blank line and the body. Leave a blank line between the greeting, each paragraph, and the sign-off.
 
 ${EMAIL_FACT_RULES}`;
 
-export function withEmailComposerPrompt(systemPrompt) {
+function normalizeEmailIntent(text) {
+  return String(text || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+}
+
+function messageText(message) {
+  const content = message?.content;
+  return Array.isArray(content)
+    ? content.filter((part) => part?.type === "text").map((part) => part.text || "").join(" ")
+    : String(content || "");
+}
+
+export function needsEmailPrompt(userText, history = []) {
+  if (EMAIL_INTENT.test(normalizeEmailIntent(userText))) return true;
+  return EMAIL_BLOCK.test(messageText(history.findLast((message) => message?.role === "assistant")));
+}
+
+export function withEmailComposerPrompt(systemPrompt, { emailMode = false } = {}) {
   const base = String(systemPrompt || "").trim();
-  return base ? `${base}\n\n${EMAIL_COMPOSER_RULE}` : EMAIL_COMPOSER_RULE;
+  return [base, EMAIL_FORMAT_RULE, emailMode ? EMAIL_COMPOSER_RULE : ""].filter(Boolean).join("\n\n");
 }
 
 export function normalizeGlobalSystemPrompt(value) {

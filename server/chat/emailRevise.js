@@ -3,7 +3,7 @@ import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "../routes/context.js";
 import { EMAIL_FACT_RULES } from "../saas/systemPrompt.js";
-import { emailAddresses, replaceEmailFence } from "../../public/js/email.js";
+import { countEmailBlocks, emailAddresses, replaceEmailFence } from "../../public/js/email.js";
 
 const DRAFT_MAX = 24_000;
 const INSTRUCTION_MAX = 4_000;
@@ -87,7 +87,7 @@ export async function handleEmailRevise(req, res, config) {
 
   if (messageId) {
     const message = await context.db.getMessage(context.user.id, messageId, { signal: req.signal });
-    const count = emailText(message?.content).match(/```email[ \t]*\r?\n[\s\S]*?(?:\r?\n```|$)/gi)?.length || 0;
+    const count = countEmailBlocks(emailText(message?.content));
     if (message?.role !== "assistant" || emailIndex >= count) {
       throw new HttpError(404, "The email draft could not be found. Reload the conversation and try again.");
     }
