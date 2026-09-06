@@ -186,6 +186,52 @@ test("mobile bundle includes the shared Deep Research controls", async () => {
   assert.match(buildScript, /Mobile build is missing the Deep Research control/);
 });
 
+test("mobile compare and council reuse the composer mode chip", async () => {
+  const appJs = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const html = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(html, /data-chip-icon="compare"/);
+  assert.match(html, /data-chip-icon="council"/);
+  assert.match(appJs, /function renderComposerModeChip\(\)/);
+  assert.match(appJs, /state\.researchMode \? "research" : mobile && councilOn \? "council" : mobile && compareOn \? "compare"/);
+  assert.match(appJs, /els\.researchModeClose\?\.addEventListener\("click", \(\) => \{[\s\S]*?compareController\.cancelCompareMode\(\)/);
+});
+
+test("mobile and desktop default to Think", async () => {
+  const appJs = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  const html = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  assert.match(appJs, /spectrumLevel:\s*1,/);
+  assert.match(html, /id="nativeMobileModeLabel">Think<\/span>/);
+  assert.match(html, /data-mode="thinking"[^>]*aria-selected="true"/);
+});
+
+test("mobile deep research turns the composer into a headered card", () => {
+  const source = readStylesheet();
+  assert.match(
+    source,
+    /body\.capacitor-native \.composer:has\(#researchModeChip:not\(\.hidden\)\):not\(\.compact\)/
+  );
+  assert.match(
+    source,
+    /body\.capacitor-native \.composer:has\(#researchModeChip:not\(\.hidden\)\) \.research-mode-chip:not\(\.hidden\)\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1;/
+  );
+  assert.match(
+    source,
+    /body\.capacitor-native \.composer:has\(#researchModeChip:not\(\.hidden\)\) \.composer-input\s*\{[\s\S]*?grid-column:\s*2\s*!important;[\s\S]*?grid-row:\s*2\s*!important;/
+  );
+  assert.match(
+    source,
+    /body\.capacitor-native \.composer:has\(#researchModeChip:not\(\.hidden\)\) \.composer-send\s*\{[\s\S]*?grid-row:\s*2\s*!important;/
+  );
+});
+
 test("native auth callback parser returns only the PKCE code", () => {
   const parsed = parseAuthCallbackUrl(
     "tech.klui.app://auth/callback?code=pkce-code&access_token=must-not-leak&refresh_token=must-not-leak"
@@ -563,6 +609,22 @@ test("camera action button exists in the + menu", async () => {
   );
   assert.match(source, /class="composer-action-menu-item mobile-camera-action hidden"[^>]+id="cameraAction"/, "camera action button must be hidden by default");
   assert.match(source, /Take photo/, "camera action button must have label 'Take photo'");
+});
+
+test("plus menu nests styles and web search under More", async () => {
+  const html = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/index.html", import.meta.url), "utf8")
+  );
+  const appJs = await import("node:fs/promises").then(({ readFile }) =>
+    readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
+  );
+  assert.match(html, /id="actionMenuMore"/);
+  assert.match(html, /id="actionMenuBack"/);
+  assert.match(html, /id="writingStyleButton"[^>]*data-menu-page="more"/);
+  assert.match(html, /id="webSearchToggle"[^>]*data-menu-page="more"/);
+  assert.match(html, /id="deepResearchToggle"[^>]*data-menu-page="root"/);
+  assert.match(appJs, /function openActionMenuMore\(\)/);
+  assert.match(appJs, /els\.writingStyleBack\?\.addEventListener\("click", openActionMenuMore\)/);
 });
 
 test("writing styles use the existing + menu and expose a removable composer pill", async () => {

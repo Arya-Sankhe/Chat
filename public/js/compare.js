@@ -14,7 +14,8 @@ export function createCompareController({
   openNewChat,
   renderShell,
   pendingPromptHasImages,
-  compareIncludesTextOnlyModels
+  compareIncludesTextOnlyModels,
+  renderResearchMode
 }) {
   function compareModelAlias(index) {
     return `Model ${String.fromCharCode(65 + index)}`;
@@ -152,6 +153,7 @@ export function createCompareController({
       elements.councilButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (councilActive ? "Council mode on" : "Council mode"));
     }
     if (elements.councilLabel) elements.councilLabel.textContent = councilActive ? "Council on" : "Council";
+    renderResearchMode?.();
   }
 
   async function startCompareFreshChat() {

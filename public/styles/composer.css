@@ -1101,6 +1101,32 @@ body.capacitor-native .chat-prompt-nav { display: none !important; }
 
   z-index: 55;
 
+  transform-origin: 20px 100%;
+
+  animation: composer-menu-pop 180ms cubic-bezier(0.23, 1, 0.32, 1);
+
+}
+
+.composer-action-menu[data-page="root"] [data-menu-page="more"],
+.composer-action-menu[data-page="more"] [data-menu-page="root"] {
+  display: none !important;
+}
+
+@keyframes composer-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-action-menu {
+    animation: none;
+  }
 }
 
 .composer-action-menu-item {

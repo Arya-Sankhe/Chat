@@ -370,6 +370,14 @@ body.capacitor-native .composer-action-menu {
 
   overflow-y: auto;
 
+  transform-origin: 24px bottom;
+
+  animation: composer-menu-pop var(--motion-fast) var(--ease-out);
+
+}
+
+body.capacitor-native .composer-action-menu[data-page="more"] .mobile-camera-action {
+  display: none !important;
 }
 
 /* Text size lives in Settings only on the APK — the web app already has
@@ -3309,6 +3317,10 @@ body.capacitor-native .composer.compact .composer-send {
   body.capacitor-native .native-mobile-mode-dropdown {
     transition-duration: 0.01ms !important;
   }
+  body.capacitor-native .composer:has(#researchModeChip:not(.hidden)):not(.compact),
+  body.capacitor-native .composer-action-menu {
+    animation: none;
+  }
 }
 
 /* ── APK composer alignment/tap behavior refinement ────────────────────────
@@ -3318,11 +3330,27 @@ body.capacitor-native .composer.compact .composer-send {
 body.capacitor-native .composer .composer-previews:empty {
   display: none !important;
 }
+body.capacitor-native .composer-input {
+  display: block;
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  width: 100%;
+}
+body.capacitor-native .composer-input .composer-prompt {
+  width: 100%;
+  min-width: 0;
+}
 body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) textarea,
 body.capacitor-native.chat-empty .composer:not(:has(.composer-previews:not(:empty))) textarea,
 body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-action-menu-wrap,
-body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-send {
+body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-send,
+body.capacitor-native .composer:not(:has(.composer-previews:not(:empty))) .composer-input {
   grid-row: 1 !important;
+}
+
+body.capacitor-native .composer.compact .research-mode-chip {
+  display: none !important;
 }
 body.capacitor-native .composer,
 body.capacitor-native.chat-empty .composer {
@@ -3552,6 +3580,78 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
   padding: 9px 10px !important;
   border-radius: 32px;
   background: var(--bg) !important;
+}
+
+/* Deep Research: morph the pill into a compact card so the prompt can use
+   the full width instead of sitting in a leftover grid cell. */
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)):not(.compact),
+body.capacitor-native.chat-empty .composer:has(#researchModeChip:not(.hidden)):not(.compact) {
+  align-items: center;
+  min-height: 0;
+  padding: 4px 8px 8px !important;
+  border-radius: 22px;
+  animation: composer-mode-pop 220ms var(--apk-move-ease);
+}
+@keyframes composer-mode-pop {
+  from { transform: scale(0.97); }
+  to { transform: scale(1); }
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip:not(.hidden) {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  margin: 0;
+  padding: 4px 2px 8px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .research-mode-mark {
+  flex: 0 0 auto;
+  color: var(--text);
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+  line-height: 0;
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .research-mode-chip button:active {
+  transform: scale(0.94);
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .composer-input {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  width: 100%;
+  padding: 0;
+}
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .composer-action-menu-wrap,
+body.capacitor-native .composer:has(#researchModeChip:not(.hidden)) .composer-send {
+  grid-row: 2 !important;
+  align-self: center;
 }
 
 /* Mobile keeps the accuracy note with the latest completed response, not the composer. */

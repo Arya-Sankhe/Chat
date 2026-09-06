@@ -1,6 +1,7 @@
 /* Deep Research */
 .research-mode-chip { width: fit-content; display: inline-flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 5px 8px 5px 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: var(--radius-full); background: var(--bg-secondary); font-size: 13px; font-weight: 650; }
 .research-mode-chip.hidden { display: none; }
+.research-mode-chip .research-mode-mark.hidden { display: none; }
 .research-mode-chip button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 0 2px; font: inherit; }
 .research-card { width: min(820px, 100%); padding: 20px; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg)); box-shadow: 0 1px 2px rgba(0,0,0,.03); }
 .research-card-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }

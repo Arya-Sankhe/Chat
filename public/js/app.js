@@ -688,6 +688,8 @@ const els = {
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
   composerActionMenu: document.querySelector("#composerActionMenu"),
+  actionMenuMore: document.querySelector("#actionMenuMore"),
+  actionMenuBack: document.querySelector("#actionMenuBack"),
   writingStyleButton: document.querySelector("#writingStyleButton"),
   writingStyleMenu: document.querySelector("#writingStyleMenu"),
   writingStyleBack: document.querySelector("#writingStyleBack"),
@@ -923,14 +925,43 @@ function renderTemporaryChatMode() {
   if (els.imageToggle) els.imageToggle.disabled = state.running;
 }
 
+function renderComposerModeChip() {
+  const chip = els.researchModeChip;
+  if (!chip) return;
+  const mobile = document.body.classList.contains("capacitor-native");
+  const councilOn = isCouncilMode();
+  const compareOn = Boolean(state.settings.compareEnabled) && !councilOn;
+  const mode = state.researchMode ? "research" : mobile && councilOn ? "council" : mobile && compareOn ? "compare" : "";
+  const labels = { research: "Deep research", compare: "Compare", council: "Council" };
+  chip.classList.toggle("hidden", !mode);
+  chip.dataset.mode = mode;
+  const label = chip.querySelector("span");
+  if (label && mode) label.textContent = labels[mode];
+  chip.querySelectorAll("[data-chip-icon]").forEach((icon) => {
+    icon.classList.toggle("hidden", icon.dataset.chipIcon !== mode);
+  });
+  if (els.researchModeClose && mode) {
+    els.researchModeClose.setAttribute("aria-label", mode === "research" ? "Turn off Deep Research" : `Turn off ${labels[mode]}`);
+  }
+  if (!mode && els.nativeMobileModeLabel) {
+    const top = currentNativeTopBarMode();
+    els.nativeMobileModeLabel.textContent = top === "nitro" ? "Nitro"
+      : top === "thinking" ? "Think"
+      : top === "pro" ? "Pro"
+      : top === "compare" ? "Compare"
+      : top === "council" ? "Council"
+      : top;
+  }
+}
+
 function renderResearchMode() {
   const available = Boolean(state.config?.services?.research);
   els.deepResearchToggle?.classList.toggle("hidden", !available);
-  els.researchModeChip?.classList.toggle("hidden", !state.researchMode);
   els.deepResearchToggle?.classList.toggle("active", state.researchMode);
   els.deepResearchToggle?.setAttribute("aria-pressed", String(state.researchMode));
   if (els.deepResearchToggle) els.deepResearchToggle.disabled = state.running || !available;
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.researchMode;
+  renderComposerModeChip();
 }
 
 function clearClarification() {
@@ -3886,9 +3917,14 @@ function setSpectrumOpen(open) {
   }
 }
 
+function setActionMenuPage(page) {
+  if (els.composerActionMenu) els.composerActionMenu.dataset.page = page === "more" ? "more" : "root";
+}
+
 function toggleActionMenu() {
   const open = els.composerActionMenu.classList.contains("hidden")
     && els.writingStyleMenu?.classList.contains("hidden");
+  setActionMenuPage("root");
   els.composerActionMenu.classList.toggle("hidden", !open);
   els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton.setAttribute("aria-expanded", String(open));
@@ -3905,12 +3941,22 @@ function openWritingStyleMenu() {
 function openActionMenuRoot() {
   els.writingStyleMenu?.classList.add("hidden");
   els.composerActionMenu?.classList.remove("hidden");
+  setActionMenuPage("root");
+}
+
+function openActionMenuMore() {
+  els.writingStyleMenu?.classList.add("hidden");
+  els.composerActionMenu?.classList.remove("hidden");
+  setActionMenuPage("more");
+  els.actionMenuButton?.setAttribute("aria-expanded", "true");
+  els.composerActionMenuWrap?.classList.add("is-open");
 }
 
 function closeActionMenu() {
   if (!els.composerActionMenu) return;
   els.composerActionMenu.classList.add("hidden");
   els.writingStyleMenu?.classList.add("hidden");
+  setActionMenuPage("root");
   els.actionMenuButton?.setAttribute("aria-expanded", "false");
   els.composerActionMenuWrap?.classList.remove("is-open");
 }
@@ -7063,7 +7109,8 @@ compareController = createCompareController({
   openNewChat,
   renderShell,
   pendingPromptHasImages,
-  compareIncludesTextOnlyModels
+  compareIncludesTextOnlyModels,
+  renderResearchMode
 });
 
 councilController = createCouncilController({
@@ -9229,9 +9276,20 @@ function bindEvents() {
   els.closeAccountButton.addEventListener("click", closeAccount);
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
   els.deepResearchToggle?.addEventListener("click", () => setResearchMode(!state.researchMode));
-  els.researchModeClose?.addEventListener("click", () => setResearchMode(false));
+  els.researchModeClose?.addEventListener("click", () => {
+    if (state.researchMode) setResearchMode(false);
+    else if (state.settings.compareEnabled) compareController.cancelCompareMode();
+  });
+  els.actionMenuMore?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openActionMenuMore();
+  });
+  els.actionMenuBack?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openActionMenuRoot();
+  });
   els.writingStyleButton?.addEventListener("click", openWritingStyleMenu);
-  els.writingStyleBack?.addEventListener("click", openActionMenuRoot);
+  els.writingStyleBack?.addEventListener("click", openActionMenuMore);
   els.writingStyleMenu?.addEventListener("click", (event) => {
     const option = event.target.closest("[data-writing-style]");
     if (option) setWritingStyle(option.dataset.writingStyle);
@@ -9764,9 +9822,9 @@ function bindEvents() {
   });
 
   if (els.webSearchToggle) {
-    els.webSearchToggle.addEventListener("click", () => {
+    els.webSearchToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
       toggleWebSearchMode();
-      closeActionMenu();
     });
   }
   if (els.providerToggle) {
