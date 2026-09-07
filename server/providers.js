@@ -123,12 +123,13 @@ export function deepSeekProviderOrderFromEndpoints(endpoints) {
   const byTag = new Map((Array.isArray(endpoints) ? endpoints : []).map((endpoint) => [endpoint?.tag, endpoint?.pricing]));
   const baidu = byTag.get("baidu/fp8");
   const relace = byTag.get("relace/fp4");
-  const baiduIsCheaper = ["prompt", "completion"].every((field) => {
+  // Prefer Baidu with a 25% price buffer over Relace for reliability and throughput
+  const baiduPreferred = ["prompt", "completion"].every((field) => {
     const baiduPrice = Number(baidu?.[field]);
     const relacePrice = Number(relace?.[field]);
-    return Number.isFinite(baiduPrice) && Number.isFinite(relacePrice) && baiduPrice <= relacePrice;
+    return Number.isFinite(baiduPrice) && Number.isFinite(relacePrice) && baiduPrice <= relacePrice * 1.25;
   });
-  return baiduIsCheaper
+  return baiduPreferred
     ? ["baidu/fp8", "relace/fp4", ...DEEPSEEK_PROVIDER_ORDER.slice(2)]
     : [...DEEPSEEK_PROVIDER_ORDER];
 }

@@ -186,14 +186,19 @@ test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present"
   });
 });
 
-test("DeepSeek routing promotes Baidu only when both token prices are no higher than Relace", () => {
+test("DeepSeek routing promotes Baidu when token prices are within 25% buffer of Relace", () => {
   const endpoints = [
     { tag: "baidu/fp8", pricing: { prompt: "0.03", completion: "0.10" } },
     { tag: "relace/fp4", pricing: { prompt: "0.03", completion: "0.18" } }
   ];
   assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["baidu/fp8", "relace/fp4"]);
 
+  // 0.19 is ~5.5% above Relace 0.18, within the 25% buffer
   endpoints[0].pricing.completion = "0.19";
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["baidu/fp8", "relace/fp4"]);
+
+  // 0.25 is ~38.8% above Relace 0.18, exceeding the 25% buffer
+  endpoints[0].pricing.completion = "0.25";
   assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["relace/fp4", "baidu/fp8"]);
 });
 
