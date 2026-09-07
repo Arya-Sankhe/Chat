@@ -17,6 +17,7 @@ const listeners = appJs.slice(
 
 function composer({ native = true } = {}) {
   const classes = new Set();
+  const stopClasses = new Set(["hidden"]);
   const handlers = {};
   const sendButton = {
     disabled: false,
@@ -27,12 +28,18 @@ function composer({ native = true } = {}) {
     addEventListener(type, handler) { handlers[type] = handler; },
     click() { if (!this.disabled) handlers.click({ detail: 0 }); },
   };
+  const stopButton = {
+    classList: {
+      toggle(name, on) { if (on) stopClasses.add(name); else stopClasses.delete(name); },
+    },
+  };
   const ctx = {
     Blob, Event,
     voiceState: "idle", voiceChunks: [], voiceCommit: true, voiceStream: null, voiceRecorder: null,
     state: { running: true, clarificationChecking: false, images: [], followUps: [], config: { services: { speech: true } } },
     els: {
       sendButton,
+      stopButton,
       promptInput: {
         focus() {}, blur() {},
         dispatchEvent(event) { assert.equal(event.type, "input"); ctx.inputs += 1; ctx.updateSendButton(); },
@@ -55,7 +62,7 @@ function composer({ native = true } = {}) {
   };
   runInNewContext(`${functions}\n${listeners}`, ctx);
   return {
-    ctx, classes, sendButton,
+    ctx, classes, stopClasses, sendButton, stopButton,
     pointer(options = {}) {
       const event = { button: 0, isPrimary: true, prevented: false, preventDefault() { this.prevented = true; }, ...options };
       handlers.pointerdown(event);
@@ -154,6 +161,30 @@ test("desktop clicks, clarification ordering, and voice cancellation keep their 
   await c.ctx.finishVoiceRecording();
   assert.equal(c.ctx.transcriptions, 1, "cancel does not transcribe");
   assert.equal(c.ctx.sends, 1);
+});
+
+test("recording while a reply is running swaps Stop for the transcribe tick, then restores Stop", async () => {
+  for (const native of [true, false]) {
+    const c = composer({ native });
+    c.ctx.state.running = true;
+    c.ctx.updateSendButton();
+    assert.equal(c.classes.has("hidden"), true, "send stays hidden while generating");
+    assert.equal(c.stopClasses.has("hidden"), false, "stop is shown while generating");
+    c.record();
+    assert.equal(c.classes.has("hidden"), false, "mic recording reveals send");
+    assert.equal(c.classes.has("is-voice-confirm"), true);
+    assert.equal(c.classes.has("active"), true);
+    assert.equal(c.sendButton.disabled, false);
+    assert.equal(c.stopClasses.has("hidden"), true, "stop yields to the transcribe tick");
+    if (native) c.pointer();
+    else c.click();
+    assert.equal(c.ctx.stops, 1);
+    await c.ctx.finishVoiceRecording();
+    assert.equal(c.ctx.text, "spoken text");
+    assert.equal(c.classes.has("is-voice-confirm"), false);
+    assert.equal(c.classes.has("hidden"), true, "send hides again after transcription");
+    assert.equal(c.stopClasses.has("hidden"), false, "stop returns if the reply is still running");
+  }
 });
 
 test("native generic hover and press backgrounds cannot override the send accent", () => {

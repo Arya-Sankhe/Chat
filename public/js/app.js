@@ -6975,8 +6975,6 @@ function syncComposerBeam() {
 
 function setRunning(running) {
   state.running = running;
-  els.stopButton.classList.toggle("hidden", !running);
-  els.sendButton.classList.toggle("hidden", running);
   els.promptInput?.setAttribute("contenteditable", "true");
   els.imageToggle.disabled = state.temporaryChat || state.researchMode;
   els.modelButton.disabled = running;
@@ -7182,7 +7180,10 @@ function updateSendButton() {
     els.voiceButton.disabled = voiceState === "processing"
       || (!state.config?.services?.speech && voiceState !== "recording");
   }
-  if (voiceState === "recording" || voiceState === "processing") {
+  const voiceBusy = voiceState === "recording" || voiceState === "processing";
+  els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
+  els.stopButton.classList.toggle("hidden", !state.running || voiceBusy);
+  if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
     els.sendButton.disabled = voiceState !== "recording";
     els.sendButton.classList.toggle("is-voice-confirm", true);
