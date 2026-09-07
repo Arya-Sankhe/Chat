@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chatCompletion, streamChatCompletion } from "../crofai/client.js";
 import { HttpError } from "../http/responses.js";
 import { streamProviderAndAccumulate } from "./messages.js";
+import { openRouterModelSupportsReasoningEffort } from "../providers.js";
 
 /**
  * System prompt injected on top of the user's own system prompt for Stage 1.
@@ -207,7 +208,7 @@ export async function runPeerReview({
   onBallot,
   callsCounter,
   chatCompletionFn = chatCompletion,
-  maxTokens = 10_000
+  maxTokens = 32_000
 }) {
   const apiKey = provider?.apiKey || config?.serverApiKey;
   const baseUrl = provider?.baseUrl || config?.defaultBaseUrl;
@@ -234,7 +235,10 @@ export async function runPeerReview({
               model: assignment.reviewerModelId,
               messages: [{ role: "user", content: prompt }],
               max_tokens: maxTokens,
-              temperature: 0.2
+              temperature: 0.2,
+              reasoning: openRouterModelSupportsReasoningEffort(assignment.reviewerModelId)
+                ? { effort: "low", exclude: false }
+                : { enabled: true, exclude: false }
             },
             signal
           });

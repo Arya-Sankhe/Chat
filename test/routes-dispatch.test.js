@@ -920,6 +920,8 @@ test("editable document revise returns replacement markdown without a chat messa
       chatCalls += 1;
       const body = JSON.parse(String(init.body || "{}"));
       assert.equal(body.model, "deepseek/deepseek-v4-flash-0731");
+      assert.equal(body.max_tokens, 32_000);
+      assert.deepEqual(body.reasoning, { effort: "medium", exclude: false });
       assert.match(body.messages?.[1]?.content || "", /Selected portion to revise/);
       assert.match(body.messages?.[1]?.content || "", /Make it warmer/);
       return {

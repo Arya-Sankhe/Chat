@@ -14,7 +14,7 @@ import { requireChatContext } from "./context.js";
 const REVISE_SELECTION_MAX = 24_000;
 const REVISE_DOC_MAX = 120_000;
 const REVISE_INSTRUCTION_MAX = 4_000;
-const REVISE_TIMEOUT_MS = 60_000;
+const REVISE_TIMEOUT_MS = 300_000;
 
 function documentUploadMaxBytes(context, config) {
   return Math.min(context.plan.maxDocumentFileBytes ?? config.documents.maxFileBytes, config.documents.maxFileBytes);
@@ -757,7 +757,9 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
       body: {
         model: OPENROUTER_TEXT_MODEL,
         temperature: 0.2,
-        max_tokens: 4000,
+        max_tokens: 32_000,
+        // Medium reasoning ensures adherence to structural formatting and surrounding context while avoiding the token/latency overhead of high effort.
+        reasoning: { effort: "medium", exclude: false },
         messages: [
           {
             role: "system",

@@ -183,13 +183,20 @@ export function adaptChatRequestForProvider(body, providerId) {
   // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
   // this reasoning object — pin low effort so the fallback stays cheap. With
   // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
-  const reasoning = rest.reasoning && typeof rest.reasoning === "object"
-    ? rest.reasoning
-    : openRouterModelSupportsReasoningEffort(rest.model)
-      ? { effort: isProModel ? "xhigh" : isHy3 ? "high" : effort, exclude: false }
-      : isLagunaS && !hasTools
-        ? { effort: "low", exclude: false }
-        : { enabled: true, exclude: false };
+  let reasoning;
+  if (rest.reasoning && typeof rest.reasoning === "object") {
+    if (!openRouterModelSupportsReasoningEffort(rest.model) && rest.reasoning.effort) {
+      reasoning = { enabled: rest.reasoning.enabled !== false, exclude: rest.reasoning.exclude ?? false };
+    } else {
+      reasoning = rest.reasoning;
+    }
+  } else if (openRouterModelSupportsReasoningEffort(rest.model)) {
+    reasoning = { effort: isProModel ? "xhigh" : isHy3 ? "high" : effort, exclude: false };
+  } else if (isLagunaS && !hasTools) {
+    reasoning = { effort: "low", exclude: false };
+  } else {
+    reasoning = { enabled: true, exclude: false };
+  }
 
   const adapted = {
     ...rest,

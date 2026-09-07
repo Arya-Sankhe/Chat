@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  OPENROUTER_TEXT_MODEL,
+  OPENROUTER_COUNCIL_HY3_MODEL,
+  OPENROUTER_VISION_MODEL,
+  OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
+  adaptChatRequestForProvider
+} from "../server/providers.js";
+import {
   aggregateBordaCount,
   buildChairmanPrompt,
   buildPeerReviewPrompt,
@@ -128,12 +135,13 @@ test("parseRanking skips unknown nonces and duplicates", () => {
   assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
 });
 
-test("runPeerReview gives reviewers a 10k output budget without disabling reasoning", async () => {
+test("runPeerReview gives real council models a 32k output budget and formats reasoning correctly", async () => {
   const bodies = [];
   const panelists = [
-    { modelId: "alpha", responseText: "Answer alpha." },
-    { modelId: "beta", responseText: "Answer beta." },
-    { modelId: "gamma", responseText: "Answer gamma." }
+    { modelId: OPENROUTER_TEXT_MODEL, responseText: "Answer DeepSeek." },
+    { modelId: OPENROUTER_COUNCIL_HY3_MODEL, responseText: "Answer Hy3." },
+    { modelId: OPENROUTER_VISION_MODEL, responseText: "Answer MiMo." },
+    { modelId: OPENROUTER_COUNCIL_MIMO_PRO_MODEL, responseText: "Answer MiMo Pro." }
   ];
   const result = await runPeerReview({
     panelists,
@@ -147,10 +155,34 @@ test("runPeerReview gives reviewers a 10k output budget without disabling reason
     }
   });
 
-  assert.equal(result.ballots.filter((ballot) => ballot.valid).length, 3);
-  assert.equal(bodies.length, 3);
-  assert.ok(bodies.every((body) => body.max_tokens === 10_000));
-  assert.ok(bodies.every((body) => !("reasoning" in body)));
+  assert.equal(result.ballots.filter((ballot) => ballot.valid).length, 4);
+  assert.equal(bodies.length, 4);
+  assert.ok(bodies.every((body) => body.max_tokens === 32_000));
+
+  // DeepSeek and Hy3 support effort -> low
+  const deepseekBody = bodies.find((b) => b.model === OPENROUTER_TEXT_MODEL);
+  assert.deepEqual(deepseekBody.reasoning, { effort: "low", exclude: false });
+
+  const hy3Body = bodies.find((b) => b.model === OPENROUTER_COUNCIL_HY3_MODEL);
+  assert.deepEqual(hy3Body.reasoning, { effort: "low", exclude: false });
+
+  // MiMo models only support on/off reasoning -> must NOT carry effort
+  const mimoBody = bodies.find((b) => b.model === OPENROUTER_VISION_MODEL);
+  assert.deepEqual(mimoBody.reasoning, { enabled: true, exclude: false });
+  assert.equal("effort" in mimoBody.reasoning, false);
+
+  const mimoProBody = bodies.find((b) => b.model === OPENROUTER_COUNCIL_MIMO_PRO_MODEL);
+  assert.deepEqual(mimoProBody.reasoning, { enabled: true, exclude: false });
+  assert.equal("effort" in mimoProBody.reasoning, false);
+
+  // When adapted for OpenRouter provider, verify none of the MiMo requests contain effort
+  for (const b of bodies) {
+    const adapted = adaptChatRequestForProvider(b, "openrouter");
+    if (b.model === OPENROUTER_VISION_MODEL || b.model === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) {
+      assert.equal("effort" in adapted.reasoning, false);
+      assert.equal(adapted.reasoning.enabled, true);
+    }
+  }
 });
 
 test("aggregateBordaCount computes mean Borda points per model", () => {
