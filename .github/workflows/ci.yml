@@ -6,6 +6,28 @@ on:
   pull_request:
 
 jobs:
+  billing-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-trixie
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify real billing functions against PostgreSQL
+        run: |
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f test/sql/bootstrap.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f supabase/schema.sql
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f test/sql/actual-usage-budget.sql
+
   test:
     runs-on: ubuntu-latest
     steps:

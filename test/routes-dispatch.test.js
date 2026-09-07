@@ -485,7 +485,7 @@ test("speech usage estimates missing provider cost from the validated duration",
   assert.equal(missingCost.credits, 600 * STT_CREDITS_PER_SECOND);
 });
 
-test("speech settlement preserves provider cost and freezes accounts only on a real overrun", async () => {
+test("speech settlement preserves provider cost without freezing accounts at the estimate", async () => {
   const settled = [];
   const settings = [];
   const context = {
@@ -514,9 +514,7 @@ test("speech settlement preserves provider cost and freezes accounts only on a r
   });
   assert.equal(settled[1].estimated, false);
   assert.equal(settled[1].costCredits, STT_RESERVATION_CREDITS + 0.01);
-  assert.equal(settings.length, 1);
-  assert.equal(settings[0][0], "funded_inference_disabled:user-1");
-  assert.equal(settings[0][1].reason, "stt_reservation_ceiling");
+  assert.equal(settings.length, 0);
 });
 
 test("enforced speech records but does not bill a provider attempt that fails", { concurrency: false }, async () => {

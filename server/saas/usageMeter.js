@@ -163,8 +163,7 @@ export function createCrofaiUsageMeter({
       callSignal: AbortSignal.timeout(15_000)
     });
     // Reservation is a hold only. Missing cost bills 0, never the ceiling.
-    // A real cost above the hold still bills the actual amount, then freezes
-    // this account so they cannot send another funded request.
+    // The next request checks actual weekly usage, even if this cost exceeds the hold.
     await db.settleApiUsage({
       userId,
       requestId,
@@ -174,16 +173,6 @@ export function createCrofaiUsageMeter({
       generationId,
       estimated: resolved.source === "missing_usage"
     }, { signal: AbortSignal.timeout(15_000) });
-    if (resolved.cost > reservationCredits) {
-      await db.upsertAppSetting(`funded_inference_disabled:${userId}`, {
-        disabled: true,
-        reason: "reservation_ceiling",
-        detectedAt: new Date().toISOString()
-      }, null, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
-      console.error("usage reservation ceiling violated; funded inference disabled for user", {
-        userId, surface, model: modelFromBody(params?.body), reserved: reservationCredits, actual: resolved.cost
-      });
-    }
   }
 
   async function settleAcceptedFailure({ requestId, params, usage, generationId }) {

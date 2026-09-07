@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { parse as parseYaml } from "yaml";
 
@@ -309,7 +309,7 @@ test("cancelling an accepted stream settles its reservation", async () => {
   assert.equal(settled[0].estimated, true);
 });
 
-test("actual cost above the reservation bills the real amount and holds the account", async () => {
+test("actual cost above the reservation bills the real amount without freezing the account", async () => {
   const originalError = console.error;
   console.error = () => {};
   const settings = [];
@@ -331,8 +331,7 @@ test("actual cost above the reservation bills the real amount and holds the acco
   });
   try {
     await meter.chatCompletion({ providerId: "openrouter", body: { model: "fixed" } });
-    assert.equal(settings[0][0], "funded_inference_disabled:user");
-    assert.equal(settings[0][1].disabled, true);
+    assert.equal(settings.length, 0);
     assert.equal(settled[0].costCredits, 0.5);
     assert.equal(settled[0].estimated, false);
   } finally {
@@ -442,9 +441,10 @@ test("the per-user kill switch migration scopes ceiling blocks to the offending 
   assert.match(source, /grant execute on function public\.klui_reserve_api_usage[\s\S]*?to service_role/);
 });
 
-test("the latest reservation migration includes existing and requested holds", async () => {
-  const source = await readFile(new URL("../supabase/migrations/20260824220000_count_usage_reservations.sql", import.meta.url), "utf8");
-  assert.match(source, /v_week\.api_credit_used \+ v_week\.api_credit_reserved \+ v_reserve > v_limit/);
+test("the latest reservation migration admits requests using settled usage only", async () => {
+  const source = await readFile(new URL("../supabase/migrations/20260907113143_restore_actual_usage_budget.sql", import.meta.url), "utf8");
+  assert.match(source, /v_week\.api_credit_used >= v_limit/);
+  assert.doesNotMatch(source, /api_credit_used \+ v_week\.api_credit_reserved/);
   assert.match(source, /for update/);
 });
 
@@ -462,6 +462,19 @@ test("the schema snapshot includes the complete enforced-metering RPC lifecycle"
     assert.match(source, new RegExp(`create or replace function public\\.${functionName}\\(`));
     assert.match(source, new RegExp(`revoke execute on function public\\.${functionName}\\([\\s\\S]*?from public, anon, authenticated`));
     assert.match(source, new RegExp(`grant execute on function public\\.${functionName}\\([\\s\\S]*?to service_role`));
+  }
+});
+
+test("the billing schema tested in CI matches the latest migration definitions", async () => {
+  const schema = await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8");
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  const migrations = await Promise.all((await readdir(directory)).filter((name) => name.endsWith(".sql")).sort((a, b) => a.replaceAll("_", "").localeCompare(b.replaceAll("_", ""))).map((name) => readFile(new URL(name, directory), "utf8")));
+  for (const name of ["klui_check_api_budget", "klui_reserve_api_usage", "klui_settle_api_usage", "klui_reconcile_api_usage"]) {
+    const pattern = new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$;`, "g");
+    const latest = migrations.flatMap((source) => [...source.matchAll(pattern)].map(([definition]) => definition)).at(-1);
+    const snapshot = [...schema.matchAll(pattern)].at(-1)?.[0];
+    assert.ok(latest && snapshot, `${name} must exist in migrations and schema`);
+    assert.equal(snapshot.replace(/\s+/g, " "), latest.replace(/\s+/g, " "), `${name}: update the schema and run the SQL regression check`);
   }
 });
 

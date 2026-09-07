@@ -112,19 +112,6 @@ create table if not exists public.payment_requests (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.content_reports (
-  id uuid primary key default gen_random_uuid(),
-  reporter_id uuid references public.profiles(id) on delete set null,
-  reporter_email text not null default '',
-  message_id uuid references public.messages(id) on delete set null,
-  conversation_id uuid references public.conversations(id) on delete set null,
-  snippet text not null default '',
-  status text not null default 'open' check (status in ('open', 'done', 'reported')),
-  resolved_by uuid references public.profiles(id) on delete set null,
-  resolved_at timestamptz,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -180,6 +167,19 @@ create table if not exists public.messages (
 );
 
 alter table public.messages add column if not exists metadata jsonb not null default '{}'::jsonb;
+
+create table if not exists public.content_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_id uuid references public.profiles(id) on delete set null,
+  reporter_email text not null default '',
+  message_id uuid references public.messages(id) on delete set null,
+  conversation_id uuid references public.conversations(id) on delete set null,
+  snippet text not null default '',
+  status text not null default 'open' check (status in ('open', 'done', 'reported')),
+  resolved_by uuid references public.profiles(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now()
+);
 
 create table if not exists public.attachments (
   id uuid primary key default gen_random_uuid(),
@@ -443,6 +443,13 @@ create unique index if not exists usage_api_events_account_request_idx
   on public.usage_api_events (user_id, request_id) where request_id is not null;
 create index if not exists usage_api_events_reconcile_idx
   on public.usage_api_events (status, updated_at) where status in ('reserved', 'submitted');
+
+alter table public.usage_api_events
+  add constraint usage_api_events_no_unsupported_charge check (
+    cost_source not in ('reserved', 'reservation_ceiling', 'missing_usage',
+      'settlement_failure', 'submission_state_failure', 'openrouter_provider_failure')
+    or cost_credits = 0
+  ) not valid;
 
 create table if not exists public.model_cache (
   id text primary key,
@@ -745,7 +752,7 @@ begin
     );
   end if;
 
-  if v_limit <= 0 or v_week.api_credit_used + v_week.api_credit_reserved + v_reserve > v_limit then
+  if v_limit <= 0 or v_week.api_credit_used >= v_limit then
     return jsonb_build_object(
       'allowed', false, 'reason', 'usage_exhausted',
       'api_credit_used', v_week.api_credit_used,
@@ -1073,7 +1080,6 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_cleanup_orphan_documents(integer, interval) from public, anon, authenticated;
 revoke all on function public.klui_cleanup_storage_and_cache(integer, interval) from public, anon, authenticated;
 grant execute on function public.klui_cleanup_storage_and_cache(integer, interval) to service_role;
 

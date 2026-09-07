@@ -338,6 +338,7 @@ export async function handleDesktopSpeech(req, res, config) {
     ...window, reservedCredits: STT_RESERVATION_CREDITS
   }, { signal: AbortSignal.timeout(15_000) });
   if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
+  if (reservation?.reason === "usage_metering_disabled") throw new HttpError(503, "Usage metering is temporarily unavailable.");
   if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
   try {
     await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });

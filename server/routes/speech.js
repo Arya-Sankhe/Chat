@@ -73,15 +73,6 @@ export async function settleSpeechUsage(context, { requestId, durationSeconds, p
     usage: { duration_seconds: usage.durationSeconds },
     estimated: !ok || usage.estimated
   }, { signal });
-  if (ok && costCredits > STT_RESERVATION_CREDITS) {
-    if (typeof context.db.upsertAppSetting === "function") {
-      await context.db.upsertAppSetting(`funded_inference_disabled:${context.user.id}`, {
-        disabled: true,
-        reason: "stt_reservation_ceiling",
-        detectedAt: new Date().toISOString()
-      }, null, { signal }).catch(() => {});
-    }
-  }
   return usage;
 }
 
