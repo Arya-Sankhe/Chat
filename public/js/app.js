@@ -430,6 +430,7 @@ const sideChatState = {
 /** One in-flight client run per conversation (or temporary chat). */
 const TEMPORARY_RUN_KEY = "__temporary__";
 const conversationRuns = new Map();
+const unreadDoneChats = new Set();
 const conversationCache = new Map();
 let conversationLoadGeneration = 0;
 
@@ -502,17 +503,23 @@ function beginConversationRun(key, {
     draft: null
   };
   conversationRuns.set(key, run);
+  if (!run.temporary && run.conversationId) unreadDoneChats.delete(run.conversationId);
   if (isRunKeyActive(key)) syncActiveRunningUi();
+  renderConversations();
   return run;
 }
 
-function endConversationRun(key) {
+function endConversationRun(key, { completed = false } = {}) {
   if (!key || !conversationRuns.has(key)) return;
   const run = conversationRuns.get(key);
   conversationRuns.delete(key);
+  if (completed && !run.temporary && run.conversationId && run.conversationId !== state.activeConversationId) {
+    unreadDoneChats.add(run.conversationId);
+  }
   if (isRunKeyActive(key) || state.abortController === run?.abortController) {
     syncActiveRunningUi();
   }
+  renderConversations();
 }
 
 function parkActiveConversationRun() {
@@ -554,7 +561,8 @@ function setResearchConversationRunning(running, conversationId = state.activeCo
   }
   const run = conversationRuns.get(id);
   if (run?.mode === "research" && !run.abortController) {
-    conversationRuns.delete(id);
+    endConversationRun(id, { completed: true });
+    return;
   }
   syncActiveRunningUi();
 }
@@ -3530,10 +3538,18 @@ function conversationMenuMarkup(conversation) {
 
 function renderConversationRow(conversation) {
   const active = conversation.id === state.activeConversationId ? "active" : "";
+  const running = conversationRuns.has(conversation.id);
+  const unread = !running && unreadDoneChats.has(conversation.id);
+  const status = running
+    ? `<span class="conversation-activity is-running" title="Generating" aria-hidden="true"></span>`
+    : unread
+      ? `<span class="conversation-activity is-done" title="New reply" aria-hidden="true"></span>`
+      : "";
   return `
     <div class="conversation-row ${active}" data-chat-id="${escapeHtml(conversation.id)}">
       <button class="conversation-item" type="button" data-open-chat-id="${escapeHtml(conversation.id)}">
-        <span>${escapeHtml(conversation.title || "New chat")}</span>
+        <span class="conversation-title">${escapeHtml(conversation.title || "New chat")}</span>
+        ${status}
       </button>
       ${conversationMenuMarkup(conversation)}
     </div>
@@ -3554,6 +3570,7 @@ function renderPinnedPopupList(conversations) {
 }
 
 function renderConversations() {
+  if (state.activeConversationId) unreadDoneChats.delete(state.activeConversationId);
   const sorted = sortedConversations();
   const pinned = sorted.filter((conversation) => isPinnedChat(conversation.id));
   const recent = sorted.filter((conversation) => !isPinnedChat(conversation.id));
@@ -7684,7 +7701,7 @@ async function loadActiveConversation() {
   if (!hasActiveResearch) {
     const run = conversationRuns.get(state.activeConversationId);
     if (run?.mode === "research" && !run.abortController) {
-      conversationRuns.delete(state.activeConversationId);
+      endConversationRun(state.activeConversationId, { completed: true });
     }
   }
   researchController.resumeResearchPolling();
@@ -7830,7 +7847,7 @@ async function resumePendingDocumentTurn(run) {
     state.resumingTurnId = "";
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
-    endConversationRun(runKey);
+    endConversationRun(runKey, { completed: !localAssistant.stopped && !localAssistant.error });
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (state.activeConversationId === conversationId) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
@@ -8505,7 +8522,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
-    endConversationRun(runKey);
+    endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
     if (shouldReloadConversation && stillActive) {
       await loadActiveConversation().catch(() => {});
       settleLiveMessages({ pinned, scrollTop });
@@ -8838,7 +8855,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const queuedFollowUps = !wasAborted && shouldReloadConversation && stillActive ? drainAutomaticFollowUps() : [];
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
-    endConversationRun(runKey);
+    endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
     if (shouldReloadConversation && !temporaryChat && stillActive) {
       const reloaded = await loadActiveConversation().catch(() => false);
       if (reloaded === "applied") {

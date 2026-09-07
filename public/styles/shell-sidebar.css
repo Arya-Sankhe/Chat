@@ -1154,6 +1154,12 @@ body:not(.sidebar-expanded) .conversation-row {
 
 .conversation-item {
 
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
   flex: 1;
 
   min-width: 0;
@@ -1168,10 +1174,6 @@ body:not(.sidebar-expanded) .conversation-row {
 
   white-space: nowrap;
 
-  overflow: hidden;
-
-  text-overflow: ellipsis;
-
   border: none;
 
   background: transparent;
@@ -1180,14 +1182,46 @@ body:not(.sidebar-expanded) .conversation-row {
 
 }
 
-.conversation-item span {
+.conversation-title {
 
   display: block;
+
+  flex: 1;
+
+  min-width: 0;
 
   overflow: hidden;
 
   text-overflow: ellipsis;
 
+}
+
+.conversation-activity {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.conversation-activity.is-running {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--text-tertiary) 55%, transparent);
+  border-top-color: #3b82f6;
+  background: transparent;
+  animation: conversation-spin 0.7s linear infinite;
+}
+
+.conversation-activity.is-done {
+  background: #3b82f6;
+}
+
+@keyframes conversation-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-activity.is-running { animation: none; }
 }
 
 .conversation-menu-wrap {
