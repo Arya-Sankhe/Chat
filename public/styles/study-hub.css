@@ -2752,9 +2752,12 @@ body.study-open .study-composer-slot .composer-prompt:focus-visible,
   }
 
   .study-review-hint {
-    width: calc(100% - 96px);
-    font-size: 13px;
+    display: none;
   }
+}
+
+body.capacitor-native .study-review-hint {
+  display: none;
 }
 
 @media (max-width: 700px) {

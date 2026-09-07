@@ -129,6 +129,8 @@ test("review can star cards in the current deck and edit both sides", () => {
   assert.match(hub, /role: "think"/);
   assert.match(hub, /onAddToCard: addReplyToCard/);
   assert.match(css, /study-starred-toggle/);
+  assert.match(css, /@media \(max-width: 860px\)[\s\S]*?\.study-review-hint \{\s*display:\s*none;/);
+  assert.match(css, /body\.capacitor-native \.study-review-hint \{\s*display:\s*none;/);
   assert.match(css, /body\.capacitor-native \.study-ask/);
   assert.match(css, /study-session \.study-ask-input:focus-visible/);
   assert.match(css, /study-edit-card \.study-sketch-stroke/);
