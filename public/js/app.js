@@ -7199,7 +7199,7 @@ function updateSendButton() {
   }
   const voiceBusy = voiceState === "recording" || voiceState === "processing";
   els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
-  els.stopButton.classList.toggle("hidden", !state.running || voiceBusy);
+  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy);
   if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
     els.sendButton.disabled = voiceState !== "recording";

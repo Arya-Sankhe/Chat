@@ -407,6 +407,8 @@ test("voice input rolls the native recorder through the shared composer", () => 
   assert.match(appJs, /stopVoiceRecording\(\{ commit: true \}\)/);
   assert.match(css, /\.voice-btn\.is-recording \.voice-icon-cancel/);
   assert.match(css, /\.send-btn\.is-voice-confirm \.send-icon-confirm/);
+  assert.match(css, /\.composer\.is-voice-recording \.stop-btn \{[\s\S]*?display:\s*none\s*!important/);
+  assert.match(css, /\.composer\.is-voice-recording \.send-btn \{[\s\S]*?display:\s*flex\s*!important/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 

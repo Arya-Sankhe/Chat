@@ -2855,13 +2855,24 @@ body.chat-empty .skill-command-menu {
 }
 
 .voice-btn.is-recording .voice-icon-mic,
-.send-btn.is-voice-confirm .send-icon-arrow {
+.send-btn.is-voice-confirm .send-icon-arrow,
+.composer.is-voice-recording .send-icon-arrow {
   display: none;
 }
 
 .voice-btn.is-recording .voice-icon-cancel,
-.send-btn.is-voice-confirm .send-icon-confirm {
+.send-btn.is-voice-confirm .send-icon-confirm,
+.composer.is-voice-recording .send-icon-confirm {
   display: block;
+}
+
+/* Recording must beat .hidden — mobile web stacks send/stop in one corner. */
+.composer.is-voice-recording .stop-btn {
+  display: none !important;
+  pointer-events: none !important;
+}
+.composer.is-voice-recording .send-btn {
+  display: flex !important;
 }
 
 .voice-dot {
