@@ -3306,9 +3306,9 @@ async function uploadProjectFiles(files) {
   try {
     const projectId = state.activeProjectId;
     const uploaded = await Promise.all(accepted.map(async (file) => {
-      const presigned = await presignUpload(state.session, file, "document", { projectId: state.activeProjectId });
+      const { upload: presigned, file: uploadFile } = await presignUpload(state.session, file, "document", { projectId: state.activeProjectId });
       try {
-        await putUploadContent(state.session, presigned, file, "document");
+        await putUploadContent(state.session, presigned, uploadFile, "document");
         return await completeUpload(state.session, presigned.uploadId);
       } catch (error) {
         await deleteAttachment(state.session, presigned.uploadId).catch(() => {});
@@ -6360,9 +6360,9 @@ async function startDocumentUpload(item) {
   item.abortController = controller;
   updatePendingDocument(item.localId, { status: "uploading", progress: 3, error: "" });
   try {
-    const presigned = await presignUpload(state.session, item.file, "document", { signal: controller.signal });
+    const { upload: presigned, file: uploadFile } = await presignUpload(state.session, item.file, "document", { signal: controller.signal });
     item.uploadId = presigned.uploadId;
-    await putUploadContent(state.session, presigned, item.file, "document", { signal: controller.signal });
+    await putUploadContent(state.session, presigned, uploadFile, "document", { signal: controller.signal });
     const uploaded = await completeUpload(state.session, presigned.uploadId, { signal: controller.signal });
     if (!state.images.some((entry) => entry.localId === item.localId)) {
       forgetPendingDocument(uploaded.id);

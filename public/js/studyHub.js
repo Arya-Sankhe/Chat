@@ -1475,9 +1475,9 @@ export function createStudyHubController({
     try {
       const results = await Promise.allSettled(locals.map(async (item) => {
         const category = String(item.file.type || "").startsWith("image/") ? "image" : "document";
-        const presigned = await presignUpload(state.session, item.file, category, { projectId: courseId });
+        const { upload: presigned, file: uploadFile } = await presignUpload(state.session, item.file, category, { projectId: courseId });
         try {
-          await putUploadContent(state.session, presigned, item.file, category);
+          await putUploadContent(state.session, presigned, uploadFile, category);
           const completed = await completeUpload(state.session, presigned.uploadId);
           if (category === "image") {
             // The transcript note is available immediately, so the placeholder

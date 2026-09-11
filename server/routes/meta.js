@@ -91,6 +91,7 @@ export function handleConfig(req, res, config) {
     supabaseAnonKey: config.supabase.anonKey,
     auth: config.auth,
     defaultBaseUrl: config.defaultBaseUrl,
+    maxImageBytes: config.r2.maxImageBytes,
     services: configuredServices(config),
     providers: providerAvailability(config),
     roles: publicChatRoles(),

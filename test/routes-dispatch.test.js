@@ -276,6 +276,7 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.equal(configBody.skills.some((skill) => skill.id === "illustration"), false);
   assert.doesNotMatch(JSON.stringify(configBody.skills), /"execution"|injectPrompt/);
   assert.deepEqual(configBody.providers, { klui: false, openrouter: false });
+  assert.equal(configBody.maxImageBytes, bareConfig.r2.maxImageBytes);
   assert.deepEqual(configBody.roles.map((role) => role.id), ["nitro", "think", "pro", "compare", "council"]);
   const rolesJson = JSON.stringify(configBody.roles);
   assert.doesNotMatch(rolesJson, /openrouter|deepseek\/|openai\/|inclusionai\/|xiaomi\/|tencent\//);

@@ -1,5 +1,7 @@
 import { apiUrl, download as platformDownload, isNative, saveTextFile } from "./platform/index.js";
 
+let imageUploadMaxBytes = 10 * 1024 * 1024;
+
 async function readProblem(response) {
   try {
     const json = await response.json();
@@ -72,7 +74,11 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
 export async function fetchConfig() {
   const response = await fetch(apiUrl("/api/config"), { cache: "no-store" });
   if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
+  const config = await response.json();
+  if (Number.isInteger(config.maxImageBytes) && config.maxImageBytes > 0) {
+    imageUploadMaxBytes = config.maxImageBytes;
+  }
+  return config;
 }
 
 export async function fetchBuild() {
@@ -546,22 +552,69 @@ function uploadCategory(file) {
   return String(file.type || "").startsWith("image/") ? "image" : "document";
 }
 
+const RESIZABLE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+export async function downscaleImageForUpload(file, maxBytes = imageUploadMaxBytes, { signal } = {}) {
+  if (uploadCategory(file) !== "image" || file.size <= maxBytes) return file;
+  if (file.type === "image/gif") throw new Error(`Animated GIFs must be ${Math.floor(maxBytes / 1024 / 1024)}MB or smaller.`);
+  if (!RESIZABLE_IMAGE_TYPES.has(file.type)) return file;
+
+  let bitmap;
+  try {
+    signal?.throwIfAborted();
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error("The image could not be read.");
+  }
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close?.();
+    throw new Error("This browser could not resize the image.");
+  }
+  let scale = Math.min(0.98, Math.sqrt(maxBytes / file.size) * 0.98);
+
+  try {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      signal?.throwIfAborted();
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      context.imageSmoothingQuality = "high";
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      // Resizing loses pixels; preserve the source format and favor visual quality.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, file.type, 0.92));
+      signal?.throwIfAborted();
+      if (!blob || blob.type !== file.type) throw new Error("This browser could not resize the image.");
+      if (blob.size <= maxBytes) {
+        return new File([blob], file.name, { type: blob.type, lastModified: file.lastModified });
+      }
+      scale *= Math.min(0.9, Math.sqrt(maxBytes / blob.size) * 0.98);
+    }
+  } finally {
+    bitmap.close?.();
+  }
+
+  throw new Error(`The image could not be reduced below ${Math.floor(maxBytes / 1024 / 1024)}MB.`);
+}
+
 export async function presignUpload(session, file, category = uploadCategory(file), { signal, projectId = null } = {}) {
+  const uploadFile = category === "image" ? await downscaleImageForUpload(file, imageUploadMaxBytes, { signal }) : file;
   const response = await apiFetch("/api/uploads/presign", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      fileName: file.name,
-      contentType: file.type,
-      sizeBytes: file.size,
+      fileName: uploadFile.name,
+      contentType: uploadFile.type,
+      sizeBytes: uploadFile.size,
       category,
       projectId
     }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
+  return { upload: await response.json(), file: uploadFile };
 }
 
 export async function completeUpload(session, uploadId, { signal } = {}) {
@@ -607,14 +660,18 @@ export async function putUploadContent(session, upload, file, category = upload.
 }
 
 export async function uploadImage(session, file, { signal } = {}) {
-  const upload = await presignUpload(session, file, "image", { signal });
+  const prepared = await presignUpload(session, file, "image", { signal });
+  const { upload } = prepared;
+  file = prepared.file;
   await putUploadContent(session, upload, file, "image", { signal });
   return completeUpload(session, upload.uploadId, { signal });
 }
 
 export async function uploadFile(session, file, { signal } = {}) {
   const category = uploadCategory(file);
-  const upload = await presignUpload(session, file, category, { signal });
+  const prepared = await presignUpload(session, file, category, { signal });
+  const { upload } = prepared;
+  file = prepared.file;
   await putUploadContent(session, upload, file, category, { signal });
   return completeUpload(session, upload.uploadId, { signal });
 }
