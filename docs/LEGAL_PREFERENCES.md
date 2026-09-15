@@ -44,13 +44,26 @@ OpenRouter also says it is “not a definitive source of third party data polici
 
 Nothing in Klui code. Training providers are blocked on the **OpenRouter account** (not routable). Do not add `provider.ignore`, `data_collection: "deny"`, or `zdr` in the app — the dashboard already enforces no-training, and those request flags would either duplicate it or also block log-only hosts.
 
-DeepSeek Flash host order is unchanged and **keeps** Baidu and StreamLake (retain, do not train):
-
-`relace`, `baidu`, `coreweave`, `novita`, `streamlake`, `deepinfra`
+DeepSeek Flash is routed dynamically across OpenRouter's providers for this model
+(see https://openrouter.ai/deepseek/deepseek-v4-flash-0731). Klui ranks the live
+endpoints by price (hard ceilings, sweet-spot bracket) and measured throughput,
+skipping degraded hosts. Training providers stay blocked on the **OpenRouter account**
+(not routable); Baidu is not banned — it is simply filtered while over the price
+ceilings and re-admitted automatically if it drops back under them.
 
 Keep the OpenRouter privacy toggle on for paid (and free, if used) endpoints.
 
-Catalog snapshot we used (OpenRouter `all-providers`, 2026-08-24): DeepSeek official trains and retains; Baidu Qianfan and StreamLake retain and do not train; Relace / CoreWeave / Novita / DeepInfra neither; OpenAI / Xiaomi / MiniMax / Poolside retain and do not train.
+Excluded in code (product quality decision, not a training finding):
+`open-inference/fp8`, `inceptron/fp4`, `sail-research/fp4`.
+
+Catalog snapshot (live endpoints for `deepseek/deepseek-v4-flash-0731`, 2026-09-15):
+`open-inference/fp8`, `relace/fp4`, `streamlake/fp8`, `deepinfra/fp8`, `inceptron/fp4`,
+`sail-research/fp4`, `makora`, `wafer/fast`, `reka/fp4`, `digitalocean`, `morph/bf16`,
+`baseten/fp8` (listed twice), `coreweave/fp8`, `together`, `venice`, `mancer/fp8`,
+`fireworks`, `siliconflow/fp8`, `gmicloud/fp8`, `nextbit/fp8`, `alibaba`, `novita/fp8`,
+`phala`, `baidu/fp8`, `atlas-cloud/fp4`, `cloudflare`.
+
+Prior snapshot (OpenRouter `all-providers`, 2026-08-24): DeepSeek official trains and retains; Baidu Qianfan and StreamLake retain and do not train; Relace / CoreWeave / Novita / DeepInfra neither; OpenAI / Xiaomi / MiniMax / Poolside retain and do not train.
 
 ### Draft language for Privacy / Terms later (not published)
 

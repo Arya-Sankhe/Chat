@@ -167,8 +167,9 @@ test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback",
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"],
-    allow_fallbacks: true
+    order: ["relace/fp4", "streamlake/fp8", "deepinfra/fp8", "makora", "coreweave/fp8", "together"],
+    allow_fallbacks: true,
+    preferred_min_throughput: { p50: 40 }
   });
 });
 
@@ -180,26 +181,106 @@ test("adaptChatRequestForProvider keeps DeepSeek routing when tools are present"
   }, "openrouter");
 
   assert.deepEqual(adapted.provider, {
-    order: ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"],
+    order: ["relace/fp4", "streamlake/fp8", "deepinfra/fp8", "makora", "coreweave/fp8", "together"],
     allow_fallbacks: true,
+    preferred_min_throughput: { p50: 40 },
     require_parameters: true
   });
 });
 
-test("DeepSeek routing promotes Baidu when token prices are within 25% buffer of Relace", () => {
+test("DeepSeek routing ranks fastest p50 throughput inside the sweet-spot bracket", () => {
   const endpoints = [
-    { tag: "baidu/fp8", pricing: { prompt: "0.03", completion: "0.10" } },
-    { tag: "relace/fp4", pricing: { prompt: "0.03", completion: "0.18" } }
+    { tag: "relace/fp4", status: 0, pricing: { prompt: "0.000000055", completion: "0.00000011" }, throughput_last_30m: { p50: 27 } },
+    { tag: "streamlake/fp8", status: 0, pricing: { prompt: "0.0000000572", completion: "0.0000001716" }, throughput_last_30m: { p50: 33 } },
+    { tag: "deepinfra/fp8", status: 0, pricing: { prompt: "0.00000006", completion: "0.00000018" }, throughput_last_30m: { p50: 42 } },
+    { tag: "makora", status: 0, pricing: { prompt: "0.00000009", completion: "0.000000195" }, throughput_last_30m: { p50: 106 } }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 4), [
+    "makora",
+    "deepinfra/fp8",
+    "streamlake/fp8",
+    "relace/fp4"
+  ]);
+});
+
+test("DeepSeek routing drops denylisted hosts and anything over the price ceilings", () => {
+  const endpoints = [
+    { tag: "open-inference/fp8", status: 0, pricing: { prompt: "0.00000004", completion: "0.0000001" }, throughput_last_30m: { p50: 200 } },
+    { tag: "inceptron/fp4", status: 0, pricing: { prompt: "0.000000064", completion: "0.0000001734" }, throughput_last_30m: { p50: 200 } },
+    { tag: "sail-research/fp4", status: 0, pricing: { prompt: "0.0000000741", completion: "0.000000342" }, throughput_last_30m: { p50: 200 } },
+    { tag: "baidu/fp8", status: 0, pricing: { prompt: "0.00000044", completion: "0.00000132" }, throughput_last_30m: { p50: 95 } },
+    { tag: "makora", status: 0, pricing: { prompt: "0.00000009", completion: "0.000000195" }, throughput_last_30m: { p50: 106 } }
+  ];
+  const order = deepSeekProviderOrderFromEndpoints(endpoints);
+  assert.equal(order[0], "makora");
+  assert.ok(!order.includes("open-inference/fp8"));
+  assert.ok(!order.includes("inceptron/fp4"));
+  assert.ok(!order.includes("sail-research/fp4"));
+  assert.ok(!order.includes("baidu/fp8"));
+});
+
+test("DeepSeek routing appends fast backup hosts above the sweet spot when under the ceilings", () => {
+  const endpoints = [
+    { tag: "relace/fp4", status: 0, pricing: { prompt: "0.000000055", completion: "0.00000011" }, throughput_last_30m: { p50: 27 } },
+    // $0.13/$0.26: over the sweet spot but under the ceilings, 112 tps.
+    { tag: "baseten/fp8", status: 0, pricing: { prompt: "0.00000013", completion: "0.00000026" }, throughput_last_30m: { p50: 112 } }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), [
+    "relace/fp4",
+    "baseten/fp8"
+  ]);
+});
+
+test("DeepSeek routing falls back to the curated order without perf data", () => {
+  const endpoints = [
+    { tag: "relace/fp4", pricing: { prompt: "0.000000055", completion: "0.00000011" } }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints), [
+    "relace/fp4",
+    "streamlake/fp8",
+    "deepinfra/fp8",
+    "makora",
+    "coreweave/fp8",
+    "together"
+  ]);
+});
+
+test("DeepSeek routing accepts a bare numeric throughput shape", () => {
+  const endpoints = [
+    { tag: "relace/fp4", status: 0, pricing: { prompt: "0.000000055", completion: "0.00000011" }, throughput_last_30m: 27 },
+    { tag: "makora", status: 0, pricing: { prompt: "0.00000009", completion: "0.000000195" }, throughput_last_30m: 106 }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["makora", "relace/fp4"]);
+});
+
+test("DeepSeek routing re-admits Baidu when it drops back under the ceilings", () => {
+  const endpoints = [
+    { tag: "baidu/fp8", status: 0, pricing: { prompt: "0.00000009", completion: "0.00000019" }, throughput_last_30m: { p50: 150 } },
+    { tag: "relace/fp4", status: 0, pricing: { prompt: "0.000000055", completion: "0.00000011" }, throughput_last_30m: { p50: 27 } }
   ];
   assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["baidu/fp8", "relace/fp4"]);
+});
 
-  // 0.19 is ~5.5% above Relace 0.18, within the 25% buffer
-  endpoints[0].pricing.completion = "0.19";
-  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["baidu/fp8", "relace/fp4"]);
+test("DeepSeek routing gates the curated tail against live price and status", () => {
+  const endpoints = [
+    // relace is in the static fallback but live shows it degraded + over
+    // the ceilings, so the tail must not reintroduce it.
+    { tag: "relace/fp4", status: -2, pricing: { prompt: "0.00000044", completion: "0.00000132" }, throughput_last_30m: { p50: 27 } },
+    { tag: "makora", status: 0, pricing: { prompt: "0.00000009", completion: "0.000000195" }, throughput_last_30m: { p50: 106 } }
+  ];
+  const order = deepSeekProviderOrderFromEndpoints(endpoints);
+  assert.equal(order[0], "makora");
+  assert.ok(!order.includes("relace/fp4"));
+});
 
-  // 0.25 is ~38.8% above Relace 0.18, exceeding the 25% buffer
-  endpoints[0].pricing.completion = "0.25";
-  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["relace/fp4", "baidu/fp8"]);
+test("DeepSeek routing dedupes duplicate catalog tags", () => {
+  const endpoints = [
+    { tag: "baseten/fp8", status: 0, pricing: { prompt: "0.00000013", completion: "0.00000026" }, throughput_last_30m: { p50: 112 } },
+    { tag: "baseten/fp8", status: 0, pricing: { prompt: "0.00000013", completion: "0.00000026" }, throughput_last_30m: { p50: 96 } },
+    { tag: "makora", status: 0, pricing: { prompt: "0.00000009", completion: "0.000000195" }, throughput_last_30m: { p50: 106 } }
+  ];
+  const order = deepSeekProviderOrderFromEndpoints(endpoints);
+  assert.equal(order.filter((t) => t === "baseten/fp8").length, 1);
 });
 
 test("adaptChatRequestForProvider preserves caller provider routing alongside require_parameters", () => {

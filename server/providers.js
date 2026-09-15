@@ -28,11 +28,25 @@ export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 
-const DEEPSEEK_PROVIDER_ORDER = ["relace/fp4", "baidu/fp8", "coreweave", "novita", "streamlake", "deepinfra"];
+const DEEPSEEK_PROVIDER_ORDER = ["relace/fp4", "streamlake/fp8", "deepinfra/fp8", "makora", "coreweave/fp8", "together"];
+// Hard-excluded DeepSeek hosts (quality/policy — not price; price is handled
+// by the ceilings below, so e.g. Baidu is filtered while expensive but
+// automatically re-admitted if it drops back under the caps).
+const DEEPSEEK_DENYLIST = new Set(["open-inference/fp8", "inceptron/fp4", "sail-research/fp4"]);
+// Absolute price ceilings ($ per 1M tokens). Anything above is never ranked.
+const DEEPSEEK_MAX_PROMPT_PER_M = 0.15;
+const DEEPSEEK_MAX_COMPLETION_PER_M = 0.3;
+// Sweet spot ($ per 1M tokens). Fastest provider inside this bracket wins.
+const DEEPSEEK_SWEET_PROMPT_PER_M = 0.1;
+const DEEPSEEK_SWEET_COMPLETION_PER_M = 0.2;
+// Backup pool: providers above the sweet spot but still under the ceilings
+// need at least this p50 throughput (tokens/sec) to be ranked.
+const DEEPSEEK_BACKUP_MIN_THROUGHPUT_P50 = 40;
 const DEEPSEEK_PRICE_TTL_MS = 5 * 60 * 1000;
 let deepSeekProviderOrder = DEEPSEEK_PROVIDER_ORDER;
 let deepSeekPriceExpiresAt = 0;
 let deepSeekPriceRefresh = null;
+let deepSeekNoStatsWarned = false;
 
 const PROVIDER_LABELS = {
   klui: "Klui",
@@ -119,19 +133,89 @@ export function openRouterModelSupportsTopP(model) {
   return !id.startsWith("poolside/");
 }
 
+/** OpenRouter pricing is per token (string). Normalize to $ per 1M tokens. */
+function pricePerMillionTokens(value) {
+  const price = Number(value);
+  if (!Number.isFinite(price) || price < 0) return null;
+  return price * 1_000_000;
+}
+
+function throughputP50(endpoint) {
+  const raw = endpoint?.throughput_last_30m;
+  // Live shape is { p50, p75, p90, p99 }; accept a bare number too so a
+  // catalog shape change degrades to ranking instead of zeroing everyone.
+  const value = raw != null && typeof raw === "object" ? raw.p50 : raw;
+  const tps = Number(value);
+  return Number.isFinite(tps) && tps > 0 ? tps : 0;
+}
+
+function endpointHasThroughputStats(endpoint) {
+  return throughputP50(endpoint) > 0;
+}
+
 export function deepSeekProviderOrderFromEndpoints(endpoints) {
-  const byTag = new Map((Array.isArray(endpoints) ? endpoints : []).map((endpoint) => [endpoint?.tag, endpoint?.pricing]));
-  const baidu = byTag.get("baidu/fp8");
-  const relace = byTag.get("relace/fp4");
-  // Prefer Baidu with a 25% price buffer over Relace for reliability and throughput
-  const baiduPreferred = ["prompt", "completion"].every((field) => {
-    const baiduPrice = Number(baidu?.[field]);
-    const relacePrice = Number(relace?.[field]);
-    return Number.isFinite(baiduPrice) && Number.isFinite(relacePrice) && baiduPrice <= relacePrice * 1.25;
-  });
-  return baiduPreferred
-    ? ["baidu/fp8", "relace/fp4", ...DEEPSEEK_PROVIDER_ORDER.slice(2)]
-    : [...DEEPSEEK_PROVIDER_ORDER];
+  const list = Array.isArray(endpoints) ? endpoints : [];
+  const liveByTag = new Map();
+  for (const endpoint of list) {
+    const tag = String(endpoint?.tag || "").trim();
+    if (tag && !liveByTag.has(tag.toLowerCase())) liveByTag.set(tag.toLowerCase(), endpoint);
+  }
+  const candidates = [];
+  for (const endpoint of list) {
+    const tag = String(endpoint?.tag || "").trim();
+    const key = tag.toLowerCase();
+    if (!tag || DEEPSEEK_DENYLIST.has(key)) continue;
+    // Degraded endpoints stay out of the ranking; OpenRouter can still
+    // fall back to them via allow_fallbacks if every ranked host fails.
+    if (endpoint?.status != null && Number(endpoint.status) !== 0) continue;
+    const promptPerM = pricePerMillionTokens(endpoint?.pricing?.prompt);
+    const completionPerM = pricePerMillionTokens(endpoint?.pricing?.completion);
+    if (promptPerM == null || completionPerM == null) continue;
+    if (promptPerM > DEEPSEEK_MAX_PROMPT_PER_M || completionPerM > DEEPSEEK_MAX_COMPLETION_PER_M) continue;
+    candidates.push({ tag, key, promptPerM, completionPerM, tps: throughputP50(endpoint) });
+  }
+
+  // Primary: fastest p50 throughput inside the sweet-spot bracket.
+  const primary = candidates
+    .filter((c) => c.tps > 0 && c.promptPerM <= DEEPSEEK_SWEET_PROMPT_PER_M && c.completionPerM <= DEEPSEEK_SWEET_COMPLETION_PER_M)
+    .sort((a, b) => b.tps - a.tps);
+  const primaryTags = new Set(primary.map((c) => c.key));
+
+  // Backup: fast (>=40 tps p50) providers under the ceilings but outside
+  // the sweet spot (e.g. Baseten). Appended after the primary bracket.
+  const backup = candidates
+    .filter((c) => !primaryTags.has(c.key) && c.tps >= DEEPSEEK_BACKUP_MIN_THROUGHPUT_P50)
+    .sort((a, b) => b.tps - a.tps);
+
+  // Dedupe (the catalog can list the same tag twice) then pin the stable
+  // curated fallback so we never return an empty order when live perf
+  // data is missing (e.g. unauthenticated response with null throughput).
+  // The tail runs through the same gates: denylisted tags are skipped, and
+  // any tail host present in the live payload must still pass the price and
+  // status checks (so e.g. Baidu stays out while over the ceilings but is
+  // automatically re-admitted if it drops back under them).
+  const ordered = [];
+  const seen = new Set();
+  for (const c of [...primary, ...backup]) {
+    if (seen.has(c.key)) continue;
+    seen.add(c.key);
+    ordered.push(c.tag);
+  }
+  for (const tag of DEEPSEEK_PROVIDER_ORDER) {
+    const tailKey = String(tag).toLowerCase();
+    if (seen.has(tailKey) || DEEPSEEK_DENYLIST.has(tailKey)) continue;
+    const live = liveByTag.get(tailKey);
+    if (live) {
+      if (live?.status != null && Number(live.status) !== 0) continue;
+      const promptPerM = pricePerMillionTokens(live?.pricing?.prompt);
+      const completionPerM = pricePerMillionTokens(live?.pricing?.completion);
+      if (promptPerM == null || completionPerM == null) continue;
+      if (promptPerM > DEEPSEEK_MAX_PROMPT_PER_M || completionPerM > DEEPSEEK_MAX_COMPLETION_PER_M) continue;
+    }
+    seen.add(tailKey);
+    ordered.push(tag);
+  }
+  return ordered;
 }
 
 export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTER_BASE_URL } = {}) {
@@ -146,10 +230,19 @@ export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTE
       });
       if (response.ok) {
         const payload = await response.json();
-        deepSeekProviderOrder = deepSeekProviderOrderFromEndpoints(payload?.data?.endpoints);
+        const liveEndpoints = payload?.data?.endpoints;
+        deepSeekProviderOrder = deepSeekProviderOrderFromEndpoints(liveEndpoints);
+        if (
+          Array.isArray(liveEndpoints) && liveEndpoints.length > 0
+          && !liveEndpoints.some(endpointHasThroughputStats)
+          && !deepSeekNoStatsWarned
+        ) {
+          deepSeekNoStatsWarned = true;
+          console.warn("[deepseek] endpoints refresh returned zero throughput stats; using curated fallback order.");
+        }
       }
     } catch {
-      // Pricing is an optimization; retain the stable Relace-first order on failure.
+      // Ranking is an optimization; retain the stable curated order on failure.
     } finally {
       deepSeekPriceExpiresAt = Date.now() + DEEPSEEK_PRICE_TTL_MS;
       deepSeekPriceRefresh = null;
@@ -235,6 +328,11 @@ export function adaptChatRequestForProvider(body, providerId) {
   if (isDeepSeekModel) {
     providerPrefs.order = [...deepSeekProviderOrder];
     providerPrefs.allow_fallbacks = true;
+    // Soft backup: if our explicit order goes stale, still deprioritize
+    // hosts below 40 tps p50. Soft reorder only — never fails closed.
+    if (providerPrefs.preferred_min_throughput == null) {
+      providerPrefs.preferred_min_throughput = { p50: DEEPSEEK_BACKUP_MIN_THROUGHPUT_P50 };
+    }
   }
   if (isProModel) {
     delete adapted.service_tier;
