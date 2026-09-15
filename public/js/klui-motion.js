@@ -85,6 +85,13 @@ function moveBody(record, state) {
   ], { duration: playful ? 850 : 700, easing: "cubic-bezier(.22, 1, .36, 1)" });
 }
 
+function pausedNow(element, record, reduced) {
+  return document.hidden
+    || reduced
+    || !record.visible
+    || !!element.closest(".klui-bar")?.matches(".is-done, .is-leaving");
+}
+
 function tick() {
   const now = performance.now();
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -97,7 +104,8 @@ function tick() {
     const bar = element.closest(".klui-bar");
     const mood = element.dataset.mood || bar?.dataset.state || "idle";
     const state = ALIASES[mood] || mood;
-    const paused = document.hidden || reduced || !record.visible || !!bar?.matches(".is-done, .is-leaving");
+    const paused = pausedNow(element, record, reduced);
+    record.state = state;
     element.dataset.motion = paused ? "paused" : "active";
     if (paused) {
       if (!record.paused || record.mood !== mood) {
@@ -128,15 +136,45 @@ function tick() {
   timer = mascots.size ? setTimeout(tick, 180) : null;
 }
 
+// Tap reaction: look at the user, crouch, hop, and land with a blink. Ignored
+// while the mascot is paused, so reduced motion and completed bars stay still.
+export function playKluiReaction(element) {
+  const record = element ? mascots.get(element) : null;
+  if (!record) return;
+  if (pausedNow(element, record, matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+
+  record.body.getAnimations().forEach((animation) => animation.cancel());
+  record.body.animate([
+    { transform: "translateY(0) scale(1, 1)", offset: 0 },
+    { transform: "translateY(3%) scale(1.07, .9)", offset: .18 },
+    { transform: "translateY(-16%) scale(.95, 1.07)", offset: .48 },
+    { transform: "translateY(0) scale(1.05, .93)", offset: .76 },
+    { transform: "translateY(0) scale(1, 1)", offset: 1 },
+  ], { duration: 720, easing: "cubic-bezier(.22, 1, .36, 1)" });
+  gaze(record, [0, 0], record.state, true);
+  blink(record);
+
+  // Hold the hop: the scheduled gaze/blink/wiggle must not stomp it.
+  const now = performance.now();
+  record.nextGaze = now + 900;
+  record.nextBlink = now + 900;
+  record.nextBody = now + 1200;
+}
+
 export function mountKluiMotion(element) {
   if (!element || mascots.has(element)) return;
+  const parts = {
+    face: element.querySelector(".face"),
+    left: element.querySelector(".eye-surface-l"),
+    right: element.querySelector(".eye-surface-r"),
+  };
+  const body = element.querySelector(".klui-svg");
+  // Partial markup would throw mid-tick and stop the shared timer, freezing
+  // every mascot on the page. Only mount mascots carrying all four layers.
+  if (!parts.face || !parts.left || !parts.right || !body) return;
   const record = {
-    parts: {
-      face: element.querySelector(".face"),
-      left: element.querySelector(".eye-surface-l"),
-      right: element.querySelector(".eye-surface-r"),
-    },
-    body: element.querySelector(".klui-svg"),
+    parts,
+    body,
     eyes: [...element.querySelectorAll(".eye, .fx-stars path, .fx-happy path")],
     visible: true, index: -1, nextGaze: 0,
     nextBlink: performance.now() + 800 + Math.random() * 2200,
@@ -144,6 +182,7 @@ export function mountKluiMotion(element) {
   };
   record.observer = new IntersectionObserver(([entry]) => { record.visible = entry.isIntersecting; });
   record.observer.observe(element);
+  element.addEventListener("click", () => playKluiReaction(element));
   mascots.set(element, record);
   if (!timer) tick();
 }

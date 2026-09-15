@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectKluiFace, mountKluiMotion, kluiGazePose } from "../public/js/klui-motion.js";
+import { projectKluiFace, mountKluiMotion, kluiGazePose, playKluiReaction } from "../public/js/klui-motion.js";
 
 test("Klui wraps over a curved surface, compresses the contour eye, and keeps poses bounded", () => {
   const right = projectKluiFace(.6, 0);
@@ -60,6 +60,7 @@ test("Klui mounts once, pauses for reduced motion and completion, and releases d
     querySelectorAll: () => eyes,
     closest: () => ({ dataset: { state: "thinking" }, matches: () => done }),
     getAnimations: () => [],
+    addEventListener: () => {},
   };
   mountKluiMotion(element);
   assert.ok(face.style.transform.includes("translate"));
@@ -82,9 +83,23 @@ test("Klui mounts once, pauses for reduced motion and completion, and releases d
   reduced = false;
   next();
   assert.equal(element.dataset.motion, "active");
+  // A tap hops the body (1 animation on the squircle) and follows with a gaze
+  // shift plus a blink (3 gaze layers + 6 eye shapes).
+  const beforeTap = animations;
+  const beforeTapBody = bodyMoves;
+  playKluiReaction(element);
+  assert.equal(bodyMoves, beforeTapBody + 1, "a tap hops the body");
+  assert.equal(animations, beforeTap + 9, "the gaze shift and blink follow the hop");
   done = true;
   next();
   assert.equal(element.dataset.motion, "paused");
+  playKluiReaction(element);
+  assert.equal(bodyMoves, beforeTapBody + 1, "paused mascots ignore taps");
+  assert.equal(animations, beforeTap + 9, "paused mascots ignore taps");
+  // Partial markup is skipped. Mounting it would throw mid-tick and stop the
+  // shared timer, freezing every mascot on the page.
+  mountKluiMotion({ isConnected: true, dataset: {}, closest: () => null, querySelector: () => null, querySelectorAll: () => [] });
+  next();
   element.isConnected = false;
   next();
   assert.equal(disconnected, 1);

@@ -26,6 +26,17 @@
   transform-origin: 50% 80%;
 }
 
+/* Tapping Klui hops (see playKluiReaction); paused mascots stay still. */
+.klui {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.klui[data-motion="paused"] {
+  cursor: default;
+}
+
 .klui-svg {
   width: 100%;
   height: 100%;
