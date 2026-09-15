@@ -2082,10 +2082,10 @@ function loadSettings() {
     loaded.provider = "openrouter";
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
     loaded.thinkingEffort = normalizeThinkingEffort(loaded.thinkingEffort);
-    const lvl = Number(loaded.spectrumLevel);
-    loaded.spectrumLevel = stored.spectrumScale === 3
-      ? (Number.isInteger(lvl) && lvl >= 0 && lvl < SPECTRUM_N ? lvl : 1)
-      : ([0, 0, 1, 1, 2][lvl] ?? 1);
+    // Every load opens on Think. Moving the slider still applies for the
+    // session, but the pick is deliberately not restored from storage, so the
+    // stored level (and its old 5-step migration) is not read at all.
+    loaded.spectrumLevel = 1;
     loaded.spectrumScale = 3;
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;

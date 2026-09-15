@@ -214,6 +214,8 @@ test("mobile and desktop default to Think", async () => {
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   );
   assert.match(appJs, /spectrumLevel:\s*1,/);
+  // loadSettings pins the level on every load; a stored pick is not restored.
+  assert.match(appJs, /loaded\.spectrumLevel = 1;/);
   assert.match(html, /id="nativeMobileModeLabel">Think<\/span>/);
   assert.match(html, /data-mode="thinking"[^>]*aria-selected="true"/);
 });
@@ -407,7 +409,9 @@ test("three-step spectrum keeps Nitro text-only and moves attachments to Think",
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
   assert.match(source, /const SPECTRUM_N = 3;/);
-  assert.match(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
+  // The old 5-step → 3-step level migration is gone: loadSettings pins the
+  // level on every load instead of reading what was stored.
+  assert.doesNotMatch(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
   assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) === 0\) \{\s*applySpectrumLevel\(1\);\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /if \(n === 0 && pendingPromptNeedsVision\(\)\) \{\s*n = 1;\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /async function sendPrompt\([^)]*\) \{\s*hideAttachmentModelNotice\(\);/);
