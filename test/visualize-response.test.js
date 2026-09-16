@@ -15,7 +15,7 @@ test("visualize validation rejects extra fences and oversized documents", () => 
 test("visualize repair propagates a user abort without resetting or retrying", async () => {
   const controller = new AbortController();
   let resets = 0;
-  const crofai = {
+  const modelClient = {
     async chatCompletion() {
       controller.abort();
       throw new DOMException("Stopped", "AbortError");
@@ -28,9 +28,8 @@ test("visualize repair propagates a user abort without resetting or retrying", a
     required: true,
     result: { accumulated: { content: fence('<html><body><script src="https://cdn.example/widget.js"></script></body></html>') } },
     chatRequest: { messages: [] },
-    crofai,
-    config: { serverApiKey: "key", defaultBaseUrl: "https://example.test" },
-    provider: null,
+    modelClient,
+    provider: { id: "openrouter", apiKey: "key", baseUrl: "https://openrouter.ai/api/v1" },
     signal: controller.signal,
     res: {},
     onReset: () => { resets += 1; }

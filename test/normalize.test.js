@@ -1,16 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeBaseUrl } from "../server/crofai/constants.js";
-import { normalizeChatRequest } from "../server/crofai/normalize.js";
-
-test("normalizeBaseUrl accepts provider endpoints", () => {
-  assert.equal(normalizeBaseUrl("https://crof.ai/v1/"), "https://crof.ai/v1");
-  assert.equal(normalizeBaseUrl("https://crof.ai/v2"), "https://crof.ai/v2");
-});
-
-test("normalizeBaseUrl rejects non-provider endpoints", () => {
-  assert.throws(() => normalizeBaseUrl("https://example.com/v1"), /Only Klui API/);
-});
+import { normalizeChatRequest } from "../server/model-api/normalize.js";
 
 test("normalizeChatRequest keeps only supported chat fields", () => {
   const payload = normalizeChatRequest({
@@ -46,13 +36,13 @@ test("normalizeChatRequest supports vision content", () => {
         role: "user",
         content: [
           { type: "text", text: "What is this?" },
-          { type: "image_url", image_url: { url: "https://files.nahcrof.com/file/crofai-black.png", detail: "HIGH" } }
+          { type: "image_url", image_url: { url: "https://files.example.test/image.png", detail: "HIGH" } }
         ]
       }
     ]
   });
 
-  assert.equal(payload.messages[0].content[1].image_url.url, "https://files.nahcrof.com/file/crofai-black.png");
+  assert.equal(payload.messages[0].content[1].image_url.url, "https://files.example.test/image.png");
   assert.equal(payload.messages[0].content[1].image_url.detail, "high");
 });
 
@@ -71,4 +61,20 @@ test("normalizeChatRequest supports uploaded image data URLs", () => {
   });
 
   assert.equal(payload.messages[0].content[1].image_url.url, "data:image/png;base64,iVBORw0KGgo=");
+});
+
+test("normalizeChatRequest maps reasoning effort max to xhigh", () => {
+  const payload = normalizeChatRequest({
+    model: "deepseek/deepseek-v4-flash-0731",
+    messages: [{ role: "user", content: "hi" }],
+    reasoning_effort: "max"
+  });
+  assert.equal(payload.reasoning_effort, "xhigh");
+});
+
+test("normalizeChatRequest rejects empty messages", () => {
+  assert.throws(
+    () => normalizeChatRequest({ model: "m", messages: [] }),
+    (error) => error.status === 400 && /non-empty array/.test(error.message)
+  );
 });

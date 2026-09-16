@@ -213,15 +213,6 @@ test("adaptChatRequestForProvider preserves caller provider routing alongside re
   assert.deepEqual(adapted.provider, { order: ["Xiaomi"], require_parameters: true });
 });
 
-test("adaptChatRequestForProvider leaves Klui requests unchanged", () => {
-  const body = {
-    model: "greg",
-    messages: [{ role: "user", content: "hi" }],
-    reasoning_effort: "medium"
-  };
-  assert.equal(adaptChatRequestForProvider(body, "klui"), body);
-});
-
 test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {
   const adapted = adaptChatRequestForProvider({
     model: "deepseek/deepseek-v4-flash-0731",
@@ -341,7 +332,7 @@ test("streamChatCompletion sends OpenRouter reasoning effort in request body", a
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     await streamChatCompletion({
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",
@@ -374,7 +365,7 @@ test("streamChatCompletion enables Ling reasoning without effort", async () => {
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     await streamChatCompletion({
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",
@@ -407,7 +398,7 @@ test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     await streamChatCompletion({
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",
@@ -441,7 +432,7 @@ test("streamChatCompletion retries transient upstream failures then succeeds", a
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     const response = await streamChatCompletion({
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",
@@ -468,7 +459,7 @@ test("streamChatCompletion does not retry deterministic client errors", async ()
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     await assert.rejects(
       streamChatCompletion({
         apiKey: "test",
@@ -490,6 +481,31 @@ test("streamChatCompletion does not retry deterministic client errors", async ()
   }
 });
 
+test("streamChatCompletion retries Cloudflare edge failures then succeeds", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response("origin unreachable", { status: 523 });
+    return new Response("", { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+
+  try {
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
+    const response = await streamChatCompletion({
+      apiKey: "test",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerId: "openrouter",
+      body: { model: "deepseek/deepseek-v4-flash-0731", messages: [{ role: "user", content: "hi" }] },
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(response.status, 200);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("streamChatCompletion stops retrying after the attempt cap", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -499,16 +515,97 @@ test("streamChatCompletion stops retrying after the attempt cap", async () => {
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
-    await assert.rejects(streamChatCompletion({
-      apiKey: "test",
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
+    await assert.rejects(
+      streamChatCompletion({
+        apiKey: "test",
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerId: "openrouter",
+        body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+        signal: AbortSignal.timeout(5000),
+        maxAttempts: 2
+      }),
+      /model service is temporarily unavailable/i
+    );
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("listModels GETs /models and parses JSON", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "https://openrouter.ai/api/v1/models");
+    assert.equal(options.method, "GET");
+    assert.equal(options.headers.authorization, "Bearer or-key");
+    return new Response(JSON.stringify({ data: [{ id: "demo" }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const { listModels } = await import("../server/model-api/client.js");
+    const payload = await listModels({
+      apiKey: "or-key",
+      baseUrl: "https://openrouter.ai/api/v1",
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.deepEqual(payload, { data: [{ id: "demo" }] });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("listModels surfaces upstream failures as HttpError", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("busy", { status: 503 });
+
+  try {
+    const { listModels } = await import("../server/model-api/client.js");
+    await assert.rejects(
+      () => listModels({
+        apiKey: "or-key",
+        baseUrl: "https://openrouter.ai/api/v1",
+        signal: AbortSignal.timeout(5000)
+      }),
+      (error) => error.status === 503 && /temporarily unavailable/i.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("chatCompletion returns assistant text and invokes response hooks", async () => {
+  const originalFetch = globalThis.fetch;
+  const started = [];
+  const payloads = [];
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, "https://openrouter.ai/api/v1/chat/completions");
+    assert.equal(JSON.parse(options.body).stream, false);
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Done." } }]
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const { chatCompletion } = await import("../server/model-api/client.js");
+    const text = await chatCompletion({
+      apiKey: "or-key",
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
-      body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+      body: {
+        model: "deepseek/deepseek-v4-flash-0731",
+        messages: [{ role: "user", content: "hi" }]
+      },
       signal: AbortSignal.timeout(5000),
-      maxAttempts: 2
-    }));
-    assert.equal(calls, 2);
+      onResponseStarted: (response) => started.push(response.status),
+      onResponsePayload: (payload) => payloads.push(payload.choices?.[0]?.message?.content)
+    });
+    assert.equal(text, "Done.");
+    assert.deepEqual(started, [200]);
+    assert.deepEqual(payloads, ["Done."]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -530,7 +627,7 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
   };
 
   try {
-    const { streamChatCompletion } = await import("../server/crofai/client.js");
+    const { streamChatCompletion } = await import("../server/model-api/client.js");
     await streamChatCompletion({
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",

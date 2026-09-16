@@ -136,7 +136,7 @@ moves. A phase may not ship if any of these change:
 5. **Client-visible module URLs** — `/js/app.js` stays the entry point
    loaded by `index.html`; new modules are additive imports beneath it.
 6. **Billing gate** — every paid model call goes through
-   `createCrofaiUsageMeter` (budget check before, cost record after).
+   `createModelUsageMeter` (budget check before, cost record after).
 
 ## 5. Phasing overview
 

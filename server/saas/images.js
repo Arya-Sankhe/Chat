@@ -1,4 +1,4 @@
-import { chatCompletion } from "../crofai/client.js";
+import { chatCompletion } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
 import { contentText, imageCountFromContent, streamProviderAndAccumulate } from "./messages.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "./models.js";
@@ -169,8 +169,8 @@ export async function describeConversationImages({
   }
 
   const request = {
-    apiKey: provider?.apiKey || config.serverApiKey,
-    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
     body: {
       model,
       messages: [{ role: "user", content: contentPayload }],

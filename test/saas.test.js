@@ -8,7 +8,7 @@ import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
 import { buildStoredUserContent, imageCountFromContent, normalizePastedTextRange } from "../server/saas/messages.js";
 import { applyEditedUserText } from "../server/routes.js";
 import { loadPlans, publicPlan } from "../server/saas/plans.js";
-import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
+import { createModelUsageMeter } from "../server/saas/usageMeter.js";
 import { assertImageUpload, assertUpload, documentKindFromFileName, R2Client, safeFileName } from "../server/storage/r2.js";
 
 test("normalizePastedTextRange stores only a validated range marker", () => {
@@ -209,7 +209,7 @@ test("usageCostCredits reads OpenRouter cost fields", () => {
   assert.equal(usageCostCredits({ total_cost: 0.004 }), 0.004);
 });
 
-test("createCrofaiUsageMeter checks budget then records actual streamed OpenRouter cost", async () => {
+test("createModelUsageMeter checks budget then records actual streamed OpenRouter cost", async () => {
   const events = [];
   const db = {
     async checkApiBudget(payload) {
@@ -221,7 +221,7 @@ test("createCrofaiUsageMeter checks budget then records actual streamed OpenRout
       return { allowed: true };
     }
   };
-  const crofCalls = [];
+  const modelCalls = [];
   const streamForCost = (cost) => {
     const encoder = new TextEncoder();
     return new Response(new ReadableStream({
@@ -233,13 +233,13 @@ test("createCrofaiUsageMeter checks budget then records actual streamed OpenRout
       }
     }));
   };
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db,
     userId: "user_1",
     subscription: { id: "sub_1", current_period_end: "2026-07-01T00:00:00.000Z" },
     plan: { id: "pro", monthlyApiCreditLimit: 10 },
     chatCompletionFn: async (params) => {
-      crofCalls.push({ type: "chat", model: params.body.model });
+      modelCalls.push({ type: "chat", model: params.body.model });
       params.onResponsePayload?.({
         id: "gen_chat",
         usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25, cost: 0.0005 }
@@ -247,7 +247,7 @@ test("createCrofaiUsageMeter checks budget then records actual streamed OpenRout
       return "ok";
     },
     streamChatCompletionFn: async (params) => {
-      crofCalls.push({ type: "stream", model: params.body.model });
+      modelCalls.push({ type: "stream", model: params.body.model });
       return streamForCost(0.001);
     }
   });
@@ -256,7 +256,7 @@ test("createCrofaiUsageMeter checks budget then records actual streamed OpenRout
   const upstream = await meter.streamChatCompletion({ apiKey: "or", baseUrl: "https://openrouter.ai/api/v1", body: { model: "gamma" }, providerId: "openrouter" });
   await upstream.text();
 
-  assert.deepEqual(crofCalls.map((call) => call.model), ["alpha", "gamma"]);
+  assert.deepEqual(modelCalls.map((call) => call.model), ["alpha", "gamma"]);
   assert.equal(events.filter((event) => event.type === "check").length, 2);
   const costs = events.filter((event) => event.type === "cost").map((event) => event.payload);
   assert.deepEqual(costs.map((payload) => payload.model), ["alpha", "gamma"]);
@@ -264,9 +264,9 @@ test("createCrofaiUsageMeter checks budget then records actual streamed OpenRout
   assert.equal(costs[1].generationId, "gen_1");
 });
 
-test("createCrofaiUsageMeter does not call OpenRouter when weekly budget is denied", async () => {
-  let crofCalls = 0;
-  const meter = createCrofaiUsageMeter({
+test("createModelUsageMeter does not call OpenRouter when weekly budget is denied", async () => {
+  let modelCalls = 0;
+  const meter = createModelUsageMeter({
     db: {
       async checkApiBudget() {
         return { allowed: false, reason: "Weekly API limit reached." };
@@ -279,7 +279,7 @@ test("createCrofaiUsageMeter does not call OpenRouter when weekly budget is deni
     subscription: { id: "sub_1" },
     plan: { id: "pro", monthlyApiCreditLimit: 10 },
     chatCompletionFn: async () => {
-      crofCalls += 1;
+      modelCalls += 1;
       return "not reached";
     }
   });
@@ -288,7 +288,7 @@ test("createCrofaiUsageMeter does not call OpenRouter when weekly budget is deni
     meter.chatCompletion({ body: { model: "alpha" } }),
     /You've reached your weekly limit\. You can continue after it resets\./
   );
-  assert.equal(crofCalls, 0);
+  assert.equal(modelCalls, 0);
 });
 
 test("SupabaseRest records API usage cost with the active weekly window", async () => {

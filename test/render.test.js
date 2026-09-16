@@ -10,13 +10,11 @@ import {
   inferModelBadges,
   mailtoComposeUrl,
   modelBrandLogoUrl,
-  normalizeModelList,
   outlookComposeUrl,
   parseEmailFence,
   renderContent,
   renderPlainText,
   resetCodeSourceStore,
-  resolveDefaultCompareModels,
   stripRedundantSourcesFooter
 } from "../public/js/render.js";
 
@@ -125,64 +123,6 @@ test("stripRedundantSourcesFooter leaves citations to the Sources pill", () => {
   );
   assert.equal(stripRedundantSourcesFooter("Answer.\n\nSources: primary data", citations), "Answer.\n\nSources: primary data");
   assert.equal(stripRedundantSourcesFooter("Answer.\n\nSources: [A](https://example.com/a)"), "Answer.\n\nSources: [A](https://example.com/a)");
-});
-
-test("resolveDefaultCompareModels picks the standard compare lineup", () => {
-  const models = normalizeModelList({
-    data: [
-      { id: "moonshot/kimi-k2.6", name: "Moonshot: Kimi K2.6" },
-      { id: "deepseek/deepseek-v4-pro", name: "DeepSeek: DeepSeek V4 Pro" },
-      { id: "zhipu/glm-5.1", name: "Zhipu: GLM 5.1" },
-      { id: "xiaomi/mimo-v2.5-pro", name: "Xiaomi: MiMo V2.5 Pro" },
-      { id: "deepseek/deepseek-v3.2", name: "DeepSeek: DeepSeek V3.2" }
-    ]
-  });
-
-  assert.deepEqual(resolveDefaultCompareModels(models), [
-    "moonshot/kimi-k2.6",
-    "deepseek/deepseek-v4-pro",
-    "zhipu/glm-5.1",
-    "xiaomi/mimo-v2.5-pro"
-  ]);
-});
-
-test("resolveDefaultCompareModels also works when model ids carry the version", () => {
-  const models = normalizeModelList({
-    data: [
-      { id: "moonshot/kimi-k2.6" },
-      { id: "deepseek/deepseek-v4-pro" },
-      { id: "zhipu/glm-5.1" },
-      { id: "xiaomi/mimo-v2.5-pro" }
-    ]
-  });
-
-  assert.deepEqual(resolveDefaultCompareModels(models), [
-    "moonshot/kimi-k2.6",
-    "deepseek/deepseek-v4-pro",
-    "zhipu/glm-5.1",
-    "xiaomi/mimo-v2.5-pro"
-  ]);
-});
-
-test("normalizeModelList accepts OpenAI-compatible model list payloads", () => {
-  const models = normalizeModelList({
-    object: "list",
-    data: [
-      {
-        id: "deepseek-v3.2",
-        context_length: 163840,
-        max_completion_tokens: 163840,
-        name: "DeepSeek: DeepSeek V3.2",
-        pricing: { prompt: "0.00000028", completion: "0.00000038" },
-        quantization: "Q4_0",
-        speed: 50
-      }
-    ]
-  });
-
-  assert.equal(models[0].id, "deepseek-v3.2");
-  assert.equal(models[0].rawName, "DeepSeek: DeepSeek V3.2");
-  assert.equal(models[0].name, "DeepSeek V3.2");
 });
 
 test("compactModelDisplayName keeps text after first colon only", () => {

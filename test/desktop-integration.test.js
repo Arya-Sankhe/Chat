@@ -10,7 +10,7 @@ import { HttpError } from "../server/http/responses.js";
 import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
 import { desktopBetaAllowed, fundDesktopChat, sendDesktopProblem, validatedChatBody } from "../server/routes/desktop.js";
-import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
+import { createModelUsageMeter } from "../server/saas/usageMeter.js";
 import { MAX_AUDIO_SECONDS, validatedAudioDuration } from "../server/speech/audio.js";
 
 function jwt(payload) {
@@ -256,7 +256,7 @@ test("enforced chat metering reserves, submits, and settles one idempotent reque
     async releaseApiUsage(params) { events.push(["released", params]); }
   };
   const encoder = new TextEncoder();
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db, userId: "user", subscription: { id: "sub", current_period_end: "2026-09-01T00:00:00Z" },
     plan: { id: "pro", monthlyApiCreditLimit: 25 }, meteringMode: "enforce",
     surface: "desktop_windows", oauthClientId: "klui-desktop-windows", reservationCredits: 0.25,
@@ -275,7 +275,7 @@ test("enforced chat metering reserves, submits, and settles one idempotent reque
 test("cancelling an accepted stream settles its reservation", async () => {
   const settled = [];
   const encoder = new TextEncoder();
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db: {
       async reserveApiUsage() { return { allowed: true }; },
       async markApiUsageSubmitted() {},
@@ -321,7 +321,7 @@ test("actual cost above the reservation bills the real amount without freezing t
     async releaseApiUsage() {},
     async upsertAppSetting(...args) { settings.push(args); }
   };
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db, userId: "user", subscription: { id: "sub", current_period_end: "2026-09-01T00:00:00Z" },
     plan: { id: "pro", monthlyApiCreditLimit: 25 }, meteringMode: "enforce", reservationCredits: 0.25,
     chatCompletionFn: async ({ onResponsePayload }) => {
@@ -347,7 +347,7 @@ test("missing provider usage does not bill the reservation", async () => {
     async settleApiUsage(params) { settled.push(params); },
     async releaseApiUsage() {}
   };
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db, userId: "user", subscription: { id: "sub", current_period_end: "2026-09-01T00:00:00Z" },
     plan: { id: "pro", monthlyApiCreditLimit: 25 }, meteringMode: "enforce", reservationCredits: 0.25,
     streamChatCompletionFn: async () => new Response("data: [DONE]\n\n")
@@ -367,7 +367,7 @@ test("an accepted stream is estimated instead of released when submission-state 
     async settleApiUsage(params) { events.push(["settled", params]); },
     async releaseApiUsage() { events.push("released"); }
   };
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db, userId: "user", subscription: { id: "sub", current_period_end: "2026-09-01T00:00:00Z" },
     plan: { id: "pro", monthlyApiCreditLimit: 25 }, meteringMode: "enforce", reservationCredits: 0.25,
     streamChatCompletionFn: async () => new Response("data: [DONE]\n\n")
@@ -420,7 +420,7 @@ test("the desktop repository pins the immutable website OpenAPI artifact", async
 test("every non-desktop LLM entry point passes enforce-mode settings to the shared meter", async () => {
   for (const path of ["../server/research/worker.js", "../server/study/generate.js", "../server/routes/uploads.js"]) {
     const source = await readFile(new URL(path, import.meta.url), "utf8");
-    assert.match(source, /createCrofaiUsageMeter\(\{[\s\S]*?meteringMode: config\.desktop\.meteringMode,[\s\S]*?reservationCredits: config\.desktop\.chatReservationCredits[\s\S]*?\}\)/);
+    assert.match(source, /createModelUsageMeter\(\{[\s\S]*?meteringMode: config\.desktop\.meteringMode,[\s\S]*?reservationCredits: config\.desktop\.chatReservationCredits[\s\S]*?\}\)/);
   }
 });
 

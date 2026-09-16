@@ -15,7 +15,6 @@ const authReadyConfig = loadConfig({
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-  CROFAI_API_KEY: "crof-key",
   OPENROUTER_API_KEY: "or-key",
   R2_ACCOUNT_ID: "account-1",
   R2_ACCESS_KEY_ID: "r2-key",

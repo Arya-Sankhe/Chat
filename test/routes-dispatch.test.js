@@ -120,10 +120,10 @@ const SUPABASE_ENV = {
 /* Nothing configured: no Supabase, no model keys. */
 const bareConfig = loadConfig({});
 /* Supabase + model keys configured, so requests fail on the token check. */
-const authReadyConfig = loadConfig({ ...SUPABASE_ENV, CROFAI_API_KEY: "crof-key", OPENROUTER_API_KEY: "or-key" });
+const authReadyConfig = loadConfig({ ...SUPABASE_ENV, OPENROUTER_API_KEY: "or-key" });
 const documentReadyConfig = loadConfig({
   ...SUPABASE_ENV,
-  CROFAI_API_KEY: "crof-key",
+  OPENROUTER_API_KEY: "or-key",
   R2_ACCOUNT_ID: "account-1",
   R2_ACCESS_KEY_ID: "r2-key",
   R2_SECRET_ACCESS_KEY: "r2-secret",
@@ -175,10 +175,6 @@ const ROUTES = [
   { path: "/api/me/subscription/cancel", method: "POST", authKind: "user", enforced405: "GET" },
   { path: "/api/reports", method: "POST", authKind: "user", enforced405: "GET" },
   { path: "/api/storage", method: "GET", authKind: "chat" },
-  {
-    path: "/api/models", method: "GET", authKind: "chat",
-    preGate: { status: 503, error: "Klui model API key is not configured on the server." }
-  },
   { path: "/api/clarifications", method: "POST", authKind: "chat" },
   { path: "/api/uploads/presign", method: "POST", authKind: "chat" },
   { path: "/api/uploads/upload-1/content", method: "PUT", authKind: "chat" },
@@ -223,10 +219,7 @@ const ROUTES = [
     authKind: "chat",
     enforced405: "GET"
   },
-  {
-    path: "/api/temporary-chat", method: "POST", authKind: "chat", enforced405: "GET",
-    preGate: { status: 503, error: "Klui model API key is not configured on the server." }
-  },
+  { path: "/api/temporary-chat", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/email/revise", method: "POST", authKind: "chat", enforced405: "GET" },
   {
     path: "/api/speech-to-text", method: "POST", authKind: "chat", enforced405: "GET",
@@ -250,7 +243,7 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.equal(healthBody.app, "klui-chat");
   assert.deepEqual(
     Object.keys(healthBody.services).sort(),
-    ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
+    ["access", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
   );
 
   const build = await dispatch(bareConfig, { path: "/api/build" });
@@ -262,7 +255,7 @@ test("public routes respond 200 without auth or configured services", async () =
   const configRes = await dispatch(bareConfig, { path: "/api/config" });
   assert.equal(configRes.statusCode, 200);
   const configBody = configRes.json();
-  for (const key of ["app", "buildId", "supabaseUrl", "supabaseAnonKey", "auth", "defaultBaseUrl", "services", "providers", "roles", "skills"]) {
+  for (const key of ["app", "buildId", "supabaseUrl", "supabaseAnonKey", "auth", "services", "roles", "skills"]) {
     assert.ok(key in configBody, `config payload exposes ${key}`);
   }
   const humanizer = configBody.skills.find((skill) => skill.id === "humanizer");
@@ -275,7 +268,6 @@ test("public routes respond 200 without auth or configured services", async () =
   assert.doesNotMatch(JSON.stringify(configBody.skills), /klui_composer_skill|# Humanizer/);
   assert.equal(configBody.skills.some((skill) => skill.id === "illustration"), false);
   assert.doesNotMatch(JSON.stringify(configBody.skills), /"execution"|injectPrompt/);
-  assert.deepEqual(configBody.providers, { klui: false, openrouter: false });
   assert.equal(configBody.maxImageBytes, bareConfig.r2.maxImageBytes);
   assert.deepEqual(configBody.roles.map((role) => role.id), ["nitro", "think", "pro", "compare", "council"]);
   const rolesJson = JSON.stringify(configBody.roles);
@@ -1343,12 +1335,6 @@ test("authenticated routes dispatch to their resource-specific handlers", async 
   const cases = [
     { method: "GET", path: "/api/payments/ziina", dbMethod: "listPaymentRequests", result: [] },
     {
-      method: "GET",
-      path: "/api/models",
-      dbMethod: "getModelCache",
-      result: { fetched_at: new Date().toISOString(), payload: { data: [] } }
-    },
-    {
       method: "POST",
       path: "/api/uploads/presign",
       body: { category: "image", contentType: "image/png", fileName: "x.png", sizeBytes: 10 },
@@ -1373,8 +1359,6 @@ test("authenticated routes dispatch to their resource-specific handlers", async 
     const calls = [];
     const overrides = stubbedDeps({
       db: {
-        async getModelCache() { return null; },
-        async upsertModelCache() { return {}; },
         async [route.dbMethod]() {
           calls.push(route.dbMethod);
           return route.result;

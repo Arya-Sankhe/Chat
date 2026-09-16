@@ -18,6 +18,13 @@ import {
   OPENROUTER_VISION_L2
 } from "../server/providers.js";
 
+const MODEL_PROVIDER = {
+  id: "openrouter",
+  apiKey: "key",
+  baseUrl: "https://openrouter.ai/api/v1",
+  label: "OpenRouter"
+};
+
 test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision({ id: "moonshot/kimi-k2.6", name: "Kimi K2.6" }), true);
   assert.equal(modelSupportsVision({ id: "deepseek-v3.2", name: "DeepSeek V3.2" }), false);
@@ -86,6 +93,7 @@ test("modelSupportsVision does not flag image-generation-only models on output m
 test("resolveVisionDescribeModel prefers configured and kimi models", () => {
   assert.equal(resolveVisionDescribeModel({ visionDescribeModel: "custom-vision" }, [], []), "custom-vision");
   assert.equal(resolveVisionDescribeModel({}, ["deepseek-v3.2", "moonshot/kimi-k2.6"], []), "moonshot/kimi-k2.6");
+  assert.equal(resolveVisionDescribeModel({}, [], []), OPENROUTER_VISION_MODEL);
 });
 
 test("messagesHaveImages and collectImageAttachmentIds scan user history", () => {
@@ -182,9 +190,10 @@ test("describeConversationImages can describe only missing image ids in one call
       },
       userId: "user_1",
       r2: { readUrl: (key) => `https://files.example/${key}` },
-      config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+      config: {},
+      provider: MODEL_PROVIDER,
       attachmentIds: ["att_2"],
-      describeModel: "kimi-k2.6"
+      describeModel: "moonshot/kimi-k2.6"
     });
 
     const sentImages = requestBody.messages[0].content.filter((part) => part.type === "image_url");
@@ -216,7 +225,8 @@ test("describeConversationImages uses streaming descriptions when provided", asy
     },
     userId: "user_1",
     r2: { readUrl: (key) => `https://files.example/${key}` },
-    config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+    config: {},
+    provider: MODEL_PROVIDER,
     attachmentIds: ["att_1"],
     describeModel: "xiaomi/mimo-v2.5",
     streamChatCompletionFn: async () => new Response([
@@ -243,7 +253,8 @@ test("describeConversationImages rejects empty visual descriptions", async () =>
       },
       userId: "user_1",
       r2: { readUrl: (key) => `https://files.example/${key}` },
-      config: { serverApiKey: "key", defaultBaseUrl: "https://api.example.test" },
+      config: {},
+      provider: MODEL_PROVIDER,
       attachmentIds: ["att_1"],
       describeModel: "xiaomi/mimo-v2.5",
       chatCompletionFn: async () => ""

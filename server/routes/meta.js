@@ -1,5 +1,3 @@
-import { listModels } from "../crofai/client.js";
-import { normalizeBaseUrl } from "../crofai/constants.js";
 import { configuredServices } from "../config.js";
 import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
@@ -9,11 +7,7 @@ import { storageUsage } from "../saas/storageQuota.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
 import { publicChatRoles } from "../models.js";
 import { listComposerSkills } from "../saas/composerSkills.js";
-import { providerAvailability } from "../providers.js";
 import { authContext, requireChatContext } from "./context.js";
-
-export const modelCache = new Map();
-export const modelCacheTtlMs = 5 * 60 * 1000;
 
 function accountName(user) {
   const meta = user?.raw?.user_metadata || {};
@@ -44,27 +38,6 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings }
   };
 }
 
-export function requireServerCrofKey(config) {
-  if (!config.serverApiKey) {
-    throw new HttpError(503, "Klui model API key is not configured on the server.");
-  }
-}
-
-function urlSafeSearch(req, key) {
-  try {
-    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    return url.searchParams.get(key);
-  } catch {
-    return "";
-  }
-}
-
-export function modelFromPayload(payload, modelId) {
-  const list = Array.isArray(payload) ? payload : payload?.data;
-  if (!Array.isArray(list)) return null;
-  return list.find((model) => model?.id === modelId) || null;
-}
-
 export function handleHealth(req, res, config) {
   sendJson(res, 200, {
     ok: true,
@@ -90,10 +63,8 @@ export function handleConfig(req, res, config) {
     supabaseUrl: config.supabase.url,
     supabaseAnonKey: config.supabase.anonKey,
     auth: config.auth,
-    defaultBaseUrl: config.defaultBaseUrl,
     maxImageBytes: config.r2.maxImageBytes,
     services: configuredServices(config),
-    providers: providerAvailability(config),
     roles: publicChatRoles(),
     skills: listComposerSkills().filter((skill) => skill.id !== "illustration" || config.illustrations?.enabled)
   });
@@ -290,28 +261,4 @@ export async function handleMeExport(req, res, config) {
     "content-disposition": "attachment; filename=\"klui-data.json\""
   });
   res.end(JSON.stringify(payload));
-}
-
-export async function handleModels(req, res, config) {
-  requireServerCrofKey(config);
-  const context = await requireChatContext(req, config);
-
-  const baseUrl = normalizeBaseUrl(urlSafeSearch(req, "baseUrl") || config.defaultBaseUrl);
-  const cached = modelCache.get(baseUrl);
-  if (cached && Date.now() - cached.fetchedAt < modelCacheTtlMs) {
-    sendJson(res, 200, cached.payload);
-    return;
-  }
-
-  const dbCached = await context.db.getModelCache(baseUrl, { signal: req.signal });
-  if (dbCached && Date.now() - new Date(dbCached.fetched_at).getTime() < modelCacheTtlMs) {
-    modelCache.set(baseUrl, { payload: dbCached.payload, fetchedAt: new Date(dbCached.fetched_at).getTime() });
-    sendJson(res, 200, dbCached.payload);
-    return;
-  }
-
-  const payload = await listModels({ apiKey: config.serverApiKey, baseUrl, signal: req.signal });
-  modelCache.set(baseUrl, { payload, fetchedAt: Date.now() });
-  await context.db.upsertModelCache(baseUrl, payload, { signal: req.signal });
-  sendJson(res, 200, payload);
 }

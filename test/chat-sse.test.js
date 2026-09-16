@@ -29,8 +29,7 @@ const CONFIG_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-  OPENROUTER_API_KEY: "or-key",
-  CROFAI_API_KEY: "crof-key"
+  OPENROUTER_API_KEY: "or-key"
 };
 
 /* ── request/response fakes ── */
@@ -392,7 +391,7 @@ test("chat role think resolves on the server without a vendor model ID", async (
   assert.equal(identity?.patch.model, "think");
 });
 
-test("Pro ignores a Klui provider request and sends Luna through OpenAI at max reasoning", async (t) => {
+test("Pro sends Luna through OpenAI at max reasoning", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({
     streamFor: (body) => {
@@ -418,7 +417,6 @@ test("Pro ignores a Klui provider request and sends Luna through OpenAI at max r
     body: {
       text: "Use Pro",
       model: "openai/gpt-5.6-luna",
-      provider: "klui",
       settings: { reasoning_effort: "low" },
       agentMode: false
     }

@@ -220,12 +220,6 @@ export async function clearMemory(session) {
   return response.json();
 }
 
-export async function fetchModels(session) {
-  const response = await apiFetch("/api/models", { session });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
 export async function transcribeSpeech(session, audio) {
   const response = await apiFetch("/api/speech-to-text", {
     session,

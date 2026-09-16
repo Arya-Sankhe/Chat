@@ -159,7 +159,7 @@ test("createConversationSummarizer makes one metered OpenRouter call for concurr
   const config = loadConfig({ OPENROUTER_API_KEY: "or-key" });
   config.context = smallContext();
   const summarizeHistory = createConversationSummarizer({
-    crofai: {
+    modelClient: {
       async chatCompletion(request) {
         calls.push(request);
         return "shared summary";

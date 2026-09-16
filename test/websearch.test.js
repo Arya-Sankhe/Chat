@@ -19,13 +19,26 @@ import { searxngSearch, selectRelevantResults } from "../server/websearch/searxn
 import { tinyfishSearch } from "../server/websearch/tinyfish.js";
 import { tinyfetchRead } from "../server/websearch/tinyfetch.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
-import { buildLoadToolsTool, buildWebSearchTools, executeToolCall, isToolsUnsupportedError, runChatWithToolLoop } from "../server/websearch/tool.js";
+import {
+  buildLoadToolsTool,
+  buildWebSearchTools,
+  executeToolCall,
+  isToolsUnsupportedError,
+  runChatWithToolLoop as runChatWithToolLoopImpl
+} from "../server/websearch/tool.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { loadConfig } from "../server/config.js";
 import { estimateContextTokens } from "../server/saas/messages.js";
 import { buildWeatherTool } from "../server/weather.js";
 
 const realFetch = globalThis.fetch;
+const MODEL_PROVIDER = {
+  id: "openrouter",
+  apiKey: "key",
+  baseUrl: "https://openrouter.ai/api/v1",
+  label: "OpenRouter"
+};
+const runChatWithToolLoop = (options) => runChatWithToolLoopImpl({ provider: MODEL_PROVIDER, ...options });
 
 function installFetch(handler) {
   globalThis.fetch = handler;
@@ -1034,7 +1047,7 @@ describe("tool", () => {
     const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
     const loadTools = buildLoadToolsTool(deferredTools);
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
@@ -1061,10 +1074,8 @@ describe("tool", () => {
         tool_choice: "auto"
       },
       deferredTools,
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 3, maxToolResultChars: 5000 }
       },
@@ -1097,7 +1108,7 @@ describe("tool", () => {
   test("runChatWithToolLoop rejects a false refusal and loads deferred document creation", async () => {
     const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
@@ -1121,10 +1132,8 @@ describe("tool", () => {
         tool_choice: "auto"
       },
       deferredTools,
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 2, maxToolResultChars: 5000 }
       },
@@ -1158,7 +1167,7 @@ describe("tool", () => {
     const loadTools = buildLoadToolsTool(deferredTools);
     const bodies = [];
     const toolEvents = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
@@ -1192,10 +1201,8 @@ describe("tool", () => {
         tool_choice: "auto"
       },
       deferredTools,
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 4, maxToolResultChars: 5000 }
       },
@@ -1232,7 +1239,7 @@ describe("tool", () => {
   test("runChatWithToolLoop degrades tool-less when tools are rejected and document tools are only deferred", async () => {
     const deferredTools = buildDocumentTools();
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if ("tool_choice" in body || "tools" in body) {
@@ -1250,10 +1257,8 @@ describe("tool", () => {
         tool_choice: "auto"
       },
       deferredTools,
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 3 },
         documents: { maxToolCallsPerTurn: 3, maxToolResultChars: 5000 }
       },
@@ -1334,15 +1339,15 @@ describe("tool", () => {
   });
 
   test("runChatWithToolLoop completes when model finishes without tool call", async () => {
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion() {
         return streamResponse([contentDelta("Hi")]);
       }
     };
     const result = await runChatWithToolLoop({
       chatRequest: { model: "test", messages: [{ role: "user", content: "ping" }] },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 3 } },
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
       onUpstreamEvent: () => {}
@@ -1353,7 +1358,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop corrects fake document download handoffs into real artifact calls", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
@@ -1380,10 +1385,8 @@ describe("tool", () => {
         tools: buildDocumentTools({ toolNames: ["create_document"] }),
         tool_choice: "auto"
       },
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
       },
@@ -1417,7 +1420,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop routes through the supplied provider override", async () => {
     const seenAuth = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ apiKey, baseUrl, providerId, body }) {
         seenAuth.push({ apiKey, baseUrl, providerId, body });
         return streamResponse([contentDelta("ok")]);
@@ -1430,8 +1433,8 @@ describe("tool", () => {
         messages: [{ role: "user", content: "ping" }],
         reasoning_effort: "high"
       },
-      crofai,
-      config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 3 } },
       provider: { id: "openrouter", apiKey: "or-key", baseUrl: "https://openrouter.ai/api/v1", label: "OpenRouter" },
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
@@ -1445,31 +1448,9 @@ describe("tool", () => {
     assert.equal(seenAuth[0].body.reasoning_effort, "high");
   });
 
-  test("runChatWithToolLoop falls back to klui credentials when provider is missing", async () => {
-    const seenAuth = [];
-    const crofai = {
-      async streamChatCompletion({ apiKey, baseUrl }) {
-        seenAuth.push({ apiKey, baseUrl });
-        return streamResponse([contentDelta("ok")]);
-      }
-    };
-
-    await runChatWithToolLoop({
-      chatRequest: { model: "x", messages: [{ role: "user", content: "ping" }] },
-      crofai,
-      config: { serverApiKey: "klui-key", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
-      signal: new AbortController().signal,
-      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
-      onUpstreamEvent: () => {}
-    });
-
-    assert.equal(seenAuth[0].apiKey, "klui-key");
-    assert.equal(seenAuth[0].baseUrl, "https://crof.ai/v1");
-  });
-
   test("runChatWithToolLoop forces a final answer after the tool-call cap", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) return streamResponse([toolCallDelta()]);
@@ -1495,8 +1476,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch,
       onUpstreamEvent: () => {}
@@ -1512,7 +1493,7 @@ describe("tool", () => {
   test("runChatWithToolLoop resets provisional prose before the final tool answer", async () => {
     const toolEvents = [];
     let calls = 0;
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion() {
         calls += 1;
         if (calls === 1) {
@@ -1542,8 +1523,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch: {
         search: async () => ({ ok: true, provider: "searxng", query: "latest", results: [] })
@@ -1558,7 +1539,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop retries once without tools when the model returns no answer", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) return streamResponse([contentDelta("")]);
@@ -1573,8 +1554,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "unused" } }) },
       onUpstreamEvent: () => {},
@@ -1599,7 +1580,7 @@ describe("tool", () => {
   test("runChatWithToolLoop degrades to a tool-less answer when the provider rejects tools", async () => {
     const bodies = [];
     const toolEvents = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if ("tool_choice" in body || "tools" in body) {
@@ -1616,8 +1597,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 3 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 3 } },
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
       onUpstreamEvent: () => {},
@@ -1637,7 +1618,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop keeps document tools by falling back to the tool-capable model", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (body.model !== "deepseek/deepseek-v4-flash-0731") {
@@ -1660,7 +1641,7 @@ describe("tool", () => {
         tools: buildDocumentTools({ toolNames: ["create_document"] }),
         tool_choice: "auto"
       },
-      crofai,
+      modelClient,
       config: {
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
@@ -1692,7 +1673,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop drops only tool_choice when the provider still supports tools", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if ("tool_choice" in body) {
@@ -1719,8 +1700,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch,
       onUpstreamEvent: () => {}
@@ -1736,7 +1717,7 @@ describe("tool", () => {
   test("runChatWithToolLoop executes only the remaining tool-call budget from a batch", async () => {
     let searchCalls = 0;
     const toolEvents = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         if (!body.tools) return streamResponse([contentDelta("Done")]);
         return streamResponse([{
@@ -1774,8 +1755,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch,
       onUpstreamEvent: () => {},
@@ -1791,7 +1772,7 @@ describe("tool", () => {
   test("runChatWithToolLoop retries once then errors if force-final still returns tool calls", async () => {
     let searchCalls = 0;
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         return streamResponse([toolCallDelta()]);
@@ -1805,8 +1786,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
-      config: { serverApiKey: "k", defaultBaseUrl: "https://crof.ai/v1", websearch: { maxToolCallsPerTurn: 1 } },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch: {
         search: async () => {
@@ -1825,7 +1806,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop bounds large tool results before the next provider call", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) return streamResponse([toolCallDelta()]);
@@ -1840,10 +1821,8 @@ describe("tool", () => {
         tools: buildWebSearchTools(),
         tool_choice: "auto"
       },
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         context: { maxTokens: 2000 },
         websearch: { maxToolCallsPerTurn: 1 }
       },
@@ -1874,7 +1853,7 @@ describe("tool", () => {
 
   test("runChatWithToolLoop injects PDF page images after visual document tool calls", async () => {
     const bodies = [];
-    const crofai = {
+    const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
@@ -1911,10 +1890,8 @@ describe("tool", () => {
         tools: [],
         tool_choice: "auto"
       },
-      crofai,
+      modelClient,
       config: {
-        serverApiKey: "k",
-        defaultBaseUrl: "https://crof.ai/v1",
         websearch: { maxToolCallsPerTurn: 0 },
         documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
       },
@@ -1949,7 +1926,7 @@ describe("tool", () => {
     }));
 
     try {
-      const crofai = {
+      const modelClient = {
         async streamChatCompletion({ body }) {
           bodies.push(body);
           if (bodies.length === 1) {
@@ -1986,10 +1963,8 @@ describe("tool", () => {
           tools: [],
           tool_choice: "auto"
         },
-        crofai,
+        modelClient,
         config: {
-          serverApiKey: "k",
-          defaultBaseUrl: "https://crof.ai/v1",
           websearch: { maxToolCallsPerTurn: 0 },
           documents: {
             maxToolCallsPerTurn: 1,
@@ -2051,17 +2026,17 @@ describe("tool", () => {
     });
 
     try {
-      const crofai = {
+      const modelClient = {
         async streamChatCompletion({ body }) {
-          if (!crofai.calls) crofai.calls = 0;
-          crofai.calls += 1;
-          if (crofai.calls === 1) {
+          if (!modelClient.calls) modelClient.calls = 0;
+          modelClient.calls += 1;
+          if (modelClient.calls === 1) {
             return streamResponse([toolCallDelta({
               name: "read_document",
               args: { attachment_id: "00000000-0000-4000-8000-000000000004", page_start: 1, page_end: 3 }
             })]);
           }
-          crofai.lastBody = body;
+          modelClient.lastBody = body;
           return streamResponse([contentDelta("done.")]);
         }
       };
@@ -2083,10 +2058,8 @@ describe("tool", () => {
 
       await runChatWithToolLoop({
         chatRequest: { model: "gpt-5-vision", messages: [{ role: "user", content: "read it" }], tools: [], tool_choice: "auto" },
-        crofai,
+        modelClient,
         config: {
-          serverApiKey: "k",
-          defaultBaseUrl: "https://crof.ai/v1",
           websearch: { maxToolCallsPerTurn: 0 },
           documents: {
             maxToolCallsPerTurn: 1,
@@ -2111,7 +2084,7 @@ describe("tool", () => {
       assert.equal(fetchOrder.length, 3);
       assert.ok(maxConcurrent >= 2, `expected concurrent fetches, got max=${maxConcurrent}`);
 
-      const visualMessage = crofai.lastBody.messages.find((message) => (
+      const visualMessage = modelClient.lastBody.messages.find((message) => (
         message.role === "user"
         && Array.isArray(message.content)
         && message.content.some((part) => part?.type === "image_url")
@@ -2139,7 +2112,7 @@ describe("tool", () => {
 
     try {
       let toolCalls = 0;
-      const crofai = {
+      const modelClient = {
         async streamChatCompletion() {
           toolCalls += 1;
           if (toolCalls <= 2) {
@@ -2172,10 +2145,8 @@ describe("tool", () => {
 
       await runChatWithToolLoop({
         chatRequest: { model: "gpt-5-vision", messages: [{ role: "user", content: "look" }], tools: [], tool_choice: "auto" },
-        crofai,
+        modelClient,
         config: {
-          serverApiKey: "k",
-          defaultBaseUrl: "https://crof.ai/v1",
           websearch: { maxToolCallsPerTurn: 0 },
           documents: {
             maxToolCallsPerTurn: 2,

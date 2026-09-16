@@ -1,4 +1,4 @@
-import { normalizeChatRequest } from "../crofai/normalize.js";
+import { normalizeChatRequest } from "../model-api/normalize.js";
 import { HttpError, parseJsonBody } from "../http/responses.js";
 import {
   buildProviderMessages,
@@ -9,7 +9,7 @@ import {
   sanitizeProviderEvent
 } from "../saas/messages.js";
 import { loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { illustrationSkillFromIds, withComposerSkillsSystemPrompt } from "../saas/composerSkills.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
@@ -17,7 +17,6 @@ import { runChatWithToolLoop } from "../websearch/tool.js";
 import { resolveChatRole } from "../models.js";
 import { resolveProvider } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
-import { requireServerCrofKey } from "../routes/meta.js";
 import {
   buildMeteredWebsearch,
   loadUploadedAttachments,
@@ -44,7 +43,6 @@ function normalizeTemporaryHistory(messages) {
 
 export async function handleTemporaryChat(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
-  requireServerCrofKey(config);
 
   const context = await requireChatContext(req, config);
   const includeReasoning = context.profile?.role === "admin";
@@ -106,19 +104,18 @@ export async function handleTemporaryChat(req, res, config) {
     { role: "user", content: userContent }
   ];
   const model = routed.models[0];
-  const provider = resolveProvider(routed.role ? "openrouter" : body.provider, config);
-  const crofai = createCrofaiUsageMeter({
+  const provider = resolveProvider("openrouter", config);
+  const modelClient = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
-    imageCount: attachments.length,
     signal: req.signal,
     meteringMode: config.desktop.meteringMode,
     reservationCredits: config.desktop.chatReservationCredits
   });
   const summarizeHistory = createConversationSummarizer({
-    crofai,
+    modelClient,
     config,
     signal: req.signal
   });
@@ -168,7 +165,7 @@ export async function handleTemporaryChat(req, res, config) {
     let response = toolSetup.augmented
       ? await runChatWithToolLoop({
           chatRequest,
-          crofai,
+          modelClient,
           config,
           provider,
           signal: controller.signal,
@@ -183,8 +180,7 @@ export async function handleTemporaryChat(req, res, config) {
         })
       : await streamSingleChat({
           chatRequest,
-          crofai,
-          config,
+          modelClient,
           provider,
           signal: controller.signal,
           res,
@@ -194,8 +190,7 @@ export async function handleTemporaryChat(req, res, config) {
       required: visualizing,
       result: response,
       chatRequest,
-      crofai,
-      config,
+      modelClient,
       provider,
       signal: controller.signal,
       res,

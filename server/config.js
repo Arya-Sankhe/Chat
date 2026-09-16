@@ -1,4 +1,3 @@
-import { CROFAI_BASE_URLS, DEFAULT_CROFAI_BASE_URL, normalizeBaseUrl } from "./crofai/constants.js";
 import { loadPlans } from "./saas/plans.js";
 import { normalizeAllowedOrigins } from "./http/cors.js";
 import { readFileSync } from "node:fs";
@@ -91,7 +90,6 @@ const ACCOUNT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9
 
 export function loadConfig(env = process.env) {
   const port = readPort(env.PORT);
-  const defaultBaseUrl = normalizeBaseUrl(env.CROFAI_BASE_URL || DEFAULT_CROFAI_BASE_URL);
   const appUrl = cleanUrl(env.APP_URL) || `http://localhost:${port}`;
   const plans = loadPlans(env);
   // ponytail: test fixtures omit ACCESS_MODE; boot via process.env must set it.
@@ -118,9 +116,6 @@ export function loadConfig(env = process.env) {
     host: env.HOST || "0.0.0.0",
     port,
     appUrl,
-    defaultBaseUrl,
-    allowedBaseUrls: CROFAI_BASE_URLS,
-    serverApiKey: clean(env.CROFAI_API_KEY),
     providers: {
       openrouter: {
         apiKey: clean(env.OPENROUTER_API_KEY),
@@ -342,7 +337,6 @@ export function loadConfig(env = process.env) {
 
 export function configuredServices(config) {
   return {
-    crof: Boolean(config.serverApiKey),
     openrouter: Boolean(config.providers?.openrouter?.apiKey),
     speech: Boolean(config.providers?.openrouter?.apiKey),
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),

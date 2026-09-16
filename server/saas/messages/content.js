@@ -47,7 +47,7 @@ export function isGenericConversationTitle(value) {
   return genericImagePrompt(title) || /^(new chat|review uploaded image|review \d+ images|user request(?:\s*:.*)?)$/i.test(title);
 }
 
-export async function generateConversationTitle({ content, crofai, config, r2, signal }) {
+export async function generateConversationTitle({ content, modelClient, config, r2, signal }) {
   const text = contentText(content).trim();
   const parts = Array.isArray(content) ? content : [];
   const images = parts.filter((part) => part?.type === "image_url");
@@ -62,7 +62,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
     ? (images.length > 1 ? `Review ${images.length} images` : "Review uploaded image")
     : conversationTitleFallback(content);
   const provider = config?.providers?.openrouter;
-  if (!crofai?.chatCompletion || !provider?.apiKey) return fallback;
+  if (!modelClient?.chatCompletion || !provider?.apiKey) return fallback;
   const titleSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(8_000)])
     : AbortSignal.timeout(8_000);
@@ -89,7 +89,7 @@ export async function generateConversationTitle({ content, crofai, config, r2, s
           }
         ]
       : context;
-    const result = await crofai.chatCompletion({
+    const result = await modelClient.chatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: "openrouter",
@@ -478,14 +478,14 @@ export function trimProviderMessagesToBudget(messages, maxTokens) {
   return result;
 }
 
-export function createConversationSummarizer({ crofai, config, signal }) {
+export function createConversationSummarizer({ modelClient, config, signal }) {
   const provider = config?.providers?.openrouter;
-  if (!crofai?.chatCompletion || !provider?.apiKey) return null;
+  if (!modelClient?.chatCompletion || !provider?.apiKey) return null;
 
   let summaryPromise = null;
   return (transcript) => {
     if (!summaryPromise) {
-      summaryPromise = crofai.chatCompletion({
+      summaryPromise = modelClient.chatCompletion({
         apiKey: provider.apiKey,
         baseUrl: provider.baseUrl,
         providerId: "openrouter",

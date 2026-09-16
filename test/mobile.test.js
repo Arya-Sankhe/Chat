@@ -286,7 +286,7 @@ test("native login renders the authenticated shell before loading account data",
   );
   const handler = source.slice(
     source.indexOf("async function handleAuthenticatedSession"),
-    source.indexOf("async function loadModels")
+    source.indexOf("async function loadPaymentRequests")
   );
   assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createCrofaiUsageMeter } from "../server/saas/usageMeter.js";
+import { createModelUsageMeter } from "../server/saas/usageMeter.js";
 import {
   HAN_RE,
   ILLUSTRATION_MAX_BYTES,
@@ -17,7 +17,7 @@ import {
   parsePlannerJson,
   planIllustrations
 } from "../server/saas/illustrations.js";
-import { imageGeneration } from "../server/crofai/client.js";
+import { imageGeneration } from "../server/model-api/client.js";
 
 const MINI_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -110,7 +110,7 @@ test("buildKreaPrompt always appends the English-label constraint", () => {
 
 test("planIllustrations sends conversation history and skips the Image API for clarify or shot lists", async () => {
   const calls = [];
-  const crofai = {
+  const modelClient = {
     async chatCompletion(params) {
       calls.push(params.body);
       const userTurns = params.body.messages.filter((message) => message.role !== "system");
@@ -135,7 +135,7 @@ test("planIllustrations sends conversation history and skips the Image API for c
   const provider = { id: "openrouter", apiKey: "k", baseUrl: "https://openrouter.ai/api/v1" };
 
   const generate = await planIllustrations({
-    crofai,
+    modelClient,
     provider,
     model: "test-model",
     historyMessages: [
@@ -153,7 +153,7 @@ test("planIllustrations sends conversation history and skips the Image API for c
   assert.equal("reasoning" in calls[0], false);
 
   const planned = await planIllustrations({
-    crofai,
+    modelClient,
     provider,
     model: "test-model",
     historyMessages: [{ role: "user", content: "Give me a shot list only. Do not generate yet." }]
@@ -161,7 +161,7 @@ test("planIllustrations sends conversation history and skips the Image API for c
   assert.equal(planned.mode, "plan");
 
   const clarify = await planIllustrations({
-    crofai,
+    modelClient,
     provider,
     model: "test-model",
     historyMessages: [{ role: "user", content: "" }]
@@ -171,7 +171,7 @@ test("planIllustrations sends conversation history and skips the Image API for c
 
 test("Han characters trigger one repair and never pass through to Krea", async () => {
   let calls = 0;
-  const crofai = {
+  const modelClient = {
     async chatCompletion() {
       calls += 1;
       if (calls === 1) {
@@ -189,7 +189,7 @@ test("Han characters trigger one repair and never pass through to Krea", async (
     }
   };
   const plan = await planIllustrations({
-    crofai,
+    modelClient,
     provider: { id: "openrouter", apiKey: "k", baseUrl: "https://example" },
     model: "test-model",
     historyMessages: [{ role: "user", content: "Draw this." }]
@@ -259,7 +259,7 @@ test("imageGeneration does not retry a non-idempotent /images request", async ()
       apiKey: "or-key",
       baseUrl: "https://openrouter.ai/api/v1",
       body: { model: ILLUSTRATION_MODEL, prompt: "x", n: 1 }
-    }), /nope/);
+    }), /model service is temporarily unavailable/i);
   } finally {
     globalThis.fetch = original;
   }
@@ -281,7 +281,7 @@ test("runReserved settles usage.cost and releases on pre-response failure", asyn
   };
   const plan = { id: "pro", monthlyApiCreditLimit: 10 };
   const subscription = { id: "sub-1", current_period_end: "2026-09-01T00:00:00.000Z" };
-  const legacy = createCrofaiUsageMeter({
+  const legacy = createModelUsageMeter({
     db,
     userId: "user-1",
     plan,
@@ -300,7 +300,7 @@ test("runReserved settles usage.cost and releases on pre-response failure", asyn
   assert.equal(calls.at(-1).payload.model, ILLUSTRATION_MODEL);
 
   calls.length = 0;
-  const enforced = createCrofaiUsageMeter({
+  const enforced = createModelUsageMeter({
     db,
     userId: "user-1",
     plan,

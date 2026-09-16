@@ -7,9 +7,8 @@ checked against the current source.
 
 ## 1. Product and runtime overview
 
-Klui Chat is a Dockerized managed B2C SaaS chat app that sits on top of
-a Crof-compatible model API (the same OpenAI-compatible `/chat/completions`
-and `/models` surface exposed by both Klui and OpenRouter). The user
+Klui Chat is a Dockerized managed B2C SaaS chat app that uses OpenRouter's
+OpenAI-compatible `/chat/completions` API. The user
 experience is a focused single-page web client served from `public/`,
 with an Android Capacitor build, a Node server in `server/`, a research
 worker process, a Python document worker container, Supabase Postgres +
@@ -25,7 +24,7 @@ in-house feature set:
   conversations, messages, attachments, document pipeline tables, research
   runs, API-credit usage, payment requests, app settings.
 - Cloudflare R2 for private user uploads (images and document files).
-- One managed model API key per provider (Klui or OpenRouter), held
+- One managed OpenRouter API key, held
   server-side, never sent to the browser.
 - Streaming chat with usage metering against a unified weekly API-credit
   budget per plan.
@@ -68,8 +67,8 @@ extras.
    │                     │               │
    ▼                     ▼               ▼
 ┌────────────┐  ┌────────────────┐  ┌──────────────────┐
-│ Crof /     │  │  Supabase      │  │  Cloudflare R2   │
-│ OpenRouter │  │  Postgres +    │  │  (signed PUT/GET)│
+│ OpenRouter │  │  Supabase      │  │  Cloudflare R2   │
+│            │  │  Postgres +    │  │  (signed PUT/GET)│
 │ /chat/     │  │  Auth + RLS    │  │  user uploads    │
 │ completions│  │                │  │                  │
 └────────────┘  └────────────────┘  └──────────────────┘
@@ -125,24 +124,23 @@ extras.
 |---|---|---|
 | `server/index.js` | Sole HTTP entry. Dispatches `/api/*` to `routes.js` and everything else to `static.js`. | `./config.js`, `./routes.js`, `./static.js` |
 | `server/static.js` | Serves files from `public/`, SPA fallback to `index.html`, the `download/android` flow, and the OTA `latest.json` CORS. | `node:fs`, `node:path`, `./http/cors.js` |
-| `server/config.js` | Reads `process.env`, normalizes all numeric/string knobs, exposes the canonical `loadConfig(env)` and `configuredServices(config)` feature flags. | `./crofai/constants.js`, `./saas/plans.js`, `./http/cors.js` |
-| `server/providers.js` | Provider registry (`klui`, `openrouter`), per-provider model defaults, `adaptChatRequestForProvider` (rewrites `reasoning_effort` → OpenRouter `reasoning.effort`, pins `require_parameters: true` for tool calls). | `./http/responses.js` |
-| `server/crofai/client.js` | OpenAI-compatible HTTP client. Bounded retry/backoff for 408/425/429/5xx, `listModels`, `streamChatCompletion`, `chatCompletion`. The only place that does retry. | `./http/responses.js`, `./providers.js` |
-| `server/crofai/constants.js` | Whitelisted Klui base URLs and `normalizeBaseUrl` validator. | `./http/responses.js` |
-| `server/crofai/normalize.js` | Validates incoming chat requests: role whitelist, content-type whitelist (text/image_url), image data-URL validator, numeric range checks for `temperature`/`top_p`/`max_tokens`/`seed`, stop and tools validation. | `./http/responses.js` |
+| `server/config.js` | Reads `process.env`, normalizes all numeric/string knobs, exposes the canonical `loadConfig(env)` and `configuredServices(config)` feature flags. | `./saas/plans.js`, `./http/cors.js` |
+| `server/providers.js` | OpenRouter credentials, model constants, and request adaptation (`reasoning_effort` → OpenRouter `reasoning.effort`, `require_parameters: true` for tool calls). | `./http/responses.js` |
+| `server/model-api/client.js` | OpenAI-compatible HTTP client. Bounded retry/backoff for 408/425/429/5xx, `listModels`, `streamChatCompletion`, `chatCompletion`. The only place that does retry. | `./http/responses.js`, `./providers.js` |
+| `server/model-api/normalize.js` | Validates incoming chat requests: role whitelist, content-type whitelist (text/image_url), image data-URL validator, numeric range checks for `temperature`/`top_p`/`max_tokens`/`seed`, stop and tools validation. | `./http/responses.js` |
 | `server/auth/supabase.js` | Bearer-token auth via Supabase `auth/v1/user`, plus `requireSupabaseConfig` and `extractBearerToken`. | `./http/responses.js` |
 | `server/db/supabaseRest.js` | PostgREST client for `service_role`. The `SupabaseRest` class keeps the unchanged public surface (`configured`, `request()`, `rpc()`, and every table/RPC method); implementations delegate to `server/db/rest/{profiles,subscriptions,payments,chat,attachments,documents,research,billing,caches,admin,helpers}.js`. **≈297 lines.** | `./http/responses.js`, `./db/rest/*.js` |
 | `server/storage/r2.js` | Pure-JS AWS Sig-V4 presigned URL signing for Cloudflare R2, content-type validation, helpers, and the `R2Client` (`presign`, `putObject`, `headObject`, `deleteObject`, `deleteObjects`, `readUrl`). | `node:crypto`, `./http/responses.js` |
-| `server/saas/plans.js` | Hard-coded three-tier plan catalog (lite/essential/pro) with env overrides. Pure data. | — |
+| `server/saas/plans.js` | Hard-coded three-tier plan catalog (lite/pro/max) with env overrides. Pure data. | — |
 | `server/saas/entitlements.js` | Resolves the active subscription + plan for a user, short-circuits to the testing plan in `ACCESS_MODE=testing`. | `./http/responses.js`, `./plans.js` |
 | `server/saas/billing.js` | Pure billing math: `billingPeriodForSubscription`, `apiUsageWindow` (4-week API-credit window), `usageCostCredits`, `estimateOpenRouterCostCredits`, `fetchOpenRouterGenerationCost` (probes `openrouter.ai/api/v1/generation?id=…`), and `assertApiBudgetAvailable` (calls `klui_check_api_budget`). | `./http/responses.js` |
-| `server/saas/usageMeter.js` | Wraps `chatCompletion` and `streamChatCompletion` to enforce weekly budget before the call and record the actual `usage.cost` (or generation cost) afterwards. The single meter for every paid model call. | `./crofai/client.js`, `./billing.js` |
+| `server/saas/usageMeter.js` | Wraps `chatCompletion` and `streamChatCompletion` to enforce weekly budget before the call and record the actual `usage.cost` (or generation cost) afterwards. The single meter for every paid model call. | `./model-api/client.js`, `./billing.js` |
 | `server/saas/systemPrompt.js` | Default global system prompt + admin-overridable value stored in `app_settings`. | — |
-| `server/saas/models.js` | Vision detection from OpenRouter model descriptors (`input_modalities` plus a name hint regex), and `resolveVisionDescribeModel` (config override → kimi/moonshot scan → `kimi-k2.6`). | — |
-| `server/saas/reasoning.js` | Normalizes reasoning deltas from `delta.reasoning_content` (Klui/DeepSeek) and `delta.reasoning` / `delta.reasoning_details[]` (OpenRouter). | — |
-| `server/saas/images.js` | Image context for text-only models: collects image attachment ids, substitutes images with text descriptions, calls a vision model once to describe every attached image and returns `{descriptions, model}`. | `./crofai/client.js`, `./http/responses.js`, `./messages.js`, `./models.js` |
+| `server/saas/models.js` | Vision detection from OpenRouter model descriptors (`input_modalities` plus a name hint regex), and `resolveVisionDescribeModel` (config override → kimi/moonshot scan → `OPENROUTER_VISION_MODEL` / `xiaomi/mimo-v2.5`). | — |
+| `server/saas/reasoning.js` | Normalizes reasoning deltas from `delta.reasoning_content` (DeepSeek) and `delta.reasoning` / `delta.reasoning_details[]` (OpenRouter). | — |
+| `server/saas/images.js` | Image context for text-only models: collects image attachment ids, substitutes images with text descriptions, calls a vision model once to describe every attached image and returns `{descriptions, model}`. | `./model-api/client.js`, `./http/responses.js`, `./messages.js`, `./models.js` |
 | `server/saas/messages.js` | Re-export barrel over `server/saas/messages/{content,stream}.js` (preserves all import paths). `content.js` (~291 lines): title generation, message content normalization, R2 URL hydration, council history filtering, `stripLeakedToolMarkup`. `stream.js` (~191 lines): `applyStreamEvent`, tool-call delta accumulation, SSE serialization, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate`. | `./messages/content.js`, `./messages/stream.js` |
-| `server/saas/council.js` | Three-stage council orchestration. `withCouncilSystemPrompt`, `generateNonce`, `buildReviewerAssignments` (shuffled letter labels with nonces to defeat prompt injection), `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview` (Stage 2), `buildChairmanPrompt`, `runChairmanSynthesis` (Stage 3). | `node:crypto`, `./crofai/client.js`, `./http/responses.js`, `./messages.js` |
+| `server/saas/council.js` | Three-stage council orchestration. `withCouncilSystemPrompt`, `generateNonce`, `buildReviewerAssignments` (shuffled letter labels with nonces to defeat prompt injection), `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview` (Stage 2), `buildChairmanPrompt`, `runChairmanSynthesis` (Stage 3). | `node:crypto`, `./model-api/client.js`, `./http/responses.js`, `./messages.js` |
 | `server/documents/index.js` | The `DocumentService` orchestrator (~656 lines). Loads documents as soon as text or visual pages are usable, embeds queries with Jina (`embedQuery`), runs similarity search via the `klui_search_document_pages` / `klui_search_document_chunks` RPCs, and implements `search` / `read` / `extractTables` / `createDocument` / `editDocument` / `exportDocument`. Pure helpers live in `server/documents/{inferFormat,resolveContent}.js`. | `./http/responses.js`, `./inferFormat.js`, `./resolveContent.js` |
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
@@ -170,7 +168,7 @@ extras.
 
 The arrow of dependency is "inward": `routes.js` and `server/chat/*`
 pull from `saas/`, `websearch/`, `documents/`, `storage/`, `db/`,
-`auth/`, `providers/`, and `crofai/`. None of those modules import
+`auth/`, `providers/`, and `model-api/`. None of those modules import
 `routes.js`. The web-search tool loop dynamically imports
 `saas/messages.js` from `websearch/tool/loop.js` to break a cycle
 (`messages.js` does not import the tool loop). `websearch/tool.js` is
@@ -180,7 +178,7 @@ OpenAI tool schema for documents and the only one that calls
 `DocumentService` methods from inside the tool run-loop.
 
 `db/supabaseRest.js` delegates to `db/rest/*` and depends only on
-`http/responses.js` plus those modules. `crofai/client.js` and
+`http/responses.js` plus those modules. `model-api/client.js` and
 `storage/r2.js` are also near-leaf modules. The only cross-cutting
 shared utilities are `http/responses.js` (errors, JSON, body parsing)
 and `config.js` (env loading).
@@ -196,7 +194,7 @@ and `config.js` (env loading).
 | `public/js/platform/updates.js` | OTA APK update check: throttled `fetch` to `/downloads/android/latest.json`, versionCode comparison, opens external APK URL. |
 | `public/js/api.js` | `apiFetch` wrapper with auto-refresh on 401. All HTTP entry points. `readSseStream` is the SSE reader shared by `streamConversationMessage` and `streamTemporaryChat`. |
 | `public/js/auth.js` | Session load/save/clear, `refreshSession`, Google Identity Services loader with iOS standalone redirect fallback, `signInWithGoogleIdToken`, `renderGoogleSignInButton`, `signOut`, `listenForNativeAuth`. |
-| `public/js/render.js` | The renderer pipeline. `escapeHtml`, `renderContent` (the public content renderer that walks content parts and produces HTML), `renderRichText` (marked + KaTeX + hljs + DOMPurify), `protectCodeSpans`/`extractMath`/`restoreCodeSpans` (LaTeX isolation that keeps prices like `$1,600` out of math), `highlightCodeBlocks` (per-code-block source storage for the copy button), `getCodeSource`/`resetCodeSourceStore`, `safeImageUrl`, `compactModelDisplayName`, `modelBrandLogoUrl`, `normalizeModelList`, `resolveDefaultCompareModels`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`/`renderModelDetails`, `formatModelMeta`. |
+| `public/js/render.js` | The renderer pipeline. `escapeHtml`, `renderContent` (the public content renderer that walks content parts and produces HTML), `renderRichText` (marked + KaTeX + hljs + DOMPurify), `protectCodeSpans`/`extractMath`/`restoreCodeSpans` (LaTeX isolation that keeps prices like `$1,600` out of math), `highlightCodeBlocks` (per-code-block source storage for the copy button), `getCodeSource`/`resetCodeSourceStore`, `safeImageUrl`, `compactModelDisplayName`, `modelBrandLogoUrl`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`/`renderModelDetails`, `formatModelMeta`. |
 | `public/js/reasoning.js` | Client mirror of `server/saas/reasoning.js`. Identical signature: `extractReasoningDelta(delta)`. |
 | `public/js/app.js` | Composition root (~5,331 lines). Owns `state`, `els`, bootstrap, composer, follow-ups, model catalog, image/document upload pipeline, message rendering shell, settings drawer, theme/appearance, account, conversation sidebar (pinned, search, menu), dialogs, and navigation. Constructs feature factories at boot and calls `stopExtractedModulePollers()` on sign-out/navigation. |
 | `public/js/streaming.js` | `createStreamReducer(...)` — client stream reducers (`applyStreamEvent`, `applyToolEvent`, `applyCompareStreamEvent`, `applyCouncilStreamEvent`, `ensureToolState`). Unit-tested via `test/app-reducers.test.js`. |
@@ -283,7 +281,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 |---|---|---|
 | `profiles` | `id uuid PK references auth.users`, `email`, `role` (`user`/`admin`), timestamps. | Created on first sign-in by `upsertProfile`. |
 | `app_settings` | `key text PK`, `value jsonb`, `updated_by`, timestamps. | Stores the global system prompt as `{"text": "…"}`. RLS read-only for authenticated. |
-| `plans` | `id text PK` (`lite` / `essential` / `pro`), `name`, `max_images_per_message`, `price_label`, `active`, `sort_order`. | 3 fixed plans; non-matching `price_label = "Manual payment"`. |
+| `plans` | `id text PK` (`lite` / `pro` / `max`), `name`, `max_images_per_message`, `price_label`, `active`, `sort_order`. | 3 fixed plans; non-matching `price_label = "Manual payment"`. |
 | `subscriptions` | `id`, `user_id`, gateway-neutral columns (`provider`, `provider_customer_id`, `provider_subscription_id`, `provider_price_id`), `plan_id`, `status` (`active`/`trialing`/…), `cancel_at_period_end`, `current_period_end`, `raw jsonb`, timestamps. | Legacy `stripe_*` columns dropped. `provider_subscription_id` is unique. |
 | `payment_requests` | `id`, `user_id`, `plan_id`, `amount_aed numeric(10,2)`, `currency`, `provider` (`ziina`), `payment_url`, `qr_image_url`, `reference_code` (unique), `status` (`pending`/`approved`/`rejected`/`cancelled`), `admin_note`, `approved_by`, `approved_at`. | Drives the manual Ziina payment flow. |
 | `conversations` | `id`, `user_id`, `title`, `model`, `deleted_at` (soft delete). | Hard-deletes are used; see `deleteConversation` in `server/db/supabaseRest.js`. |
@@ -323,8 +321,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 
 | Service | Where it is called |
 |---|---|
-| Klui model API (`crof.ai/v1`, `crof.ai/v2`) | `server/crofai/client.js` (`listModels`, `streamChatCompletion`, `chatCompletion`). Hard-whitelisted in `server/crofai/constants.js`. |
-| OpenRouter (`openrouter.ai/api/v1`) | Same `crofai/client.js` when `provider=openrouter`. Cost reconciliation via `fetchOpenRouterGenerationCost` in `server/saas/billing.js`. |
+| OpenRouter (`openrouter.ai/api/v1`) | `server/model-api/client.js` (`listModels`, `streamChatCompletion`, `chatCompletion`). Cost reconciliation uses `fetchOpenRouterGenerationCost` in `server/saas/billing.js`. |
 | Supabase PostgREST (`<project>.supabase.co/rest/v1/*`) | `server/db/supabaseRest.js` — every table read/write. |
 | Supabase GoTrue (`<project>.supabase.co/auth/v1/*`) | `server/auth/supabase.js` (`requireUser`); client-side PKCE / magic link / `signInWithIdToken` for Google in `public/js/auth.js`. |
 | Cloudflare R2 (S3-compatible at `<accountId>.r2.cloudflarestorage.com`) | `server/storage/r2.js` (presign, putObject, headObject, deleteObject, deleteObjects, readUrl). |
@@ -611,13 +608,13 @@ sequenceDiagram
 
 ### 6.7 Billing and mobile
 
-The Node server uses `createCrofaiUsageMeter` to gate every paid
+The Node server uses `createModelUsageMeter` to gate every paid
 model call:
 
 ```mermaid
 sequenceDiagram
     participant API as routes.js
-    participant M as createCrofaiUsageMeter
+    participant M as createModelUsageMeter
     participant SB as Supabase
     participant OR as OpenRouter
 
@@ -644,20 +641,20 @@ glyphs only (no layout reflow).
 
 ## 7. Cross-cutting concerns and invariants
 
-- **Server-only secrets.** The Crof/OpenRouter API key, Supabase
+- **Server-only secrets.** The OpenRouter API key, Supabase
   service-role key, R2 access keys, Jina key, Brave key, and
   any `klui_*` token are read in `server/config.js` and never leave
   the Node process. The browser only ever sends a Supabase
   Bearer token and accepts presigned R2 URLs.
 - **OpenAI-compatible contract.** Every model call goes through
-  `server/crofai/client.js` and the `messages` content shape is
+  `server/model-api/client.js` and the `messages` content shape is
   OpenAI multimodal: `{type: "text"|"image_url"|"file", …}`. The
-  `server/crofai/normalize.js` validator is the only allowed entry
+  `server/model-api/normalize.js` validator is the only allowed entry
   point for chat requests.
 - **Usage as the source of truth.** The model reports its own
   `usage.prompt_tokens`, `usage.completion_tokens`, and (where present)
   `usage.cost`. We always pass `stream_options: { include_usage: true }`
-  (`server/crofai/client.js`) and prefer `usage.cost` over the local
+  (`server/model-api/client.js`) and prefer `usage.cost` over the local
   OpenRouter fallback pricing. The `cost_source` field in
   `usage_api_events` records the source so we can later reconcile.
 - **API-credit weekly window.** The same `usage_api_weekly` row
@@ -669,15 +666,15 @@ glyphs only (no layout reflow).
   short-circuits the entitlement check to the configured
   `TEST_PLAN_ID` and grants every signed-in user a plan. The
   `subscriptions` table is not used in testing mode.
-- **Bounded retry.** `server/crofai/client.js` retries only on
+- **Bounded retry.** `server/model-api/client.js` retries only on
   408/425/429/5xx and exposes `maxAttempts` to callers. Aborts are
   never retried.
-- **Provider routing.** The two providers (`klui` and `openrouter`)
-  are interchangeable at the `chatCompletion` / `streamChatCompletion`
-  level; the only per-provider quirks are normalised in
-  `adaptChatRequestForProvider` (`reasoning.effort` shape, `tools` →
+- **Provider routing.** OpenRouter is the sole model provider. Its request
+  quirks are normalised in `adaptChatRequestForProvider`
+  (`reasoning.effort` shape, `tools` →
   `require_parameters: true`, `usage.include: true` for OpenRouter,
-  and `order: ["deepseek"]` for DeepSeek models).
+  and dynamic `provider.order` for DeepSeek models via
+  `refreshDeepSeekProviderOrder`).
 - **R2 signing is pure JS.** No AWS SDK; `server/storage/r2.js`
   implements Sig-V4. The browser is expected to upload directly
   using the presigned URL; when CORS blocks it, the API falls back
@@ -744,7 +741,7 @@ glyphs only (no layout reflow).
   - `test/native-topbar.test.js` — native top-bar mode selection (stylesheet via `readStylesheet()`).
   - `test/normalize.test.js` — provider reasoning effort mapping.
   - `test/providers.test.js` — provider availability, adaptation, model catalog normalization.
-  - `test/reasoning.test.js` — `extractReasoningDelta` for both Klui and OpenRouter shapes; reasoning duration metadata.
+  - `test/reasoning.test.js` — `extractReasoningDelta` for DeepSeek and OpenRouter shapes; reasoning duration metadata.
   - `test/render.test.js` — renderer math/code/math-protection tests; `renderContent` and `modelSupportsVision` and `inferModelBadges`.
   - `test/research.test.js` — research engine budget bounds, source validation, SSRF guard, partial reports, cancel, claim RPC.
   - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.

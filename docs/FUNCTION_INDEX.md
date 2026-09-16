@@ -60,7 +60,7 @@ regex substitutions) are deliberately not listed.
   is the canonical feature-detection helper.
 - **Callers**: `server/index.js`, `server/routes.js`, every module
   that needs to gate behavior on configuration.
-- **Major dependencies**: `server/crofai/constants.js`, `server/saas/plans.js`,
+- **Major dependencies**: `server/saas/plans.js`,
   `server/http/cors.js`.
 
 ---
@@ -95,37 +95,34 @@ regex substitutions) are deliberately not listed.
 
 ## C. Models, providers, chat normalization
 
-### `DEFAULT_PROVIDER_ID`, `OPENROUTER_*_MODEL`, `normalizeProviderId`, `providerLabel`, `defaultModelForProvider`, `resolveProvider`, `providerAvailability`, `resolveOpenRouterReasoningEffort`, `adaptChatRequestForProvider`
+### `DEFAULT_PROVIDER_ID`, `OPENROUTER_*_MODEL`, `normalizeProviderId`, `resolveProvider`, `resolveOpenRouterReasoningEffort`, `openRouterModelSupportsReasoningEffort`, `openRouterModelSupportsTopP`, `deepSeekProviderOrderFromEndpoints`, `refreshDeepSeekProviderOrder`, `adaptChatRequestForProvider`
 - **Path**: `server/providers.js`
-- **Responsibility**: Provider registry. `resolveProvider` returns
-  `{apiKey, baseUrl, id, label}` for a provider id. `adaptChatRequestForProvider`
+- **Responsibility**: OpenRouter-only provider setup. `resolveProvider`
+  returns `{apiKey, baseUrl, id, label}` or throws 503 when
+  `OPENROUTER_API_KEY` is unset. `adaptChatRequestForProvider`
   rewrites `reasoning_effort` → OpenRouter `reasoning.effort`, forces
   `usage.include: true`, pins `require_parameters: true` for tool
-  calls, and routes DeepSeek models to the `deepseek` provider.
-- **Callers**: `server/crofai/client.js`, `server/routes.js`.
+  calls, and sets DeepSeek `provider.order` from
+  `refreshDeepSeekProviderOrder`.
+- **Callers**: `server/model-api/client.js`, `server/chat/*`,
+  `server/routes/*`, `server/research/worker.js`, `server/study/generate.js`.
 - **Major dependencies**: `server/http/responses.js`.
 
-### `listModels`, `streamChatCompletion`, `chatCompletion`
-- **Path**: `server/crofai/client.js`
+### `listModels`, `streamChatCompletion`, `chatCompletion`, `imageGeneration`
+- **Path**: `server/model-api/client.js`
 - **Responsibility**: The only place that calls the upstream
   OpenAI-compatible model API. Bounded retry/backoff for
   408/425/429/5xx; non-retry on 4xx; abort propagation. Streaming
   callers pipe the raw Response; non-streaming callers parse the
-  JSON.
-- **Callers**: `server/routes.js`, `server/saas/usageMeter.js`,
+  JSON. `imageGeneration` posts to OpenRouter `/images` (non-retried).
+- **Callers**: `server/chat/pipeline.js`, `server/saas/usageMeter.js`,
   `server/saas/council.js`, `server/saas/images.js`,
-  `server/research/worker.js`.
+  `server/saas/userMemory.js`, `server/saas/illustrations.js`,
+  `server/routes/desktop.js`.
 - **Major dependencies**: `server/http/responses.js`, `server/providers.js`.
 
-### `DEFAULT_CROFAI_BASE_URL`, `CROFAI_BASE_URLS`, `SUPPORTED_CHAT_PARAMS`, `normalizeBaseUrl`
-- **Path**: `server/crofai/constants.js`
-- **Responsibility**: Whitelist of allowed Klui base URLs;
-  `normalizeBaseUrl` is the only allowed validator.
-- **Callers**: `server/config.js`, `server/routes.js`.
-- **Major dependencies**: `server/http/responses.js`.
-
 ### `normalizeChatRequest` ← mixed
-- **Path**: `server/crofai/normalize.js`
+- **Path**: `server/model-api/normalize.js`
 - **Responsibility**: Validates an inbound chat request. Role
   whitelist, content-type whitelist (text/image_url), image
   data-URL validator, numeric range checks, stop/seed/tools
@@ -216,7 +213,7 @@ regex substitutions) are deliberately not listed.
 
 ### `loadPlans`, `publicPlan`, `findPlanById`
 - **Path**: `server/saas/plans.js`
-- **Responsibility**: Hard-coded three-tier plan catalog (lite/essential/pro)
+- **Responsibility**: Hard-coded three-tier plan catalog (lite/pro/max)
   with env overrides. `publicPlan` is the projection returned by
   `GET /api/plans`.
 - **Callers**: `server/config.js`, `server/routes.js`.
@@ -241,16 +238,16 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `server/saas/usageMeter.js`, `server/routes.js`.
 - **Major dependencies**: `server/http/responses.js`.
 
-### `createCrofaiUsageMeter` ← mixed
+### `createModelUsageMeter` ← mixed
 - **Path**: `server/saas/usageMeter.js`
 - **Responsibility**: Returns `{checkBudget, chatCompletion,
-  streamChatCompletion}`. Wraps the raw `crofai/client.js`
+  streamChatCompletion}`. Wraps the raw `model-api/client.js`
   functions to enforce the weekly budget before each call and
   record the actual cost afterwards. Parses the streaming SSE for
   `usage` and `id` so the meter can attribute the cost to the
   generation.
 - **Callers**: `server/routes/*`, `server/chat/*`, `server/research/worker.js`.
-- **Major dependencies**: `server/crofai/client.js`, `server/saas/billing.js`.
+- **Major dependencies**: `server/model-api/client.js`, `server/saas/billing.js`.
 
 ### `SYSTEM_PROMPT_SETTING_KEY`, `DEFAULT_GLOBAL_SYSTEM_PROMPT`, `normalizeGlobalSystemPrompt`, `systemPromptSettingValue`, `loadGlobalSystemPrompt`
 - **Path**: `server/saas/systemPrompt.js`
@@ -264,14 +261,14 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: Vision detection from OpenRouter model
   descriptors (`input_modalities` plus a name regex), and resolution
   of the vision describe model (config override → kimi/moonshot
-  scan → `kimi-k2.6`).
+  scan → `OPENROUTER_VISION_MODEL` / `xiaomi/mimo-v2.5`).
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: none.
 
 ### `extractReasoningDelta`
 - **Path**: `server/saas/reasoning.js`
 - **Responsibility**: Normalizes reasoning/thinking deltas from
-  `delta.reasoning_content` (Klui/DeepSeek) and `delta.reasoning` /
+  `delta.reasoning_content` (DeepSeek) and `delta.reasoning` /
   `delta.reasoning_details[]` (OpenRouter).
 - **Callers**: `server/saas/messages.js`.
 - **Major dependencies**: none.
@@ -288,7 +285,7 @@ regex substitutions) are deliberately not listed.
   descriptions, and substitute images with text descriptions for
   text-only models.
 - **Callers**: `server/chat/pipeline.js`.
-- **Major dependencies**: `server/crofai/client.js`, `server/saas/messages.js`,
+- **Major dependencies**: `server/model-api/client.js`, `server/saas/messages.js`,
   `server/saas/models.js`, `server/http/responses.js`.
 
 ---
@@ -334,10 +331,12 @@ regex substitutions) are deliberately not listed.
   the order from the reviewer's output. `aggregateBordaCount`
   computes the average Borda score. `selectChairman` picks the
   override → Borda winner → user-selected → first panelist.
-  `runPeerReview` runs Stage 2 with up to 3 attempts per reviewer.
-  `runChairmanSynthesis` streams Stage 3.
+  `runPeerReview({ panelists, originalUserPrompt, provider, signal, onBallot, callsCounter, chatCompletionFn, maxTokens })`
+  runs Stage 2 with up to 3 attempts per reviewer.
+  `runChairmanSynthesis({ chairmanModel, prompt, systemPrompt, provider, signal, onEvent, reasoningEffort, maxTokens, streamChatCompletionFn })`
+  streams Stage 3.
 - **Callers**: `server/chat/council.js` (`handleCouncilConversationMessage`).
-- **Major dependencies**: `node:crypto`, `server/crofai/client.js`,
+- **Major dependencies**: `node:crypto`, `server/model-api/client.js`,
   `server/saas/messages.js`, `server/http/responses.js`.
 
 ---
@@ -618,12 +617,11 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/auth/supabase.js`, `server/db/supabaseRest.js`,
   `server/storage/r2.js`, `server/saas/entitlements.js`.
 
-### `handleHealth`, `handleConfig`, `handlePlans`, `handleMe`, `handleModels`
+### `handleHealth`, `handleConfig`, `handlePlans`, `handleMe`
 - **Path**: `server/routes/meta.js`
-- **Responsibility**: Health, public config, plan list, `GET /api/me`,
-  and model catalog (L1+L2 cache).
+- **Responsibility**: Health, public config, plan list, and `GET /api/me`.
 - **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/db/supabaseRest.js`, `server/crofai/client.js`,
+- **Major dependencies**: `server/db/supabaseRest.js`,
   `server/saas/entitlements.js`, `server/saas/billing.js`,
   `server/saas/systemPrompt.js`.
 
@@ -697,29 +695,35 @@ regex substitutions) are deliberately not listed.
 ### `waitForDocumentCapabilities`, `startPendingTurnHeartbeat`, `wrapProviderCallsWithTurnFence`
 - **Path**: `server/chat/turns.js`
 - **Responsibility**: Capability waiting, claim ownership helpers, lease
-  heartbeat safety, and the one-time provider-start fence for durable turns.
+  heartbeat safety, and the one-time provider-start fence
+  `wrapProviderCallsWithTurnFence({ modelClient, db, userId, run })`.
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/http/responses.js`.
 
-### `streamSingleChat`
+### `streamSingleChat`, `ensureVisualizeResponse`
 - **Path**: `server/chat/single.js`
 - **Responsibility**: Legacy fast path streaming a single model response
-  without tools (not used by the main agent-mode flow in `pipeline.js`).
+  without tools via
+  `{ chatRequest, modelClient, provider, signal, res, includeReasoning }`.
+  `ensureVisualizeResponse({ required, result, chatRequest, modelClient, provider, signal, res, includeReasoning, onReset })`
+  repairs incomplete visualize blocks.
 - **Callers**: `server/chat/pipeline.js` (single-chat branch when tools
-  are disabled).
+  are disabled), `server/chat/temporary.js`.
 - **Major dependencies**: `server/saas/messages/stream.js`.
 
 ### `handleCompareConversationMessage`
 - **Path**: `server/chat/compare.js`
 - **Responsibility**: N parallel `streamChatCompletion` requests for
-  Compare mode.
+  Compare mode via
+  `{ req, res, context, conversation, chatRequests, modelClient, provider, webSearch, documentSearch, turnRun }`.
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/saas/messages/stream.js`, `server/saas/images.js`.
 
 ### `handleCouncilConversationMessage`
 - **Path**: `server/chat/council.js`
 - **Responsibility**: Full three-stage Council flow (panel → peer review
-  → chairman synthesis).
+  → chairman synthesis) via
+  `{ req, res, context, conversation, chatRequests, panelModels, originalPrompt, settings, chairmanOverride, modelClient, provider, webSearch, documentSearch, turnRun }`.
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: `server/saas/council.js`, `server/saas/messages/*`.
 
@@ -728,7 +732,7 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: Ephemeral chat with no persistence and no
   attachments.
 - **Callers**: `handleApiRequest`.
-- **Major dependencies**: `server/websearch/tool/loop.js`, `server/crofai/client.js`.
+- **Major dependencies**: `server/websearch/tool/loop.js`, `server/model-api/client.js`.
 
 ---
 
@@ -745,7 +749,7 @@ regex substitutions) are deliberately not listed.
 - **Callers**: every other browser module.
 - **Major dependencies**: `public/js/platform/index.js`.
 
-### `fetchConfig`, `fetchPlans`, `createZiinaPaymentRequest`, `fetchZiinaPaymentRequests`, `approveAdminPayment`, `rejectAdminPayment`, `fetchMe`, `fetchModels`, `listConversations`, `createConversation`, `fetchConversation`, `deleteConversation`, `updateConversation`, `createResearch`, `fetchResearchStatus`, `cancelResearch`, `fetchResearchReport`, `presignUpload`, `completeUpload`, `putUploadContent`, `uploadImage`, `uploadFile`, `fetchDocumentStatus`, `deleteAttachment`, `fetchDocumentJobStatus`, `fetchAttachmentView`, `downloadAttachment`, `streamConversationMessage`, `streamCompareConversationMessage`, `cancelPendingDocumentTurn`, `streamTemporaryChat`, `fetchAdminSummary`, `updateAdminSettings`
+### `fetchConfig`, `fetchPlans`, `createZiinaPaymentRequest`, `fetchZiinaPaymentRequests`, `approveAdminPayment`, `rejectAdminPayment`, `fetchMe`, `listConversations`, `createConversation`, `fetchConversation`, `deleteConversation`, `updateConversation`, `createResearch`, `fetchResearchStatus`, `cancelResearch`, `fetchResearchReport`, `presignUpload`, `completeUpload`, `putUploadContent`, `uploadImage`, `uploadFile`, `fetchDocumentStatus`, `deleteAttachment`, `fetchDocumentJobStatus`, `fetchAttachmentView`, `downloadAttachment`, `streamConversationMessage`, `streamCompareConversationMessage`, `cancelPendingDocumentTurn`, `streamTemporaryChat`, `fetchAdminSummary`, `updateAdminSettings`
 - **Path**: `public/js/api.js`
 - **Responsibility**: One-to-one mapping to the server's `/api/*`
   routes. `uploadImage` / `uploadFile` are the only browser-side
@@ -782,7 +786,7 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `public/js/platform/index.js` (`appVersion`,
   `openExternal`, `storage`).
 
-### `escapeHtml`, `renderPlainText`, `renderContent`, `getCodeSource`, `resetCodeSourceStore`, `compactModelDisplayName`, `modelBrandLogoUrl`, `normalizeModelList`, `resolveDefaultCompareModels`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`, `renderModelDetails`, `formatModelMeta`
+### `escapeHtml`, `renderPlainText`, `renderContent`, `getCodeSource`, `resetCodeSourceStore`, `compactModelDisplayName`, `modelBrandLogoUrl`, `modelSupportsVision`, `inferModelBadges`, `renderModelOption`, `renderModelDetails`, `formatModelMeta`
 - **Path**: `public/js/render.js`
 - **Responsibility**: The renderer pipeline. `renderContent` walks
   content parts (text/image_url/file) and produces HTML. Internal

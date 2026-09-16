@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { loadConfig, validateRuntimeConfig } from "../config.js";
 import { SupabaseRest } from "../db/supabaseRest.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { resolveProvider } from "../providers.js";
 import { partialReport, runDeepResearch } from "./engine.js";
 
@@ -58,8 +58,8 @@ async function processRun(run) {
     });
     if (!entitlement.active || !entitlement.plan) throw new Error("An active Klui plan is required.");
 
-    const provider = resolveProvider(run.provider || "openrouter", config);
-    const meter = createCrofaiUsageMeter({
+    const provider = resolveProvider("openrouter", config);
+    const meter = createModelUsageMeter({
       db,
       userId: run.user_id,
       subscription: entitlement.subscription,

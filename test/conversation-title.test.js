@@ -14,7 +14,7 @@ const config = {
 
 test("conversation titles use Laguna for text and MiMo only when an image carries the intent", async () => {
   const requests = [];
-  const crofai = {
+  const modelClient = {
     async chatCompletion(request) {
       requests.push(request);
       return requests.length === 1
@@ -26,7 +26,7 @@ test("conversation titles use Laguna for text and MiMo only when an image carrie
 
   const textTitle = await generateConversationTitle({
     content: "Hi, can you compare VPS hosting costs for our deployment?",
-    crofai,
+    modelClient,
     config,
     r2
   });
@@ -35,7 +35,7 @@ test("conversation titles use Laguna for text and MiMo only when an image carrie
       type: "image_url",
       image_url: { object_key: "traffic.png", file_name: "traffic.png", url: "r2://traffic.png" }
     }],
-    crofai,
+    modelClient,
     config,
     r2
   });
@@ -63,7 +63,7 @@ test("specific image prompts stay text-only and title failures have a usable fal
       { type: "text", text: "Compare the pricing shown in this screenshot" },
       { type: "image_url", image_url: { object_key: "pricing.png" } }
     ],
-    crofai: {
+    modelClient: {
       async chatCompletion(value) {
         request = value;
         return "Compare Screenshot Pricing";
@@ -79,7 +79,7 @@ test("specific image prompts stay text-only and title failures have a usable fal
   });
   const fallback = await generateConversationTitle({
     content: [{ type: "image_url", image_url: { object_key: "broken.png" } }],
-    crofai: { async chatCompletion() { throw new Error("offline"); } },
+    modelClient: { async chatCompletion() { throw new Error("offline"); } },
     config,
     r2: { readUrl: () => "https://signed.example/broken.png" }
   });
@@ -97,7 +97,7 @@ test("generic image prompts never persist the raw request as the chat title", as
       { type: "text", text: "solve this" },
       { type: "image_url", image_url: { object_key: "question.png" } }
     ],
-    crofai: { async chatCompletion() { return "solve this"; } },
+    modelClient: { async chatCompletion() { return "solve this"; } },
     config,
     r2: { readUrl: () => "https://signed.example/question.png" }
   });
@@ -114,13 +114,13 @@ test("generic image prompts never persist the raw request as the chat title", as
 test("title model output never keeps a User request prefix", async () => {
   const title = await generateConversationTitle({
     content: "hey",
-    crofai: { async chatCompletion() { return "User request: hey"; } },
+    modelClient: { async chatCompletion() { return "User request: hey"; } },
     config,
     r2: { readUrl: () => "" }
   });
   const generic = await generateConversationTitle({
     content: "hey",
-    crofai: { async chatCompletion() { return "User request"; } },
+    modelClient: { async chatCompletion() { return "User request"; } },
     config,
     r2: { readUrl: () => "" }
   });

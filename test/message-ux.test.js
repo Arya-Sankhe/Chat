@@ -35,6 +35,11 @@ test("a new chat paints optimistically before conversation creation finishes", (
   assert.match(css, /view-transition-name:\s*chat-composer/);
 });
 
+test("the client has no legacy provider discovery or toggle path", () => {
+  const appJs = readPublic("js/app.js");
+  assert.doesNotMatch(appJs, /fetchModels|loadModels|providerToggle|activeProvider/);
+});
+
 test("clarification card stays optional and supports recommended, custom, back, skip, and continue paths", () => {
   const html = readPublic("index.html");
   const appJs = readPublic("js/app.js");

@@ -169,7 +169,7 @@ test("configuredServices does not grow a mamo key", () => {
   assert.equal("mamo" in services, false);
   assert.deepEqual(
     Object.keys(services).sort(),
-    ["access", "crof", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
+    ["access", "documents", "openrouter", "r2", "research", "speech", "supabase", "weather", "websearch"]
   );
 });
 

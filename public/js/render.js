@@ -614,49 +614,6 @@ export function modelBrandLogoUrl(model) {
   return "";
 }
 
-function modelHaystack(model) {
-  return `${model?.id || ""} ${model?.rawName || ""} ${model?.name || ""}`.trim().toLowerCase();
-}
-
-const DEFAULT_COMPARE_TARGETS = [
-  (m) => /kimi|moonshot/.test(modelHaystack(m)) && /k2\.6|k2-6/.test(modelHaystack(m)),
-  (m) => /deepseek/.test(modelHaystack(m)) && /v4[\s._-]*pro/.test(modelHaystack(m)),
-  (m) => /glm|zhipu|z-ai|thudm/.test(modelHaystack(m)) && /5\.1|5-1/.test(modelHaystack(m)),
-  (m) => /mimo|xiaomi/.test(modelHaystack(m)) && /v2[\s._-]*5[\s._-]*pro/.test(modelHaystack(m))
-];
-
-export function resolveDefaultCompareModels(models) {
-  if (!Array.isArray(models) || !models.length) return [];
-
-  const picked = [];
-  for (const matches of DEFAULT_COMPARE_TARGETS) {
-    const model = models.find((item) => matches(item) && !picked.includes(item.id));
-    if (model) picked.push(model.id);
-  }
-
-  return picked.slice(0, 4);
-}
-
-export function normalizeModelList(payload) {
-  const list = Array.isArray(payload) ? payload : payload?.data;
-  if (!Array.isArray(list)) return [];
-
-  return list
-    .filter((model) => model && typeof model.id === "string")
-    .map((model) => {
-      const id = model.id.trim();
-      const rawName = typeof model.name === "string" && model.name.trim() ? model.name.trim() : id;
-
-      return {
-        ...model,
-        id,
-        rawName,
-        name: compactModelDisplayName(rawName)
-      };
-    })
-    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
-}
-
 function perMillionPrice(value) {
   if (value === undefined || value === null || value === "") return "";
   const number = Number(value);

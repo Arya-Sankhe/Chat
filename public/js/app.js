@@ -31,7 +31,6 @@ import {
   fetchDocumentStatus,
   fetchMe,
   fetchMemory,
-  fetchModels,
   fetchPlans,
   fetchProject,
   fetchStorage,
@@ -110,7 +109,6 @@ import {
   mailtoComposeUrl,
   modelBrandLogoUrl,
   modelSupportsVision,
-  normalizeModelList,
   outlookComposeUrl,
   renderPlainText,
   renderContent,
@@ -216,7 +214,6 @@ function applySpectrumLevel(level) {
   updateSetting("spectrumScale", 3);
   updateSetting("spectrumLevel", n);
   updateSetting("modelMode", step.mode);
-  updateSetting("provider", "openrouter");
   updateSetting("thinkingEffort", step.effort);
   updateSetting("model", step.model);
   paintSpectrum(n);
@@ -293,8 +290,6 @@ const defaultSettings = {
   agentMode: true,
   webSearchMode: "auto",
   writingStyle: "normal",
-  provider: "openrouter",
-  kluiModel: "",
   appearance: "system",
   colorPreset: "default",
   wallpaper: "clouds",
@@ -339,7 +334,6 @@ const state = {
   loadingOlderMessages: false,
   prependingOlder: false,
   conversationLoading: false,
-  models: [],
   settings: loadSettings(),
   images: [],
   pastedText: "",
@@ -822,7 +816,6 @@ const els = {
   compareModeToggle: document.querySelector("#compareModeToggle"),
   compareModeDesc: document.querySelector("#compareModeDesc"),
   webSearchToggle: document.querySelector("#webSearchToggle"),
-  providerToggle: document.querySelector("#providerToggle"),
   documentViewer: document.querySelector("#documentViewer"),
   documentViewerResizer: document.querySelector("#documentViewerResizer"),
   documentViewerTitle: document.querySelector("#documentViewerTitle"),
@@ -1996,7 +1989,7 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
-  return modelIds.some((id) => !modelSupportsVision(modelById(id) || { id }));
+  return modelIds.some((id) => !modelSupportsVision({ id }));
 }
 
 function resolveCompareModelsForSend({ images = state.images, userContent = null, keepAttachments = [] } = {}) {
@@ -2086,7 +2079,6 @@ function loadSettings() {
     loaded.agentMode = true;
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
     loaded.writingStyle = normalizeWritingStyle(loaded.writingStyle);
-    loaded.provider = "openrouter";
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
     loaded.thinkingEffort = normalizeThinkingEffort(loaded.thinkingEffort);
     // Every load opens on Think. Moving the slider still applies for the
@@ -2097,7 +2089,8 @@ function loadSettings() {
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
     loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
-    loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
+    delete loaded.provider;
+    delete loaded.kluiModel;
     delete loaded.theme;
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
@@ -2217,62 +2210,6 @@ function renderWebSearchToggle() {
   els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
 }
 
-function openRouterAvailable() {
-  return Boolean(state.config?.providers?.openrouter || state.config?.services?.openrouter);
-}
-
-function activeProvider() {
-  return "openrouter";
-}
-
-function renderProviderToggle() {
-  if (!els.providerToggle) return;
-  if (!openRouterAvailable()) {
-    els.providerToggle.classList.add("hidden");
-    return;
-  }
-  els.providerToggle.classList.remove("hidden");
-  const on = activeProvider() === "openrouter";
-  els.providerToggle.setAttribute("aria-pressed", on ? "true" : "false");
-  els.providerToggle.setAttribute(
-    "aria-label",
-    on ? "Provider: OpenRouter (on)" : "Provider: Klui — click to use OpenRouter"
-  );
-  els.providerToggle.setAttribute(
-    "title",
-    on
-      ? "Provider: OpenRouter."
-      : "Provider: Klui — click to route this chat through OpenRouter."
-  );
-}
-
-function toggleProvider() {
-  if (!openRouterAvailable()) return;
-  const next = activeProvider() === "openrouter" ? "klui" : "openrouter";
-  if (next === "openrouter") {
-    /* Stash the current Klui model so we can restore it on toggle-off. */
-    if (state.settings.model && state.settings.model !== OPENROUTER_VISION_MODEL) {
-      updateSetting("kluiModel", state.settings.model);
-    }
-    updateSetting("provider", "openrouter");
-    updateSetting("model", resolveRoutedModel());
-    if (state.settings.compareEnabled) {
-      updateSetting("compareEnabled", false);
-      updateSetting("compareModels", []);
-      compareController.closeCompareDropdown();
-    }
-  } else {
-    updateSetting("provider", "klui");
-    const restored = state.settings.kluiModel
-      || state.models.find((m) => m.id !== OPENROUTER_VISION_MODEL)?.id
-      || "";
-    if (restored) updateSetting("model", restored);
-  }
-  renderProviderToggle();
-  renderModelOptions();
-  compareController.renderCompareControls();
-}
-
 function toggleWebSearchMode() {
   const next = state.settings.webSearchMode === "off" ? "auto" : "off";
   updateSetting("webSearchMode", next);
@@ -2349,8 +2286,7 @@ function withTimeout(promise, ms, label) {
 
 function servicesReady() {
   const s = state.config?.services || {};
-  const providers = state.config?.providers || {};
-  return Boolean(s.supabase && s.access && (providers.openrouter || s.openrouter));
+  return Boolean(s.supabase && s.access && s.openrouter);
 }
 
 function hasChatAccess() {
@@ -2459,7 +2395,7 @@ function renderServices() {
     supabase: "Supabase Auth & Postgres",
     access: "Access mode",
     r2: "Cloudflare R2 storage",
-    crof: "Managed model API key",
+    openrouter: "OpenRouter model API",
     documents: "Document tools"
   }).map(([key, label]) => `
     <div class="service-row">
@@ -3908,14 +3844,6 @@ async function handleConversationListClick(event) {
 
 /* ─── Model selector ─── */
 
-function selectedModel() {
-  return state.models.find((m) => m.id === state.settings.model);
-}
-
-function modelById(id) {
-  return state.models.find((m) => m.id === id);
-}
-
 function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_MODEL) return "DeepSeek";
   if (id === OPENROUTER_COUNCIL_HY3_MODEL) return "Hy3";
@@ -3925,8 +3853,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";
   if (id === OPENROUTER_GLM_FLASH_MODEL) return "GLM 5.3 Flash";
-  const model = modelById(id);
-  return compactModelDisplayName(model?.name || model?.rawName || id) || id;
+  return compactModelDisplayName(id) || id;
 }
 
 function toggleModelDropdown() {
@@ -4880,12 +4807,10 @@ async function sendSideChatMessage() {
   renderSideChat();
 
   try {
-    const provider = activeProvider();
     await streamTemporaryChat(state.session, {
       text,
       messages: history,
       role: sideChatState.role || selectedSingleRole(),
-      provider,
       settings: chatRequestSettings(),
       writingStyle: "concise",
       agentMode: !sideChatState.flashcard,
@@ -7618,19 +7543,6 @@ async function handleAuthenticatedSession(session) {
   }
 }
 
-async function loadModels() {
-  if (!state.config?.services?.crof) {
-    state.models = [];
-    return;
-  }
-  try {
-    const payload = await fetchModels(state.session);
-    state.models = normalizeModelList(payload);
-  } catch (err) {
-    showToast(err.message);
-  }
-}
-
 async function loadPaymentRequests() {
   if (!state.session?.access_token) {
     state.paymentRequests = [];
@@ -7929,7 +7841,7 @@ async function resumePendingDocumentTurn(run) {
 }
 
 async function loadChatApp() {
-  await Promise.all([loadModels(), loadConversations(), loadProjects()]);
+  await Promise.all([loadConversations(), loadProjects()]);
   if (studyRouteFromLocation()) {
     await loadStudyHub();
     state.studyOpen = true;
@@ -8550,12 +8462,10 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
   let shouldReloadConversation = false;
 
   try {
-    const retryProvider = activeProvider();
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
       role: selectedSingleRole(),
-      provider: retryProvider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
@@ -8830,7 +8740,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
       uploaded.push(uploadedFile);
     }
 
-    const provider = activeProvider();
     const payload = {
       text,
       clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -8838,7 +8747,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
         : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`,
       attachments: uploaded.map((item) => item.id),
       role: selectedChatRole(),
-      provider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       skillIds: sendSkillIds,
@@ -10091,9 +9999,6 @@ function bindEvents() {
       event.stopPropagation();
       toggleWebSearchMode();
     });
-  }
-  if (els.providerToggle) {
-    els.providerToggle.addEventListener("click", toggleProvider);
   }
   els.imagePreviews.addEventListener("click", (e) => {
     const removePaste = e.target.closest("[data-remove-paste]");

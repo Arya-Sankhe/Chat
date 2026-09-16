@@ -18,11 +18,10 @@ import {
 export async function handleCompareConversationMessage({
   req,
   res,
-  config,
   context,
   conversation,
   chatRequests,
-  crofai,
+  modelClient,
   provider,
   webSearch,
   documentSearch,
@@ -84,15 +83,15 @@ export async function handleCompareConversationMessage({
     });
 
     try {
-      const upstream = await crofai.streamChatCompletion({
-        apiKey: provider?.apiKey || config.serverApiKey,
-        baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+      const upstream = await modelClient.streamChatCompletion({
+        apiKey: provider.apiKey,
+        baseUrl: provider.baseUrl,
         body: chatRequest,
         providerId: provider?.id,
         signal: controller.signal
       });
 
-      if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
+      if (!upstream.body) throw new HttpError(502, `${provider.label} returned an empty response stream.`);
 
       const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
         writeSse(res, {
@@ -103,7 +102,7 @@ export async function handleCompareConversationMessage({
         });
       });
       if (!hasAssistantOutput(accumulated)) {
-        throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response.`);
+        throw new HttpError(502, `${provider.label} returned an empty response.`);
       }
 
       const compareDurationMeta = reasoningDurationMetadata(assistantMessage.metadata, accumulated);

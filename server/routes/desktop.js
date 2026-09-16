@@ -1,14 +1,14 @@
 import { extractBearerToken } from "../auth/supabase.js";
 import { desktopAuthProvider } from "../auth/desktopProvider.js";
 import { requireDesktopFeature } from "../auth/desktop.js";
-import { streamChatCompletion } from "../crofai/client.js";
+import { streamChatCompletion } from "../model-api/client.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { resolveProvider } from "../providers.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { pipeProviderStreamAndAccumulate } from "../saas/messages/stream.js";
 import { publicPlan } from "../saas/plans.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { MAX_AUDIO_SECONDS, validatedAudioDuration } from "../speech/audio.js";
 import {
   MAX_AUDIO_BYTES,
@@ -286,7 +286,7 @@ export async function handleDesktopChat(req, res, config) {
   const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), config);
   const reservationCredits = fundDesktopChat(body, config);
   const provider = resolveProvider("openrouter", config);
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,

@@ -105,18 +105,24 @@ export function createCompareController({
   `;
   }
 
+  function compareCatalogModels() {
+    const ids = [...new Set(seedCompareModels())];
+    return ids.map((id) => ({ id, name: id }));
+  }
+
   function renderCompareCatalog() {
     const query = elements.compareInput.value.trim().toLowerCase();
     const selectedIds = selectedCompareModelIds();
-    const visible = state.models
+    const catalog = compareCatalogModels();
+    const visible = catalog
       .filter((m) => {
         const h = `${m.id} ${m.name || ""}`.toLowerCase();
         return !query || h.includes(query);
       })
       .slice(0, 80);
 
-    if (!state.models.length) {
-      elements.compareCatalog.innerHTML = `<div class="model-empty">Loading models…</div>`;
+    if (!catalog.length) {
+      elements.compareCatalog.innerHTML = `<div class="model-empty">No compare models configured.</div>`;
       return;
     }
 
