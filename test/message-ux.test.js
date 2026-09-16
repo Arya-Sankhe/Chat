@@ -13,6 +13,15 @@ function readPublic(path) {
   return readFileSync(resolve(publicDir, path), "utf8");
 }
 
+test("chat pagination keeps the page cursor across live-run park and restore", () => {
+  const appJs = readPublic("js/app.js");
+  assert.match(appJs, /run\.messagePage = state\.messagePage/);
+  assert.match(appJs, /state\.messagePage = run\.messagePage \|\| conversationCache\.get\(conversationId\)\?\.page/);
+  assert.match(appJs, /loadGeneration !== conversationLoadGeneration \|\| state\.activeConversationId !== id/);
+  // Loading older pages must hold the reader's place instead of jumping to the bottom.
+  assert.match(appJs, /setMessagesScrollTop\(beforeScrollTop \+ \(els\.messages\.scrollHeight - beforeScrollHeight\)\)/);
+});
+
 test("clarification card stays optional and supports recommended, custom, back, skip, and continue paths", () => {
   const html = readPublic("index.html");
   const appJs = readPublic("js/app.js");

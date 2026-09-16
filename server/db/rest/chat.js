@@ -126,17 +126,62 @@ export async function deleteMessage(client, userId, messageId, { signal } = {}) 
   return single(rows);
 }
 
+const MESSAGE_PAGE_SIZE = 24;
+const MESSAGE_PAGE_MAX = 60;
+
+function messageSelect(includeReasoning) {
+  return `id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot${includeReasoning ? ",reasoning" : ""}`;
+}
+
 export async function listMessages(client, userId, conversationId, { signal, includeReasoning = false } = {}) {
-  const select = `id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot${includeReasoning ? ",reasoning" : ""}`;
   return client.request("messages", {
     query: {
       user_id: `eq.${userId}`,
       conversation_id: `eq.${conversationId}`,
-      select,
+      select: messageSelect(includeReasoning),
       order: "created_at.asc"
     },
     signal
   });
+}
+
+/**
+ * Newest-first page of a conversation, reversed to reading order. `cursor` is the
+ * oldest row the caller already holds ({ createdAt, id }); rows that share a
+ * timestamp are ordered by id so a seam can neither skip nor repeat one. The page
+ * is trimmed to start on a user message so grouped runs (council / compare) do not
+ * straddle a boundary; trimmed rows are older than the returned cursor, so the next
+ * page picks them up. The last page is never trimmed, since nothing follows it.
+ */
+export async function listMessagesPage(client, userId, conversationId, { signal, includeReasoning = false, limit = MESSAGE_PAGE_SIZE, cursor = null } = {}) {
+  const requested = Number(limit);
+  const size = limit == null || limit === "" || !Number.isFinite(requested)
+    ? MESSAGE_PAGE_SIZE
+    : Math.max(1, Math.min(MESSAGE_PAGE_MAX, Math.trunc(requested)));
+  const rows = await client.request("messages", {
+    query: {
+      user_id: `eq.${userId}`,
+      conversation_id: `eq.${conversationId}`,
+      select: messageSelect(includeReasoning),
+      order: "created_at.desc,id.desc",
+      limit: String(size + 1), // one spare row is what tells us older messages exist
+      ...(cursor?.createdAt && cursor?.id
+        ? { or: `(created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id}))` }
+        : {})
+    },
+    signal
+  });
+
+  const hasMore = rows.length > size;
+  const page = (hasMore ? rows.slice(0, size) : rows).reverse();
+  const firstUser = hasMore ? page.findIndex((message) => message.role === "user") : -1;
+  const messages = firstUser > 0 ? page.slice(firstUser) : page;
+  const oldest = messages[0];
+  return {
+    messages,
+    hasMore,
+    cursor: oldest ? { createdAt: oldest.created_at, id: oldest.id } : null
+  };
 }
 
 export async function listRecentAssistantMessages(client, userId, conversationId, { signal, limit = 10, offset = 0 } = {}) {

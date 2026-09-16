@@ -377,7 +377,7 @@ test("resource 404s surface as problem JSON after auth", async () => {
   const overrides = stubbedDeps({
     db: {
       async getConversation() { return null; },
-      async listMessages() { return []; },
+      async listMessagesPage() { return { messages: [], hasMore: false, cursor: null }; },
       async listPendingDocumentTurns() { return []; },
       async listMessageAttachments() { return []; },
       async deleteMessage() { return null; }
@@ -391,6 +391,82 @@ test("resource 404s surface as problem JSON after auth", async () => {
   const message = await dispatch(authReadyConfig, { method: "DELETE", path: "/api/messages/missing", overrides });
   assert.equal(message.statusCode, 404);
   assert.equal(message.json().error, "Message not found.");
+});
+
+test("conversation GET takes limit and cursor and returns the page contract", async () => {
+  const calls = [];
+  const cursorId = "11111111-1111-4111-8111-111111111111";
+  const oldestId = "22222222-2222-4222-8222-222222222222";
+  const overrides = stubbedDeps({
+    db: {
+      async getConversation() { return { id: "conv-1", title: "Long chat" }; },
+      async listMessagesPage(userId, conversationId, options) {
+        calls.push({ userId, conversationId, options });
+        return {
+          messages: [{ id: oldestId, role: "user", content: "hi", created_at: "2026-01-01T00:00:05.000Z" }],
+          hasMore: true,
+          cursor: { createdAt: "2026-01-01T00:00:05.000Z", id: oldestId }
+        };
+      },
+      async listPendingDocumentTurns() { return []; }
+    }
+  });
+
+  const res = await dispatch(authReadyConfig, {
+    path: `/api/conversations/conv-1?limit=5&cursor=2026-01-01T00%3A00%3A06.000Z%7C${cursorId}`,
+    overrides
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.deepEqual(body.messages.map((message) => message.id), [oldestId]);
+  assert.deepEqual(body.page, { hasMore: true, cursor: `2026-01-01T00:00:05.000Z|${oldestId}` });
+  assert.equal(calls[0].options.limit, "5");
+  assert.deepEqual(calls[0].options.cursor, { createdAt: "2026-01-01T00:00:06.000Z", id: cursorId });
+});
+
+test("conversation GET validates the cursor shape before filtering with it", async () => {
+  const calls = [];
+  const overrides = stubbedDeps({
+    db: {
+      async getConversation() { return { id: "conv-1", title: "Long chat" }; },
+      async listMessagesPage(userId, conversationId, options) {
+        calls.push(options);
+        return { messages: [], hasMore: false, cursor: null };
+      },
+      async listPendingDocumentTurns() { return []; }
+    }
+  });
+
+  const malformed = await dispatch(authReadyConfig, {
+    path: "/api/conversations/conv-1?cursor=not-a-timestamp%7Cnot-a-uuid",
+    overrides
+  });
+  assert.equal(malformed.statusCode, 200, malformed.body);
+  assert.equal(calls[0].cursor, null); // falls back to the newest page
+
+  // PostgREST emits microsecond precision with a numeric offset, not a Z.
+  const native = await dispatch(authReadyConfig, {
+    path: "/api/conversations/conv-1?cursor=2026-01-01T00%3A00%3A05.123456%2B00%3A00%7C11111111-1111-4111-8111-111111111111",
+    overrides
+  });
+  assert.equal(native.statusCode, 200, native.body);
+  assert.deepEqual(calls[1].cursor, {
+    createdAt: "2026-01-01T00:00:05.123456+00:00",
+    id: "11111111-1111-4111-8111-111111111111"
+  });
+
+  await dispatch(authReadyConfig, {
+    path: "/api/conversations/conv-1?cursor=2026-99-99T99%3A99%3A99Z%7C11111111-1111-4111-8111-111111111111",
+    overrides
+  });
+  assert.equal(calls[2].cursor, null);
+
+  await dispatch(authReadyConfig, {
+    path: "/api/conversations/conv-1?cursor=2026-01-01T00%3A00%3A05.000Z%7C11111111-1111-4111-8111-111111111111%7Cextra",
+    overrides
+  });
+  assert.equal(calls[3].cursor, null);
 });
 
 test("authenticated happy path works through stubbed dependencies", async () => {

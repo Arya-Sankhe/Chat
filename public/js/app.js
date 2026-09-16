@@ -335,6 +335,9 @@ const state = {
   activeResearchId: "",
   researchReport: null,
   messages: [],
+  messagePage: { hasMore: false, cursor: null },
+  loadingOlderMessages: false,
+  prependingOlder: false,
   conversationLoading: false,
   models: [],
   settings: loadSettings(),
@@ -434,9 +437,9 @@ const unreadDoneChats = new Set();
 const conversationCache = new Map();
 let conversationLoadGeneration = 0;
 
-function rememberConversation(id, messages) {
+function rememberConversation(id, messages, page = null) {
   if (!id) return;
-  conversationCache.set(id, { messages: messages || [] });
+  conversationCache.set(id, { messages: messages || [], page });
   if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
 }
 
@@ -493,6 +496,7 @@ function beginConversationRun(key, {
     mode,
     abortController,
     messages: null,
+    messagePage: !temporary && isRunKeyActive(key) ? state.messagePage : null,
     followUps: isRunKeyActive(key) ? state.followUps.slice() : [],
     turnRunId: "",
     turnWaiting: false,
@@ -524,12 +528,13 @@ function endConversationRun(key, { completed = false } = {}) {
 
 function parkActiveConversationRun() {
   if (state.activeConversationId && !state.temporaryChat && !state.conversationLoading) {
-    rememberConversation(state.activeConversationId, state.messages);
+    rememberConversation(state.activeConversationId, state.messages, state.messagePage);
   }
   const key = conversationRunKey();
   const run = getConversationRun(key);
   if (!run) return;
   run.messages = state.messages;
+  run.messagePage = state.messagePage;
   run.followUps = state.followUps.slice();
 }
 
@@ -540,6 +545,7 @@ function restoreLiveConversationRun(conversationId) {
   // Research is durable on the server; returning should resume from fetched metadata.
   if (run.mode === "research" && !run.abortController) return false;
   state.messages = run.messages;
+  state.messagePage = run.messagePage || conversationCache.get(conversationId)?.page || { hasMore: false, cursor: null };
   state.followUps = Array.isArray(run.followUps) ? run.followUps.slice() : [];
   renderFollowUps();
   syncActiveRunningUi();
@@ -1677,6 +1683,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     }
     state.activeConversationId = "";
     state.messages = [];
+    state.messagePage = { hasMore: false, cursor: null };
     for (const item of state.images) forgetPendingDocument(item);
     state.images = [];
     state.pastedText = "";
@@ -3843,8 +3850,10 @@ async function openConversation(conversationId) {
   try {
     syncConversationUrl();
     if (!restoreLiveConversationRun(conversationId)) {
-      state.messages = conversationCache.get(conversationId)?.messages || [];
-      state.conversationLoading = !conversationCache.has(conversationId);
+      const cached = conversationCache.get(conversationId);
+      state.messages = cached?.messages || [];
+      state.messagePage = cached?.page || { hasMore: false, cursor: null };
+      state.conversationLoading = !cached;
     } else {
       state.conversationLoading = false;
     }
@@ -5601,6 +5610,9 @@ function renderMessages() {
 
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
   const beforeScrollTop = els.messages.scrollTop;
+  const beforeScrollHeight = els.messages.scrollHeight;
+  const prepending = state.prependingOlder;
+  state.prependingOlder = false;
 
   captureReasoningOpenState();
 
@@ -5617,6 +5629,9 @@ function renderMessages() {
 
   if (beforePinned) {
     pinMessagesToBottom();
+  } else if (prepending) {
+    // Older messages were prepended above the viewport: hold the reader's place.
+    setMessagesScrollTop(beforeScrollTop + (els.messages.scrollHeight - beforeScrollHeight));
   } else {
     setMessagesScrollTop(beforeScrollTop);
   }
@@ -7665,8 +7680,11 @@ async function loadConversations() {
 async function loadActiveConversation() {
   const id = state.activeConversationId;
   const loadGeneration = ++conversationLoadGeneration;
+  state.loadingOlderMessages = false; // an in-flight older-page fetch now belongs to a stale generation
+  state.prependingOlder = false;
   if (!id) {
     state.messages = [];
+    state.messagePage = { hasMore: false, cursor: null };
     state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
@@ -7675,13 +7693,14 @@ async function loadActiveConversation() {
   if (restoreLiveConversationRun(id)) {
     state.conversationLoading = false;
     researchController.resumeResearchPolling();
+    requestAnimationFrame(fillMessageViewport);
     return "applied";
   }
   const cachedAtStart = conversationCache.get(id);
   const payload = await fetchConversation(state.session, id);
   if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) {
     if (!getConversationRun(id) && conversationCache.get(id) === cachedAtStart) {
-      rememberConversation(id, payload.messages || []);
+      rememberConversation(id, payload.messages || [], payload.page || null);
       return "cached";
     }
     return false;
@@ -7689,10 +7708,12 @@ async function loadActiveConversation() {
   if (restoreLiveConversationRun(id)) {
     state.conversationLoading = false;
     researchController.resumeResearchPolling();
+    requestAnimationFrame(fillMessageViewport);
     return "applied";
   }
-  rememberConversation(id, payload.messages || []);
+  rememberConversation(id, payload.messages || [], payload.page || null);
   state.messages = payload.messages || [];
+  state.messagePage = payload.page || { hasMore: false, cursor: null };
   state.conversationLoading = false;
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
@@ -7710,7 +7731,48 @@ async function loadActiveConversation() {
   if (pendingTurn && !getConversationRun(state.activeConversationId) && state.resumingTurnId !== pendingTurn.id) {
     setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
   }
+  requestAnimationFrame(fillMessageViewport);
   return "applied";
+}
+
+/**
+ * Fetch the page of messages older than the window and prepend it. The prepend
+ * is anchored by the scrollHeight delta it adds (see renderMessages).
+ */
+async function loadOlderMessages() {
+  const id = state.activeConversationId;
+  const cursor = state.messagePage?.cursor;
+  if (!id || !cursor || state.loadingOlderMessages || state.temporaryChat) return;
+  state.loadingOlderMessages = true;
+  const loadGeneration = conversationLoadGeneration;
+  const payload = await fetchConversation(state.session, id, { cursor }).catch(() => null); // on failure keep hasMore so the next scroll retries
+  if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) return;
+  state.loadingOlderMessages = false;
+  if (!payload) return;
+  const older = payload.messages || [];
+  if (!older.length) {
+    state.messagePage = { hasMore: false, cursor: null };
+    return;
+  }
+  state.messages.unshift(...older);
+  state.messagePage = payload.page || { hasMore: false, cursor: null };
+  state.prependingOlder = true;
+  renderMessages();
+  fillMessageViewport();
+}
+
+/** Scroll-up trigger: only fires at the top, and never while we pin to the bottom. */
+function maybeLoadOlderMessages() {
+  if (!state.messagePage?.hasMore || state.loadingOlderMessages) return;
+  if (state.autoScroll || els.messages.scrollTop > 120) return;
+  void loadOlderMessages();
+}
+
+/** A window shorter than the viewport can't be scrolled, so top it up until it can. */
+function fillMessageViewport() {
+  if (!state.messagePage?.hasMore || state.loadingOlderMessages) return;
+  if (els.messages.scrollHeight > els.messages.clientHeight + 4) return;
+  void loadOlderMessages();
 }
 
 function restoredTurnAttachment(part) {
@@ -7853,6 +7915,7 @@ async function resumePendingDocumentTurn(run) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
       if (refreshed) {
         state.messages = refreshed.messages || state.messages;
+        state.messagePage = refreshed.page || { hasMore: false, cursor: null };
         const nextTurn = (refreshed.pendingTurns || [])[0];
         if (nextTurn && nextTurn.id !== run.id) {
           setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
@@ -8038,6 +8101,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   state.activeProjectId = "";
   state.activeProject = null;
   state.messages = [];
+  state.messagePage = { hasMore: false, cursor: null };
   state.images = [];
   state.pastedText = "";
   state.compareDescribeImages = false;
@@ -8628,6 +8692,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     });
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
+    state.messagePage = { hasMore: false, cursor: null };
     state.projectsOpen = false;
     state.studyOpen = false;
     createdConversation = true;
@@ -9210,7 +9275,10 @@ function bindEvents() {
       updateChatScrollNavigation();
     });
   };
-  els.messages.addEventListener("scroll", queueChatNavigationUpdate, { passive: true });
+  els.messages.addEventListener("scroll", () => {
+    queueChatNavigationUpdate();
+    maybeLoadOlderMessages();
+  }, { passive: true });
   els.messages.addEventListener("load", (event) => {
     if (!event.target.closest?.("img.message-image") || !state.autoScroll) return;
     requestAnimationFrame(pinMessagesToBottom);
