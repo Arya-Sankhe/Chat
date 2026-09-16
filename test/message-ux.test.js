@@ -22,6 +22,19 @@ test("chat pagination keeps the page cursor across live-run park and restore", (
   assert.match(appJs, /setMessagesScrollTop\(beforeScrollTop \+ \(els\.messages\.scrollHeight - beforeScrollHeight\)\)/);
 });
 
+test("a new chat paints optimistically before conversation creation finishes", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  const send = appJs.slice(appJs.indexOf("async function executeSend"), appJs.indexOf("async function signOutAndReset"));
+  const created = send.indexOf("await conversationPromise");
+  assert.ok(send.indexOf("document.startViewTransition(paintConversation)") < created);
+  assert.ok(send.indexOf("state.messages = [localUser, localAssistant]", created) > created);
+  assert.match(send, /setRunning\(true\)[\s\S]*?renderShell\(\)[\s\S]*?await conversationPromise/);
+  assert.match(send, /catch \(error\)[\s\S]*?setComposerPlainText\(text, sendSkillMarks\)[\s\S]*?showToast/);
+  assert.match(css, /view-transition-name:\s*chat-messages/);
+  assert.match(css, /view-transition-name:\s*chat-composer/);
+});
+
 test("clarification card stays optional and supports recommended, custom, back, skip, and continue paths", () => {
   const html = readPublic("index.html");
   const appJs = readPublic("js/app.js");

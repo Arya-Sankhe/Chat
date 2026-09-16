@@ -4,6 +4,8 @@
 
   flex: 1;
 
+  view-transition-name: chat-messages;
+
   overflow-y: auto;
 
   padding: 36px clamp(12px, 2vw, 24px) 160px;

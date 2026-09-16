@@ -8683,25 +8683,18 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
-  let createdConversation = false;
-
-  if (!temporaryChat && (newChat || !state.activeConversationId)) {
-    const payload = await createConversation(state.session, {
-      role: selectedChatRole(),
-      projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
-    });
-    state.conversations.unshift(payload.conversation);
-    state.activeConversationId = payload.conversation.id;
-    state.messagePage = { hasMore: false, cursor: null };
-    state.projectsOpen = false;
-    state.studyOpen = false;
-    createdConversation = true;
-    syncConversationUrl();
-    renderConversations();
-  }
-  const conversationId = state.activeConversationId;
-  const runKey = conversationRunKey(conversationId, temporaryChat);
-  if (!runKey || getConversationRun(runKey)) return;
+  const creatingConversation = !temporaryChat && (newChat || !state.activeConversationId);
+  // Home state to restore if creating the conversation fails.
+  const rollback = { messages: state.messages, messagePage: state.messagePage, projectsOpen: state.projectsOpen, studyOpen: state.studyOpen };
+  const conversationPromise = creatingConversation
+    ? createConversation(state.session, {
+        role: selectedChatRole(),
+        projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
+      })
+    : null;
+  let conversationId = state.activeConversationId;
+  let runKey = creatingConversation ? "" : conversationRunKey(conversationId, temporaryChat);
+  if (!creatingConversation && (!runKey || getConversationRun(runKey))) return;
 
   const keptParts = keepAttachments.map((att) => att.category === "document"
     ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
@@ -8742,7 +8735,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       return !(m.compareGroup || m.councilGroup);
     });
   }
-  if (createdConversation) {
+  if (creatingConversation) {
     state.messages = [localUser, localAssistant];
   } else {
     state.messages.push(localUser, localAssistant);
@@ -8757,6 +8750,44 @@ async function executeSend({ text, images, compareModels, council = false, descr
   state.images = [];
   renderImages();
 
+  if (creatingConversation) {
+    state.projectsOpen = false;
+    state.studyOpen = false;
+    setAutoScroll(true);
+    setRunning(true);
+    const paintConversation = () => {
+      renderShell();
+      pinMessagesToBottom();
+    };
+    if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) document.startViewTransition(paintConversation);
+    else paintConversation();
+
+    let payload;
+    try {
+      payload = await conversationPromise;
+    } catch (error) {
+      Object.assign(state, rollback);
+      state.images = images;
+      for (const item of images) rememberPendingDocument(item);
+      setComposerPlainText(text, sendSkillMarks);
+      setRunning(false);
+      renderImages();
+      applyComposerHeight();
+      renderShell();
+      showToast(error.message || "Chat could not be created.");
+      return;
+    }
+    state.conversations.unshift(payload.conversation);
+    state.activeConversationId = payload.conversation.id;
+    state.messages = [localUser, localAssistant]; // re-assert: the user may have navigated while the request was in flight
+    state.messagePage = { hasMore: false, cursor: null };
+    conversationId = state.activeConversationId;
+    runKey = conversationRunKey(conversationId, false);
+    syncConversationUrl();
+    renderConversations();
+    renderProjectChatCrumb();
+  }
+
   const abortController = new AbortController();
   const activeRun = beginConversationRun(runKey, {
     conversationId: temporaryChat ? "" : conversationId,
@@ -8770,8 +8801,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   activeRun.draft = { text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks };
   setAutoScroll(true);
   syncActiveRunningUi();
-  if (createdConversation) renderShell();
-  else renderMessages();
+  renderMessages();
   pinMessagesToBottom();
   let shouldReloadConversation = false;
   let wasAborted = false;

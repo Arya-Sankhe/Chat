@@ -170,6 +170,8 @@
 
   position: absolute;
 
+  view-transition-name: chat-composer;
+
   left: 0;
 
   right: 0;
@@ -188,6 +190,12 @@
 
   overflow: visible;
 
+}
+
+::view-transition-group(chat-messages),
+::view-transition-group(chat-composer) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
 }
 
 .composer-area .composer-wrap {
