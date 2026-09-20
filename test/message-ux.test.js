@@ -27,12 +27,37 @@ test("a new chat paints optimistically before conversation creation finishes", (
   const css = readStylesheet();
   const send = appJs.slice(appJs.indexOf("async function executeSend"), appJs.indexOf("async function signOutAndReset"));
   const created = send.indexOf("await conversationPromise");
-  assert.ok(send.indexOf("document.startViewTransition(paintConversation)") < created);
+  assert.ok(send.indexOf("document.startViewTransition(() => paintConversation(true))") < created);
   assert.ok(send.indexOf("state.messages = [localUser, localAssistant]", created) > created);
   assert.match(send, /setRunning\(true\)[\s\S]*?renderShell\(\)[\s\S]*?await conversationPromise/);
   assert.match(send, /catch \(error\)[\s\S]*?setComposerPlainText\(text, sendSkillMarks\)[\s\S]*?showToast/);
   assert.match(css, /view-transition-name:\s*chat-messages/);
   assert.match(css, /view-transition-name:\s*chat-composer/);
+});
+
+test("sent user bubbles animate once across new-chat and in-chat send paths", () => {
+  const appJs = readPublic("js/app.js");
+  const css = readStylesheet();
+  const send = appJs.slice(appJs.indexOf("async function executeSend"), appJs.indexOf("async function signOutAndReset"));
+
+  assert.match(appJs, /function animateSentUserMessage\(messageId\)/);
+  assert.match(appJs, /reduced \? 140 : 260/);
+  assert.match(send, /document\.startViewTransition\(\(\) => paintConversation\(true\)\)/);
+  assert.match(send, /if \(!creatingConversation\) animateSentUserMessage\(localUser\.id\)/);
+  assert.match(css, /\.message\.user\.sent-message-transition \.message-content\s*\{[^}]*view-transition-name:\s*sent-user-message/);
+  assert.match(css, /::view-transition-new\(sent-user-message\)\s*\{[^}]*260ms cubic-bezier\(0\.23, 1, 0\.32, 1\)/);
+});
+
+test("stopping keeps the sent turn and animates its draft back into the composer", () => {
+  const appJs = readPublic("js/app.js");
+  const restore = appJs.slice(appJs.indexOf("function restoreCancelledTurnDraft"), appJs.indexOf("async function resumePendingDocumentTurn"));
+
+  assert.match(restore, /markAssistantStopped\(run\?\.assistantMessage\)/);
+  assert.doesNotMatch(restore, /state\.messages\s*=/);
+  assert.match(restore, /setComposerPlainText\(restoredText, restoredMarks\)/);
+  assert.match(restore, /animateRestoredComposerDraft\(\)/);
+  assert.match(appJs, /function animateRestoredComposerDraft\(\)[\s\S]*duration: reduced \? 140 : 220/);
+  assert.match(appJs, /You stopped the response\./);
 });
 
 test("the client has no legacy provider discovery or toggle path", () => {
@@ -201,7 +226,7 @@ test("message errors stay compact and only network or stale-build errors offer r
   assert.match(appJs, /function reloadAppIfSafe\(\)/);
   assert.doesNotMatch(appJs, /Finish the current response or send\/save your draft before reloading\./);
   assert.match(css, /\.message-error\s*\{[\s\S]*?display:\s*inline-flex[\s\S]*?width:\s*fit-content[\s\S]*?border-radius:\s*999px[\s\S]*?padding:\s*5px 8px/);
-  assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">Stopped by user\.<\/div>`/);
+  assert.match(appJs, /if \(isStoppedMessage\(msg\)\) return `<div class="message-stopped" role="status">You stopped the response\.<\/div>`/);
   assert.match(appJs, /role === "assistant"[\s\S]*?hasEmailCardBlock\(rawTextContent\(msg\.content\)\)[\s\S]*?content\.replaceChildren\(\.\.\.next\.childNodes\)/);
   const stopped = css.match(/\.message-stopped\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(stopped, /color:/);
@@ -413,6 +438,7 @@ test("temporary chat reuses the image upload path but keeps documents blocked", 
 test("composer plus rotates into an x and the send button travels like a keycap", () => {
   const css = readStylesheet();
   assert.match(css, /\.composer-plus-btn\[aria-expanded="true"\] svg \{[\s\S]*?transform:\s*rotate\(45deg\)/);
+  assert.match(css, /\.send-btn\s*\{[\s\S]*?transform:\s*translateY\(0\)/);
   assert.match(css, /\.send-btn\.active \{[\s\S]*?transform:\s*translateY\(-3px\)/);
   assert.match(css, /\.send-btn\.active:active \{[\s\S]*?transform:\s*translateY\(4px\)/);
 });

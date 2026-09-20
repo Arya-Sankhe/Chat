@@ -52,6 +52,7 @@ function composer({ native = true } = {}) {
     composerSnapshot: () => ({ text: ctx.text, marks: [] }),
     setComposerPlainText: (text) => { ctx.text = text; },
     pendingDocumentUploads: () => [],
+    getConversationRun: () => ({}),
     syncComposerBeam() {}, hideAttachmentModelNotice() {}, hideNativeKeyboard() {},
     requireAuth: () => true,
     addFollowUpFromInput: () => { ctx.sends += 1; },
@@ -76,6 +77,17 @@ function composer({ native = true } = {}) {
     },
   };
 }
+
+test("stop stays hidden until the first chat has a cancellable run", () => {
+  const c = composer();
+  c.ctx.getConversationRun = () => null;
+  c.ctx.updateSendButton();
+  assert.equal(c.stopClasses.has("hidden"), true);
+
+  c.ctx.getConversationRun = () => ({});
+  c.ctx.updateSendButton();
+  assert.equal(c.stopClasses.has("hidden"), false);
+});
 
 test("native confirmation stops on the first pointerdown and never sends its fast transcript", async () => {
   const c = composer();

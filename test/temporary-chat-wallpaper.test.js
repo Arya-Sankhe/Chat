@@ -24,6 +24,7 @@ test("temporary chat uses one reversible, code-native sketch", async () => {
   assert.match(css, /\.temporary-chat-line-fragments \{[\s\S]*?stroke-dasharray: 70 92;[\s\S]*?stroke-dashoffset: 1000;/);
   assert.match(css, /body\.chat-empty\.temporary-chat \.temporary-chat-line-fragments \{[\s\S]*?transition-duration: 1400ms;/);
   assert.match(css, /body\.chat-empty\.temporary-chat \.temporary-chat-line-connector \{[\s\S]*?stroke-dashoffset: 0;[\s\S]*?transition-duration: 900ms;[\s\S]*?transition-delay: 1150ms;/);
+  assert.match(css, /body\.temporary-chat:not\(\.chat-empty\) \.temporary-chat-art,[\s\S]*?body\.temporary-chat:not\(\.chat-empty\) \.temporary-chat-line \{\s*transition: none;/);
   assert.match(css, /body\[data-mode="dark"\] \.temporary-chat-art \{[\s\S]*?background: #050505;/);
   assert.doesNotMatch(app, /prepareWallpaperAperture|wallpaperTempLayer/);
 });

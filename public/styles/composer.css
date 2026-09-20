@@ -2881,7 +2881,7 @@ body.chat-empty .skill-command-menu {
 
   opacity: 0.3;
 
-  transform: translateY(3px);
+  transform: translateY(0);
 
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--accent-contrast) 28%, transparent),

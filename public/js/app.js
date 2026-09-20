@@ -142,6 +142,7 @@ import {
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
 const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Orbitron:wght@700&family=Patrick+Hand&family=Shantell+Sans:ital,wght@0,400;0,600;0,800;1,500&display=swap";
+let viewTransitionUserMessageId = "";
 
 const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
 const MENU_ICON_ATTRS = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
@@ -4292,6 +4293,18 @@ function isStoppedMessage(message) {
   return Boolean(message?.stopped || message?.error === "Stopped by user.");
 }
 
+function markAssistantStopped(message) {
+  if (!message) return;
+  if (message.councilGroup) {
+    for (const panelist of message.panelists) panelist.stopped = true;
+    if (message.chairman) message.chairman.stopped = true;
+  } else if (message.compareGroup) {
+    for (const response of message.compareResponses) response.stopped = true;
+  } else {
+    message.stopped = true;
+  }
+}
+
 function canRetryAssistant(message) {
   if (state.running) return false;
   if (message?.councilGroup || message?.compareGroup) return false;
@@ -5007,7 +5020,7 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderUserContent(msg);
-  if (isStoppedMessage(msg)) return `<div class="message-stopped" role="status">Stopped by user.</div>`;
+  if (isStoppedMessage(msg)) return `<div class="message-stopped" role="status">You stopped the response.</div>`;
   return `${renderAssistantActivity(msg, { streaming })}${renderArtifacts(msg, (artifact) => artifact?.type === "weather")}${renderAssistantContent(content, msg)}${renderArtifacts(msg, (artifact) => artifact?.type !== "weather")}${renderMessageError(msg)}${renderMissingFinal(msg, role)}`;
 }
 
@@ -5470,6 +5483,7 @@ function renderStandardMessage(raw) {
     : rawTextContent(msg.content);
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
+  const transitioning = role === "user" && String(msg.id || "") === viewTransitionUserMessageId;
   const userImages = role === "user" ? renderUserImages(msg) : "";
 
   const inner = role === "assistant" && researchController.researchMeta(msg)
@@ -5480,7 +5494,7 @@ function renderStandardMessage(raw) {
         ${renderMessageFooter(msg, role)}`;
 
   return `
-    <article class="message ${role}${editing ? " editing" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
+    <article class="message ${role}${editing ? " editing" : ""}${transitioning ? " sent-message-transition" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-body">
         ${inner}
       </div>
@@ -5593,6 +5607,45 @@ function setMessagesScrollTop(value) {
 
 function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
+}
+
+function animateSentUserMessage(messageId) {
+  requestAnimationFrame(() => {
+    const bubble = els.messages.querySelector(`[data-message-id="${cssString(messageId)}"] .message-content`);
+    if (!bubble) return;
+    const reduced = prefersReducedMotion();
+    bubble.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translate(12px, 18px) scale(0.95)" },
+            { opacity: 1, transform: "translate(0, 0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 260,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
+}
+
+function animateRestoredComposerDraft() {
+  requestAnimationFrame(() => {
+    if (!els.promptInput) return;
+    const reduced = prefersReducedMotion();
+    els.promptInput.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translateY(-12px) scale(0.98)" },
+            { opacity: 1, transform: "translateY(0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 220,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
 }
 
 // Keep finished tables mounted so a mid-stream pan isn't cancelled by the next token.
@@ -7140,8 +7193,9 @@ function updateSendButton() {
       || (!state.config?.services?.speech && voiceState !== "recording");
   }
   const voiceBusy = voiceState === "recording" || voiceState === "processing";
+  const canStop = Boolean(state.activeResearchId || getConversationRun());
   els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
-  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy);
+  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy || !canStop);
   if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
     els.sendButton.disabled = voiceState !== "recording";
@@ -7721,24 +7775,7 @@ function restoredTurnAttachment(part) {
 function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   if (result?.run?.status !== "cancelled") return false;
   if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
-  const remainingMessages = state.messages.filter((message) =>
-    message !== run?.userMessage && message !== run?.assistantMessage);
-  state.messages = remainingMessages;
-  if (run) run.messages = remainingMessages;
-  if (!remainingMessages.length) {
-    for (const item of [...state.images, ...(run?.draft?.images || [])]) {
-      forgetPendingDocument(item);
-      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    }
-    setComposerPlainText("");
-    state.pastedText = "";
-    state.images = [];
-    clearFollowUps();
-    renderImages();
-    applyComposerHeight();
-    renderMessages();
-    return true;
-  }
+  markAssistantStopped(run?.assistantMessage);
   const content = result.user_message?.content;
   const restoredText = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
   const restoredMarks = result.user_message?.metadata?.skillMarks
@@ -7762,6 +7799,7 @@ function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   renderImages();
   applyComposerHeight();
   renderMessages();
+  animateRestoredComposerDraft();
   els.promptInput.focus();
   return true;
 }
@@ -8667,12 +8705,18 @@ async function executeSend({ text, images, compareModels, council = false, descr
     state.studyOpen = false;
     setAutoScroll(true);
     setRunning(true);
-    const paintConversation = () => {
+    const paintConversation = (transitionMessage = false) => {
+      viewTransitionUserMessageId = transitionMessage ? localUser.id : "";
       renderShell();
+      viewTransitionUserMessageId = "";
       pinMessagesToBottom();
     };
-    if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) document.startViewTransition(paintConversation);
-    else paintConversation();
+    if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) {
+      document.startViewTransition(() => paintConversation(true));
+    } else {
+      paintConversation();
+      animateSentUserMessage(localUser.id);
+    }
 
     let payload;
     try {
@@ -8714,6 +8758,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   setAutoScroll(true);
   syncActiveRunningUi();
   renderMessages();
+  if (!creatingConversation) animateSentUserMessage(localUser.id);
   pinMessagesToBottom();
   let shouldReloadConversation = false;
   let wasAborted = false;
@@ -8827,14 +8872,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
           applyComposerHeight();
         }
       }
-      if (localAssistant.councilGroup) {
-        for (const panelist of localAssistant.panelists) panelist.stopped = true;
-        if (localAssistant.chairman) localAssistant.chairman.stopped = true;
-      } else if (localAssistant.compareGroup) {
-        for (const response of localAssistant.compareResponses) response.stopped = true;
-      } else {
-        localAssistant.stopped = true;
-      }
+      markAssistantStopped(localAssistant);
     } else {
       if (localAssistant.councilGroup) {
         for (const panelist of localAssistant.panelists) {

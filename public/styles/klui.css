@@ -620,6 +620,12 @@ body.chat-empty.temporary-chat .temporary-chat-line-connector {
   transition-delay: 1150ms;
 }
 
+/* A sent temporary message replaces the home art; do not unwind it over chat. */
+body.temporary-chat:not(.chat-empty) .temporary-chat-art,
+body.temporary-chat:not(.chat-empty) .temporary-chat-line {
+  transition: none;
+}
+
 body.chat-empty.temporary-chat .home-wallpaper {
   opacity: 0;
 }

@@ -46,7 +46,7 @@ test("Projects reuses the composer and upload path with a backend capacity meter
   assert.doesNotMatch(app, /formatProjectBytes\(usage\.usedBytes\)/);
   assert.match(app, /const showTempToggle = !state\.projectsOpen/);
   assert.match(app, /state\.conversations\.filter\(\(conversation\) => !conversation\.project_id\)\.sort/);
-  assert.match(app, /document\.startViewTransition\(paintConversation\)/);
+  assert.match(app, /document\.startViewTransition\(\(\) => paintConversation\(true\)\)/);
   assert.match(app, /waitForDocumentReady\(document\.id, document\.fileName\)/);
   assert.match(css, /\.project-capacity-track/);
   assert.match(css, /\.project-detail-layout\s*\{[\s\S]*grid-template-columns/);
