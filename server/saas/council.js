@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chatCompletion, streamChatCompletion } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
 import { streamProviderAndAccumulate } from "./messages.js";
-import { openRouterModelSupportsReasoningEffort } from "../providers.js";
+import { OPENROUTER_LAGUNA_S, openRouterModelSupportsReasoningEffort } from "../providers.js";
 
 /**
  * System prompt injected on top of the user's own system prompt for Stage 1.
@@ -236,6 +236,7 @@ export async function runPeerReview({
               max_tokens: maxTokens,
               temperature: 0.2,
               reasoning: openRouterModelSupportsReasoningEffort(assignment.reviewerModelId)
+                || String(assignment.reviewerModelId || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S
                 ? { effort: "low", exclude: false }
                 : { enabled: true, exclude: false }
             },
@@ -371,7 +372,11 @@ export async function runChairmanSynthesis({
     ],
     temperature: 0.4
   };
-  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+  // Laguna as chairman does the final synthesis, so run it high. Panelist
+  // answers stay medium via the implicit Laguna branch in providers.js.
+  if (String(chairmanModel || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S) {
+    body.reasoning = { effort: "high", exclude: false };
+  } else if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (maxTokens) body.max_tokens = maxTokens;
 
   const upstream = await streamChatCompletionFn({

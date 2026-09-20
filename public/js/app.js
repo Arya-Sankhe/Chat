@@ -159,14 +159,15 @@ const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
 const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
-// Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
-const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
+// Text compare: DeepSeek and Laguna S (Laguna S runs at medium effort).
+const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL
+  OPENROUTER_LAGUNA_S
 ];
 const COUNCIL_MEDIA_MODELS = [
   OPENROUTER_VISION_MODEL,
@@ -3849,6 +3850,7 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_COUNCIL_HY3_MODEL) return "Hy3";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
+  if (id === OPENROUTER_LAGUNA_S) return "Laguna S";
   if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";

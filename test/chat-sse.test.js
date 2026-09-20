@@ -22,8 +22,8 @@ import { filterCurrentTurnMessages } from "../server/chat/pipeline.js";
 
 const TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 const VISION_MODEL = "xiaomi/mimo-v2.5";
-const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, VISION_MODEL];
-const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "xiaomi/mimo-v2.5-pro"];
+const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, "poolside/laguna-s-2.1"];
+const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "poolside/laguna-s-2.1"];
 
 const CONFIG_ENV = {
   SUPABASE_URL: "https://example.supabase.co",

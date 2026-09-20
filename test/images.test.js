@@ -13,6 +13,7 @@ import { buildProviderMessages } from "../server/saas/messages.js";
 import { modelSupportsVision, resolveVisionDescribeModel } from "../server/saas/models.js";
 import { requestHasCompareMedia, resolveFixedCompareModels } from "../server/chat/pipeline.js";
 import {
+  OPENROUTER_LAGUNA_S,
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_MODEL,
   OPENROUTER_VISION_L2
@@ -53,10 +54,10 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   }), true);
 });
 
-test("compare picks MiMo+Qwen for media and Flash+MiMo for text", () => {
+test("compare picks MiMo+Qwen for media and Flash+Laguna S for text", () => {
   const seed = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
   assert.equal(OPENROUTER_VISION_L2, "qwen/qwen3.7-flash");
-  assert.deepEqual(resolveFixedCompareModels(seed), [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL]);
+  assert.deepEqual(resolveFixedCompareModels(seed), [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S]);
   assert.deepEqual(
     resolveFixedCompareModels(seed, { hasMedia: true }),
     [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2]

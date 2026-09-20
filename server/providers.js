@@ -138,19 +138,27 @@ export function adaptChatRequestForProvider(body, providerId) {
   const isProModel = modelId === OPENROUTER_PRO_MODEL;
   const isHy3 = modelId === OPENROUTER_COUNCIL_HY3_MODEL;
   // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
-  // this reasoning object — pin low effort so the fallback stays cheap. With
+  // this reasoning object — pin medium effort for the compare/council slot. With
   // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
   let reasoning;
   if (rest.reasoning && typeof rest.reasoning === "object") {
     if (!openRouterModelSupportsReasoningEffort(rest.model) && rest.reasoning.effort) {
-      reasoning = { enabled: rest.reasoning.enabled !== false, exclude: rest.reasoning.exclude ?? false };
+      // Laguna shares this object with its DeepSeek fallback, so allow an
+      // explicit low/medium/high when there are no tools. With tools +
+      // require_parameters, effort would 404 Laguna, so keep enabled-only.
+      const requested = String(rest.reasoning.effort || "").trim().toLowerCase();
+      if (isLagunaS && !hasTools && (requested === "low" || requested === "medium" || requested === "high")) {
+        reasoning = { effort: requested, exclude: rest.reasoning.exclude ?? false };
+      } else {
+        reasoning = { enabled: rest.reasoning.enabled !== false, exclude: rest.reasoning.exclude ?? false };
+      }
     } else {
       reasoning = rest.reasoning;
     }
   } else if (openRouterModelSupportsReasoningEffort(rest.model)) {
     reasoning = { effort: isProModel ? "xhigh" : isHy3 ? "high" : effort, exclude: false };
   } else if (isLagunaS && !hasTools) {
-    reasoning = { effort: "low", exclude: false };
+    reasoning = { effort: "medium", exclude: false };
   } else {
     reasoning = { enabled: true, exclude: false };
   }
