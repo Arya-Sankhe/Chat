@@ -3,7 +3,7 @@ import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { mapStorageRpcError, STORAGE_LIST_LIMIT, storageUsage, deleteReservedUpload } from "../saas/storageQuota.js";
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { stripImageMetadata } from "../storage/stripImageMetadata.js";
@@ -736,7 +736,7 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
   if (instruction.length > REVISE_INSTRUCTION_MAX) throw new HttpError(413, "Change request is too long.");
 
   const provider = resolveProvider("openrouter", config);
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,

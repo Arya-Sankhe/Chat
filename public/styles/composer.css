@@ -170,6 +170,8 @@
 
   position: absolute;
 
+  view-transition-name: chat-composer;
+
   left: 0;
 
   right: 0;
@@ -188,6 +190,12 @@
 
   overflow: visible;
 
+}
+
+::view-transition-group(chat-messages),
+::view-transition-group(chat-composer) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
 }
 
 .composer-area .composer-wrap {
@@ -1784,64 +1792,6 @@ body.chat-empty .skill-command-menu {
 
 }
 
-.provider-toggle {
-
-  display: inline-flex;
-
-  align-items: center;
-
-  gap: 6px;
-
-  padding: 0 10px;
-
-  width: auto;
-
-  min-width: 32px;
-
-  border-radius: 999px;
-
-  font-size: 12px;
-
-  font-weight: 500;
-
-  letter-spacing: 0.01em;
-
-}
-
-.provider-toggle-label {
-
-  white-space: nowrap;
-
-}
-
-.provider-toggle[aria-pressed="true"] {
-
-  background: rgba(108, 76, 219, 0.14);
-
-  color: #6c4cdb;
-
-  border-color: rgba(108, 76, 219, 0.35);
-
-}
-
-.provider-toggle[aria-pressed="true"]:hover {
-
-  background: rgba(108, 76, 219, 0.22);
-
-}
-
-.provider-toggle[aria-pressed="false"] {
-
-  opacity: 0.6;
-
-}
-
-.provider-toggle[aria-pressed="false"]:hover {
-
-  opacity: 1;
-
-}
-
 /* ── Sources pill (web search citations) ── */
 
 .artifact-list {
@@ -2931,7 +2881,7 @@ body.chat-empty .skill-command-menu {
 
   opacity: 0.3;
 
-  transform: translateY(3px);
+  transform: translateY(0);
 
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--accent-contrast) 28%, transparent),

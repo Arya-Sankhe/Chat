@@ -220,12 +220,6 @@ export async function clearMemory(session) {
   return response.json();
 }
 
-export async function fetchModels(session) {
-  const response = await apiFetch("/api/models", { session });
-  if (!response.ok) throw new Error(await readProblem(response));
-  return response.json();
-}
-
 export async function transcribeSpeech(session, audio) {
   const response = await apiFetch("/api/speech-to-text", {
     session,
@@ -468,8 +462,12 @@ export async function createConversation(session, body = {}) {
   return response.json();
 }
 
-export async function fetchConversation(session, id) {
-  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`, { session });
+export async function fetchConversation(session, id, { limit, cursor } = {}) {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  const response = await apiFetch(`/api/conversations/${encodeURIComponent(id)}${query ? `?${query}` : ""}`, { session });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }

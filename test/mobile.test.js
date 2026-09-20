@@ -162,14 +162,13 @@ test("streaming callbacks are scoped to the active conversation run", async () =
   assert.match(source, /els\.stopButton\.addEventListener\("click"[\s\S]*?const run = getConversationRun\(\)/);
 });
 
-test("stopping a sent message discards an aborted first turn and restores later drafts", async () => {
+test("stopping a sent message keeps the turn visible and restores its draft", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
   assert.match(source, /activeRun\.userMessage = localUser;[\s\S]*activeRun\.draft = \{ text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks \};/);
-  assert.match(source, /function restoreCancelledTurnDraft[\s\S]*const remainingMessages = state\.messages\.filter/);
-  assert.match(source, /if \(!remainingMessages\.length\) \{[\s\S]*setComposerPlainText\(""\);[\s\S]*clearFollowUps\(\);/);
-  assert.match(source, /if \(!remainingMessages\.length\)[\s\S]*return true;[\s\S]*setComposerPlainText\(restoredText, restoredMarks\);/);
+  assert.match(source, /function restoreCancelledTurnDraft[\s\S]*markAssistantStopped\(run\?\.assistantMessage\);[\s\S]*setComposerPlainText\(restoredText, restoredMarks\);/);
+  assert.doesNotMatch(source, /function restoreCancelledTurnDraft[\s\S]*const remainingMessages = state\.messages\.filter/);
   assert.match(source, /cancelPendingDocumentTurn[\s\S]*restoreCancelledTurnDraft\(result, run\)/);
   assert.match(source, /restoreCancelledTurnDraft\(\{ run: \{ status: "cancelled" \} \}, run\);/);
 });
@@ -214,6 +213,8 @@ test("mobile and desktop default to Think", async () => {
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   );
   assert.match(appJs, /spectrumLevel:\s*1,/);
+  // loadSettings pins the level on every load; a stored pick is not restored.
+  assert.match(appJs, /loaded\.spectrumLevel = 1;/);
   assert.match(html, /id="nativeMobileModeLabel">Think<\/span>/);
   assert.match(html, /data-mode="thinking"[^>]*aria-selected="true"/);
 });
@@ -284,7 +285,7 @@ test("native login renders the authenticated shell before loading account data",
   );
   const handler = source.slice(
     source.indexOf("async function handleAuthenticatedSession"),
-    source.indexOf("async function loadModels")
+    source.indexOf("async function loadPaymentRequests")
   );
   assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
 });
@@ -407,7 +408,9 @@ test("three-step spectrum keeps Nitro text-only and moves attachments to Think",
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
   assert.match(source, /const SPECTRUM_N = 3;/);
-  assert.match(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
+  // The old 5-step → 3-step level migration is gone: loadSettings pins the
+  // level on every load instead of reading what was stored.
+  assert.doesNotMatch(source, /\[0, 0, 1, 1, 2\]\[lvl\]/);
   assert.match(source, /if \(chosen\.length && spectrumLevelFromSettings\(\) === 0\) \{\s*applySpectrumLevel\(1\);\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /if \(n === 0 && pendingPromptNeedsVision\(\)\) \{\s*n = 1;\s*showAttachmentModelNotice\(\);/);
   assert.match(source, /async function sendPrompt\([^)]*\) \{\s*hideAttachmentModelNotice\(\);/);

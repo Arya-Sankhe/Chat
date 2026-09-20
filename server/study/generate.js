@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, resolveProvider } from "../providers.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { salvageJsonObjects } from "./jsonSalvage.js";
 import { enrichSourceWithSelectiveVision } from "./vision.js";
 
@@ -12,7 +12,7 @@ const NOTE_CONTENT_CAP = 200_000;
 const GENERATION_FAILED = "Generation failed, try again.";
 
 function studyMeter(context, config, signal) {
-  return createCrofaiUsageMeter({
+  return createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
@@ -119,11 +119,11 @@ async function streamComplete({
 }) {
   throwIfAborted(signal);
   const provider = resolveProvider("openrouter", config);
-  const crofai = studyMeter(context, config, signal);
+  const modelClient = studyMeter(context, config, signal);
   const gate = createInactivityController(signal, config.study?.inactivityMs || INACTIVITY_MS);
   let accumulated = null;
   try {
-    const upstream = await crofai.streamChatCompletion({
+    const upstream = await modelClient.streamChatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id,
@@ -176,7 +176,7 @@ async function streamComplete({
 async function streamVisionBatch({ context, config, signal, pages }) {
   throwIfAborted(signal);
   const provider = resolveProvider("openrouter", config);
-  const crofai = studyMeter(context, config, signal);
+  const modelClient = studyMeter(context, config, signal);
   const gate = createInactivityController(signal, config.study?.inactivityMs || INACTIVITY_MS);
   const content = [
     {
@@ -194,7 +194,7 @@ async function streamVisionBatch({ context, config, signal, pages }) {
     ]))
   ];
   try {
-    const upstream = await crofai.streamChatCompletion({
+    const upstream = await modelClient.streamChatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id,
@@ -569,7 +569,7 @@ export async function generateSummary({
 
 export async function transcribeCourseImage({ context, config, course, attachment, signal }) {
   const provider = resolveProvider("openrouter", config);
-  const crofai = studyMeter(context, config, signal);
+  const modelClient = studyMeter(context, config, signal);
   const imageUrl = context.r2.readUrl(attachment.object_key);
   const absolute = AbortSignal.timeout(30_000);
   const gate = createInactivityController(
@@ -578,7 +578,7 @@ export async function transcribeCourseImage({ context, config, course, attachmen
   );
   let content;
   try {
-    const upstream = await crofai.streamChatCompletion({
+    const upstream = await modelClient.streamChatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id,

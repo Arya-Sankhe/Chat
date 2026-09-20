@@ -4,7 +4,7 @@ import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
 import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
-import { handleBuild, handleConfig, handleHealth, handleMe, handleMeExport, handleModels, handlePlans } from "./routes/meta.js";
+import { handleBuild, handleConfig, handleHealth, handleMe, handleMeExport, handlePlans } from "./routes/meta.js";
 import { handleMemory } from "./routes/memory.js";
 import { handleProjectById, handleProjects } from "./routes/projects.js";
 import {
@@ -231,11 +231,6 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/desktop/v1/logout") {
       await handleDesktopLogout(req, res, config);
-      return;
-    }
-
-    if (url.pathname === "/api/models" && req.method === "GET") {
-      await handleModels(req, res, config);
       return;
     }
 

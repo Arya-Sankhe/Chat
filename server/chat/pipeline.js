@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chatCompletion, listModels, streamChatCompletion } from "../crofai/client.js";
-import { normalizeChatRequest } from "../crofai/normalize.js";
+import { chatCompletion, listModels, streamChatCompletion } from "../model-api/client.js";
+import { normalizeChatRequest } from "../model-api/normalize.js";
 import { configuredServices } from "../config.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { withCouncilSystemPrompt } from "../saas/council.js";
@@ -20,7 +20,6 @@ import {
   generateConversationTitle,
   isGenericConversationTitle,
   hydrateMessagesForClient,
-  imageCountFromContent,
   normalizeMessageSettings,
   normalizePastedTextRange,
   reasoningDurationMetadata,
@@ -29,7 +28,7 @@ import {
 } from "../saas/messages.js";
 import { modelSupportsVision } from "../saas/models.js";
 import { loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { loadUserMemory, maybeRefreshUserMemory, withUserMemorySystemPrompt } from "../saas/userMemory.js";
 import {
   illustrationSkillFromIds,
@@ -68,7 +67,6 @@ import {
 import { requireChatContext } from "../routes/context.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
 import { documentKindFromUpload } from "../routes/uploads.js";
-import { modelCache, modelFromPayload } from "../routes/meta.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
 import { buildUntrustedWebContext } from "./shared.js";
@@ -89,6 +87,13 @@ import {
   waitForDocumentCapabilities,
   wrapProviderCallsWithTurnFence
 } from "./turns.js";
+
+const modelCache = new Map();
+
+function modelFromPayload(payload, modelId) {
+  const list = Array.isArray(payload) ? payload : payload?.data;
+  return Array.isArray(list) ? list.find((model) => model?.id === modelId) || null : null;
+}
 
 const COUNCIL_MIN_MODELS = 2;
 const COUNCIL_MAX_MODELS = 4;
@@ -138,12 +143,12 @@ export async function withResearchReportContext(
   return hydrated;
 }
 
-async function resolveCachedModelMetadata({ context, config, modelId, provider, signal }) {
+async function resolveCachedModelMetadata({ context, modelId, provider, signal }) {
   const id = String(modelId || "").trim();
   if (!id) return null;
 
-  const baseUrl = provider?.baseUrl || config.defaultBaseUrl;
-  const apiKey = provider?.apiKey || config.serverApiKey;
+  const baseUrl = provider?.baseUrl;
+  const apiKey = provider?.apiKey;
   if (!baseUrl) return null;
 
   try {
@@ -206,13 +211,6 @@ export async function loadUploadedAttachments(context, attachmentIds, req, plan,
   }
 
   return attachments;
-}
-
-function assistantMessageHasOutput(message) {
-  return Boolean(
-    String(message?.content || "").trim()
-    || (Array.isArray(message?.tool_calls) && message.tool_calls.length)
-  );
 }
 
 async function resolveMessageRetry({ db, userId, conversationId, retryAssistantMessageId, signal }) {
@@ -625,8 +623,7 @@ export async function buildDirectPdfVisualContext({
 
 async function describeVisualPdfContextForTextModel({
   message,
-  crofai,
-  config,
+  modelClient,
   provider,
   signal
 }) {
@@ -649,9 +646,9 @@ async function describeVisualPdfContextForTextModel({
     ...message.content
   ];
 
-  const upstream = await crofai.streamChatCompletion({
-    apiKey: provider?.apiKey || config.serverApiKey,
-    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+  const upstream = await modelClient.streamChatCompletion({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
     body: {
       model: OPENROUTER_VISION_MODEL,
       messages: [{ role: "user", content }],
@@ -828,17 +825,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const councilEnabled = routed.role === "council";
   const compareModels = routed.role === "compare" || councilEnabled ? routed.models : [];
   const requestedModel = routed.models[0];
-  const provider = resolveProvider(
-    compareModels.length || routed.role || requestedModel === OPENROUTER_PRO_MODEL
-      ? "openrouter"
-      : body.provider,
-    config
-  );
+  const provider = resolveProvider("openrouter", config);
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;
 
-  const imageCount = imageCountFromContent(userContent);
   if (councilEnabled) {
     if (compareModels.length < COUNCIL_MIN_MODELS) {
       throw new HttpError(400, `Pick at least ${COUNCIL_MIN_MODELS} models for the council.`);
@@ -885,26 +876,25 @@ async function executeConversationMessage(req, res, config, conversationId, {
   settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt, {
     emailMode: needsEmailPrompt(contentText(userContent), existingMessages)
   });
-  const providerCrofai = wrapProviderCallsWithTurnFence({
-    crofai: { chatCompletion, streamChatCompletion },
+  const fencedModelClient = wrapProviderCallsWithTurnFence({
+    modelClient: { chatCompletion, streamChatCompletion },
     db: context.db,
     userId: context.user.id,
     run: turnRun
   });
-  const crofai = createCrofaiUsageMeter({
+  const modelClient = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
-    imageCount,
     signal: req.signal,
     meteringMode: config.desktop.meteringMode,
     reservationCredits: config.desktop.chatReservationCredits,
-    chatCompletionFn: providerCrofai.chatCompletion,
-    streamChatCompletionFn: providerCrofai.streamChatCompletion
+    chatCompletionFn: fencedModelClient.chatCompletion,
+    streamChatCompletionFn: fencedModelClient.streamChatCompletion
   });
   const summarizeHistory = createConversationSummarizer({
-    crofai,
+    modelClient,
     config,
     signal: req.signal
   });
@@ -950,8 +940,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
       attachmentIds: missingDescriptionIds,
       describeModel: describeModelUsed,
       provider,
-      chatCompletionFn: crofai.chatCompletion,
-      streamChatCompletionFn: crofai.streamChatCompletion,
+      chatCompletionFn: modelClient.chatCompletion,
+      streamChatCompletionFn: modelClient.streamChatCompletion,
       signal: req.signal
     });
     imageDescriptions = { ...imageDescriptions, ...describeResult.descriptions };
@@ -1042,7 +1032,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const titlePromise = titleNeedsGeneration
     ? generateConversationTitle({
         content: titleContent,
-        crofai,
+        modelClient,
         config,
         r2: context.r2,
         signal: req.signal
@@ -1111,7 +1101,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       historyMessages,
       requestedModel,
       provider,
-      crofai,
+      modelClient,
       turnRun,
       documentContext: projectContextMessage || "",
       updateConversationIdentity
@@ -1150,8 +1140,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     const directPdfTextContext = directPdfContext.message && compareModels.some((model) => !modelSupportsVision(model))
       ? await describeVisualPdfContextForTextModel({
           message: directPdfContext.message,
-          crofai,
-          config,
+          modelClient,
           provider,
           signal: req.signal
         })
@@ -1178,7 +1167,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
       await handleCouncilConversationMessage({
         req,
         res,
-        config,
         context,
         conversation,
         chatRequests,
@@ -1191,7 +1179,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           preferredModel: body.model
         },
         chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
-        crofai,
+        modelClient,
         provider,
         webSearch: sharedSearch,
         documentSearch: compareDocumentSearch,
@@ -1204,11 +1192,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
     await handleCompareConversationMessage({
       req,
       res,
-      config,
       context,
       conversation,
       chatRequests,
-      crofai,
+      modelClient,
       provider,
       webSearch: sharedSearch,
       documentSearch: compareDocumentSearch,
@@ -1221,7 +1208,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const chatRequest = chatRequests[0];
   const selectedModelMetadata = await resolveCachedModelMetadata({
     context,
-    config,
     modelId: chatRequest.model,
     provider,
     signal: req.signal
@@ -1315,7 +1301,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     let response = augmented
       ? await runChatWithToolLoop({
           chatRequest: equippedRequest,
-          crofai,
+          modelClient,
           config,
           provider,
           signal: controller.signal,
@@ -1331,8 +1317,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         })
       : await streamSingleChat({
           chatRequest: equippedRequest,
-          crofai,
-          config,
+          modelClient,
           provider,
           signal: controller.signal,
           res,
@@ -1342,8 +1327,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       required: skillIds.includes("visualize"),
       result: response,
       chatRequest: equippedRequest,
-      crofai,
-      config,
+      modelClient,
       provider,
       signal: controller.signal,
       res,
@@ -1483,14 +1467,13 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       ...settings
     });
   }
-  resolveProvider(models.length || routed.role ? "openrouter" : body.provider, config);
+  resolveProvider("openrouter", config);
 
   return {
     mode: council ? "council" : (models.length ? "compare" : "single"),
     payload: {
       ...(routed.role ? { role: routed.role } : {}),
       model,
-      provider: models.length || routed.role ? "openrouter" : String(body.provider || "").trim(),
       settings,
       writingStyle: normalizeWritingStyle(body.writingStyle),
       skillIds: normalizeComposerSkillIds(body.skillIds),

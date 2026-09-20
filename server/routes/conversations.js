@@ -4,6 +4,23 @@ import { hydrateMessagesForClient } from "../saas/messages.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
 
+const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/;
+const CURSOR_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Message pages carry their cursor on the wire as "<created_at>|<id>". */
+function parseMessageCursor(value) {
+  const parts = String(value || "").split("|");
+  if (parts.length !== 2) return null;
+  const [createdAt, id] = parts;
+  // Both halves are interpolated into the row filter, so check their shape first.
+  if (!CURSOR_TIMESTAMP.test(createdAt || "") || !Number.isFinite(Date.parse(createdAt)) || !CURSOR_ID.test(id || "")) return null;
+  return { createdAt, id };
+}
+
+function formatMessageCursor(cursor) {
+  return cursor ? `${cursor.createdAt}|${cursor.id}` : null;
+}
+
 export async function purgeMessageStorage(context, messageId, config, signal) {
   const attachments = await context.db.listMessageAttachments(context.user.id, messageId, { signal });
   const keys = [];
@@ -64,16 +81,23 @@ export async function handleConversationById(req, res, config, conversationId) {
 
   if (req.method === "GET") {
     const includeReasoning = context.profile?.role === "admin";
-    const [conversation, messages, pendingTurns] = await Promise.all([
+    const params = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).searchParams;
+    const [conversation, page, pendingTurns] = await Promise.all([
       context.db.getConversation(context.user.id, conversationId, { signal: req.signal }),
-      context.db.listMessages(context.user.id, conversationId, { signal: req.signal, includeReasoning }),
+      context.db.listMessagesPage(context.user.id, conversationId, {
+        signal: req.signal,
+        includeReasoning,
+        limit: params.get("limit"),
+        cursor: parseMessageCursor(params.get("cursor"))
+      }),
       context.db.listPendingDocumentTurns(context.user.id, conversationId, { signal: req.signal })
     ]);
     if (!conversation) throw new HttpError(404, "Conversation not found.");
     sendJson(res, 200, {
       conversation,
-      messages: await hydrateMessagesForClient(messages, context.r2, { includeReasoning }),
-      pendingTurns
+      messages: await hydrateMessagesForClient(page.messages, context.r2, { includeReasoning }),
+      pendingTurns,
+      page: { hasMore: page.hasMore, cursor: formatMessageCursor(page.cursor) }
     });
     return;
   }

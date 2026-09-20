@@ -16,7 +16,7 @@ import {
   noteModesFromNotes,
   resolvedFlashcardMode
 } from "../study/generate.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
 
@@ -293,7 +293,7 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
     }
   }
 
-  await createCrofaiUsageMeter({
+  await createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,

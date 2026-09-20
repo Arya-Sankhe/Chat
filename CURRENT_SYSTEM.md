@@ -17,7 +17,7 @@ This document describes the app after removing Stripe and switching the MVP to p
 - `ACCESS_MODE=testing` gives every signed-in user chat access automatically.
 - `TEST_PLAN_ID` selects the plan limits used during testing. The default is `pro`.
 - No payment gateway is required to use the chat service right now.
-- No browser user can provide or see the Crof API key. `CROFAI_API_KEY` stays server-only.
+- No browser user can provide or see the OpenRouter API key. `OPENROUTER_API_KEY` stays server-only.
 
 ## Current App Flow
 
@@ -35,14 +35,14 @@ This document describes the app after removing Stripe and switching the MVP to p
 - The subscriptions table is now gateway-neutral and is not required in `ACCESS_MODE=testing`.
 - Cloudflare R2 stores user-uploaded images privately.
 - The browser uploads images directly to R2 with short-lived signed upload URLs.
-- The backend creates short-lived signed read URLs when Crof needs to inspect uploaded images.
+- The backend creates short-lived signed read URLs when the model needs to inspect uploaded images.
 
 ## Current Backend Modules
 
 - `server/auth`: Supabase Auth token verification.
 - `server/db`: Supabase Postgres REST access.
 - `server/storage`: Cloudflare R2 signed upload/read helpers.
-- `server/crofai`: Crof-compatible model API calls and normalization.
+- `server/model-api`: OpenAI-compatible model API calls and normalization.
 - `server/saas`: plans, entitlements, message formatting, streaming, and usage.
 - `server/websearch`: Jina (primary) + Brave (fallback) web search orchestrator, tool-call run loop, LRU + Supabase cache, heuristic detector.
 - `server/routes.js`: API routing for config, auth state, plans, models, uploads, conversations, messages, and admin summary.
@@ -51,7 +51,7 @@ This document describes the app after removing Stripe and switching the MVP to p
 
 ```env
 APP_URL=http://localhost:3000
-CROFAI_API_KEY=
+OPENROUTER_API_KEY=
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -92,7 +92,7 @@ See `.env.example` for the full list of `WEBSEARCH_*` knobs (provider, engine, c
 2. Confirm `.env` has `ACCESS_MODE=testing` and `TEST_PLAN_ID=pro` or another valid plan id.
 3. Keep the existing Supabase Auth setup enabled.
 4. Keep the existing private R2 bucket and CORS setup.
-5. Fill in the remaining backend-only secrets in `.env`: Supabase service role key, Crof API key, and R2 keys.
+5. Fill in the remaining backend-only secrets in `.env`: Supabase service role key, OpenRouter API key, and R2 keys.
 
 No Stripe dashboard setup, webhook endpoint, products, prices, or environment variables are needed anymore.
 
@@ -108,4 +108,4 @@ No Stripe dashboard setup, webhook endpoint, products, prices, or environment va
 - Add production domain CORS entries in Cloudflare R2.
 - Add rate limiting and abuse controls at the API edge.
 - Add backup/restore policy for Supabase Postgres.
-- Add monitoring for Crof errors, R2 upload failures, and subscription sync failures.
+- Add monitoring for OpenRouter errors, R2 upload failures, and subscription sync failures.

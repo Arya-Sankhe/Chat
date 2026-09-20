@@ -9,6 +9,9 @@ const AUTH_STORAGE_KEY = "klui.auth.v1";
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 
 let googleIdentityPromise = null;
+// Increments per render so a superseded call (resize, appearance flip) can
+// bail after its await instead of filling the slot a second time.
+let googleRenderToken = 0;
 
 function cleanUrl(value) {
   return String(value || "").replace(/\/+$/, "");
@@ -198,16 +201,30 @@ export async function renderGoogleSignInButton(config, element, { onSession, onE
   const clientId = config?.auth?.googleClientId;
   if (!clientId) throw new Error("Google sign-in needs GOOGLE_CLIENT_ID.");
 
+  const renderToken = ++googleRenderToken;
+
+  // Paint our own button before Google is fetched: it is local markup and
+  // needs no network, while the Identity script can take a second on first
+  // open. GIS then renders its own (invisible, see `.google-continue-gis`)
+  // button on top as the click target; until then the shell is decorative.
+  if (branded) {
+    element.innerHTML = `${googleContinueButtonHtml({ decorative: true })}<div class="google-continue-gis"></div>`;
+  }
+
   let googleId;
   try {
     googleId = await loadGoogleIdentityServices();
   } catch (error) {
+    if (renderToken !== googleRenderToken) return;
     if (installedIosPwa()) {
       renderRedirectGoogleButton(config, element, { branded });
       return;
     }
+    // Never leave a button that looks clickable when Google never loaded.
+    if (branded) element.innerHTML = "";
     throw error;
   }
+  if (renderToken !== googleRenderToken) return;
   googleId.initialize({
     client_id: clientId,
     callback: async (response) => {
@@ -231,8 +248,8 @@ export async function renderGoogleSignInButton(config, element, { onSession, onE
     width: Math.max(240, Math.min(400, element.clientWidth || 320))
   };
   if (branded) {
-    element.innerHTML = `${googleContinueButtonHtml({ decorative: true })}<div class="google-continue-gis"></div>`;
-    googleId.renderButton(element.querySelector(".google-continue-gis"), button);
+    const gisSlot = element.querySelector(".google-continue-gis");
+    if (gisSlot) googleId.renderButton(gisSlot, button);
     return;
   }
   element.innerHTML = "";

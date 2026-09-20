@@ -146,7 +146,6 @@ test("runPeerReview gives real council models a 32k output budget and formats re
   const result = await runPeerReview({
     panelists,
     originalUserPrompt: "Which answer is best?",
-    config: {},
     provider: { apiKey: "key", baseUrl: "https://example.test" },
     chatCompletionFn: async ({ body }) => {
       bodies.push(body);

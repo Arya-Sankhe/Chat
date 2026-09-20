@@ -128,8 +128,8 @@ export function startPendingTurnHeartbeat({ db, userId, run, controller }) {
   };
 }
 
-export function wrapProviderCallsWithTurnFence({ crofai, db, userId, run }) {
-  if (!run?.claim_token) return crofai;
+export function wrapProviderCallsWithTurnFence({ modelClient, db, userId, run }) {
+  if (!run?.claim_token) return modelClient;
   let startedPromise = null;
   const markStarted = async () => {
     if (!startedPromise) {
@@ -146,14 +146,14 @@ export function wrapProviderCallsWithTurnFence({ crofai, db, userId, run }) {
   };
 
   return {
-    ...crofai,
+    ...modelClient,
     async chatCompletion(...args) {
       await markStarted();
-      return crofai.chatCompletion(...args);
+      return modelClient.chatCompletion(...args);
     },
     async streamChatCompletion(...args) {
       await markStarted();
-      return crofai.streamChatCompletion(...args);
+      return modelClient.streamChatCompletion(...args);
     }
   };
 }

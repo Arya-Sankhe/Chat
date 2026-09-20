@@ -3,7 +3,7 @@ import { configuredServices } from "../config.js";
 import { DocumentService } from "../documents/index.js";
 import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { titleFromText } from "../saas/messages.js";
 import { resolveChatRole } from "../models.js";
 import { resolveProvider } from "../providers.js";
@@ -47,7 +47,7 @@ export async function handleCreateResearch(req, res, config) {
   const role = requested.role === "pro" ? "pro" : "think";
   const model = resolveChatRole({ role }).models[0];
   const provider = resolveProvider("openrouter", config);
-  await createCrofaiUsageMeter({
+  await createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,

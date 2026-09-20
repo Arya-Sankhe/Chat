@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Klui · Expressions</title>
+<link rel="stylesheet" href="/styles/klui.css">
+<link rel="stylesheet" href="/vendor/slot-text/style.css">
+<style>
+  :root { color-scheme: light dark; --bg: #f8fafc; --text: #263348; --text-tertiary: #6c7a90; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 48px 24px; background: var(--bg); color: var(--text); font: 15px system-ui; }
+  main { max-width: 900px; margin: auto; }
+  h1 { font-size: 28px; letter-spacing: -.04em; margin-bottom: 8px; }
+  p { color: var(--text-tertiary); }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 28px 0; }
+  button, select { font: inherit; padding: 8px 12px; border: 1px solid #8994a655; border-radius: 8px; background: transparent; color: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
+  article { padding: 24px; border: 1px solid #8994a633; border-radius: 16px; }
+  .large .klui-bar { justify-content: center; height: 148px; margin-bottom: 20px; }
+  .large .klui { width: 112px; height: 112px; }
+  .large .klui-copy { display: none; }
+  .home { padding: 30px 0; display: grid; gap: 30px; }
+  .hero-line { margin: auto; }
+  #checks { margin-top: 24px; }
+  body.dark { --bg: #131820; --text: #e1e7f0; --text-tertiary: #a3aec0; }
+</style>
+<main>
+  <h1>Same Klui. More expression.</h1>
+  <p>Eye contact, up/down glances, blinks, and occasional little wiggles. Enlarged above; actual chat size below.</p>
+  <div class="controls">
+    <button id="theme">Toggle dark background</button>
+    <label>Live state <select id="state"><option>Thinking</option><option>Reading</option><option>Searching</option><option>Writing</option><option>Generating</option><option>Reviewing</option></select></label>
+    <label><input id="done" type="checkbox"> Completed</label>
+  </div>
+  <div id="live"></div>
+  <div class="grid" id="grid"></div>
+  <div class="home" id="home"></div>
+  <p>Shared website icon <img src="/home/assets/klui-icon.svg" width="64" height="64" alt="Klui" style="vertical-align: middle; margin-left: 16px"></p>
+  <p id="checks" role="status"></p>
+</main>
+<script type="module">
+  import { renderKluiThinkingStatus, hydrateKluiBars, updateKluiBar, renderHomeGreetingHtml } from '/js/klui.js';
+  import { mountKluiMotion } from '/js/klui-motion.js';
+  const labels = ['Thinking', 'Reading', 'Searching', 'Writing', 'Generating', 'Reviewing'];
+  const render = (label, id) => renderKluiThinkingStatus({ id }, { label, active: true });
+  document.querySelector('#grid').innerHTML = labels.map((label, i) => `<article><div class="large">${render(label, `large-${i}`)}</div>${render(label, `small-${i}`)}</article>`).join('');
+  document.querySelector('#live').innerHTML = render('Thinking', 'live');
+  document.querySelector('#home').innerHTML = renderHomeGreetingHtml() + renderHomeGreetingHtml({ temporary: true });
+  document.querySelectorAll('.type-text').forEach(el => { el.textContent = 'how can i help you?'; });
+  document.querySelectorAll('.caret').forEach(el => el.remove());
+  document.querySelectorAll('.hero-line .klui').forEach(mountKluiMotion);
+  hydrateKluiBars();
+  document.querySelector('#theme').onclick = () => document.body.classList.toggle('dark');
+  const update = () => updateKluiBar(document.querySelector('#live .klui-bar'), { label: document.querySelector('#state').value, active: !document.querySelector('#done').checked });
+  document.querySelector('#state').onchange = update;
+  document.querySelector('#done').onchange = update;
+  setTimeout(() => {
+    const icons = [...document.querySelectorAll('.klui')];
+    const ok = icons.every(el => el.querySelector('.face').style.transform && el.querySelectorAll('.eye-surface').length === 2);
+    document.querySelector('#checks').textContent = ok ? `✓ All ${icons.length} mascots mounted with curved facial poses.` : 'FAIL: a mascot did not mount.';
+  }, 400);
+</script>
+</html>

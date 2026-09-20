@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chatCompletion, streamChatCompletion } from "../crofai/client.js";
+import { chatCompletion, streamChatCompletion } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
 import {
   assertApiBudgetAvailable,
@@ -45,7 +45,7 @@ function usageFromPayload(payload) {
  * already-exhausted user is blocked, then record the exact OpenRouter
  * `usage.cost` after the response completes.
  */
-export function createCrofaiUsageMeter({
+export function createModelUsageMeter({
   db,
   userId,
   subscription,

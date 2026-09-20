@@ -1,4 +1,4 @@
-import { chatCompletion } from "../crofai/client.js";
+import { chatCompletion } from "../model-api/client.js";
 import { OPENROUTER_NITRO_MODEL } from "../providers.js";
 
 export const USER_MEMORY_MAX_CHARS = 6000;

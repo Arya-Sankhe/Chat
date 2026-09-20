@@ -1,5 +1,6 @@
 import { slotText } from "../vendor/slot-text/dist/index.js";
 import { escapeHtml } from "./render.js";
+import { mountKluiMotion } from "./klui-motion.js";
 
 const PHRASES = {
   thinking: ["locking in", "connecting the dots", "big brain time"],
@@ -133,6 +134,7 @@ function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
   const aura = `${prefix}-aura`;
   return `<svg class="klui-svg${fedora ? " has-fedora" : ""}" viewBox="${fedora ? "0 -6 80 86" : "0 0 80 80"}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <defs>
+      <clipPath id="${prefix}-sheen-clip"><rect x="8" y="8" width="64" height="64" rx="21"/></clipPath>
       <radialGradient id="${face}" cx="40%" cy="30%" r="68%">
         <stop offset="0%" stop-color="#ffffff"/><stop offset="62%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e8f1fc"/>
       </radialGradient>
@@ -164,8 +166,8 @@ function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
     ${fedora ? fedoraMarkup(prefix) : ""}
     <g class="face">
       <g class="eyes">
-        <rect class="eye eye-l" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
-        <rect class="eye eye-r" x="46" y="24" width="8" height="18" rx="4" fill="#4f74b8"/>
+        <g class="eye-surface eye-surface-l"><rect class="eye eye-l" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/></g>
+        <g class="eye-surface eye-surface-r"><rect class="eye eye-r" x="46" y="24" width="8" height="18" rx="4" fill="#4f74b8"/></g>
         <g class="fx fx-stars" fill="#4f74b8">
           <path d="M30 24.5 l1.9 4.6 4.6 1.9 -4.6 1.9 -1.9 4.6 -1.9 -4.6 -4.6 -1.9 4.6 -1.9z"/>
           <path d="M50 24.5 l1.9 4.6 4.6 1.9 -4.6 1.9 -1.9 4.6 -1.9 -4.6 -4.6 -1.9 4.6 -1.9z"/>
@@ -177,8 +179,8 @@ function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
       </g>
       <path class="mouth mouth-normal" d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
       ${greeting ? "" : `<path class="fx fx-tongue" d="M40 52.5 q2.8 0 2.8 2.8 q0 2.8 -2.8 2.8 q-2.8 0 -2.8 -2.8 q0 -2.8 2.8 -2.8z" fill="#f19ab6"/>`}
+      ${fedora ? shadesMarkup() : ""}
     </g>
-    ${fedora ? shadesMarkup() : ""}
     <g class="fx fx-think" fill="#a8c4ef">
       <circle cx="64" cy="14" r="2.2"/><circle cx="70" cy="7" r="3"/><circle cx="77" cy="-1" r="3.8"/>
     </g>
@@ -187,7 +189,7 @@ function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
       <rect x="62" y="42" width="6" height="16" rx="1.5" fill="#f6b73c" transform="rotate(28 65 50)"/>
       <path d="M70 58.5 l4 6 -7 -1.2z" fill="#e9a06b"/>
     </g>
-    <rect class="fx fx-sheen" x="10" y="10" width="14" height="60" rx="7" fill="#fff" transform="skewX(-18)"/>
+    <g clip-path="url(#${prefix}-sheen-clip)"><rect class="fx fx-sheen" x="10" y="10" width="14" height="60" rx="7" fill="#fff" transform="skewX(-18)"/></g>
     <g class="fx fx-check">
       <circle cx="66" cy="14" r="8" fill="#22c55e"/>
       <path d="M61.8 14 l2.9 3.1 5.6 -5.9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -241,6 +243,7 @@ function mountBar(bar) {
   const phraseEl = bar.querySelector(".klui-phrase");
   if (!stateEl || !phraseEl) return null;
 
+  mountKluiMotion(bar.querySelector(".klui"));
   const initialState = bar.dataset.state || "thinking";
   const initialLabel = bar.dataset.label || "Thinking";
   const initialUpdate = bar.dataset.update || "";
@@ -369,6 +372,7 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   const caret = root.querySelector(".caret");
   const klui = root.querySelector(".klui");
   const mouth = root.querySelector(".mouth-normal, .mouth");
+  mountKluiMotion(klui);
   if (!typeEl || !caret) return;
   const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
   const initialText = typeEl.textContent;
@@ -388,11 +392,6 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
     if (!klui) return;
     klui.dataset.mood = mood;
     if (mouthPath) mouth?.setAttribute("d", mouthPath);
-    if (mood === "hello") {
-      klui.style.animation = "none";
-      void klui.offsetWidth;
-      klui.style.animation = "";
-    }
   }
 
   async function typeText(text) {

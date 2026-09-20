@@ -1,7 +1,7 @@
 import {
   OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
   OPENROUTER_GLM_FLASH_MODEL,
+  OPENROUTER_LAGUNA_S,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
@@ -35,7 +35,7 @@ export const MODEL_ROUTES = Object.freeze({
   compare: {
     label: "Compare",
     group: "multi",
-    models: [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL],
+    models: [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S],
     mediaModels: [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2]
   },
   council: {
@@ -45,7 +45,7 @@ export const MODEL_ROUTES = Object.freeze({
       { model: OPENROUTER_TEXT_MODEL, label: "DeepSeek" },
       { model: OPENROUTER_COUNCIL_HY3_MODEL, label: "Hy3" },
       { model: OPENROUTER_VISION_MODEL, label: "MiMo" },
-      { model: OPENROUTER_COUNCIL_MIMO_PRO_MODEL, label: "MiMo Pro" }
+      { model: OPENROUTER_LAGUNA_S, label: "Laguna S" }
     ],
     mediaModels: [
       OPENROUTER_VISION_MODEL,

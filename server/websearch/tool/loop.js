@@ -437,7 +437,7 @@ function answerCitations(citations, content) {
  * @param {object} params
  * @param {object} params.chatRequest             - normalized chat request
  *                                                  (model, messages, settings)
- * @param {object} params.crofai                  - meter-wrapped crof client
+ * @param {object} params.modelClient                  - meter-wrapped model client
  * @param {object} params.config                  - root server config
  * @param {AbortSignal} params.signal             - abort propagation
  * @param {object} params.websearch               - WebSearchOrchestrator
@@ -453,7 +453,7 @@ function answerCitations(citations, content) {
  */
 export async function runChatWithToolLoop({
   chatRequest,
-  crofai,
+  modelClient,
   config,
   provider,
   signal,
@@ -527,9 +527,9 @@ export async function runChatWithToolLoop({
         body = applyToolFallback(request, toolFallbackLevel);
       }
       try {
-        upstream = await crofai.streamChatCompletion({
-          apiKey: provider?.apiKey || config.serverApiKey,
-          baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+        upstream = await modelClient.streamChatCompletion({
+          apiKey: provider.apiKey,
+          baseUrl: provider.baseUrl,
           body,
           providerId: provider?.id,
           signal

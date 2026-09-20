@@ -274,6 +274,10 @@ export class SupabaseRest {
     return chat.listMessages(this, userId, conversationId, options);
   }
 
+  async listMessagesPage(userId, conversationId, options) {
+    return chat.listMessagesPage(this, userId, conversationId, options);
+  }
+
   async listRecentAssistantMessages(userId, conversationId, options) {
     return chat.listRecentAssistantMessages(this, userId, conversationId, options);
   }

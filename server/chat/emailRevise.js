@@ -1,6 +1,6 @@
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "../routes/context.js";
 import { EMAIL_FACT_RULES } from "../saas/systemPrompt.js";
 import { countEmailBlocks, emailAddresses, replaceEmailFence } from "../../public/js/email.js";
@@ -34,7 +34,7 @@ export async function handleEmailRevise(req, res, config) {
   if (instruction.length > INSTRUCTION_MAX) throw new HttpError(413, "Change request is too long.");
 
   const provider = resolveProvider("openrouter", config);
-  const meter = createCrofaiUsageMeter({
+  const meter = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,

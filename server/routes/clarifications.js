@@ -1,6 +1,6 @@
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { generateClarifications } from "../saas/clarifications.js";
-import { createCrofaiUsageMeter } from "../saas/usageMeter.js";
+import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
 
 export async function handleClarifications(req, res, config) {
@@ -14,7 +14,7 @@ export async function handleClarifications(req, res, config) {
     query,
     config,
     signal: req.signal,
-    crofai: createCrofaiUsageMeter({
+    modelClient: createModelUsageMeter({
       db: context.db,
       userId: context.user.id,
       subscription: context.subscription,

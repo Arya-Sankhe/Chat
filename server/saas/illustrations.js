@@ -1,9 +1,9 @@
-import { imageGeneration } from "../crofai/client.js";
+import { imageGeneration } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
 import { usageCostCredits } from "./billing.js";
 import { contentText, hydrateMessagesForClient } from "./messages.js";
 import { substituteImagesWithDescriptions } from "./images.js";
-import { createCrofaiUsageMeter } from "./usageMeter.js";
+import { createModelUsageMeter } from "./usageMeter.js";
 import { deleteReservedUpload, mapStorageRpcError } from "./storageQuota.js";
 import { resolveProvider } from "../providers.js";
 import {
@@ -235,7 +235,7 @@ function toPlannerMessages(messages) {
 }
 
 export async function planIllustrations({
-  crofai,
+  modelClient,
   provider,
   model,
   historyMessages,
@@ -256,7 +256,7 @@ export async function planIllustrations({
   }
 
   async function call(extraUser) {
-    const text = await crofai.chatCompletion({
+    const text = await modelClient.chatCompletion({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: provider.id || "openrouter",
@@ -406,7 +406,7 @@ export async function runIllustrationTurn({
   historyMessages,
   requestedModel,
   provider,
-  crofai,
+  modelClient,
   turnRun = null,
   documentContext = "",
   updateConversationIdentity = async () => {},
@@ -433,7 +433,7 @@ export async function runIllustrationTurn({
   }
 
   const imageProvider = resolveProvider("openrouter", config);
-  const imageMeter = createCrofaiUsageMeter({
+  const imageMeter = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
@@ -457,7 +457,7 @@ export async function runIllustrationTurn({
     writeSse(res, { type: "illustration:status", label: "Planning illustration…" });
 
     plan = await planIllustrations({
-      crofai,
+      modelClient,
       provider,
       model: requestedModel,
       historyMessages,

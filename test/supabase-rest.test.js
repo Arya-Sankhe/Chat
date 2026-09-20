@@ -1083,3 +1083,81 @@ test("listConversationUserMessagesBefore bounds each conversation to the memory 
     assert.equal(request.searchParams.get("limit"), "6");
   }
 });
+
+test("listMessagesPage fetches one spare row, reads newest-first, and trims to a turn", async () => {
+  const rows = [
+    { id: "m6", role: "assistant", created_at: "2026-01-01T00:00:06.000Z" },
+    { id: "m5", role: "user", created_at: "2026-01-01T00:00:05.000Z" },
+    { id: "m4", role: "assistant", created_at: "2026-01-01T00:00:04.000Z" },
+    { id: "m3", role: "user", created_at: "2026-01-01T00:00:03.000Z" }
+  ];
+  await withStubbedFetch(async (url, options = {}) => {
+    const request = new URL(url);
+    assert.equal(request.pathname, "/rest/v1/messages");
+    assert.equal(options.method, "GET");
+    expectServiceHeaders(options.headers);
+    assert.equal(request.searchParams.get("order"), "created_at.desc,id.desc");
+    assert.equal(request.searchParams.get("limit"), "4"); // the 3 asked for plus one spare row
+    assert.equal(request.searchParams.get("or"), null); // the first page carries no cursor
+    return jsonResponse(rows);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const page = await db.listMessagesPage("user_1", "conv_1", { limit: 3.9 });
+    // m3 is the spare row and m4 starts mid-turn, so both land on the next page.
+    assert.deepEqual(page.messages.map((message) => message.id), ["m5", "m6"]);
+    assert.equal(page.hasMore, true);
+    assert.deepEqual(page.cursor, { createdAt: "2026-01-01T00:00:05.000Z", id: "m5" });
+  });
+});
+
+test("listMessagesPage pages backwards from a cursor and flags the last page", async () => {
+  const requests = [];
+  await withStubbedFetch(async (url) => {
+    requests.push(new URL(url));
+    return jsonResponse([{ id: "m4", role: "assistant", created_at: "2026-01-01T00:00:04.000Z" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const page = await db.listMessagesPage("user_1", "conv_1", {
+      limit: 3,
+      cursor: { createdAt: "2026-01-01T00:00:05.000Z", id: "m5" }
+    });
+    assert.equal(page.hasMore, false);
+    assert.deepEqual(page.messages.map((message) => message.id), ["m4"]);
+    assert.deepEqual(page.cursor, { createdAt: "2026-01-01T00:00:04.000Z", id: "m4" });
+  });
+  // Ties are broken by id so a seam can neither skip nor repeat a same-timestamp row.
+  assert.equal(
+    requests[0].searchParams.get("or"),
+    "(created_at.lt.2026-01-01T00:00:05.000Z,and(created_at.eq.2026-01-01T00:00:05.000Z,id.lt.m5))"
+  );
+});
+
+test("listMessagesPage never trims the last page, so a leading assistant row is not lost", async () => {
+  const rows = [
+    { id: "m3", role: "assistant", created_at: "2026-01-01T00:00:03.000Z" },
+    { id: "m2", role: "user", created_at: "2026-01-01T00:00:02.000Z" },
+    { id: "m1", role: "assistant", created_at: "2026-01-01T00:00:01.000Z" }
+  ];
+  await withStubbedFetch(async () => jsonResponse(rows), async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const page = await db.listMessagesPage("user_1", "conv_1", { limit: 3 });
+    assert.equal(page.hasMore, false);
+    assert.deepEqual(page.messages.map((message) => message.id), ["m1", "m2", "m3"]);
+  });
+});
+
+test("listMessagesPage does not collapse an assistant-only page to one row", async () => {
+  const rows = [
+    { id: "m4", role: "assistant", created_at: "2026-01-01T00:00:04.000Z" },
+    { id: "m3", role: "assistant", created_at: "2026-01-01T00:00:03.000Z" },
+    { id: "m2", role: "assistant", created_at: "2026-01-01T00:00:02.000Z" },
+    { id: "m1", role: "assistant", created_at: "2026-01-01T00:00:01.000Z" }
+  ];
+  await withStubbedFetch(async () => jsonResponse(rows), async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    const page = await db.listMessagesPage("user_1", "conv_1", { limit: 3 });
+    assert.deepEqual(page.messages.map((message) => message.id), ["m2", "m3", "m4"]);
+    assert.equal(page.hasMore, true);
+    assert.deepEqual(page.cursor, { createdAt: "2026-01-01T00:00:02.000Z", id: "m2" });
+  });
+});

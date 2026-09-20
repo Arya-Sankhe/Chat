@@ -31,7 +31,6 @@ import {
   fetchDocumentStatus,
   fetchMe,
   fetchMemory,
-  fetchModels,
   fetchPlans,
   fetchProject,
   fetchStorage,
@@ -110,7 +109,6 @@ import {
   mailtoComposeUrl,
   modelBrandLogoUrl,
   modelSupportsVision,
-  normalizeModelList,
   outlookComposeUrl,
   renderPlainText,
   renderContent,
@@ -144,6 +142,7 @@ import {
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
 const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Orbitron:wght@700&family=Patrick+Hand&family=Shantell+Sans:ital,wght@0,400;0,600;0,800;1,500&display=swap";
+let viewTransitionUserMessageId = "";
 
 const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
 const MENU_ICON_ATTRS = `width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
@@ -161,14 +160,15 @@ const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
 const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
-// Text compare. Also the legacy media path (Flash + MiMo describe) — revert by always returning this.
-const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
+const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
+// Text compare: DeepSeek and Laguna S (Laguna S runs at medium effort).
+const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S];
 const COMPARE_MEDIA_MODELS = [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2];
 const DEFAULT_COUNCIL_MODELS = [
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL
+  OPENROUTER_LAGUNA_S
 ];
 const COUNCIL_MEDIA_MODELS = [
   OPENROUTER_VISION_MODEL,
@@ -216,7 +216,6 @@ function applySpectrumLevel(level) {
   updateSetting("spectrumScale", 3);
   updateSetting("spectrumLevel", n);
   updateSetting("modelMode", step.mode);
-  updateSetting("provider", "openrouter");
   updateSetting("thinkingEffort", step.effort);
   updateSetting("model", step.model);
   paintSpectrum(n);
@@ -293,8 +292,6 @@ const defaultSettings = {
   agentMode: true,
   webSearchMode: "auto",
   writingStyle: "normal",
-  provider: "openrouter",
-  kluiModel: "",
   appearance: "system",
   colorPreset: "default",
   wallpaper: "clouds",
@@ -335,8 +332,10 @@ const state = {
   activeResearchId: "",
   researchReport: null,
   messages: [],
+  messagePage: { hasMore: false, cursor: null },
+  loadingOlderMessages: false,
+  prependingOlder: false,
   conversationLoading: false,
-  models: [],
   settings: loadSettings(),
   images: [],
   pastedText: "",
@@ -434,9 +433,9 @@ const unreadDoneChats = new Set();
 const conversationCache = new Map();
 let conversationLoadGeneration = 0;
 
-function rememberConversation(id, messages) {
+function rememberConversation(id, messages, page = null) {
   if (!id) return;
-  conversationCache.set(id, { messages: messages || [] });
+  conversationCache.set(id, { messages: messages || [], page });
   if (conversationCache.size > 30) conversationCache.delete(conversationCache.keys().next().value); // ponytail: FIFO eviction, LRU if it ever matters
 }
 
@@ -493,6 +492,7 @@ function beginConversationRun(key, {
     mode,
     abortController,
     messages: null,
+    messagePage: !temporary && isRunKeyActive(key) ? state.messagePage : null,
     followUps: isRunKeyActive(key) ? state.followUps.slice() : [],
     turnRunId: "",
     turnWaiting: false,
@@ -524,12 +524,13 @@ function endConversationRun(key, { completed = false } = {}) {
 
 function parkActiveConversationRun() {
   if (state.activeConversationId && !state.temporaryChat && !state.conversationLoading) {
-    rememberConversation(state.activeConversationId, state.messages);
+    rememberConversation(state.activeConversationId, state.messages, state.messagePage);
   }
   const key = conversationRunKey();
   const run = getConversationRun(key);
   if (!run) return;
   run.messages = state.messages;
+  run.messagePage = state.messagePage;
   run.followUps = state.followUps.slice();
 }
 
@@ -540,6 +541,7 @@ function restoreLiveConversationRun(conversationId) {
   // Research is durable on the server; returning should resume from fetched metadata.
   if (run.mode === "research" && !run.abortController) return false;
   state.messages = run.messages;
+  state.messagePage = run.messagePage || conversationCache.get(conversationId)?.page || { hasMore: false, cursor: null };
   state.followUps = Array.isArray(run.followUps) ? run.followUps.slice() : [];
   renderFollowUps();
   syncActiveRunningUi();
@@ -816,7 +818,6 @@ const els = {
   compareModeToggle: document.querySelector("#compareModeToggle"),
   compareModeDesc: document.querySelector("#compareModeDesc"),
   webSearchToggle: document.querySelector("#webSearchToggle"),
-  providerToggle: document.querySelector("#providerToggle"),
   documentViewer: document.querySelector("#documentViewer"),
   documentViewerResizer: document.querySelector("#documentViewerResizer"),
   documentViewerTitle: document.querySelector("#documentViewerTitle"),
@@ -1677,6 +1678,7 @@ function setTemporaryChatMode(enabled, { resetChat = true } = {}) {
     }
     state.activeConversationId = "";
     state.messages = [];
+    state.messagePage = { hasMore: false, cursor: null };
     for (const item of state.images) forgetPendingDocument(item);
     state.images = [];
     state.pastedText = "";
@@ -1989,7 +1991,7 @@ function resolveRoutedModel({ images = state.images, userContent = null } = {}) 
 }
 
 function compareIncludesTextOnlyModels(modelIds) {
-  return modelIds.some((id) => !modelSupportsVision(modelById(id) || { id }));
+  return modelIds.some((id) => !modelSupportsVision({ id }));
 }
 
 function resolveCompareModelsForSend({ images = state.images, userContent = null, keepAttachments = [] } = {}) {
@@ -2079,18 +2081,18 @@ function loadSettings() {
     loaded.agentMode = true;
     loaded.webSearchMode = loaded.webSearchMode === "off" ? "off" : "auto";
     loaded.writingStyle = normalizeWritingStyle(loaded.writingStyle);
-    loaded.provider = "openrouter";
     loaded.modelMode = loaded.modelMode === "pro" ? "pro" : "thinking";
     loaded.thinkingEffort = normalizeThinkingEffort(loaded.thinkingEffort);
-    const lvl = Number(loaded.spectrumLevel);
-    loaded.spectrumLevel = stored.spectrumScale === 3
-      ? (Number.isInteger(lvl) && lvl >= 0 && lvl < SPECTRUM_N ? lvl : 1)
-      : ([0, 0, 1, 1, 2][lvl] ?? 1);
+    // Every load opens on Think. Moving the slider still applies for the
+    // session, but the pick is deliberately not restored from storage, so the
+    // stored level (and its old 5-step migration) is not read at all.
+    loaded.spectrumLevel = 1;
     loaded.spectrumScale = 3;
     loaded.model = SPECTRUM_STEPS[loaded.spectrumLevel].model;
     loaded.thinkingEffort = SPECTRUM_STEPS[loaded.spectrumLevel].effort;
     loaded.modelMode = SPECTRUM_STEPS[loaded.spectrumLevel].mode;
-    loaded.kluiModel = typeof loaded.kluiModel === "string" ? loaded.kluiModel : "";
+    delete loaded.provider;
+    delete loaded.kluiModel;
     delete loaded.theme;
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
     loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
@@ -2210,62 +2212,6 @@ function renderWebSearchToggle() {
   els.webSearchToggle.setAttribute("aria-label", on ? "Web search auto (on)" : "Web search off");
 }
 
-function openRouterAvailable() {
-  return Boolean(state.config?.providers?.openrouter || state.config?.services?.openrouter);
-}
-
-function activeProvider() {
-  return "openrouter";
-}
-
-function renderProviderToggle() {
-  if (!els.providerToggle) return;
-  if (!openRouterAvailable()) {
-    els.providerToggle.classList.add("hidden");
-    return;
-  }
-  els.providerToggle.classList.remove("hidden");
-  const on = activeProvider() === "openrouter";
-  els.providerToggle.setAttribute("aria-pressed", on ? "true" : "false");
-  els.providerToggle.setAttribute(
-    "aria-label",
-    on ? "Provider: OpenRouter (on)" : "Provider: Klui — click to use OpenRouter"
-  );
-  els.providerToggle.setAttribute(
-    "title",
-    on
-      ? "Provider: OpenRouter."
-      : "Provider: Klui — click to route this chat through OpenRouter."
-  );
-}
-
-function toggleProvider() {
-  if (!openRouterAvailable()) return;
-  const next = activeProvider() === "openrouter" ? "klui" : "openrouter";
-  if (next === "openrouter") {
-    /* Stash the current Klui model so we can restore it on toggle-off. */
-    if (state.settings.model && state.settings.model !== OPENROUTER_VISION_MODEL) {
-      updateSetting("kluiModel", state.settings.model);
-    }
-    updateSetting("provider", "openrouter");
-    updateSetting("model", resolveRoutedModel());
-    if (state.settings.compareEnabled) {
-      updateSetting("compareEnabled", false);
-      updateSetting("compareModels", []);
-      compareController.closeCompareDropdown();
-    }
-  } else {
-    updateSetting("provider", "klui");
-    const restored = state.settings.kluiModel
-      || state.models.find((m) => m.id !== OPENROUTER_VISION_MODEL)?.id
-      || "";
-    if (restored) updateSetting("model", restored);
-  }
-  renderProviderToggle();
-  renderModelOptions();
-  compareController.renderCompareControls();
-}
-
 function toggleWebSearchMode() {
   const next = state.settings.webSearchMode === "off" ? "auto" : "off";
   updateSetting("webSearchMode", next);
@@ -2342,8 +2288,7 @@ function withTimeout(promise, ms, label) {
 
 function servicesReady() {
   const s = state.config?.services || {};
-  const providers = state.config?.providers || {};
-  return Boolean(s.supabase && s.access && (providers.openrouter || s.openrouter));
+  return Boolean(s.supabase && s.access && s.openrouter);
 }
 
 function hasChatAccess() {
@@ -2452,7 +2397,7 @@ function renderServices() {
     supabase: "Supabase Auth & Postgres",
     access: "Access mode",
     r2: "Cloudflare R2 storage",
-    crof: "Managed model API key",
+    openrouter: "OpenRouter model API",
     documents: "Document tools"
   }).map(([key, label]) => `
     <div class="service-row">
@@ -3843,8 +3788,10 @@ async function openConversation(conversationId) {
   try {
     syncConversationUrl();
     if (!restoreLiveConversationRun(conversationId)) {
-      state.messages = conversationCache.get(conversationId)?.messages || [];
-      state.conversationLoading = !conversationCache.has(conversationId);
+      const cached = conversationCache.get(conversationId);
+      state.messages = cached?.messages || [];
+      state.messagePage = cached?.page || { hasMore: false, cursor: null };
+      state.conversationLoading = !cached;
     } else {
       state.conversationLoading = false;
     }
@@ -3899,25 +3846,17 @@ async function handleConversationListClick(event) {
 
 /* ─── Model selector ─── */
 
-function selectedModel() {
-  return state.models.find((m) => m.id === state.settings.model);
-}
-
-function modelById(id) {
-  return state.models.find((m) => m.id === id);
-}
-
 function modelDisplayName(id) {
   if (id === OPENROUTER_TEXT_MODEL) return "DeepSeek";
   if (id === OPENROUTER_COUNCIL_HY3_MODEL) return "Hy3";
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
+  if (id === OPENROUTER_LAGUNA_S) return "Laguna S";
   if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";
   if (id === OPENROUTER_GLM_FLASH_MODEL) return "GLM 5.3 Flash";
-  const model = modelById(id);
-  return compactModelDisplayName(model?.name || model?.rawName || id) || id;
+  return compactModelDisplayName(id) || id;
 }
 
 function toggleModelDropdown() {
@@ -4352,6 +4291,18 @@ function renderMessageError(message) {
 
 function isStoppedMessage(message) {
   return Boolean(message?.stopped || message?.error === "Stopped by user.");
+}
+
+function markAssistantStopped(message) {
+  if (!message) return;
+  if (message.councilGroup) {
+    for (const panelist of message.panelists) panelist.stopped = true;
+    if (message.chairman) message.chairman.stopped = true;
+  } else if (message.compareGroup) {
+    for (const response of message.compareResponses) response.stopped = true;
+  } else {
+    message.stopped = true;
+  }
 }
 
 function canRetryAssistant(message) {
@@ -4871,12 +4822,10 @@ async function sendSideChatMessage() {
   renderSideChat();
 
   try {
-    const provider = activeProvider();
     await streamTemporaryChat(state.session, {
       text,
       messages: history,
       role: sideChatState.role || selectedSingleRole(),
-      provider,
       settings: chatRequestSettings(),
       writingStyle: "concise",
       agentMode: !sideChatState.flashcard,
@@ -5071,7 +5020,7 @@ function renderAssistantMessageContent(message, role = "assistant") {
   const content = typeof msg.content === "string" ? msg.content : msg.content;
   const streaming = role === "assistant" && isAssistantMessageStreaming(msg);
   if (role !== "assistant") return renderUserContent(msg);
-  if (isStoppedMessage(msg)) return `<div class="message-stopped" role="status">Stopped by user.</div>`;
+  if (isStoppedMessage(msg)) return `<div class="message-stopped" role="status">You stopped the response.</div>`;
   return `${renderAssistantActivity(msg, { streaming })}${renderArtifacts(msg, (artifact) => artifact?.type === "weather")}${renderAssistantContent(content, msg)}${renderArtifacts(msg, (artifact) => artifact?.type !== "weather")}${renderMessageError(msg)}${renderMissingFinal(msg, role)}`;
 }
 
@@ -5534,6 +5483,7 @@ function renderStandardMessage(raw) {
     : rawTextContent(msg.content);
   const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
   const editing = role === "user" && msg.id && state.editingMessageId === String(msg.id);
+  const transitioning = role === "user" && String(msg.id || "") === viewTransitionUserMessageId;
   const userImages = role === "user" ? renderUserImages(msg) : "";
 
   const inner = role === "assistant" && researchController.researchMeta(msg)
@@ -5544,7 +5494,7 @@ function renderStandardMessage(raw) {
         ${renderMessageFooter(msg, role)}`;
 
   return `
-    <article class="message ${role}${editing ? " editing" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
+    <article class="message ${role}${editing ? " editing" : ""}${transitioning ? " sent-message-transition" : ""}"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="message-body">
         ${inner}
       </div>
@@ -5601,6 +5551,9 @@ function renderMessages() {
 
   const beforePinned = state.autoScroll && isNearBottom(els.messages, 120);
   const beforeScrollTop = els.messages.scrollTop;
+  const beforeScrollHeight = els.messages.scrollHeight;
+  const prepending = state.prependingOlder;
+  state.prependingOlder = false;
 
   captureReasoningOpenState();
 
@@ -5617,6 +5570,9 @@ function renderMessages() {
 
   if (beforePinned) {
     pinMessagesToBottom();
+  } else if (prepending) {
+    // Older messages were prepended above the viewport: hold the reader's place.
+    setMessagesScrollTop(beforeScrollTop + (els.messages.scrollHeight - beforeScrollHeight));
   } else {
     setMessagesScrollTop(beforeScrollTop);
   }
@@ -5651,6 +5607,45 @@ function setMessagesScrollTop(value) {
 
 function pinMessagesToBottom() {
   setMessagesScrollTop(Math.max(0, els.messages.scrollHeight - els.messages.clientHeight));
+}
+
+function animateSentUserMessage(messageId) {
+  requestAnimationFrame(() => {
+    const bubble = els.messages.querySelector(`[data-message-id="${cssString(messageId)}"] .message-content`);
+    if (!bubble) return;
+    const reduced = prefersReducedMotion();
+    bubble.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translate(12px, 18px) scale(0.95)" },
+            { opacity: 1, transform: "translate(0, 0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 260,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
+}
+
+function animateRestoredComposerDraft() {
+  requestAnimationFrame(() => {
+    if (!els.promptInput) return;
+    const reduced = prefersReducedMotion();
+    els.promptInput.animate(
+      reduced
+        ? [{ opacity: 0.55 }, { opacity: 1 }]
+        : [
+            { opacity: 0, transform: "translateY(-12px) scale(0.98)" },
+            { opacity: 1, transform: "translateY(0) scale(1)" }
+          ],
+      {
+        duration: reduced ? 140 : 220,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)"
+      }
+    );
+  });
 }
 
 // Keep finished tables mounted so a mid-stream pan isn't cancelled by the next token.
@@ -7198,8 +7193,9 @@ function updateSendButton() {
       || (!state.config?.services?.speech && voiceState !== "recording");
   }
   const voiceBusy = voiceState === "recording" || voiceState === "processing";
+  const canStop = Boolean(state.activeResearchId || getConversationRun());
   els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
-  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy);
+  els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy || !canStop);
   if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
     els.sendButton.disabled = voiceState !== "recording";
@@ -7603,19 +7599,6 @@ async function handleAuthenticatedSession(session) {
   }
 }
 
-async function loadModels() {
-  if (!state.config?.services?.crof) {
-    state.models = [];
-    return;
-  }
-  try {
-    const payload = await fetchModels(state.session);
-    state.models = normalizeModelList(payload);
-  } catch (err) {
-    showToast(err.message);
-  }
-}
-
 async function loadPaymentRequests() {
   if (!state.session?.access_token) {
     state.paymentRequests = [];
@@ -7665,8 +7648,11 @@ async function loadConversations() {
 async function loadActiveConversation() {
   const id = state.activeConversationId;
   const loadGeneration = ++conversationLoadGeneration;
+  state.loadingOlderMessages = false; // an in-flight older-page fetch now belongs to a stale generation
+  state.prependingOlder = false;
   if (!id) {
     state.messages = [];
+    state.messagePage = { hasMore: false, cursor: null };
     state.conversationLoading = false;
     stopExtractedModulePollers();
     syncActiveRunningUi();
@@ -7675,13 +7661,14 @@ async function loadActiveConversation() {
   if (restoreLiveConversationRun(id)) {
     state.conversationLoading = false;
     researchController.resumeResearchPolling();
+    requestAnimationFrame(fillMessageViewport);
     return "applied";
   }
   const cachedAtStart = conversationCache.get(id);
   const payload = await fetchConversation(state.session, id);
   if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) {
     if (!getConversationRun(id) && conversationCache.get(id) === cachedAtStart) {
-      rememberConversation(id, payload.messages || []);
+      rememberConversation(id, payload.messages || [], payload.page || null);
       return "cached";
     }
     return false;
@@ -7689,10 +7676,12 @@ async function loadActiveConversation() {
   if (restoreLiveConversationRun(id)) {
     state.conversationLoading = false;
     researchController.resumeResearchPolling();
+    requestAnimationFrame(fillMessageViewport);
     return "applied";
   }
-  rememberConversation(id, payload.messages || []);
+  rememberConversation(id, payload.messages || [], payload.page || null);
   state.messages = payload.messages || [];
+  state.messagePage = payload.page || { hasMore: false, cursor: null };
   state.conversationLoading = false;
   const hasActiveResearch = state.messages.some((message) => {
     const meta = message?.metadata?.research;
@@ -7710,7 +7699,48 @@ async function loadActiveConversation() {
   if (pendingTurn && !getConversationRun(state.activeConversationId) && state.resumingTurnId !== pendingTurn.id) {
     setTimeout(() => resumePendingDocumentTurn(pendingTurn), 0);
   }
+  requestAnimationFrame(fillMessageViewport);
   return "applied";
+}
+
+/**
+ * Fetch the page of messages older than the window and prepend it. The prepend
+ * is anchored by the scrollHeight delta it adds (see renderMessages).
+ */
+async function loadOlderMessages() {
+  const id = state.activeConversationId;
+  const cursor = state.messagePage?.cursor;
+  if (!id || !cursor || state.loadingOlderMessages || state.temporaryChat) return;
+  state.loadingOlderMessages = true;
+  const loadGeneration = conversationLoadGeneration;
+  const payload = await fetchConversation(state.session, id, { cursor }).catch(() => null); // on failure keep hasMore so the next scroll retries
+  if (loadGeneration !== conversationLoadGeneration || state.activeConversationId !== id) return;
+  state.loadingOlderMessages = false;
+  if (!payload) return;
+  const older = payload.messages || [];
+  if (!older.length) {
+    state.messagePage = { hasMore: false, cursor: null };
+    return;
+  }
+  state.messages.unshift(...older);
+  state.messagePage = payload.page || { hasMore: false, cursor: null };
+  state.prependingOlder = true;
+  renderMessages();
+  fillMessageViewport();
+}
+
+/** Scroll-up trigger: only fires at the top, and never while we pin to the bottom. */
+function maybeLoadOlderMessages() {
+  if (!state.messagePage?.hasMore || state.loadingOlderMessages) return;
+  if (state.autoScroll || els.messages.scrollTop > 120) return;
+  void loadOlderMessages();
+}
+
+/** A window shorter than the viewport can't be scrolled, so top it up until it can. */
+function fillMessageViewport() {
+  if (!state.messagePage?.hasMore || state.loadingOlderMessages) return;
+  if (els.messages.scrollHeight > els.messages.clientHeight + 4) return;
+  void loadOlderMessages();
 }
 
 function restoredTurnAttachment(part) {
@@ -7745,24 +7775,7 @@ function restoredTurnAttachment(part) {
 function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   if (result?.run?.status !== "cancelled") return false;
   if (result.run.conversation_id && result.run.conversation_id !== state.activeConversationId) return false;
-  const remainingMessages = state.messages.filter((message) =>
-    message !== run?.userMessage && message !== run?.assistantMessage);
-  state.messages = remainingMessages;
-  if (run) run.messages = remainingMessages;
-  if (!remainingMessages.length) {
-    for (const item of [...state.images, ...(run?.draft?.images || [])]) {
-      forgetPendingDocument(item);
-      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    }
-    setComposerPlainText("");
-    state.pastedText = "";
-    state.images = [];
-    clearFollowUps();
-    renderImages();
-    applyComposerHeight();
-    renderMessages();
-    return true;
-  }
+  markAssistantStopped(run?.assistantMessage);
   const content = result.user_message?.content;
   const restoredText = content == null ? (run?.draft?.text || "") : textFromMessageContent(content);
   const restoredMarks = result.user_message?.metadata?.skillMarks
@@ -7786,6 +7799,7 @@ function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   renderImages();
   applyComposerHeight();
   renderMessages();
+  animateRestoredComposerDraft();
   els.promptInput.focus();
   return true;
 }
@@ -7853,6 +7867,7 @@ async function resumePendingDocumentTurn(run) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
       if (refreshed) {
         state.messages = refreshed.messages || state.messages;
+        state.messagePage = refreshed.page || { hasMore: false, cursor: null };
         const nextTurn = (refreshed.pendingTurns || [])[0];
         if (nextTurn && nextTurn.id !== run.id) {
           setTimeout(() => resumePendingDocumentTurn(nextTurn), 0);
@@ -7866,7 +7881,7 @@ async function resumePendingDocumentTurn(run) {
 }
 
 async function loadChatApp() {
-  await Promise.all([loadModels(), loadConversations(), loadProjects()]);
+  await Promise.all([loadConversations(), loadProjects()]);
   if (studyRouteFromLocation()) {
     await loadStudyHub();
     state.studyOpen = true;
@@ -8038,6 +8053,7 @@ function openNewChat({ replaceUrl = false } = {}) {
   state.activeProjectId = "";
   state.activeProject = null;
   state.messages = [];
+  state.messagePage = { hasMore: false, cursor: null };
   state.images = [];
   state.pastedText = "";
   state.compareDescribeImages = false;
@@ -8486,12 +8502,10 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
   let shouldReloadConversation = false;
 
   try {
-    const retryProvider = activeProvider();
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
       role: selectedSingleRole(),
-      provider: retryProvider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       agentMode: true,
@@ -8619,24 +8633,18 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   const temporaryChat = state.temporaryChat;
   const previousTemporaryMessages = temporaryChat ? temporaryHistoryForRequest() : [];
-  let createdConversation = false;
-
-  if (!temporaryChat && (newChat || !state.activeConversationId)) {
-    const payload = await createConversation(state.session, {
-      role: selectedChatRole(),
-      projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
-    });
-    state.conversations.unshift(payload.conversation);
-    state.activeConversationId = payload.conversation.id;
-    state.projectsOpen = false;
-    state.studyOpen = false;
-    createdConversation = true;
-    syncConversationUrl();
-    renderConversations();
-  }
-  const conversationId = state.activeConversationId;
-  const runKey = conversationRunKey(conversationId, temporaryChat);
-  if (!runKey || getConversationRun(runKey)) return;
+  const creatingConversation = !temporaryChat && (newChat || !state.activeConversationId);
+  // Home state to restore if creating the conversation fails.
+  const rollback = { messages: state.messages, messagePage: state.messagePage, projectsOpen: state.projectsOpen, studyOpen: state.studyOpen };
+  const conversationPromise = creatingConversation
+    ? createConversation(state.session, {
+        role: selectedChatRole(),
+        projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
+      })
+    : null;
+  let conversationId = state.activeConversationId;
+  let runKey = creatingConversation ? "" : conversationRunKey(conversationId, temporaryChat);
+  if (!creatingConversation && (!runKey || getConversationRun(runKey))) return;
 
   const keptParts = keepAttachments.map((att) => att.category === "document"
     ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
@@ -8677,7 +8685,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       return !(m.compareGroup || m.councilGroup);
     });
   }
-  if (createdConversation) {
+  if (creatingConversation) {
     state.messages = [localUser, localAssistant];
   } else {
     state.messages.push(localUser, localAssistant);
@@ -8692,6 +8700,50 @@ async function executeSend({ text, images, compareModels, council = false, descr
   state.images = [];
   renderImages();
 
+  if (creatingConversation) {
+    state.projectsOpen = false;
+    state.studyOpen = false;
+    setAutoScroll(true);
+    setRunning(true);
+    const paintConversation = (transitionMessage = false) => {
+      viewTransitionUserMessageId = transitionMessage ? localUser.id : "";
+      renderShell();
+      viewTransitionUserMessageId = "";
+      pinMessagesToBottom();
+    };
+    if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) {
+      document.startViewTransition(() => paintConversation(true));
+    } else {
+      paintConversation();
+      animateSentUserMessage(localUser.id);
+    }
+
+    let payload;
+    try {
+      payload = await conversationPromise;
+    } catch (error) {
+      Object.assign(state, rollback);
+      state.images = images;
+      for (const item of images) rememberPendingDocument(item);
+      setComposerPlainText(text, sendSkillMarks);
+      setRunning(false);
+      renderImages();
+      applyComposerHeight();
+      renderShell();
+      showToast(error.message || "Chat could not be created.");
+      return;
+    }
+    state.conversations.unshift(payload.conversation);
+    state.activeConversationId = payload.conversation.id;
+    state.messages = [localUser, localAssistant]; // re-assert: the user may have navigated while the request was in flight
+    state.messagePage = { hasMore: false, cursor: null };
+    conversationId = state.activeConversationId;
+    runKey = conversationRunKey(conversationId, false);
+    syncConversationUrl();
+    renderConversations();
+    renderProjectChatCrumb();
+  }
+
   const abortController = new AbortController();
   const activeRun = beginConversationRun(runKey, {
     conversationId: temporaryChat ? "" : conversationId,
@@ -8705,8 +8757,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
   activeRun.draft = { text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks };
   setAutoScroll(true);
   syncActiveRunningUi();
-  if (createdConversation) renderShell();
-  else renderMessages();
+  renderMessages();
+  if (!creatingConversation) animateSentUserMessage(localUser.id);
   pinMessagesToBottom();
   let shouldReloadConversation = false;
   let wasAborted = false;
@@ -8735,7 +8787,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
       uploaded.push(uploadedFile);
     }
 
-    const provider = activeProvider();
     const payload = {
       text,
       clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -8743,7 +8794,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
         : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`,
       attachments: uploaded.map((item) => item.id),
       role: selectedChatRole(),
-      provider,
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
       skillIds: sendSkillIds,
@@ -8822,14 +8872,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
           applyComposerHeight();
         }
       }
-      if (localAssistant.councilGroup) {
-        for (const panelist of localAssistant.panelists) panelist.stopped = true;
-        if (localAssistant.chairman) localAssistant.chairman.stopped = true;
-      } else if (localAssistant.compareGroup) {
-        for (const response of localAssistant.compareResponses) response.stopped = true;
-      } else {
-        localAssistant.stopped = true;
-      }
+      markAssistantStopped(localAssistant);
     } else {
       if (localAssistant.councilGroup) {
         for (const panelist of localAssistant.panelists) {
@@ -9210,7 +9253,10 @@ function bindEvents() {
       updateChatScrollNavigation();
     });
   };
-  els.messages.addEventListener("scroll", queueChatNavigationUpdate, { passive: true });
+  els.messages.addEventListener("scroll", () => {
+    queueChatNavigationUpdate();
+    maybeLoadOlderMessages();
+  }, { passive: true });
   els.messages.addEventListener("load", (event) => {
     if (!event.target.closest?.("img.message-image") || !state.autoScroll) return;
     requestAnimationFrame(pinMessagesToBottom);
@@ -9993,9 +10039,6 @@ function bindEvents() {
       event.stopPropagation();
       toggleWebSearchMode();
     });
-  }
-  if (els.providerToggle) {
-    els.providerToggle.addEventListener("click", toggleProvider);
   }
   els.imagePreviews.addEventListener("click", (e) => {
     const removePaste = e.target.closest("[data-remove-paste]");

@@ -85,14 +85,23 @@ async function postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAtt
 
     if (response.ok) return response;
 
-    if (RETRYABLE_STATUS.has(response.status) && !isLast) {
+    const retryable = RETRYABLE_STATUS.has(response.status)
+      || (response.status >= 520 && response.status <= 527);
+    if (retryable && !isLast) {
       const retryAfter = response.headers.get("retry-after");
       await response.text().catch(() => {});
       await sleep(retryDelayMs(attempt, retryAfter), signal);
       continue;
     }
 
-    throw await crofaiError(response);
+    // Attribution for the next diagnosis (upstream failures only — 4xx is
+    // caller error, not provider weather). OpenRouter doesn't reliably report
+    // which backend failed, so log the model plus the ordered candidates we sent.
+    if (response.status >= 500) {
+      const order = requestBody?.provider?.order;
+      console.warn(`[chat] upstream ${response.status} model=${requestBody?.model || "?"} order=${Array.isArray(order) ? order.join(",") : "-"} attempts=${attempt + 1}`);
+    }
+    throw await providerError(response);
   }
 
   throw lastError || new HttpError(502, "Upstream chat request failed after retries.");
@@ -110,9 +119,13 @@ function authHeaders(apiKey) {
   return headers;
 }
 
-async function crofaiError(response) {
+async function providerError(response) {
   const contentType = response.headers.get("content-type") || "";
   const text = await response.text();
+
+  if (response.status >= 500) {
+    return new HttpError(response.status, "The model service is temporarily unavailable. Please try again.");
+  }
 
   if (contentType.includes("application/json")) {
     try {
@@ -120,14 +133,14 @@ async function crofaiError(response) {
       const message = json?.error?.metadata?.raw
         || json?.error?.message
         || json?.error
-        || `Klui request failed with ${response.status}.`;
+        || `Model request failed with ${response.status}.`;
       return new HttpError(response.status, message, json);
     } catch {
-      return new HttpError(response.status, `Klui request failed with ${response.status}.`, text.slice(0, 2000));
+      return new HttpError(response.status, `Model request failed with ${response.status}.`, text.slice(0, 2000));
     }
   }
 
-  return new HttpError(response.status, text.slice(0, 2000) || `Klui request failed with ${response.status}.`);
+  return new HttpError(response.status, text.slice(0, 2000) || `Model request failed with ${response.status}.`);
 }
 
 export async function listModels({ apiKey, baseUrl, signal }) {
@@ -138,7 +151,7 @@ export async function listModels({ apiKey, baseUrl, signal }) {
   });
 
   if (!response.ok) {
-    throw await crofaiError(response);
+    throw await providerError(response);
   }
 
   return response.json();
@@ -210,7 +223,7 @@ export async function imageGeneration({
     body: JSON.stringify(body),
     signal
   });
-  if (!response.ok) throw await crofaiError(response);
+  if (!response.ok) throw await providerError(response);
   if (typeof onResponseStarted === "function") await onResponseStarted(response);
   const payload = await response.json();
   if (typeof onResponsePayload === "function") onResponsePayload(payload);

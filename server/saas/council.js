@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { chatCompletion, streamChatCompletion } from "../crofai/client.js";
+import { chatCompletion, streamChatCompletion } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
 import { streamProviderAndAccumulate } from "./messages.js";
-import { openRouterModelSupportsReasoningEffort } from "../providers.js";
+import { OPENROUTER_LAGUNA_S, openRouterModelSupportsReasoningEffort } from "../providers.js";
 
 /**
  * System prompt injected on top of the user's own system prompt for Stage 1.
@@ -202,7 +202,6 @@ const PEER_REVIEW_MAX_ATTEMPTS = 3;
 export async function runPeerReview({
   panelists,
   originalUserPrompt,
-  config,
   provider,
   signal,
   onBallot,
@@ -210,8 +209,8 @@ export async function runPeerReview({
   chatCompletionFn = chatCompletion,
   maxTokens = 32_000
 }) {
-  const apiKey = provider?.apiKey || config?.serverApiKey;
-  const baseUrl = provider?.baseUrl || config?.defaultBaseUrl;
+  const apiKey = provider.apiKey;
+  const baseUrl = provider.baseUrl;
   if (!panelists.length) return { ballots: [], borda: [], assignments: [] };
 
   const assignments = buildReviewerAssignments(panelists);
@@ -237,6 +236,7 @@ export async function runPeerReview({
               max_tokens: maxTokens,
               temperature: 0.2,
               reasoning: openRouterModelSupportsReasoningEffort(assignment.reviewerModelId)
+                || String(assignment.reviewerModelId || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S
                 ? { effort: "low", exclude: false }
                 : { enabled: true, exclude: false }
             },
@@ -357,7 +357,6 @@ export async function runChairmanSynthesis({
   chairmanModel,
   prompt,
   systemPrompt,
-  config,
   provider,
   signal,
   onEvent,
@@ -373,12 +372,16 @@ export async function runChairmanSynthesis({
     ],
     temperature: 0.4
   };
-  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+  // Laguna as chairman does the final synthesis, so run it high. Panelist
+  // answers stay medium via the implicit Laguna branch in providers.js.
+  if (String(chairmanModel || "").trim().toLowerCase() === OPENROUTER_LAGUNA_S) {
+    body.reasoning = { effort: "high", exclude: false };
+  } else if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   if (maxTokens) body.max_tokens = maxTokens;
 
   const upstream = await streamChatCompletionFn({
-    apiKey: provider?.apiKey || config.serverApiKey,
-    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
     body,
     providerId: provider?.id,
     signal

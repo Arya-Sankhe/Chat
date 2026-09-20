@@ -4,15 +4,15 @@ import { HttpError } from "../http/responses.js";
 import { OPENROUTER_NITRO_MODEL } from "../providers.js";
 import { pipeProviderStreamAndAccumulate, writeProviderEvent } from "../saas/messages.js";
 
-export async function streamSingleChat({ chatRequest, crofai, config, provider, signal, res, includeReasoning = false }) {
-  const upstream = await crofai.streamChatCompletion({
-    apiKey: provider?.apiKey || config.serverApiKey,
-    baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+export async function streamSingleChat({ chatRequest, modelClient, provider, signal, res, includeReasoning = false }) {
+  const upstream = await modelClient.streamChatCompletion({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
     body: chatRequest,
     providerId: provider?.id,
     signal
   });
-  if (!upstream.body) throw new HttpError(502, `${provider?.label || "Klui"} returned an empty response stream.`);
+  if (!upstream.body) throw new HttpError(502, `${provider.label} returned an empty response stream.`);
   const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning });
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
@@ -69,12 +69,12 @@ export function findVisualizeError(content) {
 
 // Cheap first pass: ask the fast model to correct the parse error in place.
 // One attempt, validated before use; the full-model repair below is the fallback.
-async function fixVisualize({ content, visualizeError, crofai, config, provider, signal }) {
+async function fixVisualize({ content, visualizeError, modelClient, provider, signal }) {
   try {
     const timeout = AbortSignal.timeout(25_000);
-    const fixed = await crofai.chatCompletion({
-      apiKey: provider?.apiKey || config.serverApiKey,
-      baseUrl: provider?.baseUrl || config.defaultBaseUrl,
+    const fixed = await modelClient.chatCompletion({
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
       providerId: provider?.id,
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       body: {
@@ -96,13 +96,13 @@ async function fixVisualize({ content, visualizeError, crofai, config, provider,
   return "";
 }
 
-export async function ensureVisualizeResponse({ required, result, chatRequest, crofai, config, provider, signal, res, includeReasoning = false, onReset }) {
+export async function ensureVisualizeResponse({ required, result, chatRequest, modelClient, provider, signal, res, includeReasoning = false, onReset }) {
   if (!required) return result;
   const completed = finishVisualizeBlock(result, res, includeReasoning);
   const visualizeError = completed ? findVisualizeError(result.accumulated.content) : "";
   if (completed && !visualizeError) return result;
   if (completed) {
-    const fixed = await fixVisualize({ content: result.accumulated.content, visualizeError, crofai, config, provider, signal });
+    const fixed = await fixVisualize({ content: result.accumulated.content, visualizeError, modelClient, provider, signal });
     if (fixed) {
       signal?.throwIfAborted();
       onReset();
@@ -125,7 +125,7 @@ export async function ensureVisualizeResponse({ required, result, chatRequest, c
   };
   delete retryRequest.tools;
   delete retryRequest.tool_choice;
-  const repaired = await streamSingleChat({ chatRequest: retryRequest, crofai, config, provider, signal, res, includeReasoning });
+  const repaired = await streamSingleChat({ chatRequest: retryRequest, modelClient, provider, signal, res, includeReasoning });
   if (!finishVisualizeBlock(repaired, res, includeReasoning) || findVisualizeError(repaired.accumulated.content)) {
     throw new HttpError(502, "Klui could not generate the interactive visualization. Try again.");
   }

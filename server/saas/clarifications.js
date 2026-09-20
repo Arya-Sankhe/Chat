@@ -25,13 +25,13 @@ export function normalizeClarifications(value) {
   });
 }
 
-export async function generateClarifications({ query, crofai, config, signal }) {
+export async function generateClarifications({ query, modelClient, config, signal }) {
   const provider = config?.providers?.openrouter;
-  if (!provider?.apiKey || !crofai?.chatCompletion) return [];
+  if (!provider?.apiKey || !modelClient?.chatCompletion) return [];
   const callSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
     : AbortSignal.timeout(10_000);
-  const content = await crofai.chatCompletion({
+  const content = await modelClient.chatCompletion({
     apiKey: provider.apiKey,
     baseUrl: provider.baseUrl,
     providerId: "openrouter",
