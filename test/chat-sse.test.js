@@ -1399,6 +1399,52 @@ test("visualize retry restores the skill without exposing document tools", async
   assert.equal(finalUpdate.patch.content, visual);
 });
 
+test("visualize retry with a sandbox runtime error asks for a targeted repair of the previous document", async (t) => {
+  t.after(restoreFetch);
+  const requests = [];
+  const broken = "```visualize\n<!doctype html><html><body><script>(1).toLocaleString('en US')</script></body></html>\n```";
+  const fixed = "```visualize\n<!doctype html><html><body><script>(1).toLocaleString('en-US')</script></body></html>\n```";
+  installProviderFetch({
+    streamFor: (body) => {
+      requests.push(body);
+      return [contentDelta(fixed), usageChunk()];
+    }
+  });
+
+  const history = [
+    { id: "user-visualize", role: "user", content: "Explain compounding.", metadata: { skillIds: ["visualize"] } },
+    { id: "asst-visualize", role: "assistant", content: broken, finish_reason: "stop" }
+  ];
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: {
+      retryAssistantMessageId: "asst-visualize",
+      visualizeRuntimeError: "RangeError: Incorrect locale information provided\u0000\n  at x",
+      model: TEXT_MODEL,
+      agentMode: true
+    }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(requests.length, 1);
+  const system = requests[0].messages[0].content;
+  assert.match(system, /Visualization repair task:/);
+  assert.match(system, /RangeError: Incorrect locale information provided at x/);
+  assert.doesNotMatch(system, /\u0000/);
+  assert.match(system, /<previous_response>[\s\S]*toLocaleString\('en US'\)[\s\S]*<\/previous_response>/);
+  const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
+  assert.equal(finalUpdate.patch.content, fixed);
+
+  const noRetry = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "hi", visualizeRuntimeError: "boom", model: TEXT_MODEL }
+  });
+  assert.equal(noRetry.statusCode, 400);
+  assert.match(noRetry.body, /requires an assistant message to retry/);
+});
+
 test("longer retry rewrites the existing answer without adding a user message", async (t) => {
   t.after(restoreFetch);
   let providerRequest = null;

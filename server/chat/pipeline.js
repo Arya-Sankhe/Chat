@@ -77,7 +77,12 @@ import {
   updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
-import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
+import {
+  ensureVisualizeResponse,
+  normalizeVisualizeRuntimeError,
+  streamSingleChat,
+  withVisualizeRepairSystemPrompt
+} from "./single.js";
 import {
   PENDING_TURN_LEASE_SECONDS,
   documentHasUsableCapability,
@@ -765,6 +770,13 @@ async function executeConversationMessage(req, res, config, conversationId, {
   if (responseAdjustment && !retryAssistantMessageId) {
     throw new HttpError(400, "Response adjustment requires an assistant message to retry.");
   }
+  const visualizeRuntimeError = normalizeVisualizeRuntimeError(body.visualizeRuntimeError);
+  if (visualizeRuntimeError && !retryAssistantMessageId) {
+    throw new HttpError(400, "Visualization repair requires an assistant message to retry.");
+  }
+  if (visualizeRuntimeError && responseAdjustment) {
+    throw new HttpError(400, "Cannot repair a visualization and adjust its length in the same request.");
+  }
 
   let existingMessages = await context.db.listMessages(context.user.id, conversation.id, { signal: req.signal });
   let userMessage = persistedUserMessage;
@@ -870,6 +882,13 @@ async function executeConversationMessage(req, res, config, conversationId, {
     responseAdjustment,
     retryAssistantContent
   );
+  if (visualizing && visualizeRuntimeError) {
+    settings.systemPrompt = withVisualizeRepairSystemPrompt(
+      settings.systemPrompt,
+      visualizeRuntimeError,
+      retryAssistantContent
+    );
+  }
   if (project?.instructions) {
     settings.systemPrompt = `${settings.systemPrompt || ""}\n\nProject instructions from the user:\n${project.instructions}`.trim();
   }

@@ -308,6 +308,18 @@ test("stale web API builds are rejected before route effects", async () => {
   assert.equal(current.statusCode, 400);
   assert.equal(verifyCalls, 1);
 
+  const staleLegacyWeb = await dispatch(config, {
+    method: "POST", path: "/api/reports", headers: { "sec-fetch-site": "same-origin" }, overrides
+  });
+  assert.equal(staleLegacyWeb.statusCode, 426);
+  assert.equal(staleLegacyWeb.json().code, "stale_client_build");
+  assert.equal(verifyCalls, 1);
+
+  const legacyWebRead = await dispatch(config, {
+    method: "GET", path: "/api/plans", headers: { "sec-fetch-site": "same-origin" }, overrides
+  });
+  assert.equal(legacyWebRead.statusCode, 200);
+
   const legacy = await dispatch(config, { method: "POST", path: "/api/reports", overrides });
   assert.equal(legacy.statusCode, 400);
   assert.equal(verifyCalls, 2);

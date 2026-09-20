@@ -99,6 +99,7 @@ import {
 } from "./platform/index.js";
 import { checkForAppUpdate, openAppUpdate } from "./platform/updates.js";
 import {
+  VISUALIZE_REPAIRING_LABEL,
   applyVisualizeFrameMessage,
   compactModelDisplayName,
   emailCardFields,
@@ -516,6 +517,7 @@ function endConversationRun(key, { completed = false } = {}) {
   if (completed && !run.temporary && run.conversationId && run.conversationId !== state.activeConversationId) {
     unreadDoneChats.add(run.conversationId);
   }
+  if (completed && !run.temporary && run.conversationId) armVisualizeAutoRepair(run.conversationId);
   if (isRunKeyActive(key) || state.abortController === run?.abortController) {
     syncActiveRunningUi();
   }
@@ -4237,6 +4239,7 @@ function currentThinkingStatus(message, { streaming = false } = {}) {
 }
 
 function renderThinkingStatus(message, { streaming = false } = {}) {
+  if (isVisualizeRepairing(message)) return "";
   if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return "";
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
@@ -4885,23 +4888,39 @@ function prepareCitationPlaceholders(text, citations) {
 
 function restoreCitationPlaceholders(html, slots) {
   let out = String(html ?? "");
-  for (const { token, html: pillHtml } of slots) out = out.replaceAll(token, pillHtml);
+  for (const { token, html: pillHtml } of slots) out = out.replaceAll(token, () => pillHtml);
   return out;
 }
 
-function renderAssistantText(text, citations, { holdVisualize = false } = {}) {
+function renderAssistantText(text, citations, { holdVisualize = false, visualizeLabel = "" } = {}) {
   const cleaned = stripRedundantSourcesFooter(
     stripLeakedToolMarkup(stripLeakedCitationHtml(text)),
     citations
   );
   if (!cleaned.trim()) return "";
-  if (!citations.length) return renderContent(cleaned, { holdVisualize, emailCards: true });
+  if (!citations.length) return renderContent(cleaned, { holdVisualize, emailCards: true, visualizeLabel });
   const { text: prepared, slots } = prepareCitationPlaceholders(cleaned, citations);
-  return restoreCitationPlaceholders(renderContent(prepared, { holdVisualize, emailCards: true }), slots);
+  return restoreCitationPlaceholders(renderContent(prepared, { holdVisualize, emailCards: true, visualizeLabel }), slots);
+}
+
+function visualizeSourceFromContent(content) {
+  return rawTextContent(content).match(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/i)?.[1]?.trim() || "";
+}
+
+// A message being auto-repaired keeps its panel on screen the whole time:
+// the previous document stays under the "Getting it ready" state until the
+// replacement fence starts streaming in.
+function isVisualizeRepairing(message) {
+  return Boolean(message?.visualizeRepairSource) && state.running && !message?.error;
 }
 
 function renderAssistantContent(content, message) {
   const citations = citationListFromMessage(message);
+  const repairing = isVisualizeRepairing(message);
+  const visualizeLabel = repairing ? VISUALIZE_REPAIRING_LABEL : "";
+  if (repairing && !/```visualize[ \t]*\r?\n/i.test(rawTextContent(content))) {
+    return renderContent(`\`\`\`visualize\n${message.visualizeRepairSource}`, { visualizeLabel });
+  }
   const holdVisualize = state.running && Boolean(message?.id) && String(state.messages.at(-1)?.id || "") === String(message.id);
   const hasContent = Array.isArray(content)
     ? content.some((part) => part?.type === "text" ? String(part.text || "").trim() : part?.type === "image_url")
@@ -4911,7 +4930,7 @@ function renderAssistantContent(content, message) {
     if (!hasContent) return "";
     return content
       .map((part) => {
-        if (part?.type === "text") return renderAssistantText(part.text || "", citations, { holdVisualize });
+        if (part?.type === "text") return renderAssistantText(part.text || "", citations, { holdVisualize, visualizeLabel });
         if (part?.type === "image_url") {
           const url = part.image_url?.url;
           if (!url) return "";
@@ -4929,7 +4948,7 @@ function renderAssistantContent(content, message) {
   }
 
   const text = typeof content === "string" ? content : "";
-  return renderAssistantText(text, citations, { holdVisualize });
+  return renderAssistantText(text, citations, { holdVisualize, visualizeLabel });
 }
 
 function pastedTextFromMessage(message) {
@@ -5673,6 +5692,12 @@ function adoptLiveVisualizeBuilding(liveEl, nextRoot) {
   const nextCode = next.querySelector(".visualize-building-code code");
   if (liveCode && nextCode && liveCode.textContent !== nextCode.textContent) {
     liveCode.textContent = nextCode.textContent;
+  }
+  const liveLabel = live.querySelector(".visualize-building-status b");
+  const nextLabel = next.querySelector(".visualize-building-status b");
+  if (liveLabel && nextLabel && liveLabel.textContent !== nextLabel.textContent) {
+    liveLabel.textContent = nextLabel.textContent;
+    liveLabel.dataset.label = nextLabel.dataset.label || nextLabel.textContent;
   }
   return true;
 }
@@ -7405,7 +7430,7 @@ function isStreamDeltaEvent(event) {
 
 function patchKluiThinkingInPlace(message) {
   const id = message?.id ? String(message.id) : "";
-  if (!id) return false;
+  if (!id || isVisualizeRepairing(message)) return false;
   if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return false;
   const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
   const contentEl = surface?.querySelector(".message-content");
@@ -8462,7 +8487,50 @@ async function editUserMessage(id) {
   });
 }
 
-async function retryFailedAssistant(assistantMessageId, responseAdjustment = "") {
+/* Visualize auto-repair: the server can only compile a document, so runtime
+   failures surface here via the sandbox bridge. Repair only the turn that just
+   finished in this tab (armed for a short window after the run completes) and
+   cap attempts per user prompt so a stubborn bug cannot loop. */
+const VISUALIZE_AUTO_REPAIR_WINDOW_MS = 45_000;
+const VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS = 2;
+const visualizeAutoRepair = { armed: new Map(), attempts: new Map() };
+
+function armVisualizeAutoRepair(conversationId) {
+  if (!conversationId) return;
+  visualizeAutoRepair.armed.set(String(conversationId), Date.now());
+}
+
+async function maybeAutoRepairVisualization({ messageId, message } = {}) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || state.temporaryChat || state.running || !messageId) return false;
+  const armedAt = visualizeAutoRepair.armed.get(String(conversationId)) || 0;
+  if (!armedAt || Date.now() - armedAt > VISUALIZE_AUTO_REPAIR_WINDOW_MS) return false;
+
+  const index = state.messages.findIndex((item) => String(item?.id) === String(messageId));
+  if (index <= 0 || index !== state.messages.length - 1) return false;
+  const assistant = state.messages[index];
+  const userMsg = state.messages[index - 1];
+  if (assistant?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(assistant)) return false;
+  if (!normalizeClientSkillIds(userMsg?.metadata?.skillIds).includes("visualize")) return false;
+
+  const attemptKey = `${conversationId}:${userMsg.id}`;
+  const attempts = visualizeAutoRepair.attempts.get(attemptKey) || 0;
+  if (attempts >= VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS) return false;
+  visualizeAutoRepair.attempts.set(attemptKey, attempts + 1);
+  visualizeAutoRepair.armed.delete(String(conversationId));
+
+  // Silent by design: the panel stays put and switches to "Getting it ready".
+  try {
+    await retryFailedAssistant(String(assistant.id), "", {
+      visualizeRuntimeError: String(message || "The visualization could not run.").slice(0, 300)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function retryFailedAssistant(assistantMessageId, responseAdjustment = "", { visualizeRuntimeError = "" } = {}) {
   if (state.running || !state.activeConversationId || !assistantMessageId) return;
 
   const conversationId = state.activeConversationId;
@@ -8476,12 +8544,14 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
   const userMsg = state.messages[index - 1];
   if (failed?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(failed)) return;
 
+  const repairSource = visualizeRuntimeError ? visualizeSourceFromContent(failed.content) : "";
   const localAssistant = {
     id: `local_assistant_${Date.now()}`,
     role: "assistant",
     content: "",
     reasoning: "",
-    toolCalls: []
+    toolCalls: [],
+    ...(repairSource ? { visualizeRepairSource: repairSource } : {})
   };
   markAssistantActivityTree(localAssistant);
   state.messages[index] = localAssistant;
@@ -8505,6 +8575,7 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "")
     await streamConversationMessage(state.session, conversationId, {
       retryAssistantMessageId: assistantMessageId,
       ...(responseAdjustment ? { responseAdjustment } : {}),
+      ...(visualizeRuntimeError ? { visualizeRuntimeError } : {}),
       role: selectedSingleRole(),
       settings: chatRequestSettings(),
       writingStyle: normalizeWritingStyle(state.settings.writingStyle),
@@ -10350,7 +10421,9 @@ function bindEvents() {
     if (field.isContentEditable) clearEmailPlaceholderAtCaret(card, e);
   });
 
-  window.addEventListener("message", (event) => applyVisualizeFrameMessage(event));
+  window.addEventListener("message", (event) => applyVisualizeFrameMessage(event, document, {
+    onRuntimeError: (report) => { void maybeAutoRepairVisualization(report); }
+  }));
 
   els.sendButton.addEventListener("pointerdown", (event) => {
     if (!document.body.classList.contains("capacitor-native") || event.button !== 0 || !event.isPrimary) return;

@@ -36,6 +36,19 @@ test("renderContent turns a completed visualize fence into an offline sandbox", 
   assert.match(html, /klui:visualize:expanded/);
 });
 
+test("visualize documents containing `$&`-style replacement patterns render exactly one intact card", () => {
+  delete globalThis.marked;
+  resetCodeSourceStore();
+  // Money formatting produces `"$"`, escaped to `&quot;$&quot;`, which contains the
+  // `$&` replacement pattern. This used to re-inject the placeholder into srcdoc.
+  const source = '<!doctype html><html><body><script>function money(v){ return "$" + Math.round(v) + "$\'" + "$`" + "$1"; }</script></body></html>';
+  const html = renderContent(`\`\`\`visualize\n${source}\n\`\`\``);
+  assert.equal((html.match(/<section class="visualize-card"/g) || []).length, 1);
+  assert.equal((html.match(/<iframe /g) || []).length, 1);
+  assert.doesNotMatch(html, /KLUIVISUALHOLD/);
+  assert.match(html, /return &quot;\$&quot; \+ Math\.round\(v\) \+ &quot;\$&#039;&quot; \+ &quot;\$`&quot; \+ &quot;\$1&quot;/);
+});
+
 test("renderContent turns an incomplete visualize fence into a blurred build state", () => {
   delete globalThis.marked;
   const html = renderContent("```visualize\n<script>parent.document.body.remove()</script>");
@@ -44,6 +57,17 @@ test("renderContent turns an incomplete visualize fence into a blurred build sta
   assert.match(html, /visualize-building/);
   assert.match(html, /Taking shape/);
   assert.doesNotMatch(html, /data-code-id|Copy code/);
+});
+
+test("renderContent labels the build state as repairing when asked", () => {
+  delete globalThis.marked;
+  const building = renderContent("```visualize\n<html><body>Old</body></html>", { visualizeLabel: "Getting it ready" });
+  assert.match(building, /visualize-building/);
+  assert.match(building, /<b data-label="Getting it ready">Getting it ready<\/b>/);
+  assert.doesNotMatch(building, /Taking shape/);
+  const held = renderContent("```visualize\n<html><body>New</body></html>\n```", { holdVisualize: true, visualizeLabel: "Getting it ready" });
+  assert.match(held, /Getting it ready/);
+  assert.match(renderContent("```visualize\n<html><body>Default</body></html>"), /Taking shape/);
 });
 
 test("renderContent keeps a completed visualization blurred until its turn is final", () => {
@@ -106,6 +130,28 @@ test("visualize runtime errors stay inside the matching card", () => {
   assert.equal(error.textContent, "Bad syntax");
   assert.equal(error.hidden, false);
   assert.ok(classes.has("has-error"));
+});
+
+test("visualize runtime errors report the owning message once for auto-repair", () => {
+  const sourceWindow = {};
+  const classes = new Set();
+  const error = { textContent: "", hidden: true };
+  const article = { dataset: { messageId: "msg-9" } };
+  const card = {
+    classList: { add(value) { classes.add(value); }, contains(value) { return classes.has(value); } },
+    querySelector() { return error; },
+    closest() { return article; }
+  };
+  const frame = { dataset: { visualizeId: "v8" }, contentWindow: sourceWindow, closest() { return card; } };
+  const root = { querySelectorAll() { return [frame]; } };
+  const reports = [];
+  const event = { data: { type: "klui:visualize:error", id: "v8", message: "RangeError: Invalid language tag" }, source: sourceWindow };
+  applyVisualizeFrameMessage(event, root, { onRuntimeError: (report) => reports.push(report) });
+  applyVisualizeFrameMessage(event, root, { onRuntimeError: (report) => reports.push(report) });
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].messageId, "msg-9");
+  assert.equal(reports[0].message, "RangeError: Invalid language tag");
+  assert.equal(reports[0].card, card);
 });
 
 test("renderPlainText preserves pasted text without Markdown formatting", () => {

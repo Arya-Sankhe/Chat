@@ -133,7 +133,10 @@ export async function handleApiRequest(req, res, url, config) {
 
     const clientBuildId = String(req.headers["x-klui-build-id"] || "").trim();
     const buildCheckExempt = ["/api/build", "/api/config", "/api/health"].includes(url.pathname);
-    if (clientBuildId && !buildCheckExempt && clientBuildId !== config.buildId) {
+    const staleWebClient = !["GET", "HEAD"].includes(req.method)
+      && req.headers["sec-fetch-site"] === "same-origin"
+      && !clientBuildId;
+    if (!buildCheckExempt && (staleWebClient || (clientBuildId && clientBuildId !== config.buildId))) {
       rejectStaleBuild(res, config.buildId);
       return;
     }

@@ -59,7 +59,7 @@ function protectCodeSpans(text) {
 
 function restoreCodeSpans(text, slots) {
   let s = text;
-  for (const { token, raw } of slots) s = s.replaceAll(token, raw);
+  for (const { token, raw } of slots) s = s.replaceAll(token, () => raw);
   return s;
 }
 
@@ -135,7 +135,7 @@ function restoreMath(html, slots) {
     } else {
       rendered = `<code>${escapeHtml(latex)}</code>`;
     }
-    html = html.replaceAll(token, rendered);
+    html = html.replaceAll(token, () => rendered);
   }
   return html;
 }
@@ -200,16 +200,20 @@ function visualizeCard(source, id, error = "") {
   </section>`;
 }
 
-function visualizeBuilding(source) {
+export const VISUALIZE_BUILDING_LABEL = "Taking shape";
+export const VISUALIZE_REPAIRING_LABEL = "Getting it ready";
+
+function visualizeBuilding(source, label = VISUALIZE_BUILDING_LABEL) {
   const tail = String(source || "").slice(-16_000);
+  const text = escapeHtml(label || VISUALIZE_BUILDING_LABEL);
   return `<section class="visualize-card visualize-building" role="status" aria-live="polite" aria-label="Building interactive visualization">
     <header class="visualize-toolbar"><span class="visualize-label">Interactive</span></header>
     <div class="visualize-building-code" aria-hidden="true"><pre><code>${escapeHtml(tail)}</code></pre></div>
-    <div class="visualize-building-status"><span><b data-label="Taking shape">Taking shape</b></span></div>
+    <div class="visualize-building-status"><span><b data-label="${text}">${text}</b></span></div>
   </section>`;
 }
 
-function extractVisualizations(text, { holdCompleted = false } = {}) {
+function extractVisualizations(text, { holdCompleted = false, buildingLabel = "" } = {}) {
   const slots = [];
   const processed = String(text || "").replace(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, (_, raw) => {
     const source = String(raw || "").trim();
@@ -220,13 +224,13 @@ function extractVisualizations(text, { holdCompleted = false } = {}) {
       slots.push({ token, error: "The generated document exceeded the 120 KiB limit." });
     } else {
       const id = `v${++codeSourceCounter}`;
-      slots.push({ token, source, id, building: holdCompleted });
+      slots.push({ token, source, id, building: holdCompleted, label: buildingLabel });
     }
     return token;
   });
   const withBuilding = processed.replace(/```visualize[ \t]*\r?\n([\s\S]*)$/i, (_, raw) => {
     const token = `KLUIVISUALHOLD${slots.length}END`;
-    slots.push({ token, source: String(raw || ""), building: true });
+    slots.push({ token, source: String(raw || ""), building: true, label: buildingLabel });
     return token;
   });
   return { text: withBuilding, slots };
@@ -235,8 +239,10 @@ function extractVisualizations(text, { holdCompleted = false } = {}) {
 function restoreVisualizations(html, slots) {
   let output = html;
   for (const slot of slots) {
-    const card = slot.building ? visualizeBuilding(slot.source) : visualizeCard(slot.source, slot.id, slot.error);
-    output = output.replaceAll(`<p>${slot.token}</p>`, card).replaceAll(slot.token, card);
+    const card = slot.building ? visualizeBuilding(slot.source, slot.label) : visualizeCard(slot.source, slot.id, slot.error);
+    // Function replacer: string replacements interpret `$&`, `$'`, `$1`… and
+    // documents routinely contain `"$"` (escaped to `&quot;$&quot;`).
+    output = output.replaceAll(`<p>${slot.token}</p>`, () => card).replaceAll(slot.token, () => card);
   }
   return output;
 }
@@ -368,12 +374,12 @@ function restoreEmails(html, slots) {
   let output = String(html ?? "");
   for (const slot of slots) {
     const card = emailCard(slot.source);
-    output = output.replaceAll(`<p>${slot.token}</p>`, card).replaceAll(slot.token, card);
+    output = output.replaceAll(`<p>${slot.token}</p>`, () => card).replaceAll(slot.token, () => card);
   }
   return output;
 }
 
-export function applyVisualizeFrameMessage(event, root = globalThis.document) {
+export function applyVisualizeFrameMessage(event, root = globalThis.document, { onRuntimeError } = {}) {
   const data = event?.data;
   if (!["klui:visualize:resize", "klui:visualize:error"].includes(data?.type) || !/^v\d+$/.test(String(data.id || ""))) return false;
   if (!root?.querySelectorAll) return false;
@@ -382,12 +388,18 @@ export function applyVisualizeFrameMessage(event, root = globalThis.document) {
   if (!frame) return false;
   const card = frame.closest(".visualize-card");
   if (data.type === "klui:visualize:error") {
+    const message = String(data.message || "The visualization could not run.").slice(0, 160);
     const error = card?.querySelector(".visualize-runtime-error");
     if (error) {
-      error.textContent = String(data.message || "The visualization could not run.").slice(0, 160);
+      error.textContent = message;
       error.hidden = false;
     }
+    const firstReport = !card?.classList?.contains?.("has-error");
     card?.classList.add("has-error");
+    if (firstReport && typeof onRuntimeError === "function") {
+      const article = card?.closest?.("[data-message-id]");
+      onRuntimeError({ messageId: article?.dataset?.messageId || "", message, card });
+    }
     return true;
   }
   const height = Number(data.height);
@@ -498,12 +510,12 @@ function wrapMessageTables(html) {
   return String(html).replace(/<table\b[\s\S]*?<\/table>/gi, (table) => `<div class="table-scroll">${table}</div>`);
 }
 
-function renderRichText(raw, { holdVisualize = false, emailCards = false } = {}) {
+function renderRichText(raw, { holdVisualize = false, emailCards = false, visualizeLabel = "" } = {}) {
   const text = String(raw ?? "");
   if (!text) return "";
 
   const emails = emailCards ? extractEmails(text, { streaming: holdVisualize }) : { text, slots: [] };
-  const visualizations = extractVisualizations(emails.text, { holdCompleted: holdVisualize });
+  const visualizations = extractVisualizations(emails.text, { holdCompleted: holdVisualize, buildingLabel: visualizeLabel });
 
   const m = globalThis.marked;
   if (!m || typeof m.parse !== "function") {
@@ -544,11 +556,11 @@ function safeImageUrl(url) {
 
 /* Public content renderer */
 
-export function renderContent(content, { holdVisualize = false, emailCards = false } = {}) {
+export function renderContent(content, { holdVisualize = false, emailCards = false, visualizeLabel = "" } = {}) {
   if (Array.isArray(content)) {
     return content
       .map((part) => {
-        if (part.type === "text") return renderRichText(part.text, { holdVisualize, emailCards });
+        if (part.type === "text") return renderRichText(part.text, { holdVisualize, emailCards, visualizeLabel });
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" data-preview-src="${escapeHtml(url)}" alt="User supplied image" role="button" tabindex="0">` : "";
@@ -573,7 +585,7 @@ export function renderContent(content, { holdVisualize = false, emailCards = fal
       })
       .join("");
   }
-  return renderRichText(content, { holdVisualize, emailCards });
+  return renderRichText(content, { holdVisualize, emailCards, visualizeLabel });
 }
 
 /**
