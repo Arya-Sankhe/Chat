@@ -429,7 +429,11 @@ export function createStudyHubController({
   function courseGenerationCards() {
     if (!state.activeCourseId) return [];
     return [...generations.values()]
-      .filter((job) => job.courseId === state.activeCourseId && job.status !== "succeeded")
+      .filter((job) => (
+        job.courseId === state.activeCourseId
+        && job.status !== "succeeded"
+        && (job.type === "notes" ? state.activeCourseTab === "materials" : state.activeCourseTab === "practice")
+      ))
       .sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
   }
 
@@ -631,7 +635,9 @@ export function createStudyHubController({
       : state.activeCourseTab === "chat" ? chatMarkup()
         : state.activeCourseTab === "practice" ? practiceMarkup()
           : materialsMarkup();
-    const gens = state.activeCourseTab === "materials" ? generationCardsMarkup() : "";
+    const gens = state.activeCourseTab === "materials" || state.activeCourseTab === "practice"
+      ? generationCardsMarkup()
+      : "";
     return `${gens}<div class="study-tab-panel" data-study-tab-panel="${escapeHtml(state.activeCourseTab)}">${body}</div>`;
   }
 

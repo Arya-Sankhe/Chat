@@ -136,6 +136,15 @@ test("review can star cards in the current deck and edit both sides", () => {
   assert.match(css, /study-edit-card \.study-sketch-stroke/);
 });
 
+test("flashcard side chat uses the Study Hub paper theme without its generic title", () => {
+  const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
+  assert.match(css, /body\.study-session-open \.side-chat-panel\s*\{[^}]*var\(--study-stroke\)[^}]*var\(--study-board\)[^}]*var\(--study-font\)/s);
+  assert.match(css, /body\.study-session-open \.side-chat-header > div\s*\{\s*display:\s*none/);
+  assert.match(css, /body\.study-session-open \.side-chat-context\s*\{[^}]*var\(--study-blue\)/s);
+  assert.match(css, /body\.study-session-open \.side-chat-composer\s*\{[^}]*var\(--study-paper\)/s);
+  assert.match(css, /body\.study-session-open \.side-chat-message\.user\s*\{[^}]*var\(--study-orange\)/s);
+});
+
 test("materials quiz still uses a count menu", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
@@ -189,11 +198,11 @@ test("completed Study Hub generation force-refreshes visible course data", () =>
   assert.match(hub, /if \(!force && cacheCourseId === id && hasCache\(\)\) return/);
 });
 
-test("Study Hub keeps compact generation status in Materials", () => {
+test("Study Hub shows generation status in the relevant tab", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
-  assert.match(hub, /state\.activeCourseTab === "materials" \? generationCardsMarkup\(\) : ""/);
-  assert.doesNotMatch(hub, /study-practice[\s\S]{0,180}study-generation-list/);
+  assert.match(hub, /job\.type === "notes" \? state\.activeCourseTab === "materials" : state\.activeCourseTab === "practice"/);
+  assert.match(hub, /state\.activeCourseTab === "materials" \|\| state\.activeCourseTab === "practice"/);
   assert.match(css, /\.study-gen-card\s*\{[\s\S]*?border-radius: 999px/s);
   assert.doesNotMatch(css, /var\(--home-wallpaper-image, none\)/);
 });
@@ -325,7 +334,7 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.doesNotMatch(hub, /Import syllabus dates/);
   assert.doesNotMatch(hub, /overviewMarkup/);
   assert.doesNotMatch(hub, /computeStreak/);
-  assert.match(hub, /state\.activeCourseTab === "materials" \? generationCardsMarkup\(\) : ""/);
+  assert.match(hub, /job\.type === "notes" \? state\.activeCourseTab === "materials" : state\.activeCourseTab === "practice"/);
   assert.match(hub, /activeFor\("flashcards"\)/);
   assert.match(hub, /abortAllGenerations/);
   assert.doesNotMatch(hub, /let generatingKey/);
