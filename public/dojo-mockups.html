@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dojo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+  :root { --ease: cubic-bezier(.23, 1, .32, 1); }
+  body { background: #b9bbb4; display: flex; flex-direction: column; overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+  .deck { display: flex; align-items: center; gap: 14px; padding: 9px 14px; background: #1c1e18; color: #e7e6df; font: 13px/1.3 "Familjen Grotesk", sans-serif; flex: none; }
+  .deck .name { font-weight: 600; }
+  .deck .gap { flex: 1; }
+  .tg { padding: 6px 10px; border: 1px solid #3a3d34; border-radius: 7px; color: #c9c8bf; transition: transform 140ms var(--ease), border-color 150ms ease; }
+  .tg:active { transform: scale(.97); }
+  .tg[aria-pressed="true"] { border-color: #f4f1ea; color: #fff; }
+  .note { padding: 8px 14px; font: 12.5px/1.45 "Familjen Grotesk", sans-serif; color: #3c4038; background: #e4e3dc; flex: none; }
+  .stage { flex: 1; min-height: 0; padding: 12px; }
+  .frame { height: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 50px -28px rgba(20, 24, 16, .55); }
+
+  .app {
+    --bg: #ebeae4;
+    --sheet: #ffffff;
+    --ink: #1b2430;
+    --muted: #5d675f;
+    --line: #dddcd4;
+    --pen: #b42318;
+    --hover: rgba(27, 36, 48, .05);
+    --wash: rgba(180, 35, 24, .07);
+    --srcw: 304px; --stdw: 300px;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Familjen Grotesk", "Avenir Next", sans-serif;
+    font-size: 14.5px;
+    line-height: 1.4;
+  }
+  .app[data-theme="night"] {
+    --bg: #14161c;
+    --sheet: #1b1e27;
+    --ink: #f1efe8;
+    --muted: #a7aeb6;
+    --line: #2e333e;
+    --pen: #ff8d86;
+    --hover: rgba(255, 255, 255, .05);
+    --wash: rgba(255, 141, 134, .1);
+  }
+  .app[data-src="closed"] { --srcw: 54px; }
+  .app[data-std="closed"] { --stdw: 54px; }
+
+  .nav { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 0 14px; border-right: 1px solid var(--line); }
+  .nav .sp { flex: 1; }
+  .ib {
+    width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: var(--muted);
+    transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease);
+  }
+  .ib:active { transform: scale(.94); }
+  .ib.on { background: var(--ink); color: var(--bg); }
+  .me { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 700; }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+  .ws {
+    min-width: 0; min-height: 0; position: relative;
+    display: grid;
+    grid-template-columns: var(--srcw) minmax(0, 1fr) var(--stdw);
+    transition: grid-template-columns 280ms var(--ease);
+  }
+  .col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .sources { border-right: 1px solid var(--line); }
+  .studio { border-left: 1px solid var(--line); }
+  .full { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .rail { display: none; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; flex: 1; }
+  .app[data-src="closed"] .sources .full,
+  .app[data-std="closed"] .studio .full { display: none; }
+  .app[data-src="closed"] .sources .rail,
+  .app[data-std="closed"] .studio .rail { display: flex; }
+
+  .colhead { height: 64px; display: flex; align-items: center; gap: 10px; padding: 0 14px 0 18px; flex: none; }
+  .colhead .ttl { font-weight: 600; font-size: 14px; }
+  .colhead .count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .colhead .r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
+
+  .src {
+    display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px;
+    width: calc(100% - 16px); margin: 2px 8px; padding: 10px 10px 10px 12px;
+    border-radius: 10px; text-align: left;
+    transition: background-color 140ms ease, transform 140ms var(--ease);
+  }
+  .src:active { transform: scale(.99); }
+  .src.on { background: var(--wash); }
+  .src.lit:not(.on) { background: var(--hover); }
+  .mark {
+    width: 8px; height: 8px; margin: 6px 0 0 3px; border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px var(--line);
+  }
+  .src:not(.off) .mark { background: var(--ink); box-shadow: none; }
+  .src.on .mark { background: var(--pen); width: 10px; height: 10px; margin: 5px 0 0 2px; }
+  .src .t { display: block; font-weight: 600; font-size: 14.5px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .src .m { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+  .src.off .t, .src.off .m { color: var(--muted); font-weight: 500; }
+  .pull {
+    display: block; margin-top: 8px;
+    font-family: Newsreader, Georgia, serif; font-style: italic; font-optical-sizing: auto;
+    font-size: 14.5px; line-height: 1.4; color: var(--ink); text-wrap: pretty; white-space: normal;
+  }
+  .add {
+    display: flex; align-items: center; gap: 8px; margin: 8px 12px; padding: 8px 10px;
+    border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 13.5px;
+    transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease);
+  }
+  .add:active { transform: scale(.98); }
+
+  .sheet { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--sheet); }
+  .brand {
+    font-family: Newsreader, "Iowan Old Style", Palatino, Georgia, serif;
+    font-weight: 550; font-size: 26px; letter-spacing: -.03em; line-height: 1; font-optical-sizing: auto;
+  }
+  .course { font-weight: 600; font-size: 14px; }
+  .exam { font-size: 13px; color: var(--muted); }
+  .exam b { color: var(--ink); font-weight: 600; }
+  .sheet-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+  .read { width: min(600px, calc(100% - 72px)); margin: 28px auto 24px; }
+  .app[data-chat="no"] .read { margin-top: auto; margin-bottom: auto; }
+
+  .read h1 {
+    font-family: Newsreader, Georgia, serif; font-optical-sizing: auto;
+    font-weight: 550; font-size: 44px; letter-spacing: -.03em; line-height: 1.08;
+    margin: 0 0 28px; text-wrap: balance; max-width: 14ch;
+  }
+  .app[data-chat="yes"] .read h1 { font-size: 36px; max-width: 22ch; }
+  .starts { display: flex; flex-direction: column; }
+  .start {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 20px;
+    padding: 11px 8px; margin: 0 -8px; border-radius: 8px; text-align: left;
+    transition: background-color 140ms ease, transform 140ms var(--ease);
+  }
+  .start:active { transform: scale(.99); }
+  .start .q { font-size: 15.5px; font-weight: 500; letter-spacing: -.01em; }
+  .start .ref { flex: none; font-size: 13px; color: var(--muted); }
+
+  .by { font-size: 13px; font-weight: 600; margin: -8px 0 10px; }
+  .by span { color: var(--muted); font-weight: 400; }
+  .prose {
+    font-family: Newsreader, Georgia, serif; font-optical-sizing: auto;
+    font-size: 18.5px; line-height: 1.58; text-wrap: pretty;
+  }
+  .prose p { margin: 0 0 13px; }
+  .prose ul { margin: 0 0 13px; padding-left: 1.15em; }
+  .prose li { margin: 0 0 6px; }
+  .prose code { font-family: ui-monospace, Menlo, monospace; font-size: .82em; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+  .cite {
+    font-family: "Familjen Grotesk", sans-serif; font-size: 13px; font-weight: 600;
+    color: var(--pen); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;
+    white-space: nowrap;
+  }
+  .follow { display: flex; gap: 20px; margin-top: 4px; }
+  .follow button { font-size: 14px; font-weight: 600; padding: 6px 0; transition: color 140ms ease, transform 140ms var(--ease); }
+  .follow button:active { transform: scale(.98); }
+
+  .dock { flex: none; padding: 0 0 18px; position: relative; }
+  .dock::before {
+    content: ""; position: absolute; left: 0; right: 0; top: -32px; height: 32px; pointer-events: none;
+    background: linear-gradient(transparent, var(--sheet));
+  }
+  .ask {
+    background: var(--sheet); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 14px 10px 16px; text-align: left;
+    transition: border-color 150ms ease;
+  }
+  .ask:focus-within { border-color: var(--ink); }
+  .ask .ghost { font-size: 15px; color: var(--muted); }
+  .ask .row { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+  .using { font-size: 13px; color: var(--muted); display: flex; gap: 5px; min-width: 0; }
+  .using .fn { color: var(--pen); font-weight: 600; }
+  .row .sp { flex: 1; }
+  .think {
+    height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line);
+    font-size: 13px; font-weight: 600;
+    transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms var(--ease);
+  }
+  .think[aria-pressed="true"] { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+  .think:active, .send:active { transform: scale(.96); }
+  .send {
+    width: 32px; height: 32px; border-radius: 9px; background: var(--ink); color: var(--sheet);
+    display: grid; place-items: center; margin-left: 2px; transition: transform 140ms var(--ease);
+  }
+
+  .sl { padding: 2px 18px 6px; font-size: 13px; color: var(--muted); }
+  .work {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px;
+    width: calc(100% - 16px); margin: 1px 8px; padding: 11px 12px; border-radius: 10px; text-align: left;
+    transition: background-color 140ms ease;
+  }
+  .work .n { font-weight: 600; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .work .k { font-size: 12.5px; color: var(--muted); }
+  .work .score { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); align-self: center; }
+
+  .makedock { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px; border-top: 1px solid var(--line); flex: none; }
+  .makedock button {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 4px; border-radius: 10px; font-size: 12px; font-weight: 600; color: var(--muted); text-align: center;
+    transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease);
+  }
+  .makedock button svg { color: var(--ink); }
+  .makedock button:active { transform: scale(.96); }
+
+  .vlabel { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 600; font-size: 13px; margin: 8px 0 12px; }
+  .ri {
+    width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; color: var(--ink);
+    transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease);
+  }
+  .ri:active { transform: scale(.92); }
+  .ri.on { color: var(--pen); }
+  .rsep { width: 16px; height: 1px; background: var(--line); margin: 4px 0; }
+
+  .fly {
+    position: absolute; z-index: 5; width: 300px; padding: 16px;
+    background: var(--sheet); color: var(--ink); border-radius: 14px;
+    box-shadow: 0 18px 44px -18px rgba(20, 24, 16, .4), 0 0 0 1px var(--line);
+    opacity: 0; transform: scale(.98); pointer-events: none;
+    transition: opacity 140ms ease, transform 180ms var(--ease);
+  }
+  .fly.open { opacity: 1; transform: none; pointer-events: auto; }
+  .fly h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+  .fly .fm { color: var(--muted); font-size: 13px; margin: 3px 0 12px; }
+  .fly blockquote {
+    margin: 0 0 14px; font-family: Newsreader, Georgia, serif; font-style: italic;
+    font-size: 16.5px; line-height: 1.45; text-wrap: pretty;
+  }
+  .fly .fr { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    height: 34px; padding: 0 14px; border-radius: 8px; background: var(--ink); color: var(--sheet);
+    font-weight: 600; font-size: 13.5px; transition: transform 140ms var(--ease);
+  }
+  .btn:active { transform: scale(.97); }
+  .btn.ghost { background: transparent; color: var(--ink); }
+  .fly label { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 14px; }
+  .fly input { accent-color: var(--ink); width: 15px; height: 15px; }
+
+  @media (hover: hover) and (pointer: fine) {
+    .ib:hover, .ri:hover, .src:hover, .work:hover, .start:hover, .add:hover, .makedock button:hover { background: var(--hover); }
+    .ib.on:hover { background: var(--ink); color: var(--bg); }
+    .src.on:hover { background: var(--wash); }
+    .add:hover { color: var(--ink); }
+    .follow button:hover, .makedock button:hover { color: var(--pen); }
+    .makedock button:hover svg { color: var(--pen); }
+    .btn.ghost:hover { background: var(--hover); }
+    .think:hover { background: var(--hover); }
+    .think[aria-pressed="true"]:hover { background: var(--ink); color: var(--sheet); }
+    .cite:hover { text-decoration-thickness: 2px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ws, .fly { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+  <span class="name">Dojo</span>
+  <button class="tg" id="tSrc">Collapse sources</button>
+  <button class="tg" id="tStd">Collapse studio</button>
+  <button class="tg" id="tChat">Show a conversation</button>
+  <span class="gap"></span>
+  <button class="tg" id="tNight">Night</button>
+</div>
+<div class="note">The middle is a page, not a chat bubble. Your question is the heading. Klui answers in a text serif, and red marks the page it came from. Sources and studio are the margins.</div>
+<div class="stage"><div class="frame" id="frame"></div></div>
+
+<svg width="0" height="0" aria-hidden="true">
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9 4.5v15"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="m2.5 9.5 9.5-4.5 9.5 4.5-9.5 4.5Z"/><path d="M6.5 11.5v4c1.6 1.4 3.4 2.2 5.5 2.2s3.9-.8 5.5-2.2v-4"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-cl" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9 4.5v15M15.5 10 13 12l2.5 2"/></symbol>
+  <symbol id="i-cr" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M15 4.5v15M8.5 10 11 12l-2.5 2"/></symbol>
+  <symbol id="i-cards" viewBox="0 0 24 24"><rect x="7" y="3.5" width="12" height="15" rx="2"/><path d="M5 6.5v12a2 2 0 0 0 2 2h9"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><circle cx="12" cy="6.5" r="2.2"/><circle cx="6" cy="17.5" r="2.2"/><circle cx="18" cy="17.5" r="2.2"/><path d="M12 8.7V12M12 12 6.8 15.5M12 12l5.2 3.5"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20.5H6Z"/><path d="M14 3.5V8h4M9 13h6M9 16.5h4"/></symbol>
+  <symbol id="i-quiz" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.5 2.5L16 9"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6.5 11 12 5.5 17.5 11"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3.5"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20.5H7Z"/><path d="M14 3.5V8h4"/></symbol>
+</svg>
+
+<script>
+const I = (id) => `<svg class="i"><use href="#i-${id}"/></svg>`;
+const SOURCES = [
+  { id: "s3", title: "Syntax and semantics", meta: "Lecture 5, 42 pages", short: "Lecture 5",
+    quote: "Syntax is the form of a language's expressions. Semantics is the meaning of those expressions." },
+  { id: "s4", title: "CMP 321 syllabus", meta: "Syllabus, 8 pages", short: "Syllabus",
+    quote: "The midterm is worth 25%. It covers lectures 1 to 6 and is held on Monday 5 October." },
+  { id: "s1", title: "Production Planner pitch", meta: "Slides, 3 pages", short: "Pitch",
+    quote: "One place to plan, schedule and report production across every line, instead of the spreadsheets teams pass around now." },
+  { id: "s2", title: "Production Planner pitch, revised", meta: "Slides, 3 pages", short: "Pitch, revised", off: true,
+    quote: "Adds a KPI dashboard and a rollout in three phases." },
+];
+const TOOLS = [
+  { k: "cards", name: "Flashcards", desc: "Terms to drill" },
+  { k: "map", name: "Mind map", desc: "How the ideas connect" },
+  { k: "notes", name: "Notes", desc: "Just the essentials" },
+  { k: "quiz", name: "Practice", desc: "Check yourself", full: "Practice test" },
+];
+const WORK = [
+  { name: "Production planning platform", kind: "Flashcards", score: "5 of 8" },
+  { name: "Production planning quiz", kind: "Practice test", score: "8 of 10" },
+  { name: "Programming languages", kind: "Mind map", score: "24 ideas" },
+  { name: "Syntax and semantics", kind: "Notes", score: "1 page" },
+];
+const STARTS = [
+  { q: "Explain BNF with a small example", src: "s3", ref: "p. 6", ask: "Explain BNF with a small example." },
+  { q: "What is on the midterm, and what is it worth?", src: "s4", ref: "p. 2", ask: "What is on the midterm, and what is it worth?" },
+  { q: "Summarise the Production Planner pitch", src: "s1", ref: "Pitch", ask: "Summarise the Production Planner pitch." },
+  { q: "Plan the 12 days before the midterm", src: "s4", ref: "p. 3", ask: "Plan the 12 days before the midterm." },
+];
+const srcBy = (id) => SOURCES.find((s) => s.id === id);
+const state = {
+  night: false, src: "open", std: "open", chat: false, focus: "s3", think: false,
+  q: "What is the difference between syntax and semantics?",
+};
+const onSources = () => SOURCES.filter((s) => !s.off);
+const cite = (id, label) => `<button class="cite" data-id="${id}">${label}</button>`;
+function answer() {
+  const q = state.q;
+  if (/12 days/.test(q)) return { from: "the syllabus", html: `<p>Twelve days, and the midterm only covers lectures 1 to 6 ${cite("s4", "Syllabus, p. 3")}. Give the first six days to those lectures, and the last six to practice tests on them.</p>` };
+  if (/pitch/i.test(q)) return { from: "the pitch", html: `<p>It proposes one place to plan, schedule and report production across every line, instead of the spreadsheets teams pass around now ${cite("s1", "Pitch")}.</p>` };
+  if (/worth/.test(q)) return { from: "the syllabus", html: `<p>The midterm is worth 25% of the grade. It covers lectures 1 to 6, and it is on Monday 5 October ${cite("s4", "Syllabus, p. 2")}.</p>` };
+  return { from: "Lecture 5", html: `<p>Syntax is the form. Semantics is the meaning.</p>
+    <ul>
+      <li>Syntax decides which strings are legal programs. It is written as a grammar, usually in BNF ${cite("s3", "Lecture 5, p. 6")}</li>
+      <li>Semantics decides what a legal program does when it runs ${cite("s3", "Lecture 5, p. 21")}</li>
+    </ul>
+    <p><code>x = x + 1</code> is legal in both C and Python, so the syntax checks out. What it does depends on what <code>x</code> is, and that part is semantics.</p>` };
+}
+
+function composer() {
+  const focus = srcBy(state.focus);
+  const others = onSources().filter((s) => s.id !== state.focus).length;
+  const rest = others === 0 ? "" : others === 1 ? "and 1 other" : `and ${others} others`;
+  return `<div class="ask">
+    <div class="ghost">${state.chat ? "Ask a follow-up" : "Ask about CMP 321"}</div>
+    <div class="row">
+      <div class="using"><span class="fn">${focus.short}</span><span>${rest}</span></div>
+      <span class="sp"></span>
+      <button class="think" aria-pressed="${state.think}" data-think>Think</button>
+      <button class="ib" aria-label="Dictate">${I("mic")}</button>
+      <button class="send" aria-label="Ask">${I("up")}</button>
+    </div>
+  </div>`;
+}
+
+function sourcesCol() {
+  const rows = SOURCES.map((s) => `
+    <button class="src ${s.off ? "off" : ""} ${!s.off && s.id === state.focus ? "on" : ""}" data-id="${s.id}">
+      <span class="mark"></span>
+      <span>
+        <span class="t">${s.title}</span>
+        <span class="m">${s.off ? "Left out of this chat" : s.meta}</span>
+        ${!s.off && s.id === state.focus ? `<span class="pull">${s.quote}</span>` : ""}
+      </span>
+    </button>`).join("");
+  return `<section class="col sources">
+    <div class="full">
+      <div class="colhead"><span class="ttl">Sources</span><span class="count">Reading ${onSources().length}</span>
+        <span class="r"><button class="ib" data-toggle="src" aria-label="Collapse sources">${I("cl")}</button></span></div>
+      <div class="scroll">${rows}<button class="add">${I("plus")}Add a source</button></div>
+    </div>
+    <div class="rail">
+      <button class="ib" data-toggle="src" aria-label="Expand sources">${I("cr")}</button>
+      <span class="vlabel">Sources</span>
+      ${SOURCES.map((s) => `<button class="ri ${s.id === state.focus ? "on" : ""}" data-fly="src" data-id="${s.id}" title="${s.title}">${I("doc")}</button>`).join("")}
+      <span class="rsep"></span>
+      <button class="ri" aria-label="Add a source">${I("plus")}</button>
+    </div>
+  </section>`;
+}
+
+function studioCol() {
+  const work = WORK.map((w) => `
+    <div class="work"><span class="n">${w.name}</span><span class="score">${w.score}</span><span class="k">${w.kind}</span></div>`).join("");
+  const dock = TOOLS.map((t) => `
+    <button data-fly="tool" data-id="${t.k}" title="${t.full || t.name}">${I(t.k)}<span>${t.name}</span></button>`).join("");
+  return `<section class="col studio">
+    <div class="full">
+      <div class="colhead"><span class="ttl">Studio</span>
+        <span class="r"><button class="ib" data-toggle="std" aria-label="Collapse studio">${I("cr")}</button></span></div>
+      <div class="sl">Your work</div>
+      <div class="scroll">${work}</div>
+      <div class="makedock">${dock}</div>
+    </div>
+    <div class="rail">
+      <button class="ib" data-toggle="std" aria-label="Expand studio">${I("cl")}</button>
+      <span class="vlabel">Studio</span>
+      ${TOOLS.map((t) => `<button class="ri" data-fly="tool" data-id="${t.k}" title="${t.full || t.name}">${I(t.k)}</button>`).join("")}
+    </div>
+  </section>`;
+}
+
+function sheet() {
+  const head = `<div class="colhead">
+      <span class="brand">Dojo</span><span class="course">CMP 321</span>
+      <span class="r"><span class="exam">Midterm in <b>12 days</b></span></span>
+    </div>`;
+  const starts = STARTS.map((s) => `
+    <button class="start" data-go data-src="${s.src}" data-q="${s.ask.replace(/"/g, "&quot;")}">
+      <span class="q">${s.q}</span><span class="ref">${s.ref}</span></button>`).join("");
+  const body = state.chat ? `
+    <article>
+      <h1>${state.q}</h1>
+      <div class="by">Klui <span>from ${answer().from}</span></div>
+      <div class="prose">${answer().html}</div>
+      <div class="follow">
+        <button data-fly="tool" data-id="cards">Make flashcards from this</button>
+        <button data-fly="tool" data-id="quiz">Quiz me on this</button>
+      </div>
+    </article>` : `<h1>What do you want to understand?</h1><div class="starts">${starts}</div>`;
+  return `<section class="sheet">${head}
+    <div class="sheet-scroll"><div class="read">${body}</div></div>
+    <div class="dock"><div class="read" style="margin:0 auto">${composer()}</div></div>
+  </section>`;
+}
+
+function render() {
+  document.getElementById("frame").innerHTML = `
+    <div class="app" id="app" data-theme="${state.night ? "night" : "day"}" data-chat="${state.chat ? "yes" : "no"}" data-src="${state.src}" data-std="${state.std}">
+      <nav class="nav">
+        <button class="ib" aria-label="Panels">${I("panel")}</button>
+        <button class="ib" aria-label="New">${I("pen")}</button>
+        <button class="ib" aria-label="Search">${I("search")}</button>
+        <button class="ib" aria-label="Folders">${I("folder")}</button>
+        <button class="ib on" aria-label="Dojo">${I("cap")}</button>
+        <button class="ib" aria-label="Ideas">${I("bulb")}</button>
+        <span class="sp"></span><span class="me">AN</span>
+      </nav>
+      <div class="ws">${sourcesCol()}${sheet()}${studioCol()}<div class="fly" id="fly"></div></div>
+    </div>`;
+  for (const [id, on] of [["tSrc", state.src === "closed"], ["tStd", state.std === "closed"], ["tChat", state.chat], ["tNight", state.night]]) {
+    document.getElementById(id).setAttribute("aria-pressed", on);
+  }
+}
+
+let from = null;
+function closeFly() {
+  const f = document.getElementById("fly");
+  if (f) f.classList.remove("open");
+  if (from) from.setAttribute("aria-expanded", "false");
+  from = null;
+}
+function openFly(btn) {
+  if (from === btn) return closeFly();
+  closeFly();
+  const f = document.getElementById("fly");
+  const app = document.getElementById("app");
+  if (btn.dataset.fly === "src") {
+    const s = srcBy(btn.dataset.id);
+    f.innerHTML = `<h3>${s.title}</h3><div class="fm">${s.meta}</div><blockquote>${s.quote}</blockquote>
+      <div class="fr"><button class="btn">Open</button><button class="btn ghost" data-ask-src="${s.id}">Ask about this</button></div>`;
+  } else {
+    const t = TOOLS.find((x) => x.k === btn.dataset.id);
+    f.innerHTML = `<h3>${t.full || t.name}</h3><div class="fm">${t.desc}. Built from the sources left in.</div>
+      ${SOURCES.map((s) => `<label><input type="checkbox" ${s.off ? "" : "checked"}/>${s.title}</label>`).join("")}
+      <div class="fr" style="margin-top:12px"><button class="btn">Make ${t.name.toLowerCase()}</button></div>`;
+  }
+  const a = app.getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const leftSide = b.left - a.left < a.width / 2;
+  f.style.left = (leftSide ? b.right - a.left + 10 : b.left - a.left - 310) + "px";
+  f.style.top = Math.max(8, Math.min(b.top - a.top - 12, a.height - 300)) + "px";
+  f.style.transformOrigin = leftSide ? "left top" : "right top";
+  btn.setAttribute("aria-expanded", "true");
+  from = btn;
+  requestAnimationFrame(() => f.classList.add("open"));
+}
+
+function togglePanel(w) { state[w] = state[w] === "open" ? "closed" : "open"; render(); }
+document.getElementById("tSrc").onclick = () => togglePanel("src");
+document.getElementById("tStd").onclick = () => togglePanel("std");
+document.getElementById("tChat").onclick = () => { state.chat = !state.chat; render(); };
+document.getElementById("tNight").onclick = () => { state.night = !state.night; render(); };
+
+document.getElementById("frame").addEventListener("click", (e) => {
+  const mark = e.target.closest(".mark");
+  if (mark) {
+    e.stopPropagation();
+    const s = srcBy(mark.closest(".src").dataset.id);
+    s.off = !s.off;
+    if (s.off && state.focus === s.id) { const n = onSources()[0]; if (n) state.focus = n.id; }
+    render();
+    return;
+  }
+  const tog = e.target.closest("[data-toggle]");
+  if (tog) return togglePanel(tog.dataset.toggle);
+  if (e.target.closest("[data-think]")) { state.think = !state.think; render(); return; }
+  const go = e.target.closest("[data-go]");
+  if (go) { state.q = go.dataset.q; state.focus = go.dataset.src; state.chat = true; render(); return; }
+  const ask = e.target.closest("[data-ask-src]");
+  if (ask) { state.focus = ask.dataset.askSrc; state.q = `Walk me through ${srcBy(ask.dataset.askSrc).title}.`; state.chat = true; render(); return; }
+  const fly = e.target.closest("[data-fly]");
+  if (fly) return openFly(fly);
+  const row = e.target.closest(".src");
+  if (row) { const s = srcBy(row.dataset.id); if (!s.off) state.focus = s.id; render(); return; }
+  const cite = e.target.closest(".cite");
+  if (cite) { state.focus = cite.dataset.id; render(); return; }
+  if (!e.target.closest(".fly")) closeFly();
+});
+document.getElementById("frame").addEventListener("mouseover", (e) => {
+  const el = e.target.closest("[data-src]");
+  document.querySelectorAll(".src").forEach((row) => row.classList.toggle("lit", !!(el && row.dataset.id === el.dataset.src)));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "[") togglePanel("src");
+  if (e.key === "]") togglePanel("std");
+  if (e.key === "Escape") closeFly();
+});
+const qs = new URLSearchParams(location.search);
+if (qs.has("chat")) state.chat = true;
+if (qs.has("src")) state.src = "closed";
+if (qs.has("std")) state.std = "closed";
+if (qs.has("night")) state.night = true;
+render();
+</script>
+</body>
+</html>

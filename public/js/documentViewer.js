@@ -37,9 +37,118 @@ export function createDocumentViewer({
   let editorSavePromise = null;
   let pendingMarkdown = "";
   let isFullscreen = false;
+  let fullscreenReturnParent = null;
+  let fullscreenReturnNext = null;
   let fullscreenAnimation = null;
   let viewerAnimation = null;
   let viewerTransitionToken = 0;
+  let inlineViewer = false;
+  let onViewerClose = null;
+  const viewerHome = document.createComment("document-viewer-home");
+  elements.documentViewer?.before(viewerHome);
+  let pdfDocument = null;
+  let pdfObserver = null;
+  let pdfLoadTask = null;
+  const pdfPageTasks = new Set();
+  let pdfZoom = 1;
+  let currentPdfPage = 1;
+  let resizeTimer = null;
+  const toolbar = document.createElement("div");
+  toolbar.className = "document-preview-toolbar hidden";
+  toolbar.innerHTML = `<div class="document-page-controls" hidden>
+    <button type="button" data-pdf-step="-1" aria-label="Previous page" title="Previous page">${viewerSvg('<path d="m14 7-5 5 5 5"/>')}</button>
+    <input type="number" min="1" value="1" aria-label="Page number" inputmode="numeric"><span class="document-page-total"></span>
+    <button type="button" data-pdf-step="1" aria-label="Next page" title="Next page">${viewerSvg('<path d="m10 7 5 5-5 5"/>')}</button>
+  </div><div class="document-preview-tools">
+    <label class="document-zoom-control" hidden>${viewerSvg('<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6m-3-3v6"/>')}<select aria-label="Zoom">${[[1, "Fit"], [.75, "75%"], [1.25, "125%"], [1.5, "150%"], [2, "200%"]].map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label>
+    <button type="button" data-preview-refresh aria-label="Refresh preview" title="Refresh preview">${viewerSvg('<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>')}</button>
+  </div>`;
+  elements.documentViewerBody?.before(toolbar);
+
+  function resetPdf({ destroy = true } = {}) {
+    pdfRenderToken += 1;
+    pdfObserver?.disconnect();
+    pdfObserver = null;
+    pdfPageTasks.forEach(task => task.cancel());
+    pdfPageTasks.clear();
+    clearTimeout(resizeTimer);
+    if (destroy) {
+      if (pdfLoadTask) void pdfLoadTask.destroy().catch(() => {});
+      else if (pdfDocument) void pdfDocument.destroy().catch(() => {});
+      pdfLoadTask = null;
+      pdfDocument = null;
+    }
+  }
+
+  function syncPageControls() {
+    const total = pdfDocument?.numPages || 0;
+    toolbar.querySelector(".document-page-controls").hidden = !total;
+    toolbar.querySelector(".document-zoom-control").hidden = !total;
+    const input = toolbar.querySelector("input");
+    if (document.activeElement !== input) input.value = String(currentPdfPage);
+    input.max = String(total);
+    toolbar.querySelector(".document-page-total").textContent = `/ ${total}`;
+    toolbar.querySelector('[data-pdf-step="-1"]').disabled = currentPdfPage <= 1;
+    toolbar.querySelector('[data-pdf-step="1"]').disabled = currentPdfPage >= total;
+  }
+
+  function goToPdfPage(value) {
+    if (!pdfDocument) return;
+    currentPdfPage = Math.max(1, Math.min(pdfDocument.numPages, Math.trunc(Number(value)) || 1));
+    const page = elements.documentViewerBody.querySelector(`[data-page="${currentPdfPage}"]`);
+    if (page) elements.documentViewerBody.scrollTop += page.getBoundingClientRect().top - elements.documentViewerBody.getBoundingClientRect().top - 12;
+    toolbar.querySelector("input").value = String(currentPdfPage);
+    syncPageControls();
+  }
+
+  function redrawPdf() {
+    if (!pdfDocument || !state.viewer.open) return;
+    const page = currentPdfPage;
+    resetPdf({ destroy: false });
+    void renderPdfPages(null, state.viewer.url, pdfRenderToken, pdfDocument).then(() => goToPdfPage(page));
+  }
+
+  toolbar.addEventListener("click", event => {
+    const step = event.target.closest("[data-pdf-step]");
+    if (step) goToPdfPage(currentPdfPage + Number(step.dataset.pdfStep));
+    if (event.target.closest("[data-preview-refresh]")) {
+      const { downloadAttachmentId, attachmentId, fileName, sourceKind } = state.viewer;
+      const requestToken = ++viewerTransitionToken;
+      stopDocumentPreviewPoll();
+      resetPdf();
+      delete elements.documentViewerBody.dataset.pdfUrl;
+      setDocumentViewerState({ loading: true, error: "" });
+      void loadDocumentViewerUrl(downloadAttachmentId || attachmentId, { fileName, sourceKind }).catch(error => {
+        if (requestToken === viewerTransitionToken) setDocumentViewerState({ loading: false, error: error.message || "Preview failed." });
+      });
+    }
+  });
+  toolbar.querySelector("input").addEventListener("change", event => goToPdfPage(event.target.value));
+  toolbar.querySelector("input").addEventListener("keydown", event => {
+    if (event.key === "Enter") { event.preventDefault(); goToPdfPage(event.target.value); }
+  });
+  toolbar.querySelector("select").addEventListener("change", event => {
+    pdfZoom = Number(event.target.value) || 1;
+    redrawPdf();
+  });
+  elements.documentViewerBody?.addEventListener("scroll", () => {
+    if (!pdfDocument) return;
+    const top = elements.documentViewerBody.getBoundingClientRect().top;
+    const pages = [...elements.documentViewerBody.querySelectorAll("[data-page]")];
+    const visible = pages.find(page => page.getBoundingClientRect().bottom > top + 30);
+    if (visible) { currentPdfPage = Number(visible.dataset.page); syncPageControls(); }
+  }, { passive: true });
+  if (typeof ResizeObserver !== "undefined" && elements.documentViewerBody) {
+    let lastWidth = 0;
+    new ResizeObserver(entries => {
+      const width = Math.round(entries[0].contentRect.width);
+      if (!width || width === lastWidth) return;
+      lastWidth = width;
+      clearTimeout(resizeTimer);
+      if (pdfDocument) resizeTimer = setTimeout(redrawPdf, 120);
+    }).observe(elements.documentViewerBody);
+  }
+
 
   function findPendingArtifacts() {
     const out = [];
@@ -176,6 +285,19 @@ export function createDocumentViewer({
     const value = Boolean(next);
     if (value === isFullscreen || !elements.documentViewer) return;
     const before = elements.documentViewer.getBoundingClientRect();
+    if (value) {
+      fullscreenReturnParent = elements.documentViewer.parentNode;
+      fullscreenReturnNext = elements.documentViewer.nextSibling;
+      document.body.append(elements.documentViewer);
+    } else {
+      const host = fullscreenReturnParent?.isConnected
+        ? fullscreenReturnParent
+        : document.querySelector(".dojo-source-preview-slot");
+      if (host) host.insertBefore(elements.documentViewer, fullscreenReturnNext?.parentNode === host ? fullscreenReturnNext : null);
+      else viewerHome.after(elements.documentViewer);
+      fullscreenReturnParent = null;
+      fullscreenReturnNext = null;
+    }
     isFullscreen = value;
     document.body.classList.toggle("document-viewer-fullscreen", isFullscreen);
     elements.documentViewerDownloadMenu?.classList.add("hidden");
@@ -303,7 +425,10 @@ export function createDocumentViewer({
   function renderDocumentViewer() {
     if (!elements.documentViewer) return;
     const viewer = state.viewer;
-    document.body.classList.toggle("document-viewer-open", Boolean(viewer.open));
+    document.body.classList.toggle("document-viewer-open", Boolean(viewer.open && !inlineViewer));
+    toolbar.classList.toggle("hidden", !viewer.open);
+    toolbar.querySelector("[data-preview-refresh]").disabled = Boolean(viewer.loading);
+    syncPageControls();
     elements.documentViewer.classList.toggle("hidden", !viewer.open);
     elements.documentViewerTitle.textContent = viewer.fileName || "Document";
     elements.documentViewerMeta.textContent = viewerMetaLabel();
@@ -312,8 +437,8 @@ export function createDocumentViewer({
     const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
     const editable = viewer.kind === "editable";
     elements.documentViewerBody.classList.toggle("is-editable", editable);
-    elements.documentViewerDownload.classList.toggle("hidden", !downloadHref);
-    elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref);
+    elements.documentViewerDownload.classList.toggle("hidden", !downloadHref || inlineViewer);
+    elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref || inlineViewer);
     elements.documentViewerDownload.innerHTML = `${DOWNLOAD_ICON}<span>Download</span>${editable ? `<span class="document-download-chevron">${CHEVRON_ICON}</span>` : ""}`;
     elements.documentViewerDownload.setAttribute("aria-expanded", String(editable && !elements.documentViewerDownloadMenu?.classList.contains("hidden")));
     if (!editable) elements.documentViewerDownloadMenu?.classList.add("hidden");
@@ -472,12 +597,13 @@ export function createDocumentViewer({
   }
 
   function pdfPlaceholderHeight(width) {
-    return Math.max(420, Math.round(width * 1.294));
+    return Math.max(80, Math.round(width * 1.294));
   }
 
   function renderCleanPdfViewer(url) {
     if (elements.documentViewerBody.dataset.pdfUrl === url) return;
-    const token = ++pdfRenderToken;
+    resetPdf();
+    const token = pdfRenderToken;
     elements.documentViewerBody.dataset.pdfUrl = url;
     elements.documentViewerBody.innerHTML = `
     <div class="pdf-pages" data-pdf-pages>
@@ -492,13 +618,17 @@ export function createDocumentViewer({
       });
   }
 
-  async function renderPdfPages(pdfjs, url, token) {
+  async function renderPdfPages(pdfjs, url, token, loadedPdf = null) {
     const container = elements.documentViewerBody.querySelector("[data-pdf-pages]");
     if (!container || token !== pdfRenderToken) return;
 
     let pdf;
     try {
-      pdf = await pdfjs.getDocument({ url }).promise;
+      if (loadedPdf) pdf = loadedPdf;
+      else {
+        pdfLoadTask = pdfjs.getDocument({ url });
+        pdf = await pdfLoadTask.promise;
+      }
     } catch {
       if (token !== pdfRenderToken) return;
       elements.documentViewerBody.innerHTML = `<div class="document-viewer-empty">Could not open this PDF preview.</div>`;
@@ -506,13 +636,18 @@ export function createDocumentViewer({
     }
     if (token !== pdfRenderToken) return;
 
-    const bodyWidth = Math.max(320, elements.documentViewerBody.clientWidth - 28);
+    pdfDocument = pdf;
+    syncPageControls();
+    const bodyWidth = Math.max(160, elements.documentViewerBody.clientWidth - 28) * pdfZoom;
+    container.style.width = `${bodyWidth}px`;
+    container.style.minWidth = "100%";
     container.innerHTML = "";
     const placeholders = [];
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const pageEl = document.createElement("div");
       pageEl.className = "pdf-page";
       pageEl.dataset.page = String(pageNumber);
+      pageEl.style.width = `${bodyWidth}px`;
       pageEl.style.minHeight = `${pdfPlaceholderHeight(bodyWidth)}px`;
       pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
       container.appendChild(pageEl);
@@ -526,7 +661,7 @@ export function createDocumentViewer({
       const page = await pdf.getPage(pageNumber);
       if (token !== pdfRenderToken) return;
       const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(1.8, Math.max(0.6, bodyWidth / base.width));
+      const scale = bodyWidth / base.width;
       const viewport = page.getViewport({ scale });
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const canvas = document.createElement("canvas");
@@ -536,23 +671,25 @@ export function createDocumentViewer({
       canvas.style.height = `${Math.floor(viewport.height)}px`;
       canvas.setAttribute("aria-label", `Page ${pageNumber}`);
       const context = canvas.getContext("2d", { alpha: false });
-      await page.render({
+      const task = page.render({
         canvasContext: context,
         viewport,
         transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null
-      }).promise;
+      });
+      pdfPageTasks.add(task);
+      try { await task.promise; } finally { pdfPageTasks.delete(task); }
       if (token !== pdfRenderToken) return;
       pageEl.style.minHeight = "";
       pageEl.replaceChildren(canvas);
     };
 
     if ("IntersectionObserver" in window) {
-      const observer = new IntersectionObserver((entries) => {
+      const observer = pdfObserver = new IntersectionObserver((entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           observer.unobserve(entry.target);
           renderPage(entry.target).catch(() => {
-            entry.target.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
+            if (token === pdfRenderToken) entry.target.innerHTML = `<div class="pdf-page-placeholder">Page failed to render.</div>`;
           });
         }
       }, { root: elements.documentViewerBody, rootMargin: "900px 0px" });
@@ -619,7 +756,9 @@ export function createDocumentViewer({
       setDocumentViewerState({ loading: false, error: "Sign in to view files." });
       return;
     }
+    const requestToken = viewerTransitionToken;
     const payload = await fetchAttachmentView(state.session, attachmentId, { sheetFallback });
+    if (!state.viewer.open || requestToken !== viewerTransitionToken) return;
     if (payload.status === "processing" && payload.jobId) {
       setDocumentViewerState({
         open: true,
@@ -658,7 +797,20 @@ export function createDocumentViewer({
     });
   }
 
-  async function openDocumentViewer({ attachmentId, fileName = "", format = "" }) {
+  async function openDocumentViewer({ attachmentId, fileName = "", format = "", container = null, onClose = null }) {
+    resetPdf();
+    if (isFullscreen) setFullscreen(false, { animate: false });
+    if (!container) onViewerClose?.();
+    inlineViewer = Boolean(container);
+    onViewerClose = onClose;
+    const ext = String(format || fileName.split(".").pop()).toLowerCase();
+    elements.documentViewer.dataset.sourceFormat = ["ppt", "pptx"].includes(ext) ? "slides" : ["doc", "docx"].includes(ext) ? "word" : ext;
+    elements.documentViewer.classList.toggle("is-inline-source", inlineViewer);
+    if (container) container.append(elements.documentViewer);
+    else viewerHome.after(elements.documentViewer);
+    pdfZoom = 1;
+    currentPdfPage = 1;
+    toolbar.querySelector("select").value = "1";
     viewerTransitionToken += 1;
     stopDocumentPreviewPoll();
     setDocumentViewerState({
@@ -680,14 +832,15 @@ export function createDocumentViewer({
       error: ""
     });
     animateViewer(true);
+    const requestToken = viewerTransitionToken;
     try {
       await loadDocumentViewerUrl(attachmentId, { fileName, sourceKind: format.toLowerCase() });
     } catch (err) {
-      setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
+      if (requestToken === viewerTransitionToken) setDocumentViewerState({ loading: false, error: err.message || "Preview failed." });
     }
   }
 
-  async function closeDocumentViewer() {
+  async function closeDocumentViewer(event) {
     if (!state.viewer.open) return;
     const transitionToken = ++viewerTransitionToken;
     const exitAnimation = animateViewer(false);
@@ -701,7 +854,7 @@ export function createDocumentViewer({
     destroyOfficeViewer();
     if (isFullscreen) setFullscreen(false, { animate: false });
     stopDocumentPreviewPoll();
-    pdfRenderToken += 1;
+    resetPdf();
     if (elements.documentViewerBody) delete elements.documentViewerBody.dataset.pdfUrl;
     setDocumentViewerState({
       open: false,
@@ -721,6 +874,12 @@ export function createDocumentViewer({
       loading: false,
       error: ""
     });
+    inlineViewer = false;
+    elements.documentViewer.classList.remove("is-inline-source");
+    viewerHome.after(elements.documentViewer);
+    const closed = onViewerClose;
+    onViewerClose = null;
+    closed?.(event);
   }
 
   elements.documentViewerBody?.addEventListener("click", (event) => {
@@ -787,8 +946,8 @@ export function createDocumentViewer({
     }
   });
 
-  elements.documentViewerFullscreen?.addEventListener("click", () => {
-    if (state.viewer.open) setFullscreen(!isFullscreen);
+  elements.documentViewerFullscreen?.addEventListener("click", (event) => {
+    if (state.viewer.open) setFullscreen(!isFullscreen, { animate: Boolean(event.detail) });
   });
 
   document.addEventListener("pointerdown", (event) => {

@@ -1,3 +1,4 @@
+import { kluiSvgMarkup } from "./klui.js";
 import { copyText } from "./platform/index.js";
 
 export function createStudyHubController({
@@ -11,6 +12,7 @@ export function createStudyHubController({
   parkActiveConversationRun,
   clearClarification,
   closeDocumentViewer,
+  openDocumentViewer,
   renderShell,
   renderImages,
   openConversation,
@@ -66,7 +68,41 @@ export function createStudyHubController({
   let quizSession = null;
   let studyNote = null;
   let createType = "";
+  let sourceSort = "recent";
+  let sourcesCollapsed = false;
+  let panelResizeAnimation = null;
+  let studioCollapsed = false;
+  let sourcePreviewId = "";
+  let sourceListScrollTop = 0;
+  let collectionScrollTop = 0;
+  const pinnedCollectionKey = "klui.dojo.collectionPins.v1";
+  const pinnedCollection = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(pinnedCollectionKey) || "[]");
+    if (Array.isArray(saved)) saved.filter(key => typeof key === "string").forEach(key => pinnedCollection.add(key));
+  } catch { /* Browsers without storage still keep pins for this session. */ }
   const createSelected = new Set();
+
+  function collectionPinId(kind, id) {
+    return `${state.activeCourseId}:${kind}:${id}`;
+  }
+
+  function collectionPinMarkup(kind, id) {
+    const pinned = pinnedCollection.has(collectionPinId(kind, id));
+    return `<button class="study-menu-item" type="button" role="menuitem" data-collection-pin-kind="${kind}" data-collection-pin-id="${escapeHtml(id)}">${pinned ? "Unpin" : "Pin to top"}</button>`;
+  }
+
+  function toggleCollectionPin(kind, id) {
+    const key = collectionPinId(kind, id);
+    if (pinnedCollection.has(key)) pinnedCollection.delete(key);
+    else pinnedCollection.add(key);
+    try { localStorage.setItem(pinnedCollectionKey, JSON.stringify([...pinnedCollection])); } catch { /* Keep the in-memory pin. */ }
+    quizMenuKey = "";
+    const collectionList = els.studyView.querySelector(".dojo-artifacts");
+    if (collectionList) collectionList.scrollTop = 0;
+    collectionScrollTop = 0;
+    render();
+  }
 
   const sound = createSounds(reducedMotion);
 
@@ -95,7 +131,7 @@ export function createStudyHubController({
   }
 
   function studyVisible() {
-    return Boolean(state.studyOpen && !state.activeConversationId);
+    return Boolean(state.studyOpen);
   }
 
   function isStudyFile(file) {
@@ -107,16 +143,32 @@ export function createStudyHubController({
     return attachment?.file_name || doc?.file_name || "Document";
   }
 
+  function isMindMap(note) {
+    return String(note?.content || "").startsWith("<!--klui:mindmap-->");
+  }
+
+  function mindMapMarkup(note) {
+    const lines = noteBody(note).split("\n");
+    const branches = [];
+    for (const line of lines) {
+      if (/^## /.test(line)) branches.push({ title: line.slice(3), items: [] });
+      else if (/^(?:### |[-*] )/.test(line) && branches.length) branches.at(-1).items.push(line.replace(/^(?:### |[-*] )/, ""));
+    }
+    if (!branches.length) return renderContent(noteBody(note));
+    return `<div class="dojo-mindmap"><div class="dojo-map-root">${escapeHtml(note.title)}</div><div class="dojo-map-branches">${branches.map(branch => `<details open class="dojo-map-branch"><summary>${escapeHtml(branch.title)}</summary><ul>${branch.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`).join("")}</div></div>`;
+  }
+
   function isDetailedNote(note) {
     return note?.kind === "detailed" || String(note?.content || "").startsWith("<!--klui:detailed-->");
   }
 
   function noteBody(note) {
     const text = String(note?.content || "");
-    return text.startsWith("<!--klui:detailed-->") ? text.slice("<!--klui:detailed-->".length).replace(/^\n/, "") : text;
+    return text.replace(/^<!--klui:(?:detailed|mindmap)-->\n?/, "");
   }
 
   function noteKindLabel(note) {
+    if (isMindMap(note)) return "Mind map";
     if (note?.kind === "image_transcript") return "Image transcript";
     if (isDetailedNote(note)) return "Detailed";
     return "Summary";
@@ -132,6 +184,7 @@ export function createStudyHubController({
           ${kebabIcon()}
         </button>
         <div class="study-menu${open ? "" : " hidden"}" role="menu">
+          ${kind === "note" ? collectionPinMarkup(kind, id) : ""}
           <button class="study-menu-item study-menu-danger" type="button" role="menuitem" ${del}>Delete</button>
         </div>
       </div>`;
@@ -151,6 +204,7 @@ export function createStudyHubController({
           ${kebabIcon()}
         </button>
         <div class="study-menu${open ? "" : " hidden"}" role="menu">
+          ${collectionPinMarkup(kind, id)}
           <button class="study-menu-item" type="button" role="menuitem" ${rename}>Rename</button>
           <button class="study-menu-item study-menu-danger" type="button" role="menuitem" ${del}>Delete</button>
         </div>
@@ -180,20 +234,38 @@ export function createStudyHubController({
       : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.2 2.5 5.9 6.4.6-4.9 4.2 1.5 6.3L12 16.8 6.5 20.2l1.5-6.3-4.9-4.2 6.4-.6z"/></svg>`;
   }
 
-  function sketchStroke(extra = "") {
-    return `<span class="study-sketch-stroke${extra ? ` ${extra}` : ""}" aria-hidden="true"></span>`;
+  function icon(name) {
+    const paths = {
+      course: '<path d="m2 9 10-5 10 5-10 5-10-5ZM6 11v6c4 3 8 3 12 0v-6M22 9v7"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/>',
+      flashcards: '<rect x="7" y="5" width="13" height="16" rx="3"/><path d="M15 2H5a2 2 0 0 0-2 2v12M13 9l-2 4h5l-2 4"/>',
+      mindmap: '<rect x="9" y="2" width="6" height="5" rx="1.5"/><rect x="2" y="17" width="6" height="5" rx="1.5"/><rect x="16" y="17" width="6" height="5" rx="1.5"/><path d="M12 7v5M5 17v-5h14v5"/>',
+      notes: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/>',
+      quiz: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 8 1 1 2-2m-3 8 1 1 2-2m3-6h2m-2 7h2"/>',
+      pin: '<path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v7"/>',
+      chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 10h8M7 14h5"/>',
+      recent: '<path d="M3 12a9 9 0 1 0 2.6-6.4M3 4v5h5m4-2v5l3 2"/>',
+      sort: '<path d="M4 6h16M4 12h10M4 18h4"/>',
+      sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m7-11-3 3 3 3"/>',
+      expand: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m4-11 3 3-3 3"/>',
+      arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>'
+    };
+    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
   }
 
-  function sketchTape() {
-    return `<span class="study-tape" aria-hidden="true"></span>`;
-  }
-
-  function sketchPin(tone = "red") {
-    return `<span class="study-pin study-pin--${tone}" aria-hidden="true"></span>`;
-  }
-
-  function pinTone(index) {
-    return ["red", "green", "blue", "orange"][index % 4];
+  function folderSvg(index = 0, add = false) {
+    const tones = ["sage", "clay", "blue", "lilac"];
+    return `<svg class="dojo-folder dojo-folder--${tones[index % tones.length]}" viewBox="0 0 240 180" fill="none" aria-hidden="true">
+      <ellipse cx="121" cy="158" rx="76" ry="8" class="dojo-folder-shadow"/>
+      <path d="M32 57a12 12 0 0 1 12-12h47l17 16h88a12 12 0 0 1 12 12v65a12 12 0 0 1-12 12H44a12 12 0 0 1-12-12Z" class="dojo-folder-back"/>
+      <g class="dojo-folder-sheet dojo-folder-sheet--one"><rect x="56" y="48" width="104" height="88" rx="5"/><path d="M70 65h39M70 76h66M70 84h58M70 92h65"/></g>
+      <g class="dojo-folder-sheet dojo-folder-sheet--two"><rect x="79" y="43" width="104" height="94" rx="5"/><path d="M94 59h32M94 71h70M94 80h61M94 89h68M94 98h43"/></g>
+      <g class="dojo-folder-sheet dojo-folder-sheet--three"><rect x="49" y="64" width="119" height="78" rx="5"/><path d="M63 80h29M63 92h85M63 101h70M63 110h78"/></g>
+      <path class="dojo-folder-front" d="M26 87a10 10 0 0 1 10-11h66l14 9h88a10 10 0 0 1 10 11l-8 46a12 12 0 0 1-12 10H46a12 12 0 0 1-12-10Z"/>
+      <path class="dojo-folder-rim" d="M38 79h63l14 9h87"/>
+      ${add ? '<circle cx="123" cy="117" r="16" class="dojo-folder-badge"/><path d="M123 110v14m-7-7h14" class="dojo-folder-plus"/>' : '<path d="M52 129h24" class="dojo-folder-label"/>'}
+    </svg>`;
   }
 
   function statusLine(status, kindLabel = "") {
@@ -232,145 +304,40 @@ export function createStudyHubController({
   }
 
   function boardLoadingMarkup() {
-    return `
-      <div class="study-doodle" role="status" aria-live="polite" aria-label="Loading">
-        <svg class="study-doodle-svg" viewBox="0 0 240 180" fill="none" aria-hidden="true">
-          <ellipse class="study-doodle-draw" cx="120" cy="72" rx="34" ry="38"/>
-          <path class="study-doodle-draw" d="M110 58q10 16 20 0"/>
-          <path class="study-doodle-draw" d="M120 54v24"/>
-          <path class="study-doodle-draw" d="M102 108q18 16 36 0"/>
-          <path class="study-doodle-draw" d="M108 118h24M110 126h20M112 134h16"/>
-          <path class="study-doodle-draw" d="M120 22v14M166 44l12-12M74 44 62 32M188 76h16M36 76h16M166 110l12 12M74 110 62 122"/>
-          <path class="study-doodle-draw" d="M198 26l5 11 12 2-9 8 2 12-10-6-10 6 2-12-9-8 12-2z"/>
-          <path class="study-doodle-draw" d="M58 158q18-12 36 0t36 0t36 0t36 0"/>
-        </svg>
-        <p class="study-doodle-cap">Sketching...</p>
-      </div>`;
+    return `<div class="study-empty" role="status">${spinner()}<p>Getting your course ready…</p></div>`;
   }
 
   function courseListMarkup() {
     const courses = coursesFromProjects();
-    if (!courses.length) {
-      return `
-        <div class="study-hero-empty">
-          <p class="study-kicker">Today's board -</p>
-          <h1>Create your first course</h1>
-          <p>Upload a syllabus, then review flashcards and quizzes from your actual material.</p>
-          <button class="study-primary-btn" type="button" data-create-course>${sketchStroke()}New course</button>
-        </div>`;
-    }
     const cards = courses.map((course, index) => {
-      const meta = courseMeta(course);
       const menuOpen = quizMenuKey === `course:${course.id}`;
-      return `
-        <article class="study-course-card">
-          ${index % 3 === 0 ? sketchTape() : sketchPin(pinTone(index))}
-          ${sketchStroke()}
-          <button class="study-course-open" type="button" data-open-course-id="${escapeHtml(course.id)}">
-            <strong>${escapeHtml(course.name)}</strong>
-            <small>${escapeHtml(meta.term || "No term")}</small>
-          </button>
-          <div class="study-card-menu-wrap">
-            <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Course options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
-              ${kebabIcon()}
-            </button>
-            <div class="study-menu${menuOpen ? "" : " hidden"}" data-course-menu="${escapeHtml(course.id)}" role="menu">
-              <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(course.id)}">Rename</button>
-              <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-course="${escapeHtml(course.id)}">Delete</button>
-            </div>
+      return `<article class="study-course-card">
+        <button class="study-course-open" type="button" data-open-course-id="${escapeHtml(course.id)}">
+          ${folderSvg(index)}<span class="dojo-course-label"><strong>${escapeHtml(course.name)}</strong><small>${escapeHtml(courseMeta(course).term || "Your study space")}</small></span><span class="dojo-course-enter">${icon("arrow")}</span>
+        </button>
+        <div class="study-card-menu-wrap">
+          <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Options for ${escapeHtml(course.name)}" aria-haspopup="menu" aria-expanded="${menuOpen}">${kebabIcon()}</button>
+          <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
+            <button class="study-menu-item" type="button" role="menuitem" data-rename-course="${escapeHtml(course.id)}">Rename</button>
+            <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-course="${escapeHtml(course.id)}">Delete</button>
           </div>
-        </article>`;
-    }).join("");
-    return `
-      <div class="study-page">
-        <header class="study-page-header">
-          <div>
-            <p class="study-kicker">Today's board -</p>
-            <h1>Your courses</h1>
-          </div>
-        </header>
-        <div class="study-course-grid">
-          ${cards}
-          <button class="study-course-card study-course-new" type="button" data-create-course>
-            ${sketchStroke("is-dash")}
-            <span class="study-new-plus" aria-hidden="true">+</span>
-            <strong>New course</strong>
-            <small>Name it, add a term, start collecting material.</small>
-          </button>
         </div>
-      </div>`;
-  }
-
-  function generateActions(kind, id, ready) {
-    if (!ready) return "";
-    const base = `${kind}:${id}`;
-    const activeFor = (type, mode = "") => [...generations.values()].some((job) => (
-      job.courseId === state.activeCourseId
-      && job.status === "running"
-      && job.type === type
-      && (kind === "doc" ? job.documentFileId === id : job.noteId === id)
-      && (!mode || job.mode === mode)
-    ));
-    const countMenu = (type, label, counts) => {
-      const key = `${base}:${type}`;
-      const open = quizMenuKey === key;
-      return `
-        <span class="study-quiz-wrap">
-          <button class="study-chip-btn study-ink-orange" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}<span class="study-chip-label">${label}</span>
-          </button>
-          <div class="study-quiz-menu${open ? "" : " hidden"}">
-            ${counts.map((n) => `<button type="button" data-study-generate="${type}" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-count="${n}">${n}</button>`).join("")}
-          </div>
-        </span>`;
-    };
-    const flashcardAction = () => {
-      const cardMode = String(state.studyMaterials?.flashcardModes?.[`${kind === "note" ? "note" : "doc"}:${id}`] || "");
-      const key = `${base}:flashcards`;
-      const open = quizMenuKey === key;
-      const rapidDone = cardMode === "rapid" || cardMode === "deep";
-      const deepDone = cardMode === "deep";
-      const busy = activeFor("flashcards");
-      return `
-        <span class="study-quiz-wrap">
-          <button class="study-chip-btn study-ink-blue" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}<span class="study-chip-label">Flashcards</span>
-          </button>
-          <div class="study-quiz-menu${open ? "" : " hidden"}">
-            <button type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="rapid" title="Key concepts — a chapter review"${rapidDone || busy ? " disabled" : ""}>Rapid</button>
-            <button type="button" data-study-generate="flashcards" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="deep" title="Every concept in the chapter"${deepDone || busy ? " disabled" : ""}>Deep</button>
-          </div>
-        </span>`;
-    };
-    const notesAction = () => {
-      if (kind !== "doc") return "";
-      const related = (state.studyMaterials?.notes || []).filter((note) => note.document_file_id === id);
-      const summaryDone = related.some((note) => note.kind === "summary" && !isDetailedNote(note));
-      const detailedDone = related.some((note) => isDetailedNote(note));
-      const key = `${base}:notes`;
-      const open = quizMenuKey === key;
-      return `
-        <span class="study-quiz-wrap">
-          <button class="study-chip-btn study-ink-purple" type="button" data-toggle-quiz-menu="${escapeHtml(key)}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
-            ${sketchStroke()}<span class="study-chip-label">Notes</span>
-          </button>
-          <div class="study-quiz-menu${open ? "" : " hidden"}">
-            <button type="button" data-study-generate="notes" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="summary" title="Most important concepts"${summaryDone || activeFor("notes", "summary") ? " disabled" : ""}>Summary</button>
-            <button type="button" data-study-generate="notes" data-gen-kind="${escapeHtml(kind)}" data-gen-id="${escapeHtml(id)}" data-mode="detailed" title="A thorough chapter review"${detailedDone || activeFor("notes", "detailed") ? " disabled" : ""}>Detailed</button>
-          </div>
-        </span>`;
-    };
-    return `
-      <div class="study-material-actions">
-        ${flashcardAction()}
-        ${countMenu("quiz", "Quiz", [10, 15, 25])}
-        ${notesAction()}
-      </div>`;
+      </article>`;
+    }).join("");
+    return `<div class="study-page">
+      <header class="study-page-header"><div><p class="dojo-section-label">${icon("course")} Dojo</p><h1>What are we learning?</h1><p class="dojo-intro">Pick a course. Bring your questions. Let’s figure it out.</p></div><div class="dojo-library-mascot" aria-hidden="true">${kluiSvgMarkup("dojo-library", { greeting: true })}</div></header>
+      <div class="dojo-library-heading"><h2>Your courses</h2><span>${courses.length} ${courses.length === 1 ? "course" : "courses"}</span></div>
+      <div class="study-course-grid">${cards}<button class="study-course-card study-course-new" type="button" data-create-course>
+        ${folderSvg(courses.length, true)}<span class="dojo-course-label"><strong>New course</strong><small>Give your next idea a home</small></span>
+      </button></div>
+      ${!courses.length ? '<p class="dojo-first-hint">One folder for every subject. Add your sources, ask questions, and turn what you learn into practice.</p>' : ""}
+    </div>`;
   }
 
   function jobTypeLabel(type) {
     if (type === "flashcards") return "Flashcards";
-    if (type === "quiz") return "Quiz";
+    if (type === "quiz") return "Practice test";
+    if (type === "mindmap") return "Mind map";
     if (type === "notes") return "Notes";
     return "Generation";
   }
@@ -432,7 +399,6 @@ export function createStudyHubController({
       .filter((job) => (
         job.courseId === state.activeCourseId
         && job.status !== "succeeded"
-        && (job.type === "notes" ? state.activeCourseTab === "materials" : state.activeCourseTab === "practice")
       ))
       .sort((a, b) => (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0));
   }
@@ -458,56 +424,111 @@ export function createStudyHubController({
     }).join("")}</div>`;
   }
 
+  function sourceFileIcon(doc) {
+    const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
+    const kind = ["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "webp"].includes(ext) ? ext : String(doc?.kind || ext).toLowerCase();
+    const type = ["pdf"].includes(kind) ? "pdf" : ["ppt", "pptx"].includes(kind) ? "slides" : ["doc", "docx"].includes(kind) ? "word" : ["xls", "xlsx", "csv"].includes(kind) ? "sheet" : ["png", "jpg", "jpeg", "webp", "image"].includes(kind) ? "image" : "file";
+    const marks = {
+      pdf: '<path d="M8 16c4-7 3-9 2-7-2 4 1 6 6 6-2-2-6-1-8 1Z"/>',
+      slides: '<rect x="7" y="10" width="10" height="7" rx="1"/><path d="M12 17v2m-3 0h6"/>',
+      word: '<path d="m7 11 2 7 3-5 3 5 2-7"/>',
+      sheet: '<path d="M7 11h10M7 15h10M10 10v8m4-8v8"/>',
+      image: '<circle cx="9" cy="11" r="1"/><path d="m7 18 4-4 2 2 2-3 3 5"/>',
+      file: '<path d="M8 12h8M8 16h5"/>'
+    };
+    return `<span class="dojo-file-icon is-${type}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6"/>${marks[type]}</svg></span>`;
+  }
+
+  function sortedSources() {
+    return [...(state.studyMaterials?.documents || [])].sort((a, b) => sourceSort === "recent"
+      ? (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)
+      : documentDisplayName(a).localeCompare(documentDisplayName(b), undefined, { numeric: true, sensitivity: "base" }) * (sourceSort === "desc" ? -1 : 1));
+  }
+
+  function sourcesHeaderMarkup() {
+    return `<header class="dojo-panel-header"><h2>Sources</h2><div class="dojo-source-actions">
+      <details class="dojo-source-sort"><summary class="study-icon-btn" aria-label="Sort sources" title="Sort sources">${icon("sort")}</summary><div class="dojo-sort-menu" role="group" aria-label="Source order">${[["recent", "Recently added"], ["asc", "Name · A–Z"], ["desc", "Name · Z–A"]].map(([value, label]) => `<button type="button" data-source-sort="${value}" aria-pressed="${sourceSort === value}">${label}<span aria-hidden="true">${sourceSort === value ? "✓" : ""}</span></button>`).join("")}</div></details>
+      <button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse sources">${icon("sidebar")}</button>
+    </div></header>`;
+  }
+
+  function sourcesRailMarkup() {
+    const docs = sortedSources();
+    return `<div class="dojo-source-rail"><button class="study-icon-btn" type="button" data-collapse-sources aria-expanded="false" aria-label="Expand sources" title="Expand sources">${icon("expand")}</button><span class="dojo-rail-label">Sources</span><span class="dojo-rail-count">${docs.length}</span><button class="study-icon-btn" type="button" data-study-add-files aria-label="Add sources" title="Add sources">${icon("plus")}</button><div class="dojo-rail-files">${docs.slice(0, 6).map(doc => `<button type="button" data-view-source="${escapeHtml(doc.id)}" aria-label="Open ${escapeHtml(documentDisplayName(doc))}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}</button>`).join("")}</div></div>`;
+  }
+
   function materialsMarkup() {
-    const payload = state.studyMaterials;
-    const docs = payload?.documents || [];
-    const notes = payload?.notes || [];
-    const pending = pendingUploads.map((item, index) => `
-      <article class="study-material-card is-pending">
-        ${index % 2 === 0 ? sketchTape() : sketchPin(pinTone(index))}
-        ${sketchStroke()}
-        <div class="study-material-copy">
-          <strong>${escapeHtml(item.name)}</strong>
-          ${statusLine(item.status)}
-        </div>
-      </article>`).join("");
-    const docCards = docs.map((doc, index) => {
-      const status = materialStatus(doc);
-      const ready = status === "ready";
-      const kind = String(doc.kind || "file").toUpperCase();
-      return `
-        <article class="study-material-card${ready ? " is-ready" : ""}">
-          ${index % 3 === 0 ? sketchTape() : sketchPin(pinTone(index))}
-          ${sketchStroke()}
-          <div class="study-material-copy">
-            <strong>${escapeHtml(documentDisplayName(doc))}</strong>
-            ${statusLine(status, kind)}
-          </div>
-          ${generateActions("doc", doc.id, ready)}
-          ${materialMenu("doc", doc.id)}
-        </article>`;
-    }).join("");
-    const noteCards = notes.map((note, index) => `
-      <article class="study-material-card study-note-card is-ready" data-open-note="${escapeHtml(note.id)}">
-        ${sketchPin(pinTone(index + 1))}
-        ${sketchStroke()}
-        <div class="study-material-copy">
-          <strong>${escapeHtml(note.title || (note.kind === "image_transcript" ? "Image notes" : isDetailedNote(note) ? "Detailed review" : "Summary"))}</strong>
-          ${statusLine("ready", noteKindLabel(note))}
-        </div>
-        ${generateActions("note", note.id, true)}
-        ${materialMenu("note", note.id)}
-      </article>`).join("");
-    return `
-      <div class="study-materials" data-study-drop>
-        <div class="study-material-board">${pending}${docCards}${noteCards}</div>
-        <button class="study-dropzone${state.studyUploading ? " is-busy" : ""}" type="button" data-study-add-files>
-          ${sketchStroke("is-dash")}
-          <strong>Drop files here</strong>
-          <p>PDFs, slides, sheets, or photos of a syllabus and handwritten notes.</p>
-          <span class="study-browse">Browse files</span>
-        </button>
-      </div>`;
+    if (sourcePreviewId) return '<div class="dojo-source-preview-slot"></div>';
+    const docs = sortedSources();
+    return `<div class="study-materials" data-study-drop>
+      <div class="dojo-add-source-row"><svg class="dojo-source-nudge" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg><button class="study-dropzone" type="button" data-study-add-files>${icon("plus")}<span>Add sources</span></button><svg class="dojo-source-nudge dojo-source-nudge--right" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg></div>
+      <div class="dojo-source-caption">Course material <span>${docs.length}</span></div>
+      <div class="study-material-board">
+        ${pendingUploads.map(item => `<article class="study-material-card">${sourceFileIcon({ file_name: item.name })}<div class="study-material-copy"><strong>${escapeHtml(item.name)}</strong>${statusLine(item.status)}</div></article>`).join("")}
+        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? "" : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
+        ${!docs.length && !pendingUploads.length ? emptyState("Bring your knowledge", "Drop PDFs, slides, documents, or photos here. This is where your course begins.") : ""}
+      </div>
+    </div>`;
+  }
+
+  function togglePanel(panel, event) {
+    const workspace = els.studyView.querySelector(".dojo-workspace");
+    if (!workspace) return;
+    const start = getComputedStyle(workspace).gridTemplateColumns;
+    panelResizeAnimation?.cancel();
+    if (panel === "sources") sourcesCollapsed = !sourcesCollapsed;
+    else studioCollapsed = !studioCollapsed;
+    const collapsed = panel === "sources" ? sourcesCollapsed : studioCollapsed;
+    workspace.dataset[`${panel}Collapsed`] = String(collapsed);
+    workspace.querySelectorAll(`[data-collapse-${panel}]`).forEach(button => button.setAttribute("aria-expanded", String(!collapsed)));
+    workspace.dataset.sourceMotion = event.detail && !reducedMotion() ? "on" : "off";
+    const end = getComputedStyle(workspace).gridTemplateColumns;
+    if (workspace.dataset.sourceMotion === "on" && start !== end) {
+      panelResizeAnimation = workspace.animate([
+        { gridTemplateColumns: start }, { gridTemplateColumns: end }
+      ], { duration: 270, easing: "cubic-bezier(.77, 0, .175, 1)" });
+      panelResizeAnimation.onfinish = () => { panelResizeAnimation = null; };
+    }
+    workspace.querySelector(`.dojo-${panel === "sources" ? (collapsed ? "source-rail" : "sources-expanded") : (collapsed ? "studio-rail" : "studio-expanded")} [data-collapse-${panel}]`)?.focus({ preventScroll: true });
+  }
+
+  function animatePreviewResize(start, event) {
+    const workspace = els.studyView.querySelector(".dojo-workspace");
+    if (!workspace || !event?.detail || reducedMotion()) return;
+    const end = getComputedStyle(workspace).gridTemplateColumns;
+    if (start === end) return;
+    panelResizeAnimation?.cancel();
+    panelResizeAnimation = workspace.animate([{ gridTemplateColumns: start }, { gridTemplateColumns: end }], {
+      duration: 280, easing: "cubic-bezier(.77, 0, .175, 1)"
+    });
+    panelResizeAnimation.onfinish = () => { panelResizeAnimation = null; };
+  }
+
+  function openSource(id, event) {
+    const doc = (state.studyMaterials?.documents || []).find(item => item.id === id);
+    const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
+    const attachmentId = doc?.attachment_id || attachment?.id;
+    if (!attachmentId) { showToast("This source has no file preview."); return; }
+    const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+    sourcePreviewId = id;
+    sourcesCollapsed = false;
+    quizMenuKey = "";
+    render();
+    animatePreviewResize(start, event);
+    void openDocumentViewer({
+      attachmentId,
+      fileName: documentDisplayName(doc),
+      format: doc.kind || "",
+      container: els.studyView.querySelector(".dojo-source-preview-slot"),
+      onClose: (closeEvent) => {
+        if (sourcePreviewId !== id) return;
+        const before = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+        sourcePreviewId = "";
+        render();
+        animatePreviewResize(before, closeEvent);
+        els.studyView.querySelector(`[data-view-source="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+      }
+    });
   }
 
   function courseConversations() {
@@ -525,143 +546,61 @@ export function createStudyHubController({
   }
 
   function chatMarkup() {
-    const conversations = courseConversations();
-    const materialCount = Number(state.studyMaterials?.documents?.length || 0);
-    const empty = !conversations.length
-      ? (materialCount
-        ? emptyState("No chats yet", "Ask anything — I’ll ground answers in this course’s files.")
-        : emptyState(
-          "Upload something first",
-          "I’ll answer from your actual course material.",
-          `<button class="study-primary-btn" type="button" data-study-tab="materials">${sketchStroke()}Go to Materials</button>`
-        ))
-      : "";
-    const rows = conversations.map((conversation) => {
-      const id = conversation.id;
-      const menuOpen = quizMenuKey === `chat:${id}`;
-      return `
-      <div class="study-chat-item">
-        <button class="study-chat-row" type="button" data-open-chat-id="${escapeHtml(id)}">
-          ${sketchStroke()}
-          <span>${escapeHtml(conversation.title || "New chat")}</span>
-        </button>
-        <div class="study-card-menu-wrap">
-          <button class="study-icon-btn" type="button" data-toggle-chat-menu="${escapeHtml(id)}" aria-label="Chat options" aria-haspopup="menu" aria-expanded="${menuOpen ? "true" : "false"}">
-            ${kebabIcon()}
-          </button>
-          <div class="study-menu${menuOpen ? "" : " hidden"}" role="menu">
-            <button class="study-menu-item" type="button" role="menuitem" data-rename-chat="${escapeHtml(id)}">Rename</button>
-            <button class="study-menu-item study-menu-danger" type="button" role="menuitem" data-delete-chat="${escapeHtml(id)}">Delete</button>
-          </div>
-        </div>
-      </div>`;
-    }).join("");
-    return `
-      <div class="study-chat">
-        <h2 class="study-marker study-ink-orange study-chat-heading">Course chats</h2>
-        <div class="study-composer-slot">${sketchStroke()}</div>
-        <div class="study-chat-box">
-          ${sketchStroke()}
-          <div class="study-chat-list">${rows}${empty}</div>
-        </div>
-      </div>`;
-  }
-
-  function practiceMarkup() {
-    const payload = state.studyPractice;
-    if (!payload) return boardLoadingMarkup();
-    const decks = payload.decks || [];
-    const quizzes = payload.quizzes || [];
-    const createBtn = (type, label, ink) => `
-          <button class="study-chip-btn ${ink}" type="button" data-practice-create="${type}">${sketchStroke()}${label}</button>`;
-    const deckCards = decks.length
-      ? decks.map((deck, index) => {
-        const id = deck.id;
-        return `
-          <article class="study-practice-card">
-            ${index === 0 ? sketchTape() : ""}
-            ${sketchStroke()}
-            <button class="study-practice-open" type="button" data-open-deck="${escapeHtml(id)}">
-              <strong>${escapeHtml(deck.title || "Deck")}</strong>
-              <small class="study-ink-orange">${escapeHtml(String(deck.cardCount || 0))} cards</small>
-            </button>
-            ${practiceMenu("deck", id)}
-          </article>`;
-      }).join("")
-      : emptyState("No decks yet", "Create flashcards from one or more files.");
-    const quizCards = quizzes.length
-      ? quizzes.map((quiz, index) => {
-        const id = quiz.id;
-        return `
-          <article class="study-practice-card">
-            ${index === 0 ? sketchTape() : sketchPin("orange")}
-            ${sketchStroke()}
-            <button class="study-practice-open" type="button" data-open-quiz="${escapeHtml(id)}">
-              <strong>${escapeHtml(quiz.title || "Quiz")}</strong>
-              <small class="study-ink-green">${escapeHtml(String(quiz.questionCount || 0))} questions</small>
-            </button>
-            ${practiceMenu("quiz", id)}
-          </article>`;
-      }).join("")
-      : emptyState("No quizzes yet", "Create a 10, 15, or 25 question quiz from one or more files.");
-    return `
-      <div class="study-practice">
-        <section class="study-practice-col">
-          <div class="study-section-heading">
-            <h2 class="study-marker study-ink-blue">Decks</h2>
-            ${createBtn("flashcards", "Create flashcards", "study-ink-green")}
-          </div>
-          <div class="study-practice-grid">${deckCards}</div>
-        </section>
-        <section class="study-practice-col">
-          <div class="study-section-heading">
-            <h2 class="study-marker study-ink-purple">Quizzes</h2>
-            ${createBtn("quiz", "Create quiz", "study-ink-red")}
-          </div>
-          <div class="study-practice-grid">${quizCards}</div>
-        </section>
-      </div>`;
-  }
-
-  function tabMarkup() {
-    const labels = { materials: "Materials", chat: "Chat", practice: "Practice" };
-    return `<div class="study-tabs" role="tablist" aria-label="Course sections">
-      ${TABS.map((tab) => `<button class="${state.activeCourseTab === tab ? "active" : ""}" type="button" role="tab" aria-selected="${state.activeCourseTab === tab ? "true" : "false"}" data-study-tab="${tab}">${labels[tab]}</button>`).join("")}
+    return `<div class="dojo-chat-content">
+      <div class="dojo-messages-slot"></div>
+      <div class="dojo-chat-welcome${state.activeConversationId || state.messages?.length ? " hidden" : ""}">
+        <h2>What would you like to learn?</h2>
+        <div class="dojo-prompts">${[["Course overview", "Give me an overview of this course"], ["Key concepts", "Explain the key concepts"], ["Study plan", "Help me make a study plan"]].map(([label, prompt]) => `<button type="button" data-dojo-prompt="${escapeHtml(prompt)}">${label}</button>`).join("")}</div>
+      </div>
+      <div class="study-composer-slot"></div>
     </div>`;
   }
 
+  function recentChatsMarkup() {
+    const conversations = courseConversations();
+    return `<details class="dojo-chat-recent"><summary class="study-icon-btn" aria-label="Recent chats" title="Recent chats">${icon("recent")}</summary><div class="dojo-chat-recent-menu"><strong>Recent chats</strong><div class="dojo-chat-recent-list">${conversations.map(c => `<button type="button" data-open-chat-id="${escapeHtml(c.id)}" title="${escapeHtml(c.title || "New chat")}">${escapeHtml(c.title || "New chat")}</button>`).join("") || '<p>No chats yet</p>'}</div></div></details>`;
+  }
+
+  function practiceMarkup() {
+    const decks = state.studyPractice?.decks || [];
+    const quizzes = state.studyPractice?.quizzes || [];
+    const notes = state.studyMaterials?.notes || [];
+    const tools = [["flashcards", "Flashcards"], ["mindmap", "Mind map"], ["notes", "Notes"], ["quiz", "Practice test"]];
+    const artifacts = [
+      ...decks.map(d => ({ ...d, pinKind: "deck", type: "flashcards", action: "data-open-deck", meta: `${d.cardCount || 0} cards`, menu: practiceMenu("deck", d.id) })),
+      ...quizzes.map(q => ({ ...q, pinKind: "quiz", type: "quiz", action: "data-open-quiz", meta: `${q.questionCount || 0} questions`, menu: practiceMenu("quiz", q.id) })),
+      ...notes.map(n => ({ ...n, pinKind: "note", type: isMindMap(n) ? "mindmap" : "notes", action: "data-open-note", meta: isMindMap(n) ? "Mind map" : noteKindLabel(n), menu: materialMenu("note", n.id) }))
+    ];
+    artifacts.forEach(a => { a.pinned = pinnedCollection.has(collectionPinId(a.pinKind, a.id)); });
+    artifacts.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    return `<div class="dojo-studio-content">
+      <div class="dojo-tools">${tools.map(([type, label]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}"><span class="dojo-tool-icon">${icon(type)}</span><span class="dojo-tool-arrow">${icon("plus")}</span><strong>${label}</strong></button>`).join("")}</div>
+      ${generationCardsMarkup()}
+      <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
+      <div class="dojo-artifacts">${artifacts.map(a => `<article class="study-practice-card"><button class="study-practice-open" type="button" ${a.action}="${escapeHtml(a.id)}"><span class="dojo-artifact-icon dojo-tool--${a.type}">${icon(a.type)}</span><span><strong>${a.pinned ? `<span class="dojo-pin-mark" title="Pinned">${icon("pin")}</span>` : ""}${escapeHtml(a.title || jobTypeLabel(a.type))}</strong><small>${escapeHtml(a.meta)}</small></span></button>${a.menu}</article>`).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, and tests will find a home here.")}</div>
+    </div>`;
+  }
+
+  function tabMarkup() {
+    const labels = { materials: "Sources", chat: "Ask", practice: "Create" };
+    return `<div class="study-tabs" role="tablist" aria-label="Course sections">${TABS.map(tab => `<button class="${state.activeCourseTab === tab ? "active" : ""}" type="button" role="tab" aria-selected="${state.activeCourseTab === tab}" data-study-tab="${tab}">${labels[tab]}</button>`).join("")}</div>`;
+  }
+
   function courseBodyMarkup() {
-    const body = !tabReady() ? boardLoadingMarkup()
-      : state.activeCourseTab === "chat" ? chatMarkup()
-        : state.activeCourseTab === "practice" ? practiceMarkup()
-          : materialsMarkup();
-    const gens = state.activeCourseTab === "materials" || state.activeCourseTab === "practice"
-      ? generationCardsMarkup()
-      : "";
-    return `${gens}<div class="study-tab-panel" data-study-tab-panel="${escapeHtml(state.activeCourseTab)}">${body}</div>`;
+    return `<div class="dojo-workspace" data-mobile-panel="${state.activeCourseTab}" data-sources-collapsed="${sourcesCollapsed}" data-studio-collapsed="${studioCollapsed}" data-source-preview="${Boolean(sourcePreviewId)}">
+      <section class="dojo-panel dojo-sources" aria-label="Sources">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
+      <section class="dojo-panel dojo-chat" aria-label="Ask"><header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}</section>
+      <section class="dojo-panel dojo-studio" aria-label="Create">
+        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${jobTypeLabel(type).toLowerCase()}" title="Create ${jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
+        <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse create" title="Collapse create">${icon("expand")}</button></header>${practiceMarkup()}</div>
+      </section>
+    </div>`;
   }
 
   function courseDetailMarkup() {
-    const name = courseName();
-    const term = courseMeta(state.studyProjectDetail?.project).term || "";
-    return `
-      <button class="study-back-btn" type="button" data-study-back>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-        Study Hub
-      </button>
-      <div class="study-detail">
-        <header class="study-detail-header">
-          <div class="study-detail-titles">
-            <p class="study-kicker">Today's board -</p>
-            <div class="study-title-row">
-              <input class="study-title-input" value="${escapeHtml(name)}" maxlength="80" aria-label="Course name">
-            </div>
-            ${tabMarkup()}
-          </div>
-          ${term ? `<div class="study-detail-meta"><aside class="study-sticky">${sketchPin("green")}<p>${escapeHtml(term)}</p></aside></div>` : ""}
-        </header>
-        <div class="study-detail-body">${courseBodyMarkup()}</div>
-      </div>`;
+    return `<div class="study-detail" data-course-id="${escapeHtml(state.activeCourseId)}"><header class="study-detail-header">
+      <div class="dojo-breadcrumb"><button class="study-back-btn" type="button" data-study-back>${icon("course")} Dojo</button><span>/</span><input class="study-title-input" value="${escapeHtml(courseName())}" maxlength="80" aria-label="Course name"></div>
+      ${tabMarkup()}</header><div class="study-detail-body">${courseBodyMarkup()}</div></div>`;
   }
 
   function closeNoteDownloadMenu() {
@@ -694,13 +633,15 @@ export function createStudyHubController({
     els.studyNoteOverlay.classList.toggle("hidden", !open);
     els.studyNoteOverlay.setAttribute("aria-hidden", open ? "false" : "true");
     if (!open) {
+      if (els.studyNoteOverlay.open) els.studyNoteOverlay.close();
       closeNoteDownloadMenu();
       return;
     }
+    if (!els.studyNoteOverlay.open) els.studyNoteOverlay.showModal();
     if (els.studyNoteTitle) els.studyNoteTitle.textContent = studyNote.title || "Note";
     if (els.studyNoteBody) {
       try {
-        els.studyNoteBody.innerHTML = renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
+        els.studyNoteBody.innerHTML = isMindMap(studyNote) ? mindMapMarkup(studyNote) : renderContent(noteBody(studyNote)) || `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       } catch {
         els.studyNoteBody.innerHTML = `<pre>${escapeHtml(noteBody(studyNote))}</pre>`;
       }
@@ -750,14 +691,22 @@ export function createStudyHubController({
   }
 
   function finishCoursePaint() {
-    const chatReady = Boolean(state.activeCourseTab === "chat" && tabReady());
-    if (visibleComposer()) els.composerArea?.classList.toggle("hidden", !chatReady);
-    if (chatReady) {
-      const slot = els.studyView.querySelector(".study-composer-slot");
-      if (slot && els.composerArea) slot.append(els.composerArea);
+    const preview = els.studyView.querySelector(".dojo-source-preview-slot");
+    if (preview && sourcePreviewId && els.documentViewer && !document.body.classList.contains("document-viewer-fullscreen")) preview.append(els.documentViewer);
+    const slot = els.studyView.querySelector(".study-composer-slot");
+    if (slot && els.composerArea) { slot.append(els.composerArea); els.composerArea.classList.remove("hidden"); }
+    const messagesSlot = els.studyView.querySelector(".dojo-messages-slot");
+    if (messagesSlot && els.messages) {
+      messagesSlot.append(els.messages);
+      els.messages.classList.toggle("hidden", !state.activeConversationId && !state.messages?.length);
     }
-    if (state.activeCourseTab === "materials") bindMaterialsDnD();
+    bindMaterialsDnD();
     renderNoteOverlay();
+  }
+
+  function parkMessages() {
+    if (els.documentViewer && els.studyView?.contains(els.documentViewer)) els.studyView.after(els.documentViewer);
+    if (els.messages && els.studyView?.contains(els.messages)) els.studyView.after(els.messages);
   }
 
   function visibleComposer() {
@@ -780,21 +729,29 @@ export function createStudyHubController({
       els.messages?.classList.add("hidden");
       els.chatPromptNav?.classList.add("hidden");
     }
-    const chatReady = Boolean(visible && state.activeCourseId && state.activeCourseTab === "chat");
+    const chatReady = Boolean(visible && state.activeCourseId);
     if (visible) els.composerArea?.classList.toggle("hidden", !chatReady);
     if (!visible) {
+      parkMessages();
+      parkComposer();
       renderNoteOverlay();
       return;
     }
     if (!state.activeCourseId) {
       parkComposer();
+      parkMessages();
       els.studyView.innerHTML = courseListMarkup();
       renderNoteOverlay();
       return;
     }
+    const currentSourceScroll = els.studyView.querySelector(".study-material-board")?.scrollTop;
+    const currentCollectionScroll = els.studyView.querySelector(".dojo-artifacts")?.scrollTop;
+    if (currentSourceScroll != null) sourceListScrollTop = currentSourceScroll;
+    if (currentCollectionScroll != null) collectionScrollTop = currentCollectionScroll;
     parkComposer();
+    parkMessages();
     const detail = els.studyView.querySelector(".study-detail");
-    if (!detail) {
+    if (!detail || detail.dataset.courseId !== state.activeCourseId) {
       els.studyView.innerHTML = courseDetailMarkup();
     } else {
       patchCourseChrome(detail);
@@ -803,6 +760,11 @@ export function createStudyHubController({
       else els.studyView.innerHTML = courseDetailMarkup();
     }
     finishCoursePaint();
+    const sourceList = els.studyView.querySelector(".study-material-board");
+    const collectionList = els.studyView.querySelector(".dojo-artifacts");
+    if (sourceList) sourceList.scrollTop = sourceListScrollTop;
+    if (collectionList) collectionList.scrollTop = collectionScrollTop;
+    collectionList?.querySelector(".study-menu:not(.hidden)")?.scrollIntoView({ block: "nearest" });
   }
 
   function activeGenerationJobs() {
@@ -861,6 +823,8 @@ export function createStudyHubController({
       showToast(n ? `${n} card${n === 1 ? "" : "s"} created` : "Flashcards ready");
     } else if (job.type === "quiz") {
       showToast("Quiz ready");
+    } else if (job.type === "mindmap") {
+      showToast("Mind map ready");
     } else if (job.type === "notes") {
       showToast(job.mode === "detailed" ? "Detailed review ready" : "Summary ready");
     }
@@ -1019,20 +983,17 @@ export function createStudyHubController({
       state.studyProjectDetail = null;
       cacheCourseId = "";
     }
-    const tab = state.activeCourseTab;
-    if (tab === "practice") {
-      if (!state.studyPractice) await loadPractice();
-    } else if (tab === "chat") {
-      if (!state.studyProjectDetail) await loadCourseDetail();
-    } else if (!state.studyMaterials) {
-      await loadMaterials();
-    }
+    await Promise.all([loadMaterials(), loadPractice(), loadCourseDetail()]);
     if (state.activeCourseId !== id) return;
     cacheCourseId = id;
     prefetchCourse(id);
   }
 
   function resetCourseCaches() {
+    sourcePreviewId = "";
+    sourceListScrollTop = 0;
+    collectionScrollTop = 0;
+    sourcesCollapsed = false;
     cacheCourseId = "";
     state.studyMaterials = null;
     state.studyPractice = null;
@@ -1046,7 +1007,7 @@ export function createStudyHubController({
   async function openCourses({ replace = false } = {}) {
     if (!requireAuth() || blockChatNavigationWhileRunning()) return;
     if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
-      showToast("Wait for the document upload to finish before opening Study Hub.");
+      showToast("Wait for the document upload to finish before opening Dojo.");
       return;
     }
     parkActiveConversationRun();
@@ -1093,7 +1054,7 @@ export function createStudyHubController({
     state.activeProject = null;
     if (cacheCourseId !== courseId) resetCourseCaches();
     state.activeCourseId = courseId;
-    state.activeCourseTab = TABS.includes(tab) ? tab : "materials";
+    state.activeCourseTab = TABS.includes(tab) ? tab : "chat";
     state.activeConversationId = "";
     state.messages = [];
     state.images = [];
@@ -1541,7 +1502,7 @@ export function createStudyHubController({
     }
   }
 
-  async function runGenerate(kind, id, type, { count, mode } = {}) {
+  async function runGenerate(kind, id, type, { count, mode, ...options } = {}) {
     if (!state.activeCourseId || !state.session) return;
     const courseId = state.activeCourseId;
     const requestKey = requestKeyFor(kind, id, type, { count, mode });
@@ -1557,7 +1518,7 @@ export function createStudyHubController({
       ));
       if (flashBusy) return;
     }
-    const body = { type };
+    const body = { type, ...options };
     if (kind === "doc") body.documentFileId = id;
     else body.noteId = id;
     if (type === "quiz") body.count = Number(count) || 10;
@@ -1592,27 +1553,28 @@ export function createStudyHubController({
     const ids = Array.isArray(job.body?.documentFileIds) ? job.body.documentFileIds : job.documentFileIds;
     generations.delete(jobId);
     if (ids?.length) {
-      void runGenerateFromMaterials(ids, job.type, { count: job.count, mode: job.mode });
+      void runGenerateFromMaterials(ids, job.type, { ...job.body, count: job.count, mode: job.mode });
       return;
     }
     const kind = job.documentFileId ? "doc" : "note";
     const id = job.documentFileId || job.noteId;
     if (!id || !job.type) return;
-    void runGenerate(kind, id, job.type, { count: job.count, mode: job.mode });
+    void runGenerate(kind, id, job.type, { ...job.body, count: job.count, mode: job.mode });
   }
 
-  function runGenerateFromMaterials(ids, type, { count, mode } = {}) {
+  function runGenerateFromMaterials(ids, type, { count, mode, ...options } = {}) {
     const documentFileIds = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
     if (!state.activeCourseId || !state.session || !documentFileIds.length) return;
-    if (documentFileIds.length === 1) {
-      return runGenerate("doc", documentFileIds[0], type, { count, mode });
+    if (documentFileIds.length === 1 && type !== "flashcards") {
+      return runGenerate("doc", documentFileIds[0], type, { count, mode, ...options });
     }
     const courseId = state.activeCourseId;
     const requestKey = `docs:${documentFileIds.slice().sort().join(",")}:${type}:${mode || ""}:${count || ""}`;
     if ([...generations.values()].some((job) => job.courseId === courseId && generationMatchesRequest(job, requestKey))) {
       return;
     }
-    const body = { type, documentFileIds };
+    const body = { type, documentFileIds, ...options };
+    if (type === "notes") body.mode = mode === "detailed" ? "detailed" : "summary";
     if (type === "quiz") body.count = Number(count) || 10;
     if (type === "flashcards") body.mode = mode === "deep" ? "deep" : "rapid";
     quizMenuKey = "";
@@ -1643,7 +1605,7 @@ export function createStudyHubController({
     });
     const atCap = createSelected.size >= CREATE_FILE_CAP;
     if (!docs.length) {
-      list.innerHTML = `<p class="study-create-empty">${readyCreateDocs().length ? "No matching files." : "Upload a file on Materials first."}</p>`;
+      list.innerHTML = `<p class="study-create-empty">${readyCreateDocs().length ? "No matching files." : "Add a source to this course first."}</p>`;
       renderCreateActions();
       return;
     }
@@ -1653,10 +1615,7 @@ export function createStudyHubController({
       const disabled = !checked && atCap;
       return `<label class="study-create-item">
         <input type="checkbox" value="${escapeHtml(id)}"${checked ? " checked" : ""}${disabled ? " disabled" : ""}>
-        <span>
-          <strong>${escapeHtml(documentDisplayName(doc))}</strong>
-          <small>${escapeHtml(String(doc.kind || "file").toUpperCase())}</small>
-        </span>
+        ${sourceFileIcon(doc)}<span><strong>${escapeHtml(documentDisplayName(doc))}</strong></span>
       </label>`;
     }).join("");
     renderCreateActions();
@@ -1667,10 +1626,31 @@ export function createStudyHubController({
     if (!wrap) return;
     const enabled = createSelected.size > 0;
     const disable = enabled ? "" : " disabled";
-    wrap.innerHTML = createType === "quiz"
-      ? [10, 15, 25].map((n) => `<button type="button" class="project-dialog-primary" data-study-create-go data-count="${n}"${disable}>${n}</button>`).join("")
-      : `<button type="button" class="project-dialog-primary" data-study-create-go data-mode="rapid" title="Key concepts"${disable}>Rapid</button>
-         <button type="button" class="project-dialog-primary" data-study-create-go data-mode="deep" title="Every concept"${disable}>Deep</button>`;
+    wrap.innerHTML = `<button type="button" class="project-dialog-primary" data-study-create-go${disable}>Generate ${jobTypeLabel(createType).toLowerCase()}</button>`;
+  }
+
+  function optionPreview(kind) {
+    const lines = '<i></i><i></i><i></i>';
+    const previews = {
+      basic: '<span class="dojo-demo-question">What is active recall?</span><i></i><span class="dojo-demo-answer">Flip to remember ↻</span>',
+      mcq: '<span class="dojo-demo-question">Choose the right idea</span><span class="dojo-demo-choices"><i>A</i><i>B</i><i>C</i></span>',
+      cloze: '<span class="dojo-demo-question">Learning starts with</span><span class="dojo-demo-blank">the missing piece</span><i></i>',
+      mixed: '<span class="dojo-demo-question">01 &nbsp; Explain the idea</span><i></i><span class="dojo-demo-choices"><i>A</i><i>B</i><i>C</i></span>',
+      short: '<span class="dojo-demo-question">Explain it in your words</span>' + lines,
+      summary: '<span class="dojo-demo-question">The key ideas</span>' + lines,
+      detailed: '<span class="dojo-demo-question">The full picture</span>' + lines + '<span class="dojo-demo-section">Examples & connections</span><i></i>'
+    };
+    return `<span class="dojo-option-preview is-${kind}" aria-hidden="true"><span class="dojo-demo-sheet">${previews[kind] || ""}</span></span>`;
+  }
+
+  function createOptionsMarkup(type) {
+    const field = (label, name, choices, selected, variant = "") => `<fieldset class="dojo-option-group ${variant}"><legend>${label}</legend><div class="dojo-option-grid">${choices.map(([value, title, description, preview]) => `<label class="dojo-option" data-value="${value}"><input type="radio" name="${name}" value="${value}"${value === selected ? " checked" : ""}><span class="dojo-option-face">${preview ? optionPreview(preview) : ""}${name === "difficulty" ? '<span class="dojo-difficulty-bars" aria-hidden="true"><i></i><i></i><i></i></span>' : ""}<span class="dojo-option-copy"><strong>${title}</strong>${description ? `<small>${description}</small>` : ""}</span><span class="dojo-option-check" aria-hidden="true">✓</span></span></label>`).join("")}</div></fieldset>`;
+    return `${type === "flashcards" ? field("Card type", "cardType", [["basic", "Basic", "Question & answer", "basic"], ["mcq", "Multiple choice", "Pick the right answer", "mcq"], ["cloze", "Fill in the blank", "Find the missing piece", "cloze"]], "basic", "is-illustrated") + field("Coverage", "mode", [["rapid", "Standard", "The key concepts"], ["deep", "Deep dive", "More detail, broader coverage"]], "rapid", "is-pair") : ""}
+      ${type === "quiz" ? field("Test format", "examType", [["mixed", "Mixed", "A little of both", "mixed"], ["short", "Short answer", "Write, then self-assess", "short"], ["mcq", "Multiple choice", "Choose your answer", "mcq"]], "mixed", "is-illustrated") + field("Questions", "count", [["5", "5", "Quick"], ["10", "10", "Standard"], ["15", "15", "Extended"], ["20", "20", "Full"], ["25", "25", "Extra"]], "10", "is-count") : ""}
+      ${type === "notes" ? field("Detail", "mode", [["summary", "The essentials", "A clear, focused summary", "summary"], ["detailed", "Detailed review", "Ideas, examples & explanations", "detailed"]], "summary", "is-illustrated is-pair") : ""}
+      ${type === "flashcards" || type === "quiz" ? field("Difficulty", "difficulty", [["easy", "Easy", "Facts & recall"], ["medium", "Medium", "Apply your knowledge"], ["hard", "Hard", "Analyze & connect"]], "medium", "is-difficulty") : ""}
+      ${field("Style", "style", [["", "Default", "Balanced"], ["concise", "Concise", "Short & direct"], ["exam", "Exam prep", "Applied scenarios"], ["conceptual", "Connections", "The bigger picture"]], "", "is-style")}
+      <label class="dojo-focus-field">Focus area <span>Optional</span><textarea name="focus" maxlength="1000" placeholder="A topic, chapter, or question to focus on…" rows="2"></textarea></label>`;
   }
 
   function closeCreateDialog() {
@@ -1680,15 +1660,17 @@ export function createStudyHubController({
     els.studyCreateDialog?.close();
   }
 
-  async function openCreatePicker(type) {
-    if (!state.activeCourseId || (type !== "flashcards" && type !== "quiz")) return;
+  async function openCreatePicker(type, event) {
+    if (!state.activeCourseId || !["flashcards", "quiz", "notes", "mindmap"].includes(type)) return;
     createType = type;
+    els.studyCreateDialog.dataset.createType = type;
+    els.studyCreateDialog.dataset.motion = event?.detail && !reducedMotion() ? "on" : "off";
     createSelected.clear();
-    if (els.studyCreateTitle) els.studyCreateTitle.textContent = type === "quiz" ? "Create quiz" : "Create flashcards";
+    if (els.studyCreateTitle) els.studyCreateTitle.textContent = `Create ${jobTypeLabel(type).toLowerCase()}`;
+    const options = document.getElementById("dojoCreateOptions");
+    if (options) options.innerHTML = createOptionsMarkup(type);
     if (els.studyCreateHint) {
-      els.studyCreateHint.textContent = type === "quiz"
-        ? "Select the chapters to include, then pick a question count."
-        : "Select the chapters to include, then Rapid or Deep.";
+      els.studyCreateHint.textContent = "Make it yours. Choose a format and a few sources.";
     }
     if (els.studyCreateSearch) els.studyCreateSearch.value = "";
     try {
@@ -1708,8 +1690,9 @@ export function createStudyHubController({
     const ids = [...createSelected];
     if (!ids.length) return;
     const type = createType;
+    const options = Object.fromEntries(new FormData(els.studyCreateForm));
     closeCreateDialog();
-    runGenerateFromMaterials(ids, type, { count: button.dataset.count, mode: button.dataset.mode });
+    runGenerateFromMaterials(ids, type, options);
   }
 
   async function setTab(tab) {
@@ -1776,7 +1759,7 @@ export function createStudyHubController({
     const markClass = mark === 3 ? " is-good" : mark === 1 ? " is-bad" : "";
     return `
       <span class="study-flip-face study-flip-${side}">
-        ${sketchStroke()}
+
         <span class="study-review-top">
           <span class="study-review-count">${escapeHtml(String(session.index + 1))} / ${escapeHtml(String(session.cards.length))}</span>
           <span class="study-review-mark${markClass}">${reviewMarkLabel(mark)}</span>
@@ -1791,7 +1774,7 @@ export function createStudyHubController({
     const on = Boolean(session.starredOnly);
     return `
       <button class="study-chip-btn study-starred-toggle${on ? " is-on" : ""}" type="button" data-starred-only aria-pressed="${on ? "true" : "false"}">
-        ${sketchStroke()}${starIcon(on)}<span class="study-chip-label">Starred</span>
+        ${starIcon(on)}<span class="study-chip-label">Starred</span>
       </button>`;
   }
 
@@ -1811,19 +1794,19 @@ export function createStudyHubController({
       <div class="study-edit">
         <div class="study-edit-pair">
           <div class="study-edit-card">
-            ${sketchStroke()}
+
             <span class="study-kicker">Question</span>
             <div class="study-edit-text" contenteditable="true" role="textbox" data-edit-side="front" spellcheck="true">${escapeHtml(card.front || "")}</div>
           </div>
           <div class="study-edit-card">
-            ${sketchStroke()}
+
             <span class="study-kicker">Answer</span>
             <div class="study-edit-text" contenteditable="true" role="textbox" data-edit-side="back" spellcheck="true">${escapeHtml(card.back || "")}</div>
           </div>
         </div>
         <div class="study-edit-actions">
-          <button class="study-chip-btn" type="button" data-edit-cancel>${sketchStroke()}<span class="study-chip-label">Cancel</span></button>
-          <button class="study-primary-btn" type="button" data-edit-save>${sketchStroke()}<span class="study-chip-label">Save</span></button>
+          <button class="study-chip-btn" type="button" data-edit-cancel><span class="study-chip-label">Cancel</span></button>
+          <button class="study-primary-btn" type="button" data-edit-save><span class="study-chip-label">Save</span></button>
         </div>
       </div>`;
   }
@@ -1838,7 +1821,7 @@ export function createStudyHubController({
         <div class="study-session-end">
           <p class="study-kicker">${emptyKicker}</p>
           <strong>${emptyLabel}</strong>
-          <button class="study-primary-btn" type="button" data-close-session>${sketchStroke()}Close</button>
+          <button class="study-primary-btn" type="button" data-close-session>Close</button>
         </div>`;
     }
     const card = session.cards[session.index];
@@ -2305,23 +2288,23 @@ export function createStudyHubController({
       const already = added?.has(index);
       return `
         <article class="study-miss ${kind}">
-          ${sketchStroke()}
+
           <p class="study-miss-mark">${mark}</p>
           <p>${escapeHtml(question.q || `Question ${index + 1}`)}</p>
-          ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
+          ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.type === "short" ? session.writtenAnswers?.[index] || "" : question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
           <p class="study-miss-correct">${escapeHtml(question.choices?.[correct] || "")}</p>
           ${row.explanation ? `<p class="study-miss-explain">${escapeHtml(row.explanation)}</p>` : ""}
           <button class="study-chip-btn" type="button" data-add-missed="${index}" ${already || adding === index ? "disabled" : ""}>
-            ${sketchStroke()}${adding === index ? spinner() : already ? "Added" : "Add to flashcards"}
+            ${adding === index ? spinner() : already ? "Added" : "Add to flashcards"}
           </button>
         </article>`;
     }).join("");
     return `
       <div class="study-quiz-lookback">
-        <button class="study-chip-btn" type="button" data-quiz-recap>${sketchStroke()}Back</button>
+        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
         <h2>Review</h2>
         <div class="study-miss-list">${items || `<p class="study-empty-inline">Nothing to review.</p>`}</div>
-        <button class="study-chip-btn" type="button" data-quiz-recap>${sketchStroke()}Back</button>
+        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
       </div>`;
   }
 
@@ -2385,6 +2368,8 @@ export function createStudyHubController({
     const question = session.quiz.questions[session.index] || {};
     const total = session.quiz.questions.length;
     const revealed = session.phase === "reveal";
+    const short = question.type === "short";
+    const checking = session.phase === "check";
     const pct = total ? Math.round(((session.index + (revealed ? 1 : 0)) / total) * 100) : 0;
     const answer = Number(question.answer);
     const selected = session.selected;
@@ -2404,7 +2389,7 @@ export function createStudyHubController({
       const why = revealed && hasWhys ? String(question.whys[index] || "").trim() : "";
       return `
         <button class="study-choice${state}" type="button" data-study-choice="${index}">
-          ${sketchStroke()}
+
           <span>${escapeHtml(String.fromCharCode(65 + index))}</span>
           ${escapeHtml(choice)}
           ${why ? `<span class="study-choice-why">${escapeHtml(why)}</span>` : ""}
@@ -2423,12 +2408,15 @@ export function createStudyHubController({
         <p class="study-kicker">Question ${escapeHtml(String(session.index + 1))} of ${escapeHtml(String(total))}</p>
         <h2>${escapeHtml(question.q || "")}</h2>
         ${verdict ? `<p class="study-quiz-verdict${skipped ? " is-skip" : correctPick ? " is-right" : " is-wrong"}">${verdict}</p>` : ""}
-        <div class="study-choices">${choices}</div>
+        ${short ? `<div class="dojo-short-answer"><label for="dojoShortAnswer">Your answer</label><textarea id="dojoShortAnswer" rows="4" placeholder="Explain it in your own words…" ${revealed || checking ? "readonly" : ""}>${escapeHtml(session.writtenAnswers?.[session.index] || "")}</textarea>
+          ${revealed || checking ? `<div class="dojo-reference-answer"><strong>Reference answer</strong><p>${escapeHtml(question.choices?.[0] || "")}</p></div>` : ""}
+          ${checking ? `<p>Compare your answer, then assess your understanding.</p><div class="dojo-self-grade"><button class="study-chip-btn" type="button" data-short-grade="1">Needs practice</button><button class="study-primary-btn" type="button" data-short-grade="0">Got it</button></div>` : ""}
+        </div>` : `<div class="study-choices">${choices}</div>`}
         ${fallback ? `<p class="study-quiz-explain">${escapeHtml(fallback)}</p>` : ""}
         <div class="study-quiz-nav">
           ${revealed
-            ? `<button class="study-primary-btn" type="button" data-study-continue ${session.submitting ? "disabled" : ""}>${sketchStroke()}${session.submitting ? spinner() : last ? "See rundown" : "Continue"}</button>`
-            : `<button class="study-chip-btn" type="button" data-study-skip>${sketchStroke()}Skip</button>`}
+            ? `<button class="study-primary-btn" type="button" data-study-continue ${session.submitting ? "disabled" : ""}>${session.submitting ? spinner() : last ? "See rundown" : "Continue"}</button>`
+            : checking ? "" : `${short ? '<button class="study-primary-btn" type="button" data-short-check>Check my answer</button>' : ""}<button class="study-chip-btn" type="button" data-study-skip>Skip</button>`}
         </div>
       </div>`;
   }
@@ -2589,8 +2577,23 @@ export function createStudyHubController({
       return;
     }
     if (!quizSession) return;
+    if (event.target.closest("[data-short-check]") && quizSession.phase === "ask") {
+      const value = els.studySession.querySelector("#dojoShortAnswer")?.value.trim() || "";
+      if (!value) { showToast("Write an answer first, or skip this question."); return; }
+      quizSession.writtenAnswers ||= {};
+      quizSession.writtenAnswers[quizSession.index] = value;
+      quizSession.phase = "check";
+      renderQuiz();
+      return;
+    }
+    const selfGrade = event.target.closest("[data-short-grade]");
+    if (selfGrade && quizSession.phase === "check") {
+      quizSession.phase = "ask";
+      revealQuizChoice(Number(selfGrade.dataset.shortGrade));
+      return;
+    }
     const choice = event.target.closest("[data-study-choice]");
-    if (choice && quizSession.phase === "ask") {
+    if (choice && quizSession.phase === "ask" && quizSession.quiz.questions[quizSession.index]?.type !== "short") {
       revealQuizChoice(Number(choice.dataset.studyChoice));
       return;
     }
@@ -2621,6 +2624,7 @@ export function createStudyHubController({
   }
 
   function handleSessionKey(event) {
+    if (event.target.closest?.("input, textarea, [contenteditable=true]")) return;
     if (reviewSession?.cards.length) {
       if (confirmOpen()) return;
       if (event.target.closest?.("input, textarea, [contenteditable=true]")) return;
@@ -2641,7 +2645,7 @@ export function createStudyHubController({
       }
       return;
     }
-    if (quizSession?.phase === "ask" && ["1", "2", "3", "4"].includes(event.key)) {
+    if (quizSession?.phase === "ask" && quizSession.quiz.questions[quizSession.index]?.type !== "short" && ["1", "2", "3", "4"].includes(event.key)) {
       event.preventDefault();
       revealQuizChoice(Number(event.key) - 1);
       return;
@@ -2754,6 +2758,21 @@ export function createStudyHubController({
   }
 
   async function handleViewClick(event) {
+    if (event.target.closest("#documentViewer")) return;
+    if (!event.target.closest(".dojo-source-sort")) els.studyView.querySelector(".dojo-source-sort")?.removeAttribute("open");
+    if (!event.target.closest(".dojo-chat-recent")) els.studyView.querySelector(".dojo-chat-recent")?.removeAttribute("open");
+    const sort = event.target.closest("[data-source-sort]");
+    if (sort) {
+      if (!["recent", "asc", "desc"].includes(sort.dataset.sourceSort)) return;
+      sourceSort = sort.dataset.sourceSort;
+      render();
+      els.studyView.querySelector(".dojo-source-sort summary")?.focus();
+      return;
+    }
+    if (event.target.closest("[data-collapse-sources]")) return togglePanel("sources", event);
+    if (event.target.closest("[data-collapse-studio]")) return togglePanel("studio", event);
+    const source = event.target.closest("[data-view-source]");
+    if (source) return openSource(source.dataset.viewSource, event);
     const menuBtn = event.target.closest("[data-toggle-course-menu]");
     if (menuBtn) {
       const id = menuBtn.dataset.toggleCourseMenu;
@@ -2793,6 +2812,11 @@ export function createStudyHubController({
       render();
       return;
     }
+    const pin = event.target.closest("[data-collection-pin-kind]");
+    if (pin && ["deck", "quiz", "note"].includes(pin.dataset.collectionPinKind)) {
+      event.stopPropagation();
+      return toggleCollectionPin(pin.dataset.collectionPinKind, pin.dataset.collectionPinId);
+    }
     if (!event.target.closest(".study-card-menu-wrap") && !event.target.closest(".study-quiz-wrap")) {
       if (quizMenuKey) {
         quizMenuKey = "";
@@ -2820,7 +2844,7 @@ export function createStudyHubController({
     const practiceCreate = event.target.closest("[data-practice-create]");
     if (practiceCreate) {
       event.stopPropagation();
-      return openCreatePicker(practiceCreate.dataset.practiceCreate);
+      return openCreatePicker(practiceCreate.dataset.practiceCreate, event);
     }
     const gen = event.target.closest("[data-study-generate]");
     if (gen) {
@@ -2844,6 +2868,15 @@ export function createStudyHubController({
     if (note && !event.target.closest(".study-material-actions") && !event.target.closest(".study-card-menu-wrap")) {
       return openNote(note.dataset.openNote);
     }
+    const prompt = event.target.closest("[data-dojo-prompt]");
+    if (prompt && els.promptInput) {
+      if ("value" in els.promptInput) els.promptInput.value = prompt.dataset.dojoPrompt;
+      else els.promptInput.textContent = prompt.dataset.dojoPrompt;
+      els.promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      els.promptInput.focus();
+      return;
+    }
+    if (event.target.closest("[data-dojo-new-chat]")) return openCourse(state.activeCourseId, { tab: "chat" });
     const chat = event.target.closest("[data-open-chat-id]");
     if (chat) return openConversation(chat.dataset.openChatId);
     const rename = event.target.closest("[data-rename-course]");
@@ -2932,6 +2965,11 @@ export function createStudyHubController({
       renderCreateList();
     });
     els.studyCreateActions?.addEventListener("click", (event) => submitCreatePicker(event));
+    els.studyCreateDialog?.addEventListener("click", (event) => {
+      if (event.target !== els.studyCreateDialog) return;
+      const bounds = els.studyCreateDialog.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeCreateDialog();
+    });
     els.studyCreateDialog?.addEventListener("close", () => {
       createType = "";
       createSelected.clear();
@@ -2939,6 +2977,7 @@ export function createStudyHubController({
     els.courseRenameForm?.addEventListener("submit", (event) => { void submitRename(event); });
     els.courseRenameCancel?.addEventListener("click", () => els.courseRenameDialog?.close());
     els.studyNoteClose?.addEventListener("click", closeNote);
+    els.studyNoteOverlay?.addEventListener("cancel", closeNote);
     els.studyNoteCopy?.addEventListener("click", () => { void copyNote(); });
     els.studyNoteDownload?.addEventListener("click", (event) => {
       event.stopPropagation();

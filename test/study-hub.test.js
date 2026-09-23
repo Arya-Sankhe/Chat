@@ -24,8 +24,8 @@ test("practice can create multi-file decks and quizzes", () => {
   const routes = readFileSync(resolve(here, "../server/routes/study.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
   assert.match(hub, /data-practice-create=/);
-  assert.match(hub, /Create flashcards/);
-  assert.match(hub, /Create quiz/);
+  assert.match(hub, /\["flashcards", "Flashcards"/);
+  assert.match(hub, /\["quiz", "Practice test"/);
   assert.match(hub, /function openCreatePicker\(/);
   assert.match(hub, /documentFileIds/);
   assert.match(hub, /CREATE_FILE_CAP = 5/);
@@ -44,7 +44,7 @@ test("practice decks are openable and have rename/delete menus", () => {
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
   assert.match(hub, /const TABS = \["materials", "chat", "practice"\]/);
   assert.doesNotMatch(hub, /"overview"/);
-  assert.match(hub, /data-open-deck=/);
+  assert.match(hub, /data-open-deck/);
   assert.match(hub, /data-toggle-deck-menu=/);
   assert.match(hub, /data-rename-deck=/);
   assert.match(hub, /data-delete-deck=/);
@@ -145,29 +145,28 @@ test("flashcard side chat uses the Study Hub paper theme without its generic tit
   assert.match(css, /body\.study-session-open \.side-chat-message\.user\s*\{[^}]*var\(--study-orange\)/s);
 });
 
-test("materials quiz still uses a count menu", () => {
+test("Studio practice tests offer bounded question counts", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
-  assert.match(hub, /countMenu\("quiz", "Quiz", \[10, 15, 25\]\)/);
-  assert.doesNotMatch(hub, /data-count="5"/);
-  assert.match(generate, /clampPick\(count, \[10, 15, 25\]\)/);
-  assert.doesNotMatch(generate, /clampPick\(count, \[10, 20, 30\]\)/);
+  assert.match(hub, /field\("Questions", "count"/);
+  assert.match(generate, /clampPick\(count, \[10, 5, 15, 20, 25\]\)/);
+
 });
 
 test("flashcards use Rapid then Deep, never a fixed count", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
-  assert.match(hub, /data-mode="rapid"/);
-  assert.match(hub, /data-mode="deep"/);
+  assert.match(hub, /\["rapid", "Standard/);
+  assert.match(hub, /\["deep", "Deep dive/);
   assert.match(hub, /body\.mode = mode === "deep" \? "deep" : "rapid"/);
-  assert.match(hub, /rapidDone \|\| busy \? " disabled"/);
-  assert.match(hub, /deepDone \|\| busy \? " disabled"/);
+
+
   assert.match(hub, /data-toggle-quiz-menu=/);
   assert.doesNotMatch(hub, /countMenu\("flashcards"/);
   assert.doesNotMatch(hub, /if \(cardMode === "deep"\) return ""/);
   assert.match(generate, /normalizeFlashcardMode/);
   assert.match(generate, /FLASHCARD_CAPS = \{ rapid: 50, deep: 250 \}/);
-  assert.match(generate, /cleanCards\(parsed\.value, cardCap\)/);
+  assert.match(generate, /cleanCards\(parsed\.value, cardCap, options\.cardType\)/);
   assert.match(generate, /First plan the complete relevant coverage, then fit it into no more than \$\{cardCap\} cards/);
   assert.match(generate, /First identify and rank the most important concepts/);
   assert.match(generate, /fill-in-the-blank/);
@@ -198,11 +197,11 @@ test("completed Study Hub generation force-refreshes visible course data", () =>
   assert.match(hub, /if \(!force && cacheCourseId === id && hasCache\(\)\) return/);
 });
 
-test("Study Hub shows generation status in the relevant tab", () => {
+test("Dojo shows generation status in Studio", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
-  assert.match(hub, /job\.type === "notes" \? state\.activeCourseTab === "materials" : state\.activeCourseTab === "practice"/);
-  assert.match(hub, /state\.activeCourseTab === "materials" \|\| state\.activeCourseTab === "practice"/);
+  assert.match(hub, /dojo-studio-content/);
+  assert.match(hub, /\$\{generationCardsMarkup\(\)\}/);
   assert.match(css, /\.study-gen-card\s*\{[\s\S]*?border-radius: 999px/s);
   assert.doesNotMatch(css, /var\(--home-wallpaper-image, none\)/);
 });
@@ -212,28 +211,25 @@ test("practice cards keep their outlines closed around long titles", () => {
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
   assert.doesNotMatch(hub, /sketchStroke\("is-stack-/);
   assert.match(css, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(css, /\.study-practice-grid\s*\{[\s\S]*?padding: 10px 14px 38px 10px/s);
+  assert.match(css, /\.study-practice-open strong \{[^}]*text-overflow: ellipsis/s);
 });
 
-test("small materials layout keeps the upload panel content-sized", () => {
+test("Dojo collapses to accessible section tabs on narrow screens", () => {
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
-  assert.match(css, /\.study-materials\s*\{[\s\S]*?align-content: start/s);
-  assert.match(css, /grid-template-areas: "upload" "board"/);
-  assert.match(css, /\.study-dropzone\s*\{[^}]*width: min\(100%, 420px\)[^}]*min-height: 170px/s);
-  assert.match(css, /@media \(max-width: 980px\)[\s\S]*?\.study-dropzone\s*\{[^}]*position: relative/s);
-  assert.match(css, /grid-template-columns: minmax\(0, 1fr\)/);
-  assert.doesNotMatch(css, /\.study-dropzone\s*\{[^}]*position: sticky/s);
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(css, /@media \(max-width: 760px\)/);
+  assert.match(css, /data-mobile-panel="materials"/);
+  assert.match(css, /data-mobile-panel="chat"/);
+  assert.match(css, /data-mobile-panel="practice"/);
+  assert.match(hub, /role="tablist"/);
 });
 
 test("materials Notes uses Summary and Detailed, each once", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
-  assert.match(hub, /data-study-generate="notes"/);
-  assert.match(hub, /data-mode="summary"/);
-  assert.match(hub, /data-mode="detailed"/);
-  assert.match(hub, /summaryDone \|\| activeFor\("notes", "summary"\) \? " disabled"/);
-  assert.match(hub, /detailedDone \|\| activeFor\("notes", "detailed"\) \? " disabled"/);
-  assert.doesNotMatch(hub, /Summarize/);
+  assert.match(hub, /field\("Detail", "mode"/);
+  assert.match(hub, /\["summary", "The essentials",/);
+  assert.match(hub, /\["detailed", "Detailed review",/);
   assert.match(generate, /kind: "summary"/);
   assert.match(generate, /DETAILED_NOTE_MARK/);
   assert.equal(normalizeNoteMode("Detailed"), "detailed");
@@ -287,8 +283,7 @@ test("quiz recap is a fixed card with review, retake, and lookback", () => {
   assert.doesNotMatch(hub, /Quiz complete/);
   assert.match(hub, /study-miss-list[\s\S]*data-quiz-recap/);
   assert.match(hub, /data-quiz-lookback/);
-  assert.match(css, /Patrick Hand/);
-  assert.match(css, /Caveat/);
+  assert.doesNotMatch(css, /Patrick Hand|Caveat/);
   assert.match(hub, /data-quiz-retake/);
   assert.match(hub, /function retakeQuiz\(/);
   assert.match(hub, /phase === "lookback"/);
@@ -324,7 +319,6 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.doesNotMatch(hub, /seenJobStatus/);
   assert.doesNotMatch(hub, /ensureGenerationPoll/);
   assert.doesNotMatch(hub, /acceptGenerationJob/);
-  assert.doesNotMatch(hub, /localStorage/);
   assert.match(hub, /const generations = new Map\(\)/);
   assert.match(hub, /AbortController/);
   assert.match(hub, /data-cancel-generation=/);
@@ -334,8 +328,8 @@ test("in-memory generation uses POST SSE without durable job polling", () => {
   assert.doesNotMatch(hub, /Import syllabus dates/);
   assert.doesNotMatch(hub, /overviewMarkup/);
   assert.doesNotMatch(hub, /computeStreak/);
-  assert.match(hub, /job\.type === "notes" \? state\.activeCourseTab === "materials" : state\.activeCourseTab === "practice"/);
-  assert.match(hub, /activeFor\("flashcards"\)/);
+  assert.match(hub, /dojo-studio-content/);
+  assert.match(hub, /if \(flashBusy\) return/);
   assert.match(hub, /abortAllGenerations/);
   assert.doesNotMatch(hub, /let generatingKey/);
   assert.doesNotMatch(hub, /EventSource/);
@@ -361,36 +355,19 @@ test("study hub schema drops reviews, attempts, due_at, and FSRS columns", () =>
   assert.doesNotMatch(css, /study-due-badge/);
 });
 
-test("study hub uses a whiteboard board skin without adding product surfaces", () => {
+test("Dojo replaces the board with animated folders and three persistent panels", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
   const html = readFileSync(resolve(publicDir, "index.html"), "utf8");
-  assert.match(hub, /function sketchStroke\(/);
-  assert.match(hub, /Today's board -/);
-  assert.match(hub, /study-material-board/);
-  assert.match(hub, /study-chat-box/);
-  assert.match(hub, /study-chat-heading/);
-  assert.match(hub, /data-open-chat-id=/);
-  assert.match(hub, /function boardLoadingMarkup\(/);
-  assert.match(hub, /study-doodle/);
-  assert.match(css, /study-sketch/);
-  assert.match(hub, /study-sticky/);
-  assert.match(css, /Shantell Sans/);
-  assert.match(css, /--study-board/);
-  assert.match(css, /#study-wobble/);
-  assert.match(css, /body\.study-open \.home-wallpaper/);
-  assert.doesNotMatch(css, /body\.study-open \.app-shell \{[\s\S]*?--home-wallpaper-image/);
-  assert.match(hub, /study-chip-label/);
-  assert.match(css, /study-ink-blue:is\(:hover, \[aria-expanded="true"\]\)/);
-  assert.match(css, /study-ink-orange:is\(:hover, \[aria-expanded="true"\]\)/);
-  assert.match(css, /study-ink-purple:is\(:hover, \[aria-expanded="true"\]\)/);
-  assert.match(css, /\.study-quiz-menu button \+ button/);
-  assert.match(css, /background: var\(--study-paper\)/);
-  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
-  assert.match(app, /Shantell\+Sans/);
-  assert.match(html, /id="study-wobble"/);
-  assert.doesNotMatch(hub, /Scribbled to-do/);
-  assert.doesNotMatch(hub, /Midterm in/);
+  assert.doesNotMatch(hub, /sketchStroke|sketchTape|sketchPin|Today's board/);
+  assert.doesNotMatch(css, /study-wobble|Shantell|study-grid/);
+  assert.match(hub, /dojo-folder-sheet--one/);
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\)/);
+  assert.match(css, /prefers-reduced-motion/);
+  for (const panel of ["Sources", "Ask", "Create"]) assert.ok(hub.includes(`aria-label="${panel}"`));
+  assert.match(hub, /messagesSlot.append\(els.messages\)/);
+  assert.match(hub, /parkMessages\(\)/);
+  assert.match(html, /aria-label="Dojo"/);
 });
 
 test("study hub paints before refetching and reuses course payloads", () => {
@@ -428,9 +405,7 @@ test("course chat list includes newly created course conversations without a ref
   assert.match(hub, /const conversations = courseConversations\(\)/);
   assert.match(app, /studyHub\.openCourse\(courseId, \{ tab: "chat" \}\)/);
   assert.match(app, /projectId: state\.activeProjectId \|\| \(state\.studyOpen \? state\.activeCourseId : ""\) \|\| null/);
-  assert.match(hub, /data-toggle-chat-menu=/);
-  assert.match(hub, /data-rename-chat=/);
-  assert.match(hub, /data-delete-chat=/);
+  assert.match(hub, /dojo-chat-recent/);
   assert.match(hub, /function openRenameCourseChat\(/);
   assert.match(hub, /function confirmDeleteCourseChat\(/);
   assert.match(app, /state\.studyProjectDetail\.conversations = state\.studyProjectDetail\.conversations\.filter/);

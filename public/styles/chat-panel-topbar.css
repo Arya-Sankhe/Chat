@@ -1146,10 +1146,14 @@ body.document-viewer-fullscreen {
   overflow: hidden;
 }
 
+body.document-viewer-fullscreen .app-shell {
+  visibility: hidden;
+}
+
 body.document-viewer-fullscreen .document-viewer {
   position: fixed;
-  inset: 0 0 0 var(--sidebar-active-w);
-  z-index: 1400;
+  inset: 0;
+  z-index: 3000;
   width: auto;
   height: 100dvh;
   border: 0;
@@ -1554,3 +1558,30 @@ body[data-mode="dark"] .sheet-grid tbody th {
 }
 
 .usage-pill:empty { display: none; }
+
+/* Shared preview navigation also serves the embedded Dojo source viewer. */
+.document-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex-shrink: 0; padding: 8px; border-bottom: 1px solid var(--border); background: var(--bg); color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.document-page-controls, .document-preview-tools, .document-zoom-control { display: flex; align-items: center; gap: 3px; }
+.document-preview-tools { margin-left: auto; }
+.document-preview-toolbar [hidden] { display: none; }
+.document-preview-toolbar button { width: 25px; height: 29px; display: grid; place-items: center; padding: 4px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; cursor: pointer; transition: transform 140ms cubic-bezier(.23, 1, .32, 1); }
+.document-preview-toolbar button:active { transform: scale(.97); }
+.document-preview-toolbar button:disabled { opacity: .3; cursor: default; }
+.document-preview-toolbar input { width: 38px; height: 28px; padding: 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text); text-align: center; font: inherit; appearance: textfield; }
+.document-preview-toolbar input::-webkit-inner-spin-button { appearance: none; }
+.document-preview-toolbar select { max-width: 60px; border: 0; padding: 4px 0; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+.document-zoom-control > svg { width: 15px; height: 15px; }
+.document-preview-toolbar :is(button, input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.document-viewer .pdf-pages { margin-inline: auto; }
+.document-viewer .pdf-page { max-width: none; }
+.document-viewer .pdf-page canvas { max-width: none; }
+.document-viewer[data-source-format="pdf"] .document-viewer-file-icon { color: #ce535b; background: #d8586110; }
+.document-viewer[data-source-format="slides"] .document-viewer-file-icon { color: #d47736; background: #dd7c3012; }
+.document-viewer[data-source-format="word"] .document-viewer-file-icon { color: #4a80d0; background: #4d82d614; }
+@media (hover: hover) and (pointer: fine) {
+  .document-preview-toolbar button:hover:not(:disabled) { background: var(--bg-secondary); color: var(--text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .document-preview-toolbar button { transition: none; }
+  .document-preview-toolbar button:active { transform: none; }
+}

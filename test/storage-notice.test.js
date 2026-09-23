@@ -32,7 +32,8 @@ test("functional settings persist directly and Google Fonts load after startup",
   assert.match(app, /function saveSettings\(\) \{\s*const value = JSON\.stringify\(state\.settings\);/);
   assert.match(app, /if \(hadLegacyTheme\) localStorage\.setItem\(SETTINGS_KEY, JSON\.stringify\(loaded\)\)/);
   assert.match(app, /function loadGoogleFonts\(\)/);
-  assert.match(app, /Shantell\+Sans/);
+  assert.match(app, /Orbitron/);
+  assert.doesNotMatch(app, /Shantell\+Sans|Patrick\+Hand|Caveat/);
   assert.match(app, /loadGoogleFonts\(\);\s*\n\}/);
   assert.doesNotMatch(app, /document\.cookie/);
 });

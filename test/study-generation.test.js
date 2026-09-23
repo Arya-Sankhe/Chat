@@ -67,6 +67,8 @@ test("brace-aware salvage recovers complete objects from truncated JSON", () => 
 
   const truncatedQuiz = '{"title":"Quiz","questions":[{"q":"Q1","choices":["a","b","c","d"],"answer":0},{"q":"Q2","choices":["a","b","c","d"],"answer":1}';
   assert.equal(parseStudyJson(truncatedQuiz).value.questions.length, 2);
+  const shortQuiz = '{"questions":[{"type":"short","q":"Define osmosis","modelAnswer":"Water crossing a membrane"},';
+  assert.equal(cleanQuestions(parseStudyJson(shortQuiz).value, 5)[0].type, "short");
 
   const withNoise = 'intro {"cards":[{"front":"A {nested}","back":"1"}]} trailing {';
   const objects = salvageJsonObjects(withNoise);
@@ -135,4 +137,85 @@ test("durable study jobs are gone from schema, worker, package, and compose", ()
   assert.match(routes, /text\/event-stream|startSse/);
   assert.match(routes, /activeStudyGenerations/);
   assert.match(routes, /ponytail:.*multi-replica|ponytail:.*Durable\/DB lock/i);
+});
+
+test("Dojo mind maps do not consume the summary or detailed note slots", async () => {
+  const { normalizeNoteMode, noteModesFromNotes, noteModeAllowed, noteBody } = await import("../server/study/generate.js");
+  const note = { document_file_id: "doc-1", kind: "summary", content: "<!--klui:mindmap-->\n# Memory\n## Encoding\n- Attention" };
+  const modes = noteModesFromNotes([note], "doc-1");
+  assert.equal(normalizeNoteMode("Mindmap"), "mindmap");
+  assert.deepEqual(modes, { summary: false, detailed: false, mindmap: true });
+  assert.equal(noteModeAllowed(modes, "mindmap"), false);
+  assert.equal(noteModeAllowed(modes, "summary"), true);
+  assert.equal(noteBody(note), "# Memory\n## Encoding\n- Attention");
+});
+
+test("Dojo preserves mixed questions and bounds generation preferences", async () => {
+  const { studyGenerationGuidance, clampQuizCount } = await import("../server/study/generate.js");
+  const questions = cleanQuestions({ questions: [
+    { type: "short", q: "Explain encoding.", modelAnswer: "Converting input into a memory representation." },
+    { q: "Which helps recall?", choices: ["Spacing", "Cramming", "Guessing", "Skipping"], answer: 0 },
+    { type: "short", q: "Invalid without an answer" }
+  ] }, 5);
+  assert.equal(questions.length, 2);
+  assert.equal(questions[0].type, "short");
+  assert.equal(questions[0].choices[questions[0].answer], "Converting input into a memory representation.");
+  assert.equal(questions[1].choices.length, 4);
+  assert.equal(clampQuizCount(5), 5);
+  assert.equal(clampQuizCount(20), 20);
+  assert.equal(clampQuizCount(999), 10);
+  const guidance = studyGenerationGuidance({ difficulty: "hard", cardType: "cloze", focus: "x".repeat(2000), style: "exam" }, "flashcards");
+  assert.match(guidance, /difficulty hard/);
+  assert.match(guidance, /fill-in-the-blank cards only/);
+  assert.match(guidance, /exam-style/);
+  assert.ok(!guidance.includes("x".repeat(1001)));
+  assert.match(studyGenerationGuidance({ difficulty: "anything" }), /difficulty medium/);
+});
+
+test("Studio card formats retain usable answers and reject malformed model output", async () => {
+  const { cleanCards } = await import("../server/study/generate.js");
+  const basic = { front: "What helps recall?", back: "Spaced practice" };
+  assert.deepEqual(cleanCards({ cards: [basic] }, 50, "basic"), [basic]);
+  const cloze = { front: "___ practice helps recall.", back: "Spaced" };
+  assert.deepEqual(cleanCards({ cards: [basic, cloze] }, 50, "basic"), [basic]);
+  assert.deepEqual(cleanCards({ cards: [basic, cloze] }, 50, "cloze"), [cloze]);
+  const mcq = { ...basic, choices: ["Spacing", "Cramming", "Guessing", "Skipping"], answer: 0 };
+  assert.deepEqual(cleanCards({ cards: [basic, mcq] }, 50, "basic"), [basic]);
+  const cards = cleanCards({ cards: [mcq, { ...mcq, answer: 4 }, { ...mcq, choices: ["Same", "Same", "Same", "Same"] }] }, 50, "mcq");
+  assert.equal(cards.length, 1);
+  assert.match(cards[0].front, /A\. Spacing\nB\. Cramming\nC\. Guessing\nD\. Skipping/);
+  assert.match(cards[0].back, /^A\. Spacing\n\nSpaced practice$/);
+});
+
+test("selected styles and test formats produce distinct generation instructions", async () => {
+  const { studyGenerationGuidance, studyQuizSystemPrompt } = await import("../server/study/generate.js");
+  assert.match(studyGenerationGuidance({ style: "concise" }, "flashcards"), /questions and explanations concise/);
+  assert.match(studyGenerationGuidance({ style: "exam" }, "notes"), /exam-style, testable ideas/);
+  assert.match(studyGenerationGuidance({ style: "conceptual" }, "mindmap"), /conceptual connections/);
+  const short = studyQuizSystemPrompt(10, "short", { style: "exam" });
+  assert.match(short, /Every question must be short answer/);
+  assert.match(short, /exam-style application scenarios/);
+  assert.doesNotMatch(short, /four distinct choices/);
+  const mcq = studyQuizSystemPrompt(10, "mcq");
+  assert.match(mcq, /Every question must be multiple choice/);
+  assert.doesNotMatch(mcq, /modelAnswer/);
+  const mixed = studyQuizSystemPrompt(10, "mixed");
+  assert.match(mixed, /exactly 5 short-answer questions/);
+  assert.match(mixed, /5 multiple-choice questions/);
+});
+
+test("Studio test formats filter incompatible questions and difficulty provides concrete guidance", async () => {
+  const { studyGenerationGuidance } = await import("../server/study/generate.js");
+  const short = { type: "short", q: "Define recall", modelAnswer: "Retrieving information from memory." };
+  const mcq = { q: "Which helps recall?", choices: ["Spacing", "Cramming", "Guessing", "Skipping"], answer: 0 };
+  const mixed = { questions: [short, mcq] };
+  assert.equal(cleanQuestions(mixed, 5, "mixed").length, 2);
+  assert.equal(cleanQuestions(mixed, 5, "short")[0].type, "short");
+  assert.equal(cleanQuestions(mixed, 5, "short").length, 1);
+  assert.equal(cleanQuestions(mixed, 5, "mcq")[0].type, undefined);
+  assert.equal(cleanQuestions(mixed, 5, "mcq").length, 1);
+  assert.throws(() => cleanQuestions({ questions: [short] }, 5, "mcq"));
+  assert.match(studyGenerationGuidance({ difficulty: "easy" }), /direct recall/);
+  assert.match(studyGenerationGuidance({ difficulty: "medium" }), /apply concepts/);
+  assert.match(studyGenerationGuidance({ difficulty: "hard" }), /multi-step reasoning/);
 });

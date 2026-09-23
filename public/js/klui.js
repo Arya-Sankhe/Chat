@@ -126,7 +126,7 @@ function shadesMarkup() {
     </g>`;
 }
 
-function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
+export function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
   const face = `${prefix}-face`;
   const rim = `${prefix}-rim`;
   const hi = `${prefix}-hi`;

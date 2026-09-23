@@ -142,7 +142,7 @@ import {
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
-const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Orbitron:wght@700&family=Patrick+Hand&family=Shantell+Sans:ital,wght@0,400;0,600;0,800;1,500&display=swap";
+const GOOGLE_FONTS_HREF = "https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap";
 let viewTransitionUserMessageId = "";
 
 const CHAT_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`;
@@ -3774,7 +3774,14 @@ async function openConversation(conversationId) {
   }
   state.activeProjectId = conversation?.project_id || "";
   state.projectsOpen = false;
-  state.studyOpen = false;
+  const course = state.projects.find(item => item.id === conversation?.project_id && item.kind === "course");
+  state.studyOpen = Boolean(course);
+  if (course) {
+    await loadStudyHub();
+    if (state.activeCourseId !== course.id) studyHub.resetCourseCaches();
+    state.activeCourseId = course.id;
+    state.activeCourseTab = "chat";
+  }
   state.activeProject = null;
   state.activeConversationId = conversationId;
   clearFollowUps();
@@ -3788,6 +3795,7 @@ async function openConversation(conversationId) {
   closePinnedPopup();
   closeConversationMenus();
   try {
+    if (course) await studyHub.loadCourse();
     syncConversationUrl();
     if (!restoreLiveConversationRun(conversationId)) {
       const cached = conversationCache.get(conversationId);
@@ -7094,6 +7102,7 @@ async function loadStudyHub() {
         parkActiveConversationRun,
         clearClarification,
         closeDocumentViewer,
+        openDocumentViewer,
         renderShell,
         renderImages,
         openConversation,
@@ -7935,6 +7944,11 @@ async function loadChatApp() {
     renderShell();
     return;
   }
+  const routeConversation = state.conversations.find(item => item.id === conversationIdFromLocation());
+  if (routeConversation && state.projects.some(item => item.id === routeConversation.project_id && item.kind === "course")) {
+    await openConversation(routeConversation.id);
+    return;
+  }
   if (pendingNativeConversationId) {
     const conversationId = pendingNativeConversationId;
     pendingNativeConversationId = "";
@@ -8773,7 +8787,6 @@ async function executeSend({ text, images, compareModels, council = false, descr
 
   if (creatingConversation) {
     state.projectsOpen = false;
-    state.studyOpen = false;
     setAutoScroll(true);
     setRunning(true);
     const paintConversation = (transitionMessage = false) => {
@@ -10035,14 +10048,7 @@ function bindEvents() {
         renderShell();
         return;
       }
-      state.activeConversationId = routeConversationId;
-      state.temporaryChat = false;
-      state.projectsOpen = false;
-      state.studyOpen = false;
-      closeDocumentViewer();
-      compareController.closeCompareContextBanner();
-      await loadActiveConversation();
-      renderShell();
+      await openConversation(routeConversationId);
     } catch (err) {
       showToast(err.message);
     } finally {

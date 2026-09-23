@@ -62,7 +62,8 @@ async function requireCourseSource(context, course, body, signal) {
   }
   const files = [];
   for (const id of ids) files.push(await requireReadyCourseFile(context, course, id, signal));
-  if (files.length === 1) return { documentFile: files[0] };
+  // Studio creates an independent deck, even when it uses just one source.
+  if (files.length === 1 && !(body.type === "flashcards" && Array.isArray(body.documentFileIds))) return { documentFile: files[0] };
   return { documentFiles: files };
 }
 
@@ -78,6 +79,7 @@ function publicQuiz(quiz) {
       const whys = Array.isArray(entry?.whys) ? entry.whys.map((why) => String(why || "")) : [];
       return {
         q: String(entry?.q || ""),
+        ...(entry?.type === "short" ? { type: "short" } : {}),
         topic: String(entry?.topic || ""),
         choices: Array.isArray(entry?.choices) ? entry.choices.map((choice) => String(choice || "")) : [],
         answer: Number.isInteger(answer) ? answer : null,
@@ -250,8 +252,8 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
   const course = await requireCourse(context, courseId, req.signal);
   const body = await parseJsonBody(req);
   const type = String(body.type || "").trim() === "summary" ? "notes" : String(body.type || "").trim();
-  if (!["flashcards", "quiz", "notes"].includes(type)) {
-    throw new HttpError(400, "type must be flashcards, quiz, or notes.");
+  if (!["flashcards", "quiz", "notes", "mindmap"].includes(type)) {
+    throw new HttpError(400, "type must be flashcards, quiz, notes, or mindmap.");
   }
   const source = await requireCourseSource(context, course, body, req.signal);
 
@@ -282,14 +284,15 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
   } else if (type === "quiz") {
     count = clampQuizCount(body.count);
   } else {
-    if (!source.documentFile) throw new HttpError(400, "Notes can only be generated from a file.");
-    mode = normalizeNoteMode(body.mode) || "summary";
+    if (source.note) throw new HttpError(400, "Choose source files for notes or mind maps.");
+    mode = type === "mindmap" ? "mindmap" : normalizeNoteMode(body.mode) || "summary";
+    if (type === "notes" && mode === "mindmap") throw new HttpError(400, "Use type mindmap to create a mind map.");
     const listed = await context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal });
-    const existing = noteModesFromNotes(listed, source.documentFile.id);
+    const existing = noteModesFromNotes(listed, source.documentFile?.id);
     if (!noteModeAllowed(existing, mode)) {
       throw new HttpError(409, mode === "detailed"
         ? "Detailed review already created."
-        : "Summary already created.");
+        : mode === "mindmap" ? "Mind map already created." : "Summary already created.");
     }
   }
 
@@ -354,6 +357,7 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         config,
         course,
         source,
+        options: body,
         mode,
         existingFronts,
         signal,
@@ -393,6 +397,7 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         config,
         course,
         source,
+        options: body,
         count,
         signal,
         onWarning,
@@ -422,6 +427,7 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         config,
         course,
         source,
+        options: body,
         mode,
         signal,
         onWarning,

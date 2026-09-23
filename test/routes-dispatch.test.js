@@ -1727,7 +1727,7 @@ test("flashcard generate serializes Rapid and Deep for one material", async () =
   }
 });
 
-test("study generate rejects more than five files and notes from a combo", async () => {
+test("study generate rejects more than five files and sources outside the course", async () => {
   const files = Array.from({ length: 6 }, (_, i) => `doc-${i + 1}`);
   const tooMany = await dispatch(authReadyConfig, {
     method: "POST",
@@ -1750,13 +1750,13 @@ test("study generate rejects more than five files and notes from a combo", async
       db: {
         async getProject() { return { id: "course-1", kind: "course", name: "CMP 321" }; },
         async getDocumentFile(_userId, id) {
-          return { id, project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+          return { id, project_id: "other-course", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
         }
       }
     })
   });
-  assert.equal(notes.statusCode, 400);
-  assert.match(notes.json().error, /Notes can only be generated from a file/);
+  assert.equal(notes.statusCode, 404);
+  assert.match(notes.json().error, /not found/i);
 });
 
 test("combo flashcard generate stamps deck_key and skips Your cards", async () => {
@@ -1837,6 +1837,16 @@ test("combo flashcard generate stamps deck_key and skips Your cards", async () =
     const key = created[0][0].deck_key;
     assert.equal(patches[0].meta.deckTitles[key], "Ch1.pdf, Ch2.pdf");
     assert.equal(patches[0].meta.flashcardModes[key], "rapid");
+    const single = await dispatch(authReadyConfig, {
+      method: "POST",
+      path: "/api/study/courses/course-1/generate",
+      body: { type: "flashcards", documentFileIds: ["doc-1"], mode: "rapid", cardType: "basic" },
+      overrides
+    });
+    assert.ok(single.sseEvents().some(event => event.type === "complete"));
+    assert.match(created[1][0].deck_key, /^combo_[0-9a-f-]{36}$/i);
+    assert.notEqual(created[1][0].deck_key, key);
+    assert.equal(patches[1].meta.deckTitles[created[1][0].deck_key], "Ch1.pdf");
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -1913,7 +1923,7 @@ test("empty deep flashcard output errors without stamping flashcardModes", async
   }
 });
 
-test("combo quiz generate stores a course-level quiz", async () => {
+test("combo quiz generation preserves mixed questions and customization", async () => {
   const realFetch = globalThis.fetch;
   const created = [];
   const patches = [];
@@ -1926,12 +1936,16 @@ test("combo quiz generate stores a course-level quiz", async () => {
       });
     }
     if (href.endsWith("/chat/completions")) {
+      const request = JSON.parse(options.body);
+      assert.match(request.messages[0].content, /exactly 2 short-answer questions and 3 multiple-choice/);
+      assert.match(request.messages[1].content, /difficulty hard/);
+      assert.match(request.messages[1].content, /Focus on: Cell transport/);
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             id: "gen-combo-quiz",
-            choices: [{ delta: { content: '{"title":"Ch1 + Ch2","questions":[{"q":"Q","topic":"T","choices":["A","B","C","D"],"answer":0,"whys":["a","b","c","d"]}]}' }, finish_reason: "stop" }],
+            choices: [{ delta: { content: '{"title":"Ch1 + Ch2","questions":[{"q":"Q","topic":"T","choices":["A","B","C","D"],"answer":0,"whys":["a","b","c","d"]},{"type":"short","q":"Explain osmosis","modelAnswer":"Water crosses a membrane","explanation":"Water diffuses down its concentration gradient"}]}' }, finish_reason: "stop" }],
             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.001 }
           })}\n\n`));
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -1970,7 +1984,7 @@ test("combo quiz generate stores a course-level quiz", async () => {
     const res = await dispatch(authReadyConfig, {
       method: "POST",
       path: "/api/study/courses/course-1/generate",
-      body: { type: "quiz", documentFileIds: ["doc-1", "doc-2"], count: 10 },
+      body: { type: "quiz", documentFileIds: ["doc-1", "doc-2"], count: 5, examType: "mixed", difficulty: "hard", focus: "Cell transport" },
       overrides
     });
     assert.equal(res.statusCode, 200);
@@ -1980,6 +1994,10 @@ test("combo quiz generate stores a course-level quiz", async () => {
     assert.equal(created[0].document_file_id, null);
     assert.equal(created[0].note_id, null);
     assert.equal(created[0].title, "Ch1 + Ch2");
+    assert.equal(created[0].questions.length, 2);
+    assert.equal(created[0].questions[1].type, "short");
+    assert.equal(created[0].questions[1].choices[0], "Water crosses a membrane");
+    assert.equal(complete.result.partial, true);
     assert.match(created[0].deck_key, /^combo_[0-9a-f-]{36}$/i);
     assert.equal(patches[0].meta.deckTitles[created[0].deck_key], "Ch1 + Ch2");
   } finally {
@@ -2009,9 +2027,10 @@ test("notes generate rejects a second Summary", async () => {
   assert.match(again.json().error, /Summary already created/);
 });
 
-test("study generate streams SSE complete for notes", async () => {
+test("study generate streams and saves single-source notes, combined notes, and mind maps", async () => {
   const realFetch = globalThis.fetch;
   const created = [];
+  const requests = [];
   globalThis.fetch = async (url, options = {}) => {
     const href = String(url);
     if (href.includes("/generation")) {
@@ -2023,12 +2042,13 @@ test("study generate streams SSE complete for notes", async () => {
     if (href.endsWith("/chat/completions")) {
       const body = JSON.parse(options.body || "{}");
       assert.equal(body.stream, true);
+      requests.push(body);
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             id: "gen-study-1",
-            choices: [{ delta: { content: "# Cell Biology\n\nMembranes matter." }, finish_reason: "stop" }],
+            choices: [{ delta: { content: "# Cell Biology\n\n## Membranes\n- Membranes matter." }, finish_reason: "stop" }],
             usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.001 }
           })}\n\n`));
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -2048,13 +2068,13 @@ test("study generate streams SSE complete for notes", async () => {
         async getProject() {
           return { id: "course-1", kind: "course", name: "CMP 321", meta: {} };
         },
-        async getDocumentFile() {
-          return { id: "doc-1", project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
+        async getDocumentFile(_userId, id) {
+          return { id, project_id: "course-1", text_ready_at: "2026-01-01T00:00:00Z", kind: "txt" };
         },
         async listStudyNotes() { return []; },
         async checkApiBudget() { return { allowed: true }; },
-        async listDocumentChunksForFiles() {
-          return [{ text: "Membranes control what enters the cell." }];
+        async listDocumentChunksForFiles(_userId, ids) {
+          return ids.map(id => ({ document_file_id: id, text: `${id}: Membranes control what enters the cell.` }));
         },
         async createStudyNote(_userId, note) {
           created.push(note);
@@ -2063,24 +2083,36 @@ test("study generate streams SSE complete for notes", async () => {
         async recordApiUsageCost() { return null; }
       }
     });
-    const res = await dispatch(authReadyConfig, {
-      method: "POST",
-      path: "/api/study/courses/course-1/generate",
-      body: { type: "notes", documentFileId: "doc-1", mode: "summary" },
-      overrides
-    });
-    assert.equal(res.statusCode, 200);
-    assert.match(res.headers["content-type"], /text\/event-stream/);
-    const events = res.sseEvents();
-    assert.ok(events.some((event) => event.type === "status" && event.stage === "preparing"));
-    const complete = events.find((event) => event.type === "complete");
-    assert.ok(complete, `events=${JSON.stringify(events)}`);
-    assert.equal(complete.result.type, "notes");
-    assert.equal(complete.result.id, "note-1");
-    assert.equal(complete.result.mode, "summary");
-    assert.match(res.body, /data: \[DONE\]/);
-    assert.equal(created.length, 1);
-    assert.match(created[0].content, /Membranes matter/);
+    for (const input of [
+      { type: "notes", documentFileId: "doc-1", mode: "summary" },
+      { type: "notes", documentFileIds: ["doc-1", "doc-2"], mode: "detailed" },
+      { type: "mindmap", documentFileIds: ["doc-1", "doc-2"] }
+    ]) {
+      const res = await dispatch(authReadyConfig, {
+        method: "POST",
+        path: "/api/study/courses/course-1/generate",
+        body: { ...input, focus: "Cell transport", style: "concise" },
+        overrides
+      });
+      assert.equal(res.statusCode, 200);
+      assert.match(res.headers["content-type"], /text\/event-stream/);
+      const events = res.sseEvents();
+      assert.ok(events.some(event => event.type === "status" && event.stage === "preparing"));
+      const complete = events.find(event => event.type === "complete");
+      assert.ok(complete, `events=${JSON.stringify(events)}`);
+      assert.equal(complete.result.type, input.type);
+      assert.equal(complete.result.id, "note-1");
+      assert.equal(complete.result.mode, input.mode || "mindmap");
+      assert.match(res.body, /data: \[DONE\]/);
+      const note = created.at(-1);
+      assert.match(note.content, /Membranes matter/);
+      assert.equal(note.document_file_id, input.documentFileId || null);
+      assert.equal(note.content.startsWith("<!--klui:mindmap-->"), input.type === "mindmap");
+      const prompt = requests.at(-1).messages.at(-1).content;
+      assert.match(prompt, /Focus on: Cell transport/);
+      if (input.documentFileIds) assert.match(prompt, /doc-2/);
+    }
+    assert.equal(created.length, 3);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -2680,7 +2712,7 @@ test("study quiz GET includes answers for in-session reveal", async () => {
             answer: 2,
             explanation: "secret",
             whys: ["no", "no", "yes", "no"]
-          }]
+          }, { type: "short", q: "Explain osmosis", choices: ["Water crosses a membrane", "Needs more practice"], answer: 0 }]
         };
       },
       async getProject() { return { id: "course-1", kind: "course" }; },
@@ -2696,6 +2728,8 @@ test("study quiz GET includes answers for in-session reveal", async () => {
   assert.equal(res.statusCode, 200);
   const quiz = res.json().quiz;
   assert.equal(quiz.title, "Cells");
+  assert.equal(quiz.questions[1].type, "short");
+  assert.equal(quiz.questions[1].choices[0], "Water crosses a membrane");
   assert.deepEqual(res.json().existingFronts, ["What is a cell?"]);
 
   const combo = await dispatch(authReadyConfig, {
@@ -2725,7 +2759,7 @@ test("study quiz GET includes answers for in-session reveal", async () => {
     })
   });
   assert.deepEqual(combo.json().existingFronts, ["Combo front"]);
-  assert.deepEqual(quiz.questions, [{
+  assert.deepEqual(quiz.questions.slice(0, 1), [{
     q: "What is a cell?",
     topic: "Basics",
     choices: ["A", "B", "C", "D"],
