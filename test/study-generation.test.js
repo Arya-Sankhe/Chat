@@ -178,12 +178,14 @@ test("mind maps ask for source-grounded relationships instead of course logistic
   assert.match(MIND_MAP_SYSTEM_PROMPT, /Never invent details/);
 });
 
-test("mind maps render branches, sub-branches, and nested ideas vertically", async () => {
+test("mind maps render compact top-down branches and nested ideas", async () => {
   const { renderMindMap } = await import("../public/js/mindMap.js");
   const escape = (text) => String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
-  const html = renderMindMap("Course", "# Course\n## Syntax\n### Grammar\n- BNF\n  - Rules <tokens>\n## Semantics\n- Meaning", escape);
+  const html = renderMindMap("Course", "# Course\n## Syntax\n### Grammar\n- BNF\n  - Rules <tokens>\n## Semantics\n- ## Meaning", escape);
+  assert.match(html, /dojo-map-root">Course<\/div><div class="dojo-map-scroll"><div class="dojo-map-canvas"><ol class="dojo-map-branches">/);
   assert.match(html, /<summary>Syntax<\/summary>.*<summary>Grammar<\/summary>.*BNF.*Rules &lt;tokens>/s);
   assert.match(html, /<summary>Semantics<\/summary>.*Meaning/s);
+  assert.doesNotMatch(html, /<div class="dojo-map-leaf">##/);
   assert.equal((html.match(/class="dojo-map-branches"/g) || []).length, 5);
 });
 
