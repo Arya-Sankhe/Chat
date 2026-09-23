@@ -394,6 +394,17 @@ export async function createStudyCard(session, courseId, body) {
   return response.json();
 }
 
+export async function createStudyNote(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/notes`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function fetchStudyQuiz(session, quizId) {
   const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}`, { session });
   if (!response.ok) throw new Error(await readProblem(response));

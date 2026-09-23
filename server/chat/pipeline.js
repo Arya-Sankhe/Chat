@@ -46,6 +46,7 @@ import {
 import { DocumentService, buildUntrustedDocumentContext } from "../documents/index.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
 import { buildDocumentTools, isDocumentToolName } from "../documents/tool.js";
+import { buildStudyPreviewTool } from "../study/chatTool.js";
 import { WebSearchOrchestrator, formatResultsForModel } from "../websearch/index.js";
 import {
   buildLoadToolsTool,
@@ -390,10 +391,11 @@ export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, doc
   return Number(detection?.score || 0) === 0;
 }
 
-export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, deferredTools = [], userText = "" }) {
+export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, deferredTools = [], userText = "", study = null }) {
   const tools = [];
   const hints = [];
   const enabled = { websearch: false, weather: false, documents: false };
+  const studyDocuments = study ? (readyDocuments || []).filter((doc) => doc.project_id === study.course.id) : [];
   const weatherRequest = Boolean(config.weather?.apiKey && isWeatherQuery(userText));
   if (webMode !== "off" && !weatherRequest) {
     tools.push(...buildWebSearchTools({ maxResults: config.websearch.maxResults }));
@@ -408,6 +410,11 @@ export function withAvailableTools(chatRequest, { config, webMode, webHint, read
   if (documentSkills?.enabled) {
     tools.push(...buildDocumentTools({ toolNames: documentSkills.toolNames || [] }));
     enabled.documents = true;
+  }
+  if (studyDocuments.length) {
+    tools.push(buildStudyPreviewTool());
+    enabled.documents = true;
+    hints.push(`In this course, use create_study_preview when asked to make flashcards, study questions, a practice test, or a mind map in chat. Match the source by name from these course files: ${studyDocuments.map((doc) => `${(Array.isArray(doc.attachments) ? doc.attachments[0] : doc.attachments)?.file_name || doc.file_name || "Document"} (attachment_id ${doc.attachment_id})`).join("; ")}. Honor an exact requested page number. Ask which file only if two sources are genuinely ambiguous. The preview appears inline and can be saved by the user.`);
   }
   const activeNames = new Set(tools.map((tool) => tool.function?.name));
   const missingTools = deferredTools.filter((tool) => !activeNames.has(tool.function?.name));
@@ -1233,6 +1240,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   });
   const selectedModelSupportsVision = modelSupportsVision(selectedModelMetadata || chatRequest.model);
   const readyDocuments = documents ? await documents.readyDocuments() : [];
+  const study = project?.kind === "course" ? { context, config, course: project } : null;
   const documentSkills = agentMode && !visualizing && documents ? selectDocumentSkills({
     text: promptText,
     readyDocuments,
@@ -1248,15 +1256,16 @@ async function executeConversationMessage(req, res, config, conversationId, {
     documentSkills
   }) ? "off" : webSearchMode;
   const hint = effectiveWebSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
-  let toolSetup = agentMode && !visualizing
+  let toolSetup = (agentMode || (study && readyDocuments.some((doc) => doc.project_id === study.course.id))) && !visualizing
     ? withAvailableTools(chatRequest, {
         config,
-        webMode: effectiveWebSearchMode,
-        webHint: hint,
+        webMode: agentMode ? effectiveWebSearchMode : "off",
+        webHint: agentMode ? hint : "",
         readyDocuments,
         documentSkills,
-        deferredTools,
-        userText: promptText
+        deferredTools: agentMode ? deferredTools : [],
+        userText: promptText,
+        study
       })
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;
@@ -1327,6 +1336,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           websearch,
           weather: config.weather,
           documents,
+          study,
           deferredTools: toolSetup.deferredTools,
           visualDocuments: selectedModelSupportsVision,
           onUpstreamEvent: (event) => {

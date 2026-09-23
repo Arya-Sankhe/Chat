@@ -61,6 +61,7 @@ import {
   fetchStudyPractice,
   fetchStudyQueue,
   createStudyCard,
+  createStudyNote,
   updateStudyCard,
   deleteStudyCard,
   updateStudyDeck,
@@ -117,6 +118,7 @@ import {
   stripRedundantSourcesFooter
 } from "./render.js";
 import { extractReasoningDelta } from "./reasoning.js";
+import { renderMindMap } from "./mindMap.js";
 import { createStreamReducer } from "./streaming.js";
 import {
   guestDraftHasPreview,
@@ -4382,7 +4384,8 @@ function citationListFromMessage(message) {
 
 function artifactKey(artifact) {
   return (
-    artifact?.attachment_id
+    artifact?.id
+    || artifact?.attachment_id
     || artifact?.document_file_id
     || artifact?.download_url
     || artifact?.weather_id
@@ -4419,6 +4422,58 @@ function mergeArtifacts(message, artifacts = []) {
     seen.add(key);
     message.artifacts.push(artifact);
   }
+}
+
+const studyPreviewState = new Map();
+
+function previewState(artifact) {
+  if (!studyPreviewState.has(artifact.id)) studyPreviewState.set(artifact.id, {
+    index: 0, flipped: false, choice: -1, deck: "new", newDeckKey: `chat:${crypto.randomUUID()}`, saved: new Set(), busy: false
+  });
+  return studyPreviewState.get(artifact.id);
+}
+
+function studyPreviewItem(artifact, index) {
+  if (artifact.kind === "practice") {
+    const question = artifact.questions?.[index] || {};
+    return { front: question.q || "Question", back: question.type === "short" ? `${question.choices?.[0] || ""}${question.explanation ? `\n\n${question.explanation}` : ""}` : `${"ABCD"[question.answer] || ""}. ${question.choices?.[question.answer] || ""}${question.explanation ? `\n\n${question.explanation}` : ""}`, choices: question.type === "short" ? [] : question.choices || [], answer: question.answer };
+  }
+  const card = artifact.cards?.[index] || {};
+  const match = String(card.front || "").match(/^([\s\S]*?)\n\nA\. ([\s\S]*?)\nB\. ([\s\S]*?)\nC\. ([\s\S]*?)\nD\. ([\s\S]*)$/);
+  const answer = String(card.back || "").match(/^([ABCD])\./)?.[1];
+  return { front: match ? match[1] : card.front || "Question", back: card.back || "", choices: match ? match.slice(2) : [], answer: answer ? "ABCD".indexOf(answer) : -1 };
+}
+
+function renderStudyPreview(artifact) {
+  const ui = previewState(artifact);
+  const id = escapeHtml(artifact.id);
+  const source = escapeHtml(artifact.source || "Course material");
+  const sourceLine = `<span class="study-inline-source">${source}${artifact.page ? ` · Page ${escapeHtml(String(artifact.page))}` : ""}</span>`;
+  if (artifact.kind === "mindmap") {
+    return `<section class="study-inline study-inline--map" data-study-preview="${id}"><div class="study-inline-top"><span>Mind map</span>${sourceLine}</div>${renderMindMap(artifact.title || "Mind map", String(artifact.content || "").replace(/^<!--klui:mindmap-->\s*/, ""), escapeHtml)}<div class="study-inline-actions"><button type="button" data-study-preview-save="all" ${ui.saved.has("map") || ui.busy ? "disabled" : ""}>${ui.saved.has("map") ? "Saved to Create" : "Save mind map to Create"}</button></div></section>`;
+  }
+  const items = artifact.kind === "practice" ? artifact.questions || [] : artifact.cards || [];
+  if (!items.length) return "";
+  ui.index = Math.min(ui.index, items.length - 1);
+  const item = studyPreviewItem(artifact, ui.index);
+  const decks = (state.studyPractice?.decks || []).map((deck) => `<option value="${escapeHtml(deck.id)}" ${ui.deck === deck.id ? "selected" : ""}>${escapeHtml(deck.title || "Deck")}</option>`).join("");
+  const choices = item.choices.length ? `<div class="study-inline-choices">${item.choices.map((choice, i) => `<button type="button" data-study-preview-choice="${i}" class="${ui.choice === i ? "is-picked" : ""}${ui.flipped && i === item.answer ? " is-correct" : ""}"><span>${"ABCD"[i]}</span>${escapeHtml(choice)}</button>`).join("")}</div>` : "";
+  return `<section class="study-inline study-inline--cards" data-study-preview="${id}">
+    <div class="study-inline-top"><span>${artifact.kind === "practice" ? "Practice questions" : "Flashcards"} · ${escapeHtml(String(items.length))}</span></div>
+    <div class="study-inline-count">${ui.index + 1} <span>/ ${items.length}</span></div>
+    <div class="study-inline-progress">
+      <button type="button" data-study-preview-nav="prev" aria-label="Previous card" ${ui.index === 0 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+      <div role="progressbar" aria-label="Card progress" aria-valuenow="${ui.index + 1}" aria-valuemin="1" aria-valuemax="${items.length}"><span style="width:${((ui.index + 1) / items.length) * 100}%"></span></div>
+      <button type="button" data-study-preview-nav="next" aria-label="Next card" ${ui.index === items.length - 1 ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+    </div>
+    <div class="study-inline-stack${items.length > 1 ? " has-stack" : ""}">
+      <div class="study-inline-card">
+        <div class="study-inline-card-content"><p class="study-inline-question">${escapeHtml(item.front)}</p>${choices}${ui.flipped ? `<p class="study-inline-answer">${escapeHtml(item.back)}</p>` : `<button type="button" class="study-inline-reveal" data-study-preview-flip>Show answer</button>`}</div>
+        <div class="study-inline-source-foot">${sourceLine}</div>
+      </div>
+    </div>
+    <div class="study-inline-save"><label>Save to <select data-study-preview-deck><option value="new" ${ui.deck === "new" ? "selected" : ""}>New flashcard set</option>${decks}</select></label><div class="study-inline-actions"><button type="button" data-study-preview-save="one" ${ui.saved.has(ui.index) || ui.busy ? "disabled" : ""}>${ui.saved.has(ui.index) ? "Added" : "Add this card"}</button><button type="button" class="is-primary" data-study-preview-save="all" ${ui.saved.size === items.length || ui.busy ? "disabled" : ""}>${ui.saved.size === items.length ? "All added" : `Add all ${items.length}`}</button><small>${ui.saved.size} / ${items.length} added</small></div></div>
+  </section>`;
 }
 
 function replacePendingArtifact(message, jobId, resolved) {
@@ -5311,6 +5366,7 @@ function renderArtifacts(message, predicate = null) {
   if (!artifacts.length) return "";
   const rows = artifacts.map((artifact) => {
     if (artifact?.type === "weather") return renderWeatherArtifact(artifact);
+    if (artifact?.type === "study_preview") return renderStudyPreview(artifact);
     const fileName = artifactLabel(artifact);
     const badge = escapeHtml(artifactFormat(artifact));
 
@@ -10189,6 +10245,76 @@ function bindEvents() {
   els.documentViewerClose?.addEventListener("click", closeDocumentViewer);
   els.documentViewerResizer?.addEventListener("pointerdown", beginDocumentViewerResize);
   els.messages.addEventListener("click", async (e) => {
+    const previewAction = e.target.closest("[data-study-preview-nav], [data-study-preview-flip], [data-study-preview-choice], [data-study-preview-save]");
+    if (previewAction) {
+      const id = previewAction.closest("[data-study-preview]")?.dataset.studyPreview;
+      const artifact = state.messages.flatMap(artifactListFromMessage).find((entry) => entry.id === id && entry.type === "study_preview");
+      if (!artifact) return;
+      const ui = previewState(artifact);
+      const nav = previewAction.dataset.studyPreviewNav;
+      let navigationDirection = 0;
+      if (nav) {
+        const count = artifact.kind === "practice" ? artifact.questions?.length || 0 : artifact.cards?.length || 0;
+        const previousIndex = ui.index;
+        ui.index = Math.max(0, Math.min(count - 1, ui.index + (nav === "next" ? 1 : -1)));
+        navigationDirection = Math.sign(ui.index - previousIndex);
+        ui.flipped = false;
+        ui.choice = -1;
+      } else if (previewAction.hasAttribute("data-study-preview-flip")) ui.flipped = true;
+      else if (previewAction.hasAttribute("data-study-preview-choice")) {
+        ui.choice = Number(previewAction.dataset.studyPreviewChoice);
+        ui.flipped = true;
+      } else if (previewAction.dataset.studyPreviewSave && !ui.busy) {
+        ui.busy = true;
+        renderMessages();
+        try {
+          if (artifact.kind === "mindmap") {
+            await createStudyNote(state.session, artifact.course_id, { documentFileId: artifact.document_file_id, title: artifact.title, content: artifact.content });
+            ui.saved.add("map");
+          } else {
+            const items = artifact.kind === "practice" ? artifact.questions || [] : artifact.cards || [];
+            const indexes = previewAction.dataset.studyPreviewSave === "all" ? items.map((_, index) => index) : [ui.index];
+            const deck = (state.studyPractice?.decks || []).find((entry) => entry.id === ui.deck);
+            for (const index of indexes) {
+              if (ui.saved.has(index)) continue;
+              const item = studyPreviewItem(artifact, index);
+              const front = artifact.kind === "practice" && item.choices.length
+                ? `${item.front}\n\n${item.choices.map((choice, i) => `${"ABCD"[i]}. ${choice}`).join("\n")}`
+                : artifact.kind === "practice" ? item.front : items[index].front;
+              await createStudyCard(state.session, artifact.course_id, {
+                front, back: item.back,
+                ...(ui.deck === "new" ? { deckKey: ui.newDeckKey, deckTitle: `From ${artifact.source || "chat"}` }
+                  : deck?.deckKey ? { deckKey: deck.deckKey }
+                    : deck?.noteId ? { noteId: deck.noteId }
+                      : deck?.documentFileId ? { documentFileId: deck.documentFileId } : {}),
+                ...(!deck && ui.deck === "new" ? { documentFileId: artifact.document_file_id } : {})
+              });
+              ui.saved.add(index);
+            }
+          }
+          if (state.activeCourseId === artifact.course_id) {
+            state.studyPractice = await fetchStudyPractice(state.session, artifact.course_id);
+            const materials = await fetchStudyMaterials(state.session, artifact.course_id);
+            state.studyMaterials = materials;
+            studyHub.render();
+          }
+          showToast(artifact.kind === "mindmap" ? "Mind map saved to Create" : "Added to Create");
+        } catch (error) { showToast(error.message || "Could not save study material."); }
+        finally { ui.busy = false; }
+      }
+      renderMessages();
+      if (navigationDirection) {
+        const preview = [...els.messages.querySelectorAll("[data-study-preview]")].find((node) => node.dataset.studyPreview === id);
+        preview?.querySelector(`[data-study-preview-nav="${nav}"]`)?.focus({ preventScroll: true });
+        if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          preview?.querySelector(".study-inline-card")?.animate([
+            { opacity: .65, transform: `translateX(${navigationDirection * 12}px) rotateY(${navigationDirection * 3}deg)` },
+            { opacity: 1, transform: "translateX(0) rotateY(0)" }
+          ], { duration: 180, easing: "cubic-bezier(.23,1,.32,1)" });
+        }
+      }
+      return;
+    }
     const visualizeExpand = e.target.closest("[data-visualize-expand]");
     if (visualizeExpand) {
       const card = visualizeExpand.closest(".visualize-card");
@@ -10381,6 +10507,13 @@ function bindEvents() {
       reportMessage(msgReport.dataset.reportMsg);
       return;
     }
+  });
+  els.messages.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-study-preview-deck]");
+    if (!select) return;
+    const id = select.closest("[data-study-preview]")?.dataset.studyPreview;
+    const artifact = state.messages.flatMap(artifactListFromMessage).find((entry) => entry.id === id && entry.type === "study_preview");
+    if (artifact) previewState(artifact).deck = select.value;
   });
 
   els.messages.addEventListener("submit", (e) => {

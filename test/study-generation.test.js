@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   cleanQuestions,
+  loadGenerationSourceText,
   loadMaterialText,
   parseMarkdownNote,
   parseStudyJson
@@ -13,6 +14,25 @@ import { salvageJsonObjects } from "../server/study/jsonSalvage.js";
 import { selectVisionCandidates, mergePageTexts, collectDigitalPageText } from "../server/study/vision.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+test("exact-page study generation reads only the requested page", async () => {
+  const context = { user: { id: "user-1" }, db: {
+    async listDocumentChunksForFiles() {
+      return [
+        { text: "Wrong page details", metadata: { page: 4 } },
+        { text: "Page five clinical finding", metadata: { page: 5 } },
+        { text: "Later page details", metadata: { page: 6 } }
+      ];
+    }
+  } };
+  const source = { documentFile: { id: "doc-1", kind: "txt", page_count: 6, file_name: "Respiratory.txt" } };
+  const documents = { async ensureDocumentPages() { return [{ page_number: 5, text: "Page five table" }]; } };
+  const text = await loadGenerationSourceText({ context, config: {}, source, pageNumber: 5, documents });
+  assert.match(text, /Page five clinical finding/);
+  assert.match(text, /Page five table/);
+  assert.doesNotMatch(text, /Wrong page|Later page/);
+  await assert.rejects(() => loadGenerationSourceText({ context, config: {}, source, pageNumber: 7, documents }), /outside this document/);
+});
 
 test("SOURCE_CHAR_LIMIT is removed; loadMaterialText uses full chunks", async () => {
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
@@ -148,6 +168,23 @@ test("Dojo mind maps do not consume the summary or detailed note slots", async (
   assert.equal(noteModeAllowed(modes, "mindmap"), false);
   assert.equal(noteModeAllowed(modes, "summary"), true);
   assert.equal(noteBody(note), "# Memory\n## Encoding\n- Attention");
+});
+
+test("mind maps ask for source-grounded relationships instead of course logistics", async () => {
+  const { MIND_MAP_SYSTEM_PROMPT } = await import("../server/study/generate.js");
+  assert.match(MIND_MAP_SYSTEM_PROMPT, /concept → relationship → concept or outcome/);
+  assert.match(MIND_MAP_SYSTEM_PROMPT, /connection between two branches/);
+  assert.match(MIND_MAP_SYSTEM_PROMPT, /Omit course logistics/);
+  assert.match(MIND_MAP_SYSTEM_PROMPT, /Never invent details/);
+});
+
+test("mind maps render branches, sub-branches, and nested ideas vertically", async () => {
+  const { renderMindMap } = await import("../public/js/mindMap.js");
+  const escape = (text) => String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+  const html = renderMindMap("Course", "# Course\n## Syntax\n### Grammar\n- BNF\n  - Rules <tokens>\n## Semantics\n- Meaning", escape);
+  assert.match(html, /<summary>Syntax<\/summary>.*<summary>Grammar<\/summary>.*BNF.*Rules &lt;tokens>/s);
+  assert.match(html, /<summary>Semantics<\/summary>.*Meaning/s);
+  assert.equal((html.match(/class="dojo-map-branches"/g) || []).length, 5);
 });
 
 test("Dojo preserves mixed questions and bounds generation preferences", async () => {

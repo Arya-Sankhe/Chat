@@ -160,7 +160,7 @@ function parseDeckSource(input = {}) {
   const noteId = typeof input.noteId === "string" ? input.noteId.trim() : "";
   const deckKeyValue = typeof input.deckKey === "string" ? input.deckKey.trim() : "";
   const manual = input.manual === true || input.manual === "1" || input.manual === "true";
-  if (deckKeyValue && !/^combo_[0-9a-f-]{36}$/i.test(deckKeyValue)) {
+  if (deckKeyValue && !/^(?:combo_|chat:)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deckKeyValue)) {
     throw new HttpError(400, "Invalid deck.");
   }
   const count = Number(Boolean(documentFileId)) + Number(Boolean(noteId)) + Number(manual) + Number(Boolean(deckKeyValue));
@@ -539,6 +539,29 @@ export async function handleStudyCourseCards(req, res, config, courseId) {
     front,
     back
   };
+  const documentFileId = typeof body.documentFileId === "string" ? body.documentFileId.trim() : "";
+  if (documentFileId) {
+    const file = await requireReadyCourseFile(context, course, documentFileId, req.signal);
+    card.document_file_id = file.id;
+  }
+  const noteId = typeof body.noteId === "string" ? body.noteId.trim() : "";
+  if (noteId) {
+    const note = await context.db.getStudyNote(context.user.id, noteId, { signal: req.signal });
+    if (!note || note.project_id !== course.id) throw new HttpError(404, "Note not found in this course.");
+    card.note_id = note.id;
+    card.document_file_id = null;
+  }
+  const requestedDeckKey = typeof body.deckKey === "string" ? body.deckKey.trim() : "";
+  if (requestedDeckKey) {
+    if (!/^chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedDeckKey)) {
+      const existingDeck = await context.db.listStudyCards(context.user.id, course.id, { select: "deck_key,document_file_id,note_id", signal: req.signal });
+      const firstCard = existingDeck?.find((row) => row.deck_key === requestedDeckKey);
+      if (!firstCard) throw new HttpError(404, "Deck not found in this course.");
+      card.document_file_id = firstCard.document_file_id || null;
+      card.note_id = firstCard.note_id || null;
+    }
+    card.deck_key = requestedDeckKey;
+  }
   const quizId = typeof body.quizId === "string" ? body.quizId.trim() : "";
   if (quizId) {
     const quiz = await context.db.getStudyQuiz(context.user.id, quizId, { signal: req.signal });
@@ -556,8 +579,30 @@ export async function handleStudyCourseCards(req, res, config, courseId) {
       return;
     }
   }
+  if (requestedDeckKey) {
+    const listed = await context.db.listStudyCards(context.user.id, course.id, { select: "id,deck_key,front,back", signal: req.signal }) || [];
+    const existing = listed.find((row) => row.deck_key === requestedDeckKey && row.front === front && row.back === back);
+    if (existing) { sendJson(res, 200, { card: existing }); return; }
+  }
   const cards = await context.db.createStudyCards(context.user.id, [card], { signal: req.signal });
+  if (requestedDeckKey.startsWith("chat:") && !courseMetaObject(course).deckTitles?.[requestedDeckKey]) {
+    const meta = courseMetaObject(course);
+    await context.db.updateProject(context.user.id, course.id, { meta: { ...meta, deckTitles: { ...deckTitlesFromMeta(meta), [requestedDeckKey]: String(body.deckTitle || "From chat").trim().slice(0, 120) || "From chat" } } }, { signal: req.signal });
+  }
   sendJson(res, 201, { card: cards[0] || null });
+}
+
+export async function handleStudyCourseNotes(req, res, config, courseId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const course = await requireCourse(context, courseId, req.signal);
+  const body = await parseJsonBody(req);
+  const file = await requireReadyCourseFile(context, course, String(body.documentFileId || ""), req.signal);
+  const title = String(body.title || "Mind map").trim().slice(0, 120) || "Mind map";
+  const content = String(body.content || "").trim();
+  if (!content.startsWith("<!--klui:mindmap-->") || content.length > 200_000) throw new HttpError(400, "Invalid mind map.");
+  const note = await context.db.createStudyNote(context.user.id, { project_id: course.id, document_file_id: file.id, kind: "summary", title, content }, { signal: req.signal });
+  sendJson(res, 201, { note });
 }
 
 export async function handleStudyCourseQueue(req, res, config, courseId) {

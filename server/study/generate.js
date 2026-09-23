@@ -266,7 +266,7 @@ async function loadComboSourceText({ context, source, signal }) {
   return joined.slice(0, NOTE_CONTENT_CAP);
 }
 
-async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage }) {
+export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents }) {
   if (source.documentFiles?.length) return loadComboSourceText({ context, source, signal });
   if (source.note) {
     const text = noteBody(source.note).trim();
@@ -274,6 +274,24 @@ async function loadGenerationSourceText({ context, config, source, signal, onWar
     return text;
   }
   const documentFile = source.documentFile;
+  if (pageNumber) {
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || (documentFile.page_count && pageNumber > documentFile.page_count)) {
+      throw new HttpError(400, `Page ${pageNumber} is outside this document.`);
+    }
+    const chunks = await context.db.listDocumentChunksForFiles(context.user.id, [documentFile.id], { limit: 5000, signal }) || [];
+    const pageChunks = chunks.filter((chunk) => Number(chunk.metadata?.page ?? chunk.metadata?.page_number ?? chunk.metadata?.slide) === pageNumber);
+    const pages = documents ? await documents.ensureDocumentPages(documentFile, [pageNumber])
+      : await context.db.listDocumentPagesByNumbers(context.user.id, documentFile.id, [pageNumber], { signal });
+    const page = pages[0];
+    let text = [page?.text, ...pageChunks.map((chunk) => chunk.text)].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n");
+    if (page?.image_key && (documentFile.kind === "pdf" || documentFile.kind === "pptx" || text.length < 80)) {
+      onStage?.("vision");
+      const visualText = await streamVisionBatch({ context, config, signal, pages: [{ pageNumber, url: context.r2.readUrl(page.image_key) }] });
+      text = [text, visualText].filter(Boolean).join("\n\n");
+    }
+    if (!text.trim()) throw new HttpError(400, `Page ${pageNumber} has no readable content.`);
+    return `Page ${pageNumber} of ${fileDisplayName(documentFile)}:\n${text.slice(0, 24000)}`;
+  }
   const chunks = await context.db.listDocumentChunksForFiles(context.user.id, [documentFile.id], {
     limit: 5000,
     signal
@@ -472,6 +490,8 @@ export function studyQuizSystemPrompt(questionCount, examType, options = {}) {
   return `You create a practice test from source material. Produce exactly ${questionCount} questions. Return ONLY valid JSON: {"title":"...","questions":[...]}. No markdown, no commentary. ${format}${studyGenerationGuidance(options, "quiz")}`;
 }
 
+export const MIND_MAP_SYSTEM_PROMPT = "Create a high-yield concept map from the source material, not a syllabus outline. Choose one central concept or focus question. Rank ideas by how much they explain, connect, or help apply the material. Reply with markdown only: one # central label; 2–6 ## branches for distinct core concepts; under each, 2–4 bullets in the form 'concept → relationship → concept or outcome' (under 15 words each). Where a branch genuinely has a distinct mechanism or category, add ### sub-branches and indented bullets to show further levels; do not force depth. Make links meaningful: mechanisms, causes, contrasts, prerequisites, or applications. Include a supported connection between two branches when possible. Prefer a clarifying example over extra facts. Omit course logistics, references, repetition, and trivia. Never invent details; use fewer branches when the source is sparse. No code fences or commentary.";
+
 export async function generateFlashcards({
   context,
   config,
@@ -482,13 +502,17 @@ export async function generateFlashcards({
   existingFronts = [],
   signal,
   onWarning,
-  onStage
+  onStage,
+  preview = false,
+  pageNumber = null,
+  documents = null,
+  maxCards = null
 }) {
   onStage?.("preparing");
-  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage });
+  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
   throwIfAborted(signal);
   const requested = normalizeFlashcardMode(mode) || "rapid";
-  const cardCap = FLASHCARD_CAPS[requested];
+  const cardCap = maxCards ? Math.min(FLASHCARD_CAPS[requested], Math.max(1, Math.floor(maxCards))) : FLASHCARD_CAPS[requested];
   const skip = (existingFronts || [])
     .map((front) => String(front || "").trim().slice(0, 120))
     .filter(Boolean)
@@ -514,6 +538,7 @@ export async function generateFlashcards({
   const parsed = parseStudyJson(streamed.content);
   const cards = cleanCards(parsed.value, cardCap, options.cardType);
   if (!cards.length) throw new HttpError(502, GENERATION_FAILED);
+  if (preview) return cards;
   onStage?.("saving");
   throwIfAborted(signal);
   const deckKey = source.documentFiles?.length ? comboDeckKey() : null;
@@ -536,12 +561,15 @@ export async function generateQuiz({
   count,
   signal,
   onWarning,
-  onStage
+  onStage,
+  preview = false,
+  pageNumber = null,
+  documents = null
 }) {
   onStage?.("preparing");
-  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage });
+  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
   throwIfAborted(signal);
-  const questionCount = clampQuizCount(count);
+  const questionCount = preview ? Math.min(10, Math.max(1, Math.floor(Number(count) || 5))) : clampQuizCount(count);
   const examType = ["mixed", "short", "mcq"].includes(options.examType) ? options.examType : "mcq";
   onStage?.("generating");
   const streamed = await streamComplete({
@@ -561,6 +589,7 @@ export async function generateQuiz({
   }
   const title = String(parsed.value.title || sourceFallbackTitle(source) || "Quiz").trim() || "Quiz";
   const partial = Boolean(parsed.partial || streamed.partial || streamed.finishReason === "length" || questions.length < questionCount);
+  if (preview) return { quiz: { title, questions }, partial };
   onStage?.("saving");
   throwIfAborted(signal);
   const deckKey = source.documentFiles?.length ? comboDeckKey() : null;
@@ -584,10 +613,13 @@ export async function generateSummary({
   mode,
   signal,
   onWarning,
-  onStage
+  onStage,
+  preview = false,
+  pageNumber = null,
+  documents = null
 }) {
   onStage?.("preparing");
-  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage });
+  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
   throwIfAborted(signal);
   const requested = normalizeNoteMode(mode) || "summary";
   const detailed = requested === "detailed";
@@ -600,7 +632,7 @@ export async function generateSummary({
     signal,
     maxTokens: detailed ? 16000 : 4000,
     system: (mindmap
-      ? "Create a concise concept map from the source material as markdown. Start with one # title. Use 3–8 ## branches for major concepts, each followed by 2–5 short bullet points for connected ideas. Keep each node under 15 words. Capture relationships and hierarchy; use only facts supported by the sources. No code fences or commentary."
+      ? MIND_MAP_SYSTEM_PROMPT
       : detailed
       ? "You write a detailed study review from source material. Reply with clean markdown only — no JSON wrapper and no commentary. Start with a single H1 title. Cover every topic, definition, process, and example a student needs to know this chapter. Keep it readable and concise — thorough, not a dump."
       : "You write a brief study summary from source material. Reply with clean markdown only — no JSON wrapper and no commentary. Start with a single H1 title. Cover the most important concepts only. Skip trivia.") + studyGenerationGuidance(options, mindmap ? "mindmap" : "notes"),
@@ -613,6 +645,7 @@ export async function generateSummary({
   });
   if (!parsed?.content) throw new HttpError(502, GENERATION_FAILED);
   const partial = Boolean(streamed.partial || streamed.finishReason === "length");
+  if (preview) return { note: { title: parsed.title, content: `<!--klui:mindmap-->\n${parsed.content}` }, partial };
   onStage?.("saving");
   throwIfAborted(signal);
   const note = await context.db.createStudyNote(context.user.id, {

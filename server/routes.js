@@ -13,6 +13,7 @@ import {
   handleStudyCourseMaterials,
   handleStudyCoursePractice,
   handleStudyCourseCards,
+  handleStudyCourseNotes,
   handleStudyCourseDecks,
   handleStudyCourseQueue,
   handleStudyQuizAttempts,
@@ -349,6 +350,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "cards") {
       await handleStudyCourseCards(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "notes") {
+      await handleStudyCourseNotes(req, res, config, parts[3]);
       return;
     }
 

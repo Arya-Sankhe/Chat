@@ -7,6 +7,7 @@
 
 import { citationsFromResults, filterCitationsForAnswer } from "../index.js";
 import { executeDocumentToolCall, isDocumentToolName } from "../../documents/tool.js";
+import { executeStudyPreviewTool } from "../../study/chatTool.js";
 import { OPENROUTER_TEXT_MODEL } from "../../providers.js";
 import { estimateContextTokens } from "../../saas/messages.js";
 import { applyToolFallback, isToolsUnsupportedError } from "./unsupported.js";
@@ -227,7 +228,7 @@ function safeParseArgs(rawArgs) {
  * @returns {Promise<{ ok: boolean, name: string, toolResultJson: string,
  *                     citations: Array, query?: string, error?: object }>}
  */
-export async function executeToolCall({ toolCall, websearch, weather, documents, maxToolResultChars, originalQuestion, citationOffset = 0, signal }) {
+export async function executeToolCall({ toolCall, websearch, weather, documents, study, maxToolResultChars, originalQuestion, citationOffset = 0, signal }) {
   const name = toolCall?.function?.name || "";
   const args = safeParseArgs(toolCall?.function?.arguments);
 
@@ -252,6 +253,15 @@ export async function executeToolCall({ toolCall, websearch, weather, documents,
       };
     }
     return executeDocumentToolCall({ toolCall, documents, maxToolResultChars });
+  }
+
+  if (name === "create_study_preview") {
+    try {
+      if (!study || !documents) throw new Error("Study previews are available only in course chat.");
+      return await executeStudyPreviewTool({ toolCall, study, documents, signal });
+    } catch (error) {
+      return { ok: false, name, provider: "study", citations: [], toolResultJson: JSON.stringify({ error: error.message || "Could not create study preview." }), error: { message: error.message || "Could not create study preview." } };
+    }
   }
 
   if (name === "get_weather") {
@@ -460,6 +470,7 @@ export async function runChatWithToolLoop({
   websearch,
   weather = null,
   documents = null,
+  study = null,
   deferredTools = [],
   visualDocuments = false,
   onUpstreamEvent,
@@ -750,6 +761,7 @@ export async function runChatWithToolLoop({
           websearch,
           weather,
           documents,
+          study,
           maxToolResultChars: config.documents?.maxToolResultChars,
           originalQuestion,
           citationOffset: citations.length,
@@ -767,8 +779,8 @@ export async function runChatWithToolLoop({
       if (result.ok && result.provider) providers.add(result.provider);
       if (result.ok && Array.isArray(result.artifacts) && result.artifacts.length) {
         for (const artifact of result.artifacts) {
-          const key = artifact.attachment_id || artifact.document_file_id || artifact.download_url || artifact.weather_id;
-          if (!key || artifacts.some((entry) => (entry.attachment_id || entry.document_file_id || entry.download_url || entry.weather_id) === key)) continue;
+          const key = artifact.id || artifact.attachment_id || artifact.document_file_id || artifact.download_url || artifact.weather_id;
+          if (!key || artifacts.some((entry) => (entry.id || entry.attachment_id || entry.document_file_id || entry.download_url || entry.weather_id) === key)) continue;
           artifacts.push(artifact);
         }
       }

@@ -44,12 +44,13 @@ test("editable viewer supports fullscreen and closes its export menu outside", a
   assert.match(viewer, /prefers-reduced-motion/);
   assert.match(viewer, /function animateViewer\(opening\)/);
   assert.match(viewer, /opening \? 220 : 160/);
-  assert.match(styles, /inset:\s*0 0 0 var\(--sidebar-active-w\)/);
+  assert.match(styles, /body\.document-viewer-fullscreen \.app-shell\s*\{\s*visibility:\s*hidden/);
+  assert.match(styles, /body\.document-viewer-fullscreen \.document-viewer\s*\{[\s\S]*?inset:\s*0;/);
 });
 
 test("document viewer closes after its animation without waiting for the server save", async () => {
   const viewer = await readFile(new URL("../public/js/documentViewer.js", import.meta.url), "utf8");
-  const close = viewer.match(/async function closeDocumentViewer\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  const close = viewer.match(/async function closeDocumentViewer\(event\) \{[\s\S]*?\n  \}/)?.[0] || "";
   assert.match(close, /saveEditorNow\(\)/);
   assert.match(close, /await exitAnimation/);
   assert.doesNotMatch(close, /await .*save/);

@@ -164,6 +164,21 @@ test("withAvailableTools advertises deferred document capabilities through load_
   assert.equal(result.deferredTools.length, 6);
 });
 
+test("course chat exposes an exact-source study preview tool", () => {
+  const result = withAvailableTools({
+    model: "test",
+    messages: [{ role: "system", content: "base" }, { role: "user", content: "Create flashcards on page 5 of Respiratory" }]
+  }, {
+    config: loadConfig({}),
+    webMode: "off",
+    readyDocuments: [{ attachment_id: "attachment-1", project_id: "course-1", attachments: { file_name: "Respiratory.pdf" } }],
+    study: { course: { id: "course-1" } }
+  });
+  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["create_study_preview"]);
+  assert.match(result.request.messages[0].content, /Respiratory\.pdf \(attachment_id attachment-1\)/);
+  assert.match(result.request.messages[0].content, /exact requested page number/);
+});
+
 test("weather prompts expose weather without web search", () => {
   const result = withAvailableTools({
     model: "deepseek/deepseek-v4-flash-0731",

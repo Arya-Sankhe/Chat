@@ -1937,9 +1937,9 @@ test("combo quiz generation preserves mixed questions and customization", async 
     }
     if (href.endsWith("/chat/completions")) {
       const request = JSON.parse(options.body);
-      assert.match(request.messages[0].content, /exactly 2 short-answer questions and 3 multiple-choice/);
-      assert.match(request.messages[1].content, /difficulty hard/);
-      assert.match(request.messages[1].content, /Focus on: Cell transport/);
+      assert.match(request.messages[0].content, /exactly 2 short-answer questions[\s\S]*3 multiple-choice/);
+      assert.match(request.messages[0].content, /difficulty hard/);
+      assert.match(request.messages[0].content, /Focus on: Cell transport/);
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
@@ -2108,9 +2108,9 @@ test("study generate streams and saves single-source notes, combined notes, and 
       assert.match(note.content, /Membranes matter/);
       assert.equal(note.document_file_id, input.documentFileId || null);
       assert.equal(note.content.startsWith("<!--klui:mindmap-->"), input.type === "mindmap");
-      const prompt = requests.at(-1).messages.at(-1).content;
+      const prompt = requests.at(-1).messages[0].content;
       assert.match(prompt, /Focus on: Cell transport/);
-      if (input.documentFileIds) assert.match(prompt, /doc-2/);
+      if (input.documentFileIds) assert.match(requests.at(-1).messages[1].content, /doc-2/);
     }
     assert.equal(created.length, 3);
   } finally {

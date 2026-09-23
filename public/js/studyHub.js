@@ -1,5 +1,6 @@
 import { kluiSvgMarkup } from "./klui.js";
 import { copyText } from "./platform/index.js";
+import { renderMindMap } from "./mindMap.js";
 
 export function createStudyHubController({
   state,
@@ -148,14 +149,7 @@ export function createStudyHubController({
   }
 
   function mindMapMarkup(note) {
-    const lines = noteBody(note).split("\n");
-    const branches = [];
-    for (const line of lines) {
-      if (/^## /.test(line)) branches.push({ title: line.slice(3), items: [] });
-      else if (/^(?:### |[-*] )/.test(line) && branches.length) branches.at(-1).items.push(line.replace(/^(?:### |[-*] )/, ""));
-    }
-    if (!branches.length) return renderContent(noteBody(note));
-    return `<div class="dojo-mindmap"><div class="dojo-map-root">${escapeHtml(note.title)}</div><div class="dojo-map-branches">${branches.map(branch => `<details open class="dojo-map-branch"><summary>${escapeHtml(branch.title)}</summary><ul>${branch.items.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`).join("")}</div></div>`;
+    return renderMindMap(note.title, noteBody(note), escapeHtml);
   }
 
   function isDetailedNote(note) {
@@ -246,6 +240,7 @@ export function createStudyHubController({
       pin: '<path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v7"/>',
       chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 10h8M7 14h5"/>',
       recent: '<path d="M3 12a9 9 0 1 0 2.6-6.4M3 4v5h5m4-2v5l3 2"/>',
+      search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
       sort: '<path d="M4 6h16M4 12h10M4 18h4"/>',
       sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m7-11-3 3 3 3"/>',
       expand: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m4-11 3 3-3 3"/>',
@@ -558,7 +553,10 @@ export function createStudyHubController({
 
   function recentChatsMarkup() {
     const conversations = courseConversations();
-    return `<details class="dojo-chat-recent"><summary class="study-icon-btn" aria-label="Recent chats" title="Recent chats">${icon("recent")}</summary><div class="dojo-chat-recent-menu"><strong>Recent chats</strong><div class="dojo-chat-recent-list">${conversations.map(c => `<button type="button" data-open-chat-id="${escapeHtml(c.id)}" title="${escapeHtml(c.title || "New chat")}">${escapeHtml(c.title || "New chat")}</button>`).join("") || '<p>No chats yet</p>'}</div></div></details>`;
+    return `<details class="dojo-chat-recent"><summary class="study-icon-btn" aria-label="Recent chats" title="Recent chats">${icon("recent")}</summary><div class="dojo-chat-recent-menu"><label class="dojo-chat-recent-search">${icon("search")}<input type="search" placeholder="Search history..." aria-label="Search chat history" autocomplete="off"></label><div class="dojo-chat-recent-list">${conversations.map(c => {
+      const current = c.id === state.activeConversationId;
+      return `<button type="button" data-open-chat-id="${escapeHtml(c.id)}" title="${escapeHtml(c.title || "New chat")}"${current ? ' class="is-current" aria-current="page"' : ""}><span class="dojo-chat-recent-title">${escapeHtml(c.title || "New chat")}</span>${current ? '<span class="dojo-chat-current-label">Current chat</span>' : ""}</button>`;
+    }).join("") || '<p>No chats yet</p>'}<p class="dojo-chat-no-match" hidden>No matching chats</p></div></div></details>`;
   }
 
   function practiceMarkup() {
@@ -2937,6 +2935,17 @@ export function createStudyHubController({
 
   function bindEvents() {
     els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
+    els.studyView?.addEventListener("input", (event) => {
+      if (!event.target.matches?.(".dojo-chat-recent-search input")) return;
+      const list = event.target.closest(".dojo-chat-recent-menu").querySelector(".dojo-chat-recent-list");
+      const query = event.target.value.trim().toLocaleLowerCase();
+      let matches = 0;
+      list.querySelectorAll("[data-open-chat-id]").forEach((button) => {
+        button.hidden = !button.querySelector(".dojo-chat-recent-title").textContent.toLocaleLowerCase().includes(query);
+        if (!button.hidden) matches += 1;
+      });
+      list.querySelector(".dojo-chat-no-match").hidden = !query || matches > 0;
+    });
     els.studyView?.addEventListener("change", (event) => { void handleViewChange(event); });
     els.studyView?.addEventListener("keydown", handleViewKey);
     els.studyFileInput?.addEventListener("change", (event) => {
