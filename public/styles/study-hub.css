@@ -2065,3 +2065,92 @@ body.document-viewer-fullscreen .document-viewer.is-inline-source { position: fi
   .dojo-add-source-row:has(.study-dropzone:hover) .dojo-source-nudge:not(.dojo-source-nudge--right) { transform: none; }
   .dojo-add-source-row:has(.study-dropzone:hover) .dojo-source-nudge--right { transform: scaleX(-1); }
 }
+
+/* Source intake uses the same quiet surfaces as the Dojo workspace. */
+.dojo-source-dialog { width: min(580px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); box-sizing: border-box; padding: 26px 30px 20px; border: 1px solid var(--border); border-radius: 24px; background: var(--bg); color: var(--text); box-shadow: 0 24px 100px #0003; overflow: auto; font-family: var(--font-sans); }
+.dojo-source-dialog::backdrop { background: #10151b66; backdrop-filter: blur(5px); }
+.dojo-source-dialog-head, .dojo-source-brand, .dojo-source-text-label, .dojo-source-text-footer, .dojo-source-dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dojo-source-dialog-head { margin-bottom: 20px; }
+.dojo-source-brand { justify-content: flex-start; gap: 10px; font-size: 10px; letter-spacing: .12em; font-weight: 650; color: var(--text-secondary); }
+.dojo-source-brand > svg { width: 38px; height: 38px; }
+.dojo-source-brand .fx { display: none; }
+.dojo-source-dialog h2 { margin: 0; font-size: clamp(24px, 4vw, 29px); font-weight: 600; line-height: 1.2; letter-spacing: -.04em; }
+.dojo-source-dialog > p { color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 10px 0 24px; }
+.dojo-source-dialog button { font: inherit; cursor: pointer; }
+.dojo-source-dialog button:disabled { cursor: wait; opacity: .55; }
+.dojo-source-dialog button:focus-visible, .dojo-source-dialog input:focus-visible, .dojo-source-dialog textarea:focus-visible { outline: 2px solid var(--study-blue, #4d85d8); outline-offset: 3px; }
+.dojo-source-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 192px; padding: 22px 12px; border: 1px dashed color-mix(in srgb, var(--text-secondary) 35%, var(--border)); border-radius: 16px; background: var(--bg-secondary); color: var(--text); }
+.dojo-upload-symbol { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; margin-bottom: 4px; background: var(--bg); box-shadow: 0 3px 10px #00000008; color: var(--study-green, #479a83); }
+.dojo-upload-symbol svg { width: 24px; height: 24px; }
+.dojo-source-upload strong { font-size: 15px; font-weight: 550; }
+.dojo-source-upload > span:not(.dojo-upload-symbol) { font-size: 12px; color: var(--text-secondary); }
+.dojo-source-upload u { text-underline-offset: 3px; color: var(--text); }
+.dojo-source-upload small { font-size: 10px; color: var(--text-secondary); margin-top: 8px; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-source-upload { min-height: 70px; flex-direction: row; gap: 14px; padding: 12px; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-upload-symbol { width: 36px; height: 36px; margin: 0; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-source-upload > span:not(.dojo-upload-symbol), .dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-source-upload small { display: none; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-source-dialog-head { margin-bottom: 12px; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) > p:not(.dojo-source-feedback) { margin: 8px 0 16px; }
+.dojo-source-dialog:has(.dojo-source-form:not([hidden])) .dojo-source-divider { margin: 14px 0; }
+.dojo-source-divider { display: flex; align-items: center; gap: 14px; color: var(--text-secondary); font-size: 10px; margin: 20px 0; }
+.dojo-source-divider::before, .dojo-source-divider::after { content: ''; height: 1px; background: var(--border); flex: 1; }
+.dojo-source-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dojo-source-options button { display: flex; align-items: center; gap: 10px; min-height: 76px; padding: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; color: var(--text); text-align: left; }
+.dojo-source-options button > svg { width: 22px; height: 22px; flex-shrink: 0; color: var(--study-blue, #4d85d8); }
+.dojo-source-options button:last-child > svg { color: var(--study-purple, #9572d0); }
+.dojo-source-options button > span:last-child { margin-left: auto; font-size: 16px; color: var(--text-secondary); }
+.dojo-source-options strong, .dojo-source-options small { display: block; }
+.dojo-source-options strong { font-size: 13px; font-weight: 550; }
+.dojo-source-options small { margin-top: 5px; color: var(--text-secondary); font-size: 10px; }
+.dojo-source-options [aria-expanded="true"] { border-color: var(--study-blue, #4d85d8); background: color-mix(in srgb, var(--study-blue, #4d85d8) 5%, var(--bg)); }
+.dojo-source-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.dojo-source-form[hidden] { display: none; }
+.dojo-source-form label { display: block; font-size: 12px; font-weight: 550; margin-bottom: 9px; }
+.dojo-source-optional { font-size: 11px; font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
+.dojo-source-form input, .dojo-source-form textarea { box-sizing: border-box; width: 100%; padding: 12px 13px; background: var(--bg-secondary); color: var(--text); border: 1px solid var(--border); border-radius: 10px; font: 13px/1.5 var(--font-sans); }
+.dojo-source-form textarea { resize: vertical; min-height: 104px; max-height: 35vh; }
+.dojo-source-input-row { display: flex; gap: 8px; }
+.dojo-source-input-row input { min-width: 0; }
+.dojo-source-form [data-source-paste] { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--bg); font-size: 12px; }
+.dojo-source-form [data-source-paste] svg { width: 15px; height: 15px; }
+.dojo-source-form .dojo-source-hint { color: var(--text-secondary); font-size: 11px; line-height: 1.5; margin: 9px 0 16px; }
+.dojo-source-submit { display: flex; align-items: center; justify-content: center; gap: 16px; margin-left: auto; min-height: 40px; padding: 10px 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-contrast); font-size: 12px !important; font-weight: 550 !important; }
+.dojo-source-text-label { margin: 16px 0 8px; }
+.dojo-source-text-label label { margin: 0; }
+.dojo-source-text-footer { margin-top: 10px; }
+.dojo-source-text-footer > span { color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.dojo-source-dialog > .dojo-source-feedback { margin: 16px 0 0; font-size: 12px; }
+.dojo-source-dialog > .dojo-source-feedback.is-error { color: var(--danger); }
+.dojo-source-dialog[aria-busy="true"] .dojo-source-feedback::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--study-green, #479a83); margin-right: 8px; }
+.dojo-source-dialog-foot { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 10px; color: var(--text-secondary); }
+.dojo-source-dialog-foot button { padding: 7px 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.dojo-source-dialog.is-dragging .dojo-source-upload { border-color: var(--study-green, #479a83); background: color-mix(in srgb, var(--study-green, #479a83) 9%, var(--bg)); }
+.dojo-source-dialog[data-motion="on"], .dojo-source-dialog[data-motion="on"] .dojo-source-form { transition: opacity 220ms cubic-bezier(.23, 1, .32, 1), transform 220ms cubic-bezier(.23, 1, .32, 1); }
+.dojo-source-dialog[data-motion="on"] button { transition: transform 140ms cubic-bezier(.23, 1, .32, 1); }
+.dojo-source-dialog[data-motion="on"] button:active:not(:disabled) { transform: scale(.97); }
+@starting-style {
+  .dojo-source-dialog[open][data-motion="on"] { opacity: 0; transform: translateY(8px) scale(.97); }
+  .dojo-source-dialog[data-motion="on"] .dojo-source-form:not([hidden]) { opacity: 0; transform: translateY(5px); }
+}
+@media (hover: hover) and (pointer: fine) {
+  .dojo-source-upload:hover, .dojo-source-options button:hover { border-color: var(--text-secondary); }
+  .dojo-source-form [data-source-paste]:hover, .dojo-source-dialog-foot button:hover { background: var(--bg-secondary); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dojo-source-dialog[data-motion="on"], .dojo-source-dialog[data-motion="on"] .dojo-source-form, .dojo-source-dialog[data-motion="on"] button { transition: opacity 120ms ease; transform: none !important; }
+}
+@media (max-width: 480px) {
+  .dojo-source-dialog { padding: 20px; border-radius: 20px; max-height: calc(100dvh - 24px); }
+  .dojo-source-options { gap: 8px; }
+  .dojo-source-options button { padding: 11px; gap: 8px; }
+  .dojo-source-options small { line-height: 1.4; }
+  .dojo-source-options button > span:last-child { display: none; }
+  .dojo-source-upload { min-height: 172px; }
+  .dojo-source-dialog-foot > span { max-width: 180px; line-height: 1.5; }
+  .dojo-source-form input, .dojo-source-form textarea { font-size: 16px; }
+}
+.source-text-preview { padding: 24px; color: var(--text); }
+.source-text-preview a { display: block; margin-bottom: 20px; font: 12px var(--font-sans); color: var(--study-blue, #4d85d8); }
+.source-text-preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.8 var(--font-sans); }
+.dojo-file-icon.is-website { color: var(--study-blue); background: color-mix(in srgb, var(--study-blue) 9%, var(--bg)); }
+.dojo-source-kind { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 10px; font-weight: 400; }

@@ -190,7 +190,8 @@ const ROUTES = [
   { path: "/api/projects", method: "GET", authKind: "chat" },
   { path: "/api/projects", method: "POST", authKind: "chat" },
   { path: "/api/projects/project-1", method: "GET", authKind: "chat" },
-  { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/courses/course-1/materials", method: "GET", authKind: "chat", enforced405: "PATCH" },
+  { path: "/api/study/courses/course-1/materials", method: "POST", authKind: "chat" },
   { path: "/api/study/courses/course-1/materials", method: "DELETE", authKind: "chat" },
   { path: "/api/study/courses/course-1/generate", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/courses/course-1/practice", method: "GET", authKind: "chat", enforced405: "POST" },
@@ -1564,6 +1565,38 @@ test("study materials expose Rapid/Deep flashcard modes", async () => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json().flashcardModes, { "doc:doc-1": "rapid", "doc:doc-2": "deep" });
   assert.deepEqual(res.json().documents.map((doc) => doc.id), ["doc-1", "doc-2"]);
+});
+
+test("source creation requires an owned course and the saved source has a readable preview", async () => {
+  const text = "Cell membranes regulate transport.\n\n<script>not executable</script>";
+  let content = "";
+  let reserved;
+  let source;
+  const overrides = stubbedDeps({ db: {
+    async getProject(userId, id) { return id === "course-1" ? { id, kind: "course" } : null; },
+    async reserveAttachment(input) { reserved = input; return { id: "att-1", object_key: "users/user-1/source.txt" }; },
+    async rpc(name, input) {
+      assert.equal(name, "klui_complete_study_source");
+      content = input.p_content;
+      source = { id: "doc-1", attachment_id: "att-1", kind: input.p_kind, metadata: { title: input.p_title } };
+      return source;
+    },
+    async getAttachment() { return { id: "att-1", status: "uploaded", content_type: "text/plain", file_name: "Cells.txt" }; },
+    async getDocumentFileByAttachment() { return source; },
+    async listDocumentChunks() { return [{ text: content.slice(0, 10) }, { text: content.slice(10) }]; }
+  } });
+  overrides.createR2 = () => ({ objectKey: () => "users/user-1/source.txt", async putObject() {} });
+  const denied = await dispatch(authReadyConfig, { method: "POST", path: "/api/study/courses/foreign-course/materials", body: { kind: "text", text }, overrides });
+  assert.equal(denied.statusCode, 404);
+  assert.equal(reserved, undefined);
+  const created = await dispatch(authReadyConfig, { method: "POST", path: "/api/study/courses/course-1/materials", body: { kind: "text", title: "Cells", text }, overrides });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal(created.json().document.id, "doc-1");
+  assert.equal(reserved.projectId, "course-1");
+  const preview = await dispatch(authReadyConfig, { path: "/api/attachments/att-1/view", overrides });
+  assert.equal(preview.statusCode, 200, preview.body);
+  assert.equal(preview.json().kind, "text");
+  assert.equal(preview.json().markdown, text);
 });
 
 test("deleting a study file hides it, frees quota, and keeps the document id", async () => {

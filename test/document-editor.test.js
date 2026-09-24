@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { protectCurrencyDollars } from "../public/js/documentEditor.js";
+import { escapeHtml } from "../public/js/render.js";
 
 test("document editor exposes formatting, table, math, save, and export paths", async () => {
   const [editor, viewer, routes] = await Promise.all([
@@ -90,7 +91,7 @@ test("preview refresh cannot detach an editable document or its pending edits", 
   });
   const elements = Object.fromEntries(["documentViewer", "documentViewerBody", "documentViewerTitle", "documentViewerMeta", "documentViewerDownload", "documentViewerDownloadMenu", "documentViewerFullscreen"].map(key => [key, new Element()]));
   const state = { session: { access_token: "stub" }, viewer: { open: true, attachmentId: "doc-1", kind: "editable", markdown: "Original", revision: 1 } };
-  const viewer = factory({ elements, state, escapeHtml: String, fetchAttachmentView: async () => { fetches++; return { kind: "pdf", markdown: "Preview" }; } });
+  const viewer = factory({ elements, state, escapeHtml, fetchAttachmentView: async () => { fetches++; return { kind: "pdf", markdown: "Preview" }; } });
   viewer.renderDocumentViewer();
   await new Promise(resolve => setImmediate(resolve));
   onChange("Unsaved edits");
@@ -111,4 +112,9 @@ test("preview refresh cannot detach an editable document or its pending edits", 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(fetches, 1, "non-editable previews can still refresh");
   assert.equal(state.viewer.loading, false);
+  viewer.setDocumentViewerState({ kind: "text", markdown: '<script>alert("untrusted")</script>', sourceUrl: "javascript:alert(1)" });
+  assert.match(elements.documentViewerBody.innerHTML, /&lt;script&gt;/);
+  assert.doesNotMatch(elements.documentViewerBody.innerHTML, /<script>|href=/);
+  viewer.setDocumentViewerState({ sourceUrl: "https://example.com/article" });
+  assert.match(elements.documentViewerBody.innerHTML, /rel="noopener noreferrer"/);
 });

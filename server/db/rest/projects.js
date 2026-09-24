@@ -80,7 +80,7 @@ export async function listProjectDocuments(client, userId, projectId, { signal }
     query: {
       user_id: `eq.${userId}`,
       project_id: `eq.${projectId}`,
-      select: "id,attachment_id,project_id,kind,processing_status,text_ready_at,visual_ready_at,page_count,word_count,sheet_count,created_at,attachments(id,file_name,content_type,size_bytes,status)",
+      select: "id,attachment_id,project_id,kind,processing_status,text_ready_at,visual_ready_at,page_count,word_count,sheet_count,created_at,source_title:metadata->>title,attachments(id,file_name,content_type,size_bytes,status)",
       order: "created_at.asc"
     },
     signal

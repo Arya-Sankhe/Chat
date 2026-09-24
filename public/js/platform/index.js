@@ -319,6 +319,13 @@ export async function copyText(value) {
   await Clipboard.write({ string: String(value || "") });
 }
 
+export async function readClipboardText() {
+  if (!isNative()) return navigator.clipboard.readText();
+  const { Clipboard } = await import("@capacitor/clipboard");
+  const result = await Clipboard.read();
+  return result.type === "text/plain" ? result.value : "";
+}
+
 export async function appVersion() {
   if (!isNative()) return { version: "", build: "0" };
   const { App } = await import("@capacitor/app");

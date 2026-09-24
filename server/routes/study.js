@@ -19,6 +19,8 @@ import {
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
+import { createCourseSource } from "../study/sources.js";
+import { enforceRateLimit } from "../http/rateLimit.js";
 
 // ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
 const activeStudyGenerations = new Set();
@@ -199,9 +201,16 @@ function cleanDeckTitle(value) {
 }
 
 export async function handleStudyCourseMaterials(req, res, config, courseId) {
-  if (req.method !== "GET" && req.method !== "DELETE") throw new HttpError(405, "Method not allowed.");
+  if (!["GET", "POST", "DELETE"].includes(req.method)) throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
+  if (req.method === "POST") {
+    enforceRateLimit(req, "study-source", 10, 60_000, context.user.id);
+    const body = await parseJsonBody(req);
+    const document = await createCourseSource({ context, config, course, body, signal: req.signal });
+    sendJson(res, 201, { document });
+    return;
+  }
   if (req.method === "DELETE") {
     const body = await parseJsonBody(req);
     const documentFileId = typeof body.documentFileId === "string" ? body.documentFileId.trim() : "";

@@ -1,6 +1,7 @@
 import { kluiSvgMarkup } from "./klui.js";
 import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
+import { createStudySourceDialog } from "./studySources.js";
 
 export function createStudyHubController({
   state,
@@ -83,6 +84,17 @@ export function createStudyHubController({
     if (Array.isArray(saved)) saved.filter(key => typeof key === "string").forEach(key => pinnedCollection.add(key));
   } catch { /* Browsers without storage still keep pins for this session. */ }
   const createSelected = new Set();
+  const sourceDialog = createStudySourceDialog({
+    state, uploadFiles: uploadCourseFiles, showToast,
+    onCreated(courseId, doc) {
+      if (state.activeCourseId !== courseId) return;
+      state.studyMaterials = {
+        ...state.studyMaterials,
+        documents: [...(state.studyMaterials?.documents || []), doc]
+      };
+      render();
+    }
+  });
 
   function collectionPinId(kind, id) {
     return `${state.activeCourseId}:${kind}:${id}`;
@@ -141,7 +153,7 @@ export function createStudyHubController({
 
   function documentDisplayName(doc) {
     const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
-    return attachment?.file_name || doc?.file_name || "Document";
+    return doc?.source_title || doc?.metadata?.title || attachment?.file_name || doc?.file_name || "Document";
   }
 
   function isMindMap(note) {
@@ -431,6 +443,7 @@ export function createStudyHubController({
   }
 
   function sourceFileIcon(doc) {
+    if (doc?.kind === "website") return `<span class="dojo-file-icon is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>`;
     const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
     const kind = ["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "webp"].includes(ext) ? ext : String(doc?.kind || ext).toLowerCase();
     const type = ["pdf"].includes(kind) ? "pdf" : ["ppt", "pptx"].includes(kind) ? "slides" : ["doc", "docx"].includes(kind) ? "word" : ["xls", "xlsx", "csv"].includes(kind) ? "sheet" : ["png", "jpg", "jpeg", "webp", "image"].includes(kind) ? "image" : "file";
@@ -471,8 +484,8 @@ export function createStudyHubController({
       <div class="dojo-source-caption">Course material <span>${docs.length}</span></div>
       <div class="study-material-board">
         ${pendingUploads.map(item => `<article class="study-material-card">${sourceFileIcon({ file_name: item.name })}<div class="study-material-copy"><strong>${escapeHtml(item.name)}</strong>${statusLine(item.status)}</div></article>`).join("")}
-        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? "" : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
-        ${!docs.length && !pendingUploads.length ? emptyState("Bring your knowledge", "Drop PDFs, slides, documents, or photos here. This is where your course begins.") : ""}
+        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
+        ${!docs.length && !pendingUploads.length ? emptyState("Bring your knowledge", "Add files, a website, or pasted text. This is where your course begins.") : ""}
       </div>
     </div>`;
   }
@@ -999,6 +1012,7 @@ export function createStudyHubController({
   }
 
   function resetCourseCaches() {
+    sourceDialog.close();
     sourcePreviewId = "";
     sourceListScrollTop = 0;
     collectionScrollTop = 0;
@@ -2763,6 +2777,7 @@ export function createStudyHubController({
       closeCreateDialog();
       return true;
     }
+    if (sourceDialog.dismiss()) return true;
     return false;
   }
 
@@ -2847,7 +2862,7 @@ export function createStudyHubController({
     const quiz = event.target.closest("[data-open-quiz]");
     if (quiz) return startQuiz(quiz.dataset.openQuiz);
     if (event.target.closest("[data-study-add-files]")) {
-      els.studyFileInput?.click();
+      sourceDialog.open(event);
       return;
     }
     const practiceCreate = event.target.closest("[data-practice-create]");
@@ -2961,6 +2976,8 @@ export function createStudyHubController({
     els.studyView?.addEventListener("change", (event) => { void handleViewChange(event); });
     els.studyView?.addEventListener("keydown", handleViewKey);
     els.studyFileInput?.addEventListener("change", (event) => {
+      if (!event.target.files?.length) return;
+      sourceDialog.close();
       void uploadCourseFiles(event.target.files || []);
       event.target.value = "";
     });

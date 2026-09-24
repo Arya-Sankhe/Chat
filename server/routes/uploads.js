@@ -562,6 +562,19 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
 
+  if (["text/plain", "text/markdown"].includes(attachment.content_type)) {
+    const source = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
+    if (source && ["text", "website"].includes(source.kind)) {
+      const chunks = await context.db.listDocumentChunks(context.user.id, source.id, { limit: 100, signal: req.signal });
+      sendJson(res, 200, {
+        status: "ready", kind: "text", sourceKind: source.kind,
+        fileName: source.metadata?.title || attachment.file_name,
+        markdown: chunks.map(chunk => chunk.text).join(""), sourceUrl: source.metadata?.source_url || ""
+      });
+      return;
+    }
+  }
+
   const kind = attachmentDocumentKind(attachment);
   const doc = ["pdf", "docx"].includes(kind) && configuredServices(config).documents
     ? await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal })

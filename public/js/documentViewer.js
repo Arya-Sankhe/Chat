@@ -487,6 +487,11 @@ export function createDocumentViewer({
       return;
     }
     destroyOfficeViewer();
+    if (viewer.kind === "text") {
+      const sourceUrl = /^https?:\/\//i.test(viewer.sourceUrl || "") ? viewer.sourceUrl : "";
+      elements.documentViewerBody.innerHTML = `<article class="source-text-preview">${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open original website ↗</a>` : ""}<pre>${escapeHtml(viewer.markdown)}</pre></article>`;
+      return;
+    }
     if (viewer.sheets?.length) {
       renderSheetViewer();
       return;
@@ -793,6 +798,7 @@ export function createDocumentViewer({
       sheets: Array.isArray(payload.sheets) ? payload.sheets : [],
       activeSheet: 0,
       markdown: String(payload.markdown || ""),
+      sourceUrl: String(payload.sourceUrl || ""),
       revision: Number(payload.revision || 0),
       loading: false,
       error: ""

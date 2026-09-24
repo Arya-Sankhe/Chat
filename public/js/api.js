@@ -292,6 +292,14 @@ export async function fetchStudyMaterials(session, courseId) {
   return response.json();
 }
 
+export async function createStudySource(session, courseId, body) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function deleteStudyMaterial(session, courseId, documentFileId) {
   const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/materials`, {
     session,
