@@ -78,6 +78,8 @@ export function createStudyHubController({
   let sourcePreviewId = "";
   // A deck, note, or test opened inside the Create panel (widens it like a source preview).
   let studioView = null;
+  // Entrance animations play once per item; later repaints of the same item stay still.
+  const shownEntrances = new Set();
   const deckLayoutKey = "klui.dojo.deckLayout.v1";
   let sourceListScrollTop = 0;
   let collectionScrollTop = 0;
@@ -434,14 +436,25 @@ export function createStudyHubController({
       const stage = job.stage ? ` · ${job.stage}` : "";
       const elapsed = formatElapsed(job);
       const meta = jobMetaLine(job);
+      const failed = job.status === "failed";
+      const error = job.error || "Generation failed.";
+      const icon = active ? spinner() : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></svg>`;
+      const action = active
+        ? `<button class="study-gen-action" type="button" data-cancel-generation="${escapeHtml(job.id)}" aria-label="Cancel" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>`
+        : failed
+          ? `<button class="study-gen-action is-retry" type="button" data-retry-generation="${escapeHtml(job.id)}" aria-label="Retry" title="Retry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button>`
+          : "";
+      const status = `${jobStatusLabel(job.status)}${stage}`;
       return `
         <article class="study-gen-card is-${escapeHtml(job.status || "running")}" data-gen-id="${escapeHtml(job.id)}">
-          <strong title="${escapeHtml(`${jobTypeLabel(job.type)} · ${jobSourceName(job)}`)}">${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(jobSourceName(job))}</strong>
-          ${meta ? `<span class="study-gen-meta">${escapeHtml(meta)}</span>` : ""}
-          <span class="study-status is-${escapeHtml(pillClass)}" aria-live="polite">${active ? spinner() : ""}${escapeHtml(jobStatusLabel(job.status))}${escapeHtml(stage)}</span>
-          ${elapsed ? `<span class="study-gen-elapsed">${escapeHtml(elapsed)}</span>` : ""}
-          ${active ? `<button class="study-chip-btn" type="button" data-cancel-generation="${escapeHtml(job.id)}">Cancel</button>` : ""}
-          ${job.status === "failed" ? `<div class="study-gen-failure"><span class="study-gen-error" title="${escapeHtml(job.error || "Generation failed.")}">${escapeHtml(job.error || "Generation failed.")}</span><button class="study-gen-retry" type="button" data-retry-generation="${escapeHtml(job.id)}" aria-label="Retry" title="Retry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button></div>` : ""}
+          ${active ? `<span class="study-gen-wave" style="animation-delay: -${(Date.now() % 2400) / 1000}s" aria-hidden="true"></span>` : ""}
+          <span class="study-gen-icon">${icon}</span>
+          <div class="study-gen-body">
+            <strong title="${escapeHtml(`${jobTypeLabel(job.type)} · ${jobSourceName(job)}`)}">${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(jobSourceName(job))}</strong>
+            <span class="study-gen-line" aria-live="polite">${meta ? `<span>${escapeHtml(meta)}</span>` : ""}<span class="study-status is-${escapeHtml(pillClass)}">${escapeHtml(status)}</span>${elapsed ? `<span class="study-gen-elapsed">${escapeHtml(elapsed)}</span>` : ""}</span>
+            ${failed ? `<span class="study-gen-error" title="${escapeHtml(error)}">${escapeHtml(error)}</span>` : ""}
+          </div>
+          ${action}
         </article>`;
     }).join("")}</div>`;
   }
@@ -577,6 +590,7 @@ export function createStudyHubController({
     const { kind, id } = studioView;
     const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
     studioView = null;
+    for (const key of shownEntrances) if (key.startsWith("studio:")) shownEntrances.delete(key);
     render();
     animatePreviewResize(start, event);
     const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : "data-open-note";
@@ -622,14 +636,33 @@ export function createStudyHubController({
     template.innerHTML = practiceMarkup().trim();
     const next = template.content.firstElementChild;
     current.replaceWith(next);
+    settleEntrances();
     const body = next.querySelector(".dojo-view-body");
     if (body && keepScroll) body.scrollTop = scroll;
+  }
+
+  function settle(node, key) {
+    if (shownEntrances.has(key)) node.classList.add("is-settled");
+    else shownEntrances.add(key);
+  }
+
+  function settleEntrances() {
+    for (const card of els.studyView.querySelectorAll(".study-gen-card[data-gen-id]")) settle(card, `gen:${card.dataset.genId}`);
+    const view = els.studyView.querySelector(".dojo-studio-view");
+    if (!view || !studioView) return;
+    const key = `studio:${studioView.kind}:${studioView.id}`;
+    settle(view, key);
+    const body = view.querySelector(".dojo-view-body");
+    const ready = studioView.kind === "deck" ? studioView.cards : studioView.kind === "quiz" ? studioView.questions : true;
+    if (body) settle(body, `${key}:${studioView.layout || ""}:${Boolean(ready || studioView.error)}`);
   }
 
   function patchDeckBody() {
     const root = els.studyView.querySelector(".dojo-studio-view[data-studio-kind=deck]");
     if (!root || !studioView?.cards) return;
-    root.querySelector("[data-deck-body]").innerHTML = deckBodyMarkup(studioView, studioHelpers());
+    const body = root.querySelector("[data-deck-body]");
+    body.classList.remove("is-settled");
+    body.innerHTML = deckBodyMarkup(studioView, studioHelpers());
     const shown = root.querySelector("[data-deck-shown]");
     if (shown) shown.textContent = `${visibleDeckCards(studioView).length} / ${studioView.cards.length}`;
   }
@@ -1013,6 +1046,7 @@ export function createStudyHubController({
       else els.studyView.innerHTML = courseDetailMarkup();
     }
     finishCoursePaint();
+    settleEntrances();
     const sourceList = els.studyView.querySelector(".study-material-board");
     const collectionList = els.studyView.querySelector(".dojo-artifacts");
     if (sourceList) sourceList.scrollTop = sourceListScrollTop;

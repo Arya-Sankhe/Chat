@@ -477,6 +477,6 @@ test("successful generation cards remove themselves immediately", () => {
   );
   assert.doesNotMatch(hub, /Ready in Materials/);
   assert.doesNotMatch(hub, /Available in Practice/);
-  assert.match(hub, /job\.status === "failed" \? `/);
+  assert.match(hub, /const failed = job\.status === "failed";/);
   assert.match(hub, /data-retry-generation=/);
 });
