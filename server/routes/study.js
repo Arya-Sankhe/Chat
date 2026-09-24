@@ -20,6 +20,7 @@ import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
 import { createCourseSource } from "../study/sources.js";
+import { gradeQuizAttempt, questionMarks } from "../study/grade.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
 // ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
@@ -83,6 +84,7 @@ function publicQuiz(quiz) {
         q: String(entry?.q || ""),
         ...(entry?.type === "short" ? { type: "short" } : {}),
         topic: String(entry?.topic || ""),
+        marks: questionMarks(entry),
         choices: Array.isArray(entry?.choices) ? entry.choices.map((choice) => String(choice || "")) : [],
         answer: Number.isInteger(answer) ? answer : null,
         explanation: String(entry?.explanation || ""),
@@ -750,29 +752,13 @@ export async function handleStudyQuizAttempts(req, res, config, quizId) {
   const quiz = await context.db.getStudyQuiz(context.user.id, quizId, { signal: req.signal });
   if (!quiz) throw new HttpError(404, "Quiz not found.");
   await requireCourse(context, quiz.project_id, req.signal);
+  enforceRateLimit(req, "study-quiz-mark", 12, 60_000, context.user.id);
   const body = await parseJsonBody(req);
   const submitted = Array.isArray(body.answers) ? body.answers : null;
   if (!submitted) throw new HttpError(400, "answers must be an array.");
-  const questions = Array.isArray(quiz.questions) ? quiz.questions : [];
-  const answers = questions.map((_, index) => {
-    const value = submitted[index];
-    if (value === -1) return -1;
-    const n = Number(value);
-    return Number.isInteger(n) ? n : -1;
-  });
-  const results = questions.map((question, index) => {
-    const answer = Number(question.answer);
-    const yourAnswer = answers[index];
-    return {
-      correct: yourAnswer === answer,
-      answer,
-      yourAnswer,
-      explanation: String(question.explanation || "")
-    };
-  });
-  const score = results.filter((row) => row.correct).length;
-  const total = questions.length;
-  sendJson(res, 200, { score, total, results });
+  // Nothing is stored: marking happens per attempt and the client keeps the report.
+  const report = await gradeQuizAttempt({ context, config, quiz, submitted, signal: req.signal });
+  sendJson(res, 200, report);
 }
 
 export async function handleStudyNote(req, res, config, noteId) {

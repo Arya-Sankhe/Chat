@@ -309,37 +309,29 @@ test("deleting a note warns that linked practice content is also deleted", () =>
   assert.match(hub, /This will also delete its flashcard decks and quizzes\./);
 });
 
-test("quiz recap is a fixed card with review, retake, and lookback", () => {
+test("practice tests run in the panel or full screen and end with a marked report", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const test = readFileSync(resolve(publicDir, "js/studyTest.js"), "utf8");
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
-  assert.match(hub, /phase === "reveal"/);
-  assert.match(hub, /data-study-continue/);
-  assert.match(hub, /study-quiz-recap/);
-  assert.match(hub, /function quizLetter\(/);
-  assert.match(hub, /See me after class/);
-  assert.match(hub, /Excellent — you did well/);
-  assert.match(hub, /Quiz Results/);
-  assert.match(hub, /Review Quiz/);
-  assert.match(hub, /Retake Quiz/);
-  assert.doesNotMatch(hub, /Topics covered/);
-  assert.doesNotMatch(hub, /Quiz complete/);
-  assert.match(hub, /study-miss-list[\s\S]*data-quiz-recap/);
-  assert.match(hub, /data-quiz-lookback/);
-  assert.doesNotMatch(css, /Patrick Hand|Caveat/);
-  assert.match(hub, /data-quiz-retake/);
+  assert.match(hub, /startQuiz\(studioView\.id, full\.matches\("\[data-studio-full\]"\) \? "full" : "panel"\)/);
+  assert.match(hub, /function moveQuiz\(host\)/);
+  assert.match(hub, /function submitQuiz\(/);
   assert.match(hub, /function retakeQuiz\(/);
-  assert.match(hub, /phase === "lookback"/);
-  assert.match(hub, /Add to flashcards/);
   assert.match(hub, /quizId:\s*quizSession\.quiz\.id/);
   assert.match(hub, /function addedQuestionIndexes\(/);
-  assert.match(hub, /already \? "Added" : "Add to flashcards"/);
-  assert.doesNotMatch(hub, /Best \$\{/);
-  assert.doesNotMatch(hub, /Latest quiz/);
-  assert.doesNotMatch(hub, /data-study-next/);
-  assert.doesNotMatch(hub, /Keep learning/);
-  assert.match(css, /\.study-session-frame\.is-quiz\.is-recap\s*\{[^}]*overflow:\s*auto/s);
-  assert.match(css, /\.study-quiz-marks\s*\{/);
-  assert.match(css, /\.study-choice-why\s*\{/);
+  assert.match(test, /data-test-clock/);
+  assert.match(test, /Submit for marking/);
+  assert.match(test, /Strengths/);
+  assert.match(test, /Room to grow/);
+  assert.match(test, /What to study next/);
+  assert.match(test, /data-quiz-lookback>Review answers/);
+  assert.match(test, /data-test-finish>Finish/);
+  assert.match(test, /data-quiz-retake>Retake test/);
+  assert.match(test, /already \? "Added" : "Add to flashcards"/);
+  // Results stay encouraging: no failing grades or scolding copy.
+  assert.doesNotMatch(test, /See me after class|"F"|Wrong|Incorrect|Failed/);
+  assert.doesNotMatch(css, /\.study-session-progress/);
+  assert.match(css, /\.study-test\.is-full/);
 });
 
 test("in-memory generation uses POST SSE without durable job polling", () => {

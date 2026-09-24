@@ -3,6 +3,7 @@ import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
 import { createStudySourceDialog } from "./studySources.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
+import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 
 export function createStudyHubController({
   state,
@@ -69,6 +70,7 @@ export function createStudyHubController({
   let quizMenuKey = "";
   let reviewSession = null;
   let quizSession = null;
+  let testClock = null;
   let studyNote = null;
   let createType = "";
   let sourceSort = "recent";
@@ -569,6 +571,7 @@ export function createStudyHubController({
   }
 
   function openStudioView(kind, id, event) {
+    if (quizSession?.host === "panel") endPanelTest();
     const workspace = els.studyView.querySelector(".dojo-workspace");
     const start = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
     let layout = "column";
@@ -588,6 +591,7 @@ export function createStudyHubController({
   function closeStudioView(event) {
     if (!studioView) return;
     const { kind, id } = studioView;
+    if (quizSession?.host === "panel") endPanelTest();
     const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
     studioView = null;
     for (const key of shownEntrances) if (key.startsWith("studio:")) shownEntrances.delete(key);
@@ -595,6 +599,11 @@ export function createStudyHubController({
     animatePreviewResize(start, event);
     const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : "data-open-note";
     els.studyView.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  }
+
+  function endPanelTest() {
+    stopTestClock();
+    quizSession = null;
   }
 
   async function loadStudioCards() {
@@ -724,11 +733,12 @@ export function createStudyHubController({
       return true;
     }
     if (!event.target.closest(".dojo-studio-view")) return false;
+    if (handleTestClick(event)) return true;
     if (event.target.closest("[data-studio-back]")) { closeStudioView(event); return true; }
     const full = event.target.closest("[data-studio-full], [data-studio-learn]");
     if (full) {
       if (studioView.kind === "note") openNote(studioView.id);
-      else if (studioView.kind === "quiz") void startQuiz(studioView.id);
+      else if (studioView.kind === "quiz") void startQuiz(studioView.id, full.matches("[data-studio-full]") ? "full" : "panel");
       else {
         const startId = full.matches("[data-studio-full]") && studioView.layout === "flip" ? currentFlipCard()?.id : "";
         void startReview(findDeck(studioView.id), { startId });
@@ -833,7 +843,12 @@ export function createStudyHubController({
 
   function studioViewMarkup(item) {
     if (studioView.kind === "deck") return deckViewMarkup(studioView, item, studioHelpers());
-    if (studioView.kind === "quiz") return quizViewMarkup(studioView, item, { escapeHtml });
+    if (studioView.kind === "quiz") {
+      if (quizSession?.host === "panel" && quizSession.quiz.id === studioView.id) {
+        return `<div class="dojo-studio-content dojo-studio-view is-test" data-studio-kind="quiz">${testMarkup(quizSession, testHelpers("panel"))}</div>`;
+      }
+      return quizViewMarkup(studioView, item, { escapeHtml });
+    }
     let body;
     try {
       body = isMindMap(item) ? mindMapMarkup(item) : renderContent(noteBody(item)) || `<pre>${escapeHtml(noteBody(item))}</pre>`;
@@ -2014,12 +2029,7 @@ export function createStudyHubController({
     return els.studySession;
   }
 
-  function closeSession() {
-    const reviewed = Boolean(reviewSession);
-    clearTimeout(reviewSession?.animTimer);
-    reviewSession = null;
-    quizSession = null;
-    if (quizMenuKey === "review") quizMenuKey = "";
+  function closeSessionLayer() {
     const root = sessionRoot();
     if (root) {
       root.classList.add("hidden");
@@ -2027,9 +2037,21 @@ export function createStudyHubController({
       root.setAttribute("aria-hidden", "true");
     }
     document.body.classList.remove("study-session-open");
+  }
+
+  function closeSession() {
+    const reviewed = Boolean(reviewSession);
+    const panelTest = quizSession?.host === "panel";
+    clearTimeout(reviewSession?.animTimer);
+    reviewSession = null;
+    stopTestClock();
+    quizSession = null;
+    if (quizMenuKey === "review") quizMenuKey = "";
+    closeSessionLayer();
     closeSideChat?.();
     closeNote();
     if (reviewed) render();
+    else if (panelTest) patchStudio({ keepScroll: false });
     // Full-screen review can star, edit, or delete cards; refresh the open deck.
     if (reviewed && studioView?.kind === "deck") void loadStudioCards();
   }
@@ -2571,252 +2593,231 @@ export function createStudyHubController({
     return added;
   }
 
-  function quizLookbackMarkup(session) {
-    const { results, quiz, adding, added } = session;
-    const items = (quiz.questions || []).map((question, index) => {
-      const row = results?.[index] || {};
-      const yours = row.yourAnswer;
-      const correct = row.answer;
-      const kind = row.correct ? "is-right" : yours < 0 ? "is-skip" : "is-wrong";
-      const mark = row.correct ? "Right" : yours < 0 ? "Skipped" : "Wrong";
-      const already = added?.has(index);
-      return `
-        <article class="study-miss ${kind}">
-
-          <p class="study-miss-mark">${mark}</p>
-          <p>${escapeHtml(question.q || `Question ${index + 1}`)}</p>
-          ${yours >= 0 ? `<p class="study-miss-yours">${escapeHtml(question.type === "short" ? session.writtenAnswers?.[index] || "" : question.choices?.[yours] || "")}</p>` : `<p class="study-miss-yours">Skipped</p>`}
-          <p class="study-miss-correct">${escapeHtml(question.choices?.[correct] || "")}</p>
-          ${row.explanation ? `<p class="study-miss-explain">${escapeHtml(row.explanation)}</p>` : ""}
-          <button class="study-chip-btn" type="button" data-add-missed="${index}" ${already || adding === index ? "disabled" : ""}>
-            ${adding === index ? spinner() : already ? "Added" : "Add to flashcards"}
-          </button>
-        </article>`;
-    }).join("");
-    return `
-      <div class="study-quiz-lookback">
-        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
-        <h2>Review</h2>
-        <div class="study-miss-list">${items || `<p class="study-empty-inline">Nothing to review.</p>`}</div>
-        <button class="study-chip-btn" type="button" data-quiz-recap>Back</button>
-      </div>`;
+  function quizPanelReady(quizId) {
+    return Boolean(els.studyView?.querySelector(".dojo-studio-expanded")) && studioView?.kind === "quiz" && studioView.id === quizId;
   }
 
-  function quizLetter(pct) {
-    if (pct >= 90) return "A";
-    if (pct >= 70) return "B";
-    if (pct >= 50) return "C";
-    return "F";
+  function testHelpers(host) {
+    return { escapeHtml, spinner, host };
   }
 
-  function quizNote(letter) {
-    if (letter === "A") return "Excellent — you did well!";
-    if (letter === "B") return "Keep it up, you're almost there.";
-    if (letter === "C") return "Not bad. One more pass.";
-    return "See me after class!";
-  }
-
-  function quizRecapMarkup(session) {
-    const { score, total, results, quiz } = session;
-    const pct = total ? Math.round((score / total) * 100) : 0;
-    const skipped = (results || []).filter((row) => row.yourAnswer < 0).length;
-    const wrong = (results || []).filter((row) => !row.correct && row.yourAnswer >= 0).length;
-    const letter = quizLetter(pct);
-    const tone = pct >= 70 ? "good" : pct >= 50 ? "ok" : "bad";
-    return `
-      <div class="study-quiz-recap is-${tone}">
-        <header class="study-quiz-sheet">
-          <div class="study-quiz-sheet-copy">
-            <h2>Quiz Results</h2>
-            <p class="study-quiz-subject">Subject: ${escapeHtml(quiz.title || "Quiz")}</p>
-          </div>
-          <p class="study-quiz-percent" aria-label="Grade ${letter}, ${escapeHtml(String(pct))} percent">
-            <svg viewBox="0 0 100 100" aria-hidden="true">
-              <ellipse cx="50" cy="50" rx="43" ry="40" transform="rotate(-8 50 50)"/>
-              <ellipse cx="51" cy="49" rx="41" ry="38" transform="rotate(5 51 49)"/>
-            </svg>
-            <strong>${escapeHtml(String(pct))}%</strong>
-            <span>${letter}</span>
-          </p>
-        </header>
-        <ul class="study-quiz-marks">
-          <li class="is-right"><span aria-hidden="true">✓</span> Correct: ${escapeHtml(String(score))}</li>
-          <li class="is-wrong"><span aria-hidden="true">✕</span> Wrong: ${escapeHtml(String(wrong))}</li>
-          <li class="is-skip"><span aria-hidden="true">–</span> Skipped: ${escapeHtml(String(skipped))}</li>
-        </ul>
-        <div class="study-quiz-foot">
-          <hr class="study-quiz-rule">
-          <div class="study-quiz-links">
-            <button type="button" data-quiz-lookback>Review Quiz</button>
-            <button type="button" data-close-session>Finish</button>
-          </div>
-          <button class="study-quiz-retake" type="button" data-quiz-retake>Retake Quiz</button>
-          <p class="study-quiz-note">${quizNote(letter)}</p>
-        </div>
-      </div>`;
-  }
-
-  function quizMarkup(session) {
-    if (session.phase === "lookback") return quizLookbackMarkup(session);
-    if (session.phase === "results") return quizRecapMarkup(session);
-    const question = session.quiz.questions[session.index] || {};
-    const total = session.quiz.questions.length;
-    const revealed = session.phase === "reveal";
-    const short = question.type === "short";
-    const checking = session.phase === "check";
-    const pct = total ? Math.round(((session.index + (revealed ? 1 : 0)) / total) * 100) : 0;
-    const answer = Number(question.answer);
-    const selected = session.selected;
-    const correctPick = selected === answer;
-    const skipped = selected === -1;
-    const hasWhys = (question.whys || []).some((why) => String(why || "").trim());
-    const fallback = revealed && !hasWhys ? String(question.explanation || "").trim() : "";
-    const last = session.index >= total - 1;
-    const choices = (question.choices || []).map((choice, index) => {
-      const state = !revealed
-        ? (selected === index ? " is-selected" : "")
-        : index === answer
-          ? " is-right"
-          : selected === index
-            ? " is-wrong"
-            : " is-idle";
-      const why = revealed && hasWhys ? String(question.whys[index] || "").trim() : "";
-      return `
-        <button class="study-choice${state}" type="button" data-study-choice="${index}">
-
-          <span>${escapeHtml(String.fromCharCode(65 + index))}</span>
-          ${escapeHtml(choice)}
-          ${why ? `<span class="study-choice-why">${escapeHtml(why)}</span>` : ""}
-        </button>`;
-    }).join("");
-    const verdict = !revealed
-      ? ""
-      : skipped
-        ? "Passed on this one"
-        : correctPick
-          ? "That's it"
-          : "Not this one";
-    return `
-      <div class="study-session-progress" aria-hidden="true"><span style="width:${pct}%"></span></div>
-      <div class="study-quiz-stage${revealed ? " is-revealed" : ""}">
-        <p class="study-kicker">Question ${escapeHtml(String(session.index + 1))} of ${escapeHtml(String(total))}</p>
-        <h2>${escapeHtml(question.q || "")}</h2>
-        ${verdict ? `<p class="study-quiz-verdict${skipped ? " is-skip" : correctPick ? " is-right" : " is-wrong"}">${verdict}</p>` : ""}
-        ${short ? `<div class="dojo-short-answer"><label for="dojoShortAnswer">Your answer</label><textarea id="dojoShortAnswer" rows="4" placeholder="Explain it in your own words…" ${revealed || checking ? "readonly" : ""}>${escapeHtml(session.writtenAnswers?.[session.index] || "")}</textarea>
-          ${revealed || checking ? `<div class="dojo-reference-answer"><strong>Reference answer</strong><p>${escapeHtml(question.choices?.[0] || "")}</p></div>` : ""}
-          ${checking ? `<p>Compare your answer, then assess your understanding.</p><div class="dojo-self-grade"><button class="study-chip-btn" type="button" data-short-grade="1">Needs practice</button><button class="study-primary-btn" type="button" data-short-grade="0">Got it</button></div>` : ""}
-        </div>` : `<div class="study-choices">${choices}</div>`}
-        ${fallback ? `<p class="study-quiz-explain">${escapeHtml(fallback)}</p>` : ""}
-        <div class="study-quiz-nav">
-          ${revealed
-            ? `<button class="study-primary-btn" type="button" data-study-continue ${session.submitting ? "disabled" : ""}>${session.submitting ? spinner() : last ? "See rundown" : "Continue"}</button>`
-            : checking ? "" : `${short ? '<button class="study-primary-btn" type="button" data-short-check>Check my answer</button>' : ""}<button class="study-chip-btn" type="button" data-study-skip>Skip</button>`}
-        </div>
-      </div>`;
-  }
-
-  function renderQuiz() {
+  function tickTestClock() {
     if (!quizSession) return;
-    const extra = quizSession.phase === "results" ? " is-recap" : quizSession.phase === "lookback" ? " is-lookback" : "";
-    openSessionShell(`
-      <button class="study-session-close" type="button" data-close-session aria-label="Close quiz">×</button>
-      <div class="study-session-frame is-quiz${extra}">${quizMarkup(quizSession)}</div>
-    `);
+    const text = formatClock(sessionElapsed(quizSession));
+    for (const clock of document.querySelectorAll("[data-test-clock]")) clock.textContent = text;
   }
 
-  async function startQuiz(quizId) {
+  function stopTestClock() {
+    clearInterval(testClock);
+    testClock = null;
+  }
+
+  function startTestClock() {
+    stopTestClock();
+    testClock = setInterval(tickTestClock, 1000);
+  }
+
+  // Paint the test wherever it lives: the Create panel, or the full-screen session layer.
+  function renderQuiz({ scrollTop = false } = {}) {
+    if (!quizSession) return;
+    if (quizSession.host === "panel") {
+      const root = sessionRoot();
+      if (root && !reviewSession && !root.classList.contains("hidden")) closeSessionLayer();
+      patchStudio({ keepScroll: !scrollTop });
+    } else {
+      const scroll = sessionRoot()?.querySelector(".study-test-scroll");
+      const keep = scrollTop ? 0 : scroll?.scrollTop || 0;
+      openSessionShell(`<div class="study-session-frame is-test">${testMarkup(quizSession, testHelpers("full"))}</div>`);
+      const next = sessionRoot()?.querySelector(".study-test-scroll");
+      if (next) next.scrollTop = keep;
+    }
+    quizSession.enter = false;
+  }
+
+  function focusTest(selector) {
+    const scope = quizSession?.host === "full" ? sessionRoot() : els.studyView;
+    scope?.querySelector(selector)?.focus({ preventScroll: true });
+  }
+
+  async function startQuiz(quizId, host = "panel") {
     try {
       const payload = await fetchStudyQuiz(state.session, quizId);
       const quiz = payload?.quiz || payload;
       if (!quiz?.questions?.length) {
-        showToast("This quiz has no questions yet.");
+        showToast("This test has no questions yet.");
         return;
       }
       const existingFronts = Array.isArray(payload?.existingFronts) ? payload.existingFronts : [];
-      quizSession = {
-        quiz,
-        index: 0,
-        selected: null,
-        answers: [],
-        phase: "ask",
-        adding: null,
-        submitting: false,
-        existingFronts,
-        added: addedQuestionIndexes(quiz.questions, existingFronts),
-        courseId: state.activeCourseId
-      };
-      renderQuiz();
+      quizSession = newQuizSession(quiz, {
+        host: host === "panel" && !quizPanelReady(quiz.id) ? "full" : host,
+        courseId: state.activeCourseId,
+        existingFronts
+      });
+      startTestClock();
+      renderQuiz({ scrollTop: true });
+      focusTest(".study-test-card [data-test-pick], .study-test-card textarea");
     } catch (error) {
-      showToast(error.message || "Could not open quiz.");
+      showToast(error.message || "Could not open this test.");
     }
   }
 
-  function revealQuizChoice(index) {
-    if (!quizSession || quizSession.phase !== "ask") return;
-    if (index !== -1 && !Number.isInteger(index)) return;
-    quizSession.selected = index;
-    quizSession.phase = "reveal";
-    const answer = Number(quizSession.quiz.questions[quizSession.index]?.answer);
-    if (index === answer) sound.tick();
-    renderQuiz();
-  }
-
-  async function continueQuiz() {
-    if (!quizSession || quizSession.phase !== "reveal" || quizSession.submitting) return;
-    const value = quizSession.selected == null ? -1 : quizSession.selected;
-    quizSession.answers.push(value);
-    quizSession.selected = null;
-    if (quizSession.index >= quizSession.quiz.questions.length - 1) {
-      quizSession.submitting = true;
-      renderQuiz();
-      try {
-        const payload = await submitStudyQuizAttempt(state.session, quizSession.quiz.id, quizSession.answers);
-        quizSession.phase = "results";
-        quizSession.score = payload.score;
-        quizSession.total = payload.total;
-        quizSession.results = payload.results || [];
-        quizSession.submitting = false;
-        sound.chime();
-      } catch (error) {
-        quizSession.answers.pop();
-        quizSession.selected = value;
-        quizSession.submitting = false;
-        showToast(error.message || "Could not submit quiz.");
-        renderQuiz();
-        return;
-      }
-    } else {
-      quizSession.index += 1;
-      quizSession.phase = "ask";
-    }
-    renderQuiz();
+  function newQuizSession(quiz, { host, courseId, existingFronts }) {
+    return {
+      quiz,
+      host,
+      courseId,
+      index: 0,
+      answers: quiz.questions.map(() => null),
+      phase: "test",
+      startedAt: Date.now(),
+      elapsedMs: 0,
+      report: null,
+      reviewFilter: "all",
+      enter: true,
+      adding: null,
+      existingFronts,
+      added: addedQuestionIndexes(quiz.questions, existingFronts)
+    };
   }
 
   function retakeQuiz() {
     if (!quizSession?.quiz) return;
-    quizSession = {
-      quiz: quizSession.quiz,
-      courseId: quizSession.courseId,
-      index: 0,
-      selected: null,
-      answers: [],
-      phase: "ask",
-      adding: null,
-      submitting: false,
-      existingFronts: quizSession.existingFronts || [],
-      added: addedQuestionIndexes(quizSession.quiz.questions, quizSession.existingFronts)
-    };
+    const { quiz, host, courseId, existingFronts } = quizSession;
+    quizSession = newQuizSession(quiz, { host, courseId, existingFronts: existingFronts || [] });
+    startTestClock();
+    renderQuiz({ scrollTop: true });
+  }
+
+  function goToQuestion(index) {
+    if (!quizSession || quizSession.phase !== "test") return;
+    const next = Math.max(0, Math.min(quizSession.quiz.questions.length - 1, index));
+    if (next === quizSession.index) return;
+    quizSession.index = next;
+    quizSession.enter = true;
+    renderQuiz({ scrollTop: true });
+    focusTest(`[data-test-go="${next}"].study-test-dot`);
+  }
+
+  function pickAnswer(choice) {
+    if (!quizSession || quizSession.phase !== "test") return;
+    const question = quizSession.quiz.questions[quizSession.index];
+    if (!question || question.type === "short" || !Number.isInteger(choice) || choice < 0 || choice >= (question.choices?.length || 0)) return;
+    quizSession.answers[quizSession.index] = quizSession.answers[quizSession.index] === choice ? null : choice;
     renderQuiz();
+    focusTest(`[data-test-pick="${choice}"]`);
+  }
+
+  // Typing only touches the counters so the textarea keeps focus and caret.
+  function writeAnswer(textarea) {
+    if (!quizSession || quizSession.phase !== "test") return;
+    quizSession.answers[quizSession.index] = textarea.value;
+    const scope = textarea.closest("[data-test]");
+    const words = textarea.value.trim().split(/\s+/).filter(Boolean).length;
+    const counter = scope.querySelector("[data-test-words]");
+    if (counter) counter.textContent = `${words} word${words === 1 ? "" : "s"}`;
+    const done = isAnswered(quizSession.quiz.questions[quizSession.index], textarea.value);
+    scope.querySelector(".study-test-dot.is-current")?.classList.toggle("is-answered", done);
+    const answered = answeredCount(quizSession);
+    const count = scope.querySelector("[data-test-answered]");
+    if (count) count.textContent = String(answered);
+    const left = scope.querySelector("[data-test-left]");
+    const remaining = quizSession.quiz.questions.length - answered;
+    if (left) left.textContent = remaining ? `${remaining} unanswered` : "All answered";
+  }
+
+  async function submitQuiz() {
+    if (!quizSession || quizSession.phase !== "test") return;
+    const session = quizSession;
+    session.elapsedMs = Date.now() - session.startedAt;
+    session.phase = "marking";
+    session.enter = true;
+    stopTestClock();
+    renderQuiz({ scrollTop: true });
+    try {
+      const answers = session.quiz.questions.map((question, index) => {
+        const value = session.answers[index];
+        return question.type === "short" ? String(value || "").trim() : Number.isInteger(value) ? value : -1;
+      });
+      const report = await submitStudyQuizAttempt(state.session, session.quiz.id, answers);
+      if (quizSession !== session) return;
+      session.report = report;
+      session.phase = "results";
+      session.enter = true;
+      sound.chime();
+    } catch (error) {
+      if (quizSession !== session) return;
+      session.phase = "test";
+      session.enter = true;
+      session.startedAt = Date.now() - session.elapsedMs;
+      startTestClock();
+      showToast(error.message || "Could not mark this test. Try again.");
+    }
+    renderQuiz({ scrollTop: true });
+  }
+
+  function endQuizSession() {
+    stopTestClock();
+    const wasPanel = quizSession?.host === "panel";
+    quizSession = null;
+    if (wasPanel) patchStudio({ keepScroll: false });
+  }
+
+  function leaveQuiz() {
+    if (!quizSession) return;
+    const finish = () => (quizSession?.host === "full" ? closeSession() : endQuizSession());
+    if (quizSession.phase === "test" && answeredCount(quizSession)) {
+      openDeleteConfirm({
+        title: "Leave this test?",
+        body: "Your answers so far won't be kept.",
+        confirmLabel: "Leave test",
+        onConfirm: finish
+      });
+      return;
+    }
+    finish();
+  }
+
+  function moveQuiz(host) {
+    if (!quizSession || quizSession.host === host) return;
+    quizSession.enter = true;
+    if (host === "panel") {
+      if (!els.studyView?.querySelector(".dojo-workspace")) return;
+      if (studioView?.kind !== "quiz" || studioView.id !== quizSession.quiz.id) {
+        studioView = { kind: "quiz", id: quizSession.quiz.id, questions: quizSession.quiz.questions, error: "", open: new Set() };
+      }
+      studioCollapsed = false;
+      quizSession.host = "panel";
+      closeSessionLayer();
+      render();
+      quizSession.enter = false;
+    } else {
+      quizSession.host = "full";
+      patchStudio({ keepScroll: false });
+      renderQuiz();
+    }
+    focusTest(".study-test-top [data-test-host]");
+  }
+
+  function showReview(index = null) {
+    if (!quizSession?.report) return;
+    quizSession.phase = "review";
+    quizSession.enter = true;
+    if (index != null && quizSession.report.results[index]?.status === "full") quizSession.reviewFilter = "all";
+    renderQuiz({ scrollTop: true });
+    if (index != null) {
+      const scope = quizSession.host === "full" ? sessionRoot() : els.studyView;
+      scope?.querySelector(`#study-answer-${index}`)?.scrollIntoView({ block: "start" });
+    }
   }
 
   async function addMissedCard(index) {
-    if (!quizSession || quizSession.phase !== "lookback") return;
+    if (!quizSession || quizSession.phase !== "review") return;
     if (quizSession.added?.has(index)) return;
-    const row = quizSession.results[index];
+    const row = quizSession.report?.results?.[index];
     const question = quizSession.quiz.questions[index];
     if (!row || !question || !quizSession.courseId) return;
     const correct = question.choices?.[row.answer] || "";
-    const back = [correct, row.explanation].filter(Boolean).join("\n\n");
+    const back = [correct, question.explanation].filter(Boolean).join("\n\n");
     quizSession.adding = index;
     renderQuiz();
     try {
@@ -2831,9 +2832,69 @@ export function createStudyHubController({
     } catch (error) {
       showToast(error.message || "Could not add flashcard.");
     } finally {
-      quizSession.adding = null;
-      renderQuiz();
+      if (quizSession) {
+        quizSession.adding = null;
+        renderQuiz();
+      }
     }
+  }
+
+  // Shared by the panel and full screen; returns true when the click belonged to the test.
+  function handleTestClick(event) {
+    if (!quizSession || !event.target.closest("[data-test]")) return false;
+    if (event.target.closest("[data-test-exit]")) { leaveQuiz(); return true; }
+    const host = event.target.closest("[data-test-host]");
+    if (host) { moveQuiz(host.dataset.testHost); return true; }
+    const go = event.target.closest("[data-test-go]");
+    if (go) { goToQuestion(Number(go.dataset.testGo)); return true; }
+    const pick = event.target.closest("[data-test-pick]");
+    if (pick) { pickAnswer(Number(pick.dataset.testPick)); return true; }
+    if (event.target.closest("[data-test-submit]")) { void submitQuiz(); return true; }
+    if (event.target.closest("[data-quiz-lookback]")) { showReview(); return true; }
+    const jump = event.target.closest("[data-test-review]");
+    if (jump) { showReview(Number(jump.dataset.testReview)); return true; }
+    if (event.target.closest("[data-quiz-recap]")) {
+      quizSession.phase = "results";
+      quizSession.enter = true;
+      renderQuiz({ scrollTop: true });
+      return true;
+    }
+    const filter = event.target.closest("[data-test-filter]");
+    if (filter) {
+      quizSession.reviewFilter = filter.dataset.testFilter;
+      quizSession.enter = true;
+      renderQuiz({ scrollTop: true });
+      return true;
+    }
+    if (event.target.closest("[data-quiz-retake]")) { retakeQuiz(); return true; }
+    if (event.target.closest("[data-test-finish]")) {
+      if (quizSession.host === "full") closeSession();
+      else endQuizSession();
+      return true;
+    }
+    const miss = event.target.closest("[data-add-missed]");
+    if (miss) { void addMissedCard(Number(miss.dataset.addMissed)); return true; }
+    return true;
+  }
+
+  function handleTestKey(event) {
+    if (!quizSession || quizSession.phase !== "test" || event.metaKey || event.ctrlKey || event.altKey) return false;
+    if (event.target.closest?.("input, textarea, select, [contenteditable=true]")) return false;
+    const question = quizSession.quiz.questions[quizSession.index];
+    const letter = "abcd".indexOf(event.key.toLowerCase());
+    const number = ["1", "2", "3", "4"].indexOf(event.key);
+    const choice = number >= 0 ? number : letter;
+    if (choice >= 0 && question?.type !== "short") {
+      event.preventDefault();
+      pickAnswer(choice);
+      return true;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      goToQuestion(quizSession.index + (event.key === "ArrowRight" ? 1 : -1));
+      return true;
+    }
+    return false;
   }
 
   function handleSessionClick(event) {
@@ -2870,51 +2931,7 @@ export function createStudyHubController({
       if (grade) gradeReview(grade.dataset.studyGrade);
       return;
     }
-    if (!quizSession) return;
-    if (event.target.closest("[data-short-check]") && quizSession.phase === "ask") {
-      const value = els.studySession.querySelector("#dojoShortAnswer")?.value.trim() || "";
-      if (!value) { showToast("Write an answer first, or skip this question."); return; }
-      quizSession.writtenAnswers ||= {};
-      quizSession.writtenAnswers[quizSession.index] = value;
-      quizSession.phase = "check";
-      renderQuiz();
-      return;
-    }
-    const selfGrade = event.target.closest("[data-short-grade]");
-    if (selfGrade && quizSession.phase === "check") {
-      quizSession.phase = "ask";
-      revealQuizChoice(Number(selfGrade.dataset.shortGrade));
-      return;
-    }
-    const choice = event.target.closest("[data-study-choice]");
-    if (choice && quizSession.phase === "ask" && quizSession.quiz.questions[quizSession.index]?.type !== "short") {
-      revealQuizChoice(Number(choice.dataset.studyChoice));
-      return;
-    }
-    if (event.target.closest("[data-study-skip]")) {
-      revealQuizChoice(-1);
-      return;
-    }
-    if (event.target.closest("[data-study-continue]")) {
-      void continueQuiz();
-      return;
-    }
-    if (event.target.closest("[data-quiz-lookback]")) {
-      quizSession.phase = "lookback";
-      renderQuiz();
-      return;
-    }
-    if (event.target.closest("[data-quiz-recap]")) {
-      quizSession.phase = "results";
-      renderQuiz();
-      return;
-    }
-    if (event.target.closest("[data-quiz-retake]")) {
-      retakeQuiz();
-      return;
-    }
-    const miss = event.target.closest("[data-add-missed]");
-    if (miss) void addMissedCard(Number(miss.dataset.addMissed));
+    handleTestClick(event);
   }
 
   function handleSessionKey(event) {
@@ -2939,15 +2956,7 @@ export function createStudyHubController({
       }
       return;
     }
-    if (quizSession?.phase === "ask" && quizSession.quiz.questions[quizSession.index]?.type !== "short" && ["1", "2", "3", "4"].includes(event.key)) {
-      event.preventDefault();
-      revealQuizChoice(Number(event.key) - 1);
-      return;
-    }
-    if (quizSession?.phase === "reveal" && event.key === "Enter") {
-      event.preventDefault();
-      void continueQuiz();
-    }
+    if (quizSession?.host === "full" && !confirmOpen()) handleTestKey(event);
   }
 
   function closeNote() {
@@ -3027,6 +3036,15 @@ export function createStudyHubController({
       return true;
     }
     if (confirmOpen()) return false;
+    if (quizSession?.host === "panel") {
+      if (document.activeElement?.matches?.("[data-test] textarea")) document.activeElement.blur();
+      else leaveQuiz();
+      return true;
+    }
+    if (quizSession && els.studyView?.querySelector(".dojo-workspace")) {
+      moveQuiz("panel");
+      return true;
+    }
     if (reviewSession || quizSession) {
       closeSession();
       return true;
@@ -3220,6 +3238,7 @@ export function createStudyHubController({
   }
 
   function handleViewKey(event) {
+    if (quizSession?.host === "panel" && event.target.closest?.("[data-test]") && handleTestKey(event)) return;
     if (event.key === "Enter" && !event.shiftKey && event.target.matches?.("[data-typing-answer]")) {
       event.preventDefault();
       event.target.closest(".dojo-qa")?.querySelector("[data-typing-check]:not(:disabled)")?.click();
@@ -3255,6 +3274,10 @@ export function createStudyHubController({
   function bindEvents() {
     els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
     els.studyView?.addEventListener("input", (event) => {
+      if (quizSession && event.target.matches?.("[data-test-written]")) {
+        writeAnswer(event.target);
+        return;
+      }
       if (studioView && event.target.matches?.("[data-deck-query]")) {
         studioView.query = event.target.value;
         studioView.flipIndex = 0;
@@ -3356,6 +3379,9 @@ export function createStudyHubController({
       if (event.target === els.studyNoteOverlay) closeNote();
     });
     els.studySession?.addEventListener("click", (event) => { void handleSessionClick(event); });
+    els.studySession?.addEventListener("input", (event) => {
+      if (quizSession && event.target.matches?.("[data-test-written]")) writeAnswer(event.target);
+    });
     els.studySession?.addEventListener("submit", (event) => {
       if (!event.target.closest("[data-study-ask]")) return;
       event.preventDefault();
@@ -3376,7 +3402,7 @@ export function createStudyHubController({
     closeSession,
     loadCourse,
     resetCourseCaches,
-    isSessionOpen: () => Boolean(reviewSession || quizSession)
+    isSessionOpen: () => Boolean(reviewSession || quizSession?.host === "full")
   };
 }
 

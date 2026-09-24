@@ -1,5 +1,6 @@
 // Markup for decks, notes, and tests opened inside the Create panel.
 // studyHub owns the state and events; everything here is a pure function of it.
+import { questionMarks, testSummary } from "./studyTest.js";
 
 export const DECK_LAYOUTS = [["column", "Column"], ["list", "List"], ["toggle", "Toggle"], ["typing", "Typing"], ["flip", "Flip"]];
 export const DECK_SORTS = [["original", "Original order"], ["source", "Source page"], ["alpha", "A–Z"], ["starred", "Starred first"]];
@@ -149,12 +150,14 @@ export function quizViewMarkup(view, quiz, { escapeHtml }) {
         const answer = Number(question.answer);
         const choices = short ? "" : `<ol class="dojo-quiz-choices">${(question.choices || []).map((choice, i) => `<li${i === answer ? ' class="is-answer"' : ""}><span>${"ABCD"[i]}</span>${escapeHtml(choice)}</li>`).join("")}</ol>`;
         const model = short ? `<p class="dojo-quiz-model"><span>Model answer</span>${escapeHtml(question.choices?.[0] || "")}</p>` : "";
-        return `<details class="dojo-qa is-toggle" data-question-index="${index}"${view.open.has(index) ? " open" : ""}><summary><span class="dojo-toggle-chevron">${ICONS.chevron}</span><span><small class="dojo-quiz-num">Question ${index + 1}${question.topic ? ` · ${escapeHtml(question.topic)}` : ""}</small><strong>${escapeHtml(question.q || "")}</strong></span></summary>${choices}${model}${question.explanation ? `<p>${escapeHtml(question.explanation)}</p>` : ""}</details>`;
+        const marks = questionMarks(question);
+        return `<details class="dojo-qa is-toggle" data-question-index="${index}"${view.open.has(index) ? " open" : ""}><summary><span class="dojo-toggle-chevron">${ICONS.chevron}</span><span><small class="dojo-quiz-num">Question ${index + 1}${question.topic ? ` · ${escapeHtml(question.topic)}` : ""}<span class="dojo-quiz-marks">${marks} mark${marks === 1 ? "" : "s"}</span></small><strong>${escapeHtml(question.q || "")}</strong></span></summary>${choices}${model}${question.explanation ? `<p>${escapeHtml(question.explanation)}</p>` : ""}</details>`;
       }).join("");
   const count = questions?.length ?? quiz.questionCount ?? 0;
+  const summary = questions?.length ? testSummary(questions) : null;
   return `<div class="dojo-studio-content dojo-studio-view" data-studio-kind="quiz">
     ${viewHeader(quiz.title || "Practice test", count, { escapeHtml, fullLabel: "Take test full screen" })}
-    <div class="dojo-view-tools"><button class="dojo-view-action is-primary" type="button" data-studio-learn${count ? "" : " disabled"}>${ICONS.play}<span>Start test</span></button><small class="dojo-view-tip">Tap a question to peek at its answer</small></div>
+    <div class="dojo-view-tools"><button class="dojo-view-action is-primary" type="button" data-studio-learn${count ? "" : " disabled"}>${ICONS.play}<span>Start test</span></button>${summary ? `<small class="dojo-view-tip">${summary.marks} marks · about ${summary.minutes} min</small>` : ""}</div>
     <div class="dojo-view-body">${body}</div>
   </div>`;
 }

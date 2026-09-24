@@ -2795,6 +2795,7 @@ test("study quiz GET includes answers for in-session reveal", async () => {
   assert.deepEqual(quiz.questions.slice(0, 1), [{
     q: "What is a cell?",
     topic: "Basics",
+    marks: 1,
     choices: ["A", "B", "C", "D"],
     answer: 2,
     explanation: "secret",
@@ -2878,6 +2879,8 @@ test("study quiz attempt grades in-session without storing", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().score, 1);
   assert.equal(res.json().total, 1);
+  assert.equal(res.json().results[0].status, "full");
+  assert.ok(res.json().summary.strengths.length);
   assert.equal(stored, false);
 });
 

@@ -314,3 +314,38 @@ test("generated flashcards ask for and save citations", () => {
   assert.match(generate, /sources: cardSources\(card\.sources, citedFiles\)/);
   assert.match(generate, /back: card\.back,\n    sources: card\.sources/);
 });
+
+test("practice test marking gives partial credit and falls back without the AI marker", async () => {
+  const { gradeQuizAttempt, questionMarks, estimateWrittenMarks } = await import("../server/study/grade.js");
+  const quiz = { questions: [
+    { q: "Pick B", topic: "Basics", marks: 2, choices: ["A", "B", "C", "D"], answer: 1 },
+    { q: "Explain osmosis", type: "short", topic: "Osmosis", marks: 3, choices: ["Water moves across a membrane toward higher solute concentration", "Needs more practice"], answer: 0 },
+    { q: "Old question", choices: ["A", "B", "C", "D"], answer: 0 }
+  ] };
+  assert.equal(questionMarks(quiz.questions[2]), 1);
+  assert.equal(questionMarks({ type: "short" }), 3);
+  const complete = async () => ({ content: JSON.stringify({
+    written: [{ index: 1, earned: 2, feedback: "Nice start — mention solute concentration." }],
+    headline: "Solid effort!", strengths: ["Basics"], growth: ["Osmosis detail"], next: ["Revise osmosis"]
+  }) });
+  const ai = await gradeQuizAttempt({ quiz, submitted: [1, "Water moves across a membrane", -1], complete });
+  assert.equal(ai.total, 6);
+  assert.equal(ai.score, 4);
+  assert.deepEqual(ai.results.map(row => row.status), ["full", "partial", "skipped"]);
+  assert.equal(ai.results[1].feedback, "Nice start — mention solute concentration.");
+  assert.equal(ai.marker, "ai");
+  const offline = await gradeQuizAttempt({ quiz, submitted: [0, "", 0], complete: async () => { throw new Error("down"); } });
+  assert.equal(offline.marker, "estimate");
+  assert.deepEqual(offline.results.map(row => row.status), ["revisit", "skipped", "full"]);
+  assert.ok(offline.summary.growth.length && offline.summary.next.length);
+  assert.ok(estimateWrittenMarks("water crosses a membrane toward higher solute concentration", quiz.questions[1].choices[0], 3) >= 2);
+});
+
+test("generated questions carry 1-5 marks", () => {
+  const questions = cleanQuestions({ questions: [
+    { q: "Q1", marks: 9, choices: ["a", "b", "c", "d"], answer: 0 },
+    { q: "Q2", type: "short", modelAnswer: "M" },
+    { q: "Q3", marks: 2, choices: ["a", "b", "c", "d"], answer: 1 }
+  ] }, 5, "mixed");
+  assert.deepEqual(questions.map(q => q.marks), [5, 3, 2]);
+});

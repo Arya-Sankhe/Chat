@@ -108,7 +108,7 @@ function visionModel(config) {
   return config?.study?.visionModel || OPENROUTER_VISION_MODEL;
 }
 
-async function streamComplete({
+export async function streamComplete({
   context,
   config,
   signal,
@@ -449,6 +449,11 @@ export function cardSources(raw, files = []) {
   return out;
 }
 
+function cleanMarks(value, fallback) {
+  const marks = Math.round(Number(value));
+  return Number.isFinite(marks) && marks >= 1 ? Math.min(5, marks) : fallback;
+}
+
 export function cleanQuestions(parsed, count, examType = "mixed") {
   const rows = Array.isArray(parsed.questions) ? parsed.questions : [];
   const questions = rows.flatMap((entry) => {
@@ -457,7 +462,7 @@ export function cleanQuestions(parsed, count, examType = "mixed") {
       if (examType === "mcq") return [];
       const modelAnswer = String(entry.modelAnswer || "").trim();
       if (!q || !modelAnswer) return [];
-      return [{ q, type: "short", topic: String(entry.topic || "").trim(), choices: [modelAnswer, "Needs more practice"], answer: 0, explanation: String(entry.explanation || ""), whys: [] }];
+      return [{ q, type: "short", topic: String(entry.topic || "").trim(), marks: cleanMarks(entry.marks, 3), choices: [modelAnswer, "Needs more practice"], answer: 0, explanation: String(entry.explanation || ""), whys: [] }];
     }
     if (examType === "short") return [];
     const choices = (Array.isArray(entry?.choices) ? entry.choices : [])
@@ -469,7 +474,7 @@ export function cleanQuestions(parsed, count, examType = "mixed") {
     const whys = choices.map((_, index) => String(entry?.whys?.[index] || "").trim());
     const explanation = String(entry?.explanation || whys[answer] || "").trim();
     const topic = String(entry?.topic || "").trim();
-    return [{ q, topic, choices, answer, explanation, whys }];
+    return [{ q, topic, marks: cleanMarks(entry?.marks, 1), choices, answer, explanation, whys }];
   }).slice(0, count);
   if (questions.length < Math.min(count, 1)) throw new HttpError(502, GENERATION_FAILED);
   return questions;
@@ -506,15 +511,16 @@ export function studyGenerationGuidance(options = {}, type = "") {
 }
 
 export function studyQuizSystemPrompt(questionCount, examType, options = {}) {
-  const mcq = '{"q":"...","topic":"short concept","choices":["A","B","C","D"],"answer":0,"whys":["why A","why B","why C","why D"]}';
-  const short = '{"type":"short","q":"...","topic":"short concept","modelAnswer":"concise reference answer","explanation":"..."}';
+  const mcq = '{"q":"...","topic":"short concept","marks":1,"choices":["A","B","C","D"],"answer":0,"whys":["why A","why B","why C","why D"]}';
+  const short = '{"type":"short","q":"...","topic":"short concept","marks":3,"modelAnswer":"concise reference answer covering one key point per mark","explanation":"..."}';
   const mcqRules = "Multiple-choice questions need four distinct choices, a zero-based answer index, and four brief whys explaining the correct and incorrect choices.";
   const format = examType === "short"
     ? `Every question must be short answer in this shape: ${short}. Do not include multiple-choice questions.`
     : examType === "mixed"
       ? `Include exactly ${Math.floor(questionCount / 2)} short-answer questions in this shape: ${short}, and ${Math.ceil(questionCount / 2)} multiple-choice questions in this shape: ${mcq}. ${mcqRules}`
       : `Every question must be multiple choice in this shape: ${mcq}. Do not include short-answer questions. ${mcqRules}`;
-  return `You create a practice test from source material. Produce exactly ${questionCount} questions. Return ONLY valid JSON: {"title":"...","questions":[...]}. No markdown, no commentary. ${format}${studyGenerationGuidance(options, "quiz")}`;
+  const marking = 'Give every question whole "marks" from 1 to 5 that reflect the work it takes: 1 for recall multiple choice, 2 for multiple choice that needs application or multi-step reasoning, 2-3 for short written explanations, and 4-5 only for extended answers that need several distinct points. For written answers, the model answer must contain one clear key point per mark.';
+  return `You create a practice test from source material. Produce exactly ${questionCount} questions. Return ONLY valid JSON: {"title":"...","questions":[...]}. No markdown, no commentary. ${format} ${marking}${studyGenerationGuidance(options, "quiz")}`;
 }
 
 export const MIND_MAP_SYSTEM_PROMPT = "Create a high-yield concept map from the source material, not a syllabus outline. Choose one central concept or focus question. Rank ideas by how much they explain, connect, or help apply the material. This will be drawn as a compact top-down diagram, so write short node labels, not paragraphs. Reply with markdown only: one # central label; 2–5 ## branches for distinct core concepts; under each, 2–4 bullets in the form 'concept → relationship → concept or outcome' (under 10 words each). Where a branch genuinely has a distinct mechanism or category, add ### sub-branches and indented bullets to show further levels; do not force depth or put heading markers inside bullets. Make links meaningful: mechanisms, causes, contrasts, prerequisites, or applications. Include a supported connection between two branches when possible. Prefer a clarifying example over extra facts. Omit course logistics, references, repetition, and trivia. Never invent details; use fewer branches when the source is sparse. No code fences or commentary.";
