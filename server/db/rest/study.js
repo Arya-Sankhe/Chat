@@ -113,10 +113,10 @@ export async function deleteStudyCardsForSource(client, userId, {
     if (!projectId) return null;
     query.document_file_id = "is.null";
     query.note_id = "is.null";
-    query.deck_key = "is.null";
   } else {
     return null;
   }
+  if (!deckKey) query.deck_key = "is.null";
   return client.request("study_cards", {
     method: "DELETE",
     query,
@@ -174,5 +174,4 @@ export async function deleteStudyQuiz(client, userId, id, { signal } = {}) {
     signal
   });
 }
-
 

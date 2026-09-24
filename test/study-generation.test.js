@@ -15,6 +15,23 @@ import { selectVisionCandidates, mergePageTexts, collectDigitalPageText } from "
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+test("single-file independent decks retain cached visual source text", async () => {
+  for (const kind of ["pdf", "pptx"]) {
+    const file = { id: "scan-1", kind, page_count: 1, visual_ready_at: "ready" };
+    const context = { user: { id: "user-1" }, db: {
+      async listDocumentChunksForFiles() { return []; },
+      async listDocumentPages() {
+        return [{ page_number: 1, text: "A transcribed diagram explains osmosis.", image_key: "page.png" }];
+      }
+    } };
+    const source = { documentFiles: [file] };
+    const text = await loadGenerationSourceText({ context, config: {}, source });
+    assert.equal(text, await loadGenerationSourceText({ context, config: {}, source: { documentFile: file } }));
+    assert.match(text, /transcribed diagram/);
+    assert.deepEqual(source, { documentFiles: [file] }, "keep the independent deck source intact for saving");
+  }
+});
+
 test("exact-page study generation reads only the requested page", async () => {
   const context = { user: { id: "user-1" }, db: {
     async listDocumentChunksForFiles() {

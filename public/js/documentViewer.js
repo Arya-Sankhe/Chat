@@ -112,6 +112,7 @@ export function createDocumentViewer({
     const step = event.target.closest("[data-pdf-step]");
     if (step) goToPdfPage(currentPdfPage + Number(step.dataset.pdfStep));
     if (event.target.closest("[data-preview-refresh]")) {
+      if (!state.viewer.open || state.viewer.loading || state.viewer.kind === "editable") return;
       const { downloadAttachmentId, attachmentId, fileName, sourceKind } = state.viewer;
       const requestToken = ++viewerTransitionToken;
       stopDocumentPreviewPoll();
@@ -436,6 +437,7 @@ export function createDocumentViewer({
     const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
     const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
     const editable = viewer.kind === "editable";
+    toolbar.querySelector("[data-preview-refresh]").hidden = editable;
     elements.documentViewerBody.classList.toggle("is-editable", editable);
     elements.documentViewerDownload.classList.toggle("hidden", !downloadHref || inlineViewer);
     elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref || inlineViewer);

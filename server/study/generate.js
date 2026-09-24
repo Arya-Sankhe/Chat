@@ -267,13 +267,13 @@ async function loadComboSourceText({ context, source, signal }) {
 }
 
 export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents }) {
-  if (source.documentFiles?.length) return loadComboSourceText({ context, source, signal });
+  if (source.documentFiles?.length > 1) return loadComboSourceText({ context, source, signal });
   if (source.note) {
     const text = noteBody(source.note).trim();
     if (!text) throw new HttpError(400, "Material has no extracted text.");
     return text;
   }
-  const documentFile = source.documentFile;
+  const documentFile = source.documentFile || source.documentFiles?.[0];
   if (pageNumber) {
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || (documentFile.page_count && pageNumber > documentFile.page_count)) {
       throw new HttpError(400, `Page ${pageNumber} is outside this document.`);

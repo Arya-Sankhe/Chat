@@ -172,6 +172,16 @@ export function createStudyHubController({
     const key = `material:${kind}:${id}`;
     const open = quizMenuKey === key;
     const del = kind === "note" ? `data-delete-note="${escapeHtml(id)}"` : `data-delete-doc="${escapeHtml(id)}"`;
+    const cardMode = state.studyMaterials?.flashcardModes?.[`note:${id}`] || "";
+    const generate = kind === "note" ? [
+      ["flashcards", "rapid", "Create flashcards"],
+      ["flashcards", "deep", "Create deep flashcards"],
+      ["quiz", "", "Create practice test"]
+    ].map(([type, mode, label]) => {
+      const busy = [...generations.values()].some(job => job.courseId === state.activeCourseId && job.noteId === id && job.type === type && job.status === "running");
+      const done = type === "flashcards" && (cardMode === "deep" || (mode === "rapid" && cardMode === "rapid"));
+      return `<button class="study-menu-item" type="button" role="menuitem" data-study-generate="${type}" data-gen-kind="note" data-gen-id="${escapeHtml(id)}" data-mode="${mode}"${busy || done ? " disabled" : ""}>${label}</button>`;
+    }).join("") : "";
     return `
       <div class="study-card-menu-wrap">
         <button class="study-icon-btn" type="button" data-toggle-material-menu="${escapeHtml(key)}" aria-label="Material options" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
@@ -179,6 +189,7 @@ export function createStudyHubController({
         </button>
         <div class="study-menu${open ? "" : " hidden"}" role="menu">
           ${kind === "note" ? collectionPinMarkup(kind, id) : ""}
+          ${generate}
           <button class="study-menu-item study-menu-danger" type="button" role="menuitem" ${del}>Delete</button>
         </div>
       </div>`;
@@ -2847,6 +2858,7 @@ export function createStudyHubController({
     const gen = event.target.closest("[data-study-generate]");
     if (gen) {
       event.stopPropagation();
+      if (gen.disabled) return;
       return runGenerate(gen.dataset.genKind, gen.dataset.genId, gen.dataset.studyGenerate, {
         count: gen.dataset.count,
         mode: gen.dataset.mode

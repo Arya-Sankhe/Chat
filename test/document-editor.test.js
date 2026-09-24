@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { protectCurrencyDollars } from "../public/js/documentEditor.js";
 
 test("document editor exposes formatting, table, math, save, and export paths", async () => {
@@ -54,4 +55,60 @@ test("document viewer closes after its animation without waiting for the server 
   assert.match(close, /saveEditorNow\(\)/);
   assert.match(close, /await exitAnimation/);
   assert.doesNotMatch(close, /await .*save/);
+});
+
+test("preview refresh cannot detach an editable document or its pending edits", async () => {
+  class Element {
+    constructor() {
+      this.dataset = {};
+      this.innerHTML = "";
+      this.children = new Map();
+      this.listeners = {};
+      this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
+    }
+    querySelector(key) {
+      if (!this.children.has(key)) this.children.set(key, new Element());
+      return this.children.get(key);
+    }
+    addEventListener(type, fn) { this.listeners[type] = fn; }
+    setAttribute() {} toggleAttribute() {} before() {} after() {}
+  }
+  let toolbar, onChange, mounts = 0, destroys = 0, fetches = 0;
+  const source = await readFile(new URL("../public/js/documentViewer.js", import.meta.url), "utf8");
+  const factory = runInNewContext(source.replace(/^import .*\n/, "").replace("export function", "function") + "\ncreateDocumentViewer", {
+    document: {
+      createElement: () => (toolbar = new Element()), createComment: () => new Element(),
+      body: new Element(), addEventListener() {}
+    },
+    setTimeout: () => 0, clearTimeout() {},
+    mountDocumentEditor: async options => {
+      mounts++;
+      onChange = options.onChange;
+      options.container.innerHTML = "Mounted editor";
+      return { destroy() { destroys++; } };
+    }
+  });
+  const elements = Object.fromEntries(["documentViewer", "documentViewerBody", "documentViewerTitle", "documentViewerMeta", "documentViewerDownload", "documentViewerDownloadMenu", "documentViewerFullscreen"].map(key => [key, new Element()]));
+  const state = { session: { access_token: "stub" }, viewer: { open: true, attachmentId: "doc-1", kind: "editable", markdown: "Original", revision: 1 } };
+  const viewer = factory({ elements, state, escapeHtml: String, fetchAttachmentView: async () => { fetches++; return { kind: "pdf", markdown: "Preview" }; } });
+  viewer.renderDocumentViewer();
+  await new Promise(resolve => setImmediate(resolve));
+  onChange("Unsaved edits");
+  const refresh = toolbar.querySelector("[data-preview-refresh]");
+  assert.equal(refresh.hidden, true);
+  const clickRefresh = () => toolbar.listeners.click({ target: { closest: selector => selector === "[data-preview-refresh]" ? refresh : null } });
+  clickRefresh();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetches, 0);
+  assert.equal(mounts, 1);
+  assert.equal(destroys, 0);
+  assert.equal(elements.documentViewerBody.innerHTML, "Mounted editor");
+  assert.match(elements.documentViewerMeta.textContent, /UNSAVED/);
+
+  viewer.setDocumentViewerState({ kind: "pdf" });
+  assert.equal(refresh.hidden, false);
+  clickRefresh();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetches, 1, "non-editable previews can still refresh");
+  assert.equal(state.viewer.loading, false);
 });

@@ -853,6 +853,28 @@ test("deleteStudyCard DELETEs one card scoped to the user", async () => {
   });
 });
 
+test("deleting a file or note deck preserves separately keyed cards from that source", async () => {
+  for (const [input, column] of [["documentFileId", "document_file_id"], ["noteId", "note_id"]]) {
+    const base = { user_id: "user_1", project_id: "course_1", [column]: "source_1" };
+    const rows = [
+      { ...base, id: "original", deck_key: null },
+      { ...base, id: "chat", deck_key: "chat:11111111-1111-1111-1111-111111111111" },
+      { ...base, id: "combo", deck_key: "combo_11111111-1111-1111-1111-111111111111" },
+      { ...base, id: "other-user", user_id: "user_2", deck_key: null },
+      { ...base, id: "other-course", project_id: "course_2", deck_key: null }
+    ];
+    await withStubbedFetch(async (url, options) => {
+      assert.equal(options.method, "DELETE");
+      const filters = [...new URL(url).searchParams];
+      const deleted = rows.filter(row => filters.every(([key, value]) => value === "is.null" ? row[key] == null : row[key] === value.slice(3)));
+      assert.deepEqual(deleted.map(row => row.id), ["original"]);
+      return new Response(null, { status: 204 });
+    }, async () => {
+      await new SupabaseRest(FAKE_CONFIG).deleteStudyCardsForSource("user_1", { projectId: "course_1", [input]: "source_1" });
+    });
+  }
+});
+
 test("deleteStudyCardsForSource can delete a combo deck by deck_key", async () => {
   await withStubbedFetch(async (url, options = {}) => {
     assert.equal(options.method, "DELETE");

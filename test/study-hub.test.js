@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import {
   collectFlashcardModes,
@@ -15,6 +16,47 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = resolve(here, "..", "public");
+
+test("photo transcript menus generate flashcards and practice tests from the note", async () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const functions = ["materialMenu", "practiceMarkup", "handleViewClick", "runGenerate", "requestKeyFor", "generationMatchesRequest"].map(name => {
+    const source = hub.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n  \\}`))?.[0];
+    assert.ok(source, `${name} not found`);
+    return source;
+  }).join("\n");
+  const jobs = [];
+  const ctx = {
+    state: { session: {}, activeCourseId: "course-1", studyMaterials: {
+      documents: [], notes: [{ id: "photo-1", kind: "image_transcript", title: "Handwritten notes" }], flashcardModes: {}
+    } },
+    els: { studyView: { querySelector: () => null } },
+    generations: new Map(), quizMenuKey: "", pinnedCollection: new Set(),
+    escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
+    isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
+    startGeneration: job => jobs.push(job)
+  };
+  runInNewContext(functions, ctx);
+  const markup = ctx.practiceMarkup();
+  assert.match(markup, /Handwritten notes/);
+  const buttons = [...markup.matchAll(/<button\b[^>]*data-study-generate="[^"]+"[^>]*>/g)].map(match => match[0]);
+  assert.equal(buttons.length, 3);
+  for (const html of buttons) {
+    const attr = name => html.match(new RegExp(`${name}="([^"]*)"`))?.[1];
+    const button = { dataset: { studyGenerate: attr("data-study-generate"), genKind: attr("data-gen-kind"), genId: attr("data-gen-id"), mode: attr("data-mode") } };
+    await ctx.handleViewClick({ stopPropagation() {}, target: { closest: selector => selector === "[data-study-generate]" ? button : selector === ".study-card-menu-wrap" ? {} : null } });
+  }
+  assert.deepEqual(jobs.map(job => ({ ...job.body })), [
+    { type: "flashcards", noteId: "photo-1", mode: "rapid" },
+    { type: "flashcards", noteId: "photo-1", mode: "deep" },
+    { type: "quiz", noteId: "photo-1", count: 10 }
+  ]);
+  ctx.state.studyMaterials.flashcardModes["note:photo-1"] = "rapid";
+  assert.match(ctx.materialMenu("note", "photo-1"), /data-mode="rapid" disabled/);
+  assert.doesNotMatch(ctx.materialMenu("note", "photo-1"), /data-mode="deep" disabled/);
+  ctx.generations.set("job-1", { courseId: "course-1", noteId: "photo-1", type: "flashcards", status: "running" });
+  assert.match(ctx.materialMenu("note", "photo-1"), /data-mode="deep" disabled/);
+  assert.doesNotMatch(ctx.materialMenu("doc", "doc-1"), /data-gen-kind="note"/);
+});
 
 test("practice can create multi-file decks and quizzes", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
