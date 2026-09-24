@@ -52,6 +52,7 @@ export function createDocumentViewer({
   const pdfPageTasks = new Set();
   let pdfZoom = 1;
   let currentPdfPage = 1;
+  let initialPdfPage = 1;
   let resizeTimer = null;
   const toolbar = document.createElement("div");
   toolbar.className = "document-preview-toolbar hidden";
@@ -660,6 +661,9 @@ export function createDocumentViewer({
       container.appendChild(pageEl);
       placeholders.push(pageEl);
     }
+    // Citations open a source at the cited page; placeholders already reserve each page's height.
+    if (initialPdfPage > 1) goToPdfPage(initialPdfPage);
+    initialPdfPage = 1;
 
     const renderPage = async (pageEl) => {
       if (pageEl.dataset.rendered || token !== pdfRenderToken) return;
@@ -805,7 +809,7 @@ export function createDocumentViewer({
     });
   }
 
-  async function openDocumentViewer({ attachmentId, fileName = "", format = "", container = null, onClose = null }) {
+  async function openDocumentViewer({ attachmentId, fileName = "", format = "", container = null, onClose = null, page = 1 }) {
     resetPdf();
     if (isFullscreen) setFullscreen(false, { animate: false });
     if (!container) onViewerClose?.();
@@ -818,6 +822,7 @@ export function createDocumentViewer({
     else viewerHome.after(elements.documentViewer);
     pdfZoom = 1;
     currentPdfPage = 1;
+    initialPdfPage = Math.max(1, Math.trunc(Number(page)) || 1);
     toolbar.querySelector("select").value = "1";
     viewerTransitionToken += 1;
     stopDocumentPreviewPoll();

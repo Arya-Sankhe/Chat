@@ -1,7 +1,7 @@
 import { single } from "./helpers.js";
 
 const NOTE_SELECT = "id,user_id,project_id,document_file_id,kind,title,content,created_at";
-const CARD_SELECT = "id,user_id,project_id,document_file_id,note_id,deck_key,front,back,starred,created_at";
+const CARD_SELECT = "id,user_id,project_id,document_file_id,note_id,deck_key,front,back,starred,sources,created_at";
 const QUIZ_SELECT = "id,user_id,project_id,document_file_id,note_id,deck_key,title,questions,created_at";
 
 export async function listStudyNotes(client, userId, projectId, { signal } = {}) {

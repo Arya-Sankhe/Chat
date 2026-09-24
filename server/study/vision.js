@@ -3,7 +3,7 @@ const MAX_VISION_PAGES = 24;
 const VISION_BATCH = 6;
 export const STUDY_VISION_VERSION = 1;
 
-function pageKey(meta = {}) {
+export function pageKey(meta = {}) {
   const page = Number(meta.page ?? meta.page_number);
   if (Number.isInteger(page) && page > 0) return page;
   const slide = Number(meta.slide);
@@ -82,7 +82,7 @@ function chunkMetaForPage(chunks, pageNumber) {
   return {};
 }
 
-export function mergePageTexts({ digitalByPage, visionByPage }) {
+export function mergePageTexts({ digitalByPage, visionByPage, markPages = false }) {
   const numbers = new Set([
     ...[...(digitalByPage || new Map()).keys()],
     ...[...(visionByPage || new Map()).keys()]
@@ -91,15 +91,15 @@ export function mergePageTexts({ digitalByPage, visionByPage }) {
   for (const n of [...numbers].sort((a, b) => a - b)) {
     const digital = String(digitalByPage?.get(n) || "").trim();
     const vision = String(visionByPage?.get(n) || "").trim();
+    let text = digital || vision;
     if (digital && vision) {
       // Prefer digital body; append vision only when it adds non-duplicate content.
-      if (vision === digital || digital.includes(vision)) parts.push(digital);
-      else if (vision.includes(digital)) parts.push(vision);
-      else parts.push(`${digital}\n\n${vision}`);
-    } else {
-      const text = digital || vision;
-      if (text) parts.push(text);
+      if (vision === digital || digital.includes(vision)) text = digital;
+      else if (vision.includes(digital)) text = vision;
+      else text = `${digital}\n\n${vision}`;
     }
+    // Page markers let generators cite where each fact came from.
+    if (text) parts.push(markPages ? `[p.${n}]\n${text}` : text);
   }
   return parts.join("\n\n").trim();
 }
@@ -111,7 +111,8 @@ export async function enrichSourceWithSelectiveVision({
   chunks,
   signal,
   streamVision,
-  onStage
+  onStage,
+  markPages = false
 }) {
   if (!documentFile?.id) {
     return { text: "", warning: null, visionCount: 0 };
@@ -185,7 +186,7 @@ export async function enrichSourceWithSelectiveVision({
     .filter(Boolean)
     .join("\n");
 
-  const merged = [orphan, mergePageTexts({ digitalByPage, visionByPage })].filter(Boolean).join("\n\n").trim();
+  const merged = [orphan, mergePageTexts({ digitalByPage, visionByPage, markPages })].filter(Boolean).join("\n\n").trim();
   const warning = truncated
     ? `Vision limited to ${MAX_VISION_PAGES} pages; ${skipped} additional visual candidates were skipped.`
     : null;

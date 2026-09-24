@@ -4,7 +4,7 @@ import { OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, resolveProvider } from 
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { salvageJsonObjects } from "./jsonSalvage.js";
-import { enrichSourceWithSelectiveVision } from "./vision.js";
+import { enrichSourceWithSelectiveVision, pageKey } from "./vision.js";
 
 const GENERATE_MAX_MS = 10 * 60 * 1000;
 const INACTIVITY_MS = 30_000;
@@ -243,7 +243,19 @@ function comboDeckKey() {
   return `combo_${randomUUID()}`;
 }
 
-async function loadComboSourceText({ context, source, signal }) {
+// With cite, pages are marked [p.N] so generated cards can point back to them.
+function chunkText(chunks, cite = false) {
+  let page = null;
+  return chunks.map((chunk) => {
+    const text = String(chunk.text || "").trim();
+    const n = cite && text ? pageKey(chunk.metadata || {}) : null;
+    const mark = n && n !== page ? `[p.${n}]\n` : "";
+    if (n) page = n;
+    return text && `${mark}${text}`;
+  }).filter(Boolean).join("\n").trim();
+}
+
+async function loadComboSourceText({ context, source, signal, cite = false }) {
   const files = source.documentFiles || [];
   const ids = files.map((file) => file.id).filter(Boolean);
   const chunks = await context.db.listDocumentChunksForFiles(context.user.id, ids, {
@@ -251,23 +263,18 @@ async function loadComboSourceText({ context, source, signal }) {
     signal
   }) || [];
   const parts = [];
-  for (const file of files) {
-    const text = chunks
-      .filter((chunk) => chunk.document_file_id === file.id)
-      .map((chunk) => String(chunk.text || "").trim())
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    if (text) parts.push(`--- ${fileDisplayName(file)} ---\n${text}`);
-  }
+  files.forEach((file, index) => {
+    const text = chunkText(chunks.filter((chunk) => chunk.document_file_id === file.id), cite);
+    if (text) parts.push(cite ? `[S${index + 1}] ${fileDisplayName(file)}\n${text}` : `--- ${fileDisplayName(file)} ---\n${text}`);
+  });
   const joined = parts.join("\n\n").trim();
   if (!joined) throw new HttpError(400, "Material has no extracted text.");
   // ponytail: dump-join, no vision; retrieve/cap per file if 5 fat PDFs start failing the model.
   return joined.slice(0, NOTE_CONTENT_CAP);
 }
 
-export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents }) {
-  if (source.documentFiles?.length > 1) return loadComboSourceText({ context, source, signal });
+export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents, cite = false }) {
+  if (source.documentFiles?.length > 1) return loadComboSourceText({ context, source, signal, cite });
   if (source.note) {
     const text = noteBody(source.note).trim();
     if (!text) throw new HttpError(400, "Material has no extracted text.");
@@ -290,7 +297,8 @@ export async function loadGenerationSourceText({ context, config, source, signal
       text = [text, visualText].filter(Boolean).join("\n\n");
     }
     if (!text.trim()) throw new HttpError(400, `Page ${pageNumber} has no readable content.`);
-    return `Page ${pageNumber} of ${fileDisplayName(documentFile)}:\n${text.slice(0, 24000)}`;
+    const heading = cite ? `[S1] ${fileDisplayName(documentFile)}\n[p.${pageNumber}]` : `Page ${pageNumber} of ${fileDisplayName(documentFile)}:`;
+    return `${heading}\n${text.slice(0, 24000)}`;
   }
   const chunks = await context.db.listDocumentChunksForFiles(context.user.id, [documentFile.id], {
     limit: 5000,
@@ -306,6 +314,7 @@ export async function loadGenerationSourceText({ context, config, source, signal
       chunks,
       signal,
       onStage,
+      markPages: cite,
       streamVision: ({ pages, signal: visionSignal }) => streamVisionBatch({
         context,
         config,
@@ -316,11 +325,11 @@ export async function loadGenerationSourceText({ context, config, source, signal
     text = enriched.text;
     warning = enriched.warning;
   } else {
-    text = chunks.map((chunk) => String(chunk.text || "").trim()).filter(Boolean).join("\n").trim();
+    text = chunkText(chunks, cite);
   }
   if (!text) throw new HttpError(400, "Material has no extracted text.");
   if (warning && onWarning) onWarning(warning);
-  return text;
+  return cite ? `[S1] ${fileDisplayName(documentFile)}\n${text}` : text;
 }
 
 const FLASHCARD_CAPS = { rapid: 50, deep: 250 };
@@ -418,8 +427,26 @@ export function cleanCards(parsed, max = FLASHCARD_CAPS.rapid, cardType = "") {
       front += `\n\n${choices.map((choice, index) => `${"ABCD"[index]}. ${choice}`).join("\n")}`;
       back = `${"ABCD"[answer]}. ${choices[answer]}\n\n${back}`;
     }
-    return [{ front, back }];
+    return [{ front, back, ...(Array.isArray(entry.sources) ? { sources: entry.sources } : {}) }];
   }).slice(0, max);
+}
+
+// Resolve model citations ({source:"S2", page:4}) to real course files; drop anything invented.
+export function cardSources(raw, files = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const file = files[Number(String(item?.source ?? "").replace(/^S/i, "")) - 1];
+    if (!file?.id) continue;
+    const page = Number(item?.page);
+    const valid = Number.isInteger(page) && page > 0 && (!file.page_count || page <= file.page_count);
+    const key = `${file.id}:${valid ? page : ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(valid ? { documentFileId: file.id, page } : { documentFileId: file.id });
+    if (out.length === 3) break;
+  }
+  return out;
 }
 
 export function cleanQuestions(parsed, count, examType = "mixed") {
@@ -509,7 +536,9 @@ export async function generateFlashcards({
   maxCards = null
 }) {
   onStage?.("preparing");
-  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents });
+  const citedFiles = source.note ? [] : (source.documentFiles?.length ? source.documentFiles : [source.documentFile]).filter(Boolean);
+  const cite = citedFiles.length > 0;
+  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents, cite });
   throwIfAborted(signal);
   const requested = normalizeFlashcardMode(mode) || "rapid";
   const cardCap = maxCards ? Math.min(FLASHCARD_CAPS[requested], Math.max(1, Math.floor(maxCards))) : FLASHCARD_CAPS[requested];
@@ -530,13 +559,14 @@ export async function generateFlashcards({
     config,
     signal,
     maxTokens: deep ? 16000 : 14000,
-    system: system + studyGenerationGuidance(options, "flashcards"),
+    system: system + (cite ? ' The material is labeled by source ([S1], [S2], …) and page ([p.3]). Give every card "sources":[{"source":"S1","page":3}] with the 1-3 most specific locations that support it; omit "page" where no page is marked.' : "") + studyGenerationGuidance(options, "flashcards"),
     user,
     expect: "json"
   });
   throwIfAborted(signal);
   const parsed = parseStudyJson(streamed.content);
-  const cards = cleanCards(parsed.value, cardCap, options.cardType);
+  const cards = cleanCards(parsed.value, cardCap, options.cardType)
+    .map((card) => ({ ...card, sources: cardSources(card.sources, citedFiles) }));
   if (!cards.length) throw new HttpError(502, GENERATION_FAILED);
   if (preview) return cards;
   onStage?.("saving");
@@ -548,7 +578,8 @@ export async function generateFlashcards({
     note_id: source.note?.id || null,
     ...(deckKey ? { deck_key: deckKey } : {}),
     front: card.front,
-    back: card.back
+    back: card.back,
+    sources: card.sources
   })), { signal });
 }
 

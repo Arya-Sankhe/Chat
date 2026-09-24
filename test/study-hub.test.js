@@ -29,11 +29,11 @@ test("photo transcript menus generate flashcards and practice tests from the not
     state: { session: {}, activeCourseId: "course-1", studyMaterials: {
       documents: [], notes: [{ id: "photo-1", kind: "image_transcript", title: "Handwritten notes" }], flashcardModes: {}
     } },
-    els: { studyView: { querySelector: () => null } },
-    generations: new Map(), quizMenuKey: "", pinnedCollection: new Set(),
+    els: { studyView: { querySelector: () => null, querySelectorAll: () => [] } },
+    generations: new Map(), quizMenuKey: "", pinnedCollection: new Set(), handleStudioClick: () => false,
     escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
     isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
-    startGeneration: job => jobs.push(job)
+    startGeneration: job => jobs.push(job), studioItem: () => null
   };
   runInNewContext(functions, ctx);
   const markup = ctx.practiceMarkup();
@@ -92,7 +92,7 @@ test("practice decks are openable and have rename/delete menus", () => {
   assert.match(hub, /data-delete-deck=/);
   assert.match(hub, /data-rename-quiz=/);
   assert.match(hub, /data-delete-quiz=/);
-  assert.match(hub, /function startReview\(deck\)/);
+  assert.match(hub, /function startReview\(deck, \{ startId = "" \} = \{\}\)/);
   assert.match(hub, /openTitleRename/);
   assert.match(hub, /updateStudyDeck/);
   assert.match(hub, /deleteStudyDeck/);

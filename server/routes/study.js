@@ -109,7 +109,8 @@ function publicCard(card) {
     id: card.id,
     front: card.front,
     back: card.back,
-    starred: card.starred === true
+    starred: card.starred === true,
+    sources: Array.isArray(card.sources) ? card.sources : []
   };
 }
 
@@ -560,6 +561,15 @@ export async function handleStudyCourseCards(req, res, config, courseId) {
     card.note_id = note.id;
     card.document_file_id = null;
   }
+  const sources = [];
+  for (const item of Array.isArray(body.sources) ? body.sources.slice(0, 3) : []) {
+    const id = typeof item?.documentFileId === "string" ? item.documentFileId.trim() : "";
+    const file = id ? await requireReadyCourseFile(context, course, id, req.signal).catch(() => null) : null;
+    if (!file) continue;
+    const page = Number(item.page);
+    sources.push(Number.isInteger(page) && page > 0 ? { documentFileId: file.id, page } : { documentFileId: file.id });
+  }
+  if (sources.length) card.sources = sources;
   const requestedDeckKey = typeof body.deckKey === "string" ? body.deckKey.trim() : "";
   if (requestedDeckKey) {
     if (!/^chat:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedDeckKey)) {

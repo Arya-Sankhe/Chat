@@ -339,6 +339,10 @@ alter table public.study_cards
 alter table public.study_cards
   add column if not exists starred boolean not null default false;
 
+-- Where each generated card came from: [{"documentFileId": uuid, "page": int?}].
+alter table public.study_cards
+  add column if not exists sources jsonb not null default '[]'::jsonb;
+
 create table if not exists public.study_quizzes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,

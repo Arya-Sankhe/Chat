@@ -10283,6 +10283,7 @@ function bindEvents() {
                 : artifact.kind === "practice" ? item.front : items[index].front;
               await createStudyCard(state.session, artifact.course_id, {
                 front, back: item.back,
+                ...(artifact.kind === "flashcards" && items[index].sources?.length ? { sources: items[index].sources } : {}),
                 ...(ui.deck === "new" ? { deckKey: ui.newDeckKey, deckTitle: `From ${artifact.source || "chat"}` }
                   : deck?.deckKey ? { deckKey: deck.deckKey }
                     : deck?.noteId ? { noteId: deck.noteId }

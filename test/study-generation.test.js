@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  cardSources,
   cleanQuestions,
   loadGenerationSourceText,
   loadMaterialText,
@@ -274,4 +275,42 @@ test("Studio test formats filter incompatible questions and difficulty provides 
   assert.match(studyGenerationGuidance({ difficulty: "easy" }), /direct recall/);
   assert.match(studyGenerationGuidance({ difficulty: "medium" }), /apply concepts/);
   assert.match(studyGenerationGuidance({ difficulty: "hard" }), /multi-step reasoning/);
+});
+
+test("flashcard sources are labeled for the model and resolved back to real course pages", async () => {
+  const files = [
+    { id: "doc-a", kind: "txt", page_count: 4, file_name: "Heart.txt" },
+    { id: "doc-b", kind: "txt", page_count: 0, file_name: "Lungs.txt" }
+  ];
+  const context = { user: { id: "user-1" }, db: {
+    async listDocumentChunksForFiles() {
+      return [
+        { document_file_id: "doc-a", text: "Systole", metadata: { page: 2 } },
+        { document_file_id: "doc-a", text: "Diastole", metadata: { page: 2 } },
+        { document_file_id: "doc-a", text: "Valves", metadata: { page: 3 } },
+        { document_file_id: "doc-b", text: "Alveoli", metadata: {} }
+      ];
+    }
+  } };
+  const text = await loadGenerationSourceText({ context, config: {}, source: { documentFiles: files }, cite: true });
+  assert.equal(text, "[S1] Heart.txt\n[p.2]\nSystole\nDiastole\n[p.3]\nValves\n\n[S2] Lungs.txt\nAlveoli");
+  assert.doesNotMatch(await loadGenerationSourceText({ context, config: {}, source: { documentFiles: files } }), /\[S1\]|\[p\.2\]/);
+
+  assert.deepEqual(cardSources([
+    { source: "S1", page: 3 }, { source: "s1", page: 3 }, { source: "S1", page: 9 },
+    { source: "S3", page: 1 }, { source: "S2" }, { source: "S1", page: 2 }
+  ], files), [
+    { documentFileId: "doc-a", page: 3 },
+    { documentFileId: "doc-a" },
+    { documentFileId: "doc-b" }
+  ], "dedupes, drops unknown sources, keeps out-of-range pages file-only, and caps at three");
+  assert.deepEqual(cardSources("S1", files), []);
+});
+
+test("generated flashcards ask for and save citations", () => {
+  const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
+  assert.match(generate, /loadGenerationSourceText\(\{[^}]*cite \}\)/);
+  assert.match(generate, /"sources":\[\{"source":"S1","page":3\}\]/);
+  assert.match(generate, /sources: cardSources\(card\.sources, citedFiles\)/);
+  assert.match(generate, /back: card\.back,\n    sources: card\.sources/);
 });

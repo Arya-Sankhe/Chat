@@ -2,6 +2,7 @@ import { kluiSvgMarkup } from "./klui.js";
 import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
 import { createStudySourceDialog } from "./studySources.js";
+import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 
 export function createStudyHubController({
   state,
@@ -75,6 +76,9 @@ export function createStudyHubController({
   let panelResizeAnimation = null;
   let studioCollapsed = false;
   let sourcePreviewId = "";
+  // A deck, note, or test opened inside the Create panel (widens it like a source preview).
+  let studioView = null;
+  const deckLayoutKey = "klui.dojo.deckLayout.v1";
   let sourceListScrollTop = 0;
   let collectionScrollTop = 0;
   const pinnedCollectionKey = "klui.dojo.collectionPins.v1";
@@ -437,7 +441,7 @@ export function createStudyHubController({
           <span class="study-status is-${escapeHtml(pillClass)}" aria-live="polite">${active ? spinner() : ""}${escapeHtml(jobStatusLabel(job.status))}${escapeHtml(stage)}</span>
           ${elapsed ? `<span class="study-gen-elapsed">${escapeHtml(elapsed)}</span>` : ""}
           ${active ? `<button class="study-chip-btn" type="button" data-cancel-generation="${escapeHtml(job.id)}">Cancel</button>` : ""}
-          ${job.status === "failed" ? `<span class="study-gen-error" title="${escapeHtml(job.error || "Generation failed.")}">${escapeHtml(job.error || "Generation failed.")}</span><button class="study-chip-btn" type="button" data-retry-generation="${escapeHtml(job.id)}">Retry</button>` : ""}
+          ${job.status === "failed" ? `<div class="study-gen-failure"><span class="study-gen-error" title="${escapeHtml(job.error || "Generation failed.")}">${escapeHtml(job.error || "Generation failed.")}</span><button class="study-gen-retry" type="button" data-retry-generation="${escapeHtml(job.id)}" aria-label="Retry" title="Retry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg></button></div>` : ""}
         </article>`;
     }).join("")}</div>`;
   }
@@ -523,7 +527,7 @@ export function createStudyHubController({
     panelResizeAnimation.onfinish = () => { panelResizeAnimation = null; };
   }
 
-  function openSource(id, event) {
+  function openSource(id, event, page = 1) {
     const doc = (state.studyMaterials?.documents || []).find(item => item.id === id);
     const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
     const attachmentId = doc?.attachment_id || attachment?.id;
@@ -538,6 +542,7 @@ export function createStudyHubController({
       attachmentId,
       fileName: documentDisplayName(doc),
       format: doc.kind || "",
+      page,
       container: els.studyView.querySelector(".dojo-source-preview-slot"),
       onClose: (closeEvent) => {
         if (sourcePreviewId !== id) return;
@@ -548,6 +553,200 @@ export function createStudyHubController({
         els.studyView.querySelector(`[data-view-source="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
       }
     });
+  }
+
+  function openStudioView(kind, id, event) {
+    const workspace = els.studyView.querySelector(".dojo-workspace");
+    const start = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
+    let layout = "column";
+    try { layout = localStorage.getItem(deckLayoutKey) || layout; } catch { /* Storage is optional. */ }
+    studioView = kind === "deck"
+      ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "column", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, typed: {}, checked: new Set(), open: new Set() }
+      : kind === "quiz" ? { kind, id, questions: null, error: "", open: new Set() } : { kind, id };
+    quizMenuKey = "";
+    studioCollapsed = false;
+    render();
+    animatePreviewResize(start, event);
+    els.studyView.querySelector(".dojo-studio-view [data-studio-back]")?.focus({ preventScroll: true });
+    if (kind === "deck") void loadStudioCards();
+    if (kind === "quiz") void loadStudioQuiz();
+  }
+
+  function closeStudioView(event) {
+    if (!studioView) return;
+    const { kind, id } = studioView;
+    const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
+    studioView = null;
+    render();
+    animatePreviewResize(start, event);
+    const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : "data-open-note";
+    els.studyView.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  }
+
+  async function loadStudioCards() {
+    const view = studioView;
+    const deck = findDeck(view?.id);
+    if (!deck) return;
+    try {
+      const payload = await fetchStudyQueue(state.session, state.activeCourseId, deckSourceOf(deck));
+      if (studioView !== view) return;
+      view.cards = (payload?.cards || []).map(card => ({ ...card, starred: card.starred === true, sources: Array.isArray(card.sources) ? card.sources : [] }));
+      view.error = "";
+    } catch (error) {
+      if (studioView !== view) return;
+      view.error = error.message || "Please try again.";
+    }
+    patchStudio();
+  }
+
+  async function loadStudioQuiz() {
+    const view = studioView;
+    try {
+      const payload = await fetchStudyQuiz(state.session, view.id);
+      if (studioView !== view) return;
+      view.questions = (payload?.quiz || payload)?.questions || [];
+    } catch (error) {
+      if (studioView !== view) return;
+      view.error = error.message || "Please try again.";
+    }
+    patchStudio();
+  }
+
+  // Repaint only the Create panel so the chat and source preview keep their state.
+  function patchStudio({ keepScroll = true } = {}) {
+    const current = els.studyView?.querySelector(".dojo-studio-expanded > .dojo-studio-content");
+    if (!current) return;
+    if (studioView && !studioItem()) { render(); return; }
+    const scroll = current.querySelector(".dojo-view-body")?.scrollTop || 0;
+    const template = document.createElement("template");
+    template.innerHTML = practiceMarkup().trim();
+    const next = template.content.firstElementChild;
+    current.replaceWith(next);
+    const body = next.querySelector(".dojo-view-body");
+    if (body && keepScroll) body.scrollTop = scroll;
+  }
+
+  function patchDeckBody() {
+    const root = els.studyView.querySelector(".dojo-studio-view[data-studio-kind=deck]");
+    if (!root || !studioView?.cards) return;
+    root.querySelector("[data-deck-body]").innerHTML = deckBodyMarkup(studioView, studioHelpers());
+    const shown = root.querySelector("[data-deck-shown]");
+    if (shown) shown.textContent = `${visibleDeckCards(studioView).length} / ${studioView.cards.length}`;
+  }
+
+  function currentFlipCard() {
+    const cards = visibleDeckCards(studioView);
+    return cards[Math.min(studioView.flipIndex, cards.length - 1)] || null;
+  }
+
+  function flipStudioCard(el) {
+    studioView.flipped = !studioView.flipped;
+    el.classList.toggle("is-flipped", studioView.flipped);
+    el.setAttribute("aria-label", studioView.flipped ? "Show question" : "Show answer");
+  }
+
+  function navStudioFlip(delta) {
+    const total = visibleDeckCards(studioView).length;
+    const next = Math.max(0, Math.min(total - 1, studioView.flipIndex + delta));
+    if (next === studioView.flipIndex) return;
+    studioView.flipIndex = next;
+    studioView.flipped = false;
+    patchDeckBody();
+    els.studyView.querySelector("[data-studio-flip]")?.focus({ preventScroll: true });
+  }
+
+  function patchTypingCard(id, focus) {
+    const card = studioView.cards.find(item => item.id === id);
+    const el = els.studyView.querySelector(`.dojo-qa.is-typing[data-card-id="${CSS.escape(id)}"]`);
+    if (!card || !el) return;
+    el.outerHTML = typingCardMarkup(card, studioView, studioHelpers());
+    els.studyView.querySelector(`.dojo-qa.is-typing[data-card-id="${CSS.escape(id)}"] ${focus}`)?.focus({ preventScroll: true });
+  }
+
+  async function toggleDeckStar(button) {
+    const card = studioView.cards?.find(item => item.id === button.dataset.deckStar);
+    if (!card) return;
+    const paint = () => {
+      button.classList.toggle("is-on", card.starred);
+      button.setAttribute("aria-pressed", String(card.starred));
+      button.setAttribute("aria-label", card.starred ? "Unstar card" : "Star card");
+      button.innerHTML = starIcon(card.starred);
+    };
+    card.starred = !card.starred;
+    paint();
+    try {
+      await updateStudyCard(state.session, card.id, { starred: card.starred });
+    } catch (error) {
+      card.starred = !card.starred;
+      paint();
+      showToast(error.message || "Could not update the star.");
+    }
+  }
+
+  function handleStudioClick(event) {
+    if (!studioView) return false;
+    const cite = event.target.closest("[data-cite-doc]");
+    if (cite) {
+      openSource(cite.dataset.citeDoc, event, Number(cite.dataset.citePage) || 1);
+      return true;
+    }
+    if (!event.target.closest(".dojo-studio-view")) return false;
+    if (event.target.closest("[data-studio-back]")) { closeStudioView(event); return true; }
+    const full = event.target.closest("[data-studio-full], [data-studio-learn]");
+    if (full) {
+      if (studioView.kind === "note") openNote(studioView.id);
+      else if (studioView.kind === "quiz") void startQuiz(studioView.id);
+      else {
+        const startId = full.matches("[data-studio-full]") && studioView.layout === "flip" ? currentFlipCard()?.id : "";
+        void startReview(findDeck(studioView.id), { startId });
+      }
+      return true;
+    }
+    const layout = event.target.closest("[data-deck-layout]");
+    if (layout) {
+      studioView.layout = layout.dataset.deckLayout;
+      studioView.flipped = false;
+      try { localStorage.setItem(deckLayoutKey, studioView.layout); } catch { /* Storage is optional. */ }
+      patchStudio({ keepScroll: false });
+      els.studyView.querySelector(`[data-deck-layout="${CSS.escape(studioView.layout)}"]`)?.focus({ preventScroll: true });
+      return true;
+    }
+    if (event.target.closest("[data-deck-search]")) {
+      studioView.searchOpen = !studioView.searchOpen;
+      if (!studioView.searchOpen) studioView.query = "";
+      studioView.flipIndex = 0;
+      patchStudio({ keepScroll: false });
+      els.studyView.querySelector(studioView.searchOpen ? "[data-deck-query]" : "[data-deck-search]")?.focus();
+      return true;
+    }
+    const sort = event.target.closest("[data-deck-sort]");
+    if (sort) {
+      studioView.sort = sort.dataset.deckSort;
+      studioView.flipIndex = 0;
+      studioView.flipped = false;
+      patchStudio({ keepScroll: false });
+      els.studyView.querySelector(".dojo-deck-sort summary")?.focus();
+      return true;
+    }
+    const star = event.target.closest("[data-deck-star]");
+    if (star) { void toggleDeckStar(star); return true; }
+    const flip = event.target.closest("[data-studio-flip]");
+    if (flip) { flipStudioCard(flip); return true; }
+    const nav = event.target.closest("[data-flip-nav]");
+    if (nav) { navStudioFlip(Number(nav.dataset.flipNav)); return true; }
+    const typing = event.target.closest(".dojo-qa.is-typing");
+    if (typing && event.target.closest("[data-typing-check]")) {
+      studioView.checked.add(typing.dataset.cardId);
+      patchTypingCard(typing.dataset.cardId, "[data-typing-retry]");
+      return true;
+    }
+    if (typing && event.target.closest("[data-typing-retry]")) {
+      studioView.checked.delete(typing.dataset.cardId);
+      studioView.typed[typing.dataset.cardId] = "";
+      patchTypingCard(typing.dataset.cardId, "textarea");
+      return true;
+    }
+    return false;
   }
 
   function courseConversations() {
@@ -583,7 +782,37 @@ export function createStudyHubController({
     }).join("") || '<p>No chats yet</p>'}<p class="dojo-chat-no-match" hidden>No matching chats</p></div></div></details>`;
   }
 
+  function citeSourceName(id) {
+    const doc = (state.studyMaterials?.documents || []).find(item => item.id === id);
+    return doc ? documentDisplayName(doc).replace(/\.[a-z0-9]{2,5}$/i, "") : "";
+  }
+
+  function studioHelpers(interactive = true) {
+    return { escapeHtml, starIcon, sourceName: citeSourceName, interactive };
+  }
+
+  function studioItem() {
+    if (!studioView) return null;
+    if (studioView.kind === "deck") return findDeck(studioView.id);
+    if (studioView.kind === "quiz") return findQuiz(studioView.id);
+    return (state.studyMaterials?.notes || []).find(note => note.id === studioView.id) || null;
+  }
+
+  function studioViewMarkup(item) {
+    if (studioView.kind === "deck") return deckViewMarkup(studioView, item, studioHelpers());
+    if (studioView.kind === "quiz") return quizViewMarkup(studioView, item, { escapeHtml });
+    let body;
+    try {
+      body = isMindMap(item) ? mindMapMarkup(item) : renderContent(noteBody(item)) || `<pre>${escapeHtml(noteBody(item))}</pre>`;
+    } catch {
+      body = `<pre>${escapeHtml(noteBody(item))}</pre>`;
+    }
+    return noteViewMarkup(item, body, { escapeHtml, label: noteKindLabel(item) });
+  }
+
   function practiceMarkup() {
+    const openItem = studioItem();
+    if (openItem) return studioViewMarkup(openItem);
     const decks = state.studyPractice?.decks || [];
     const quizzes = state.studyPractice?.quizzes || [];
     const notes = state.studyMaterials?.notes || [];
@@ -609,7 +838,8 @@ export function createStudyHubController({
   }
 
   function courseBodyMarkup() {
-    return `<div class="dojo-workspace" data-mobile-panel="${state.activeCourseTab}" data-sources-collapsed="${sourcesCollapsed}" data-studio-collapsed="${studioCollapsed}" data-source-preview="${Boolean(sourcePreviewId)}">
+    if (studioView && !studioItem()) studioView = null;
+    return `<div class="dojo-workspace" data-mobile-panel="${state.activeCourseTab}" data-sources-collapsed="${sourcesCollapsed}" data-studio-collapsed="${studioCollapsed}" data-source-preview="${Boolean(sourcePreviewId)}" data-studio-view="${Boolean(studioView)}">
       <section class="dojo-panel dojo-sources" aria-label="Sources">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
       <section class="dojo-panel dojo-chat" aria-label="Ask"><header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}</section>
       <section class="dojo-panel dojo-studio" aria-label="Create">
@@ -768,6 +998,7 @@ export function createStudyHubController({
     }
     const currentSourceScroll = els.studyView.querySelector(".study-material-board")?.scrollTop;
     const currentCollectionScroll = els.studyView.querySelector(".dojo-artifacts")?.scrollTop;
+    const studioScroll = els.studyView.querySelector(".dojo-studio-view .dojo-view-body")?.scrollTop;
     if (currentSourceScroll != null) sourceListScrollTop = currentSourceScroll;
     if (currentCollectionScroll != null) collectionScrollTop = currentCollectionScroll;
     parkComposer();
@@ -786,6 +1017,8 @@ export function createStudyHubController({
     const collectionList = els.studyView.querySelector(".dojo-artifacts");
     if (sourceList) sourceList.scrollTop = sourceListScrollTop;
     if (collectionList) collectionList.scrollTop = collectionScrollTop;
+    const studioBody = els.studyView.querySelector(".dojo-studio-view .dojo-view-body");
+    if (studioBody && studioScroll) studioBody.scrollTop = studioScroll;
     collectionList?.querySelector(".study-menu:not(.hidden)")?.scrollIntoView({ block: "nearest" });
   }
 
@@ -1014,6 +1247,7 @@ export function createStudyHubController({
   function resetCourseCaches() {
     sourceDialog.close();
     sourcePreviewId = "";
+    studioView = null;
     sourceListScrollTop = 0;
     collectionScrollTop = 0;
     sourcesCollapsed = false;
@@ -1762,6 +1996,8 @@ export function createStudyHubController({
     closeSideChat?.();
     closeNote();
     if (reviewed) render();
+    // Full-screen review can star, edit, or delete cards; refresh the open deck.
+    if (reviewed && studioView?.kind === "deck") void loadStudioCards();
   }
 
   function openSessionShell(html) {
@@ -1788,6 +2024,7 @@ export function createStudyHubController({
           <span class="study-review-mark${markClass}">${reviewMarkLabel(mark)}</span>
           <span class="study-review-kebab" aria-hidden="true"></span>
         </span>
+        ${side === "front" ? citePills(card, studioHelpers(false)) : ""}
         <span class="study-review-text"><span>${escapeHtml((side === "front" ? card.front : card.back) || "").replaceAll("___", '<span class="study-blank" aria-label="blank"></span>')}</span></span>
         <span class="study-review-see">${side === "front" ? "See answer" : "See question"}</span>
       </span>`;
@@ -1925,7 +2162,7 @@ export function createStudyHubController({
     openSessionShell(`<div class="study-session-frame is-review">${reviewCardMarkup(reviewSession)}</div>`);
   }
 
-  async function startReview(deck) {
+  async function startReview(deck, { startId = "" } = {}) {
     if (!state.activeCourseId || !deck) return;
     try {
       const payload = await fetchStudyQueue(state.session, state.activeCourseId, deckSourceOf(deck));
@@ -1938,7 +2175,7 @@ export function createStudyHubController({
       reviewSession = {
         cards: list.slice(),
         original: list.slice(),
-        index: 0,
+        index: Math.max(0, list.findIndex((card) => card.id === startId)),
         flipped: false,
         reviewed: 0,
         counts: { 1: 0, 2: 0, 3: 0, 4: 0 },
@@ -2778,13 +3015,18 @@ export function createStudyHubController({
       return true;
     }
     if (sourceDialog.dismiss()) return true;
+    if (studioView && !document.activeElement?.matches?.("input, textarea")) {
+      closeStudioView();
+      return true;
+    }
     return false;
   }
 
   async function handleViewClick(event) {
     if (event.target.closest("#documentViewer")) return;
-    if (!event.target.closest(".dojo-source-sort")) els.studyView.querySelector(".dojo-source-sort")?.removeAttribute("open");
+    els.studyView.querySelectorAll(".dojo-source-sort[open]").forEach(menu => { if (!menu.contains(event.target)) menu.removeAttribute("open"); });
     if (!event.target.closest(".dojo-chat-recent")) els.studyView.querySelector(".dojo-chat-recent")?.removeAttribute("open");
+    if (handleStudioClick(event)) return;
     const sort = event.target.closest("[data-source-sort]");
     if (sort) {
       if (!["recent", "asc", "desc"].includes(sort.dataset.sourceSort)) return;
@@ -2855,12 +3097,11 @@ export function createStudyHubController({
     if (tab) return setTab(tab.dataset.studyTab);
     const openDeck = event.target.closest("[data-open-deck]");
     if (openDeck) {
-      const deck = findDeck(openDeck.dataset.openDeck);
-      if (deck) return startReview(deck);
+      if (findDeck(openDeck.dataset.openDeck)) openStudioView("deck", openDeck.dataset.openDeck, event);
       return;
     }
     const quiz = event.target.closest("[data-open-quiz]");
-    if (quiz) return startQuiz(quiz.dataset.openQuiz);
+    if (quiz) return openStudioView("quiz", quiz.dataset.openQuiz, event);
     if (event.target.closest("[data-study-add-files]")) {
       sourceDialog.open(event);
       return;
@@ -2891,7 +3132,7 @@ export function createStudyHubController({
     }
     const note = event.target.closest("[data-open-note]");
     if (note && !event.target.closest(".study-material-actions") && !event.target.closest(".study-card-menu-wrap")) {
-      return openNote(note.dataset.openNote);
+      return openStudioView("note", note.dataset.openNote, event);
     }
     const prompt = event.target.closest("[data-dojo-prompt]");
     if (prompt && els.promptInput) {
@@ -2945,6 +3186,23 @@ export function createStudyHubController({
   }
 
   function handleViewKey(event) {
+    if (event.key === "Enter" && !event.shiftKey && event.target.matches?.("[data-typing-answer]")) {
+      event.preventDefault();
+      event.target.closest(".dojo-qa")?.querySelector("[data-typing-check]:not(:disabled)")?.click();
+      return;
+    }
+    if (studioView?.layout === "flip" && event.target.closest?.(".dojo-studio-view") && !event.target.matches?.("input, textarea, button")) {
+      if (event.key === " " || event.key === "Enter") {
+        const flip = event.target.closest("[data-studio-flip]") || els.studyView.querySelector("[data-studio-flip]");
+        if (flip) { event.preventDefault(); flipStudioCard(flip); }
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        navStudioFlip(event.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+    }
     if (event.key === "Enter" && event.target.matches?.(".study-title-input")) {
       event.preventDefault();
       event.target.blur();
@@ -2963,6 +3221,20 @@ export function createStudyHubController({
   function bindEvents() {
     els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
     els.studyView?.addEventListener("input", (event) => {
+      if (studioView && event.target.matches?.("[data-deck-query]")) {
+        studioView.query = event.target.value;
+        studioView.flipIndex = 0;
+        studioView.flipped = false;
+        patchDeckBody();
+        return;
+      }
+      if (studioView && event.target.matches?.("[data-typing-answer]")) {
+        const article = event.target.closest(".dojo-qa");
+        studioView.typed[article.dataset.cardId] = event.target.value;
+        const check = article.querySelector("[data-typing-check]");
+        if (check) check.disabled = !event.target.value.trim();
+        return;
+      }
       if (!event.target.matches?.(".dojo-chat-recent-search input")) return;
       const list = event.target.closest(".dojo-chat-recent-menu").querySelector(".dojo-chat-recent-list");
       const query = event.target.value.trim().toLocaleLowerCase();
@@ -2975,6 +3247,14 @@ export function createStudyHubController({
     });
     els.studyView?.addEventListener("change", (event) => { void handleViewChange(event); });
     els.studyView?.addEventListener("keydown", handleViewKey);
+    // <details> toggles don't bubble; remember which answers are open across repaints.
+    els.studyView?.addEventListener("toggle", (event) => {
+      const item = event.target.closest?.(".dojo-studio-view details.dojo-qa");
+      if (!item || !studioView?.open) return;
+      const key = item.dataset.cardId ?? Number(item.dataset.questionIndex);
+      if (item.open) studioView.open.add(key);
+      else studioView.open.delete(key);
+    }, true);
     els.studyFileInput?.addEventListener("change", (event) => {
       if (!event.target.files?.length) return;
       sourceDialog.close();
