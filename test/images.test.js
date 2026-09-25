@@ -78,6 +78,18 @@ test("compare treats assistant illustrations as media", () => {
   }), false);
 });
 
+test("Nitro switches to Think when an image or document is attached, or already in the chat", async () => {
+  const { resolveChatRole } = await import("../server/models.js");
+  const route = (media) => resolveChatRole({ role: "nitro", hasMedia: requestHasCompareMedia(media) }).role;
+  assert.equal(route({ userContent: "hi", attachments: [{ category: "document" }] }), "think");
+  assert.equal(route({ userContent: "hi", attachments: [{ category: "image" }] }), "think");
+  assert.equal(route({
+    userContent: "and the next page?",
+    existingMessages: [{ role: "user", content: [{ type: "file", file: { file_name: "Notes.pdf" } }] }]
+  }), "think");
+  assert.equal(route({ userContent: "hi" }), "nitro");
+});
+
 test("modelSupportsVision does not flag image-generation-only models on output modalities", () => {
   assert.equal(modelSupportsVision({
     id: "vendor/text-to-image-only",
@@ -262,4 +274,14 @@ test("describeConversationImages rejects empty visual descriptions", async () =>
     }),
     /empty response/
   );
+});
+
+test("Council rejects document uploads; Compare and images are unaffected", async () => {
+  const { assertCouncilHasNoDocuments } = await import("../server/chat/pipeline.js");
+  const document = [{ category: "document" }];
+  assert.throws(() => assertCouncilHasNoDocuments({ body: { role: "council" }, attachments: document }), /Use Compare for documents/);
+  assert.throws(() => assertCouncilHasNoDocuments({ body: { council: true }, attachments: document }), /Council/);
+  assert.doesNotThrow(() => assertCouncilHasNoDocuments({ body: { role: "compare" }, attachments: document }));
+  assert.doesNotThrow(() => assertCouncilHasNoDocuments({ body: { role: "council" }, attachments: [{ category: "image" }] }));
+  assert.doesNotThrow(() => assertCouncilHasNoDocuments({ body: { role: "think" }, attachments: document }));
 });

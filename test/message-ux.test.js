@@ -429,7 +429,12 @@ test("temporary chat toggle only shows on empty home or active temp chat outside
 test("temporary chat reuses the image upload path but keeps documents blocked", () => {
   const appJs = readPublic("js/app.js");
   assert.doesNotMatch(appJs, /Temporary chat is text-only for now/);
-  assert.match(appJs, /state\.temporaryChat\s*\?\s*fileCategory\(file\)\s*===\s*"image"/);
+  assert.match(appJs, /const imagesOnly = state\.temporaryChat \|\| isCouncilMode\(\);/);
+  assert.match(appJs, /imagesOnly\s*\?\s*fileCategory\(file\)\s*===\s*"image"/);
+  assert.match(appJs, /COUNCIL_DOCUMENT_NOTICE = "Council supports images only\. Use Compare for documents\."/);
+  assert.match(appJs, /showAttachmentModelNotice\(COUNCIL_DOCUMENT_NOTICE\)/);
+  assert.match(appJs, /COUNCIL_CHAT_DOCUMENT_NOTICE = "This chat has documents, and Council can't read them\. Use Compare or start a new chat\."/);
+  assert.match(appJs, /if \(isCouncilMode\(\) && councilDocumentBlock\(\)\)/);
   assert.match(appJs, /for \(const img of images\)/);
   assert.match(appJs, /Temporary chat supports images only/);
   assert.match(appJs, /if \(String\(url\)\.startsWith\("blob:"\)\) URL\.revokeObjectURL\(url\)/);

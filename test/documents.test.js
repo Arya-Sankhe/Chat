@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DocumentService, buildEditableMarkdown, buildUntrustedDocumentContext } from "../server/documents/index.js";
+import { clearDocumentTextCache } from "../server/documents/library.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../server/documents/skills.js";
 import { buildDocumentTools, executeDocumentToolCall } from "../server/documents/tool.js";
 
@@ -31,7 +32,6 @@ function documentServiceWithDb(db) {
     config: {
       documents: {
         enabled: true,
-        contextCharsPerTurn: 5000,
         jobWaitMs: 10
       }
     },
@@ -435,7 +435,7 @@ test("DocumentService searches visual PDF pages and returns page image context",
   };
 
   const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
     db,
     r2: {
       readUrl(key) {
@@ -485,7 +485,7 @@ test("DocumentService searches visually enriched Office pages", async () => {
     }
   };
   const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
     db,
     r2: { readUrl: (key) => `https://signed.example/${key}` },
     userId,
@@ -539,7 +539,7 @@ test("DocumentService reads XLSX ranges first and images only when pages are req
     }
   };
   const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5, contextCharsPerTurn: 5000 } },
+    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
     db,
     r2: { readUrl: (key) => `https://signed.example/${key}` },
     userId,
@@ -646,57 +646,66 @@ test("DocumentService validates attachment ownership-shaped ids before document 
   );
 });
 
-test("DocumentService includes small project text and skips chunk loading for large projects", async () => {
+test("DocumentService library includes documents in full while they fit the token budget", async () => {
+  clearDocumentTextCache();
   const projectId = "00000000-0000-4000-8000-000000000005";
-  let chunkCalls = 0;
-  const small = new DocumentService({
+  const bigFileId = "00000000-0000-4000-8000-000000000007";
+  const chunkRequests = [];
+  const docs = [
+    {
+      id: documentFileId,
+      attachment_id: attachmentId,
+      project_id: projectId,
+      kind: "pdf",
+      page_count: 2,
+      created_at: "2026-07-13T00:00:00Z",
+      text_ready_at: "2026-07-13T00:00:00Z",
+      word_count: 100,
+      attachments: { file_name: "Brief.pdf" }
+    },
+    {
+      id: bigFileId,
+      attachment_id: "00000000-0000-4000-8000-000000000008",
+      project_id: projectId,
+      kind: "pdf",
+      created_at: "2026-07-14T00:00:00Z",
+      text_ready_at: "2026-07-14T00:00:00Z",
+      word_count: 400_000
+    }
+  ];
+  const service = new DocumentService({
     config: { documents: { enabled: true } },
     db: {
-      async listUsableProjectDocumentFiles() {
-        return [{
-          id: documentFileId,
-          attachment_id: attachmentId,
-          project_id: projectId,
-          text_ready_at: "2026-07-13T00:00:00Z",
-          word_count: 100,
-          attachments: { file_name: "Brief.pdf" }
-        }];
-      },
-      async listDocumentChunksForFiles() {
-        chunkCalls += 1;
-        return [{ document_file_id: documentFileId, source_label: "Page 1", text: "Project evidence", token_estimate: 3 }];
+      async listDocumentChunksForFiles(_user, ids, options) {
+        chunkRequests.push({ ids, offset: options.offset });
+        return ids.includes(documentFileId)
+          ? [
+              { document_file_id: documentFileId, chunk_index: 1, source_label: "Page 2", text: `Second page ${"prose ".repeat(200)}`, metadata: { page: 2 } },
+              { document_file_id: documentFileId, chunk_index: 0, source_label: "Page 1", text: "Project evidence", metadata: { page: 1, has_visual: true } }
+            ]
+          : [];
       }
     },
     r2: {}, userId, conversationId, projectId, plan: { id: "pro" }, signal: new AbortController().signal
   });
-  assert.match(await small.smallProjectContext(), /Project evidence/);
-  assert.equal(chunkCalls, 1);
 
-  small.db.listUsableProjectDocumentFiles = async () => [{
-    id: documentFileId,
-    project_id: projectId,
-    text_ready_at: "2026-07-13T00:00:00Z",
-    word_count: 20000
-  }];
-  assert.equal(await small.smallProjectContext(), "");
-  assert.equal(chunkCalls, 1);
+  const library = await service.documentLibrary({ docs, tokenBudget: 50_000 });
+  // The 400k-word document can't fit, so only the brief is loaded and included.
+  assert.deepEqual(chunkRequests, [{ ids: [documentFileId], offset: 0 }]);
+  assert.deepEqual([...library.fullDocIds], [documentFileId]);
+  assert.match(library.message, /included in full/);
+  assert.match(library.message, /Brief\.pdf \(pdf, 2 pages, attachment_id [0-9a-f-]+\)\n\[Page 1\]\nProject evidence\n\n\[Page 2\]\nSecond page prose/);
+  assert.deepEqual(library.texts.get(documentFileId).visualPages, [1]);
 
-  small.db.listUsableProjectDocumentFiles = async () => [{
-    id: documentFileId,
-    project_id: projectId,
-    text_ready_at: "2026-07-13T00:00:00Z",
-    word_count: 100
-  }];
-  small.db.listDocumentChunksForFiles = async () => Array.from({ length: 501 }, (_, index) => ({
-    document_file_id: documentFileId,
-    source_label: `Part ${index + 1}`,
-    text: "x",
-    token_estimate: 1
-  }));
-  assert.equal(await small.smallProjectContext(), "");
+  // A second turn reuses the cached text instead of reloading chunks.
+  await service.documentLibrary({ docs, tokenBudget: 50_000 });
+  assert.equal(chunkRequests.length, 1);
+
+  assert.equal((await service.documentLibrary({ docs, tokenBudget: 0 })).message, "");
 });
 
 test("DocumentService limits a course chat to its chosen sources", async () => {
+  clearDocumentTextCache();
   const projectId = "00000000-0000-4000-8000-000000000005";
   const otherFileId = "00000000-0000-4000-8000-000000000006";
   const file = (id, name, text) => ({
@@ -727,7 +736,7 @@ test("DocumentService limits a course chat to its chosen sources", async () => {
   assert.deepEqual((await scoped.readyDocuments()).map((doc) => doc.id), [documentFileId]);
   assert.equal(scoped.ownsDocument(docs[0]), true);
   assert.equal(scoped.ownsDocument(docs[1]), false);
-  const context = await scoped.smallProjectContext();
+  const context = (await scoped.documentLibrary({ docs: await scoped.readyDocuments(), tokenBudget: 50_000 })).message;
   assert.match(context, /Chosen evidence/);
   assert.doesNotMatch(context, /Other evidence|Note evidence/);
   assert.equal(noteCalls, 0);
@@ -740,7 +749,8 @@ test("DocumentService limits a course chat to its chosen sources", async () => {
   });
   assert.deepEqual((await withRemoved.readyDocuments()).map((doc) => doc.id), [documentFileId]);
   assert.equal(withRemoved.ownsDocument(docs[1]), false);
-  assert.match(await auto.smallProjectContext(), /Other evidence[\s\S]*Note evidence/);
+  const autoDocs = await auto.readyDocuments();
+  assert.match((await auto.documentLibrary({ docs: autoDocs, tokenBudget: 50_000 })).message, /Other evidence[\s\S]*Note evidence/);
 });
 
 test("DocumentService rejects document_file_id edits outside the active conversation", async () => {
@@ -773,7 +783,6 @@ test("DocumentService keeps shared project knowledge read-only", async () => {
     config: {
       documents: {
         enabled: true,
-        contextCharsPerTurn: 5000,
         jobWaitMs: 10
       }
     },

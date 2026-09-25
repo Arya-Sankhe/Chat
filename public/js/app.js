@@ -672,6 +672,7 @@ const els = {
   imagePreviews: document.querySelector("#imagePreviews"),
   attachmentModelNotice: document.querySelector("#attachmentModelNotice"),
   attachmentModelNoticeClose: document.querySelector("#attachmentModelNoticeClose"),
+  attachmentModelNoticeText: document.querySelector("#attachmentModelNoticeText"),
   clarificationCard: document.querySelector("#clarificationCard"),
   pastedTextDialog: document.querySelector("#pastedTextDialog"),
   pastedTextDialogBody: document.querySelector("#pastedTextDialogBody"),
@@ -2062,7 +2063,7 @@ function applyNativeTopBarMode(mode) {
   if (mode === "compare" || mode === "council") {
     if (state.researchMode) setResearchMode(false);
     if (mode === "compare") compareController.activateCompareMode();
-    else councilController.activateCouncilMode();
+    else enterCouncilMode();
     return;
   }
   if (state.settings.compareEnabled) compareController.cancelCompareMode();
@@ -2230,6 +2231,39 @@ function toggleWebSearchMode() {
   const next = state.settings.webSearchMode === "off" ? "auto" : "off";
   updateSetting("webSearchMode", next);
   renderWebSearchToggle();
+}
+
+function pendingHasDocuments() {
+  return state.images.some((item) => item.category === "document");
+}
+
+function chatHasDocuments() {
+  return state.messages.some((message) => (
+    Array.isArray(message.content) && message.content.some((part) => part?.type === "file")
+  ));
+}
+
+/* Why Council can't run here, or "" when it can. */
+function councilDocumentBlock() {
+  if (pendingHasDocuments()) return COUNCIL_DOCUMENT_NOTICE;
+  if (chatHasDocuments()) return COUNCIL_CHAT_DOCUMENT_NOTICE;
+  return "";
+}
+
+function showCouncilDocumentsNotice(text = councilDocumentBlock() || COUNCIL_DOCUMENT_NOTICE) {
+  showAttachmentModelNotice(text);
+}
+
+/* Council answers from images and text only; documents stay with Compare. */
+function enterCouncilMode() {
+  const blocked = councilDocumentBlock();
+  if (blocked) {
+    showCouncilDocumentsNotice(blocked);
+    syncNativeTopBarMode();
+    return false;
+  }
+  councilController.activateCouncilMode();
+  return true;
 }
 
 function isCouncilMode() {
@@ -6522,11 +6556,13 @@ function acceptPendingFiles(files) {
     allFiles = imagesOnly;
     if (!allFiles.length) return;
   }
-  const accepted = allFiles.filter((file) => state.temporaryChat
+  const imagesOnly = state.temporaryChat || isCouncilMode();
+  const accepted = allFiles.filter((file) => imagesOnly
     ? fileCategory(file) === "image"
     : state.running ? fileCategory(file) === "image" : isSupportedPendingFile(file));
-  if (state.temporaryChat && accepted.length < allFiles.length) {
-    showToast("Temporary chat supports images only.");
+  if (imagesOnly && accepted.length < allFiles.length) {
+    if (state.temporaryChat) showToast("Temporary chat supports images only.");
+    else showAttachmentModelNotice(COUNCIL_DOCUMENT_NOTICE);
   }
   if (state.running && allFiles.length && !accepted.length) {
     showToast("Follow-up attachments can only be images while Klui is working.");
@@ -6553,7 +6589,7 @@ function acceptPendingFiles(files) {
     }
   }
   if (accepted.length > chosen.length) showToast(state.running ? `Attach up to ${maxImages} images.` : `Attach up to ${maxImages} images and ${maxDocs} documents.`);
-  if (!state.temporaryChat && allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
+  if (!imagesOnly && allFiles.length && !accepted.length) showToast("Upload images, PDFs, Word, Excel, PowerPoint, CSV, or TSV files.");
 
   for (const file of chosen) {
     const category = fileCategory(file);
@@ -6592,8 +6628,14 @@ function hideAttachmentModelNotice() {
   els.attachmentModelNotice?.setAttribute("aria-hidden", "true");
 }
 
-function showAttachmentModelNotice() {
+const NITRO_ATTACHMENT_NOTICE = "Nitro is text-only. Switched to Think for attachments.";
+const COUNCIL_DOCUMENT_NOTICE = "Council supports images only. Use Compare for documents.";
+const COUNCIL_CHAT_DOCUMENT_NOTICE = "This chat has documents, and Council can't read them. Use Compare or start a new chat.";
+
+/* Small notice above the composer explaining why an attachment or mode changed. */
+function showAttachmentModelNotice(text = NITRO_ATTACHMENT_NOTICE) {
   clearTimeout(attachmentModelNoticeTimer);
+  if (els.attachmentModelNoticeText) els.attachmentModelNoticeText.textContent = text;
   els.attachmentModelNotice?.classList.add("visible");
   els.attachmentModelNotice?.setAttribute("aria-hidden", "false");
   attachmentModelNoticeTimer = setTimeout(hideAttachmentModelNotice, 4500);
@@ -8474,6 +8516,11 @@ async function sendPrompt({
     showToast("Temporary chat uses one model for now.");
     return;
   }
+  // Council was already on when a chat with documents was opened.
+  if (isCouncilMode() && councilDocumentBlock()) {
+    showCouncilDocumentsNotice();
+    return;
+  }
   const pendingDocs = pendingDocumentUploads();
   if (pendingDocs.length) {
     const failed = pendingDocs.find((item) => item.status === "failed");
@@ -9890,7 +9937,7 @@ function bindEvents() {
         compareController.cancelCompareMode();
         return;
       }
-      councilController.activateCouncilMode();
+      enterCouncilMode();
     });
   }
 
@@ -9939,6 +9986,10 @@ function bindEvents() {
       if (!seg) return;
       const mode = seg.dataset.compareMode === "council" ? "council" : "compare";
       if (state.settings.compareMode === mode) return;
+      if (mode === "council" && councilDocumentBlock()) {
+        showCouncilDocumentsNotice();
+        return;
+      }
       updateSetting("compareMode", mode);
       compareController.renderCompareControls();
     });

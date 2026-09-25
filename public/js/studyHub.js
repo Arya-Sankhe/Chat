@@ -7,6 +7,13 @@ import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } fr
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, speedLabel, styleOf, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
 
+// The tutor's icon is a tiny version of its call orb: grass green into sky blue with a soft highlight.
+let tutorOrbIconId = 0;
+function tutorOrbIcon() {
+  const id = `tutor-orb-${tutorOrbIconId += 1}`;
+  return `<svg class="tutor-orb-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><defs><radialGradient id="${id}-body" cx="36%" cy="32%" r="72%"><stop offset="0" stop-color="#f4fff0"/><stop offset=".3" stop-color="#b6eca4"/><stop offset=".68" stop-color="#8fd4ec"/><stop offset="1" stop-color="#6cb8ee"/></radialGradient><radialGradient id="${id}-sky" cx="72%" cy="66%" r="46%"><stop offset="0" stop-color="#9dd8ff" stop-opacity=".85"/><stop offset="1" stop-color="#9dd8ff" stop-opacity="0"/></radialGradient></defs><circle cx="12" cy="12" r="9.5" fill="url(#${id}-body)"/><circle cx="12" cy="12" r="9.5" fill="url(#${id}-sky)"/><ellipse cx="9" cy="8.2" rx="3.4" ry="2.3" fill="#fff" opacity=".7"/></svg>`;
+}
+
 export function createStudyHubController({
   state,
   els,
@@ -287,7 +294,6 @@ export function createStudyHubController({
       notes: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/>',
       quiz: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 8 1 1 2-2m-3 8 1 1 2-2m3-6h2m-2 7h2"/>',
       podcast: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-3.5 0h7"/>',
-      tutor: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="m12 6.5.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z"/>',
       pin: '<path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v7"/>',
       chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 10h8M7 14h5"/>',
       recent: '<path d="M3 12a9 9 0 1 0 2.6-6.4M3 4v5h5m4-2v5l3 2"/>',
@@ -297,6 +303,7 @@ export function createStudyHubController({
       expand: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m4-11 3 3-3 3"/>',
       arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>'
     };
+    if (name === "tutor") return tutorOrbIcon();
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
   }
 

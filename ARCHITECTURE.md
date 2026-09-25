@@ -285,6 +285,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `subscriptions` | `id`, `user_id`, gateway-neutral columns (`provider`, `provider_customer_id`, `provider_subscription_id`, `provider_price_id`), `plan_id`, `status` (`active`/`trialing`/…), `cancel_at_period_end`, `current_period_end`, `raw jsonb`, timestamps. | Legacy `stripe_*` columns dropped. `provider_subscription_id` is unique. |
 | `payment_requests` | `id`, `user_id`, `plan_id`, `amount_aed numeric(10,2)`, `currency`, `provider` (`ziina`), `payment_url`, `qr_image_url`, `reference_code` (unique), `status` (`pending`/`approved`/`rejected`/`cancelled`), `admin_note`, `approved_by`, `approved_at`. | Drives the manual Ziina payment flow. |
 | `conversations` | `id`, `user_id`, `title`, `model`, `deleted_at` (soft delete). | Hard-deletes are used; see `deleteConversation` in `server/db/supabaseRest.js`. |
+| `conversation_context` | `conversation_id` (PK), `user_id`, `version`, `summary`, `through_message_id`, `fingerprint`, `summarized_tokens`, `summary_model`, timestamps. | Rolling compaction summary; cascades with the conversation. Written only by the server. |
 | `messages` | `id`, `user_id`, `conversation_id`, `role` (`system`/`user`/`assistant`/`tool`), `content jsonb` (can be string or parts array), `model`, `reasoning`, `tool_calls jsonb`, `finish_reason`, `error`, `metadata jsonb`, `turn_run_id`, `output_slot`, `created_at`. | `metadata` carries council/websearch/documents/research context. `(turn_run_id, output_slot)` makes resumed document-turn outputs idempotent. |
 | `attachments` | `id`, `user_id`, `conversation_id`, `message_id`, `category` (`image`/`document`), `object_key` (unique), `file_name`, `content_type`, `size_bytes`, `etag`, `status` (`pending`/`uploaded`). | Both user uploads and document worker outputs use this table; the R2 object is the actual file. |
 | `document_files` | Existing identity/version fields plus `processing_status`, capability timestamps (`text_ready_at`, `visual_ready_at`, `enriched_at`), `stage_errors`, counts, extraction/preview keys, metadata, and terminal error. | `text_ready_at` or `visual_ready_at` makes a document usable; legacy `ready` means all core jobs are terminal, possibly with warnings. |
@@ -682,22 +683,46 @@ glyphs only (no layout reflow).
   using the presigned URL; when CORS blocks it, the API falls back
   to a same-origin relay at `PUT /api/uploads/:uploadId/content`
   (this is what `public/js/api.js` `putUploadContent` does).
-- **Hybrid retrieval picks the evidence.** Before the model runs, `buildRelevantDocumentContext`
+- **Documents fill the context window.** Each turn gets a document
+  token budget: `CONTEXT_MAX_TOKENS` minus the reply reserve, the
+  (compacted) conversation and tool headroom (`documentTokenBudget` in
+  the pipeline). `DocumentService.documentLibrary` puts every document
+  that fits into context in full (documents attached to this message
+  first, then the chat's, then the project's; study notes follow for
+  unscoped projects). It sits right after the system prompt and summary,
+  oldest document first, so it is a stable prefix providers can cache;
+  assembled text is cached in-process (`server/documents/library.js`).
+- **Hybrid retrieval covers the rest.** `buildRelevantDocumentContext`
   (pipeline) calls `DocumentService.relevantContext`, which runs
   `retrieve`: stemmed any-word keyword search over chunks, Jina
   vector search over chunk text and page images, reciprocal-rank
   fusion, then a Jina cross-encoder rerank with a relevance floor
   (`server/documents/retrieval.js` holds the pure helpers). Follow-ups
   are first rewritten into a standalone query by a cheap model.
-  The turn gets the best excerpts as text plus page images only
-  where the page is visual (few text characters, tables, slides),
-  its image matched best, or the question asks about a figure;
-  documents attached to the current message get fuller coverage.
-  Single-model turns switch to the role's vision model when the
-  chosen pages are images; Compare/Council share one retrieval.
-  With tools on, the model can still call `search_document` /
-  `read_document` for other pages. Projects under
-  `DOCUMENT_FULL_CONTEXT_MAX_TOKENS` (8k) are also sent in full.
+  Documents too large for the library are listed by name and id, and
+  every relevant excerpt from them is added until the budget runs out.
+  Page images are added where the picture carries meaning (pages flagged
+  visual at processing, text-poor pages, tables, slides, best image
+  matches, or figure questions); a document attached to this message is
+  shown whole when its pages fit. Images are bounded only by the budget
+  and the per-request image ceiling (`DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN`).
+  Single-model turns switch to the role's vision model when the chosen
+  evidence includes images; Compare models share one retrieval. Council
+  takes no documents: uploads are refused (client and server) and chat or
+  course documents are left out of Council turns. With
+  tools on, `search_document` returns up to 20 passages and
+  `read_document` reads text documents from an `offset`, continuing via
+  `next_offset`.
+- **Conversation compaction.** When the history reaches
+  `CONTEXT_COMPACT_AT_TOKENS` (180k), older turns are summarized into a
+  structured summary (goals, facts, documents, outputs, preferences, open
+  threads, current focus) and the newest `CONTEXT_KEEP_RECENT_TOKENS`
+  stay verbatim (`server/saas/messages/compaction.js`). The summary is
+  stored in `conversation_context` with the last covered message id and a
+  fingerprint of the covered ids, so later turns reuse it and the next
+  compaction extends it with only the new segment. Edits, deletions and
+  regenerated branches change the fingerprint and invalidate it. If
+  summarizing fails, the hard trim to the context budget still applies.
 - **Tool-loop graceful degradation.** `server/websearch/tool/loop.js`
   `runChatWithToolLoop` negotiates providers that don't support
   tools in three steps: keep the request, drop `tool_choice`, drop

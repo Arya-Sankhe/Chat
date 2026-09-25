@@ -290,6 +290,14 @@ export class SupabaseRest {
     return chat.updateConversation(this, userId, conversationId, patch, options);
   }
 
+  async getConversationContext(userId, conversationId, options) {
+    return chat.getConversationContext(this, userId, conversationId, options);
+  }
+
+  async saveConversationContext(userId, conversationId, record, options) {
+    return chat.saveConversationContext(this, userId, conversationId, record, options);
+  }
+
   async deleteConversation(userId, conversationId, options) {
     return chat.deleteConversation(this, userId, conversationId, options);
   }

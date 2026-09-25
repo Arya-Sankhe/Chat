@@ -3,7 +3,9 @@ import test from "node:test";
 
 import { loadConfig } from "../server/config.js";
 import {
+  applyStoredCompaction,
   buildProviderMessages,
+  conversationFingerprint,
   createConversationSummarizer,
   estimateContextTokens,
   trimProviderMessagesToBudget
@@ -23,10 +25,11 @@ function smallContext(overrides = {}) {
   };
 }
 
-test("context defaults compact around 140k while preserving hard-limit headroom", () => {
+test("context defaults compact around 180k while preserving hard-limit headroom", () => {
   const config = loadConfig({});
   assert.equal(config.context.maxTokens, 256_000);
-  assert.equal(config.context.compactAtTokens, 140_000);
+  assert.equal(config.context.compactAtTokens, 180_000);
+  assert.equal(config.context.summaryMaxTokens, 4000);
   assert.equal(config.context.keepRecentTokens, 80_000);
   assert.equal(config.context.reserveTokens, 32_000);
   assert.equal(config.context.summaryModel, "deepseek/deepseek-v4-flash-0731");
@@ -204,4 +207,86 @@ test("trimProviderMessagesToBudget keeps the system message and newest user requ
   assert.equal(trimmed[0].role, "system");
   assert.equal(trimmed.at(-1).content, "new request");
   assert.ok(estimateContextTokens(trimmed) <= 40);
+});
+
+function memoryStore(initial = null) {
+  const saved = [];
+  let record = initial;
+  return {
+    saved,
+    load: async () => record,
+    save: async (next) => { saved.push(next); record = next; }
+  };
+}
+
+const longHistory = () => [
+  { id: "m1", role: "user", content: `old question ${"a".repeat(180)}` },
+  { id: "m2", role: "assistant", content: `old answer ${"b".repeat(180)}` },
+  { id: "m3", role: "user", content: "recent question" },
+  { id: "m4", role: "assistant", content: "recent answer" },
+  { role: "user", content: "newest request" }
+];
+
+test("a compaction summary is stored once and reused on later turns", async () => {
+  const store = memoryStore();
+  let calls = 0;
+  const summarizeHistory = async () => { calls += 1; return "Discussed the old topic."; };
+  const first = await buildProviderMessages({
+    messages: longHistory(), systemPrompt: "system", r2, contextConfig: smallContext(), summarizeHistory, compactionStore: store
+  });
+  assert.equal(calls, 1);
+  assert.equal(store.saved.length, 1);
+  assert.equal(store.saved[0].through_message_id, "m2");
+  assert.match(first[1].content, /Discussed the old topic/);
+
+  // Next turn: the stored summary applies without another summarizer call.
+  const next = [...longHistory().slice(0, 4), { id: "m5", role: "user", content: "newest request" }, { role: "assistant", content: "ok" }, { role: "user", content: "follow-up" }];
+  const second = await buildProviderMessages({
+    messages: next, systemPrompt: "system", r2, contextConfig: smallContext(), summarizeHistory, compactionStore: store
+  });
+  assert.equal(calls, 1);
+  assert.match(second[1].content, /Discussed the old topic/);
+  assert.doesNotMatch(JSON.stringify(second), /old answer bbbb/);
+  assert.equal(second.at(-1).content, "follow-up");
+});
+
+test("a stored summary is ignored after the history it covers changes", async () => {
+  const store = memoryStore();
+  await buildProviderMessages({
+    messages: longHistory(), systemPrompt: "system", r2, contextConfig: smallContext(),
+    summarizeHistory: async () => "first summary", compactionStore: store
+  });
+  const edited = longHistory();
+  edited[1] = { ...edited[1], id: "m2-regenerated" };
+  const record = store.saved[0];
+  assert.equal(applyStoredCompaction(edited, record), null);
+  assert.ok(applyStoredCompaction(longHistory(), record));
+});
+
+test("compaction extends the previous summary with only the new segment", async () => {
+  const transcripts = [];
+  const history = longHistory().slice(0, 4);
+  const record = {
+    version: 1,
+    summary: "earliest summary",
+    through_message_id: "m2",
+    fingerprint: conversationFingerprint(history.slice(0, 2))
+  };
+  const store = memoryStore(record);
+  const messages = [
+    ...history,
+    { id: "m5", role: "user", content: `middle ${"c".repeat(200)}` },
+    { id: "m6", role: "assistant", content: `middle answer ${"d".repeat(200)}` },
+    { role: "user", content: "latest" }
+  ];
+  await buildProviderMessages({
+    messages, systemPrompt: "system", r2, contextConfig: smallContext(),
+    summarizeHistory: async (transcript) => { transcripts.push(transcript); return "merged summary"; },
+    compactionStore: store
+  });
+  assert.equal(transcripts.length, 1);
+  assert.match(transcripts[0], /<previous_summary>\nearliest summary/);
+  assert.doesNotMatch(transcripts[0], /old question/);
+  assert.equal(store.saved[0].summary, "merged summary");
+  assert.equal(store.saved[0].through_message_id, "m6");
 });

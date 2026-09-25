@@ -345,7 +345,8 @@ test("buildRelevantDocumentContext sends retrieved excerpts and relevant page im
   });
 
   assert.equal(calls[0].query, "when is the midterm");
-  assert.equal(calls[0].maxImages, 3);
+  // No fixed page count: the provider's per-request image ceiling applies.
+  assert.equal(calls[0].maxImages, 24);
   assert.equal(result.pageCount, 1);
   assert.equal(result.documentCount, 1);
   assert.match(result.textMessage, /Midterm: week 8/);
@@ -397,36 +398,45 @@ test("buildRelevantDocumentContext always covers a document attached to this mes
 
   assert.deepEqual(seen, [[attachmentId]]);
   assert.equal(result.pageCount, 1);
-  assert.match(result.message.content[0].text, /most relevant document pages/);
+  assert.match(result.message.content[0].text, /relevant to this question are attached below as images/);
 });
 
-test("buildRelevantDocumentContext drops project excerpts already sent in full", async () => {
+test("buildRelevantDocumentContext leaves full-text documents to the library and lists the rest", async () => {
+  const seen = [];
   const result = await buildRelevantDocumentContext({
     documents: {
-      async relevantContext() {
+      async relevantContext(options) {
+        seen.push(options);
         return {
           results: [
-            { index: 1, title: "Notes.pdf - Page 1", content: "project text", source_type: "page", document_file_id: "doc-project" },
-            { index: 2, title: "Upload.pdf - Page 3", content: "chat upload text", source_type: "page", document_file_id: "doc-chat" }
+            { index: 1, title: "Textbook.pdf - Page 300", content: "big book passage", source_type: "page", document_file_id: "doc-book" }
           ],
-          citations: [{ index: 1, chunk_ids: ["a"] }, { index: 2, chunk_ids: ["b"] }],
-          visualPages: []
+          citations: [{ index: 1, type: "document", chunk_ids: ["b"] }],
+          sourceCitations: [{ index: 2, type: "document", title: "Syllabus.pdf - Page 2", chunk_ids: ["s"] }],
+          visualPages: [],
+          partialDocuments: [{ id: "doc-book", kind: "pdf", page_count: 900, attachment_id: "att-book", attachments: { file_name: "Textbook.pdf" } }],
+          retrieval: { query: "q", signals: { keyword: 1, semantic: 1, image: 0, reranked: true } }
         };
       }
     },
     readyDocuments: [
-      { id: "doc-project", kind: "pdf", project_id: "project-1" },
-      { id: "doc-chat", kind: "pdf", project_id: null }
+      { id: "doc-syllabus", kind: "pdf" },
+      { id: "doc-book", kind: "pdf" }
     ],
     attachments: [],
-    query: "what does the upload say",
+    query: "what does chapter 12 say",
     config: { documents: {} },
     supportsVision: false,
-    includeProjectText: false,
+    library: { fullDocIds: new Set(["doc-syllabus"]), texts: new Map(), tokens: 1000, budget: 50_000, remaining: 49_000 },
     signal: new AbortController().signal
   });
 
-  assert.doesNotMatch(result.textMessage, /project text/);
-  assert.match(result.textMessage, /chat upload text/);
+  assert.deepEqual([...seen[0].fullTextDocIds], ["doc-syllabus"]);
+  assert.equal(seen[0].tokenBudget, 49_000);
+  assert.match(result.textMessage, /too large to include in full[\s\S]*Textbook\.pdf \(pdf, 900 pages, attachment_id att-book\)/);
+  assert.match(result.textMessage, /big book passage/);
+  assert.equal(result.mode, "mixed");
+  // Passages that matched in full-text documents are still listed as sources.
+  assert.deepEqual(result.citations.map((citation) => citation.index), [1, 2]);
   assert.equal(result.message, null);
 });

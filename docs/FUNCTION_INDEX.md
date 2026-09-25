@@ -304,7 +304,16 @@ regex substitutions) are deliberately not listed.
   (client vs provider), and leaked-tool-markup stripping.
 - **Callers**: `server/chat/*`, `server/saas/council.js`,
   `server/saas/images.js`.
-- **Major dependencies**: `server/http/responses.js`.
+- **Major dependencies**: `server/http/responses.js`, `./compaction.js`.
+
+### `compactConversationHistory`, `applyStoredCompaction`, `conversationFingerprint`, `createCompactionStore`, `buildSummaryTranscript`, `estimateContextTokens`, `partitionRecentTurns`
+- **Path**: `server/saas/messages/compaction.js`
+- **Responsibility**: Conversation compaction. Reuses a stored rolling
+  summary when its fingerprint still matches the history, compacts again
+  at `compactAtTokens` by extending the summary with only the new
+  segment, and persists it through `createCompactionStore`
+  (`conversation_context` table).
+- **Callers**: `buildProviderMessages`, `server/chat/pipeline.js`.
 
 ### `applyStreamEvent`, `sanitizeProviderEvent`, `writeProviderEvent`, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate` ← mixed
 - **Path**: `server/saas/messages/stream.js`
@@ -395,8 +404,11 @@ regex substitutions) are deliberately not listed.
 ### `class DocumentService` ← mixed, `buildUntrustedDocumentContext`
 - **Path**: `server/documents/index.js`
 - **Responsibility**: The orchestrator. Methods:
-  `consume`, `readyDocuments`, `hasReadyDocuments`, `pageLimit`,
-  `embedQuery` (Jina embedding), `signedPageUrl`,
+  `consume`, `readyDocuments`, `documentLibrary` (full text of every
+  document that fits the turn's token budget), `hasReadyDocuments`,
+  `pageLimit`, `embedQuery` (Jina embedding), `rerankChunks`, `retrieve`,
+  `relevantContext` (budget-sized images and excerpts), `readBudgetChars`,
+  `signedPageUrl`,
   `pageResultsForDocs`, `resolveDocuments`,
   `requireDocumentByAttachment`, `requireDocumentById`, `search`,
   `read`, `extractTables`, `enqueueAndWait`,
@@ -407,7 +419,9 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `server/chat/pipeline.js` (single chat and shared
   pre-document-search for Compare/Council),
   `server/websearch/tool/loop.js` (tool loop).
-- **Major dependencies**: `server/db/supabaseRest.js`, `server/http/responses.js`.
+- **Major dependencies**: `server/db/supabaseRest.js`, `server/http/responses.js`,
+  `./retrieval.js`, `./library.js` (chunk paging, in-process text cache,
+  visual-page flags from processing).
 
 ---
 
@@ -665,7 +679,7 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
   `server/saas/messages.js`.
 
-### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildRelevantDocumentContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
+### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildRelevantDocumentContext`, `documentTokenBudget`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
 - **Path**: `server/chat/pipeline.js` (several helpers re-exported from
   `server/routes.js` for tests)
 - **Responsibility**: Chat dispatcher (single vs compare vs council,

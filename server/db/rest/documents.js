@@ -107,7 +107,7 @@ export async function listUsableProjectDocumentFiles(client, userId, projectId, 
   });
 }
 
-export async function listDocumentChunksForFiles(client, userId, documentFileIds = [], { limit = 5000, signal } = {}) {
+export async function listDocumentChunksForFiles(client, userId, documentFileIds = [], { limit = 5000, offset = 0, signal } = {}) {
   const ids = [...new Set(documentFileIds.filter(Boolean))];
   if (!ids.length) return [];
   return client.request("document_chunks", {
@@ -116,7 +116,8 @@ export async function listDocumentChunksForFiles(client, userId, documentFileIds
       document_file_id: `in.(${ids.join(",")})`,
       select: "document_file_id,chunk_index,source_type,source_label,text,token_estimate,metadata",
       order: "document_file_id.asc,chunk_index.asc",
-      limit: String(limit)
+      limit: String(limit),
+      ...(offset ? { offset: String(offset) } : {})
     },
     signal
   });
@@ -199,7 +200,7 @@ export async function getDocumentJob(client, userId, jobId, { signal } = {}) {
   return single(rows);
 }
 
-export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, sourceType = "", sheet = "", signal } = {}) {
+export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, offset = 0, sourceType = "", sheet = "", signal } = {}) {
   return client.request("document_chunks", {
     query: {
       user_id: `eq.${userId}`,
@@ -208,7 +209,8 @@ export async function listDocumentChunks(client, userId, documentFileId, { limit
       ...(sheet ? { "metadata->>sheet": `eq.${sheet}` } : {}),
       select: "id,document_file_id,chunk_index,source_type,source_label,text,metadata",
       order: "chunk_index.asc",
-      limit: String(limit)
+      limit: String(limit),
+      ...(offset ? { offset: String(offset) } : {})
     },
     signal
   });

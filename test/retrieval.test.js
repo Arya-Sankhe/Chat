@@ -66,7 +66,6 @@ function serviceWith(db, documents = {}) {
     config: {
       documents: {
         enabled: true,
-        contextCharsPerTurn: 20_000,
         visualMaxPagesPerTool: 40,
         jinaApiKey: "test-key",
         rerankModel: "",
@@ -265,8 +264,43 @@ test("relevant context shows a short attached document whole", async () => {
   const context = await service.relevantContext({
     query: "summarize this",
     docs: [syllabus, slides],
-    attachedDocumentIds: [syllabus.attachment_id],
-    maxImages: 3
+    attachedDocumentIds: [syllabus.attachment_id]
   });
   assert.deepEqual(context.visualPages.map((entry) => entry.page_number), [1, 2, 3, 4]);
+});
+
+test("relevant context sizes evidence by token budget, not fixed counts", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [{ embedding: Array(768).fill(0.01) }] }));
+  try {
+    const excerpts = Array.from({ length: 12 }, (_, index) => chunk(slides, index + 1, `BNF rule ${index} ${"grammar ".repeat(120)}`));
+    const service = serviceWith({
+      async searchDocumentChunks() { return excerpts; },
+      async searchDocumentChunksSemantic() { return []; },
+      async searchDocumentPages() { return []; },
+      async listDocumentPagesByNumbers(_userId, _docId, numbers) {
+        return numbers.map((number) => page(slides, number, "x".repeat(2000)));
+      }
+    });
+    const everything = await service.relevantContext({ query: "BNF grammar rules", docs: [syllabus, slides], supportsVision: false });
+    // Every relevant excerpt, well past the old cap of 5.
+    assert.equal(everything.results.length, 12);
+
+    const tight = await service.relevantContext({ query: "BNF grammar rules", docs: [syllabus, slides], supportsVision: false, tokenBudget: 700 });
+    assert.equal(tight.results.length, 2);
+
+    // Documents already in the full-text library get no duplicate excerpts,
+    // but their matching passages are still listed as sources.
+    const library = await service.relevantContext({
+      query: "BNF grammar rules",
+      docs: [syllabus, slides],
+      supportsVision: false,
+      fullTextDocIds: new Set([slides.id])
+    });
+    assert.equal(library.results.length, 0);
+    assert.ok(library.sourceCitations.length > 0);
+    assert.deepEqual(library.partialDocuments.map((doc) => doc.id), [syllabus.id]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

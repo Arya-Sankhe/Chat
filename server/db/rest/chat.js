@@ -223,3 +223,37 @@ export async function updateMessage(client, userId, messageId, patch, { signal }
   });
   return single(rows);
 }
+
+export async function getConversationContext(client, userId, conversationId, { signal } = {}) {
+  const rows = await client.request("conversation_context", {
+    query: {
+      conversation_id: `eq.${conversationId}`,
+      user_id: `eq.${userId}`,
+      select: "version,summary,through_message_id,fingerprint,summarized_tokens,summary_model,updated_at",
+      limit: "1"
+    },
+    signal
+  });
+  return single(rows);
+}
+
+export async function saveConversationContext(client, userId, conversationId, record, { signal } = {}) {
+  const rows = await client.request("conversation_context", {
+    method: "POST",
+    query: { on_conflict: "conversation_id" },
+    body: {
+      conversation_id: conversationId,
+      user_id: userId,
+      version: record.version,
+      summary: record.summary,
+      through_message_id: record.through_message_id,
+      fingerprint: record.fingerprint,
+      summarized_tokens: record.summarized_tokens || 0,
+      summary_model: record.summary_model || null,
+      updated_at: new Date().toISOString()
+    },
+    prefer: "resolution=merge-duplicates,return=representation",
+    signal
+  });
+  return single(rows);
+}

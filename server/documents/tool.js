@@ -13,20 +13,25 @@ function safeParseArgs(rawArgs) {
   }
 }
 
-function capJson(payload, maxChars = 24_000) {
+function capJson(payload, maxChars = 80_000) {
   const json = JSON.stringify(payload);
   if (json.length <= maxChars) return json;
-  const capped = JSON.stringify({
-    ...payload,
-    truncated: true,
-    results: Array.isArray(payload.results)
-      ? payload.results.map((entry) => ({
-          ...entry,
-          content: String(entry.content || "").slice(0, 1200)
-        }))
-      : payload.results
-  });
-  if (capped.length <= maxChars) return capped;
+  // Shrink every result's text in proportion, so an oversized read loses
+  // its tail evenly instead of collapsing to snippets.
+  if (Array.isArray(payload.results)) {
+    for (const factor of [0.9, 0.7, 0.5, 0.3]) {
+      const scale = (maxChars / json.length) * factor;
+      const capped = JSON.stringify({
+        ...payload,
+        truncated: true,
+        results: payload.results.map((entry) => {
+          const content = String(entry.content || "");
+          return { ...entry, content: content.slice(0, Math.max(200, Math.floor(content.length * scale))) };
+        })
+      });
+      if (capped.length <= maxChars) return capped;
+    }
+  }
   return JSON.stringify({
     truncated: true,
     notice: payload.notice,
@@ -52,7 +57,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
               items: { type: "string" },
               description: "Optional list of document attachment ids. Omit to search all ready documents in this chat."
             },
-            max_results: { type: "integer", minimum: 1, maximum: 8, default: 5 }
+            max_results: { type: "integer", minimum: 1, maximum: 20, default: 8 }
           },
           required: ["query"]
         }
@@ -62,7 +67,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Directly inspect a specific ready uploaded document. XLSX defaults to structured worksheet ranges; pass sheet and cell_range for exact data, or page_start/page_end to inspect rendered spreadsheet pages for charts and layout. Visually enriched PDF, DOCX, and PPTX files return page or slide images.",
+        description: "Directly inspect a specific ready uploaded document. XLSX defaults to structured worksheet ranges; pass sheet and cell_range for exact data, or page_start/page_end to inspect rendered spreadsheet pages for charts and layout. Visually enriched PDF, DOCX, and PPTX files return page or slide images. Text documents return as much text as fits from `offset`; when the result has next_offset, call again with it to keep reading.",
         parameters: {
           type: "object",
           properties: {
@@ -72,7 +77,8 @@ export function buildDocumentTools({ toolNames = null } = {}) {
             cell_range: { type: "string", description: "Optional XLSX range such as A1:D20. Use with sheet." },
             page_start: { type: "integer", minimum: 1, description: "Optional first document page or slide to read." },
             page_end: { type: "integer", minimum: 1, description: "Optional last document page or slide to read." },
-            max_chars: { type: "integer", minimum: 500, maximum: 6000, default: 2500 }
+            offset: { type: "integer", minimum: 0, description: "Optional position to continue a text read from (the next_offset of the previous read)." },
+            max_chars: { type: "integer", minimum: 500, description: "Optional cap on characters returned." }
           },
           required: ["attachment_id"]
         }
@@ -87,7 +93,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
           type: "object",
           properties: {
             attachment_id: { type: "string", description: "Document attachment id." },
-            max_results: { type: "integer", minimum: 1, maximum: 8, default: 5 }
+            max_results: { type: "integer", minimum: 1, maximum: 20, default: 8 }
           },
           required: ["attachment_id"]
         }
@@ -259,6 +265,7 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
         pageEnd: args.page_end,
         sheet: args.sheet,
         cellRange: args.cell_range,
+        offset: args.offset,
         maxChars: args.max_chars
       });
     } else if (name === "extract_tables") {
@@ -336,7 +343,9 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
               note: "The next model turn receives this PDF page as an image_url part when the selected model supports vision. Inspect that image directly; do not rely only on extracted text."
             }))
           : undefined,
-        results: result.results
+        results: result.results,
+        next_offset: result.next_offset,
+        more: result.notice_more
       }, maxToolResultChars)
     };
   } catch (error) {

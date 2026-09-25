@@ -13,7 +13,10 @@ body.study-open, body.study-session-open, .study-view, .study-session, .study-no
   --study-green: #479a83;
   --dojo-flashcards: #5b9d63;
   --dojo-podcast: #c8618a;
-  --dojo-tutor: #3a949d;
+  --dojo-tutor: #3f9fc4;
+  --dojo-tutor-sky: #8fd2f5;
+  --dojo-tutor-grass: #a6e39a;
+  --dojo-tutor-hue: linear-gradient(120deg, var(--dojo-tutor-grass), var(--dojo-tutor-sky));
   --study-font: var(--font-sans);
   --study-note: var(--font-sans);
   --dojo-surface: var(--bg);
@@ -32,9 +35,9 @@ body[data-mode="dark"] .study-view, body[data-mode="dark"] .study-session, body[
   --study-purple: #bca1ed;
   --study-green: #82cdb5;
   --dojo-podcast: #f09dbd;
-  --dojo-tutor: #86cdd3;
+  --dojo-tutor: #9ad6f2;
 }
-body[data-mode="dark"].study-open { --dojo-flashcards: #a4d989; --dojo-podcast: #f09dbd; --dojo-tutor: #86cdd3; }
+body[data-mode="dark"].study-open { --dojo-flashcards: #a4d989; --dojo-podcast: #f09dbd; --dojo-tutor: #9ad6f2; }
 body.study-open .home-wallpaper, body.study-session-open .home-wallpaper { visibility: hidden !important; }
 body.study-open .app-shell, body.study-open .chat-panel { background: var(--study-board); }
 body.study-open .chat-panel { min-width: 0; }
@@ -161,6 +164,9 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
 .dojo-tool--quiz { --tool-ink: var(--study-purple); }
 .dojo-tool--podcast { --tool-ink: var(--dojo-podcast); }
 .dojo-tool--tutor { --tool-ink: var(--dojo-tutor); }
+.dojo-tool.dojo-tool--tutor { border-color: color-mix(in srgb, var(--dojo-tutor-sky) 45%, var(--bg)); background: linear-gradient(135deg, color-mix(in srgb, var(--dojo-tutor-grass) 20%, var(--dojo-surface)), color-mix(in srgb, var(--dojo-tutor-sky) 22%, var(--dojo-surface))); }
+.dojo-tool--tutor .dojo-tool-icon { background: color-mix(in srgb, var(--dojo-tutor-sky) 18%, var(--dojo-surface)); }
+.dojo-tool--tutor svg.tutor-orb-icon, .dojo-artifact-icon.dojo-tool--tutor svg.tutor-orb-icon { width: 22px; height: 22px; filter: drop-shadow(0 2px 3px rgba(80, 170, 220, .35)); }
 .dojo-tool strong { max-width: 100%; font-size: 12.5px; font-weight: 600; line-height: 1.25; }
 .study-practice-card { position: relative; padding: 14px 24px 14px 10px; border: 1px solid var(--border-light); border-radius: 12px; margin-bottom: 8px; background: var(--bg-secondary); }
 .study-practice-open { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer; font: inherit; }
@@ -2341,10 +2347,10 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-focus-field > .dojo-focus-count.is-full { color: var(--danger, #c2410c); font-weight: 600; }
 
 /* Orb used on the prep and plan screens (the live call draws its own on a canvas). */
-.dojo-tutor-orb { position: relative; display: block; flex: none; width: 104px; height: 104px; overflow: hidden; border-radius: 50%; background: radial-gradient(circle at 34% 30%, #c4f5ec 0, #62cdc3 30%, #2c8e98 66%, #1b5f6b 100%); box-shadow: 0 18px 44px -14px rgba(46, 150, 158, .7), inset 0 -10px 22px rgba(0, 30, 50, .28); animation: dojo-orb-breathe 3.4s ease-in-out infinite; }
-.dojo-tutor-orb i { position: absolute; inset: -25%; border-radius: 50%; mix-blend-mode: screen; background: radial-gradient(circle at 32% 30%, rgba(150, 248, 228, .75), transparent 52%); animation: dojo-orb-swirl 7s linear infinite; }
-.dojo-tutor-orb i:nth-child(2) { background: radial-gradient(circle at 70% 62%, rgba(118, 150, 255, .6), transparent 48%); animation-duration: 9.5s; animation-direction: reverse; }
-.dojo-tutor-orb i:nth-child(3) { background: radial-gradient(circle at 42% 78%, rgba(255, 214, 180, .35), transparent 42%); animation-duration: 12s; }
+.dojo-tutor-orb { position: relative; display: block; flex: none; width: 104px; height: 104px; overflow: hidden; border-radius: 50%; background: linear-gradient(135deg, #cdf2bb 0, #a3e08c 36%, #86cbea 74%, #6db6ea 100%); box-shadow: 0 18px 44px -14px rgba(110, 190, 235, .7), inset 0 -10px 22px rgba(40, 110, 160, .14); animation: dojo-orb-breathe 3.4s ease-in-out infinite; }
+.dojo-tutor-orb i { position: absolute; inset: -25%; border-radius: 50%; mix-blend-mode: screen; background: radial-gradient(circle at 32% 30%, rgba(186, 244, 160, .75), transparent 52%); animation: dojo-orb-swirl 7s linear infinite; }
+.dojo-tutor-orb i:nth-child(2) { background: radial-gradient(circle at 70% 62%, rgba(140, 208, 255, .65), transparent 48%); animation-duration: 9.5s; animation-direction: reverse; }
+.dojo-tutor-orb i:nth-child(3) { background: radial-gradient(circle at 42% 78%, rgba(255, 226, 190, .3), transparent 42%); animation-duration: 12s; }
 .dojo-tutor-orb::after { content: ""; position: absolute; left: 17%; top: 11%; width: 40%; height: 30%; border-radius: 50%; background: radial-gradient(rgba(255, 255, 255, .8), transparent 70%); filter: blur(2px); }
 .dojo-tutor-orb.is-thinking { animation-duration: 1.8s; }
 .dojo-tutor-orb.is-thinking i { animation-duration: 2.6s; }
@@ -2363,7 +2369,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-tutor-stages li > span svg { width: 11px; height: 11px; }
 .dojo-tutor-stages li.is-now { color: var(--study-ink); font-weight: 550; }
 .dojo-tutor-stages li.is-now > span { border-color: var(--tc); border-top-color: transparent; animation: study-spin 800ms linear infinite; }
-.dojo-tutor-stages li.is-done > span { border-color: var(--tc); background: var(--tc); }
+.dojo-tutor-stages li.is-done > span { border-color: transparent; background: var(--dojo-tutor-hue); }
 .dojo-tutor-ready { display: flex; flex-direction: column; gap: 18px; padding: 22px 16px 20px; }
 .dojo-tutor-hero { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
 .dojo-tutor-hero .dojo-tutor-orb { width: 84px; height: 84px; margin-bottom: 8px; }
@@ -2381,7 +2387,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-tutor-who > span:last-child { display: grid; gap: 1px; }
 .dojo-tutor-who strong { color: var(--study-ink); font-size: 13px; font-weight: 600; }
 .dojo-tutor-who small { color: var(--study-muted); font-size: 11px; }
-.dojo-tutor-start { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; border: 0; border-radius: 999px; background: var(--tc); color: var(--bg); font: 600 14px var(--study-font); cursor: pointer; box-shadow: 0 12px 26px -14px var(--tc); transition: transform 150ms var(--ease-out), filter 150ms ease; }
+.dojo-tutor-start { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; border: 0; border-radius: 999px; background: var(--dojo-tutor-hue); color: #173a4a; font: 600 14px var(--study-font); cursor: pointer; box-shadow: 0 12px 26px -14px var(--tc); transition: transform 150ms var(--ease-out), filter 150ms ease; }
 .dojo-tutor-start:hover { filter: brightness(1.06); }
 .dojo-tutor-start:active { transform: scale(.98); }
 .dojo-tutor-start:focus-visible { outline: 2px solid var(--tc); outline-offset: 3px; }
@@ -2425,10 +2431,10 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-tutor-slot { display: flex; flex: 1; min-height: 0; }
 .tutor-call { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px 14px 16px; }
 .tutor-call-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.tutor-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 10px 5px 8px; border-radius: 999px; background: color-mix(in srgb, var(--tc) 13%, transparent); color: var(--tc); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
+.tutor-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 10px 5px 8px; border-radius: 999px; background: linear-gradient(120deg, color-mix(in srgb, var(--dojo-tutor-grass) 24%, transparent), color-mix(in srgb, var(--dojo-tutor-sky) 26%, transparent)); color: var(--tc); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
 .tutor-timer { display: flex; align-items: center; gap: 8px; }
 .tutor-timer-bar { width: 60px; height: 4px; overflow: hidden; border-radius: 4px; background: var(--dojo-soft); }
-.tutor-timer-bar i { display: block; height: 100%; border-radius: inherit; background: var(--tc); transform: scaleX(0); transform-origin: left; transition: transform 400ms linear, background 300ms ease; }
+.tutor-timer-bar i { display: block; height: 100%; border-radius: inherit; background: var(--dojo-tutor-hue); transform: scaleX(0); transform-origin: left; transition: transform 400ms linear, background 300ms ease; }
 .tutor-timer b { color: var(--study-ink); font: 600 12.5px var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 .tutor-call.is-last-minutes .tutor-timer b { color: #d9735b; }
 .tutor-call.is-last-minutes .tutor-timer-bar i { background: #d9735b; }
@@ -2437,7 +2443,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-step-dots { display: flex; flex: none; gap: 3px; }
 .tutor-step-dots i { width: 12px; height: 3px; border-radius: 3px; background: var(--study-stroke); transition: width 300ms var(--ease-out), background 300ms ease; }
 .tutor-step-dots i.is-done { background: color-mix(in srgb, var(--tc) 50%, transparent); }
-.tutor-step-dots i.is-now { width: 22px; background: var(--tc); }
+.tutor-step-dots i.is-now { width: 22px; background: var(--dojo-tutor-hue); }
 .tutor-step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tutor-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 2px; }
 .tutor-orb { position: relative; display: block; width: min(250px, 66cqw); aspect-ratio: 1; margin: -6px 0 -10px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--ease-out); }
@@ -2448,7 +2454,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc); transition: background 200ms ease; }
 .tutor-call[data-phase="listening"] .tutor-status i { animation: tutor-pulse 1.3s ease-in-out infinite; }
 .tutor-call[data-phase="speaking"] .tutor-status i { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tc) 25%, transparent); }
-.tutor-call:is([data-phase="thinking"], [data-phase="connecting"], [data-phase="finishing"]) .tutor-status i { background: #7892ff; animation: tutor-blink 900ms ease-in-out infinite; }
+.tutor-call:is([data-phase="thinking"], [data-phase="connecting"], [data-phase="finishing"]) .tutor-status i { background: #9cc8ff; animation: tutor-blink 900ms ease-in-out infinite; }
 .tutor-call[data-phase="paused"] .tutor-status i { background: var(--study-muted); }
 .tutor-hint { min-height: 15px; color: var(--study-muted); font-size: 11px; transition: opacity 200ms ease; }
 .tutor-hint:empty { opacity: 0; }
@@ -2457,7 +2463,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-line-who { color: var(--study-muted); font-size: 10.5px; font-weight: 650; letter-spacing: .02em; }
 .tutor-line p { margin: 0; color: var(--study-ink); font-size: 13.5px; line-height: 1.55; }
 .tutor-line.is-student { justify-items: end; }
-.tutor-line.is-student p { max-width: 88%; padding: 7px 11px; border-radius: 14px 14px 4px 14px; background: color-mix(in srgb, var(--tc) 13%, var(--dojo-soft)); }
+.tutor-line.is-student p { max-width: 88%; padding: 7px 11px; border-radius: 14px 14px 4px 14px; background: linear-gradient(120deg, color-mix(in srgb, var(--dojo-tutor-grass) 18%, var(--dojo-soft)), color-mix(in srgb, var(--dojo-tutor-sky) 20%, var(--dojo-soft))); }
 .tutor-pending { color: var(--study-muted); opacity: .6; }
 .tutor-cut { margin-left: 3px; color: var(--study-muted); }
 .tutor-dots { display: inline-flex; gap: 3px; padding: 4px 0; color: var(--study-muted); }

@@ -255,11 +255,11 @@ export function endOfTurnSilence({ answering, complete, voicedMs }) {
 /* ---------- Orb ---------- */
 
 const PALETTES = {
-  idle: { a: [52, 160, 168], b: [140, 238, 222], c: [110, 160, 255], glow: [80, 200, 196], speed: 0.5, wobble: 0.6 },
-  listening: { a: [46, 168, 172], b: [150, 244, 222], c: [96, 162, 255], glow: [80, 214, 202], speed: 0.9, wobble: 1 },
-  speaking: { a: [40, 150, 162], b: [136, 240, 220], c: [255, 186, 140], glow: [72, 206, 196], speed: 1.2, wobble: 1.25 },
-  thinking: { a: [70, 118, 214], b: [126, 222, 238], c: [170, 140, 255], glow: [120, 156, 255], speed: 2.2, wobble: 0.5 },
-  paused: { a: [118, 136, 142], b: [182, 196, 200], c: [148, 158, 180], glow: [150, 162, 170], speed: 0.18, wobble: 0.25 }
+  idle: { a: [108, 196, 236], b: [156, 228, 124], c: [150, 214, 255], glow: [140, 212, 236], speed: 0.5, wobble: 0.6 },
+  listening: { a: [100, 194, 240], b: [150, 230, 116], c: [140, 210, 255], glow: [132, 218, 222], speed: 0.9, wobble: 1 },
+  speaking: { a: [112, 202, 234], b: [164, 234, 128], c: [255, 222, 176], glow: [142, 220, 214], speed: 1.2, wobble: 1.25 },
+  thinking: { a: [128, 190, 246], b: [160, 226, 170], c: [200, 190, 255], glow: [156, 196, 252], speed: 2.2, wobble: 0.5 },
+  paused: { a: [164, 184, 192], b: [206, 222, 212], c: [186, 200, 214], glow: [176, 192, 198], speed: 0.18, wobble: 0.25 }
 };
 
 const rgba = (color, alpha) => `rgba(${color[0] | 0}, ${color[1] | 0}, ${color[2] | 0}, ${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
@@ -337,10 +337,12 @@ function createOrb(canvas, { calm = false } = {}) {
     g.closePath();
     g.save();
     g.clip();
-    const body = g.createRadialGradient(cx - radius * 0.35, cy - radius * 0.42, radius * 0.08, cx, cy, radius * 1.08);
-    body.addColorStop(0, rgba(shade(mix.b, 0.5), 1));
-    body.addColorStop(0.5, rgba(mix.a, 1));
-    body.addColorStop(1, rgba(shade(mix.a, -0.28), 1));
+    // Grass green sweeping into sky blue across the orb, so the hue shift stays visible.
+    const body = g.createLinearGradient(cx - radius, cy - radius, cx + radius * 0.9, cy + radius);
+    body.addColorStop(0, rgba(shade(mix.b, 0.35), 1));
+    body.addColorStop(0.4, rgba(mix.b, 1));
+    body.addColorStop(0.75, rgba(mix.a, 1));
+    body.addColorStop(1, rgba(shade(mix.a, -0.08), 1));
     g.fillStyle = body;
     g.fillRect(cx - radius * 1.3, cy - radius * 1.3, radius * 2.6, radius * 2.6);
 
@@ -350,7 +352,7 @@ function createOrb(canvas, { calm = false } = {}) {
       const y = cy + radius * 0.4 * Math.cos(phase * (0.9 + k * 0.17) + k * 1.3);
       const r = radius * (0.5 + 0.12 * Math.sin(phase * 0.8 + k) + 0.18 * level);
       const swirl = g.createRadialGradient(x, y, 0, x, y, r);
-      swirl.addColorStop(0, rgba(color, k === 1 ? 0.62 : 0.72));
+      swirl.addColorStop(0, rgba(color, k === 1 ? 0.4 : 0.6));
       swirl.addColorStop(1, rgba(color, 0));
       g.fillStyle = swirl;
       g.fillRect(x - r, y - r, r * 2, r * 2);
@@ -366,12 +368,12 @@ function createOrb(canvas, { calm = false } = {}) {
     }
     g.globalCompositeOperation = "source-over";
     const shadow = g.createRadialGradient(cx + radius * 0.45, cy + radius * 0.55, radius * 0.1, cx + radius * 0.3, cy + radius * 0.4, radius * 1.1);
-    shadow.addColorStop(0, "rgba(0, 20, 40, .22)");
-    shadow.addColorStop(1, "rgba(0, 20, 40, 0)");
+    shadow.addColorStop(0, "rgba(20, 70, 110, .12)");
+    shadow.addColorStop(1, "rgba(20, 70, 110, 0)");
     g.fillStyle = shadow;
     g.fillRect(cx - radius * 1.3, cy - radius * 1.3, radius * 2.6, radius * 2.6);
     const spot = g.createRadialGradient(cx - radius * 0.38, cy - radius * 0.46, 0, cx - radius * 0.38, cy - radius * 0.46, radius * 0.6);
-    spot.addColorStop(0, "rgba(255,255,255,.62)");
+    spot.addColorStop(0, "rgba(255,255,255,.72)");
     spot.addColorStop(0.35, "rgba(255,255,255,.18)");
     spot.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = spot;

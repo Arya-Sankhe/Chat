@@ -99,7 +99,7 @@ export function loadConfig(env = process.env) {
   const r2AccountId = clean(env.R2_ACCOUNT_ID);
   const contextMaxTokens = readInt(env.CONTEXT_MAX_TOKENS, 256_000);
   const contextCompactAtTokens = Math.min(
-    readInt(env.CONTEXT_COMPACT_AT_TOKENS, 140_000),
+    readInt(env.CONTEXT_COMPACT_AT_TOKENS, 180_000),
     contextMaxTokens
   );
   const mobileAllowedOrigins = normalizeAllowedOrigins([
@@ -219,7 +219,7 @@ export function loadConfig(env = process.env) {
         Math.max(1, contextMaxTokens - 1)
       ),
       summaryModel: clean(env.CONTEXT_SUMMARY_MODEL) || "deepseek/deepseek-v4-flash-0731",
-      summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 2000)
+      summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000)
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
@@ -233,8 +233,7 @@ export function loadConfig(env = process.env) {
       maxCsvRows: readInt(env.DOCUMENT_MAX_CSV_ROWS, 100_000),
       maxCsvColumns: readInt(env.DOCUMENT_MAX_CSV_COLUMNS, 100),
       maxExtractedChars: readInt(env.DOCUMENT_MAX_EXTRACTED_CHARS, 500_000),
-      contextCharsPerTurn: readInt(env.DOCUMENT_CONTEXT_CHARS_PER_TURN, 20_000),
-      maxToolResultChars: readInt(env.DOCUMENT_MAX_TOOL_RESULT_CHARS, 24_000),
+      maxToolResultChars: readInt(env.DOCUMENT_MAX_TOOL_RESULT_CHARS, 80_000),
       visualPageDpi: readInt(env.DOCUMENT_VISUAL_PAGE_DPI, 144),
       visualMaxPagesPerTool: readInt(env.DOCUMENT_VISUAL_MAX_PAGES_PER_TOOL, 40),
       visualMaxImageInputsPerTurn: readInt(env.DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN, 24),
@@ -244,11 +243,9 @@ export function loadConfig(env = process.env) {
       visualEmbedModel: clean(env.DOCUMENT_VISUAL_EMBED_MODEL) || "jina-embeddings-v5-omni-nano",
       jinaApiKey: clean(env.JINA_API_KEY),
       rerankModel: /^(off|none|false|0)$/i.test(clean(env.DOCUMENT_RERANK_MODEL)) ? "" : (clean(env.DOCUMENT_RERANK_MODEL) || "jina-reranker-v3"),
-      retrievalMaxImages: readInt(env.DOCUMENT_RETRIEVAL_MAX_IMAGES, 3),
       retrievalMaxChunkDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_CHUNK_DISTANCE, 0.72),
       retrievalMaxPageDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_PAGE_DISTANCE, 0.8),
       retrievalMinRerankScore: Number.isFinite(Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE)) ? Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE) : -0.08,
-      fullContextMaxTokens: readInt(env.DOCUMENT_FULL_CONTEXT_MAX_TOKENS, 8000),
       workerConcurrency: readInt(env.DOCUMENT_WORKER_CONCURRENCY, 1),
       jobTimeoutMs: readInt(env.DOCUMENT_JOB_TIMEOUT_MS, 120_000),
       uploadExpiresSeconds: readInt(env.DOCUMENT_UPLOAD_EXPIRES_SECONDS, 900),

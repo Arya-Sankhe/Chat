@@ -682,12 +682,16 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
 
   const config = loadConfig(CONFIG_ENV);
   const db = makeDb({ conversation: conversationRow });
+  let documentLookups = 0;
+  db.listUsableDocumentFiles = async () => { documentLookups += 1; return []; };
   const res = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
     body: { text: "Council question.", council: true, models: ["model-a", "model-b"], writingStyle: "formal", skillIds: ["humanizer"] }
   });
 
   assert.equal(res.statusCode, 200);
+  // Council answers without documents, even ones already in the chat.
+  assert.equal(documentLookups, 0);
   const events = transcript(res);
   const types = events.map((event) => event.type);
 
