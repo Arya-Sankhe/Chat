@@ -812,8 +812,11 @@
           <p id="studyCreateHint">Select the materials to include.</p>
           <div class="dojo-create-body">
             <aside class="dojo-create-sources">
-              <label for="studyCreateSearch">Sources <span>Choose up to 5</span></label>
-              <input id="studyCreateSearch" type="search" maxlength="80" autocomplete="off" placeholder="Find a source…">
+              <label for="studyCreateSearch">Sources <span id="studyCreateCount">Up to 5</span></label>
+              <div class="dojo-create-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                <input id="studyCreateSearch" type="search" maxlength="80" autocomplete="off" placeholder="Search sources">
+              </div>
               <div id="studyCreateList" class="study-create-list"></div>
             </aside>
             <div id="dojoCreateOptions" class="dojo-create-options"></div>

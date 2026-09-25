@@ -511,6 +511,26 @@ export function createStudyHubController({
     return `<span class="dojo-file-icon is-${type}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6"/>${marks[type]}</svg></span>`;
   }
 
+  // Compact type tag for the create picker, so file names can drop their extension.
+  function sourceBadge(doc) {
+    if (doc?.kind === "website") return `<span class="dojo-source-badge is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></svg></span>`;
+    const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
+    const [label, type] = doc?.kind === "text" ? ["TXT", "text"]
+      : ext === "pdf" ? ["PDF", "pdf"]
+        : ["ppt", "pptx"].includes(ext) ? ["PPT", "slides"]
+          : ["doc", "docx"].includes(ext) ? ["DOC", "word"]
+            : ["xls", "xlsx", "csv"].includes(ext) ? [ext === "csv" ? "CSV" : "XLS", "sheet"]
+              : ["png", "jpg", "jpeg", "webp"].includes(ext) ? ["IMG", "image"]
+                : ["FILE", "file"];
+    return `<span class="dojo-source-badge is-${type}" aria-hidden="true">${label}</span>`;
+  }
+
+  function sourceShortName(doc) {
+    const name = documentDisplayName(doc);
+    if (doc?.kind === "website" || doc?.kind === "text") return name;
+    return name.replace(/\.(pdf|pptx?|docx?|xlsx?|csv|png|jpe?g|webp|txt|md)$/i, "") || name;
+  }
+
   function sortedSources() {
     return [...(state.studyMaterials?.documents || [])].sort((a, b) => sourceSort === "recent"
       ? (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)
@@ -2384,6 +2404,8 @@ export function createStudyHubController({
       return documentDisplayName(doc).toLowerCase().includes(query);
     });
     const atCap = createSelected.size >= CREATE_FILE_CAP;
+    const count = document.getElementById("studyCreateCount");
+    if (count) count.textContent = createSelected.size ? `${createSelected.size} of ${CREATE_FILE_CAP}` : `Up to ${CREATE_FILE_CAP}`;
     if (!docs.length) {
       list.innerHTML = `<p class="study-create-empty">${readyCreateDocs().length ? "No matching files." : "Add a source to this course first."}</p>`;
       renderCreateActions();
@@ -2393,9 +2415,10 @@ export function createStudyHubController({
       const id = doc.id;
       const checked = createSelected.has(id);
       const disabled = !checked && atCap;
-      return `<label class="study-create-item">
+      const name = documentDisplayName(doc);
+      return `<label class="study-create-item" title="${escapeHtml(name)}">
         <input type="checkbox" value="${escapeHtml(id)}"${checked ? " checked" : ""}${disabled ? " disabled" : ""}>
-        ${sourceFileIcon(doc)}<span><strong>${escapeHtml(documentDisplayName(doc))}</strong></span>
+        ${sourceBadge(doc)}<span><strong>${escapeHtml(sourceShortName(doc))}</strong></span>
       </label>`;
     }).join("");
     renderCreateActions();
