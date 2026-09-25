@@ -9088,7 +9088,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
       viewTransitionUserMessageId = "";
       pinMessagesToBottom();
     };
-    if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) {
+    // View transition snapshots paint above every z-index, so they would show through the voice overlay.
+    if (voice) {
+      paintConversation();
+    } else if (typeof document.startViewTransition === "function" && !prefersReducedMotion()) {
       document.startViewTransition(() => paintConversation(true));
     } else {
       paintConversation();
