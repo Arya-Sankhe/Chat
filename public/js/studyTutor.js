@@ -480,6 +480,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   let tutorLine = null;
   let asked = false;
   let listen = null;
+  let held = null; // what was heard while the call got paused mid-transcription
   let typing = false;
 
   /* Timer */
@@ -585,7 +586,13 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     samples = new Float32Array(1024);
     try {
       if (!navigator.mediaDevices?.getUserMedia || !recordingType()) throw new Error("unsupported");
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const granted = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      // The call may have been hung up while the permission prompt was open.
+      if (finished) {
+        granted.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = granted;
       micAnalyser = ctx.createAnalyser();
       micAnalyser.fftSize = 1024;
       micAnalyser.smoothingTimeConstant = 0.2;
@@ -898,6 +905,11 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       onToast?.(error?.message || "Could not catch that. Try again.");
     }
     if (finished) return;
+    // Paused while transcribing: keep the answer and act on it when the call resumes.
+    if (paused) held = () => heard(line, text);
+    else heard(line, text);
+  }
+  function heard(line, text) {
     if (!text) {
       line.node.remove();
       if (timeUp) void sendTurn("closing");
@@ -1007,7 +1019,12 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     button.title = "Pause";
     ctx?.resume().catch(() => {});
     const was = root.dataset.resumePhase;
-    if (was === "speaking" || was === "thinking") {
+    if (held) {
+      const next = held;
+      held = null;
+      setRunning(true);
+      next();
+    } else if (was === "speaking" || was === "thinking") {
       setRunning(true);
       setPhase(current || queue.length ? "speaking" : "thinking");
       pump();

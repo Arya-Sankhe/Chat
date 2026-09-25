@@ -253,15 +253,19 @@ export function createPodcastAudio({ onUpdate, onEnded, refreshUrl }) {
     retried = true;
     const resume = !audio.paused || audio.dataset.wantPlay === "1";
     const at = audio.currentTime;
+    const episode = current;
     try {
-      const url = await refreshUrl(current.id);
-      if (!url || !current) return;
+      const url = await refreshUrl(episode.id);
+      // Another episode (or none) may have been picked while the link refreshed.
+      if (!url || current !== episode) return;
       current.url = url;
       pendingSeek = at;
       audio.src = url;
-      if (resume) await audio.play().catch(() => {});
+      // The listener may have paused (or pressed play) while the link refreshed.
+      const want = audio.dataset.wantPlay;
+      if (want === "1" || (resume && want !== "0")) await audio.play().catch(() => {});
     } catch {
-      onUpdate("error");
+      if (current === episode) onUpdate("error");
     }
   });
 

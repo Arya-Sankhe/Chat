@@ -231,7 +231,7 @@ export function createSpeechChunker({ first = 6, min = 14, max = 42 } = {}) {
 
 // Speaks chunks with limited parallelism and hands them back in order. Never rejects:
 // a chunk that fails to record is delivered as text only, so the call keeps going.
-export function createSpeechQueue({ config, voice, signal, tts, onAudio }) {
+export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = Promise.resolve(true) }) {
   const pending = [];
   const ready = new Map();
   let active = 0;
@@ -257,7 +257,8 @@ export function createSpeechQueue({ config, voice, signal, tts, onAudio }) {
       (async () => {
         let audio = null;
         const spoken = speakable(job.text);
-        if (spoken && !signal?.aborted) {
+        // Nothing is synthesized until the turn's speech reservation has been granted.
+        if (spoken && !signal?.aborted && await gate && !signal?.aborted) {
           try {
             audio = await tts({ config, text: spoken, voice, signal });
             characters += spoken.length;
@@ -338,11 +339,14 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   if (said) emit({ type: "heard", text: said });
   const chunker = createSpeechChunker();
   const delivered = [];
+  let openGate;
+  const gate = new Promise((resolve) => { openGate = resolve; });
   const queue = createSpeechQueue({
     config,
     voice: session.voice,
     signal,
     tts,
+    gate,
     onAudio: (item) => {
       if (signal?.aborted) return; // the student cut in; nothing more reaches them
       delivered.push(item.text);
@@ -351,10 +355,11 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   });
   // One reservation covers every chunk this turn records; it settles on what was spoken.
   const speech = meter.runReserved({ apiKey: provider.apiKey, baseUrl: provider.baseUrl, providerId: "openrouter", body: { model: TTS_MODEL }, signal }, async ({ markSubmitted }) => {
+    openGate(true);
     const { characters } = await queue.done;
     if (characters) await markSubmitted();
     return { result: characters, usage: { cost: characters * TTS_CREDITS_PER_CHAR, characters } };
-  }).catch(() => {});
+  }).catch(() => {}).finally(() => openGate(false)); // no reservation, no paid speech: the reply stays text-only
   let raw = "";
   let shown = "";
   let step = 0;
@@ -413,7 +418,13 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   const interrupted = Boolean(failure) || Boolean(signal?.aborted);
   const reply = (interrupted ? delivered.join(" ") : shown).replace(/\s+/g, " ").trim();
   if (!reply && failure) {
-    if (signal?.aborted) return null;
+    if (signal?.aborted) {
+      // Cut off before any speech: nothing to save, but the call has still started.
+      if (session.status === "ready") {
+        await context.db.updateStudyTutorSession(context.user.id, session.id, { status: "live", started_at: new Date().toISOString() }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+      }
+      return null;
+    }
     throw failure instanceof HttpError ? failure : new HttpError(502, "The tutor could not answer. Try again.");
   }
   const transcript = [...(session.transcript || []), entry];

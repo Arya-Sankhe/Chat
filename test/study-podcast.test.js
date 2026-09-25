@@ -17,6 +17,7 @@ import {
   PODCAST_SPEEDS,
   PODCAST_VOICES,
   activeLine,
+  createPodcastAudio,
   formatTime,
   podcastOptionsMarkup,
   podcastViewMarkup
@@ -198,4 +199,55 @@ test("create options offer four styles, three lengths, and distinct voice rows",
   assert.match(html, /name="voiceB" value="af_heart" disabled/);
   assert.match(html, /Optional · recommended/);
   assert.doesNotMatch(html, /language/i);
+});
+
+class FakeAudio extends EventTarget {
+  constructor() {
+    super();
+    this.dataset = {};
+    this.paused = true;
+    this.ended = false;
+    this.currentTime = 0;
+    this.readyState = 4;
+    this.plays = 0;
+  }
+  play() { this.plays += 1; this.paused = false; return Promise.resolve(); }
+  pause() { this.paused = true; }
+  load() {}
+  removeAttribute() {}
+}
+
+async function withFakeAudio(run) {
+  const saved = globalThis.Audio;
+  try {
+    let element;
+    globalThis.Audio = class extends FakeAudio { constructor() { super(); element = this; } };
+    await run(() => element);
+  } finally {
+    globalThis.Audio = saved;
+  }
+}
+
+test("a link refresh only resumes playback the listener still wants", async () => {
+  for (const pauseDuringRefresh of [false, true]) {
+    await withFakeAudio(async (element) => {
+      let finishRefresh;
+      const player = createPodcastAudio({
+        onUpdate() {},
+        refreshUrl: () => new Promise((resolve) => { finishRefresh = resolve; })
+      });
+      const audio = element();
+      player.load("ep-1", "https://old.example/ep-1.mp3");
+      await player.toggle();
+      assert.equal(audio.plays, 1);
+
+      audio.dispatchEvent(new Event("error"));
+      if (pauseDuringRefresh) player.pause();
+      finishRefresh("https://new.example/ep-1.mp3");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(audio.src, "https://new.example/ep-1.mp3");
+      assert.equal(audio.plays, pauseDuringRefresh ? 1 : 2);
+    });
+  }
 });

@@ -20,8 +20,19 @@ const TURN_TIMEOUT_MS = 90_000;
 const PREPARE_TIMEOUT_MS = 5 * 60_000;
 
 // ponytail: in-process only, like study generation locks. One turn per call at a time; a new turn
-// waits for the previous one (possibly interrupted) to save its transcript first.
+// waits for the previous one (possibly interrupted) to save its transcript first. The wait never
+// times out into overlap: every turn is bounded by TURN_TIMEOUT_MS and always releases.
 const turnChains = new Map();
+
+function afterPrevious(previous, signal) {
+  if (!previous) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(new HttpError(409, "The previous tutor turn is still finishing."));
+    if (signal?.aborted) return stop();
+    signal?.addEventListener("abort", stop, { once: true });
+    previous.then(() => { signal?.removeEventListener("abort", stop); resolve(); });
+  });
+}
 
 async function requireTutorSession(context, sessionId, signal) {
   const session = await context.db.getStudyTutorSession(context.user.id, sessionId, { signal });
@@ -116,13 +127,13 @@ export async function handleStudyTutorTurn(req, res, config, sessionId) {
   const body = await parseJsonBody(req);
   const mode = ["start", "reply", "nudge", "closing"].includes(body.mode) ? body.mode : "reply";
 
-  const previous = turnChains.get(sessionId) || Promise.resolve();
+  const previous = turnChains.get(sessionId) || null;
   let release;
   const done = new Promise((resolve) => { release = resolve; });
   turnChains.set(sessionId, done);
   const run = linkedAbort(req, res, TURN_TIMEOUT_MS);
   try {
-    await Promise.race([previous, new Promise((resolve) => setTimeout(resolve, 20_000))]);
+    await afterPrevious(previous, run.signal);
     // Read after the previous turn saved, so this turn sees the whole conversation.
     const session = await requireTutorSession(context, sessionId, run.signal);
     startSse(res);
@@ -221,7 +232,7 @@ export async function handleStudyTutorEnd(req, res, config, sessionId) {
   const context = await requireChatContext(req, config);
   const body = await parseJsonBody(req);
   // Let an in-flight turn save first so the recap sees the last exchange.
-  await Promise.race([turnChains.get(sessionId) || null, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+  await afterPrevious(turnChains.get(sessionId), req.signal);
   const session = await requireTutorSession(context, sessionId, req.signal);
   if (session.status === "ended" && session.summary) {
     sendJson(res, 200, { session: publicTutorSession(session) });

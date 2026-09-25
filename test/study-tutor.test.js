@@ -263,3 +263,36 @@ test("recap list items that come back as objects are flattened, not [object Obje
   assert.deepEqual(summary.review, ["BNF: Practise writing rules."]);
   assert.equal(JSON.stringify(summary).includes("[object Object]"), false);
 });
+
+test("no speech is synthesized when the turn's speech reservation is refused", async () => {
+  const h = harness({ status: "live", started_at: new Date().toISOString() });
+  let checks = 0;
+  h.context.db.checkApiBudget = async () => ({ allowed: (checks += 1) > 1 }); // the speech check runs first
+  const restore = stubFetch({ deltas: ["[step 1] Blood pressure depends on output and resistance. ", "What sets the resistance?"] });
+  const events = [];
+  let synthesized = 0;
+  try {
+    await runTutorTurn({ context: h.context, config: h.config, session: h.row, text: "What is MAP?", elapsed: 10, emit: (event) => events.push(event), tts: async () => { synthesized += 1; return clip; } });
+  } finally {
+    restore();
+  }
+  assert.equal(synthesized, 0);
+  assert.ok(events.filter((event) => event.type === "audio").every((event) => event.audio === null));
+  assert.equal(events.at(-1).type, "done");
+});
+
+test("an opening cut off before any speech still starts the call", async () => {
+  const h = harness();
+  const controller = new AbortController();
+  const restore = stubFetch({ deltas: [], hang: true });
+  try {
+    const run = runTutorTurn({ context: h.context, config: h.config, session: h.row, mode: "start", signal: controller.signal, emit: () => {}, tts: async () => clip });
+    setTimeout(() => controller.abort(), 20);
+    assert.equal(await run, null);
+  } finally {
+    restore();
+  }
+  assert.equal(h.row.status, "live");
+  assert.ok(h.row.started_at);
+  assert.doesNotThrow(() => tutorTurnGuard(h.row, { mode: "reply", elapsed: 5 }));
+});
