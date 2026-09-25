@@ -18,6 +18,7 @@ import {
   handleStudyCourseQueue,
   handleStudyQuizAttempts,
   handleStudyQuizById,
+  handleStudyPodcastById,
   handleStudyNote,
   handleStudyNoteExport
 } from "./routes/study.js";
@@ -56,6 +57,7 @@ import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./ch
 import { handleTemporaryChat } from "./chat/temporary.js";
 import { handleEmailRevise } from "./chat/emailRevise.js";
 import { handleSpeechToText } from "./routes/speech.js";
+import { handleStudyCourseTutor, handleStudyTutorById, handleStudyTutorEnd, handleStudyTutorTranscribe, handleStudyTutorTurn } from "./routes/tutor.js";
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
   handleDesktopChat,
@@ -328,6 +330,22 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "tutor" && !parts[5]) {
+      await handleStudyCourseTutor(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "tutor" && parts[3] && !parts[4]) {
+      await handleStudyTutorById(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "tutor" && parts[3] && !parts[5] && ["turn", "transcribe", "end"].includes(parts[4])) {
+      const handler = { turn: handleStudyTutorTurn, transcribe: handleStudyTutorTranscribe, end: handleStudyTutorEnd }[parts[4]];
+      await handler(req, res, config, parts[3]);
+      return;
+    }
+
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "generate") {
       await handleStudyCourseGenerate(req, res, config, parts[3]);
       return;
@@ -370,6 +388,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "quizzes" && parts[3] && !parts[4]) {
       await handleStudyQuizById(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "podcasts" && parts[3] && !parts[4]) {
+      await handleStudyPodcastById(req, res, config, parts[3]);
       return;
     }
 

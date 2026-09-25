@@ -120,6 +120,11 @@ export function loadConfig(env = process.env) {
       openrouter: {
         apiKey: clean(env.OPENROUTER_API_KEY),
         baseUrl: cleanUrl(env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1"
+      },
+      // Optional: Kokoro speech straight from DeepInfra (same host and price as OpenRouter's
+      // cheapest route, without the router's added latency, which live tutor calls need).
+      deepinfra: {
+        apiKey: clean(env.DEEPINFRA_API_KEY)
       }
     },
     desktop: {

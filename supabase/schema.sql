@@ -358,6 +358,43 @@ create table if not exists public.study_quizzes (
 alter table public.study_quizzes
   add column if not exists deck_key text;
 
+-- AI podcasts: audio lives behind an attachment row so it counts toward storage.
+create table if not exists public.study_podcasts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  attachment_id uuid not null references public.attachments(id) on delete cascade,
+  title text not null default '',
+  style text not null default 'casual',
+  length text not null default 'standard',
+  voices jsonb not null default '[]'::jsonb,
+  transcript jsonb not null default '[]'::jsonb,
+  duration_seconds numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+
+-- AI tutor calls: the lesson plan, capped source text, live transcript, and end-of-call summary.
+create table if not exists public.study_tutor_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  title text not null default '',
+  style text not null default 'teacher',
+  voice text not null default 'af_heart',
+  instructions text not null default '',
+  plan jsonb not null default '{}'::jsonb,
+  source_text text not null default '',
+  transcript jsonb not null default '[]'::jsonb,
+  summary jsonb,
+  status text not null default 'ready' check (status in ('ready', 'live', 'ended')),
+  provider_pin text,
+  active_seconds numeric not null default 0,
+  started_at timestamptz,
+  ended_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.research_runs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -496,6 +533,9 @@ create index if not exists projects_user_updated_idx on public.projects (user_id
 create index if not exists study_notes_user_project_idx on public.study_notes (user_id, project_id);
 create index if not exists study_cards_user_project_idx on public.study_cards (user_id, project_id);
 create index if not exists study_quizzes_user_project_idx on public.study_quizzes (user_id, project_id);
+create index if not exists study_podcasts_user_project_idx on public.study_podcasts (user_id, project_id);
+create index if not exists study_podcasts_attachment_idx on public.study_podcasts (attachment_id);
+create index if not exists study_tutor_sessions_user_project_idx on public.study_tutor_sessions (user_id, project_id, created_at desc);
 create index if not exists conversations_user_updated_idx on public.conversations (user_id, updated_at desc) where deleted_at is null;
 create index if not exists conversations_project_idx on public.conversations (project_id) where project_id is not null;
 create index if not exists messages_conversation_created_idx on public.messages (conversation_id, created_at);
@@ -546,11 +586,11 @@ grant usage on schema public to anon, authenticated, service_role;
 grant select on public.plans to anon, authenticated;
 grant select on public.profiles, public.subscriptions, public.payment_requests, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs to authenticated;
 grant select on public.research_runs to authenticated;
-grant select on public.study_notes, public.study_cards, public.study_quizzes to authenticated;
+grant select on public.study_notes, public.study_cards, public.study_quizzes, public.study_podcasts, public.study_tutor_sessions to authenticated;
 grant select on public.usage_api_weekly to authenticated;
 grant all on public.profiles, public.app_settings, public.plans, public.subscriptions, public.payment_requests, public.content_reports, public.projects, public.conversations, public.messages, public.attachments, public.document_files, public.document_chunks, public.document_pages, public.document_jobs, public.usage_api_weekly, public.usage_api_events, public.model_cache to service_role;
 grant all on public.research_runs to service_role;
-grant all on public.study_notes, public.study_cards, public.study_quizzes to service_role;
+grant all on public.study_notes, public.study_cards, public.study_quizzes, public.study_podcasts, public.study_tutor_sessions to service_role;
 
 alter table public.profiles enable row level security;
 alter table public.app_settings enable row level security;
@@ -570,6 +610,8 @@ alter table public.research_runs enable row level security;
 alter table public.study_notes enable row level security;
 alter table public.study_cards enable row level security;
 alter table public.study_quizzes enable row level security;
+alter table public.study_podcasts enable row level security;
+alter table public.study_tutor_sessions enable row level security;
 alter table public.usage_api_weekly enable row level security;
 alter table public.usage_api_events enable row level security;
 alter table public.model_cache enable row level security;
@@ -608,6 +650,10 @@ create policy "research runs read own" on public.research_runs for select to aut
 create policy "study notes read own" on public.study_notes for select using (auth.uid() = user_id);
 create policy "study cards read own" on public.study_cards for select using (auth.uid() = user_id);
 create policy "study quizzes read own" on public.study_quizzes for select using (auth.uid() = user_id);
+drop policy if exists "study podcasts read own" on public.study_podcasts;
+create policy "study podcasts read own" on public.study_podcasts for select using (auth.uid() = user_id);
+drop policy if exists "study tutor sessions read own" on public.study_tutor_sessions;
+create policy "study tutor sessions read own" on public.study_tutor_sessions for select using (auth.uid() = user_id);
 create policy "usage api weekly read own" on public.usage_api_weekly for select using (auth.uid() = user_id);
 
 -- Live definition (see 20260816210804_per_user_kill_switch.sql): denies when

@@ -205,6 +205,16 @@ const ROUTES = [
   { path: "/api/study/quizzes/quiz-1", method: "GET", authKind: "chat", enforced405: "POST" },
   { path: "/api/study/quizzes/quiz-1", method: "PATCH", authKind: "chat" },
   { path: "/api/study/quizzes/quiz-1", method: "DELETE", authKind: "chat" },
+  { path: "/api/study/podcasts/pod-1", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/podcasts/pod-1", method: "PATCH", authKind: "chat" },
+  { path: "/api/study/podcasts/pod-1", method: "DELETE", authKind: "chat" },
+  { path: "/api/study/courses/course-1/tutor", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/tutor/tut-1", method: "GET", authKind: "chat", enforced405: "POST" },
+  { path: "/api/study/tutor/tut-1", method: "PATCH", authKind: "chat" },
+  { path: "/api/study/tutor/tut-1", method: "DELETE", authKind: "chat" },
+  { path: "/api/study/tutor/tut-1/turn", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/tutor/tut-1/transcribe", method: "POST", authKind: "chat", enforced405: "GET" },
+  { path: "/api/study/tutor/tut-1/end", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/notes/note-1/export", method: "POST", authKind: "chat", enforced405: "GET" },
   { path: "/api/study/notes/note-1", method: "DELETE", authKind: "chat", enforced405: "GET" },
   { path: "/api/research", method: "POST", authKind: "chat" },
@@ -2443,10 +2453,12 @@ test("study practice groups cards into openable decks and applies title override
           }
         ];
       },
-      async listStudyQuizzes() { return []; }
+      async listStudyQuizzes() { return []; },
+      async listStudyPodcasts() { return [{ id: "pod-1", title: "Enzymes", style: "tutor", length: "quick", duration_seconds: "251.5", created_at: "2026-09-24T00:00:00Z" }]; }
     }
   });
   const res = await dispatch(authReadyConfig, { path: "/api/study/courses/course-1/practice", overrides });
+  assert.deepEqual(res.json().podcasts, [{ id: "pod-1", title: "Enzymes", style: "tutor", length: "quick", durationSeconds: 251.5, createdAt: "2026-09-24T00:00:00Z" }]);
   assert.equal(res.statusCode, 200);
   const decks = res.json().decks;
   const named = decks.find((deck) => deck.id === "doc:doc-1");
@@ -2980,4 +2992,53 @@ test("research report export uses the document create pipeline", async () => {
   assert.equal(created[0].job_type, "document.create.pdf");
   assert.equal(created[0].input.content, "# Hello\n\nWorld");
   assert.equal(created[0].input.format, "pdf");
+});
+
+test("podcasts return signed audio links and delete through their attachment", async () => {
+  const deleted = { keys: [], attachments: [] };
+  const podcastRow = {
+    id: "pod-1",
+    project_id: "course-1",
+    attachment_id: "att-9",
+    title: "Enzymes",
+    style: "recall",
+    length: "quick",
+    voices: [{ id: "af_heart", name: "Maya" }, { id: "am_puck", name: "Leo" }],
+    transcript: [{ speaker: 0, text: "Hi", start: 0, end: 2 }, { pause: true, start: 2, end: 5.5 }],
+    duration_seconds: "5.5",
+    created_at: "2026-09-24T00:00:00Z"
+  };
+  const deps = () => {
+    const base = stubbedDeps({
+      db: {
+        async getStudyPodcast(userId, id) { return id === "pod-1" ? podcastRow : null; },
+        async getProject() { return { id: "course-1", kind: "course" }; },
+        async getAttachment() { return { id: "att-9", object_key: "users/user-1/x/Enzymes.mp3", file_name: "Enzymes.mp3" }; },
+        async deleteAttachment(userId, id) { deleted.attachments.push(id); }
+      }
+    });
+    return {
+      ...base,
+      createR2: () => ({
+        readUrl(key, options = {}) { return `https://r2.test/${key}?d=${options.disposition || "attachment"}`; },
+        async deleteObjects(keys) { deleted.keys.push(...keys); }
+      })
+    };
+  };
+  const res = await dispatch(authReadyConfig, { path: "/api/study/podcasts/pod-1", overrides: deps() });
+  assert.equal(res.statusCode, 200);
+  const podcast = res.json().podcast;
+  assert.equal(podcast.durationSeconds, 5.5);
+  assert.equal(podcast.transcript[1].pause, true);
+  assert.equal(podcast.audioUrl, "https://r2.test/users/user-1/x/Enzymes.mp3?d=inline");
+  assert.equal(podcast.downloadUrl, "https://r2.test/users/user-1/x/Enzymes.mp3?d=attachment");
+  assert.equal(podcast.attachment_id, undefined);
+
+  const missing = await dispatch(authReadyConfig, { path: "/api/study/podcasts/pod-2", overrides: deps() });
+  assert.equal(missing.statusCode, 404);
+
+  const removed = await dispatch(authReadyConfig, { method: "DELETE", path: "/api/study/podcasts/pod-1", overrides: deps() });
+  assert.equal(removed.statusCode, 200);
+  assert.deepEqual(deleted.keys, ["users/user-1/x/Enzymes.mp3"]);
+  assert.deepEqual(deleted.attachments, ["att-9"]);
 });

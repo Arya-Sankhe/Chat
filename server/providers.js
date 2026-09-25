@@ -36,6 +36,9 @@ const DEEPSEEK_SWEET_COMPLETION_PER_M = 0.2;
 const DEEPSEEK_BACKUP_MIN_THROUGHPUT_P50 = 40;
 const DEEPSEEK_PRICE_TTL_MS = 5 * 60 * 1000;
 let deepSeekProviderOrder = DEEPSEEK_PROVIDER_ORDER;
+// Endpoint tag -> provider display name, from the live catalog. Responses name the host
+// ("DeepInfra"), while routing takes tags ("deepinfra/fp8"), so sticky routing maps between them.
+let deepSeekTagProviders = new Map();
 let deepSeekPriceExpiresAt = 0;
 let deepSeekPriceRefresh = null;
 let deepSeekNoStatsWarned = false;
@@ -188,6 +191,11 @@ export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTE
         const payload = await response.json();
         const liveEndpoints = payload?.data?.endpoints;
         deepSeekProviderOrder = deepSeekProviderOrderFromEndpoints(liveEndpoints);
+        if (Array.isArray(liveEndpoints)) {
+          deepSeekTagProviders = new Map(liveEndpoints
+            .filter((endpoint) => endpoint?.tag && endpoint?.provider_name)
+            .map((endpoint) => [String(endpoint.tag).toLowerCase(), String(endpoint.provider_name)]));
+        }
         if (
           Array.isArray(liveEndpoints) && liveEndpoints.length > 0
           && !liveEndpoints.some(endpointHasThroughputStats)
@@ -209,6 +217,34 @@ export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTE
   return deepSeekPriceRefresh;
 }
 
+function providerSlug(name) {
+  return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+/**
+ * Routing tags for the host that served an earlier request in the same turn. DeepSeek hosts
+ * resolve through the live catalog and only while they are still inside our price-ranked
+ * order, so a turn that fell back to an expensive host does not stay there. Other models
+ * use the provider slug (OpenRouter ignores an unknown slug in `order`).
+ */
+export function stickyProviderTags(model, providerName, order = null) {
+  const name = String(providerName || "").trim();
+  if (!name) return [];
+  const id = String(model || "").trim().toLowerCase();
+  if (id.startsWith("deepseek/")) {
+    const ranked = order || deepSeekProviderOrder;
+    const wanted = name.toLowerCase();
+    const slug = providerSlug(name);
+    return ranked.filter((tag) => {
+      const key = String(tag).toLowerCase();
+      const listed = deepSeekTagProviders.get(key);
+      return listed ? listed.toLowerCase() === wanted : key.split("/")[0] === slug;
+    });
+  }
+  const slug = providerSlug(name);
+  return slug ? [slug] : [];
+}
+
 /**
  * Map our shared chat request shape to provider-specific fields.
  * OpenRouter expects `reasoning: { effort }` instead of `reasoning_effort`.
@@ -223,7 +259,7 @@ export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTE
 export function adaptChatRequestForProvider(body, providerId) {
   if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
 
-  const { reasoning_effort: reasoningEffort, ...rest } = body;
+  const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
   const modelId = String(rest.model || "").trim().toLowerCase();
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
@@ -308,6 +344,17 @@ export function adaptChatRequestForProvider(body, providerId) {
 
   if (hasTools) {
     providerPrefs.require_parameters = true;
+  }
+
+  // Keep every request in a turn on the host that served its first request, so the provider's
+  // prompt cache stays warm. Fallbacks stay on: an outage costs a cache miss, not the turn.
+  if (stickyProvider && !isProModel && !providerPrefs.only) {
+    const pinned = stickyProviderTags(modelId, stickyProvider, providerPrefs.order);
+    if (pinned.length) {
+      const keys = new Set(pinned.map((tag) => tag.toLowerCase()));
+      providerPrefs.order = [...pinned, ...(providerPrefs.order || []).filter((tag) => !keys.has(String(tag).toLowerCase()))];
+      providerPrefs.allow_fallbacks = true;
+    }
   }
 
   if (Object.keys(providerPrefs).length) {

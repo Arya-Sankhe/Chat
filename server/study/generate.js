@@ -115,7 +115,8 @@ export async function streamComplete({
   system,
   user,
   maxTokens = 4000,
-  expect = "json"
+  expect = "json",
+  temperature = 0.1
 }) {
   throwIfAborted(signal);
   const provider = resolveProvider("openrouter", config);
@@ -135,7 +136,7 @@ export async function streamComplete({
           { role: "system", content: system },
           { role: "user", content: user }
         ],
-        temperature: 0.1,
+        temperature,
         max_tokens: maxTokens
       }
     });
@@ -480,7 +481,7 @@ export function cleanQuestions(parsed, count, examType = "mixed") {
   return questions;
 }
 
-function sourceFallbackTitle(source) {
+export function sourceFallbackTitle(source) {
   if (source.documentFiles?.length) {
     const joined = source.documentFiles.map((file) => fileDisplayName(file)).join(", ");
     return joined.length > 120 ? `${joined.slice(0, 117)}...` : (joined || "Quiz");

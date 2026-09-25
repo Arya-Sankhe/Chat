@@ -30,6 +30,7 @@ const contentTypes = new Map([
   [".jpeg", "image/jpeg"],
   [".webp", "image/webp"],
   [".mp4", "video/mp4"],
+  [".mp3", "audio/mpeg"],
   [".avif", "image/avif"],
   [".woff2", "font/woff2"],
   [".txt", "text/plain; charset=utf-8"],

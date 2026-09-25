@@ -21,12 +21,13 @@ import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
 import { createCourseSource } from "../study/sources.js";
 import { gradeQuizAttempt, questionMarks } from "../study/grade.js";
+import { generatePodcast, normalizePodcastOptions } from "../study/podcast.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 
 // ponytail: in-process only — one Node process. Durable/DB lock if multi-replica duplicate generation becomes real.
 const activeStudyGenerations = new Set();
 
-async function requireCourse(context, courseId, signal) {
+export async function requireCourse(context, courseId, signal) {
   const project = await context.db.getProject(context.user.id, courseId, { signal });
   if (!project || project.kind !== "course") throw new HttpError(404, "Course not found.");
   return project;
@@ -52,7 +53,7 @@ async function requireReadyCourseFile(context, course, documentFileId, signal) {
   return documentFile;
 }
 
-async function requireCourseSource(context, course, body, signal) {
+export async function requireCourseSource(context, course, body, signal) {
   const noteId = typeof body.noteId === "string" ? body.noteId.trim() : "";
   const ids = uniqueFileIds(body);
   if (ids.length && noteId) throw new HttpError(400, "Provide files or a note, not both.");
@@ -137,11 +138,11 @@ function generationLockKey({ userId, courseId, type, source, mode }) {
       ? `doc:${source.documentFile.id}`
       : `note:${source.note.id}`;
   let key = `${userId}:${courseId}:${src}:${type}`;
-  if (type === "notes") key += `:${mode || "summary"}`;
+  if (type === "notes" || type === "podcast") key += `:${mode || "summary"}`;
   return key;
 }
 
-function endStudySse(res) {
+export function endStudySse(res) {
   if (!res.writableEnded && !res.destroyed) {
     res.write("data: [DONE]\n\n");
     res.end();
@@ -195,7 +196,7 @@ function quizCardSource(quiz) {
   };
 }
 
-function cleanDeckTitle(value) {
+export function cleanDeckTitle(value) {
   if (typeof value !== "string") throw new HttpError(400, "title must be a non-empty string.");
   const title = value.trim();
   if (!title) throw new HttpError(400, "title must be a non-empty string.");
@@ -264,8 +265,8 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
   const course = await requireCourse(context, courseId, req.signal);
   const body = await parseJsonBody(req);
   const type = String(body.type || "").trim() === "summary" ? "notes" : String(body.type || "").trim();
-  if (!["flashcards", "quiz", "notes", "mindmap"].includes(type)) {
-    throw new HttpError(400, "type must be flashcards, quiz, notes, or mindmap.");
+  if (!["flashcards", "quiz", "notes", "mindmap", "podcast"].includes(type)) {
+    throw new HttpError(400, "type must be flashcards, quiz, notes, mindmap, or podcast.");
   }
   const source = await requireCourseSource(context, course, body, req.signal);
 
@@ -295,6 +296,10 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
     }
   } else if (type === "quiz") {
     count = clampQuizCount(body.count);
+  } else if (type === "podcast") {
+    enforceRateLimit(req, "study-podcast", 10, 60 * 60_000, context.user.id);
+    const settings = normalizePodcastOptions(body);
+    mode = `${settings.style}:${settings.length}`;
   } else {
     if (source.note) throw new HttpError(400, "Choose source files for notes or mind maps.");
     mode = type === "mindmap" ? "mindmap" : normalizeNoteMode(body.mode) || "summary";
@@ -433,6 +438,25 @@ export async function handleStudyCourseGenerate(req, res, config, courseId) {
         ...(generated.partial ? { partial: true } : {}),
         ...(warning ? { warning } : {})
       };
+    } else if (type === "podcast") {
+      const generated = await generatePodcast({
+        context,
+        config,
+        course,
+        source,
+        options: body,
+        signal,
+        onWarning,
+        onStage: emitStage
+      });
+      result = {
+        type,
+        id: generated.podcast.id,
+        title: generated.podcast.title || "Podcast",
+        durationSeconds: Number(generated.podcast.duration_seconds) || 0,
+        ...(generated.partial ? { partial: true } : {}),
+        ...(warning ? { warning } : {})
+      };
     } else {
       const generated = await generateSummary({
         context,
@@ -485,14 +509,16 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
-  const [documents, notes, cards, quizzes] = await Promise.all([
+  const [documents, notes, cards, quizzes, podcasts, tutors] = await Promise.all([
     context.db.listProjectDocuments(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyCards(context.user.id, course.id, {
       select: "id,document_file_id,note_id,deck_key",
       signal: req.signal
     }),
-    context.db.listStudyQuizzes(context.user.id, course.id, { signal: req.signal })
+    context.db.listStudyQuizzes(context.user.id, course.id, { signal: req.signal }),
+    context.db.listStudyPodcasts(context.user.id, course.id, { signal: req.signal }),
+    context.db.listStudyTutorSessions?.(context.user.id, course.id, { signal: req.signal })
   ]);
   const docTitles = new Map((documents || []).map((doc) => [doc.id, documentTitle(doc)]));
   const noteTitles = new Map((notes || []).map((note) => [note.id, note.title || "Note"]));
@@ -535,6 +561,23 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
       id: quiz.id,
       title: quiz.title || "",
       questionCount: Array.isArray(quiz.questions) ? quiz.questions.length : 0
+    })),
+    podcasts: (podcasts || []).map((podcast) => ({
+      id: podcast.id,
+      title: podcast.title || "",
+      style: podcast.style,
+      length: podcast.length,
+      durationSeconds: Number(podcast.duration_seconds) || 0,
+      createdAt: podcast.created_at
+    })),
+    tutors: (tutors || []).map((session) => ({
+      id: session.id,
+      title: session.title || "",
+      style: session.style,
+      voice: session.voice,
+      status: session.status,
+      activeSeconds: Number(session.active_seconds) || 0,
+      createdAt: session.created_at
     }))
   });
 }
@@ -759,6 +802,48 @@ export async function handleStudyQuizAttempts(req, res, config, quizId) {
   // Nothing is stored: marking happens per attempt and the client keeps the report.
   const report = await gradeQuizAttempt({ context, config, quiz, submitted, signal: req.signal });
   sendJson(res, 200, report);
+}
+
+function publicPodcast(podcast, attachment, r2) {
+  const fileName = attachment?.file_name || "Podcast.mp3";
+  return {
+    id: podcast.id,
+    title: podcast.title || "Podcast",
+    style: podcast.style,
+    length: podcast.length,
+    voices: Array.isArray(podcast.voices) ? podcast.voices : [],
+    transcript: Array.isArray(podcast.transcript) ? podcast.transcript : [],
+    durationSeconds: Number(podcast.duration_seconds) || 0,
+    createdAt: podcast.created_at,
+    audioUrl: attachment ? r2.readUrl(attachment.object_key, { disposition: "inline", contentType: "audio/mpeg" }) : "",
+    downloadUrl: attachment ? r2.readUrl(attachment.object_key, { fileName, contentType: "audio/mpeg" }) : ""
+  };
+}
+
+export async function handleStudyPodcastById(req, res, config, podcastId) {
+  if (!["GET", "PATCH", "DELETE"].includes(req.method)) throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  const podcast = await context.db.getStudyPodcast(context.user.id, podcastId, { signal: req.signal });
+  if (!podcast) throw new HttpError(404, "Podcast not found.");
+  await requireCourse(context, podcast.project_id, req.signal);
+  if (req.method === "PATCH") {
+    const body = await parseJsonBody(req);
+    const title = cleanDeckTitle(body.title);
+    const updated = await context.db.updateStudyPodcast(context.user.id, podcast.id, { title }, { signal: req.signal });
+    sendJson(res, 200, { title: updated?.title || title });
+    return;
+  }
+  const attachment = await context.db.getAttachment(context.user.id, podcast.attachment_id, { signal: req.signal });
+  if (req.method === "DELETE") {
+    // Deleting the attachment cascades to the podcast row.
+    if (attachment) {
+      await context.r2.deleteObjects([attachment.object_key], { signal: req.signal });
+      await context.db.deleteAttachment(context.user.id, attachment.id, { signal: req.signal });
+    }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  sendJson(res, 200, { podcast: publicPodcast(podcast, attachment, context.r2) });
 }
 
 export async function handleStudyNote(req, res, config, noteId) {

@@ -175,3 +175,99 @@ export async function deleteStudyQuiz(client, userId, id, { signal } = {}) {
   });
 }
 
+
+const PODCAST_LIST_SELECT = "id,project_id,title,style,length,duration_seconds,created_at";
+const PODCAST_SELECT = "id,user_id,project_id,attachment_id,title,style,length,voices,transcript,duration_seconds,created_at";
+
+export async function listStudyPodcasts(client, userId, projectId, { signal } = {}) {
+  return client.request("study_podcasts", {
+    query: {
+      user_id: `eq.${userId}`,
+      project_id: `eq.${projectId}`,
+      select: PODCAST_LIST_SELECT,
+      order: "created_at.desc"
+    },
+    signal
+  });
+}
+
+export async function getStudyPodcast(client, userId, id, { signal } = {}) {
+  const rows = await client.request("study_podcasts", {
+    query: { id: `eq.${id}`, user_id: `eq.${userId}`, select: PODCAST_SELECT, limit: "1" },
+    signal
+  });
+  return single(rows);
+}
+
+export async function createStudyPodcast(client, userId, podcast, { signal } = {}) {
+  const rows = await client.request("study_podcasts", {
+    method: "POST",
+    body: { ...podcast, user_id: userId },
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
+export async function updateStudyPodcast(client, userId, id, patch, { signal } = {}) {
+  const rows = await client.request("study_podcasts", {
+    method: "PATCH",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    body: patch,
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
+const TUTOR_LIST_SELECT = "id,project_id,title,style,voice,status,active_seconds,created_at";
+
+export async function listStudyTutorSessions(client, userId, projectId, { signal } = {}) {
+  return client.request("study_tutor_sessions", {
+    query: {
+      user_id: `eq.${userId}`,
+      project_id: `eq.${projectId}`,
+      select: TUTOR_LIST_SELECT,
+      order: "created_at.desc"
+    },
+    signal
+  });
+}
+
+export async function getStudyTutorSession(client, userId, id, { signal } = {}) {
+  const rows = await client.request("study_tutor_sessions", {
+    query: { id: `eq.${id}`, user_id: `eq.${userId}`, select: "*", limit: "1" },
+    signal
+  });
+  return single(rows);
+}
+
+export async function createStudyTutorSession(client, userId, session, { signal } = {}) {
+  const rows = await client.request("study_tutor_sessions", {
+    method: "POST",
+    body: { ...session, user_id: userId },
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
+export async function updateStudyTutorSession(client, userId, id, patch, { signal } = {}) {
+  const rows = await client.request("study_tutor_sessions", {
+    method: "PATCH",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    body: { ...patch, updated_at: new Date().toISOString() },
+    prefer: "return=representation",
+    signal
+  });
+  return single(rows);
+}
+
+export async function deleteStudyTutorSession(client, userId, id, { signal } = {}) {
+  return client.request("study_tutor_sessions", {
+    method: "DELETE",
+    query: { id: `eq.${id}`, user_id: `eq.${userId}` },
+    prefer: "return=minimal",
+    signal
+  });
+}

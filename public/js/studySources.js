@@ -11,12 +11,9 @@ const paste = svg('<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16
 export function createStudySourceDialog({ state, uploadFiles, onCreated, showToast }) {
   const dialog = document.createElement("dialog");
   dialog.className = "dojo-source-dialog";
-  dialog.setAttribute("aria-labelledby", "dojo-source-title");
-  dialog.setAttribute("aria-describedby", "dojo-source-description");
+  dialog.setAttribute("aria-label", "Add sources");
   dialog.innerHTML = `
-    <header class="dojo-source-dialog-head"><span class="dojo-source-brand">${kluiSvgMarkup("dojo-source-intake")}<span>YOUR STUDY SPACE</span></span><button type="button" class="study-icon-btn" data-source-close aria-label="Close add sources">${svg('<path d="m6 6 12 12M18 6 6 18"/>')}</button></header>
-    <h2 id="dojo-source-title">Bring your ideas together.</h2>
-    <p id="dojo-source-description">Add sources. Find connections. Make it click.</p>
+    <header class="dojo-source-dialog-head"><span class="dojo-source-brand">${kluiSvgMarkup("dojo-source-intake")}<span>WHAT ARE WE LEARNING TODAY?</span></span><button type="button" class="study-icon-btn" data-source-close aria-label="Close add sources">${svg('<path d="m6 6 12 12M18 6 6 18"/>')}</button></header>
     <button type="button" class="dojo-source-upload" data-source-files>
       <span class="dojo-upload-symbol">${upload}</span><strong>Drop your files here</strong>
       <span>or <u>choose files</u> to get started</span><small>PDF, Word, slides, spreadsheets & images</small>
@@ -39,8 +36,7 @@ export function createStudySourceDialog({ state, uploadFiles, onCreated, showToa
       <textarea id="dojo-source-content" name="text" placeholder="Paste something you want to learn…" maxlength="200000" rows="4" required></textarea>
       <div class="dojo-source-text-footer"><span data-source-count>0 / 200,000</span><button class="dojo-source-submit" type="submit">Add text <span aria-hidden="true">+</span></button></div>
     </form>
-    <p class="dojo-source-feedback" role="status" aria-live="polite" hidden></p>
-    <footer class="dojo-source-dialog-foot"><span>Good learning starts with good sources.</span><button type="button" data-source-close>Done</button></footer>`;
+    <p class="dojo-source-feedback" role="status" aria-live="polite" hidden></p>`;
   document.body.append(dialog);
   let courseId = "";
   let busy = false;
@@ -68,8 +64,18 @@ export function createStudySourceDialog({ state, uploadFiles, onCreated, showToa
   dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
   dialog.addEventListener("keydown", () => { dialog.dataset.motion = "off"; });
   dialog.addEventListener("pointerdown", () => { dialog.dataset.motion = "on"; });
+  // Close on a click outside the card (the backdrop). Both press and release must land there,
+  // so a text selection dragged out of a field doesn't dismiss the dialog.
+  const onBackdrop = event => {
+    if (event.target !== dialog) return false;
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  let pressedBackdrop = false;
+  dialog.addEventListener("pointerdown", event => { pressedBackdrop = onBackdrop(event); });
   dialog.addEventListener("click", async event => {
     if (busy) return;
+    if (pressedBackdrop && onBackdrop(event)) return dialog.close();
     if (event.target.closest("[data-source-close]")) return dialog.close();
     if (event.target.closest("[data-source-files]")) {
       // Keep the existing file input, accept list, and upload pipeline.

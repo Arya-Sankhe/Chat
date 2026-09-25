@@ -439,6 +439,32 @@ export async function deleteStudyQuiz(session, quizId) {
   return response.json();
 }
 
+export async function fetchStudyPodcast(session, podcastId) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyPodcast(session, podcastId, body) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyPodcast(session, podcastId) {
+  const response = await apiFetch(`/api/study/podcasts/${encodeURIComponent(podcastId)}`, {
+    session,
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function submitStudyQuizAttempt(session, quizId, answers) {
   const response = await apiFetch(`/api/study/quizzes/${encodeURIComponent(quizId)}/attempts`, {
     session,
@@ -882,6 +908,86 @@ export async function updateAdminSettings(session, settings) {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(settings)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function prepareStudyTutor(session, courseId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/tutor`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  let result = null;
+  await readSseStream(response, (event) => {
+    if (!event || typeof event !== "object" || event.type === "heartbeat") return;
+    if (event.type === "error") throw new Error(event.error || "Could not prepare the lesson.");
+    if (event.type === "complete") result = event.result;
+    onEvent?.(event);
+  });
+  if (!result?.session) throw new Error("Could not prepare the lesson.");
+  return result;
+}
+
+export async function fetchStudyTutor(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function updateStudyTutor(session, sessionId, body) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function deleteStudyTutor(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}`, { session, method: "DELETE" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function transcribeTutorAudio(session, sessionId, audio, { signal } = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/transcribe`, {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio,
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function streamTutorTurn(session, sessionId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/turn`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return readSseStream(response, (event) => {
+    if (event && typeof event === "object") onEvent?.(event);
+  });
+}
+
+export async function endStudyTutor(session, sessionId, body = {}) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/end`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();

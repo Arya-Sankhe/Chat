@@ -58,8 +58,23 @@ export function createModelUsageMeter({
   modality = "llm",
   oauthClientId = null,
   reservationCredits = 0.25,
-  requestIdFactory = randomUUID
+  requestIdFactory = randomUUID,
+  stickyProviders = null
 }) {
+  // One meter serves one turn. Once a model's first response names its host, every later
+  // request for that model in the turn asks for the same host so its prompt cache is reused.
+  const pinnedHosts = new Map(Object.entries(stickyProviders || {}).filter(([, name]) => name));
+  const learnHost = (model, event) => {
+    const host = typeof event?.provider === "string" ? event.provider.trim() : "";
+    if (!model || !host || pinnedHosts.has(model)) return;
+    if (event?.model && !String(event.model).startsWith(model)) return; // served by a fallback model
+    pinnedHosts.set(model, host);
+  };
+  const withPinnedHost = (params) => {
+    const model = modelFromBody(params?.body);
+    const host = pinnedHosts.get(model);
+    return host ? { ...params, body: { ...params.body, sticky_provider: host } } : params;
+  };
   async function checkBudget(callSignal = signal) {
     return assertApiBudgetAvailable({
       db,
@@ -238,6 +253,7 @@ export function createModelUsageMeter({
       buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
       buffer = parseSseEvents(buffer, (event) => {
         if (event?.id && !generationId) generationId = String(event.id);
+        learnHost(modelFromBody(params?.body), event);
         const eventUsage = usageFromPayload(event);
         if (eventUsage) usage = eventUsage;
       });
@@ -285,6 +301,7 @@ export function createModelUsageMeter({
       buffer += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, "\n");
       buffer = parseSseEvents(buffer, (event) => {
         if (event?.id && !generationId) generationId = String(event.id);
+        learnHost(modelFromBody(params?.body), event);
         if (usageFromPayload(event)) usage = usageFromPayload(event);
       });
     };
@@ -312,7 +329,13 @@ export function createModelUsageMeter({
   return {
     checkBudget,
 
-    async chatCompletion(params) {
+    /** The host each model is pinned to in this turn, e.g. { "deepseek/...": "DeepInfra" }. */
+    pinnedProviders() {
+      return Object.fromEntries(pinnedHosts);
+    },
+
+    async chatCompletion(rawParams) {
+      const params = withPinnedHost(rawParams);
       if (meteringMode === "enforce") {
         const requestId = await reserve(params);
         let providerAccepted = false;
@@ -332,6 +355,7 @@ export function createModelUsageMeter({
               await markSubmitted();
             },
             onResponsePayload: (payload) => {
+              learnHost(modelFromBody(params?.body), payload);
               responseUsage = usageFromPayload(payload);
               responseGenerationId = payload?.id ? String(payload.id) : "";
             }
@@ -369,6 +393,7 @@ export function createModelUsageMeter({
       const result = await chatCompletionFn({
         ...params,
         onResponsePayload: (payload) => {
+          learnHost(modelFromBody(params?.body), payload);
           responseUsage = usageFromPayload(payload);
           responseGenerationId = payload?.id ? String(payload.id) : "";
         }
@@ -445,7 +470,8 @@ export function createModelUsageMeter({
       return out?.result;
     },
 
-    async streamChatCompletion(params) {
+    async streamChatCompletion(rawParams) {
+      const params = withPinnedHost(rawParams);
       if (meteringMode === "enforce") {
         const requestId = await reserve(params);
         let providerAccepted = false;

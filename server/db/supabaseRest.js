@@ -242,6 +242,42 @@ export class SupabaseRest {
     return study.deleteStudyQuiz(this, userId, id, options);
   }
 
+  async listStudyPodcasts(userId, projectId, options) {
+    return study.listStudyPodcasts(this, userId, projectId, options);
+  }
+
+  async getStudyPodcast(userId, id, options) {
+    return study.getStudyPodcast(this, userId, id, options);
+  }
+
+  async createStudyPodcast(userId, podcast, options) {
+    return study.createStudyPodcast(this, userId, podcast, options);
+  }
+
+  async updateStudyPodcast(userId, id, patch, options) {
+    return study.updateStudyPodcast(this, userId, id, patch, options);
+  }
+
+  async listStudyTutorSessions(userId, projectId, options) {
+    return study.listStudyTutorSessions(this, userId, projectId, options);
+  }
+
+  async getStudyTutorSession(userId, id, options) {
+    return study.getStudyTutorSession(this, userId, id, options);
+  }
+
+  async createStudyTutorSession(userId, session, options) {
+    return study.createStudyTutorSession(this, userId, session, options);
+  }
+
+  async updateStudyTutorSession(userId, id, patch, options) {
+    return study.updateStudyTutorSession(this, userId, id, patch, options);
+  }
+
+  async deleteStudyTutorSession(userId, id, options) {
+    return study.deleteStudyTutorSession(this, userId, id, options);
+  }
+
   async createConversation(userId, conversation, options) {
     return chat.createConversation(this, userId, conversation, options);
   }

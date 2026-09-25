@@ -4,6 +4,8 @@ import { renderMindMap } from "./mindMap.js";
 import { createStudySourceDialog } from "./studySources.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
+import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, speedLabel, styleOf, voiceOf } from "./studyPodcast.js";
+import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
 
 export function createStudyHubController({
   state,
@@ -45,6 +47,16 @@ export function createStudyHubController({
   fetchStudyQuiz,
   updateStudyQuiz,
   deleteStudyQuiz,
+  fetchStudyPodcast,
+  updateStudyPodcast,
+  deleteStudyPodcast,
+  prepareStudyTutor,
+  fetchStudyTutor,
+  updateStudyTutor,
+  deleteStudyTutor,
+  transcribeTutorAudio,
+  streamTutorTurn,
+  endStudyTutor,
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote,
@@ -71,6 +83,12 @@ export function createStudyHubController({
   let reviewSession = null;
   let quizSession = null;
   let testClock = null;
+  let podcastAudio = null;
+  // The one live tutor call; it outlives repaints and survives leaving its view (paused).
+  let tutorCall = null;
+  let voicePreview = null;
+  // Transcript follows playback unless the reader scrolled it recently.
+  let transcriptScrolledAt = 0;
   let studyNote = null;
   let createType = "";
   let sourceSort = "recent";
@@ -221,11 +239,11 @@ export function createStudyHubController({
     const toggle = kind === "deck"
       ? `data-toggle-deck-menu="${escapeHtml(id)}"`
       : `data-toggle-quiz-menu="${escapeHtml(key)}"`;
-    const rename = kind === "deck" ? `data-rename-deck="${escapeHtml(id)}"` : `data-rename-quiz="${escapeHtml(id)}"`;
-    const del = kind === "deck" ? `data-delete-deck="${escapeHtml(id)}"` : `data-delete-quiz="${escapeHtml(id)}"`;
+    const rename = kind === "deck" ? `data-rename-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-rename-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-rename-tutor="${escapeHtml(id)}"` : `data-rename-quiz="${escapeHtml(id)}"`;
+    const del = kind === "deck" ? `data-delete-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-delete-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-delete-tutor="${escapeHtml(id)}"` : `data-delete-quiz="${escapeHtml(id)}"`;
     return `
       <div class="study-card-menu-wrap">
-        <button class="study-icon-btn" type="button" ${toggle} aria-label="${kind === "deck" ? "Deck options" : "Quiz options"}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+        <button class="study-icon-btn" type="button" ${toggle} aria-label="${kind === "deck" ? "Deck options" : kind === "podcast" ? "Podcast options" : kind === "tutor" ? "Session options" : "Quiz options"}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
           ${kebabIcon()}
         </button>
         <div class="study-menu${open ? "" : " hidden"}" role="menu">
@@ -268,6 +286,8 @@ export function createStudyHubController({
       mindmap: '<rect x="9" y="2" width="6" height="5" rx="1.5"/><rect x="2" y="17" width="6" height="5" rx="1.5"/><rect x="16" y="17" width="6" height="5" rx="1.5"/><path d="M12 7v5M5 17v-5h14v5"/>',
       notes: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5"/>',
       quiz: '<rect x="4" y="3" width="16" height="18" rx="3"/><path d="m8 8 1 1 2-2m-3 8 1 1 2-2m3-6h2m-2 7h2"/>',
+      podcast: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-3.5 0h7"/>',
+      tutor: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="m12 6.5.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z"/>',
       pin: '<path d="M8 3h8l-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v7"/>',
       chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 0 1 19 0Z"/><path d="M7 10h8M7 14h5"/>',
       recent: '<path d="M3 12a9 9 0 1 0 2.6-6.4M3 4v5h5m4-2v5l3 2"/>',
@@ -313,6 +333,14 @@ export function createStudyHubController({
 
   function findQuiz(quizId) {
     return (state.studyPractice?.quizzes || []).find((quiz) => quiz.id === quizId) || null;
+  }
+
+  function findPodcast(podcastId) {
+    return (state.studyPractice?.podcasts || []).find((podcast) => podcast.id === podcastId) || null;
+  }
+
+  function findTutor(sessionId) {
+    return (state.studyPractice?.tutors || []).find((item) => item.id === sessionId) || null;
   }
 
   function spinner() {
@@ -365,6 +393,8 @@ export function createStudyHubController({
     if (type === "quiz") return "Practice test";
     if (type === "mindmap") return "Mind map";
     if (type === "notes") return "Notes";
+    if (type === "podcast") return "Podcast";
+    if (type === "tutor") return "AI tutor";
     return "Generation";
   }
 
@@ -411,6 +441,10 @@ export function createStudyHubController({
     const bits = [];
     if (job.mode) bits.push(job.mode === "deep" ? "Deep" : job.mode === "detailed" ? "Detailed" : job.mode === "rapid" ? "Rapid" : job.mode === "summary" ? "Summary" : String(job.mode));
     if (job.type === "quiz" && job.count) bits.push(`${job.count} questions`);
+    if (job.type === "podcast") {
+      bits.length = 0;
+      bits.push(`~${lengthOf(job.body?.length).minutes} min`);
+    }
     const out = job.result && typeof job.result === "object" ? job.result : null;
     if (out?.count != null && job.type === "flashcards") bits.push(`${out.count} cards`);
     if (out?.partial) bits.push("partial");
@@ -578,7 +612,11 @@ export function createStudyHubController({
     try { layout = localStorage.getItem(deckLayoutKey) || layout; } catch { /* Storage is optional. */ }
     studioView = kind === "deck"
       ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "column", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, typed: {}, checked: new Set(), open: new Set() }
-      : kind === "quiz" ? { kind, id, questions: null, error: "", open: new Set() } : { kind, id };
+      : kind === "quiz" ? { kind, id, questions: null, error: "", open: new Set() }
+        : kind === "podcast" ? { kind, id, podcast: null, error: "", speedOpen: false }
+          : kind === "tutor" ? { kind, id, session: null, error: "" } : { kind, id };
+    if (kind !== "podcast" || podcastAudio?.id !== id) podcastAudio?.pause();
+    if (tutorCall && (kind !== "tutor" || tutorCall.id !== id)) tutorCall.pause();
     quizMenuKey = "";
     studioCollapsed = false;
     render();
@@ -586,18 +624,22 @@ export function createStudyHubController({
     els.studyView.querySelector(".dojo-studio-view [data-studio-back]")?.focus({ preventScroll: true });
     if (kind === "deck") void loadStudioCards();
     if (kind === "quiz") void loadStudioQuiz();
+    if (kind === "podcast") void loadStudioPodcast();
+    if (kind === "tutor") void loadStudioTutor();
   }
 
   function closeStudioView(event) {
     if (!studioView) return;
     const { kind, id } = studioView;
     if (quizSession?.host === "panel") endPanelTest();
+    if (kind === "podcast") podcastAudio?.pause();
+    if (kind === "tutor") tutorCall?.pause();
     const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
     studioView = null;
     for (const key of shownEntrances) if (key.startsWith("studio:")) shownEntrances.delete(key);
     render();
     animatePreviewResize(start, event);
-    const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : "data-open-note";
+    const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : kind === "podcast" ? "data-open-podcast" : kind === "tutor" ? "data-open-tutor" : "data-open-note";
     els.studyView.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
   }
 
@@ -635,6 +677,190 @@ export function createStudyHubController({
     patchStudio();
   }
 
+  function ensurePodcastAudio() {
+    podcastAudio ||= createPodcastAudio({
+      onUpdate: patchPodcast,
+      refreshUrl: async (id) => (await fetchStudyPodcast(state.session, id))?.podcast?.audioUrl || ""
+    });
+    return podcastAudio;
+  }
+
+  function podcastState() {
+    const player = ensurePodcastAudio().state();
+    return podcastAudio.id === studioView?.id ? player : { ...player, time: 0, playing: false, waiting: false };
+  }
+
+  async function loadStudioPodcast() {
+    const view = studioView;
+    try {
+      const payload = await fetchStudyPodcast(state.session, view.id);
+      if (studioView !== view) return;
+      if (!payload?.podcast) throw new Error("This podcast is no longer available.");
+      view.podcast = payload.podcast;
+      ensurePodcastAudio().load(view.id, view.podcast.audioUrl);
+    } catch (error) {
+      if (studioView !== view) return;
+      view.error = error.message || "Please try again.";
+    }
+    patchStudio({ keepScroll: false });
+  }
+
+  function podcastRoot() {
+    if (studioView?.kind !== "podcast" || !studioView.podcast || podcastAudio?.id !== studioView.id) return null;
+    return els.studyView?.querySelector('.dojo-studio-view[data-studio-kind="podcast"]') || null;
+  }
+
+  // Controls repaint for view changes such as the speed menu (never during a slider drag).
+  function repaintPodcastPlayer(focusSelector = "") {
+    const root = podcastRoot();
+    const section = root?.querySelector(".dojo-pod-player");
+    if (!section) return;
+    const template = document.createElement("template");
+    template.innerHTML = podcastViewMarkup(studioView, studioItem(), { escapeHtml, player: podcastState() });
+    const next = template.content.querySelector(".dojo-pod-player");
+    section.replaceWith(next);
+    if (focusSelector) next.querySelector(focusSelector)?.focus({ preventScroll: true });
+  }
+
+  // Audio events patch the live DOM in place so playback, drags, and scroll are never disturbed.
+  function patchPodcast(kind) {
+    const root = podcastRoot();
+    if (!root) return;
+    if (kind === "error") {
+      showToast("This episode could not play. Try opening it again.");
+      return;
+    }
+    const player = podcastAudio.state();
+    const section = root.querySelector(".dojo-pod-player");
+    if (!section) return;
+    if (kind === "state") {
+      section.classList.toggle("is-playing", player.playing);
+      section.classList.toggle("is-waiting", player.waiting);
+      const toggle = section.querySelector("[data-pod-toggle]");
+      const label = player.playing ? "Pause" : "Play";
+      if (toggle && toggle.getAttribute("aria-label") !== label) {
+        toggle.innerHTML = player.playing ? PLAYER_ICONS.pause : PLAYER_ICONS.play;
+        toggle.setAttribute("aria-label", label);
+        toggle.title = `${label} (Space)`;
+      }
+      const speed = section.querySelector("[data-pod-speed-toggle]");
+      if (speed) {
+        speed.querySelector("span").textContent = speedLabel(player.rate);
+        speed.classList.toggle("is-on", player.rate !== 1);
+        speed.setAttribute("aria-label", `Playback speed ${speedLabel(player.rate)}`);
+      }
+    }
+    if (kind === "volume") {
+      const wrap = section.querySelector(".dojo-pod-volume");
+      const value = player.muted ? 0 : player.volume;
+      wrap?.style.setProperty("--v", `${Math.round(value * 100)}%`);
+      const range = wrap?.querySelector("[data-pod-volume]");
+      if (range && document.activeElement !== range) range.value = String(value);
+      const mute = wrap?.querySelector("[data-pod-mute]");
+      if (mute) {
+        mute.innerHTML = value === 0 ? PLAYER_ICONS.muted : PLAYER_ICONS.volume;
+        mute.setAttribute("aria-label", player.muted ? "Unmute" : "Mute");
+        mute.title = player.muted ? "Unmute" : "Mute";
+      }
+      return;
+    }
+    patchPodcastTime(root, player);
+  }
+
+  function patchPodcastTime(root, player) {
+    const podcast = studioView.podcast;
+    const duration = podcast.durationSeconds || 0;
+    const time = studioView.scrubbing ?? player.time;
+    const scrub = root.querySelector(".dojo-pod-scrub");
+    const seek = scrub?.querySelector("[data-pod-seek]");
+    if (seek) {
+      if (studioView.scrubbing == null) seek.value = Math.min(time, duration).toFixed(2);
+      scrub.style.setProperty("--p", `${duration ? Math.min(100, (time / duration) * 100).toFixed(3) : 0}%`);
+      seek.setAttribute("aria-valuetext", `${formatTime(time)} of ${formatTime(duration)}`);
+    }
+    const now = root.querySelector("[data-pod-time]");
+    if (now) now.textContent = formatTime(time);
+    const left = root.querySelector("[data-pod-left]");
+    if (left) left.textContent = `-${formatTime(Math.max(0, duration - time))}`;
+    const index = activeLine(podcast.transcript, time);
+    const list = root.querySelector("[data-pod-transcript]");
+    if (!list || list.dataset.active === String(index)) return;
+    list.dataset.active = String(index);
+    let current = null;
+    list.querySelectorAll("[data-pod-line]").forEach((line) => {
+      const at = Number(line.dataset.podLine);
+      line.classList.toggle("is-active", at === index);
+      line.classList.toggle("is-past", at < index);
+      if (at === index) current = line;
+    });
+    if (current && player.playing && Date.now() - transcriptScrolledAt > 4000) {
+      const top = current.offsetTop - list.offsetTop - list.clientHeight * 0.28;
+      list.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? "auto" : "smooth" });
+    }
+  }
+
+  function handlePodcastClick(event) {
+    const audio = podcastAudio;
+    if (!audio || !studioView.podcast || audio.id !== studioView.id) return false;
+    if (studioView.speedOpen && !event.target.closest(".dojo-pod-speed")) {
+      studioView.speedOpen = false;
+      repaintPodcastPlayer();
+    }
+    if (event.target.closest("[data-pod-toggle]")) { void audio.toggle(); return true; }
+    const skip = event.target.closest("[data-pod-skip]");
+    if (skip) { audio.skip(Number(skip.dataset.podSkip)); return true; }
+    if (event.target.closest("[data-pod-mute]")) { audio.toggleMute(); return true; }
+    if (event.target.closest("[data-pod-speed-toggle]")) {
+      studioView.speedOpen = !studioView.speedOpen;
+      repaintPodcastPlayer(studioView.speedOpen ? `[data-pod-speed="${audio.state().rate}"]` : "[data-pod-speed-toggle]");
+      return true;
+    }
+    const speed = event.target.closest("[data-pod-speed]");
+    if (speed) {
+      studioView.speedOpen = false;
+      audio.setRate(Number(speed.dataset.podSpeed));
+      repaintPodcastPlayer("[data-pod-speed-toggle]");
+      return true;
+    }
+    const line = event.target.closest("[data-pod-line]");
+    if (line) {
+      transcriptScrolledAt = 0;
+      audio.seek(Number(line.dataset.start), { play: true });
+      return true;
+    }
+    return false;
+  }
+
+  function handlePodcastKey(event) {
+    if (studioView?.kind !== "podcast" || !podcastAudio || podcastAudio.id !== studioView.id) return false;
+    if (!event.target.closest?.('[data-studio-kind="podcast"]') || event.metaKey || event.ctrlKey || event.altKey) return false;
+    const onRange = event.target.matches?.("input[type=range]");
+    if (event.key === "Escape" && studioView.speedOpen) {
+      studioView.speedOpen = false;
+      repaintPodcastPlayer("[data-pod-speed-toggle]");
+      return true;
+    }
+    if (event.key === " " && !event.target.matches?.("[data-pod-toggle], textarea, input:not([type=range])")) {
+      event.preventDefault();
+      void podcastAudio.toggle();
+      return true;
+    }
+    if (!onRange && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      podcastAudio.skip(event.key === "ArrowRight" ? 10 : -10);
+      return true;
+    }
+    if (event.key === "," || event.key === "<" || event.key === "." || event.key === ">") {
+      podcastAudio.stepRate(event.key === "," || event.key === "<" ? -1 : 1);
+      return true;
+    }
+    if (event.key === "m" || event.key === "M") {
+      podcastAudio.toggleMute();
+      return true;
+    }
+    return false;
+  }
+
   // Repaint only the Create panel so the chat and source preview keep their state.
   function patchStudio({ keepScroll = true } = {}) {
     const current = els.studyView?.querySelector(".dojo-studio-expanded > .dojo-studio-content");
@@ -646,6 +872,7 @@ export function createStudyHubController({
     const next = template.content.firstElementChild;
     current.replaceWith(next);
     settleEntrances();
+    mountTutorCall();
     const body = next.querySelector(".dojo-view-body");
     if (body && keepScroll) body.scrollTop = scroll;
   }
@@ -662,7 +889,7 @@ export function createStudyHubController({
     const key = `studio:${studioView.kind}:${studioView.id}`;
     settle(view, key);
     const body = view.querySelector(".dojo-view-body");
-    const ready = studioView.kind === "deck" ? studioView.cards : studioView.kind === "quiz" ? studioView.questions : true;
+    const ready = studioView.kind === "deck" ? studioView.cards : studioView.kind === "quiz" ? studioView.questions : studioView.kind === "podcast" ? studioView.podcast : studioView.kind === "tutor" ? studioView.session : true;
     if (body) settle(body, `${key}:${studioView.layout || ""}:${Boolean(ready || studioView.error)}`);
   }
 
@@ -735,6 +962,8 @@ export function createStudyHubController({
     if (!event.target.closest(".dojo-studio-view")) return false;
     if (handleTestClick(event)) return true;
     if (event.target.closest("[data-studio-back]")) { closeStudioView(event); return true; }
+    if (studioView.kind === "podcast" && handlePodcastClick(event)) return true;
+    if (studioView.kind === "tutor" && event.target.closest("[data-tutor-start]")) { void startTutorCall(); return true; }
     const full = event.target.closest("[data-studio-full], [data-studio-learn]");
     if (full) {
       if (studioView.kind === "note") openNote(studioView.id);
@@ -838,11 +1067,15 @@ export function createStudyHubController({
     if (!studioView) return null;
     if (studioView.kind === "deck") return findDeck(studioView.id);
     if (studioView.kind === "quiz") return findQuiz(studioView.id);
+    if (studioView.kind === "podcast") return findPodcast(studioView.id);
+    if (studioView.kind === "tutor") return findTutor(studioView.id) || studioView.placeholder || null;
     return (state.studyMaterials?.notes || []).find(note => note.id === studioView.id) || null;
   }
 
   function studioViewMarkup(item) {
     if (studioView.kind === "deck") return deckViewMarkup(studioView, item, studioHelpers());
+    if (studioView.kind === "podcast") return podcastViewMarkup(studioView, item, { escapeHtml, player: podcastState() });
+    if (studioView.kind === "tutor") return tutorViewMarkup(studioView, item, { escapeHtml, callActive: Boolean(tutorCall?.active && tutorCall.id === studioView.id) });
     if (studioView.kind === "quiz") {
       if (quizSession?.host === "panel" && quizSession.quiz.id === studioView.id) {
         return `<div class="dojo-studio-content dojo-studio-view is-test" data-studio-kind="quiz">${testMarkup(quizSession, testHelpers("panel"))}</div>`;
@@ -864,10 +1097,14 @@ export function createStudyHubController({
     const decks = state.studyPractice?.decks || [];
     const quizzes = state.studyPractice?.quizzes || [];
     const notes = state.studyMaterials?.notes || [];
-    const tools = [["flashcards", "Flashcards"], ["mindmap", "Mind map"], ["notes", "Notes"], ["quiz", "Practice test"]];
+    const podcasts = state.studyPractice?.podcasts || [];
+    const tutors = state.studyPractice?.tutors || [];
+    const tools = [["flashcards", "Flashcards"], ["mindmap", "Mind map"], ["notes", "Notes"], ["quiz", "Practice test"], ["podcast", "Podcast"], ["tutor", "AI tutor"]];
     const artifacts = [
       ...decks.map(d => ({ ...d, pinKind: "deck", type: "flashcards", action: "data-open-deck", meta: `${d.cardCount || 0} cards`, menu: practiceMenu("deck", d.id) })),
       ...quizzes.map(q => ({ ...q, pinKind: "quiz", type: "quiz", action: "data-open-quiz", meta: `${q.questionCount || 0} questions`, menu: practiceMenu("quiz", q.id) })),
+      ...podcasts.map(p => ({ ...p, pinKind: "podcast", type: "podcast", action: "data-open-podcast", meta: podcastMeta(p), menu: practiceMenu("podcast", p.id) })),
+      ...tutors.map(t => ({ ...t, pinKind: "tutor", type: "tutor", action: "data-open-tutor", meta: tutorMeta(t), menu: t.status === "preparing" ? "" : practiceMenu("tutor", t.id) })),
       ...notes.map(n => ({ ...n, pinKind: "note", type: isMindMap(n) ? "mindmap" : "notes", action: "data-open-note", meta: isMindMap(n) ? "Mind map" : noteKindLabel(n), menu: materialMenu("note", n.id) }))
     ];
     artifacts.forEach(a => { a.pinned = pinnedCollection.has(collectionPinId(a.pinKind, a.id)); });
@@ -876,7 +1113,7 @@ export function createStudyHubController({
       <div class="dojo-tools">${tools.map(([type, label]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}"><span class="dojo-tool-icon">${icon(type)}</span><span class="dojo-tool-arrow">${icon("plus")}</span><strong>${label}</strong></button>`).join("")}</div>
       ${generationCardsMarkup()}
       <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
-      <div class="dojo-artifacts">${artifacts.map(a => `<article class="study-practice-card"><button class="study-practice-open" type="button" ${a.action}="${escapeHtml(a.id)}"><span class="dojo-artifact-icon dojo-tool--${a.type}">${icon(a.type)}</span><span><strong>${a.pinned ? `<span class="dojo-pin-mark" title="Pinned">${icon("pin")}</span>` : ""}${escapeHtml(a.title || jobTypeLabel(a.type))}</strong><small>${escapeHtml(a.meta)}</small></span></button>${a.menu}</article>`).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, and tests will find a home here.")}</div>
+      <div class="dojo-artifacts">${artifacts.map(a => `<article class="study-practice-card"><button class="study-practice-open" type="button" ${a.action}="${escapeHtml(a.id)}"><span class="dojo-artifact-icon dojo-tool--${a.type}">${icon(a.type)}</span><span><strong>${a.pinned ? `<span class="dojo-pin-mark" title="Pinned">${icon("pin")}</span>` : ""}${escapeHtml(a.title || jobTypeLabel(a.type))}</strong><small>${escapeHtml(a.meta)}</small></span></button>${a.menu}</article>`).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, and tutor sessions will find a home here.")}</div>
     </div>`;
   }
 
@@ -891,7 +1128,7 @@ export function createStudyHubController({
       <section class="dojo-panel dojo-sources" aria-label="Sources">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
       <section class="dojo-panel dojo-chat" aria-label="Ask"><header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}</section>
       <section class="dojo-panel dojo-studio" aria-label="Create">
-        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${jobTypeLabel(type).toLowerCase()}" title="Create ${jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
+        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
         <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse create" title="Collapse create">${icon("expand")}</button></header>${practiceMarkup()}</div>
       </section>
     </div>`;
@@ -1000,6 +1237,7 @@ export function createStudyHubController({
       messagesSlot.append(els.messages);
       els.messages.classList.toggle("hidden", !state.activeConversationId && !state.messages?.length);
     }
+    mountTutorCall();
     bindMaterialsDnD();
     renderNoteOverlay();
   }
@@ -1021,6 +1259,8 @@ export function createStudyHubController({
       pruneDeletedCourseGenerations();
     }
     const visible = studyVisible();
+    if (podcastAudio && (!visible || !state.activeCourseId || studioView?.kind !== "podcast" || !studioItem())) podcastAudio.pause();
+    if (tutorCall?.active && (!visible || !state.activeCourseId)) tutorCall.pause();
     els.studyView.classList.toggle("hidden", !visible);
     els.studyView.classList.toggle("study-view--detail", Boolean(visible && state.activeCourseId));
     els.studyHubButton?.classList.toggle("active", state.studyOpen);
@@ -1129,6 +1369,8 @@ export function createStudyHubController({
       showToast("Quiz ready");
     } else if (job.type === "mindmap") {
       showToast("Mind map ready");
+    } else if (job.type === "podcast") {
+      showToast("Podcast ready");
     } else if (job.type === "notes") {
       showToast(job.mode === "detailed" ? "Detailed review ready" : "Summary ready");
     }
@@ -1654,6 +1896,238 @@ export function createStudyHubController({
     }
   }
 
+  function openRenamePodcastDialog(podcastId) {
+    const podcast = findPodcast(podcastId);
+    if (!podcast) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename podcast",
+      value: podcast.title || "",
+      onSave: (title) => savePodcastTitle(podcast.id, title)
+    });
+  }
+
+  async function savePodcastTitle(podcastId, title) {
+    const payload = await updateStudyPodcast(state.session, podcastId, { title });
+    const nextTitle = payload?.title || title;
+    patchPracticeTitle("podcasts", podcastId, nextTitle);
+    if (studioView?.kind === "podcast" && studioView.id === podcastId && studioView.podcast) studioView.podcast.title = nextTitle;
+    render();
+    showToast("Podcast renamed.");
+  }
+
+  /* ---------- AI tutor ---------- */
+
+  let tutorCallSession = null;
+  const tutorRecapRetried = new Set();
+
+  function mountTutorCall() {
+    const slot = els.studyView?.querySelector(".dojo-tutor-slot");
+    if (!slot || !tutorCall?.active) return;
+    slot.append(tutorCall.root);
+    tutorCall.mounted();
+  }
+
+  function tutorListItem(session) {
+    return { id: session.id, title: session.title, style: session.style, voice: session.voice, status: session.status, activeSeconds: session.activeSeconds || 0, createdAt: session.createdAt };
+  }
+
+  function upsertTutor(item) {
+    const list = state.studyPractice?.tutors || [];
+    const exists = list.some((entry) => entry.id === item.id);
+    state.studyPractice = {
+      ...(state.studyPractice || {}),
+      tutors: exists ? list.map((entry) => entry.id === item.id ? { ...entry, ...item } : entry) : [item, ...list]
+    };
+  }
+
+  // The lesson is planned before any call starts; the view shows each stage as it happens.
+  async function prepareTutor(ids, options) {
+    const courseId = state.activeCourseId;
+    const documentFileIds = [...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!courseId || !state.session || !documentFileIds.length) return;
+    const placeholder = { id: `preparing-${newGenerationId()}`, title: "New tutor session", style: options.style, status: "preparing", createdAt: new Date().toISOString() };
+    upsertTutor(placeholder);
+    openStudioView("tutor", placeholder.id);
+    Object.assign(studioView, { preparing: true, stage: "reading", placeholder });
+    patchStudio({ keepScroll: false });
+    const isMine = () => studioView?.kind === "tutor" && studioView.id === placeholder.id;
+    try {
+      const result = await prepareStudyTutor(state.session, courseId, {
+        documentFileIds,
+        style: options.style,
+        voice: options.voice,
+        instructions: options.instructions || ""
+      }, {
+        onEvent: (event) => {
+          if (event.type !== "status" || !isMine()) return;
+          studioView.stage = event.stage;
+          patchStudio();
+        }
+      });
+      dropPractice("tutors", placeholder.id);
+      if (state.activeCourseId === courseId) upsertTutor(tutorListItem(result.session));
+      if (isMine()) studioView = { kind: "tutor", id: result.session.id, session: result.session, error: "" };
+      else showToast("Your lesson plan is ready.");
+      if (result.warning) showToast(result.warning);
+      render();
+    } catch (error) {
+      dropPractice("tutors", placeholder.id);
+      if (isMine()) studioView.error = error.message || "Please try again.";
+      else showToast(error.message || "Could not plan the lesson.");
+      render();
+    }
+  }
+
+  async function loadStudioTutor() {
+    const view = studioView;
+    if (!view || view.kind !== "tutor" || String(view.id).startsWith("preparing-")) return;
+    if (tutorCall?.active && tutorCall.id === view.id) {
+      view.session = tutorCallSession;
+      patchStudio({ keepScroll: false });
+      return;
+    }
+    try {
+      const payload = await fetchStudyTutor(state.session, view.id);
+      if (studioView !== view) return;
+      if (!payload?.session) throw new Error("This session is no longer available.");
+      view.session = payload.session;
+      const talked = payload.session.transcript.some((line) => line.role === "student");
+      // A call cut off mid-way (a closed tab) or a recap that failed is wrapped up here, once.
+      if (payload.session.status === "live" || (payload.session.status === "ended" && !payload.session.summary && talked && !tutorRecapRetried.has(view.id))) {
+        tutorRecapRetried.add(view.id);
+        view.finishing = true;
+        patchStudio({ keepScroll: false });
+        const ended = await endStudyTutor(state.session, view.id, {});
+        if (ended?.session) upsertTutor(tutorListItem(ended.session));
+        if (studioView !== view) return;
+        view.session = ended?.session || view.session;
+        view.finishing = false;
+        render();
+        return;
+      }
+    } catch (error) {
+      if (studioView !== view) return;
+      view.finishing = false;
+      view.error = error.message || "Please try again.";
+    }
+    patchStudio({ keepScroll: false });
+  }
+
+  async function startTutorCall() {
+    const session = studioView?.kind === "tutor" ? studioView.session : null;
+    if (!session || session.status !== "ready") return;
+    if (tutorCall?.active) {
+      if (tutorCall.id !== session.id) showToast("Finish your other tutor call first.");
+      return;
+    }
+    tutorCallSession = session;
+    tutorCall = createTutorCall({
+      session,
+      escapeHtml,
+      reducedMotion: reducedMotion(),
+      onToast: showToast,
+      api: {
+        turn: (id, body, options) => streamTutorTurn(state.session, id, body, options),
+        transcribe: (id, blob, options) => transcribeTutorAudio(state.session, id, blob, options),
+        end: (id, body) => endStudyTutor(state.session, id, body)
+      },
+      onFinished: (ended) => finishTutorCall(session.id, ended)
+    });
+    upsertTutor({ ...tutorListItem(session), status: "live" });
+    render();
+    await tutorCall.start();
+  }
+
+  function finishTutorCall(id, ended) {
+    tutorCall = null;
+    tutorCallSession = null;
+    if (ended) upsertTutor(tutorListItem(ended));
+    if (studioView?.kind === "tutor" && studioView.id === id) {
+      studioView.session = ended || { ...studioView.session, status: "ended" };
+    }
+    render();
+  }
+
+  function openRenameTutorDialog(sessionId) {
+    const item = findTutor(sessionId);
+    if (!item) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename session",
+      value: item.title || "",
+      onSave: (title) => saveTutorTitle(item.id, title)
+    });
+  }
+
+  async function saveTutorTitle(sessionId, title) {
+    const payload = await updateStudyTutor(state.session, sessionId, { title });
+    const nextTitle = payload?.title || title;
+    patchPracticeTitle("tutors", sessionId, nextTitle);
+    if (studioView?.kind === "tutor" && studioView.id === sessionId && studioView.session) studioView.session.title = nextTitle;
+    render();
+    showToast("Session renamed.");
+  }
+
+  function confirmDeleteTutor(sessionId) {
+    const item = findTutor(sessionId);
+    if (!item) return;
+    quizMenuKey = "";
+    render();
+    if (tutorCall?.active && tutorCall.id === sessionId) {
+      showToast("End the call before deleting it.");
+      return;
+    }
+    openDeleteConfirm({
+      title: "Delete tutor session?",
+      body: `Delete "${item.title || "this session"}" with its lesson plan, transcript, and recap?`,
+      onConfirm: () => deleteTutor(item)
+    });
+  }
+
+  async function deleteTutor(item) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyTutor(state.session, item.id);
+      if (studioView?.kind === "tutor" && studioView.id === item.id) studioView = null;
+      await leavePracticeCard(practiceCardEl("data-open-tutor", item.id));
+      dropPractice("tutors", item.id);
+      render();
+      showToast("Session deleted.");
+    } catch (error) {
+      showToast(error.message || "Session could not be deleted.");
+    }
+  }
+
+  function confirmDeletePodcast(podcastId) {
+    const podcast = findPodcast(podcastId);
+    if (!podcast) return;
+    quizMenuKey = "";
+    render();
+    openDeleteConfirm({
+      title: "Delete podcast?",
+      body: `Delete "${podcast.title || "this podcast"}" and its audio?`,
+      onConfirm: () => deletePodcast(podcast)
+    });
+  }
+
+  async function deletePodcast(podcast) {
+    if (!state.activeCourseId) return;
+    try {
+      await deleteStudyPodcast(state.session, podcast.id);
+      if (podcastAudio?.id === podcast.id) podcastAudio.unload();
+      await leavePracticeCard(practiceCardEl("data-open-podcast", podcast.id));
+      dropPractice("podcasts", podcast.id);
+      render();
+      showToast("Podcast deleted.");
+      loadPractice(true).catch(() => {});
+    } catch (error) {
+      showToast(error.message || "Podcast could not be deleted.");
+    }
+  }
+
   function confirmDeleteDoc(docId) {
     const doc = (state.studyMaterials?.documents || []).find((item) => item.id === docId);
     if (!doc) return;
@@ -1932,7 +2406,8 @@ export function createStudyHubController({
     if (!wrap) return;
     const enabled = createSelected.size > 0;
     const disable = enabled ? "" : " disabled";
-    wrap.innerHTML = `<button type="button" class="project-dialog-primary" data-study-create-go${disable}>Generate ${jobTypeLabel(createType).toLowerCase()}</button>`;
+    const label = createType === "tutor" ? "Plan my session" : `Generate ${jobTypeLabel(createType).toLowerCase()}`;
+    wrap.innerHTML = `<button type="button" class="project-dialog-primary" data-study-create-go${disable}>${label}</button>`;
   }
 
   function optionPreview(kind) {
@@ -1949,7 +2424,30 @@ export function createStudyHubController({
     return `<span class="dojo-option-preview is-${kind}" aria-hidden="true"><span class="dojo-demo-sheet">${previews[kind] || ""}</span></span>`;
   }
 
+  // The optional text boxes only show a character count once the writer nears the limit.
+  function syncFocusCount(textarea) {
+    const field = textarea.closest(".dojo-focus-field");
+    const max = Number(textarea.maxLength) || 0;
+    if (!field || max <= 0) return;
+    let count = field.querySelector(".dojo-focus-count");
+    const length = textarea.value.length;
+    if (length < max * 0.9) {
+      count?.remove();
+      return;
+    }
+    if (!count) {
+      count = document.createElement("span");
+      count.className = "dojo-focus-count";
+      count.setAttribute("aria-live", "polite");
+      textarea.before(count);
+    }
+    count.textContent = `${length}/${max}`;
+    count.classList.toggle("is-full", length >= max);
+  }
+
   function createOptionsMarkup(type) {
+    if (type === "podcast") return podcastOptionsMarkup({ escapeHtml });
+    if (type === "tutor") return tutorOptionsMarkup({ escapeHtml });
     const field = (label, name, choices, selected, variant = "") => `<fieldset class="dojo-option-group ${variant}"><legend>${label}</legend><div class="dojo-option-grid">${choices.map(([value, title, description, preview]) => `<label class="dojo-option" data-value="${value}"><input type="radio" name="${name}" value="${value}"${value === selected ? " checked" : ""}><span class="dojo-option-face">${preview ? optionPreview(preview) : ""}${name === "difficulty" ? '<span class="dojo-difficulty-bars" aria-hidden="true"><i></i><i></i><i></i></span>' : ""}<span class="dojo-option-copy"><strong>${title}</strong>${description ? `<small>${description}</small>` : ""}</span><span class="dojo-option-check" aria-hidden="true">✓</span></span></label>`).join("")}</div></fieldset>`;
     return `${type === "flashcards" ? field("Card type", "cardType", [["basic", "Basic", "Question & answer", "basic"], ["mcq", "Multiple choice", "Pick the right answer", "mcq"], ["cloze", "Fill in the blank", "Find the missing piece", "cloze"]], "basic", "is-illustrated") + field("Coverage", "mode", [["rapid", "Standard", "The key concepts"], ["deep", "Deep dive", "More detail, broader coverage"]], "rapid", "is-pair") : ""}
       ${type === "quiz" ? field("Test format", "examType", [["mixed", "Mixed", "A little of both", "mixed"], ["short", "Short answer", "Write, then self-assess", "short"], ["mcq", "Multiple choice", "Choose your answer", "mcq"]], "mixed", "is-illustrated") + field("Questions", "count", [["5", "5", "Quick"], ["10", "10", "Standard"], ["15", "15", "Extended"], ["20", "20", "Full"], ["25", "25", "Extra"]], "10", "is-count") : ""}
@@ -1959,7 +2457,65 @@ export function createStudyHubController({
       <label class="dojo-focus-field">Focus area <span>Optional</span><textarea name="focus" maxlength="1000" placeholder="A topic, chapter, or question to focus on…" rows="2"></textarea></label>`;
   }
 
+  const voiceClips = new Map();
+
+  function stopVoicePreview() {
+    if (!voicePreview) return;
+    voicePreview.audio.pause();
+    els.studyCreateDialog?.querySelectorAll(".dojo-voice-play.is-playing").forEach((button) => button.classList.remove("is-playing"));
+    voicePreview = null;
+  }
+
+  // Samples are small static clips; load them as blobs so every browser can play them.
+  async function previewVoice(button) {
+    const id = button.dataset.voicePreview;
+    const same = voicePreview?.id === id;
+    stopVoicePreview();
+    if (same || !voiceOf(id)) return;
+    const audio = new Audio();
+    voicePreview = { id, audio };
+    els.studyCreateDialog.querySelectorAll(`[data-voice-preview="${CSS.escape(id)}"]`).forEach((node) => node.classList.add("is-playing"));
+    audio.addEventListener("ended", () => { if (voicePreview?.audio === audio) stopVoicePreview(); });
+    try {
+      if (!voiceClips.has(id)) {
+        const response = await fetch(`/audio/voices/${id}.mp3`);
+        if (!response.ok) throw new Error("missing");
+        voiceClips.set(id, URL.createObjectURL(await response.blob()));
+      }
+      if (voicePreview?.audio !== audio) return;
+      audio.src = voiceClips.get(id);
+      await audio.play();
+    } catch {
+      if (voicePreview?.audio === audio) stopVoicePreview();
+      showToast("Could not play this voice.");
+    }
+  }
+
+  // Keep the two voice rows distinct, match role names to the style, and refresh the summary.
+  function syncPodcastOptions() {
+    const form = els.studyCreateForm;
+    const options = document.getElementById("dojoCreateOptions");
+    if (!form || !options || createType !== "podcast") return;
+    const data = new FormData(form);
+    const roles = styleOf(data.get("style")).roles;
+    const picked = [data.get("voiceA"), data.get("voiceB")];
+    [0, 1].forEach((slot) => {
+      const row = options.querySelector(`[data-voice-slot="${slot}"]`);
+      if (!row) return;
+      row.querySelector("[data-voice-role]").textContent = roles[slot];
+      row.querySelector(".dojo-voice-list")?.setAttribute("aria-label", `${roles[slot]} voice`);
+      const voice = voiceOf(picked[slot]);
+      row.querySelector("[data-voice-note]").textContent = voice ? `${voice.tone} · ${voice.accent}` : "";
+      row.querySelectorAll("[data-voice-chip]").forEach((chip) => {
+        const input = chip.querySelector("input");
+        input.disabled = chip.dataset.voiceChip === picked[slot ? 0 : 1];
+        chip.classList.toggle("is-picked", input.checked);
+      });
+    });
+  }
+
   function closeCreateDialog() {
+    stopVoicePreview();
     createType = "";
     createSelected.clear();
     if (els.studyCreateSearch) els.studyCreateSearch.value = "";
@@ -1967,16 +2523,20 @@ export function createStudyHubController({
   }
 
   async function openCreatePicker(type, event) {
-    if (!state.activeCourseId || !["flashcards", "quiz", "notes", "mindmap"].includes(type)) return;
+    if (!state.activeCourseId || !["flashcards", "quiz", "notes", "mindmap", "podcast", "tutor"].includes(type)) return;
     createType = type;
     els.studyCreateDialog.dataset.createType = type;
     els.studyCreateDialog.dataset.motion = event?.detail && !reducedMotion() ? "on" : "off";
     createSelected.clear();
-    if (els.studyCreateTitle) els.studyCreateTitle.textContent = `Create ${jobTypeLabel(type).toLowerCase()}`;
+    if (els.studyCreateTitle) els.studyCreateTitle.textContent = type === "tutor" ? "Start a tutor session" : `Create ${jobTypeLabel(type).toLowerCase()}`;
     const options = document.getElementById("dojoCreateOptions");
     if (options) options.innerHTML = createOptionsMarkup(type);
     if (els.studyCreateHint) {
-      els.studyCreateHint.textContent = "Make it yours. Choose a format and a few sources.";
+      els.studyCreateHint.textContent = type === "podcast"
+        ? "Turn your sources into a two-host episode you can learn from anywhere."
+        : type === "tutor"
+          ? "Talk it through with a voice tutor. We'll plan the lesson from your sources before the call."
+          : "Make it yours. Choose a format and a few sources.";
     }
     if (els.studyCreateSearch) els.studyCreateSearch.value = "";
     try {
@@ -1997,7 +2557,9 @@ export function createStudyHubController({
     if (!ids.length) return;
     const type = createType;
     const options = Object.fromEntries(new FormData(els.studyCreateForm));
+    if (type === "podcast") options.mode = `${options.style || "casual"}:${options.length || "standard"}`;
     closeCreateDialog();
+    if (type === "tutor") return prepareTutor(ids, options);
     runGenerateFromMaterials(ids, type, options);
   }
 
@@ -3131,7 +3693,7 @@ export function createStudyHubController({
       return;
     }
     const pin = event.target.closest("[data-collection-pin-kind]");
-    if (pin && ["deck", "quiz", "note"].includes(pin.dataset.collectionPinKind)) {
+    if (pin && ["deck", "quiz", "note", "podcast", "tutor"].includes(pin.dataset.collectionPinKind)) {
       event.stopPropagation();
       return toggleCollectionPin(pin.dataset.collectionPinKind, pin.dataset.collectionPinId);
     }
@@ -3154,6 +3716,10 @@ export function createStudyHubController({
     }
     const quiz = event.target.closest("[data-open-quiz]");
     if (quiz) return openStudioView("quiz", quiz.dataset.openQuiz, event);
+    const podcast = event.target.closest("[data-open-podcast]");
+    if (podcast) return openStudioView("podcast", podcast.dataset.openPodcast, event);
+    const tutor = event.target.closest("[data-open-tutor]");
+    if (tutor) return openStudioView("tutor", tutor.dataset.openTutor, event);
     if (event.target.closest("[data-study-add-files]")) {
       sourceDialog.open(event);
       return;
@@ -3205,6 +3771,14 @@ export function createStudyHubController({
     if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
     const removeDeck = event.target.closest("[data-delete-deck]");
     if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
+    const renameTutor = event.target.closest("[data-rename-tutor]");
+    if (renameTutor) return openRenameTutorDialog(renameTutor.dataset.renameTutor);
+    const removeTutor = event.target.closest("[data-delete-tutor]");
+    if (removeTutor) return confirmDeleteTutor(removeTutor.dataset.deleteTutor);
+    const renamePodcast = event.target.closest("[data-rename-podcast]");
+    if (renamePodcast) return openRenamePodcastDialog(renamePodcast.dataset.renamePodcast);
+    const removePodcast = event.target.closest("[data-delete-podcast]");
+    if (removePodcast) return confirmDeletePodcast(removePodcast.dataset.deletePodcast);
     const renameQuiz = event.target.closest("[data-rename-quiz]");
     if (renameQuiz) return openRenameQuizDialog(renameQuiz.dataset.renameQuiz);
     const removeQuiz = event.target.closest("[data-delete-quiz]");
@@ -3239,6 +3813,7 @@ export function createStudyHubController({
 
   function handleViewKey(event) {
     if (quizSession?.host === "panel" && event.target.closest?.("[data-test]") && handleTestKey(event)) return;
+    if (handlePodcastKey(event)) return;
     if (event.key === "Enter" && !event.shiftKey && event.target.matches?.("[data-typing-answer]")) {
       event.preventDefault();
       event.target.closest(".dojo-qa")?.querySelector("[data-typing-check]:not(:disabled)")?.click();
@@ -3278,6 +3853,15 @@ export function createStudyHubController({
         writeAnswer(event.target);
         return;
       }
+      if (studioView?.kind === "podcast" && event.target.matches?.("[data-pod-seek]")) {
+        studioView.scrubbing = Number(event.target.value);
+        patchPodcast("time");
+        return;
+      }
+      if (studioView?.kind === "podcast" && event.target.matches?.("[data-pod-volume]")) {
+        podcastAudio?.setVolume(event.target.value);
+        return;
+      }
       if (studioView && event.target.matches?.("[data-deck-query]")) {
         studioView.query = event.target.value;
         studioView.flipIndex = 0;
@@ -3302,7 +3886,22 @@ export function createStudyHubController({
       });
       list.querySelector(".dojo-chat-no-match").hidden = !query || matches > 0;
     });
-    els.studyView?.addEventListener("change", (event) => { void handleViewChange(event); });
+    els.studyView?.addEventListener("change", (event) => {
+      if (studioView?.kind === "podcast" && event.target.matches?.("[data-pod-seek]")) {
+        const target = Number(event.target.value);
+        studioView.scrubbing = null;
+        transcriptScrolledAt = 0;
+        podcastAudio?.seek(target);
+        return;
+      }
+      void handleViewChange(event);
+    });
+    // A reader scrolling the transcript pauses auto-follow for a few seconds.
+    for (const type of ["wheel", "touchmove"]) {
+      els.studyView?.addEventListener(type, (event) => {
+        if (event.target.closest?.("[data-pod-transcript]")) transcriptScrolledAt = Date.now();
+      }, { passive: true });
+    }
     els.studyView?.addEventListener("keydown", handleViewKey);
     // <details> toggles don't bubble; remember which answers are open across repaints.
     els.studyView?.addEventListener("toggle", (event) => {
@@ -3320,7 +3919,7 @@ export function createStudyHubController({
     });
     els.courseCreateForm?.addEventListener("submit", (event) => { void submitCreate(event); });
     els.courseCreateCancel?.addEventListener("click", () => els.courseCreateDialog?.close());
-    els.studyCreateCancel?.addEventListener("click", closeCreateDialog);
+    els.studyCreateClose?.addEventListener("click", closeCreateDialog);
     els.studyCreateForm?.addEventListener("submit", (event) => event.preventDefault());
     els.studyCreateSearch?.addEventListener("input", () => renderCreateList());
     els.studyCreateList?.addEventListener("change", (event) => {
@@ -3340,12 +3939,24 @@ export function createStudyHubController({
       renderCreateList();
     });
     els.studyCreateActions?.addEventListener("click", (event) => submitCreatePicker(event));
+    document.getElementById("dojoCreateOptions")?.addEventListener("change", () => {
+      syncPodcastOptions();
+      if (createType === "tutor") syncTutorOptions(document.getElementById("dojoCreateOptions"));
+    });
+    document.getElementById("dojoCreateOptions")?.addEventListener("input", (event) => {
+      if (event.target.matches?.(".dojo-focus-field textarea")) syncFocusCount(event.target);
+    });
+    document.getElementById("dojoCreateOptions")?.addEventListener("click", (event) => {
+      const preview = event.target.closest("[data-voice-preview]");
+      if (preview) void previewVoice(preview);
+    });
     els.studyCreateDialog?.addEventListener("click", (event) => {
       if (event.target !== els.studyCreateDialog) return;
       const bounds = els.studyCreateDialog.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeCreateDialog();
     });
     els.studyCreateDialog?.addEventListener("close", () => {
+      stopVoicePreview();
       createType = "";
       createSelected.clear();
     });
