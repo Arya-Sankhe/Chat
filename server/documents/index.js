@@ -6,6 +6,13 @@ import {
   createIntentLooksLikeOnlyInstructions,
   createIntentMentionsPriorContent
 } from "./resolveContent.js";
+import {
+  chunkPageNumber,
+  pageKey,
+  pageLooksVisual,
+  queryWantsVisual,
+  reciprocalRankFusion
+} from "./retrieval.js";
 
 const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -291,8 +298,10 @@ export class DocumentService {
     ));
   }
 
-  async smallProjectContext(maxTokens = 20_000) {
+  async smallProjectContext(maxTokens = null) {
     if (!this.enabled || !this.projectId) return "";
+    // Only tiny projects go in whole; larger ones rely on per-question retrieval.
+    maxTokens ??= clampInt(this.documentsConfig.fullContextMaxTokens, 8000, 0, 50_000);
     const results = [];
     let usedTokens = 0;
     const docs = (await this.db.listUsableProjectDocumentFiles(
@@ -364,6 +373,8 @@ export class DocumentService {
     const apiKey = clean(this.documentsConfig.jinaApiKey);
     const text = clean(query);
     if (!apiKey || !text) return "";
+    this.queryEmbeddings ||= new Map();
+    if (this.queryEmbeddings.has(text)) return this.queryEmbeddings.get(text);
 
     const response = await fetch("https://api.jina.ai/v1/embeddings", {
       method: "POST",
@@ -373,19 +384,178 @@ export class DocumentService {
       },
       body: JSON.stringify({
         model: clean(this.documentsConfig.visualEmbedModel) || "jina-embeddings-v5-omni-nano",
+        task: "retrieval.query",
         normalized: true,
         embedding_type: "float",
         dimensions: 768,
-        input: [text]
+        input: [{ text }]
       }),
       signal: this.signal
     });
 
-    if (!response.ok) return "";
+    if (!response.ok) {
+      console.warn(`Document query embedding failed: ${response.status} ${(await response.text().catch(() => "")).slice(0, 200)}`);
+      return "";
+    }
     const payload = await response.json();
     const embedding = payload?.data?.[0]?.embedding;
     if (!Array.isArray(embedding) || embedding.length !== 768) return "";
-    return vectorLiteral(embedding);
+    const literal = vectorLiteral(embedding);
+    this.queryEmbeddings.set(text, literal);
+    return literal;
+  }
+
+  /* Cross-encoder pass over the fused text candidates. Returns them reordered
+     with a `rerank_score`, or null when reranking is off or unavailable. */
+  async rerankChunks(query, chunks) {
+    const apiKey = clean(this.documentsConfig.jinaApiKey);
+    const model = clean(this.documentsConfig.rerankModel);
+    if (!apiKey || !model || chunks.length < 2) return null;
+    const response = await fetch("https://api.jina.ai/v1/rerank", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        query: clean(query).slice(0, 1000),
+        documents: chunks.map((chunk) => truncate(`${chunk.source_label || ""}\n${chunk.text || ""}`, 2400)),
+        top_n: chunks.length,
+        return_documents: false
+      }),
+      signal: this.signal
+    });
+    if (!response.ok) {
+      console.warn(`Document rerank failed: ${response.status} ${(await response.text().catch(() => "")).slice(0, 200)}`);
+      return null;
+    }
+    const payload = await response.json();
+    const rows = Array.isArray(payload?.results) ? payload.results : [];
+    if (!rows.length) return null;
+    return rows
+      .filter((row) => chunks[row.index])
+      .map((row) => ({ ...chunks[row.index], rerank_score: Number(row.relevance_score) }));
+  }
+
+  /**
+   * Hybrid retrieval over the given documents. Returns ranked text chunks and
+   * ranked pages (with the page row loaded), each tagged with why it ranked.
+   */
+  async retrieve(docs, { query = "", maxPages = 6, maxChunks = 8, rerank = true } = {}) {
+    const text = clean(query).slice(0, 1000);
+    const empty = { query: text, chunks: [], pages: [], relevant: false };
+    if (!text || !docs.length) return empty;
+    const documentFileIds = docs.map((doc) => doc.id);
+    const docById = new Map(docs.map((doc) => [doc.id, doc]));
+    const candidateLimit = Math.max(20, maxChunks * 3);
+    const maxChunkDistance = Number(this.documentsConfig.retrievalMaxChunkDistance ?? 0.72);
+    const maxPageDistance = Number(this.documentsConfig.retrievalMaxPageDistance ?? 0.8);
+    const quiet = (promise) => Promise.resolve(promise).catch((error) => {
+      if (error?.name === "AbortError") throw error;
+      return [];
+    });
+
+    const embedding = await this.embedQuery(text).catch((error) => {
+      if (error?.name === "AbortError") throw error;
+      return "";
+    });
+    const [keywordChunks, semanticChunks, pageHits] = await Promise.all([
+      quiet(this.db.searchDocumentChunks({
+        userId: this.userId,
+        documentFileIds,
+        query: text,
+        limit: candidateLimit
+      }, { signal: this.signal })),
+      embedding && typeof this.db.searchDocumentChunksSemantic === "function"
+        ? quiet(this.db.searchDocumentChunksSemantic({
+            userId: this.userId,
+            documentFileIds,
+            queryEmbedding: embedding,
+            limit: candidateLimit
+          }, { signal: this.signal }))
+        : [],
+      embedding
+        ? quiet(this.db.searchDocumentPages({
+            userId: this.userId,
+            documentFileIds,
+            queryEmbedding: embedding,
+            limit: Math.max(12, maxPages * 2)
+          }, { signal: this.signal }))
+        : []
+    ]);
+
+    const semantic = (semanticChunks || []).filter((chunk) => Number(chunk.distance) <= maxChunkDistance);
+    const imageHits = (pageHits || []).filter((page) => Number(page.distance) <= maxPageDistance && docById.has(page.document_file_id));
+    let chunks = reciprocalRankFusion([
+      { name: "keyword", items: keywordChunks || [], key: (chunk) => chunk.id },
+      { name: "semantic", items: semantic, key: (chunk) => chunk.id }
+    ]).map((entry) => ({ ...entry.item, fused_score: entry.score, ranks: entry.ranks }))
+      .filter((chunk) => docById.has(chunk.document_file_id));
+
+    if (rerank && chunks.length > 1) {
+      const head = chunks.slice(0, 20);
+      const reranked = await this.rerankChunks(text, head).catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return null;
+      });
+      // The cross-encoder is a better judge than fused ranks: keep what it
+      // thinks answers the question and drop the unreranked tail.
+      if (reranked) {
+        const floor = Number(this.documentsConfig.retrievalMinRerankScore ?? -0.08);
+        chunks = reranked.filter((chunk) => !(chunk.rerank_score < floor));
+      }
+    }
+
+    const chunkPageKey = (chunk) => {
+      const number = chunkPageNumber(chunk);
+      return number ? pageKey(chunk.document_file_id, number) : "";
+    };
+    const tablePages = new Set(chunks.filter((chunk) => chunk.source_type === "table").map(chunkPageKey).filter(Boolean));
+    const fusedPages = reciprocalRankFusion([
+      { name: "image", items: imageHits, key: (page) => pageKey(page.document_file_id, page.page_number) },
+      { name: "text", items: chunks, key: chunkPageKey, weight: 1.5 }
+    ]).slice(0, maxPages);
+
+    const loaded = new Map(imageHits.map((page) => [pageKey(page.document_file_id, page.page_number), page]));
+    const missingByDoc = new Map();
+    for (const entry of fusedPages) {
+      if (loaded.has(entry.key)) continue;
+      const [docId, number] = entry.key.split(":");
+      if (!documentUsesVisualPages(docById.get(docId))) continue;
+      if (!missingByDoc.has(docId)) missingByDoc.set(docId, []);
+      missingByDoc.get(docId).push(Number(number));
+    }
+    await Promise.all([...missingByDoc].map(async ([docId, numbers]) => {
+      const rows = await quiet(this.db.listDocumentPagesByNumbers(this.userId, docId, numbers, { signal: this.signal }));
+      for (const row of rows || []) loaded.set(pageKey(row.document_file_id, row.page_number), row);
+    }));
+
+    const pages = fusedPages.map((entry) => {
+      const [docId, number] = entry.key.split(":");
+      return {
+        key: entry.key,
+        score: entry.score,
+        ranks: entry.ranks,
+        doc: docById.get(docId),
+        pageNumber: Number(number),
+        page: loaded.get(entry.key) || null,
+        hasTableChunk: tablePages.has(entry.key)
+      };
+    }).filter((entry) => entry.doc);
+
+    return {
+      query: text,
+      chunks: chunks.slice(0, maxChunks),
+      pages,
+      relevant: chunks.length > 0 || imageHits.length > 0,
+      signals: {
+        keyword: (keywordChunks || []).length,
+        semantic: semantic.length,
+        image: imageHits.length,
+        reranked: chunks.some((chunk) => Number.isFinite(chunk.rerank_score))
+      }
+    };
   }
 
   signedPageUrl(page) {
@@ -456,27 +626,15 @@ export class DocumentService {
     return numbers.map((pageNumber) => byNumber.get(pageNumber)).filter(Boolean);
   }
 
-  async textPageCandidates(docs, query, limit) {
-    const text = clean(query);
-    if (!text || !docs.length) return [];
-    const chunks = await this.db.searchDocumentChunks({
-      userId: this.userId,
-      documentFileIds: docs.map((doc) => doc.id),
-      query: text,
-      limit
-    }, { signal: this.signal }).catch(() => []);
-    return (chunks || []).map((chunk) => ({
-      document_file_id: chunk.document_file_id,
-      page_number: Number(chunk?.metadata?.page || 0)
-    })).filter((entry) => entry.page_number > 0);
-  }
-
   async pageResultsForDocs(docs, {
     query = "",
     maxResults = 5,
     pageStart = null,
     pageEnd = null,
-    ensureAvailable = false
+    ensureAvailable = false,
+    fallbackToFirstPages = true,
+    retrieval = null,
+    startIndex = 1
   } = {}) {
     const limit = this.pageLimit(maxResults);
     let pages = [];
@@ -502,35 +660,21 @@ export class DocumentService {
       }
       pages = pages.slice(0, limit);
     } else {
-      const textCandidates = await this.textPageCandidates(docs, query, limit);
-      const queryEmbedding = query ? await this.embedQuery(query).catch(() => "") : "";
-      if (queryEmbedding) {
-        pages = await this.db.searchDocumentPages({
-          userId: this.userId,
-          documentFileIds: docs.map((doc) => doc.id),
-          queryEmbedding,
-          limit
-        }, { signal: this.signal }).catch(() => []);
+      const ranked = retrieval
+        ? retrieval.pages.slice(0, limit)
+        : query
+          ? (await this.retrieve(docs, { query, maxPages: limit, maxChunks: limit * 2 })).pages.slice(0, limit)
+          : [];
+      for (const entry of ranked) {
+        if (pageHasUsableImage(entry.page)) {
+          pages.push(entry.page);
+        } else if (ensureAvailable) {
+          const rows = await this.ensureDocumentPages(entry.doc, [entry.pageNumber]);
+          if (rows[0]) pages.push(rows[0]);
+        }
       }
-      const pageKey = (page) => `${page.document_file_id}:${Number(page.page_number)}`;
-      const byKey = new Map((pages || []).map((page) => [pageKey(page), page]));
-      for (const candidate of textCandidates) {
-        const key = pageKey(candidate);
-        if (byKey.has(key)) continue;
-        const doc = docs.find((entry) => entry.id === candidate.document_file_id);
-        if (!doc) continue;
-        const rows = ensureAvailable
-          ? await this.ensureDocumentPages(doc, [candidate.page_number])
-          : await this.db.listDocumentPagesByNumbers(
-              this.userId,
-              doc.id,
-              [candidate.page_number],
-              { signal: this.signal }
-            );
-        if (rows[0]) byKey.set(key, rows[0]);
-      }
-      pages = [...byKey.values()].slice(0, limit);
-      if (!pages.length) {
+      // With no query, or nothing relevant, a whole-document read starts at page 1.
+      if (!pages.length && fallbackToFirstPages) {
         for (const doc of docs) {
           const fallbackCount = Math.min(limit, Number(doc.page_count || limit));
           const fallbackNumbers = Array.from({ length: fallbackCount }, (_, index) => index + 1);
@@ -552,7 +696,7 @@ export class DocumentService {
     for (const page of pages || []) {
       const doc = docById.get(page.document_file_id);
       if (!doc) continue;
-      const index = results.length + 1;
+      const index = startIndex + results.length;
       const imageUrl = this.signedPageUrl(page);
       results.push(resultFromPage({
         index,
@@ -648,36 +792,41 @@ export class DocumentService {
     const results = [];
     const citations = [];
     const visualPages = [];
+    const retrieval = await this.retrieve(docs, { query, maxPages: limit, maxChunks: limit * 2 });
 
     if (visualDocs.length) {
-      const pageResult = await this.pageResultsForDocs(visualDocs, { query, maxResults: limit });
+      const visualIds = new Set(visualDocs.map((doc) => doc.id));
+      const pageResult = await this.pageResultsForDocs(visualDocs, {
+        query,
+        maxResults: Math.min(limit, 4),
+        retrieval: {
+          ...retrieval,
+          pages: retrieval.pages.filter((entry) => visualIds.has(entry.doc.id))
+        }
+      });
       results.push(...pageResult.results);
       citations.push(...pageResult.citations);
       visualPages.push(...pageResult.visualPages);
     }
 
-    let chunks = [];
-    try {
-      if (chunkDocs.length) {
-        chunks = await this.db.searchDocumentChunks({
-          userId: this.userId,
-          documentFileIds: chunkDocs.map((doc) => doc.id),
-          query,
-          limit
-        }, { signal: this.signal });
-      }
-    } catch {
-      chunks = [];
+    // A page already returned as an image carries its own text; skip its excerpt.
+    const returnedPages = new Set(visualPages.map((page) => pageKey(page.document_file_id, page.page_number)));
+    const chunkDocIds = new Set(chunkDocs.map((doc) => doc.id));
+    let chunks = retrieval.chunks.filter((chunk) => (
+      chunkDocIds.has(chunk.document_file_id)
+      && !returnedPages.has(pageKey(chunk.document_file_id, chunkPageNumber(chunk)))
+    ));
+    if (!clean(query) && !chunks.length) {
       for (const doc of chunkDocs) {
         const rows = await this.db.listDocumentChunks(this.userId, doc.id, { limit, signal: this.signal });
         chunks.push(...rows);
         if (chunks.length >= limit) break;
       }
-      chunks = chunks.slice(0, limit);
     }
+    chunks = chunks.slice(0, limit);
 
     const docById = new Map(chunkDocs.map((doc) => [doc.id, doc]));
-    for (const chunk of chunks || []) {
+    for (const chunk of chunks) {
       const doc = docById.get(chunk.document_file_id);
       if (!doc) continue;
       const index = results.length + 1;
@@ -694,6 +843,133 @@ export class DocumentService {
       visualPages,
       notice: buildUntrustedNotice()
     };
+  }
+
+  /**
+   * Evidence for a turn, picked before the model runs: the best text
+   * excerpts plus page images only where the page's meaning is visual (or the
+   * question asks about a figure, table or layout). Documents attached to
+   * this very message get fuller coverage.
+   */
+  async relevantContext({
+    query = "",
+    docs = null,
+    attachedDocumentIds = [],
+    supportsVision = true,
+    maxImages = 3,
+    includeText = true,
+    textBudgetChars = null,
+    maxExcerpts = 5
+  } = {}) {
+    const emptyResult = { results: [], citations: [], visualPages: [], retrieval: null };
+    const available = docs || await this.readyDocuments();
+    if (!available.length) return emptyResult;
+    const attached = new Set((attachedDocumentIds || []).filter(Boolean));
+    const attachedDocs = available.filter((doc) => attached.has(doc.attachment_id));
+    const budget = Math.max(2000, Number(textBudgetChars || this.documentsConfig.contextCharsPerTurn || 20_000) / 2);
+    const retrieval = await this.retrieve(available, {
+      query,
+      maxPages: Math.max(8, maxImages * 3),
+      maxChunks: 10
+    });
+
+    const results = [];
+    const citations = [];
+    const visualPages = [];
+    const docById = new Map(available.map((doc) => [doc.id, doc]));
+
+    // Images first, so text excerpts can skip pages the model will already see.
+    const picked = [];
+    if (supportsVision && maxImages > 0) {
+      const wantsVisual = queryWantsVisual(query);
+      const pickedKeys = new Set();
+      const pick = (doc, page) => {
+        const key = pageKey(doc.id, page.page_number);
+        if (pickedKeys.has(key) || !pageHasUsableImage(page)) return;
+        pickedKeys.add(key);
+        picked.push(page);
+      };
+      // Short attached documents are shown whole; longer ones get their best pages.
+      for (const doc of attachedDocs.filter(documentUsesVisualPages)) {
+        const count = Number(doc.page_count || 0);
+        if (count && count <= maxImages * 2) {
+          const rows = await this.ensureDocumentPages(doc, Array.from({ length: count }, (_, index) => index + 1)).catch(() => []);
+          for (const row of rows) pick(doc, row);
+        }
+      }
+      const imageBudget = Math.max(maxImages, picked.length);
+      for (const entry of retrieval.pages) {
+        if (picked.length >= imageBudget) break;
+        if (!entry.page || !documentUsesVisualPages(entry.doc)) continue;
+        const attachedNow = attached.has(entry.doc.attachment_id);
+        // A page whose image matched best (rank 0-1) holds something its text
+        // layer lacks often enough (dropped tables, figures) to be worth seeing.
+        const imageRank = entry.ranks?.image;
+        const visual = pageLooksVisual(entry.page, { documentKind: entry.doc.kind, hasTableChunk: entry.hasTableChunk });
+        if (attachedNow || wantsVisual || visual || (Number.isInteger(imageRank) && imageRank <= 1)) {
+          pick(entry.doc, entry.page);
+        }
+      }
+      // An attached long document with no matching page still gets its opening pages.
+      for (const doc of attachedDocs.filter(documentUsesVisualPages)) {
+        if (picked.some((page) => page.document_file_id === doc.id)) continue;
+        const rows = await this.ensureDocumentPages(doc, Array.from({ length: Math.min(maxImages, Number(doc.page_count || maxImages)) }, (_, index) => index + 1)).catch(() => []);
+        for (const row of rows) pick(doc, row);
+      }
+    }
+
+    // Text: the best excerpts, plus the whole text of a small document the
+    // user attached to this message (they usually want all of it read).
+    if (includeText) {
+      const imagePages = new Set(picked.map((page) => pageKey(page.document_file_id, page.page_number)));
+      let used = 0;
+      const addChunk = (chunk) => {
+        const doc = docById.get(chunk.document_file_id);
+        const text = clean(chunk.text);
+        if (!doc || !text || used >= budget) return;
+        const index = results.length + 1;
+        const maxChars = Math.min(4000, budget - used);
+        results.push(resultFromChunk({ index, documentFile: doc, chunk, maxChars }));
+        citations.push(citationFromChunk({ index, documentFile: doc, chunk }));
+        used += Math.min(text.length, maxChars);
+      };
+      const seen = new Set();
+      for (const doc of attachedDocs) {
+        const words = Number(doc.word_count || 0);
+        if (!doc.text_ready_at || !words || words * 6 > budget) continue;
+        const rows = await this.db.listDocumentChunks(this.userId, doc.id, { limit: 200, signal: this.signal }).catch(() => []);
+        for (const chunk of rows || []) {
+          seen.add(chunk.id);
+          if (!imagePages.has(pageKey(chunk.document_file_id, chunkPageNumber(chunk)))) addChunk(chunk);
+        }
+      }
+      let excerpts = 0;
+      for (const chunk of retrieval.chunks) {
+        if (excerpts >= maxExcerpts || seen.has(chunk.id)) continue;
+        seen.add(chunk.id);
+        // The page image message already carries that page's text layer.
+        if (imagePages.has(pageKey(chunk.document_file_id, chunkPageNumber(chunk)))) continue;
+        addChunk(chunk);
+        excerpts += 1;
+      }
+    }
+
+    if (picked.length) {
+      const pageResult = await this.pageResultsForDocs(available, {
+        maxResults: picked.length,
+        retrieval: {
+          ...retrieval,
+          pages: picked.map((page) => ({ doc: docById.get(page.document_file_id), page, pageNumber: page.page_number }))
+        },
+        fallbackToFirstPages: false,
+        startIndex: results.length + 1
+      });
+      results.push(...pageResult.results);
+      citations.push(...pageResult.citations);
+      visualPages.push(...pageResult.visualPages);
+    }
+
+    return { results, citations, visualPages, retrieval };
   }
 
   async readSpreadsheetRanges(documentFile, { sheet = "", cellRange = "", maxChars } = {}) {

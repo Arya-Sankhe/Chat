@@ -581,6 +581,10 @@ export class SupabaseRest {
     return documents.searchDocumentChunks(this, params, options);
   }
 
+  async searchDocumentChunksSemantic(params, options) {
+    return documents.searchDocumentChunksSemantic(this, params, options);
+  }
+
   async checkApiBudget(params, options) {
     return billing.checkApiBudget(this, params, options);
   }

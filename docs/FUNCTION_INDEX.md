@@ -665,7 +665,7 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
   `server/saas/messages.js`.
 
-### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
+### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildRelevantDocumentContext`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
 - **Path**: `server/chat/pipeline.js` (several helpers re-exported from
   `server/routes.js` for tests)
 - **Responsibility**: Chat dispatcher (single vs compare vs council,
@@ -1037,9 +1037,16 @@ through the database.
   `jina-embeddings-v5-omni-nano`, 768 dimensions, normalised,
   `embedding_type: "float"`). `enabled` is false when
   `JINA_API_KEY` is not set, in which case the worker still
-  produces the page rows but with `embedding = NULL`. Inputs are grouped into
-  configurable bounded batches while preserving page order.
-- **Callers**: `Processor.enrich_pdf_job`.
+  produces the page rows but with `embedding = NULL`. Images are sent as
+  `{"image": <base64>}` and text as `{"text": ...}` with task
+  `retrieval.passage`. Inputs are grouped into configurable bounded batches
+  while preserving page order, and every call goes through the shared
+  `JinaRateLimiter` (defaults 90 requests / 90K tokens per minute, under the
+  free tier's 100 / 100K).
+- **Callers**: `Processor.enrich_pdf_job`, `Processor.backfill_embeddings`
+  (runs from the idle worker loop and from
+  `python -m worker.worker backfill-embeddings [document_file_id ...]`,
+  retrying pages and chunks that still have no vector).
 - **Major dependencies**: `requests`.
 
 ### `class R2`

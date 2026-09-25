@@ -1554,6 +1554,120 @@ class JinaBatchOrderingTest(unittest.TestCase):
         self.assertEqual(result, ["emb-0", "emb-1", "emb-2", "emb-3", "emb-4"])
 
 
+class JinaPayloadTest(unittest.TestCase):
+    def _embeddings(self):
+        embeddings = w.JinaEmbeddings.__new__(w.JinaEmbeddings)
+        embeddings.api_key = "test"
+        embeddings.model = "jina-embeddings-v5-omni-nano"
+        embeddings.dimensions = 768
+        embeddings.endpoint = "https://example.test/embeddings"
+        embeddings.batch_size = 8
+        embeddings.batch_concurrency = 1
+        embeddings.max_attempts = 1
+        embeddings.rate_limiter = None
+        return embeddings
+
+    def _response(self, count):
+        response = mock.Mock()
+        response.ok = True
+        response.json.return_value = {
+            "usage": {"total_tokens": 10},
+            "data": [{"index": i, "embedding": [0.1] * 768} for i in range(count)],
+        }
+        return response
+
+    def test_images_use_the_image_key_and_passage_task(self):
+        embeddings = self._embeddings()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "page.jpg"
+            path.write_bytes(b"jpeg")
+            with mock.patch.object(w, "request_with_retries", return_value=self._response(1)) as post:
+                result = embeddings.embed_images([path])
+        body = json.loads(post.call_args.kwargs["data"])
+        self.assertEqual(body["task"], "retrieval.passage")
+        self.assertEqual(set(body["input"][0]), {"image"})
+        self.assertTrue(result[0].startswith("[0.1,"))
+
+    def test_texts_use_the_text_key_and_skip_blank_chunks(self):
+        embeddings = self._embeddings()
+        with mock.patch.object(w, "request_with_retries", return_value=self._response(2)) as post:
+            result = embeddings.embed_texts(["alpha", "  ", "beta"])
+        body = json.loads(post.call_args.kwargs["data"])
+        self.assertEqual(body["input"], [{"text": "alpha"}, {"text": "beta"}])
+        self.assertIsNotNone(result[0])
+        self.assertIsNone(result[1])
+        self.assertIsNotNone(result[2])
+
+
+class JinaRateLimiterTest(unittest.TestCase):
+    def test_waits_when_the_token_budget_is_spent(self):
+        limiter = w.JinaRateLimiter(100, 1000)
+        clock = [0.0]
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.object(w.time, "monotonic", side_effect=lambda: clock[0]), \
+                mock.patch.object(w.time, "sleep", side_effect=fake_sleep):
+            first = limiter.acquire(800)
+            limiter.settle(first, 900)
+            limiter.acquire(500)
+        self.assertTrue(sleeps)
+        self.assertGreaterEqual(clock[0], 60.0)
+
+    def test_oversized_request_passes_when_window_is_empty(self):
+        limiter = w.JinaRateLimiter(100, 1000)
+        with mock.patch.object(w.time, "sleep") as sleep:
+            limiter.acquire(5000)
+        sleep.assert_not_called()
+
+
+class EmbeddingBackfillTest(unittest.TestCase):
+    def test_backfill_embeds_missing_chunks_and_isolates_rejected_rows(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor._embed_skip = set()
+        processor.embeddings = mock.Mock()
+        processor.embeddings.model = "model"
+        processor.embeddings.batch_size = 8
+        rows = [{"id": "c1", "text": "good"}, {"id": "c2", "text": "bad"}]
+        patches = []
+
+        def request(table, method="GET", params=None, body=None, prefer=None, retryable=None):
+            if method == "GET":
+                return rows
+            patches.append((table, params["id"], body))
+            return None
+
+        processor.db = mock.Mock()
+        processor.db.request.side_effect = request
+
+        def embed_texts(texts):
+            if len(texts) > 1:
+                raise RuntimeError("Jina embeddings failed: 422 bad item")
+            if texts[0] == "bad":
+                raise RuntimeError("Jina embeddings failed: 422 bad item")
+            return ["[0.1]"]
+
+        processor.embeddings.embed_texts.side_effect = embed_texts
+        pages, chunks = processor.backfill_embeddings(max_pages=0, max_chunks=10, min_age_seconds=0)
+        self.assertEqual((pages, chunks), (0, 1))
+        self.assertEqual(patches, [("document_chunks", "eq.c1", {"embedding": "[0.1]", "embedding_model": "model"})])
+        self.assertIn("c2", processor._embed_skip)
+
+    def test_backfill_raises_on_account_errors_so_the_loop_backs_off(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor._embed_skip = set()
+        processor.embeddings = mock.Mock()
+        processor.embeddings.embed_texts.side_effect = RuntimeError("Jina embeddings failed: 403 insufficient balance")
+        processor.db = mock.Mock()
+        processor.db.request.return_value = [{"id": "c1", "text": "x"}, {"id": "c2", "text": "y"}]
+        with self.assertRaises(RuntimeError):
+            processor.backfill_embeddings(max_pages=0, max_chunks=10, min_age_seconds=0)
+        self.assertEqual(processor._embed_skip, set())
+
+
 class HealthcheckTest(unittest.TestCase):
     def test_healthcheck_requires_edgeparse(self):
         from worker import healthcheck

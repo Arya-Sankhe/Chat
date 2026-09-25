@@ -6,6 +6,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1014,6 +1015,56 @@ class Supabase:
         return rows[0] if rows else None
 
 
+class JinaRateLimiter:
+    """Sliding one-minute budget shared by every embedding call in the process.
+
+    Jina's free tier allows 100 requests and 100K tokens per minute, so the
+    defaults stay a little under both.
+    """
+
+    def __init__(self, requests_per_minute, tokens_per_minute):
+        self.requests_per_minute = max(1, int(requests_per_minute))
+        self.tokens_per_minute = max(1000, int(tokens_per_minute))
+        self._events = []
+        self._lock = threading.Lock()
+
+    def _prune(self, now):
+        self._events = [event for event in self._events if now - event[0] < 60.0]
+
+    def acquire(self, estimated_tokens):
+        estimate = max(1, int(estimated_tokens))
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._prune(now)
+                used_tokens = sum(event[1] for event in self._events)
+                if (
+                    len(self._events) < self.requests_per_minute
+                    and (not self._events or used_tokens + estimate <= self.tokens_per_minute)
+                ):
+                    entry = [now, estimate]
+                    self._events.append(entry)
+                    return entry
+                wait = max(0.05, 60.0 - (now - self._events[0][0]))
+            time.sleep(min(wait, 5.0))
+
+    def settle(self, entry, actual_tokens):
+        if entry is None or actual_tokens is None:
+            return
+        with self._lock:
+            entry[1] = max(1, int(actual_tokens))
+
+
+JINA_RATE_LIMITER = JinaRateLimiter(
+    env_int("DOCUMENT_JINA_REQUESTS_PER_MINUTE", 90, minimum=1),
+    env_int("DOCUMENT_JINA_TOKENS_PER_MINUTE", 90000, minimum=1000),
+)
+
+# Rough per-item token costs used to reserve rate-limit budget before a call.
+JINA_IMAGE_TOKEN_ESTIMATE = 1500
+JINA_TEXT_CHAR_LIMIT = 8000
+
+
 class JinaEmbeddings:
     def __init__(self):
         self.api_key = env("JINA_API_KEY")
@@ -1025,6 +1076,7 @@ class JinaEmbeddings:
             "DOCUMENT_JINA_BATCH_CONCURRENCY", 1, minimum=1, maximum=JINA_BATCH_CONCURRENCY_CAP
         )
         self.max_attempts = HTTP_MAX_ATTEMPTS
+        self.rate_limiter = JINA_RATE_LIMITER
 
     @property
     def enabled(self):
@@ -1038,19 +1090,17 @@ class JinaEmbeddings:
             raise RuntimeError(f"unexpected_embedding_dimensions: got {len(floats)}, expected 768")
         return "[" + ",".join(f"{value:.8g}" for value in floats) + "]"
 
-    def _embed_batch(self, batch):
-        inputs = []
-        for _, path in batch:
-            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-            inputs.append({"bytes": encoded})
-
+    def _embed_inputs(self, inputs, estimated_tokens):
+        """POST one batch; returns embedding literals in input order."""
         body = {
             "model": self.model,
+            "task": "retrieval.passage",
             "normalized": True,
             "embedding_type": "float",
             "dimensions": self.dimensions,
             "input": inputs,
         }
+        reservation = self.rate_limiter.acquire(estimated_tokens) if self.rate_limiter else None
         response = request_with_retries(
             "POST",
             self.endpoint,
@@ -1065,13 +1115,40 @@ class JinaEmbeddings:
         if not response.ok:
             raise RuntimeError(f"Jina embeddings failed: {response.status_code} {response.text[:500]}")
 
-        data = response.json().get("data") or []
+        payload = response.json()
+        if self.rate_limiter:
+            self.rate_limiter.settle(reservation, (payload.get("usage") or {}).get("total_tokens"))
+        data = payload.get("data") or []
         by_index = {int(item.get("index", index)): item.get("embedding") for index, item in enumerate(data)}
-        results = []
-        for index in range(len(batch)):
-            original_index = batch[index][0]
-            results.append((original_index, self._embedding_literal(by_index.get(index))))
-        return results
+        return [self._embedding_literal(by_index.get(index)) for index in range(len(inputs))]
+
+    def _embed_batch(self, batch):
+        # The v5 omni models take {"image": <base64 or URL>}; the legacy
+        # {"bytes": ...} key is rejected with a 422.
+        inputs = []
+        for _, path in batch:
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            inputs.append({"image": encoded})
+        literals = self._embed_inputs(inputs, JINA_IMAGE_TOKEN_ESTIMATE * len(inputs))
+        return [(batch[index][0], literal) for index, literal in enumerate(literals)]
+
+    def embed_texts(self, texts, batch_size=None):
+        if not self.enabled or not texts:
+            return [None for _ in texts]
+        size = max(1, min(int(batch_size or JINA_BATCH_SIZE_CAP), JINA_BATCH_SIZE_CAP))
+        embeddings = [None for _ in texts]
+        indexed = [
+            (index, str(text or "").strip()[:JINA_TEXT_CHAR_LIMIT])
+            for index, text in enumerate(texts)
+            if str(text or "").strip()
+        ]
+        for start in range(0, len(indexed), size):
+            batch = indexed[start:start + size]
+            estimate = sum(max(1, len(text) // 3) for _, text in batch)
+            literals = self._embed_inputs([{"text": text} for _, text in batch], estimate)
+            for (original_index, _), literal in zip(batch, literals):
+                embeddings[original_index] = literal
+        return embeddings
 
     def embed_images(self, image_paths, batch_size=None, batch_concurrency=None):
         if not self.enabled or not image_paths:
@@ -1179,6 +1256,14 @@ class Processor:
             "max_csv_columns": int(env("DOCUMENT_MAX_CSV_COLUMNS", "100")),
             "max_extracted_chars": self.max_extracted_chars,
         }
+        # One loop per process heals missing embeddings; the rest only claim jobs.
+        self.backfill_enabled = index == 0 and env("DOCUMENT_EMBED_BACKFILL", "1") != "0"
+        self.backfill_interval_seconds = env_float(
+            "DOCUMENT_EMBED_BACKFILL_INTERVAL_SECONDS", 60.0, minimum=5.0
+        )
+        self._backfill_next_at = 0.0
+        self._backfill_failures = 0
+        self._embed_skip = set()
 
     def object_key(self, user_id, file_name):
         return f"users/{user_id}/{uuid.uuid4()}/{safe_name(file_name)}"
@@ -1193,6 +1278,8 @@ class Processor:
                 consecutive_failures = 0
                 if not job:
                     empty_claims += 1
+                    if self.maybe_backfill_embeddings():
+                        continue
                     time.sleep(
                         idle_sleep_seconds(
                             empty_claims,
@@ -1215,6 +1302,192 @@ class Processor:
                     flush=True,
                 )
                 time.sleep(sleep_for)
+
+    def maybe_backfill_embeddings(self):
+        """Run one bounded backfill pass when due. Returns True if it did work."""
+        if not self.backfill_enabled or not self.embeddings.enabled:
+            return False
+        now = time.monotonic()
+        if now < self._backfill_next_at:
+            return False
+        try:
+            pages, chunks = self.backfill_embeddings(max_pages=32, max_chunks=64)
+            self._backfill_failures = 0
+        except Exception as exc:
+            self._backfill_failures += 1
+            backoff = min(3600.0, self.backfill_interval_seconds * (2 ** min(self._backfill_failures, 6)))
+            self._backfill_next_at = time.monotonic() + backoff
+            print(
+                f"EMBEDDING BACKFILL FAILED ({type(exc).__name__}); retrying in {backoff:.0f}s: {exc}",
+                flush=True,
+            )
+            return False
+        did_work = bool(pages or chunks)
+        # Drain a backlog quickly; otherwise check again after the interval.
+        self._backfill_next_at = time.monotonic() + (1.0 if did_work else self.backfill_interval_seconds)
+        if did_work:
+            print(f"embedding backfill: pages={pages} chunks={chunks}", flush=True)
+        return did_work
+
+    def _pending_embedding_rows(self, table, select, limit, min_age_seconds, extra=None, document_ids=None):
+        params = {
+            "select": select,
+            "embedding": "is.null",
+            "order": "created_at.asc",
+            "limit": str(limit + len(self._embed_skip)),
+            **(extra or {}),
+        }
+        if document_ids:
+            params["document_file_id"] = f"in.({','.join(document_ids)})"
+        if min_age_seconds > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)
+            params["created_at"] = f"lt.{cutoff.isoformat()}"
+        rows = self.db.request(table, params=params) or []
+        return [row for row in rows if row.get("id") not in self._embed_skip][:limit]
+
+    def _embed_rows(self, rows, embed_many, embed_one):
+        """Embed a batch, isolating rows the API rejects so they can't block the queue."""
+        try:
+            return embed_many(rows)
+        except RuntimeError as exc:
+            # Auth, balance and rate errors apply to every row; let the caller back off.
+            if any(f"failed: {code}" in str(exc) for code in ("401", "402", "403", "429")):
+                raise
+            if len(rows) == 1:
+                self._embed_skip.add(rows[0]["id"])
+                print(f"embedding skipped for {rows[0]['id']}: {str(exc)[:300]}", flush=True)
+                return [None]
+        results = []
+        for row in rows:
+            results.extend(self._embed_rows([row], lambda single: [embed_one(single[0])], embed_one))
+        return results
+
+    def backfill_embeddings(self, max_pages=32, max_chunks=64, min_age_seconds=600, document_ids=None):
+        """Embed page images and text chunks that are still missing vectors.
+
+        Uploads embed pages inline, but a provider outage or API change used to
+        leave them empty forever. This pass retries them so retrieval heals.
+        """
+        pages_done = 0
+        chunks_done = 0
+        touched_docs = set()
+
+        if max_pages:
+            pages = self._pending_embedding_rows(
+                "document_pages",
+                "id,document_file_id,page_number,image_key",
+                max_pages,
+                min_age_seconds,
+                {"image_key": "not.is.null"},
+                document_ids,
+            )
+            if pages:
+                tmp = Path(tempfile.mkdtemp(prefix="doc-embed-backfill-"))
+                try:
+                    def fetch(row):
+                        path = tmp / f"{row['id']}.img"
+                        try:
+                            self.r2.download(row["image_key"], path)
+                            return path
+                        except Exception as exc:
+                            self._embed_skip.add(row["id"])
+                            print(f"embedding skipped for page {row['id']}: download failed: {exc}", flush=True)
+                            return None
+
+                    with ThreadPoolExecutor(max_workers=4) as pool:
+                        paths = list(pool.map(fetch, pages))
+                    ready = [(row, path) for row, path in zip(pages, paths) if path is not None]
+                    size = self.embeddings.batch_size
+                    for start in range(0, len(ready), size):
+                        batch = ready[start:start + size]
+                        literals = self._embed_rows(
+                            [row for row, _ in batch],
+                            lambda rows, batch=batch: self.embeddings.embed_images([path for _, path in batch]),
+                            lambda row, batch=batch: self.embeddings.embed_images(
+                                [path for candidate, path in batch if candidate is row]
+                            )[0],
+                        )
+                        for (row, _), literal in zip(batch, literals):
+                            if literal is None:
+                                self._embed_skip.add(row["id"])
+                                continue
+                            self.db.request(
+                                "document_pages",
+                                method="PATCH",
+                                params={"id": f"eq.{row['id']}", "embedding": "is.null"},
+                                body={
+                                    "embedding": literal,
+                                    "embedding_model": self.embeddings.model,
+                                    "embedding_dimensions": 768,
+                                },
+                                prefer="return=minimal",
+                            )
+                            pages_done += 1
+                            touched_docs.add(row["document_file_id"])
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+
+        if max_chunks:
+            chunks = self._pending_embedding_rows(
+                "document_chunks", "id,text", max_chunks, min_age_seconds, document_ids=document_ids
+            )
+            for start in range(0, len(chunks), JINA_BATCH_SIZE_CAP):
+                batch = chunks[start:start + JINA_BATCH_SIZE_CAP]
+                literals = self._embed_rows(
+                    batch,
+                    lambda rows: self.embeddings.embed_texts([row.get("text") for row in rows]),
+                    lambda row: self.embeddings.embed_texts([row.get("text")])[0],
+                )
+                for row, literal in zip(batch, literals):
+                    if literal is None:
+                        self._embed_skip.add(row["id"])
+                        continue
+                    self.db.request(
+                        "document_chunks",
+                        method="PATCH",
+                        params={"id": f"eq.{row['id']}", "embedding": "is.null"},
+                        body={"embedding": literal, "embedding_model": self.embeddings.model},
+                        prefer="return=minimal",
+                    )
+                    chunks_done += 1
+
+        for document_file_id in touched_docs:
+            self._mark_document_enriched(document_file_id)
+        return pages_done, chunks_done
+
+    def _mark_document_enriched(self, document_file_id):
+        remaining = self.db.request(
+            "document_pages",
+            params={
+                "select": "id",
+                "document_file_id": f"eq.{document_file_id}",
+                "embedding": "is.null",
+                "image_key": "not.is.null",
+                "limit": "1",
+            },
+        ) or []
+        if remaining:
+            return
+        doc = self.db.get_document_file(document_file_id)
+        if not doc:
+            return
+        stage_errors = {
+            key: value for key, value in (doc.get("stage_errors") or {}).items() if key != "enrichment"
+        }
+        metadata = dict(doc.get("metadata") or {})
+        if metadata.get("stage") == "visual_ready_embeddings_degraded":
+            metadata["stage"] = "visual_ready"
+        metadata["warnings"] = [
+            warning for warning in (metadata.get("warnings") or [])
+            if not str((warning or {}).get("code", "")).startswith("embedding_")
+        ]
+        metadata["embedding_model"] = self.embeddings.model
+        metadata["embedding_dimensions"] = 768
+        self.db.update_document_file(document_file_id, {
+            "enriched_at": doc.get("enriched_at") or now_iso(),
+            "stage_errors": stage_errors,
+            "metadata": metadata,
+        })
 
     def _lease_heartbeat_loop(self, job_id, stop_event, lost_event):
         last_renewed = time.monotonic()
@@ -2952,7 +3225,48 @@ def worker_concurrency():
     return env_int("DOCUMENT_WORKER_CONCURRENCY", 1, minimum=1, maximum=WORKER_CONCURRENCY_CAP)
 
 
+def backfill_embeddings_cli(document_ids=None):
+    """One-shot re-index: embed every page and chunk still missing a vector.
+
+    Pass document_file ids to limit it to those documents.
+    """
+    processor = Processor()
+    processor.backfill_enabled = False
+    if not processor.embeddings.enabled:
+        raise SystemExit("JINA_API_KEY is required")
+    total_pages = 0
+    total_chunks = 0
+    failures = 0
+    started = time.monotonic()
+    while True:
+        try:
+            pages, chunks = processor.backfill_embeddings(
+                max_pages=48, max_chunks=128, min_age_seconds=0, document_ids=document_ids
+            )
+            failures = 0
+        except Exception as exc:
+            failures += 1
+            if failures > 5:
+                raise
+            print(f"backfill pass failed ({exc}); waiting 60s before retrying", flush=True)
+            time.sleep(60)
+            continue
+        total_pages += pages
+        total_chunks += chunks
+        print(
+            f"backfill progress: pages={total_pages} chunks={total_chunks} "
+            f"skipped={len(processor._embed_skip)} elapsed={time.monotonic() - started:.0f}s",
+            flush=True,
+        )
+        if not pages and not chunks:
+            break
+    print("backfill complete", flush=True)
+
+
 def main():
+    if sys.argv[1:2] == ["backfill-embeddings"]:
+        backfill_embeddings_cli(sys.argv[2:] or None)
+        return
     concurrency = worker_concurrency()
     if concurrency <= 1:
         Processor().run()

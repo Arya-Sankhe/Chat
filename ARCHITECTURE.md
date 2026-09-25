@@ -288,7 +288,7 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `messages` | `id`, `user_id`, `conversation_id`, `role` (`system`/`user`/`assistant`/`tool`), `content jsonb` (can be string or parts array), `model`, `reasoning`, `tool_calls jsonb`, `finish_reason`, `error`, `metadata jsonb`, `turn_run_id`, `output_slot`, `created_at`. | `metadata` carries council/websearch/documents/research context. `(turn_run_id, output_slot)` makes resumed document-turn outputs idempotent. |
 | `attachments` | `id`, `user_id`, `conversation_id`, `message_id`, `category` (`image`/`document`), `object_key` (unique), `file_name`, `content_type`, `size_bytes`, `etag`, `status` (`pending`/`uploaded`). | Both user uploads and document worker outputs use this table; the R2 object is the actual file. |
 | `document_files` | Existing identity/version fields plus `processing_status`, capability timestamps (`text_ready_at`, `visual_ready_at`, `enriched_at`), `stage_errors`, counts, extraction/preview keys, metadata, and terminal error. | `text_ready_at` or `visual_ready_at` makes a document usable; legacy `ready` means all core jobs are terminal, possibly with warnings. |
-| `document_chunks` | `id`, `document_file_id`, `user_id`, `chunk_index`, `source_type`, `source_label`, `text`, `char_count`, `token_estimate`, `metadata`, generated `tsv tsvector`. | Unique on `(document_file_id, chunk_index)`. |
+| `document_chunks` | `id`, `document_file_id`, `user_id`, `chunk_index`, `source_type`, `source_label`, `text`, `char_count`, `token_estimate`, `metadata`, generated `tsv` (simple) and `tsv_en` (English, stemmed) tsvectors, `embedding vector(768)` (Jina text embedding, filled by the worker backfill). | Unique on `(document_file_id, chunk_index)`. |
 | `document_pages` | `id`, `document_file_id`, `user_id`, `page_number`, `source_label`, `image_key`, `image_content_type`, `width_px`, `height_px`, `text`, `char_count`, `token_estimate`, `embedding vector(768)` (`extensions.vector_cosine_ops` HNSW index). | Unique on `(document_file_id, page_number)`. |
 | `document_jobs` | `id`, ownership links, `job_type`, status/priority/attempt fields, `worker_id`, `lease_until`, `cancel_requested`, input/output/error, timestamps. | PDF/DOCX/XLSX/PPTX queue independent extract and visual-enrichment jobs; missing requested pages use idempotent priority-100 `document.render_page` jobs. |
 | `pending_document_turns` | Durable user turn, normalized request payload, mode, claim token/owner/lease, provider-start fence, cancellation/error/terminal fields. | Reconnect-safe wait and conservative at-most-once provider execution for turns blocked on document capability. |
@@ -314,8 +314,9 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `public.klui_submit_document_turn(...)` and pending-turn claim/heartbeat/start/finish/cancel RPCs | Atomic turn persistence, fenced execution, resume, and cancellation without cascading away uploaded documents. |
 | `public.klui_update_pending_turn_output(...)` | Updates a run-linked assistant output only while its claim token and lease are still active. |
 | `public.klui_claim_research_run(p_worker_id, p_lease_seconds)` | Atomic claim of the next queued research run. |
-| `public.klui_search_document_chunks(p_user_id, p_document_ids, p_query, p_limit)` | Full-text search over `document_chunks.tsv` with RLS-isolated results. |
-| `public.klui_search_document_pages(p_user_id, p_document_ids, p_query_embedding, p_limit)` | Vector search over `document_pages.embedding` (cosine, HNSW). |
+| `public.klui_search_document_chunks(p_user_id, p_document_ids, p_query, p_limit)` | Stemmed any-word full-text search over `document_chunks.tsv_en`; chunks matching every word rank first. |
+| `public.klui_search_document_chunks_semantic(p_user_id, p_document_ids, p_query_embedding, p_limit)` | Exact cosine search over `document_chunks.embedding`, filtered to the caller's documents first. |
+| `public.klui_search_document_pages(p_user_id, p_document_ids, p_query_embedding, p_limit)` | Exact cosine search over `document_pages.embedding`, filtered to the caller's documents first (a global HNSW scan would drop their rows). |
 
 ### External services
 
@@ -329,7 +330,8 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | TinyFish Search (`api.search.tinyfish.ai`) | `server/websearch/tinyfish.js` `tinyfishSearch`. Free 30 RPM per API key; search only. |
 | TinyFetch (`api.fetch.tinyfish.ai`) | `server/websearch/tinyfetch.js` `tinyfetchRead`. Primary `read_url` / Deep Research page reader. |
 | Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Fallback reader after TinyFetch; works anonymously. |
-| Jina Embeddings (`api.jina.ai/v1/embeddings`) | `server/documents/index.js` `embedQuery` for document page vector search. |
+| Jina Embeddings (`api.jina.ai/v1/embeddings`) | `server/documents/index.js` `embedQuery` (`retrieval.query`) for chunk and page vector search; the worker embeds page images and chunk text (`retrieval.passage`). |
+| Jina Reranker (`api.jina.ai/v1/rerank`) | `DocumentService.rerankChunks` (`DOCUMENT_RERANK_MODEL`, default `jina-reranker-v3`; `off` disables). |
 | Brave Search LLM Context (`api.search.brave.com/res/v1/llm/context`) | `server/websearch/brave.js`. |
 | Internal SearXNG (`http://searxng:8080/search?format=json` in compose, `http://localhost:8080/…` standalone) | `server/websearch/searxng.js`. Deep Research search goes through `WebSearchOrchestrator`. |
 | Document worker (Python container) | Decoupled through `document_jobs` table. The Node server `enqueueAndWait` inserts a job; the worker `claim`s it; the server polls `GET /api/documents/jobs/:id/status` for the artifact. |
@@ -455,7 +457,7 @@ sequenceDiagram
     API->>API: buildStoredUserContent, normalizeMessageSettings
     API->>API: withResearchReportContext (load past reports into history)
     API->>API: selectDocumentSkills, detectSearchNeed, withAvailableTools
-    API->>API: buildDirectPdfVisualContext (PDF → image_url parts)
+    API->>API: rewriteDocumentQuery + buildRelevantDocumentContext (hybrid retrieval → excerpts + relevant page images)
     API->>SB: insertMessage(user), insertMessage(assistant)
     API->>Tool: runChatWithToolLoop(chatRequest, websearch, documents)
     loop up to maxIterations
@@ -680,11 +682,22 @@ glyphs only (no layout reflow).
   using the presigned URL; when CORS blocks it, the API falls back
   to a same-origin relay at `PUT /api/uploads/:uploadId/content`
   (this is what `public/js/api.js` `putUploadContent` does).
-- **Direct-context visual documents.** When a user uploads a PDF or a visually enriched Office document, `buildDirectPdfVisualContext`
-  embeds the rendered page images directly as `image_url` parts in
-  the request — bypassing the tool loop for visual-capable models,
-  and going through a single vision-describe call for text-only
-  models in the Compare path.
+- **Hybrid retrieval picks the evidence.** Before the model runs, `buildRelevantDocumentContext`
+  (pipeline) calls `DocumentService.relevantContext`, which runs
+  `retrieve`: stemmed any-word keyword search over chunks, Jina
+  vector search over chunk text and page images, reciprocal-rank
+  fusion, then a Jina cross-encoder rerank with a relevance floor
+  (`server/documents/retrieval.js` holds the pure helpers). Follow-ups
+  are first rewritten into a standalone query by a cheap model.
+  The turn gets the best excerpts as text plus page images only
+  where the page is visual (few text characters, tables, slides),
+  its image matched best, or the question asks about a figure;
+  documents attached to the current message get fuller coverage.
+  Single-model turns switch to the role's vision model when the
+  chosen pages are images; Compare/Council share one retrieval.
+  With tools on, the model can still call `search_document` /
+  `read_document` for other pages. Projects under
+  `DOCUMENT_FULL_CONTEXT_MAX_TOKENS` (8k) are also sent in full.
 - **Tool-loop graceful degradation.** `server/websearch/tool/loop.js`
   `runChatWithToolLoop` negotiates providers that don't support
   tools in three steps: keep the request, drop `tool_choice`, drop
@@ -744,7 +757,7 @@ glyphs only (no layout reflow).
   - `test/reasoning.test.js` — `extractReasoningDelta` for DeepSeek and OpenRouter shapes; reasoning duration metadata.
   - `test/render.test.js` — renderer math/code/math-protection tests; `renderContent` and `modelSupportsVision` and `inferModelBadges`.
   - `test/research.test.js` — research engine budget bounds, source validation, SSRF guard, partial reports, cancel, claim RPC.
-  - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDirectPdfVisualContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
+  - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildRelevantDocumentContext`, `normalizeAgentMode`, `runSharedPreSearch`, `shouldSuppressWebSearchForDocumentTurn`). It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
   - `test/saas.test.js` — entitlements, billing, usage meter (open and closed budget), R2 helpers, image counts.
   - `test/supabase-rest.test.js` — stubbed-`fetch` request-shape tests for one representative `SupabaseRest` method per `server/db/rest/*` domain group.
   - `test/usage.test.js` — `normalizeUsage` and `applyStreamEvent` final usage capture.

@@ -7,7 +7,7 @@ import { withAvailableTools } from "../server/chat/pipeline.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
 import {
-  buildDirectPdfVisualContext,
+  buildRelevantDocumentContext,
   installStableRequestSignal,
   normalizeAgentMode,
   runSharedPreSearch,
@@ -305,105 +305,128 @@ test("runSharedPreSearch still reads pasted URLs instead of searching", async ()
   assert.match(result.contextMessage, /Fetched article content/);
 });
 
-test("buildDirectPdfVisualContext attaches only relevant ready PDF pages", async () => {
+test("buildRelevantDocumentContext sends retrieved excerpts and relevant page images", async () => {
   const attachmentId = "00000000-0000-4000-8000-000000000001";
-  const otherAttachmentId = "00000000-0000-4000-8000-000000000002";
-  const seenDocs = [];
+  const calls = [];
   const documents = {
-    async pageResultsForDocs(docs) {
-      seenDocs.push(...docs.map((doc) => doc.id));
+    async relevantContext(options) {
+      calls.push(options);
       return {
-        citations: [{ index: 1, type: "document", title: "Homework.pdf - Page 1" }],
+        results: [
+          { index: 1, title: "Syllabus.pdf - Page 2", content: "Midterm: week 8", source_type: "page", document_file_id: "doc-syllabus" },
+          { index: 2, title: "Syllabus.pdf - Page 2", content: "", source_type: "page_image", document_file_id: "doc-syllabus" }
+        ],
+        citations: [
+          { index: 1, type: "document", title: "Syllabus.pdf - Page 2", chunk_ids: ["c1"] },
+          { index: 2, type: "document", title: "Syllabus.pdf - Page 2", page_ids: ["p2"] }
+        ],
         visualPages: [{
-          index: 1,
-          title: "Homework.pdf - Page 1",
-          page_number: 1,
-          url: "https://signed.example/page-1.jpg",
-          text: "Question 1"
-        }]
+          index: 2,
+          title: "Syllabus.pdf - Page 2",
+          document_file_id: "doc-syllabus",
+          page_number: 2,
+          url: "https://signed.example/page-2.jpg",
+          text: "Course schedule"
+        }],
+        retrieval: { query: "when is the midterm", signals: { keyword: 2, semantic: 3, image: 1, reranked: true } }
       };
     }
   };
 
-  const result = await buildDirectPdfVisualContext({
+  const result = await buildRelevantDocumentContext({
     documents,
-    readyDocuments: [
-      { id: "doc-current", kind: "pdf", attachment_id: attachmentId },
-      { id: "doc-other", kind: "pdf", attachment_id: otherAttachmentId },
-      { id: "doc-word", kind: "docx", attachment_id: "00000000-0000-4000-8000-000000000003" }
-    ],
-    attachments: [{ id: attachmentId, category: "document" }],
-    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 2 } },
+    readyDocuments: [{ id: "doc-syllabus", kind: "pdf", attachment_id: attachmentId }],
+    attachments: [],
+    query: "when is the midterm",
+    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 24 } },
     supportsVision: true,
+    toolsAvailable: true,
     signal: new AbortController().signal
   });
 
-  assert.deepEqual(seenDocs, ["doc-current"]);
+  assert.equal(calls[0].query, "when is the midterm");
+  assert.equal(calls[0].maxImages, 3);
   assert.equal(result.pageCount, 1);
   assert.equal(result.documentCount, 1);
-  assert.equal(result.citations[0].title, "Homework.pdf - Page 1");
+  assert.match(result.textMessage, /Midterm: week 8/);
+  assert.match(result.textMessage, /read_document/);
+  assert.equal(result.textCitations.length, 1);
+  assert.equal(result.citations.length, 2);
+  assert.equal(result.retrieval.reranked, true);
   const imagePart = result.message.content.find((part) => part.type === "image_url");
-  assert.equal(imagePart.image_url.url, "https://signed.example/page-1.jpg");
+  assert.equal(imagePart.image_url.url, "https://signed.example/page-2.jpg");
 });
 
-test("buildDirectPdfVisualContext includes visually enriched Office documents", async () => {
+test("buildRelevantDocumentContext skips retrieval for small talk", async () => {
+  let calls = 0;
+  const result = await buildRelevantDocumentContext({
+    documents: { async relevantContext() { calls += 1; return { results: [], citations: [], visualPages: [] }; } },
+    readyDocuments: [{ id: "doc", kind: "pdf", attachment_id: "00000000-0000-4000-8000-000000000002" }],
+    attachments: [],
+    query: "thanks!",
+    config: { documents: {} },
+    supportsVision: true,
+    signal: new AbortController().signal
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.message, null);
+  assert.equal(result.textMessage, "");
+});
+
+test("buildRelevantDocumentContext always covers a document attached to this message", async () => {
   const attachmentId = "00000000-0000-4000-8000-000000000009";
-  const seenDocs = [];
-  const result = await buildDirectPdfVisualContext({
+  const seen = [];
+  const result = await buildRelevantDocumentContext({
     documents: {
-      async pageResultsForDocs(docs) {
-        seenDocs.push(...docs.map((doc) => doc.id));
+      async relevantContext(options) {
+        seen.push(options.attachedDocumentIds);
         return {
-          citations: [],
-          visualPages: [{
-            index: 1,
-            title: "Deck.pptx - Page 1",
-            page_number: 1,
-            url: "https://signed.example/slide-1.jpg",
-            text: ""
-          }]
+          results: [],
+          citations: [{ index: 1, page_ids: ["p1"] }],
+          visualPages: [{ index: 1, title: "Deck.pptx - Page 1", document_file_id: "doc-pptx", page_number: 1, url: "https://signed.example/slide-1.jpg", text: "" }]
         };
       }
     },
-    readyDocuments: [{
-      id: "doc-pptx",
-      kind: "pptx",
-      attachment_id: attachmentId,
-      visual_ready_at: "2026-07-12T00:00:00.000Z"
-    }],
+    readyDocuments: [{ id: "doc-pptx", kind: "pptx", attachment_id: attachmentId, visual_ready_at: "2026-07-12T00:00:00.000Z" }],
     attachments: [{ id: attachmentId, category: "document" }],
-    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 2 } },
+    query: "ok",
+    config: { documents: { visualInlineImages: false } },
     supportsVision: true,
     signal: new AbortController().signal
   });
 
-  assert.deepEqual(seenDocs, ["doc-pptx"]);
+  assert.deepEqual(seen, [[attachmentId]]);
   assert.equal(result.pageCount, 1);
-  assert.match(result.message.content[0].text, /uploaded document pages/);
+  assert.match(result.message.content[0].text, /most relevant document pages/);
 });
 
-test("buildDirectPdfVisualContext leaves XLSX pages for explicit visual reads", async () => {
-  let pageCalls = 0;
-  const result = await buildDirectPdfVisualContext({
+test("buildRelevantDocumentContext drops project excerpts already sent in full", async () => {
+  const result = await buildRelevantDocumentContext({
     documents: {
-      async pageResultsForDocs() {
-        pageCalls += 1;
-        return { citations: [], visualPages: [] };
+      async relevantContext() {
+        return {
+          results: [
+            { index: 1, title: "Notes.pdf - Page 1", content: "project text", source_type: "page", document_file_id: "doc-project" },
+            { index: 2, title: "Upload.pdf - Page 3", content: "chat upload text", source_type: "page", document_file_id: "doc-chat" }
+          ],
+          citations: [{ index: 1, chunk_ids: ["a"] }, { index: 2, chunk_ids: ["b"] }],
+          visualPages: []
+        };
       }
     },
-    readyDocuments: [{
-      id: "doc-xlsx",
-      kind: "xlsx",
-      attachment_id: "00000000-0000-4000-8000-000000000010",
-      visual_ready_at: "2026-07-16T00:00:00.000Z"
-    }],
-    attachments: [{ id: "00000000-0000-4000-8000-000000000010", category: "document" }],
-    config: { documents: { visualInlineImages: false, visualMaxImageInputsPerTurn: 2 } },
-    supportsVision: true,
+    readyDocuments: [
+      { id: "doc-project", kind: "pdf", project_id: "project-1" },
+      { id: "doc-chat", kind: "pdf", project_id: null }
+    ],
+    attachments: [],
+    query: "what does the upload say",
+    config: { documents: {} },
+    supportsVision: false,
+    includeProjectText: false,
     signal: new AbortController().signal
   });
 
-  assert.equal(pageCalls, 0);
-  assert.equal(result.documentCount, 0);
+  assert.doesNotMatch(result.textMessage, /project text/);
+  assert.match(result.textMessage, /chat upload text/);
   assert.equal(result.message, null);
 });

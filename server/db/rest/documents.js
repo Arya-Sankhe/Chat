@@ -288,3 +288,12 @@ export async function searchDocumentChunks(client, { userId, documentFileIds = [
     p_limit: limit
   }, { signal });
 }
+
+export async function searchDocumentChunksSemantic(client, { userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
+  return client.rpc("klui_search_document_chunks_semantic", {
+    p_user_id: userId,
+    p_document_ids: documentFileIds,
+    p_query_embedding: queryEmbedding,
+    p_limit: limit
+  }, { signal });
+}

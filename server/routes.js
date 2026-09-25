@@ -119,7 +119,7 @@ export function createApiHandler(config, overrides = {}) {
 
 export {
   applyEditedUserText,
-  buildDirectPdfVisualContext,
+  buildRelevantDocumentContext,
   normalizeAgentMode,
   runSharedPreSearch,
   shouldSuppressWebSearchForDocumentTurn,
