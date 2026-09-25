@@ -1113,11 +1113,13 @@ export class DocumentService {
       chunks.push(chunk);
       usedChars += length;
     }
+    // Continuation is by whole chunks, so a chunk larger than `max_chars` (a big table) is
+    // returned in full up to the hard result limit; cutting it would skip its remainder.
     const results = chunks.map((chunk, index) => resultFromChunk({
       index: index + 1,
       documentFile: doc,
       chunk,
-      maxChars: Math.max(500, budget)
+      maxChars: index === 0 ? this.readBudgetChars() : Math.max(500, budget)
     }));
     const citations = chunks.map((chunk, index) => citationFromChunk({ index: index + 1, documentFile: doc, chunk }));
     const nextOffset = chunks.length < (rows || []).length || (rows || []).length === 200 ? start + chunks.length : null;

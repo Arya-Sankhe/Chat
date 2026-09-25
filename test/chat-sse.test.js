@@ -326,11 +326,14 @@ function makeDb({ conversation, messages: seedMessages = null } = {}) {
       counter += 1;
       const message = { id: `msg-${counter}`, ...row };
       calls.push({ op: "insertMessage", message });
+      messages?.push({ ...message });
       return message;
     },
     async updateMessage(userId, id, patch) {
       calls.push({ op: "updateMessage", id, patch });
-      return { id, ...patch };
+      const stored = messages?.find((message) => message.id === id);
+      if (stored) Object.assign(stored, patch);
+      return stored ? { ...stored } : { id, ...patch };
     },
     async updatePendingTurnOutput({ messageId, patch }) {
       calls.push({ op: "updatePendingTurnOutput", id: messageId, patch });
@@ -1529,6 +1532,46 @@ test("edit: rewrites user text, purges downstream messages, streams new assistan
     call.op === "updateMessage" && call.patch.content === "Answer to edited prompt.");
   assert.equal(assistantUpdate.length, 1);
   assert.equal(assistantUpdate[0].id, "msg-1");
+});
+
+test("edit saves the new source selection so a later retry searches the same sources", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({ streamFor: () => [contentDelta("Answer."), usageChunk()] });
+  const before = "11111111-1111-4111-8111-111111111111";
+  const after = "22222222-2222-4222-8222-222222222222";
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({
+    conversation: conversationRow,
+    messages: [
+      { id: "user-1", role: "user", content: "Summarize the reading", metadata: { skillIds: ["humanizer"], sources: [before] } },
+      { id: "asst-2", role: "assistant", content: "Old answer", finish_reason: "stop" }
+    ]
+  });
+
+  const edit = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { editUserMessageId: "user-1", text: "Summarize chapter two", model: TEXT_MODEL, sources: [after] }
+  });
+  assert.equal(edit.statusCode, 200, edit.body);
+  const [userUpdate] = db.calls.filter((call) => call.op === "updateMessage" && call.id === "user-1");
+  assert.deepEqual(userUpdate.patch.metadata, { skillIds: ["humanizer"], sources: [after] });
+
+  const assistantId = edit.headers["x-klui-assistant-message-id"];
+  const retry = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { retryAssistantMessageId: assistantId, model: TEXT_MODEL, sources: [before] }
+  });
+  assert.equal(retry.statusCode, 200, retry.body);
+  const stored = (await db.listMessages()).find((message) => message.id === "user-1");
+  assert.deepEqual(stored.metadata.sources, [after], "a retry never rewrites the saved selection");
+
+  // Editing again with every source selected clears the saved narrowing.
+  await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { editUserMessageId: "user-1", text: "Summarize everything", model: TEXT_MODEL, sources: [] }
+  });
+  const cleared = (await db.listMessages()).find((message) => message.id === "user-1");
+  assert.deepEqual(cleared.metadata, { skillIds: ["humanizer"] });
 });
 
 /* ── (e) errors, aborts, usage/cost ── */

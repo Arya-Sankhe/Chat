@@ -16,7 +16,7 @@ const WRAP_UP_SECONDS = 4 * 60;
 const MAX_TURNS = 160;
 const PLAN_SOURCE_CHARS = 120_000;
 const CALL_SOURCE_CHARS = 30_000;
-const TURN_MAX_TOKENS = 600;
+const TURN_MAX_TOKENS = 1500; // includes the low-effort reasoning
 const TTS_PARALLEL = 3;
 
 export const TUTOR_STYLES = {
@@ -393,7 +393,8 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
       signal,
       body: {
         model: OPENROUTER_TEXT_MODEL,
-        reasoning: { enabled: false },
+        // A little thinking keeps the tutoring sharp; the reasoning itself is never spoken.
+        reasoning: { effort: "low", exclude: true },
         messages: tutorMessages(session, entry),
         temperature: 0.6,
         max_tokens: TURN_MAX_TOKENS

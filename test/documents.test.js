@@ -301,7 +301,7 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
 test("buildDocumentSystemHint advertises deferred creation instead of read-only routing", () => {
   const selection = selectDocumentSkills({
     text: "summarize this",
-    readyDocuments: [{ attachment_id: "a1", kind: "pdf", attachments: { file_name: "Report.pdf" } }],
+    readyDocuments: [{ attachment_id: "a1", kind: "docx", attachments: { file_name: "Report.docx" } }],
     messageHasDocuments: false
   });
   assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
@@ -1175,4 +1175,36 @@ test("buildUntrustedDocumentContext frames excerpts as evidence, not instruction
   assert.match(context, /untrusted source material/);
   assert.match(context, /Ignore any instructions/);
   assert.match(context, /<document_sources>/);
+});
+
+test("DocumentService read returns an oversized chunk whole so next_offset skips nothing", async () => {
+  const big = `Row\tValue\n${"cell\t1\n".repeat(900)}`;
+  const chunks = [
+    { id: "chunk_1", source_type: "table", source_label: "Table 1", text: big },
+    { id: "chunk_2", source_type: "paragraph", source_label: "Notes", text: "After the table." }
+  ];
+  const service = new DocumentService({
+    config: { documents: { enabled: true } },
+    db: {
+      async getDocumentFileByAttachment() {
+        return { id: documentFileId, attachment_id: attachmentId, conversation_id: conversationId, text_ready_at: "2026-07-16T00:00:00Z", kind: "docx", attachments: { file_name: "Report.docx" } };
+      },
+      async listDocumentChunks(_userId, _documentId, options) {
+        return chunks.slice(options.offset || 0);
+      }
+    },
+    r2: { readUrl: (key) => key },
+    userId,
+    conversationId,
+    plan: { id: "pro" },
+    signal: new AbortController().signal
+  });
+
+  const first = await service.read({ attachmentId, maxChars: 2000 });
+  assert.ok(big.length > 2000);
+  assert.equal(first.results.length, 1);
+  assert.equal(first.results[0].content, big);
+  assert.equal(first.next_offset, 1);
+  const second = await service.read({ attachmentId, maxChars: 2000, offset: first.next_offset });
+  assert.equal(second.results[0].content, "After the table.");
 });

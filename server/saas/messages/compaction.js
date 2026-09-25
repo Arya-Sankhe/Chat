@@ -141,11 +141,13 @@ export function buildSummaryTranscript(messages, maxTokens, { previousSummary = 
   return `<previous_summary>\n${previous}\n</previous_summary>\n\n<new_messages>\n${transcript}\n</new_messages>`;
 }
 
-/** Identity of the history a summary covers: message ids and roles, in order. */
+/** Identity of the history a summary covers: message ids, roles and content, in order. */
 export function conversationFingerprint(messages = []) {
   const hash = createHash("sha256");
   for (const message of messages) {
-    hash.update(`${message?.id || "-"}:${message?.role || ""}\n`);
+    // Content counts too: an email can be revised in place under the same id.
+    const content = typeof message?.content === "string" ? message.content : JSON.stringify(message?.content ?? "");
+    hash.update(`${message?.id || "-"}:${message?.role || ""}:${content.length}\n${content}\n`);
   }
   return hash.digest("hex").slice(0, 32);
 }
@@ -153,7 +155,8 @@ export function conversationFingerprint(messages = []) {
 /**
  * Apply a stored summary when it still describes this history: its last
  * covered message is present and every message up to it is unchanged.
- * Edits, deletions and regenerated branches invalidate it automatically.
+ * Edits (including in-place email revisions), deletions and regenerated branches
+ * invalidate it automatically.
  */
 export function applyStoredCompaction(messages = [], stored = null) {
   const summary = String(stored?.summary || "").trim();

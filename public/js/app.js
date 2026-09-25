@@ -5861,8 +5861,14 @@ function adoptLiveVisualizeFrame(liveEl, nextRoot) {
   const next = nextRoot.querySelector("iframe[data-visualize-id]")?.closest(".visualize-card");
   if (!live || !next) return false;
   next.replaceWith(live);
-  // Moving a node drops it out of the top layer; keep an expanded visual up.
-  if (live.classList.contains("is-expanded")) showVisualizeLayer(live);
+  // Moving a node drops it out of the top layer; keep an expanded visual up. The card sits in
+  // a detached container until the caller mounts it, and showPopover() throws on detached
+  // nodes, so reopen it once the caller's synchronous swap has finished.
+  if (live.classList.contains("is-expanded")) {
+    queueMicrotask(() => {
+      if (live.isConnected && live.classList.contains("is-expanded")) showVisualizeLayer(live);
+    });
+  }
   return true;
 }
 
@@ -7461,17 +7467,12 @@ function saveVoicePrefs({ voice, speed }) {
   updateSetting("voiceChosen", true);
 }
 
-function speakVoicePreview(text, voice, speed, options) {
-  return synthesizeVoice(state.session, { text, voice, speed }, options);
-}
-
 function pickVoiceMode({ first = false } = {}) {
   const { voice, speed } = voicePrefs();
   return openVoicePicker({
     voice,
     speed,
     first,
-    speak: state.session ? speakVoicePreview : null,
     onSave: saveVoicePrefs,
     onError: showToast,
     reducedMotion: prefersReducedMotion()
@@ -7527,7 +7528,6 @@ function renderVoiceSettings() {
   voiceSettingsPicker = bindVoicePicker(host.querySelector(".voice-picker"), {
     voice,
     speed,
-    speak: state.session ? speakVoicePreview : null,
     onChange: saveVoicePrefs,
     onError: showToast,
     reducedMotion: prefersReducedMotion()

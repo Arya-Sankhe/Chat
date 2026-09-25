@@ -2,7 +2,7 @@
 // The browser records each turn (Grok transcribes it), the reply streams through the normal
 // chat pipeline with the short voice prompt, and it is spoken sentence by sentence with Kokoro
 // while the model is still writing. Turn-taking and the orb come from the AI tutor call.
-import { createOrb, endOfTurnSilence, looksComplete } from "./studyTutor.js";
+import { CHIMES, createOrb, endOfTurnSilence, looksComplete, playChime } from "./studyTutor.js";
 
 // Mirrors server/speech/voices.js. Abstract names only, never people's names.
 // Each voice has its own orb: one hue in light shades. `b` is the pale top, `a` the richer side,
@@ -119,6 +119,25 @@ export function createSpeechChunker({ first = 6, min = 14, max = 42 } = {}) {
   };
 }
 
+// /api/voice/speech rejects more than 700 characters; stay under it with room for word swaps.
+export const SPEECH_CHUNK_MAX_CHARS = 600;
+
+// Splits text that is too long to speak in one request, preferring sentence, then clause,
+// then word boundaries. Pieces are slices of the input, so spoken-progress tracking still works.
+export function splitForSpeech(text, max = SPEECH_CHUNK_MAX_CHARS) {
+  const pieces = [];
+  let rest = String(text || "").trim();
+  while (rest.length > max) {
+    const window = rest.slice(0, max + 1);
+    const at = (pattern) => [...window.matchAll(pattern)].map((match) => match.index + match[0].length).filter((end) => end <= max && end >= max / 3).at(-1);
+    const cut = at(/[.!?]+["')\]]*\s/g) ?? at(/[,;:]\s/g) ?? at(/\s/g) ?? max;
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
+}
+
 // What reaches text-to-speech: markdown and links read badly aloud.
 export function spokenText(text) {
   return String(text || "")
@@ -144,8 +163,20 @@ export function voiceTint(element, id) {
   element.style.setProperty("--vp-soft", rgb(palette.b));
 }
 
-function previewLine(voice) {
+export function previewLine(voice) {
   return `Hi, I'm ${voice.name}. Ask me anything and I'll keep it short and sweet.`;
+}
+
+// The picker's previews are fixed, so they are recorded once (scripts/generate-voice-previews.mjs)
+// and served as static files instead of being synthesized on every pick.
+export function voicePreviewUrl(voice, speed) {
+  return `/audio/voice-mode/${normalizeVoiceId(voice)}-${Math.round(normalizeVoiceSpeed(speed) * 100)}.mp3`;
+}
+
+async function fetchVoicePreview(voice, speed) {
+  const response = await fetch(voicePreviewUrl(voice, speed));
+  if (!response.ok) throw new Error("Could not play the preview.");
+  return response.arrayBuffer();
 }
 
 export function voicePickerMarkup({ voice = DEFAULT_VOICE, speed = DEFAULT_VOICE_SPEED } = {}) {
@@ -175,10 +206,10 @@ function paintSpeedThumb(root) {
 
 /**
  * Wires a rendered voice picker: one animated orb per voice, stepped with the arrows, the dots,
- * arrow keys or a swipe. `speak(text, voice, speed)` resolves to MP3 bytes for the preview;
- * `onChange({ voice, speed })` fires on every pick. Returns { value, step, preview, stopPreview, destroy }.
+ * arrow keys or a swipe. Previews play the prerecorded clips (`loadPreview(voice, speed)` resolves to
+ * MP3 bytes); `onChange({ voice, speed })` fires on every pick. Returns { value, step, preview, stopPreview, destroy }.
  */
-export function bindVoicePicker(root, { voice, speed, speak, onChange, onError, reducedMotion = false }) {
+export function bindVoicePicker(root, { voice, speed, loadPreview = fetchVoicePreview, onChange, onError, reducedMotion = false }) {
   let state = { voice: normalizeVoiceId(voice), speed: normalizeVoiceSpeed(speed) };
   const orb = createOrb(root.querySelector("[data-vp-orb] canvas"), { calm: reducedMotion });
   orb.setPalette(voiceOption(state.voice).palette, { instant: true });
@@ -186,6 +217,7 @@ export function bindVoicePicker(root, { voice, speed, speak, onChange, onError, 
   orb.start();
   voiceTint(root, state.voice);
   const cache = new Map();
+  const ready = new Set();
   let ctx = null;
   let source = null;
   let meter = 0;
@@ -202,20 +234,44 @@ export function bindVoicePicker(root, { voice, speed, speak, onChange, onError, 
     orb.setLevel(0);
     root.classList.remove("is-playing", "is-loading");
   }
+  function audioContext() {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    ctx ||= new Context();
+    return ctx;
+  }
+  // Fetches and decodes a clip once; decoding works while the context is still suspended.
+  function clip(voiceId, pace) {
+    const key = `${voiceId}|${pace}`;
+    if (!cache.has(key)) {
+      const pending = Promise.resolve(loadPreview(voiceId, pace))
+        .then((bytes) => audioContext().decodeAudioData(bytes.slice(0)))
+        .then((buffer) => { ready.add(key); return buffer; });
+      pending.catch(() => { if (cache.get(key) === pending) cache.delete(key); });
+      cache.set(key, pending);
+    }
+    return cache.get(key);
+  }
+  // The next voice either way and the other speeds of this one, so the next pick plays at once.
+  function prefetch() {
+    const index = VOICE_OPTIONS.findIndex((item) => item.id === state.voice);
+    const near = [VOICE_OPTIONS[(index + 1) % VOICE_OPTIONS.length], VOICE_OPTIONS[(index + VOICE_OPTIONS.length - 1) % VOICE_OPTIONS.length]];
+    for (const item of near) clip(item.id, state.speed).catch(() => {});
+    for (const { value } of VOICE_SPEEDS) clip(state.voice, value).catch(() => {});
+  }
   async function preview() {
-    if (!speak) return;
     stopPreview();
     const token = playToken;
-    const item = voiceOption(state.voice);
     const key = `${state.voice}|${state.speed}`;
-    root.classList.add("is-loading");
-    orb.setMode("thinking");
+    if (!ready.has(key)) {
+      root.classList.add("is-loading");
+      orb.setMode("thinking");
+    }
     try {
-      const Context = window.AudioContext || window.webkitAudioContext;
-      ctx ||= new Context();
-      if (ctx.state === "suspended") await ctx.resume().catch(() => {});
-      if (!cache.has(key)) cache.set(key, speak(previewLine(item), state.voice, state.speed).then((bytes) => ctx.decodeAudioData(bytes.slice(0))));
-      const buffer = await cache.get(key);
+      const context = audioContext();
+      if (context.state === "suspended") await context.resume().catch(() => {});
+      const pending = clip(state.voice, state.speed);
+      prefetch();
+      const buffer = await pending;
       if (token !== playToken) return;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
@@ -238,16 +294,17 @@ export function bindVoicePicker(root, { voice, speed, speak, onChange, onError, 
       source.start();
       pump();
     } catch (error) {
-      cache.delete(key);
       if (token !== playToken) return;
       stopPreview();
       if (error?.name !== "NotAllowedError" && error?.name !== "AbortError") onError?.(error?.message || "Could not play the preview.");
     }
   }
-  // Rapid stepping only previews the voice you land on.
+  // A clip already in memory plays at once; otherwise a short pause means rapid stepping only
+  // fetches the voice you land on.
   function queuePreview() {
     stopPreview();
-    debounce = setTimeout(() => void preview(), 260);
+    if (ready.has(`${state.voice}|${state.speed}`)) void preview();
+    else debounce = setTimeout(() => void preview(), 120);
   }
   function select(next, direction = 0) {
     const changedVoice = next.voice && next.voice !== state.voice;
@@ -352,7 +409,7 @@ export function bindVoicePicker(root, { voice, speed, speak, onChange, onError, 
  * Resolves when closed; `onSave({ voice, speed })` fires only when confirmed. Esc or a tap
  * outside dismisses it.
  */
-export function openVoicePicker({ voice, speed, first = false, speak, onSave, onError, reducedMotion = false }) {
+export function openVoicePicker({ voice, speed, first = false, onSave, onError, reducedMotion = false }) {
   const shell = document.createElement("div");
   shell.className = "voice-picker-dialog";
   shell.innerHTML = `<div class="voice-picker-backdrop" data-voice-cancel></div>
@@ -365,7 +422,6 @@ export function openVoicePicker({ voice, speed, first = false, speak, onSave, on
   const picker = bindVoicePicker(shell.querySelector(".voice-picker"), {
     voice,
     speed,
-    speak,
     onError,
     reducedMotion,
     onChange: ({ voice: next }) => voiceTint(card, next)
@@ -377,7 +433,7 @@ export function openVoicePicker({ voice, speed, first = false, speak, onSave, on
   });
   shell.querySelector("[data-voice-save]").focus({ preventScroll: true });
   // Opening came from a click, so the first voice can speak right away.
-  if (speak) setTimeout(() => void picker.preview(), reducedMotion ? 0 : 320);
+  setTimeout(() => void picker.preview(), reducedMotion ? 0 : 320);
   return new Promise((resolve) => {
     let closed = false;
     const close = (saved) => {
@@ -593,27 +649,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       root.classList.remove("is-heard");
       if (phase === "thinking" && $("[data-voice-status] span").textContent === "Got it") setStatus("Thinking");
     }, 1100);
-    chime([[659.25, 0], [987.77, 0.09]]);
-  }
-
-  // Soft sine notes: [frequency, delay seconds]. Used for "got it" and the call start/end.
-  function chime(notes, { gain = 0.07, length = 0.28 } = {}) {
-    if (!ctx || ctx.state === "closed") return 0;
-    const now = ctx.currentTime;
-    notes.forEach(([freq, delay]) => {
-      const tone = ctx.createOscillator();
-      const level = ctx.createGain();
-      tone.type = "sine";
-      tone.frequency.value = freq;
-      level.gain.setValueAtTime(0.0001, now + delay);
-      level.gain.exponentialRampToValueAtTime(gain, now + delay + 0.02);
-      level.gain.exponentialRampToValueAtTime(0.0001, now + delay + length);
-      tone.connect(level);
-      level.connect(ctx.destination);
-      tone.start(now + delay);
-      tone.stop(now + delay + length + 0.02);
-    });
-    return Math.max(...notes.map(([, delay]) => delay)) + length;
+    playChime(ctx, CHIMES.heard);
   }
 
   /* Speech out */
@@ -647,6 +683,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     }
   }
   function say(text) {
+    if (text.length > SPEECH_CHUNK_MAX_CHARS) {
+      for (const piece of splitForSpeech(text)) say(piece);
+      return;
+    }
     const speech = spokenText(text);
     if (!speech) return;
     const gen = speechGen;
@@ -734,9 +774,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     } catch (error) {
       outcome = { error: error?.message || "Klui could not answer." };
     }
+    // A superseded turn must not touch the shared state: a newer turn may own it by now.
+    if (seq !== turnSeq || closed) return;
     streaming = false;
     abortTurn = null;
-    if (seq !== turnSeq || closed) return;
     if (!outcome) {
       onToast?.("Wait for the current reply to finish.");
       beginListening();
@@ -995,7 +1036,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     }
     stream?.getTracks().forEach((track) => track.stop());
     // Call ended: the start chime played back down.
-    const tail = chime([[783.99, 0], [659.25, 0.1], [523.25, 0.2]], { gain: 0.06, length: 0.32 });
+    const tail = playChime(ctx, CHIMES.end);
     root.classList.add("is-closing");
     await new Promise((resolve) => setTimeout(resolve, Math.max(reducedMotion ? 0 : 280, tail * 1000)));
     orb.stop();
@@ -1045,7 +1086,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       }
       if (closed) return;
       // Call connected: a soft rising three-note chime.
-      chime([[523.25, 0], [659.25, 0.1], [783.99, 0.2]], { gain: 0.06, length: 0.32 });
+      playChime(ctx, CHIMES.start);
       ticker = setInterval(tick, TICK_MS);
       beginListening();
       setHint("Go ahead, I'm listening");

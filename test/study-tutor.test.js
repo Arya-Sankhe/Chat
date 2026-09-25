@@ -124,7 +124,7 @@ test("a turn streams text and in-order audio, saves the transcript, and pins the
   assert.ok(audio.every((event) => event.audio && !event.text.includes("[")));
   assert.equal(events.at(-1).type, "done");
   assert.equal(requests[0].messages.at(-1).content, "Heart rate times resistance?");
-  assert.equal(requests[0].reasoning.enabled, false);
+  assert.deepEqual(requests[0].reasoning, { effort: "low", exclude: true });
   const saved = h.row.transcript;
   assert.deepEqual(saved.map((item) => item.role), ["student", "tutor"]);
   assert.equal(saved[1].step, 2);

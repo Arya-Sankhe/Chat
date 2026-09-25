@@ -1350,8 +1350,10 @@ class Processor:
         try:
             return embed_many(rows)
         except RuntimeError as exc:
-            # Auth, balance and rate errors apply to every row; let the caller back off.
-            if any(f"failed: {code}" in str(exc) for code in ("401", "402", "403", "429")):
+            # Auth, balance, rate, timeout and server errors are not about this row; let the
+            # caller back off and retry later instead of skipping content that is fine.
+            status = re.search(r"failed: (\d{3})", str(exc))
+            if status and (int(status.group(1)) in (401, 402, 403, 408, 429) or int(status.group(1)) >= 500):
                 raise
             if len(rows) == 1:
                 self._embed_skip.add(rows[0]["id"])

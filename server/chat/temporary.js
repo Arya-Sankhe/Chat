@@ -25,7 +25,7 @@ import {
   resolveWebSearchMode,
   withAvailableTools
 } from "./pipeline.js";
-import { hasAssistantOutput, withoutReasoning, writeSse } from "./shared.js";
+import { hasAssistantOutput, withVoiceReasoning, writeSse } from "./shared.js";
 import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
 
 function normalizeTemporaryHistory(messages) {
@@ -153,7 +153,7 @@ export async function handleTemporaryChat(req, res, config) {
         userText: promptText
       })
     : { request: baseChatRequest, augmented: false };
-  const chatRequest = body.voice === true ? withoutReasoning(toolSetup.request) : toolSetup.request;
+  const chatRequest = body.voice === true ? withVoiceReasoning(toolSetup.request) : toolSetup.request;
   const controller = new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();

@@ -71,7 +71,7 @@ import { requireChatContext } from "../routes/context.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
-import { buildUntrustedWebContext, injectWebContextMessage, withoutReasoning } from "./shared.js";
+import { buildUntrustedWebContext, injectWebContextMessage, withVoiceReasoning } from "./shared.js";
 import {
   createAssistantOutputMessage,
   hasAssistantOutput,
@@ -874,6 +874,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : isRetry || isEdit
     ? normalizeComposerSkillIds(userMessage?.metadata?.skillIds)
     : normalizeComposerSkillIds(body.skillIds);
+  // Retries answer with the sources the original question was scoped to.
+  const sourceScope = normalizeSourceScope(isRetry ? userMessage?.metadata?.sources : body.sources);
   const visualizing = skillIds.includes("visualize");
   const illustrationSkill = illustrationSkillFromIds(skillIds);
   if (illustrationSkill) {
@@ -1021,7 +1023,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         userId: context.user.id,
         conversationId: conversation.id,
         projectId: project?.id || null,
-        projectDocumentIds: project?.kind === "course" ? normalizeSourceScope(body.sources) : null,
+        projectDocumentIds: project?.kind === "course" ? sourceScope : null,
         hiddenProjectDocumentIds: project?.kind === "course" ? project.meta?.hiddenDocumentIds : null,
         plan: context.plan,
         signal: req.turnController?.signal || req.signal
@@ -1148,16 +1150,21 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   if (isEdit) {
     // Persist the rewritten text (with any freshly-applied image descriptions)
-    // onto the existing message; its attachments stay linked as-is.
+    // onto the existing message; its attachments stay linked as-is. The edit answers from the
+    // current source selection, so that is saved too for a later Retry to reuse.
+    const { sources: storedSources, ...otherMetadata } = userMessage?.metadata || {};
+    const sourcesChanged = JSON.stringify(normalizeSourceScope(storedSources)) !== JSON.stringify(sourceScope);
     userMessage = await context.db.updateMessage(context.user.id, editUserMessageId, {
-      content: userContent
+      content: userContent,
+      ...(sourcesChanged ? { metadata: { ...otherMetadata, ...(sourceScope.length ? { sources: sourceScope } : {}) } } : {})
     }, { signal: req.signal }) || userMessage;
   } else if (!isRetry && !turnRun) {
     const skillMarks = normalizeComposerSkillMarks(body.skillMarks, skillIds);
     const userMetadata = {
       ...(pastedTextRange ? { paste: pastedTextRange } : {}),
       ...(skillIds.length ? { skillIds } : {}),
-      ...(skillMarks.length ? { skillMarks } : {})
+      ...(skillMarks.length ? { skillMarks } : {}),
+      ...(sourceScope.length ? { sources: sourceScope } : {})
     };
     userMessage = await context.db.insertMessage({
       user_id: context.user.id,
@@ -1216,7 +1223,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     /* Panel models can't call document tools in parallel, so one shared
        retrieval picks the evidence and every model sees the same set. */
     const documentQuery = readyDocuments.length
-      ? await rewriteDocumentQuery({ userText: promptText, history: existingMessages, config })
+      ? await rewriteDocumentQuery({ userText: promptText, history: existingMessages, config, completeChat: modelClient.chatCompletion })
       : "";
     const directPdfContext = await buildRelevantDocumentContext({
       documents,
@@ -1317,7 +1324,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const documentToolsOffered = Boolean(documents) && !visualizing
     && (agentMode || Boolean(study && readyDocuments.some((doc) => doc.project_id === study.course.id)));
   const documentQuery = readyDocuments.length
-    ? await rewriteDocumentQuery({ userText: promptText, history: existingMessages, config })
+    ? await rewriteDocumentQuery({ userText: promptText, history: existingMessages, config, completeChat: modelClient.chatCompletion })
     : "";
   const relevantDocumentOptions = {
     documents,
@@ -1381,7 +1388,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;
   const { augmented, enabled: toolEnabled } = toolSetup;
-  if (voiceMode) equippedRequest = withoutReasoning(equippedRequest);
+  if (voiceMode) equippedRequest = withVoiceReasoning(equippedRequest);
   if (directPdfContext.textMessage || directPdfContext.message) {
     let messages = injectWebContextMessage(equippedRequest.messages, directPdfContext.textMessage);
     if (directPdfContext.message) messages = [...messages, directPdfContext.message];
@@ -1653,7 +1660,8 @@ async function submitDocumentTurn({ req, config, context, conversation, body, at
     messageMetadata: {
       ...(paste ? { paste } : {}),
       ...(submittedSkillIds.length ? { skillIds: submittedSkillIds } : {}),
-      ...(submittedSkillMarks.length ? { skillMarks: submittedSkillMarks } : {})
+      ...(submittedSkillMarks.length ? { skillMarks: submittedSkillMarks } : {}),
+      ...(payload.sources ? { sources: payload.sources } : {})
     },
     requestPayload: {
       ...payload,

@@ -1667,6 +1667,18 @@ class EmbeddingBackfillTest(unittest.TestCase):
             processor.backfill_embeddings(max_pages=0, max_chunks=10, min_age_seconds=0)
         self.assertEqual(processor._embed_skip, set())
 
+    def test_backfill_retries_rows_after_a_provider_outage(self):
+        for message in ("Jina embeddings failed: 503 unavailable", "Jina embeddings failed: 500 oops"):
+            processor = w.Processor.__new__(w.Processor)
+            processor._embed_skip = set()
+            processor.embeddings = mock.Mock()
+            processor.embeddings.embed_texts.side_effect = RuntimeError(message)
+            processor.db = mock.Mock()
+            processor.db.request.return_value = [{"id": "c1", "text": "x"}]
+            with self.assertRaises(RuntimeError):
+                processor.backfill_embeddings(max_pages=0, max_chunks=10, min_age_seconds=0)
+            self.assertEqual(processor._embed_skip, set(), "outage rows stay eligible for the next pass")
+
 
 class HealthcheckTest(unittest.TestCase):
     def test_healthcheck_requires_edgeparse(self):

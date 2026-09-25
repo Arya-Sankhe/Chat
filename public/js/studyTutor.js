@@ -265,6 +265,33 @@ const PALETTES = {
 const rgba = (color, alpha) => `rgba(${color[0] | 0}, ${color[1] | 0}, ${color[2] | 0}, ${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
 const shade = (color, amount) => color.map((channel) => amount >= 0 ? channel + (255 - channel) * amount : channel * (1 + amount));
 
+// Soft sine chimes shared by voice mode and the tutor call: [frequency, delay seconds].
+export const CHIMES = {
+  start: { notes: [[523.25, 0], [659.25, 0.1], [783.99, 0.2]], gain: 0.06, length: 0.32 },
+  heard: { notes: [[659.25, 0], [987.77, 0.09]], gain: 0.07, length: 0.28 },
+  end: { notes: [[783.99, 0], [659.25, 0.1], [523.25, 0.2]], gain: 0.06, length: 0.32 }
+};
+
+// Plays a chime on `ctx` and returns how long it rings, in seconds.
+export function playChime(ctx, { notes, gain, length }) {
+  if (!ctx || ctx.state === "closed") return 0;
+  const now = ctx.currentTime;
+  notes.forEach(([freq, delay]) => {
+    const tone = ctx.createOscillator();
+    const level = ctx.createGain();
+    tone.type = "sine";
+    tone.frequency.value = freq;
+    level.gain.setValueAtTime(0.0001, now + delay);
+    level.gain.exponentialRampToValueAtTime(gain, now + delay + 0.02);
+    level.gain.exponentialRampToValueAtTime(0.0001, now + delay + length);
+    tone.connect(level);
+    level.connect(ctx.destination);
+    tone.start(now + delay);
+    tone.stop(now + delay + length + 0.02);
+  });
+  return Math.max(...notes.map(([, delay]) => delay)) + length;
+}
+
 export function createOrb(canvas, { calm = false } = {}) {
   const g = canvas.getContext("2d");
   const mix = JSON.parse(JSON.stringify(PALETTES.idle));
@@ -901,6 +928,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     listen = null;
     setPhase("thinking");
     setRunning(!paused);
+    // "Got it": the student hears their answer land before the tutor replies.
+    if (state.heard) playChime(ctx, CHIMES.heard);
     if (!state.heard) {
       await stopRecorder(state);
       if (timeUp) void sendTurn("closing");
@@ -1064,6 +1093,9 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       await stopRecorder(state);
     }
     stream?.getTracks().forEach((track) => track.stop());
+    // Call ended: the start chime played back down, left to ring out before the audio closes.
+    const tail = playChime(ctx, CHIMES.end);
+    const chimeDone = new Promise((resolve) => setTimeout(resolve, tail * 1000));
     setPhase("finishing");
     root.classList.add("is-finishing");
     let result = null;
@@ -1072,6 +1104,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     } catch (error) {
       onToast?.(error?.message || "Could not save the recap.");
     }
+    await chimeDone;
     orb.stop();
     ctx?.close().catch(() => {});
     onFinished?.(result?.session || null);
@@ -1108,6 +1141,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       orb.start();
       await openAudio();
       if (finished) return;
+      // Call connected: a soft rising three-note chime.
+      playChime(ctx, CHIMES.start);
       ticker = setInterval(tick, TICK_MS);
       setRunning(true);
       void sendTurn("start");

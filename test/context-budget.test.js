@@ -261,6 +261,11 @@ test("a stored summary is ignored after the history it covers changes", async ()
   const record = store.saved[0];
   assert.equal(applyStoredCompaction(edited, record), null);
   assert.ok(applyStoredCompaction(longHistory(), record));
+
+  // An email revised in place keeps its id and role but must still drop the old summary.
+  const revised = longHistory();
+  revised[1] = { ...revised[1], content: `${revised[1].content} (revised)` };
+  assert.equal(applyStoredCompaction(revised, record), null);
 });
 
 test("compaction extends the previous summary with only the new segment", async () => {
