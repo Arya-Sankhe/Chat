@@ -65,7 +65,8 @@ import { modelsForRole, resolveChatRole } from "../models.js";
 import {
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
-  resolveProvider
+  resolveProvider,
+  voiceModeRole
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
@@ -839,9 +840,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
     userContent = buildStoredUserContent(body.text, attachments);
   }
 
+  const provider = resolveProvider("openrouter", config);
   const hasCompareMedia = requestHasCompareMedia({ userContent, existingMessages, attachments });
+  // Voice mode: Nitro while it is fast enough to speak from, otherwise Think.
+  const voiceRole = body.voice === true && !isRetry && !isEdit && earlyRoute.role !== "compare" && earlyRoute.role !== "council"
+    ? await voiceModeRole(provider)
+    : null;
   const routed = resolveChatRole({
-    role: body.role,
+    role: voiceRole || body.role,
     model: body.model || conversation.model,
     models: body.models,
     council: body.council,
@@ -850,7 +856,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const councilEnabled = routed.role === "council";
   const compareModels = routed.role === "compare" || councilEnabled ? routed.models : [];
   const requestedModel = routed.models[0];
-  const provider = resolveProvider("openrouter", config);
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;

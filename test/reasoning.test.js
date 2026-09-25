@@ -61,7 +61,7 @@ test("adaptChatRequestForProvider enables reasoning without effort for Ling", ()
   }, "openrouter");
 
   assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
-  assert.deepEqual(adapted.provider, { require_parameters: true });
+  assert.deepEqual(adapted.provider, { preferred_min_throughput: { p50: 90 }, require_parameters: true });
   assert.equal(adapted.top_p, 0.95);
   assert.deepEqual(adapted.models, ["deepseek/deepseek-v4-flash-0731"]);
 });
@@ -461,7 +461,7 @@ test("streamChatCompletion enables Ling reasoning without effort", async () => {
     });
 
     assert.deepEqual(requestBody.reasoning, { enabled: true, exclude: false });
-    assert.deepEqual(requestBody.provider, { require_parameters: true });
+    assert.deepEqual(requestBody.provider, { preferred_min_throughput: { p50: 90 }, require_parameters: true });
   } finally {
     globalThis.fetch = originalFetch;
   }

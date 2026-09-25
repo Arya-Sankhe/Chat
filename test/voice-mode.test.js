@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { normalizeVoiceModeSpeed, normalizeVoiceModeVoice, VOICE_MODE_VOICES } from "../server/speech/voices.js";
 import { withVoiceReasoning } from "../server/chat/shared.js";
+import { fastestHealthyThroughput, resetVoiceModeRoleCache, voiceModeRole } from "../server/providers.js";
 import { VOICE_SYSTEM_PROMPT } from "../server/saas/systemPrompt.js";
 import { existsSync } from "node:fs";
 import { createSpeechChunker, normalizeVoiceSpeed, SPEECH_CHUNK_MAX_CHARS, splitForSpeech, spokenText, VOICE_OPTIONS, VOICE_SPEEDS, voicePreviewUrl } from "../public/js/voiceMode.js";
@@ -63,5 +64,35 @@ test("every voice has a prerecorded preview at every speed", () => {
       const file = new URL(`../public${voicePreviewUrl(voice.id, value)}`, import.meta.url);
       assert.ok(existsSync(file), `missing ${file.pathname}; run scripts/generate-voice-previews.mjs`);
     }
+  }
+});
+
+test("voice mode uses Nitro only while its fastest healthy host is at 90+ tokens/sec", async () => {
+  assert.equal(fastestHealthyThroughput([
+    { tag: "novita", status: 0, throughput_last_30m: { p50: 117 } },
+    { tag: "deepinfra", status: 0, throughput_last_30m: { p50: 44 } },
+    { tag: "down", status: -2, throughput_last_30m: { p50: 400 } }
+  ]), 117);
+  const realFetch = globalThis.fetch;
+  const run = async (reply) => {
+    resetVoiceModeRoleCache();
+    let url = "";
+    globalThis.fetch = async (href) => {
+      url = String(href);
+      if (reply instanceof Error) throw reply;
+      return new Response(JSON.stringify({ data: { endpoints: reply } }), { status: 200 });
+    };
+    const role = await voiceModeRole({ apiKey: "k", baseUrl: "https://openrouter.test/api/v1" });
+    return { role, url };
+  };
+  try {
+    const fast = await run([{ status: 0, throughput_last_30m: { p50: 90 } }]);
+    assert.deepEqual(fast, { role: "nitro", url: "https://openrouter.test/api/v1/models/inclusionai/ling-3.0-flash/endpoints" });
+    assert.equal((await run([{ status: 0, throughput_last_30m: { p50: 89 } }])).role, "think");
+    assert.equal((await run([{ status: 1, throughput_last_30m: { p50: 200 } }])).role, "think", "a degraded host does not count");
+    assert.equal((await run(new Error("offline"))).role, "think", "no reading falls back to Think");
+  } finally {
+    globalThis.fetch = realFetch;
+    resetVoiceModeRoleCache();
   }
 });

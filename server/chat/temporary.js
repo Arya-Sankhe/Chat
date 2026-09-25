@@ -15,7 +15,7 @@ import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
 import { resolveChatRole } from "../models.js";
-import { resolveProvider } from "../providers.js";
+import { resolveProvider, voiceModeRole } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import {
   buildMeteredWebsearch,
@@ -78,8 +78,10 @@ export async function handleTemporaryChat(req, res, config) {
   })();
   res.on("close", () => { void cleanupImages(); });
 
+  // Voice mode: Nitro while it is fast enough to speak from, otherwise Think.
+  const voiceRole = body.voice === true ? await voiceModeRole(resolveProvider("openrouter", config)) : null;
   const routed = resolveChatRole({
-    role: body.role,
+    role: voiceRole || body.role,
     model: body.model,
     models: body.models,
     council: body.council,

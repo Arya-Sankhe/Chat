@@ -98,7 +98,7 @@ export function hasAssistantOutput(accumulated, artifacts = []) {
 }
 
 // Voice replies think at low effort: enough to keep answers right, without the long pause a
-// higher effort adds before the first spoken word. The model (Think) stays the same.
+// higher effort adds before the first spoken word.
 export function withVoiceReasoning(request) {
   const { reasoning: _reasoning, ...rest } = request || {};
   return { ...rest, reasoning_effort: "low" };

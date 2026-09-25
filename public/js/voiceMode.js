@@ -8,7 +8,7 @@ import { CHIMES, createOrb, endOfTurnSilence, looksComplete, playChime } from ".
 // Each voice has its own orb: one hue in light shades. `b` is the pale top, `a` the richer side,
 // `c` the palest swirl.
 export const VOICE_OPTIONS = [
-  { id: "af_heart", name: "Sunbeam", tone: "Warm and bright", palette: { a: [255, 168, 108], b: [255, 212, 168], c: [255, 232, 206], glow: [255, 194, 148] } },
+  { id: "af_heart", name: "Solar", tone: "Warm and bright", palette: { a: [255, 168, 108], b: [255, 212, 168], c: [255, 232, 206], glow: [255, 194, 148] } },
   { id: "am_puck", name: "Spark", tone: "Upbeat and lively", palette: { a: [244, 196, 56], b: [255, 228, 128], c: [255, 244, 190], glow: [250, 216, 108] } },
   { id: "af_bella", name: "Velvet", tone: "Smooth, expressive", palette: { a: [158, 134, 240], b: [210, 196, 255], c: [234, 226, 255], glow: [188, 170, 248] } },
   { id: "am_fenrir", name: "Ember", tone: "Deep, grounded", palette: { a: [238, 110, 112], b: [255, 178, 174], c: [255, 214, 210], glow: [244, 150, 148] } },
@@ -559,12 +559,21 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   let turnDone = false;
 
   /* Chrome */
+  let paintedVoice = "";
   function paintChip() {
     const { voice, speed } = prefs();
     const item = voiceOption(voice);
     voiceTint($("[data-voice-chip-orb]"), item.id);
     $("[data-voice-chip-name]").textContent = item.name;
     $("[data-voice-chip-speed]").textContent = voiceSpeedLabel(speed);
+    if (item.id === paintedVoice) return;
+    // The orb, aura, rings, sparks and status dot all take the chosen voice's colors;
+    // switching voices mid-call swirls the new colors in.
+    orb.setPalette(item.palette, { instant: !paintedVoice });
+    root.style.setProperty("--voice-deep", rgb(item.palette.a));
+    root.style.setProperty("--voice-glow", rgb(item.palette.glow));
+    root.style.setProperty("--voice-pale", rgb(item.palette.b));
+    paintedVoice = item.id;
   }
   const LABELS = { connecting: "Connecting…", listening: "Listening", thinking: "Thinking", speaking: "Speaking", muted: "Microphone off" };
   function setPhase(next, label = LABELS[next]) {
@@ -591,13 +600,14 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   function paintReply() {
     const captions = $("[data-voice-captions]");
     const stick = captions.scrollHeight - captions.scrollTop - captions.clientHeight < 48;
-    const shown = reply.full;
-    if (!shown) {
+    // The answer appears sentence by sentence as Klui says it, never ahead of the voice, and it
+    // replaces the user's words once it starts.
+    const said = reply.full.slice(0, reply.spoken).trim();
+    if (!said) {
       replyLine.innerHTML = phase === "thinking" ? '<span class="voice-dots" aria-label="Thinking"><i></i><i></i><i></i></span>' : "";
     } else {
-      const said = shown.slice(0, reply.spoken);
-      const rest = shown.slice(reply.spoken);
-      replyLine.innerHTML = `${escapeHtml(said)}<span class="voice-pending">${escapeHtml(rest)}</span>${reply.cut ? '<span class="voice-cut">…</span>' : ""}`;
+      if (!youLine.classList.contains("is-live")) paintYou("");
+      replyLine.innerHTML = `${escapeHtml(said)}${reply.cut ? '<span class="voice-cut">…</span>' : ""}`;
     }
     if (stick) captions.scrollTop = captions.scrollHeight;
   }

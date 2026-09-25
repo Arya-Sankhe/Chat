@@ -217,6 +217,51 @@ export async function refreshDeepSeekProviderOrder({ apiKey, baseUrl = OPENROUTE
   return deepSeekPriceRefresh;
 }
 
+// Voice mode answers with Nitro only while its fastest healthy host streams at least this many
+// tokens/sec (p50, last 30 minutes); otherwise it uses Think. Same live catalog as the DeepSeek
+// ranking above, cached for the same five minutes.
+export const NITRO_VOICE_MIN_THROUGHPUT_P50 = 90;
+let nitroThroughput = null;
+let nitroExpiresAt = 0;
+let nitroRefresh = null;
+
+export function fastestHealthyThroughput(endpoints) {
+  const list = Array.isArray(endpoints) ? endpoints : [];
+  return list.reduce((best, endpoint) => (
+    endpoint?.status != null && Number(endpoint.status) !== 0 ? best : Math.max(best, throughputP50(endpoint))
+  ), 0);
+}
+
+async function refreshNitroThroughput({ apiKey, baseUrl }) {
+  try {
+    const response = await fetch(`${baseUrl}/models/${OPENROUTER_NITRO_MODEL}/endpoints`, {
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      signal: AbortSignal.timeout(2000)
+    });
+    if (response.ok) nitroThroughput = fastestHealthyThroughput((await response.json())?.data?.endpoints);
+  } catch {
+    // Keep the last reading; with none yet, voice mode stays on Think.
+  } finally {
+    nitroExpiresAt = Date.now() + DEEPSEEK_PRICE_TTL_MS;
+    nitroRefresh = null;
+  }
+  return nitroThroughput;
+}
+
+/** "nitro" when Nitro is currently fast enough for spoken replies, else "think". */
+export async function voiceModeRole({ apiKey, baseUrl = OPENROUTER_BASE_URL } = {}) {
+  if (Date.now() >= nitroExpiresAt && !nitroRefresh) nitroRefresh = refreshNitroThroughput({ apiKey, baseUrl });
+  // Only the very first lookup waits; after that a stale reading is used while it refreshes.
+  const tps = nitroThroughput == null && nitroRefresh ? await nitroRefresh : nitroThroughput;
+  return tps >= NITRO_VOICE_MIN_THROUGHPUT_P50 ? "nitro" : "think";
+}
+
+export function resetVoiceModeRoleCache() {
+  nitroThroughput = null;
+  nitroExpiresAt = 0;
+  nitroRefresh = null;
+}
+
 function providerSlug(name) {
   return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -333,6 +378,10 @@ export function adaptChatRequestForProvider(body, providerId) {
     if (providerPrefs.preferred_min_throughput == null) {
       providerPrefs.preferred_min_throughput = { p50: DEEPSEEK_BACKUP_MIN_THROUGHPUT_P50 };
     }
+  }
+  if (modelId === OPENROUTER_NITRO_MODEL && providerPrefs.preferred_min_throughput == null) {
+    // Prefer the hosts fast enough to have earned Nitro its place in voice mode.
+    providerPrefs.preferred_min_throughput = { p50: NITRO_VOICE_MIN_THROUGHPUT_P50 };
   }
   if (isProModel) {
     delete adapted.service_tier;

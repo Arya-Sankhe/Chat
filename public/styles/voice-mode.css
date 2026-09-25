@@ -2,13 +2,9 @@
    The composer button is plain light grass green; each voice has its own orb colors. */
 
 :root {
-  --voice-grass: #9fe08a;
-  --voice-sky: #7cc6f2;
-  --voice-lilac: #c9bcff;
   --voice-leaf: #93d36b;
   --voice-leaf-lip: #74b44f;
   --voice-ink: #16384a;
-  --voice-bg: radial-gradient(120% 75% at 50% -10%, #e4f6ff 0%, #f1fbef 48%, #fbfdfc 100%);
   --voice-surface: rgba(255, 255, 255, 0.72);
   --voice-surface-strong: rgba(255, 255, 255, 0.92);
   --voice-line: rgba(22, 56, 74, 0.1);
@@ -17,7 +13,6 @@
 }
 
 body[data-mode="dark"] {
-  --voice-bg: radial-gradient(120% 75% at 50% -10%, #12303a 0%, #0f1f1c 50%, #0b1214 100%);
   --voice-surface: rgba(255, 255, 255, 0.07);
   --voice-surface-strong: rgba(24, 36, 40, 0.94);
   --voice-line: rgba(255, 255, 255, 0.1);
@@ -153,11 +148,20 @@ body.voice-mode-open {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   justify-items: center;
   padding: max(18px, env(safe-area-inset-top)) 20px max(26px, env(safe-area-inset-bottom));
-  background: var(--voice-bg);
+  /* The chosen voice's colors (set from its palette in voiceMode.js); these defaults match the
+     picker's first voice so nothing flashes green before they are painted. */
+  --voice-deep: rgb(255 168 108);
+  --voice-glow: rgb(255 194 148);
+  --voice-pale: rgb(255 212 168);
+  background: radial-gradient(120% 75% at 50% -10%, color-mix(in srgb, var(--voice-pale) 30%, #fff) 0%, color-mix(in srgb, var(--voice-pale) 12%, #fbfdfc) 48%, #fbfdfc 100%);
   color: var(--voice-text);
   overflow: hidden;
   opacity: 0;
-  transition: opacity 320ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity 320ms cubic-bezier(0.23, 1, 0.32, 1), --voice-deep 900ms ease, --voice-glow 900ms ease, --voice-pale 900ms ease;
+}
+
+body[data-mode="dark"] .voice-mode {
+  background: radial-gradient(120% 75% at 50% -10%, color-mix(in srgb, var(--voice-deep) 18%, #0d1a1e) 0%, color-mix(in srgb, var(--voice-deep) 7%, #0d1517) 50%, #0b1214 100%);
 }
 
 .voice-mode.is-open {
@@ -192,9 +196,9 @@ body.voice-mode-open {
   animation: voice-drift 22s ease-in-out infinite alternate;
 }
 
-.voice-aura i:nth-child(1) { left: 2%; top: 22%; background: var(--voice-grass); }
-.voice-aura i:nth-child(2) { right: 0; top: 8%; background: var(--voice-sky); animation-duration: 26s; animation-delay: -8s; }
-.voice-aura i:nth-child(3) { left: 30%; bottom: -6%; background: var(--voice-lilac); opacity: 0.16; animation-duration: 30s; animation-delay: -14s; }
+.voice-aura i:nth-child(1) { left: 2%; top: 22%; background: var(--voice-deep); }
+.voice-aura i:nth-child(2) { right: 0; top: 8%; background: var(--voice-glow); animation-duration: 26s; animation-delay: -8s; }
+.voice-aura i:nth-child(3) { left: 30%; bottom: -6%; background: var(--voice-pale); opacity: 0.16; animation-duration: 30s; animation-delay: -14s; }
 
 body[data-mode="dark"] .voice-aura i { opacity: 0.2; }
 body[data-mode="dark"] .voice-aura i:nth-child(3) { opacity: 0.08; }
@@ -310,7 +314,7 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   position: absolute;
   inset: 18%;
   border-radius: 50%;
-  border: 2px solid rgba(147, 211, 107, 0.55);
+  border: 2px solid color-mix(in srgb, var(--voice-deep) 55%, transparent);
   opacity: 0;
   pointer-events: none;
 }
@@ -334,7 +338,7 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
 
 .voice-orb:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--voice-sky) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--voice-glow) 60%, transparent);
 }
 
 .voice-orb canvas {
@@ -355,14 +359,14 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--voice-sky) 55%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--voice-glow) 55%, transparent);
   opacity: calc(0.15 + var(--voice-level) * 0.6);
   transform: scale(calc(1.08 + var(--voice-level) * 0.22));
   transition: transform 120ms linear, opacity 160ms linear;
 }
 
 .voice-orb-halo i + i {
-  border-color: color-mix(in srgb, var(--voice-grass) 60%, transparent);
+  border-color: color-mix(in srgb, var(--voice-deep) 60%, transparent);
   transform: scale(calc(1.2 + var(--voice-level) * 0.4));
   opacity: calc(0.08 + var(--voice-level) * 0.4);
 }
@@ -380,8 +384,8 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--voice-grass) 80%, #fff);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--voice-sky) 50%, transparent);
+  border: 2px solid color-mix(in srgb, var(--voice-deep) 80%, #fff);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--voice-glow) 50%, transparent);
   opacity: 0;
 }
 
@@ -390,7 +394,7 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
 }
 
 .voice-mode.is-heard .voice-orb-ripple i + i {
-  border-color: color-mix(in srgb, var(--voice-sky) 80%, #fff);
+  border-color: color-mix(in srgb, var(--voice-glow) 80%, #fff);
   animation-delay: 140ms;
 }
 
@@ -430,17 +434,17 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   margin: -3.5px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-sky) 70%, transparent);
+  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-glow) 70%, transparent);
   transform: rotate(calc(var(--i) * 72deg)) translateY(calc(-1 * min(37vw, 22vh, 170px) * 0.86)) scale(var(--s, 1));
   animation: voice-twinkle 1.6s ease-in-out infinite;
   animation-delay: calc(var(--i) * -0.32s);
 }
 
 .voice-orb-sparks i:nth-child(1) { --i: 0; }
-.voice-orb-sparks i:nth-child(2) { --i: 1; --s: 0.7; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-grass) 75%, transparent); }
+.voice-orb-sparks i:nth-child(2) { --i: 1; --s: 0.7; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-deep) 75%, transparent); }
 .voice-orb-sparks i:nth-child(3) { --i: 2; --s: 0.85; }
-.voice-orb-sparks i:nth-child(4) { --i: 3; --s: 0.6; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-lilac) 80%, transparent); }
-.voice-orb-sparks i:nth-child(5) { --i: 4; --s: 0.75; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-grass) 75%, transparent); }
+.voice-orb-sparks i:nth-child(4) { --i: 3; --s: 0.6; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-pale) 80%, transparent); }
+.voice-orb-sparks i:nth-child(5) { --i: 4; --s: 0.75; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-deep) 75%, transparent); }
 
 .voice-mode[data-phase="thinking"] .voice-orb-sparks,
 .voice-mode[data-phase="connecting"] .voice-orb-sparks { opacity: 1; }
@@ -482,15 +486,15 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   transition: background 300ms ease, box-shadow 300ms ease;
 }
 
-.voice-mode[data-phase="listening"] .voice-status i { background: #6fcf5f; box-shadow: 0 0 0 4px rgba(111, 207, 95, 0.2); animation: voice-ping 1.6s ease-out infinite; }
-.voice-mode[data-phase="speaking"] .voice-status i { background: #56b3ec; box-shadow: 0 0 0 4px rgba(86, 179, 236, 0.2); }
+.voice-mode[data-phase="listening"] .voice-status i { background: var(--voice-deep); animation: voice-ping 1.6s ease-out infinite; }
+.voice-mode[data-phase="speaking"] .voice-status i { background: var(--voice-glow); box-shadow: 0 0 0 4px color-mix(in srgb, var(--voice-glow) 22%, transparent); }
 .voice-mode[data-phase="thinking"] .voice-status i,
-.voice-mode[data-phase="connecting"] .voice-status i { background: #a99cf5; animation: voice-blink 1s ease-in-out infinite; }
+.voice-mode[data-phase="connecting"] .voice-status i { background: var(--voice-pale); animation: voice-blink 1s ease-in-out infinite; }
 .voice-mode[data-phase="muted"] .voice-status i { background: #e7806f; }
 
 @keyframes voice-ping {
-  0% { box-shadow: 0 0 0 0 rgba(111, 207, 95, 0.45); }
-  100% { box-shadow: 0 0 0 9px rgba(111, 207, 95, 0); }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--voice-deep) 45%, transparent); }
+  100% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--voice-deep) 0%, transparent); }
 }
 
 @keyframes voice-blink {
@@ -553,10 +557,6 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   letter-spacing: -0.005em;
 }
 
-.voice-pending {
-  opacity: 0.38;
-  transition: opacity 200ms ease;
-}
 
 .voice-cut {
   opacity: 0.5;
@@ -674,6 +674,9 @@ body[data-mode="dark"] .voice-ctl.is-end:hover {
 /* ---------- Voice picker ---------- */
 
 /* Registered so the voice colors glide instead of snapping when you move between voices. */
+@property --voice-deep { syntax: "<color>"; inherits: true; initial-value: #ffa86c; }
+@property --voice-glow { syntax: "<color>"; inherits: true; initial-value: #ffc294; }
+@property --voice-pale { syntax: "<color>"; inherits: true; initial-value: #ffd4a8; }
 @property --vp-deep { syntax: "<color>"; inherits: true; initial-value: #74b44f; }
 @property --vp-soft { syntax: "<color>"; inherits: true; initial-value: #b8e79c; }
 

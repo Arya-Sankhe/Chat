@@ -265,6 +265,20 @@ const PALETTES = {
 const rgba = (color, alpha) => `rgba(${color[0] | 0}, ${color[1] | 0}, ${color[2] | 0}, ${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
 const shade = (color, amount) => color.map((channel) => amount >= 0 ? channel + (255 - channel) * amount : channel * (1 + amount));
 
+const grey = (color, amount) => {
+  const mean = (color[0] + color[1] + color[2]) / 3;
+  return color.map((channel) => channel + (mean - channel) * amount);
+};
+// A voice's own colors, shifted per mode the way the default palettes shift: brighter while
+// thinking, richer while speaking, washed out while paused.
+function tintFor(mode, tint) {
+  const each = (fn) => ({ a: fn(tint.a, "a"), b: fn(tint.b, "b"), c: fn(tint.c, "c"), glow: fn(tint.glow, "glow") });
+  if (mode === "thinking") return each((color, key) => shade(color, key === "c" ? 0.3 : 0.12));
+  if (mode === "speaking") return each((color, key) => key === "a" ? shade(color, -0.06) : key === "glow" ? shade(color, -0.03) : color);
+  if (mode === "paused") return each((color) => grey(color, 0.7));
+  return tint;
+}
+
 // Soft sine chimes shared by voice mode and the tutor call: [frequency, delay seconds].
 export const CHIMES = {
   start: { notes: [[523.25, 0], [659.25, 0.1], [783.99, 0.2]], gain: 0.06, length: 0.32 },
@@ -310,7 +324,7 @@ export function createOrb(canvas, { calm = false } = {}) {
     const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
     last = now;
     const modeGoal = PALETTES[mode] || PALETTES.idle;
-    const goal = tint ? { ...modeGoal, ...tint } : modeGoal;
+    const goal = tint ? { ...modeGoal, ...tintFor(mode, tint) } : modeGoal;
     const blend = Math.min(1, dt * 3);
     // While stirring (a recolor), the inner swirls take the new colors first and the body follows,
     // so the change blooms from inside the orb.

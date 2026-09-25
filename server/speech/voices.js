@@ -1,7 +1,7 @@
 // Chat voice mode voices: Kokoro's best-rated English voices under abstract names (never
 // people's names). Mirrored in public/js/voiceMode.js.
 export const VOICE_MODE_VOICES = [
-  { id: "af_heart", name: "Sunbeam" },
+  { id: "af_heart", name: "Solar" },
   { id: "am_puck", name: "Spark" },
   { id: "af_bella", name: "Velvet" },
   { id: "am_fenrir", name: "Ember" },
