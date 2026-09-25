@@ -62,9 +62,14 @@ export async function handleCreateResearch(req, res, config) {
     conversation = await context.db.getConversation(context.user.id, String(body.conversationId), { signal: req.signal });
     if (!conversation) throw new HttpError(404, "Conversation not found.");
   } else {
+    const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+    if (projectId && !await context.db.getProject(context.user.id, projectId, { signal: req.signal })) {
+      throw new HttpError(404, "Project not found.");
+    }
     conversation = await context.db.createConversation(context.user.id, {
       title: titleFromText(displayQuery),
-      model: role
+      model: role,
+      projectId: projectId || null
     }, { signal: req.signal });
   }
   const active = await context.db.listActiveResearchRuns(

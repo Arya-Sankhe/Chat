@@ -1436,10 +1436,31 @@ body.capacitor-native .side-chat-panel {
   display: flex;
   flex-direction: column;
   width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
   margin: 0;
-  border-color: color-mix(in srgb, var(--text) 11%, transparent);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 11%, transparent);
   border-radius: 24px;
+  background: var(--bg);
+  color: var(--text);
   box-shadow: 0 28px 90px color-mix(in srgb, var(--text) 20%, transparent);
+  animation: visualize-expand-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.visualize-card.is-expanded .visualize-toolbar {
+  background: var(--bg);
+}
+
+.visualize-card.is-expanded::backdrop {
+  background: color-mix(in srgb, #0b0d12 38%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+@keyframes visualize-expand-in {
+  from { opacity: 0; transform: scale(0.985); }
 }
 
 body.visualize-expanded {
@@ -1596,6 +1617,10 @@ body.visualize-expanded {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .visualize-card.is-expanded {
+    animation: none;
+  }
+
   .visualize-actions button:active,
   .visualize-stage iframe {
     transform: none;

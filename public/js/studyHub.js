@@ -1,6 +1,6 @@
-import { kluiSvgMarkup } from "./klui.js";
 import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
+import { createCourseContextPicker } from "./studyContext.js";
 import { createStudySourceDialog } from "./studySources.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
@@ -300,17 +300,51 @@ export function createStudyHubController({
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
   }
 
-  function folderSvg(index = 0, add = false) {
-    const tones = ["sage", "clay", "blue", "lilac"];
-    return `<svg class="dojo-folder dojo-folder--${tones[index % tones.length]}" viewBox="0 0 240 180" fill="none" aria-hidden="true">
-      <ellipse cx="121" cy="158" rx="76" ry="8" class="dojo-folder-shadow"/>
-      <path d="M32 57a12 12 0 0 1 12-12h47l17 16h88a12 12 0 0 1 12 12v65a12 12 0 0 1-12 12H44a12 12 0 0 1-12-12Z" class="dojo-folder-back"/>
-      <g class="dojo-folder-sheet dojo-folder-sheet--one"><rect x="56" y="48" width="104" height="88" rx="5"/><path d="M70 65h39M70 76h66M70 84h58M70 92h65"/></g>
-      <g class="dojo-folder-sheet dojo-folder-sheet--two"><rect x="79" y="43" width="104" height="94" rx="5"/><path d="M94 59h32M94 71h70M94 80h61M94 89h68M94 98h43"/></g>
-      <g class="dojo-folder-sheet dojo-folder-sheet--three"><rect x="49" y="64" width="119" height="78" rx="5"/><path d="M63 80h29M63 92h85M63 101h70M63 110h78"/></g>
-      <path class="dojo-folder-front" d="M26 87a10 10 0 0 1 10-11h66l14 9h88a10 10 0 0 1 10 11l-8 46a12 12 0 0 1-12 10H46a12 12 0 0 1-12-10Z"/>
-      <path class="dojo-folder-rim" d="M38 79h63l14 9h87"/>
-      ${add ? '<circle cx="123" cy="117" r="16" class="dojo-folder-badge"/><path d="M123 110v14m-7-7h14" class="dojo-folder-plus"/>' : '<path d="M52 129h24" class="dojo-folder-label"/>'}
+  const FOLDER_TONES = ["sage", "clay", "blue", "lilac", "rose"];
+
+  // Portrait folder with three sheets. Course folders lift their sheets on
+  // hover; the "new" folder starts with them raised and tucks them in.
+  function folderSvg(tone, uid) {
+    const grad = `dojo-folder-${uid}`;
+    const add = tone === "new";
+    return `<svg class="dojo-folder${add ? " dojo-folder--new" : ""}" viewBox="0 0 200 180" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="${grad}-back" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--folder-deep);stop-opacity:.62"/><stop offset="1" style="stop-color:var(--folder-deep);stop-opacity:.9"/></linearGradient>
+        <linearGradient id="${grad}-front" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" style="stop-color:var(--folder-light);stop-opacity:.9"/><stop offset="1" style="stop-color:var(--folder-deep);stop-opacity:.96"/></linearGradient>
+      </defs>
+      <ellipse cx="100" cy="167" rx="68" ry="6" class="dojo-folder-shadow"/>
+      <path d="M28 44a10 10 0 0 1 10-10h32l12 11h80a10 10 0 0 1 10 10v96a10 10 0 0 1-10 10H38a10 10 0 0 1-10-10Z" fill="url(#${grad}-back)" class="dojo-folder-back"/>
+      <g class="dojo-folder-sheet dojo-folder-sheet--one"><rect x="40" y="48" width="100" height="100" rx="6"/><path d="M54 64h36M54 75h67M54 84h58M54 93h65"/></g>
+      <g class="dojo-folder-sheet dojo-folder-sheet--two"><rect x="62" y="42" width="100" height="104" rx="6"/><path d="M76 58h31M76 69h70M76 78h60M76 87h67M76 96h43"/></g>
+      <g class="dojo-folder-sheet dojo-folder-sheet--three"><rect x="47" y="60" width="108" height="92" rx="6"/><path d="M62 76h29M62 87h79M62 96h65"/></g>
+      <path d="M22 88a10 10 0 0 1 10-10h136a10 10 0 0 1 10 10l-6 64a11 11 0 0 1-11 10H39a11 11 0 0 1-11-10Z" fill="url(#${grad}-front)" class="dojo-folder-front"/>
+      <path d="M34 82.5h132" class="dojo-folder-rim"/>
+      ${add ? '<circle cx="100" cy="122" r="15" class="dojo-folder-badge"/><path d="M100 115v14m-7-7h14" class="dojo-folder-plus"/>' : '<rect x="42" y="142" width="34" height="5" rx="2.5" class="dojo-folder-label"/>'}
+    </svg>`;
+  }
+
+  // Chunky italic "DOJO" lettering. Drawn as paths so it looks the same on
+  // every platform (the CSP only allows self-hosted fonts).
+  const DOJO_LETTERS = [
+    "M8 0H46C74 0 92 20 92 50S74 100 46 100H8Q0 100 0 92V8Q0 0 8 0ZM32 30V70H44C54 70 60 62 60 50S54 30 44 30Z",
+    "M142 0H154C180 0 196 20 196 50S180 100 154 100H142C116 100 100 80 100 50S116 0 142 0ZM144 30C136 30 132 38 132 50S136 70 144 70H152C160 70 164 62 164 50S160 30 152 30Z",
+    "M258 0H274Q282 0 282 8V58C282 84 266 100 242 100C220 100 206 88 204 68Q203.5 62 210 62H230Q235 62 236 66C237 69 239 70 242 70C247 70 250 67 250 61V8Q250 0 258 0Z",
+    "M332 0H344C370 0 386 20 386 50S370 100 344 100H332C306 100 290 80 290 50S306 0 332 0ZM334 30C326 30 322 38 322 50S326 70 334 70H342C350 70 354 62 354 50S350 30 342 30Z",
+  ].join("");
+
+  function dojoWordmark(variant = "") {
+    const id = variant ? `-${variant}` : "";
+    return `<svg class="dojo-wordmark${variant ? ` dojo-wordmark--${variant}` : ""}" viewBox="-4 -14 434 130" role="img" aria-label="Dojo">
+      <defs>
+        <linearGradient id="dojo-wordmark-fill${id}" x1="0" y1="0" x2="1" y2=".35"><stop offset="0" style="stop-color:var(--dojo-hue-a)"/><stop offset=".5" style="stop-color:var(--dojo-hue-b)"/><stop offset="1" style="stop-color:var(--dojo-hue-c)"/></linearGradient>
+        <linearGradient id="dojo-wordmark-shine${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      </defs>
+      <g transform="translate(22 0) skewX(-12)" fill-rule="evenodd">
+        <path d="${DOJO_LETTERS}" class="dojo-wordmark-depth" transform="translate(0 7)"/>
+        <path d="${DOJO_LETTERS}" fill="url(#dojo-wordmark-fill${id})"/>
+        <path d="${DOJO_LETTERS}" fill="url(#dojo-wordmark-shine${id})"/>
+      </g>
+      <path d="M418 -12c1.4 6 3 7.6 9 9-6 1.4-7.6 3-9 9-1.4-6-3-7.6-9-9 6-1.4 7.6-3 9-9Z" class="dojo-wordmark-spark"/>
     </svg>`;
   }
 
@@ -365,9 +399,10 @@ export function createStudyHubController({
     const courses = coursesFromProjects();
     const cards = courses.map((course, index) => {
       const menuOpen = quizMenuKey === `course:${course.id}`;
-      return `<article class="study-course-card">
+      const tone = FOLDER_TONES[index % FOLDER_TONES.length];
+      return `<article class="study-course-card dojo-tone--${tone}">
         <button class="study-course-open" type="button" data-open-course-id="${escapeHtml(course.id)}">
-          ${folderSvg(index)}<span class="dojo-course-label"><strong>${escapeHtml(course.name)}</strong><small>${escapeHtml(courseMeta(course).term || "Your study space")}</small></span><span class="dojo-course-enter">${icon("arrow")}</span>
+          ${folderSvg(tone, index)}<span class="dojo-course-label"><strong>${escapeHtml(course.name)}</strong></span><span class="dojo-course-enter">${icon("arrow")}</span>
         </button>
         <div class="study-card-menu-wrap">
           <button class="study-icon-btn" type="button" data-toggle-course-menu="${escapeHtml(course.id)}" aria-label="Options for ${escapeHtml(course.name)}" aria-haspopup="menu" aria-expanded="${menuOpen}">${kebabIcon()}</button>
@@ -378,12 +413,11 @@ export function createStudyHubController({
         </div>
       </article>`;
     }).join("");
-    return `<div class="study-page">
-      <header class="study-page-header"><div><p class="dojo-section-label">${icon("course")} Dojo</p><h1>What are we learning?</h1><p class="dojo-intro">Pick a course. Bring your questions. Let’s figure it out.</p></div><div class="dojo-library-mascot" aria-hidden="true">${kluiSvgMarkup("dojo-library", { greeting: true })}</div></header>
-      <div class="dojo-library-heading"><h2>Your courses</h2><span>${courses.length} ${courses.length === 1 ? "course" : "courses"}</span></div>
-      <div class="study-course-grid">${cards}<button class="study-course-card study-course-new" type="button" data-create-course>
-        ${folderSvg(courses.length, true)}<span class="dojo-course-label"><strong>New course</strong><small>Give your next idea a home</small></span>
-      </button></div>
+    return `<div class="study-page study-page--library">
+      <header class="dojo-library-head">${dojoWordmark()}<div class="dojo-library-title"><h1>Your courses</h1>${courses.length ? `<span>${courses.length} ${courses.length === 1 ? "course" : "courses"}</span>` : ""}</div></header>
+      <div class="study-course-grid"><button class="study-course-card study-course-new dojo-tone--new" type="button" data-create-course>
+        ${folderSvg("new", "new")}<span class="dojo-course-label"><strong>New course</strong></span>
+      </button>${cards}</div>
       ${!courses.length ? '<p class="dojo-first-hint">One folder for every subject. Add your sources, ask questions, and turn what you learn into practice.</p>' : ""}
     </div>`;
   }
@@ -1156,7 +1190,7 @@ export function createStudyHubController({
 
   function courseDetailMarkup() {
     return `<div class="study-detail" data-course-id="${escapeHtml(state.activeCourseId)}"><header class="study-detail-header">
-      <div class="dojo-breadcrumb"><button class="study-back-btn" type="button" data-study-back>${icon("course")} Dojo</button><span>/</span><input class="study-title-input" value="${escapeHtml(courseName())}" maxlength="80" aria-label="Course name"></div>
+      <div class="dojo-breadcrumb"><button class="study-back-btn" type="button" data-study-back aria-label="Back to Dojo">${dojoWordmark("crumb")}</button><span aria-hidden="true">/</span><input class="study-title-input" value="${escapeHtml(courseName())}" maxlength="80" aria-label="Course name"></div>
       ${tabMarkup()}</header><div class="study-detail-body">${courseBodyMarkup()}</div></div>`;
   }
 
@@ -1257,6 +1291,7 @@ export function createStudyHubController({
       messagesSlot.append(els.messages);
       els.messages.classList.toggle("hidden", !state.activeConversationId && !state.messages?.length);
     }
+    contextPicker.render();
     mountTutorCall();
     bindMaterialsDnD();
     renderNoteOverlay();
@@ -1640,6 +1675,18 @@ export function createStudyHubController({
       showToast(error.message || "Course could not be loaded.");
       await openCourses({ replace: true });
     }
+  }
+
+  // Close a modal when a click both starts and ends on its backdrop, so a
+  // text selection dragged out of an input doesn't dismiss it.
+  function closeOnBackdrop(dialog) {
+    if (!dialog) return;
+    let downOnBackdrop = false;
+    dialog.addEventListener("pointerdown", (event) => { downOnBackdrop = event.target === dialog; });
+    dialog.addEventListener("click", (event) => {
+      if (downOnBackdrop && event.target === dialog) dialog.close();
+      downOnBackdrop = false;
+    });
   }
 
   function openCreateDialog() {
@@ -2394,6 +2441,8 @@ export function createStudyHubController({
   function readyCreateDocs() {
     return (state.studyMaterials?.documents || []).filter((doc) => materialStatus(doc) === "ready");
   }
+
+  const contextPicker = createCourseContextPicker({ state, escapeHtml, readyDocs: readyCreateDocs, documentDisplayName, sourceBadge, sourceShortName });
 
   function renderCreateList() {
     const list = els.studyCreateList;
@@ -3870,6 +3919,7 @@ export function createStudyHubController({
   }
 
   function bindEvents() {
+    contextPicker.bind();
     els.studyView?.addEventListener("click", (event) => { void handleViewClick(event); });
     els.studyView?.addEventListener("input", (event) => {
       if (quizSession && event.target.matches?.("[data-test-written]")) {
@@ -3941,7 +3991,9 @@ export function createStudyHubController({
       event.target.value = "";
     });
     els.courseCreateForm?.addEventListener("submit", (event) => { void submitCreate(event); });
-    els.courseCreateCancel?.addEventListener("click", () => els.courseCreateDialog?.close());
+    els.courseCreateClose?.addEventListener("click", () => els.courseCreateDialog?.close());
+    closeOnBackdrop(els.courseCreateDialog);
+    closeOnBackdrop(els.courseRenameDialog);
     els.studyCreateClose?.addEventListener("click", closeCreateDialog);
     els.studyCreateForm?.addEventListener("submit", (event) => event.preventDefault());
     els.studyCreateSearch?.addEventListener("input", () => renderCreateList());
@@ -3984,7 +4036,7 @@ export function createStudyHubController({
       createSelected.clear();
     });
     els.courseRenameForm?.addEventListener("submit", (event) => { void submitRename(event); });
-    els.courseRenameCancel?.addEventListener("click", () => els.courseRenameDialog?.close());
+    els.courseRenameClose?.addEventListener("click", () => els.courseRenameDialog?.close());
     els.studyNoteClose?.addEventListener("click", closeNote);
     els.studyNoteOverlay?.addEventListener("cancel", closeNote);
     els.studyNoteCopy?.addEventListener("click", () => { void copyNote(); });
@@ -4036,6 +4088,7 @@ export function createStudyHubController({
     closeSession,
     loadCourse,
     resetCourseCaches,
+    chatSources: contextPicker.sources,
     isSessionOpen: () => Boolean(reviewSession || quizSession?.host === "full")
   };
 }

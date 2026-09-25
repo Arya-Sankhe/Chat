@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { loadConfig } from "../server/config.js";
 import { createApiHandler } from "../server/routes.js";
-import { filterCurrentTurnMessages } from "../server/chat/pipeline.js";
+import { filterCurrentTurnMessages, normalizeSourceScope } from "../server/chat/pipeline.js";
 
 /*
  * Phase-0 canonical SSE characterization tests.
@@ -1795,4 +1795,12 @@ test("client-keyed send persists one durable turn and fences the first provider 
   assert.equal(calls.at(-2).op, "finishPendingDocumentTurn");
   assert.equal(calls.at(-2).status, "done");
   assert.equal(calls.at(-1).op, "responseEnd");
+});
+
+test("normalizeSourceScope keeps unique source ids and drops junk", () => {
+  const a = "00000000-0000-4000-8000-00000000000a";
+  const b = "00000000-0000-4000-8000-00000000000b";
+  assert.deepEqual(normalizeSourceScope([a, ` ${b} `, a, "nope", 7, null]), [a, b]);
+  assert.deepEqual(normalizeSourceScope("not-a-list"), []);
+  assert.deepEqual(normalizeSourceScope(undefined), []);
 });

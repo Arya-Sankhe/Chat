@@ -231,7 +231,7 @@ function pageHasUsableImage(page) {
 }
 
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, projectId = null, plan, signal }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, hiddenProjectDocumentIds = null, plan, signal }) {
     this.config = config;
     this.documentsConfig = config.documents || {};
     this.db = db;
@@ -239,6 +239,12 @@ export class DocumentService {
     this.userId = userId;
     this.conversationId = conversationId;
     this.projectId = projectId;
+    // Chosen course sources; null means every project document is in scope.
+    this.projectDocumentIds = Array.isArray(projectDocumentIds) && projectDocumentIds.length
+      ? new Set(projectDocumentIds)
+      : null;
+    // Sources the learner removed from a course stay stored but leave chat context.
+    this.hiddenProjectDocumentIds = new Set(Array.isArray(hiddenProjectDocumentIds) ? hiddenProjectDocumentIds : []);
     this.plan = plan;
     this.signal = signal;
   }
@@ -268,15 +274,20 @@ export class DocumentService {
         ? this.db.listUsableProjectDocumentFiles(this.userId, this.projectId, { signal: this.signal })
         : []
     ]);
-    return [...new Map([...chatDocs, ...projectDocs]
+    return [...new Map([...chatDocs, ...projectDocs.filter((doc) => this.inProjectScope(doc))]
       .filter((doc) => doc?.metadata?.preview !== true)
       .map((doc) => [doc.id, doc])).values()];
+  }
+
+  inProjectScope(doc) {
+    if (this.hiddenProjectDocumentIds.has(doc?.id)) return false;
+    return !this.projectDocumentIds || this.projectDocumentIds.has(doc?.id);
   }
 
   ownsDocument(doc) {
     return Boolean(doc && (
       (this.conversationId && doc.conversation_id === this.conversationId)
-      || (this.projectId && doc.project_id === this.projectId)
+      || (this.projectId && doc.project_id === this.projectId && this.inProjectScope(doc))
     ));
   }
 
@@ -288,7 +299,7 @@ export class DocumentService {
       this.userId,
       this.projectId,
       { signal: this.signal }
-    )).filter((doc) => doc.text_ready_at && doc?.metadata?.preview !== true);
+    )).filter((doc) => doc.text_ready_at && doc?.metadata?.preview !== true && this.inProjectScope(doc));
     const estimatedTokens = docs.reduce((sum, doc) => {
       const words = Math.max(0, Number(doc.word_count || 0));
       return sum + Math.ceil(words * 1.35);
@@ -315,7 +326,8 @@ export class DocumentService {
         }
       }
     }
-    const notes = typeof this.db.listStudyNotes === "function"
+    // Notes are drawn from every source, so a chat scoped to chosen sources skips them.
+    const notes = !this.projectDocumentIds && typeof this.db.listStudyNotes === "function"
       ? (await this.db.listStudyNotes(this.userId, this.projectId, { signal: this.signal }) || [])
       : [];
     for (const note of notes) {
@@ -331,7 +343,9 @@ export class DocumentService {
     }
     if (!results.length) return "";
     return buildUntrustedDocumentContext({
-      lead: "Project knowledge is small enough to include in full for this request.",
+      lead: this.projectDocumentIds
+        ? "The user limited this chat to the course sources below, included in full. Answer from these sources only."
+        : "Project knowledge is small enough to include in full for this request.",
       results
     });
   }

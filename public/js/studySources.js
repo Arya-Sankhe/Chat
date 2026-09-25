@@ -1,6 +1,5 @@
 import { createStudySource } from "./api.js";
 import { readClipboardText } from "./platform/index.js";
-import { kluiSvgMarkup } from "./klui.js";
 
 const svg = paths => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const upload = svg('<path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/>');
@@ -13,7 +12,7 @@ export function createStudySourceDialog({ state, uploadFiles, onCreated, showToa
   dialog.className = "dojo-source-dialog";
   dialog.setAttribute("aria-label", "Add sources");
   dialog.innerHTML = `
-    <header class="dojo-source-dialog-head"><span class="dojo-source-brand">${kluiSvgMarkup("dojo-source-intake")}<span>WHAT ARE WE LEARNING TODAY?</span></span><button type="button" class="study-icon-btn" data-source-close aria-label="Close add sources">${svg('<path d="m6 6 12 12M18 6 6 18"/>')}</button></header>
+    <header class="dojo-source-dialog-head"><span class="dojo-source-brand">What are we learning today?</span><button type="button" class="study-icon-btn" data-source-close aria-label="Close add sources">${svg('<path d="m6 6 12 12M18 6 6 18"/>')}</button></header>
     <button type="button" class="dojo-source-upload" data-source-files>
       <span class="dojo-upload-symbol">${upload}</span><strong>Drop your files here</strong>
       <span>or <u>choose files</u> to get started</span><small>PDF, Word, slides, spreadsheets & images</small>

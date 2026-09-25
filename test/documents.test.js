@@ -696,6 +696,53 @@ test("DocumentService includes small project text and skips chunk loading for la
   assert.equal(await small.smallProjectContext(), "");
 });
 
+test("DocumentService limits a course chat to its chosen sources", async () => {
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  const otherFileId = "00000000-0000-4000-8000-000000000006";
+  const file = (id, name, text) => ({
+    id,
+    attachment_id: id,
+    project_id: projectId,
+    text_ready_at: "2026-07-13T00:00:00Z",
+    word_count: 100,
+    attachments: { file_name: name },
+    text
+  });
+  const docs = [file(documentFileId, "Chosen.pdf"), file(otherFileId, "Other.pdf")];
+  let noteCalls = 0;
+  const db = {
+    async listUsableDocumentFiles() { return []; },
+    async listUsableProjectDocumentFiles() { return docs; },
+    async listDocumentChunksForFiles(_user, ids) {
+      return ids.map((id) => ({ document_file_id: id, source_label: "Page 1", text: id === documentFileId ? "Chosen evidence" : "Other evidence", token_estimate: 3 }));
+    },
+    async listStudyNotes() { noteCalls += 1; return [{ title: "Note", content: "Note evidence" }]; }
+  };
+  const make = (projectDocumentIds) => new DocumentService({
+    config: { documents: { enabled: true } },
+    db, r2: {}, userId, conversationId, projectId, projectDocumentIds, plan: { id: "pro" }, signal: new AbortController().signal
+  });
+
+  const scoped = make([documentFileId]);
+  assert.deepEqual((await scoped.readyDocuments()).map((doc) => doc.id), [documentFileId]);
+  assert.equal(scoped.ownsDocument(docs[0]), true);
+  assert.equal(scoped.ownsDocument(docs[1]), false);
+  const context = await scoped.smallProjectContext();
+  assert.match(context, /Chosen evidence/);
+  assert.doesNotMatch(context, /Other evidence|Note evidence/);
+  assert.equal(noteCalls, 0);
+
+  const auto = make([]);
+  assert.equal((await auto.readyDocuments()).length, 2);
+  const withRemoved = new DocumentService({
+    config: { documents: { enabled: true } },
+    db, r2: {}, userId, conversationId, projectId, hiddenProjectDocumentIds: [otherFileId], plan: { id: "pro" }, signal: new AbortController().signal
+  });
+  assert.deepEqual((await withRemoved.readyDocuments()).map((doc) => doc.id), [documentFileId]);
+  assert.equal(withRemoved.ownsDocument(docs[1]), false);
+  assert.match(await auto.smallProjectContext(), /Other evidence[\s\S]*Note evidence/);
+});
+
 test("DocumentService rejects document_file_id edits outside the active conversation", async () => {
   const service = documentServiceWithDb({
     async getDocumentFile() {

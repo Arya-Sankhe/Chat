@@ -704,7 +704,7 @@ const els = {
   courseCreateForm: document.querySelector("#courseCreateForm"),
   courseNameInput: document.querySelector("#courseNameInput"),
   courseTermInput: document.querySelector("#courseTermInput"),
-  courseCreateCancel: document.querySelector("#courseCreateCancel"),
+  courseCreateClose: document.querySelector("#courseCreateClose"),
   studyCreateDialog: document.querySelector("#studyCreateDialog"),
   studyCreateForm: document.querySelector("#studyCreateForm"),
   studyCreateTitle: document.querySelector("#studyCreateTitle"),
@@ -717,7 +717,7 @@ const els = {
   courseRenameForm: document.querySelector("#courseRenameForm"),
   courseRenameNameInput: document.querySelector("#courseRenameNameInput"),
   courseRenameTermInput: document.querySelector("#courseRenameTermInput"),
-  courseRenameCancel: document.querySelector("#courseRenameCancel"),
+  courseRenameClose: document.querySelector("#courseRenameClose"),
   cameraAction: document.querySelector("#cameraAction"),
   composerActionMenuWrap: document.querySelector("#composerActionMenuWrap"),
   actionMenuButton: document.querySelector("#actionMenuButton"),
@@ -5595,21 +5595,41 @@ function renderStandardMessage(raw) {
   `;
 }
 
+// Expanded visuals go to the browser top layer (a manual popover), so no
+// transformed panel, stacking context, or composer can clip or cover them.
+function showVisualizeLayer(card) {
+  if (typeof card.showPopover !== "function") return;
+  card.setAttribute("popover", "manual");
+  if (!card.matches(":popover-open")) card.showPopover();
+}
+
+function hideVisualizeLayer(card) {
+  if (!card.hasAttribute("popover")) return;
+  if (card.matches(":popover-open")) card.hidePopover();
+  card.removeAttribute("popover");
+}
+
+function setVisualizeExpanded(card, expanded) {
+  if (!card) return;
+  card.classList.toggle("is-expanded", expanded);
+  if (expanded) showVisualizeLayer(card);
+  else hideVisualizeLayer(card);
+  const button = card.querySelector("[data-visualize-expand]");
+  if (button) {
+    button.textContent = expanded ? "Close" : "Expand";
+    button.setAttribute("aria-pressed", String(expanded));
+  }
+  card.querySelector("iframe[data-visualize-id]")?.contentWindow?.postMessage({
+    type: "klui:visualize:expanded",
+    expanded
+  }, "*");
+  document.body.classList.toggle("visualize-expanded", Boolean(document.querySelector(".visualize-card.is-expanded")));
+}
+
 function collapseExpandedVisualize(except = null) {
   for (const card of document.querySelectorAll(".visualize-card.is-expanded")) {
-    if (card === except) continue;
-    card.classList.remove("is-expanded");
-    const button = card.querySelector("[data-visualize-expand]");
-    if (button) {
-      button.textContent = "Expand";
-      button.setAttribute("aria-pressed", "false");
-    }
-    card.querySelector("iframe[data-visualize-id]")?.contentWindow?.postMessage({
-      type: "klui:visualize:expanded",
-      expanded: false
-    }, "*");
+    if (card !== except) setVisualizeExpanded(card, false);
   }
-  document.body.classList.toggle("visualize-expanded", Boolean(document.querySelector(".visualize-card.is-expanded")));
 }
 
 function renderMessages() {
@@ -5781,6 +5801,8 @@ function adoptLiveVisualizeFrame(liveEl, nextRoot) {
   const next = nextRoot.querySelector("iframe[data-visualize-id]")?.closest(".visualize-card");
   if (!live || !next) return false;
   next.replaceWith(live);
+  // Moving a node drops it out of the top layer; keep an expanded visual up.
+  if (live.classList.contains("is-expanded")) showVisualizeLayer(live);
   return true;
 }
 
@@ -8947,6 +8969,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       uploaded.push(uploadedFile);
     }
 
+    const courseSources = !temporaryChat && state.studyOpen ? studyHub?.chatSources?.() || [] : [];
     const payload = {
       text,
       clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -8960,6 +8983,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       skillMarks: sendSkillMarks,
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
+      ...(courseSources.length ? { sources: courseSources } : {}),
       ...(paste ? { paste } : {}),
       ...(describeImages ? { describeImages: true } : {}),
       ...(editMessageId ? { editUserMessageId: editMessageId } : {})
@@ -10339,15 +10363,9 @@ function bindEvents() {
     const visualizeExpand = e.target.closest("[data-visualize-expand]");
     if (visualizeExpand) {
       const card = visualizeExpand.closest(".visualize-card");
-      if (!card?.classList.contains("is-expanded")) collapseExpandedVisualize(card);
-      const expanded = card?.classList.toggle("is-expanded");
-      visualizeExpand.textContent = expanded ? "Close" : "Expand";
-      visualizeExpand.setAttribute("aria-pressed", String(Boolean(expanded)));
-      document.body.classList.toggle("visualize-expanded", Boolean(document.querySelector(".visualize-card.is-expanded")));
-      card?.querySelector("iframe[data-visualize-id]")?.contentWindow?.postMessage({
-        type: "klui:visualize:expanded",
-        expanded: Boolean(expanded)
-      }, "*");
+      const expanded = !card?.classList.contains("is-expanded");
+      if (expanded) collapseExpandedVisualize(card);
+      setVisualizeExpanded(card, expanded);
       return;
     }
     const weatherUnit = e.target.closest("[data-weather-units]");

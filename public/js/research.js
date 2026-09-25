@@ -334,6 +334,7 @@ export function createResearchController({
         query,
         displayQuery,
         conversationId: state.activeConversationId || undefined,
+        ...(!state.activeConversationId && state.studyOpen && state.activeCourseId ? { projectId: state.activeCourseId } : {}),
         role: selectedModelMode() === "pro" ? "pro" : "think",
         temporary: false,
         compare: false,

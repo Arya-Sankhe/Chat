@@ -448,6 +448,7 @@
                         <span id="councilLabel">Council</span>
                       </button>
                     </div>
+                    <div class="composer-context-wrap" id="composerContextWrap"></div>
                     <div class="writing-style-pill hidden" id="writingStylePill">
                       <span id="writingStylePillLabel"></span>
                       <button type="button" id="writingStylePillClose" aria-label="Use normal writing style" title="Use normal writing style">
@@ -787,21 +788,16 @@
         </form>
       </dialog>
 
-      <dialog class="project-create-dialog" id="courseCreateDialog" aria-labelledby="courseCreateTitle">
+      <dialog class="project-create-dialog dojo-course-dialog" id="courseCreateDialog" aria-labelledby="courseCreateTitle">
         <form method="dialog" id="courseCreateForm">
-          <div class="project-dialog-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c2.5 2 9.5 2 12 0v-5"/><path d="M22 10v6"/></svg>
-          </div>
-          <h2 id="courseCreateTitle">Create a course</h2>
+          <button type="button" class="dojo-dialog-close" id="courseCreateClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+          <h2 id="courseCreateTitle">New course</h2>
           <p>A home for lectures, notes, flashcards, and quizzes.</p>
           <label for="courseNameInput">Course name</label>
           <input id="courseNameInput" maxlength="80" autocomplete="off" placeholder="e.g. Organic Chemistry">
-          <label class="course-dialog-field" for="courseTermInput">Term (optional)</label>
+          <label class="course-dialog-field" for="courseTermInput">Term <span>Optional</span></label>
           <input id="courseTermInput" maxlength="40" autocomplete="off" placeholder="e.g. Fall 2026">
-          <div class="project-dialog-actions">
-            <button type="button" id="courseCreateCancel">Cancel</button>
-            <button type="submit" class="project-dialog-primary">Create course</button>
-          </div>
+          <button type="submit" class="dojo-dialog-submit">Create course</button>
         </form>
       </dialog>
 
@@ -827,18 +823,16 @@
         </form>
       </dialog>
 
-      <dialog class="project-create-dialog" id="courseRenameDialog" aria-labelledby="courseRenameTitle">
+      <dialog class="project-create-dialog dojo-course-dialog" id="courseRenameDialog" aria-labelledby="courseRenameTitle">
         <form method="dialog" id="courseRenameForm">
+          <button type="button" class="dojo-dialog-close" id="courseRenameClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
           <h2 id="courseRenameTitle">Rename course</h2>
           <p>Update the name or term.</p>
           <label for="courseRenameNameInput">Course name</label>
           <input id="courseRenameNameInput" maxlength="80" autocomplete="off">
-          <label class="course-dialog-field" for="courseRenameTermInput">Term (optional)</label>
+          <label class="course-dialog-field" for="courseRenameTermInput">Term <span>Optional</span></label>
           <input id="courseRenameTermInput" maxlength="40" autocomplete="off">
-          <div class="project-dialog-actions">
-            <button type="button" id="courseRenameCancel">Cancel</button>
-            <button type="submit" class="project-dialog-primary">Save</button>
-          </div>
+          <button type="submit" class="dojo-dialog-submit">Save changes</button>
         </form>
       </dialog>
 
