@@ -54,6 +54,9 @@ import {
   updateAdminSettings,
   updateMemory,
   transcribeSpeech,
+  transcribeVoiceTurn,
+  synthesizeVoice,
+  warmVoiceMode,
   uploadFile,
   fetchStudyMaterials,
   generateStudyContent,
@@ -143,6 +146,17 @@ import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
 import { createAdminPanel } from "./adminPanel.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
+import {
+  DEFAULT_VOICE,
+  DEFAULT_VOICE_SPEED,
+  bindVoicePicker,
+  createVoiceSession,
+  normalizeVoiceId,
+  normalizeVoiceSpeed,
+  openVoicePicker,
+  voiceModeSupported,
+  voicePickerMarkup
+} from "./voiceMode.js";
 import {
   hydrateKluiBars,
   renderHomeGreetingHtml,
@@ -310,8 +324,15 @@ const defaultSettings = {
   wallpaper: "clouds",
   showModelReasoning: true,
   weatherUnits: "metric",
-  uiTextScale: 100
+  uiTextScale: 100,
+  voiceId: DEFAULT_VOICE,
+  voiceSpeed: DEFAULT_VOICE_SPEED,
+  voiceChosen: false
 };
+
+// Voice mode: the live session and the Settings picker (declared early: settings code runs at load).
+let voiceSession = null;
+let voiceSettingsPicker = null;
 
 const state = {
   config: null,
@@ -740,6 +761,8 @@ const els = {
   researchModeClose: document.querySelector("#researchModeClose"),
   sendButton: document.querySelector("#sendButton"),
   voiceButton: document.querySelector("#voiceButton"),
+  voiceModeButton: document.querySelector("#voiceModeButton"),
+  voiceSettingsPicker: document.querySelector("#voiceSettingsPicker"),
   stopButton: document.querySelector("#stopButton"),
   settingsReasoningSection: document.querySelector("#settingsReasoningSection"),
   settingsSystemPromptSection: document.querySelector("#settingsSystemPromptSection"),
@@ -2114,6 +2137,9 @@ function loadSettings() {
     loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
+  loaded.voiceId = normalizeVoiceId(loaded.voiceId);
+  loaded.voiceSpeed = normalizeVoiceSpeed(loaded.voiceSpeed);
+  loaded.voiceChosen = loaded.voiceChosen === true;
   if (hadLegacyTheme) localStorage.setItem(SETTINGS_KEY, JSON.stringify(loaded));
   return loaded;
   } catch {
@@ -6777,7 +6803,8 @@ async function clearMemorySettings() {
 }
 
 function setSettingsTab(tab) {
-  const selected = ["general", "memory", "storage", "account"].includes(tab) ? tab : "general";
+  const selected = ["general", "voice", "memory", "storage", "account"].includes(tab) ? tab : "general";
+  if (selected !== "voice") voiceSettingsPicker?.stopPreview();
   els.settingsTabs?.querySelectorAll("[data-settings-tab]").forEach((button) => {
     const active = button.dataset.settingsTab === selected;
     button.classList.toggle("active", active);
@@ -6788,6 +6815,7 @@ function setSettingsTab(tab) {
   });
   if (els.settingsTitle) els.settingsTitle.textContent = selected[0].toUpperCase() + selected.slice(1);
   if (selected === "memory" && !state.memory) void loadMemorySettings();
+  if (selected === "voice") renderVoiceSettings();
   if (selected === "storage") {
     if (els.settingsStorageList) els.settingsStorageList.innerHTML = `<p class="storage-list-empty">Loading files...</p>`;
     void Promise.all([loadMe(), loadAccountStorage()]).then(renderSettingsStorage).catch(() => {});
@@ -6799,6 +6827,7 @@ function setSettingsTab(tab) {
 }
 
 function closeSettings() {
+  voiceSettingsPicker?.stopPreview();
   els.settingsDrawer.classList.remove("open");
   els.settingsDrawer.setAttribute("aria-hidden", "true");
   if (els.overlay.dataset.mode === "settings") {
@@ -7370,6 +7399,7 @@ function updateSendButton() {
   const canStop = Boolean(state.activeResearchId || getConversationRun());
   els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
   els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy || !canStop);
+  if (voiceBusy || state.running) setVoiceModeButton(false);
   if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
     els.sendButton.disabled = voiceState !== "recording";
@@ -7387,8 +7417,121 @@ function updateSendButton() {
   }
   const hasContent = hasText || state.images.length || state.followUps.length;
   const blocked = pendingDocumentUploads().length > 0 || state.clarificationChecking;
+  // An empty composer offers voice mode where the send arrow would be.
+  const offerVoice = !hasContent && !blocked && !state.clarification && voiceModeAvailable();
+  setVoiceModeButton(offerVoice);
+  els.sendButton.classList.toggle("hidden", offerVoice);
   els.sendButton.classList.toggle("active", Boolean(hasContent) && !blocked);
   els.sendButton.disabled = blocked;
+}
+
+/* ---------- Voice mode ---------- */
+
+function voiceModeAvailable() {
+  return Boolean(state.config?.services?.speech) && !state.researchMode && voiceModeSupported();
+}
+
+function setVoiceModeButton(visible) {
+  if (!els.voiceModeButton) return;
+  const wasVisible = !els.voiceModeButton.classList.contains("hidden");
+  els.voiceModeButton.classList.toggle("hidden", !visible);
+  els.voiceModeButton.disabled = !visible;
+  // The first keystroke morphs the voice button into Send (and back when the composer empties).
+  if (wasVisible && !visible && !state.running) {
+    els.sendButton.classList.remove("is-from-voice");
+    void els.sendButton.offsetWidth;
+    els.sendButton.classList.add("is-from-voice");
+    els.sendButton.addEventListener("animationend", function done(event) {
+      if (event.animationName !== "send-from-voice") return;
+      els.sendButton.classList.remove("is-from-voice");
+      els.sendButton.removeEventListener("animationend", done);
+    });
+  } else if (visible) {
+    els.sendButton.classList.remove("is-from-voice");
+  }
+}
+
+function voicePrefs() {
+  return { voice: normalizeVoiceId(state.settings.voiceId), speed: normalizeVoiceSpeed(state.settings.voiceSpeed) };
+}
+
+function saveVoicePrefs({ voice, speed }) {
+  updateSetting("voiceId", normalizeVoiceId(voice));
+  updateSetting("voiceSpeed", normalizeVoiceSpeed(speed));
+  updateSetting("voiceChosen", true);
+}
+
+function speakVoicePreview(text, voice, speed, options) {
+  return synthesizeVoice(state.session, { text, voice, speed }, options);
+}
+
+function pickVoiceMode({ first = false } = {}) {
+  const { voice, speed } = voicePrefs();
+  return openVoicePicker({
+    voice,
+    speed,
+    first,
+    speak: state.session ? speakVoicePreview : null,
+    onSave: saveVoicePrefs,
+    onError: showToast,
+    reducedMotion: prefersReducedMotion()
+  });
+}
+
+async function openVoiceMode() {
+  if (voiceSession?.active) return;
+  if (!requireAuth()) return;
+  if (!hasChatAccess()) {
+    openUpgradePlans();
+    return;
+  }
+  if (!voiceModeSupported()) {
+    showToast("Voice mode is not supported in this browser.");
+    return;
+  }
+  if (state.running) {
+    showToast("Wait for the current reply to finish.");
+    return;
+  }
+  void warmVoiceMode(state.session).catch(() => {});
+  if (!state.settings.voiceChosen && !await pickVoiceMode({ first: true })) return;
+  if (voiceSession?.active) return;
+  document.body.classList.add("voice-mode-open");
+  voiceSession = createVoiceSession({
+    api: {
+      transcribe: (blob, options) => transcribeVoiceTurn(state.session, blob, options),
+      speak: (text, voice, speed, options) => synthesizeVoice(state.session, { text, voice, speed }, options)
+    },
+    sendTurn: (text, hooks) => executeSend({ text, images: [], compareModels: [], voice: hooks }),
+    prefs: voicePrefs,
+    pickVoice: () => pickVoiceMode(),
+    escapeHtml,
+    reducedMotion: prefersReducedMotion(),
+    onToast: showToast,
+    onClose: () => {
+      voiceSession = null;
+      document.body.classList.remove("voice-mode-open");
+      updateSendButton();
+    }
+  });
+  document.body.append(voiceSession.root);
+  await voiceSession.start();
+}
+
+function renderVoiceSettings() {
+  const host = els.voiceSettingsPicker;
+  if (!host) return;
+  voiceSettingsPicker?.destroy();
+  const { voice, speed } = voicePrefs();
+  host.innerHTML = voicePickerMarkup({ voice, speed });
+  voiceSettingsPicker = bindVoicePicker(host.querySelector(".voice-picker"), {
+    voice,
+    speed,
+    speak: state.session ? speakVoicePreview : null,
+    onChange: saveVoicePrefs,
+    onError: showToast,
+    reducedMotion: prefersReducedMotion()
+  });
 }
 
 function setVoiceState(next) {
@@ -8848,7 +8991,9 @@ function localAssistantForMode(compareModels = [], council = false) {
   };
 }
 
-async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null, skillIds = [], skillMarks = [] }) {
+// `voice` (voice mode) sends a spoken turn with Think and the voice prompt, leaves the composer
+// alone, and reports stream events; the result tells voice mode how the turn ended.
+async function executeSend({ text, images, compareModels, council = false, describeImages = false, newChat = false, editMessageId = "", keepAttachments = [], paste = null, skillIds = [], skillMarks = [], voice = null }) {
   compareController.closeCompareContextBanner();
   const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
   const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
@@ -8869,12 +9014,13 @@ async function executeSend({ text, images, compareModels, council = false, descr
   const conversationPromise = creatingConversation
     ? createConversation(state.session, {
         role: selectedChatRole(),
+        ...(voice ? { role: "think" } : {}),
         projectId: state.activeProjectId || (state.studyOpen ? state.activeCourseId : "") || null
       })
     : null;
   let conversationId = state.activeConversationId;
   let runKey = creatingConversation ? "" : conversationRunKey(conversationId, temporaryChat);
-  if (!creatingConversation && (!runKey || getConversationRun(runKey))) return;
+  if (!creatingConversation && (!runKey || getConversationRun(runKey))) return null;
 
   const keptParts = keepAttachments.map((att) => att.category === "document"
     ? { type: "file", file: { attachment_id: att.id, file_name: att.fileName, content_type: att.contentType, url: att.url } }
@@ -8920,15 +9066,17 @@ async function executeSend({ text, images, compareModels, council = false, descr
   } else {
     state.messages.push(localUser, localAssistant);
   }
-  setComposerPlainText("");
-  state.pastedText = "";
-  if (!editMessageId) {
-    closeSkillMenu();
+  if (!voice) {
+    setComposerPlainText("");
+    state.pastedText = "";
+    if (!editMessageId) {
+      closeSkillMenu();
+    }
+    applyComposerHeight();
+    for (const item of images) forgetPendingDocument(item);
+    state.images = [];
+    renderImages();
   }
-  applyComposerHeight();
-  for (const item of images) forgetPendingDocument(item);
-  state.images = [];
-  renderImages();
 
   if (creatingConversation) {
     state.projectsOpen = false;
@@ -8952,15 +9100,18 @@ async function executeSend({ text, images, compareModels, council = false, descr
       payload = await conversationPromise;
     } catch (error) {
       Object.assign(state, rollback);
-      state.images = images;
-      for (const item of images) rememberPendingDocument(item);
-      setComposerPlainText(text, sendSkillMarks);
+      if (!voice) {
+        state.images = images;
+        for (const item of images) rememberPendingDocument(item);
+        setComposerPlainText(text, sendSkillMarks);
+      }
       setRunning(false);
       renderImages();
       applyComposerHeight();
       renderShell();
+      if (voice) return { error: error.message || "Chat could not be created." };
       showToast(error.message || "Chat could not be created.");
-      return;
+      return null;
     }
     state.conversations.unshift(payload.conversation);
     state.activeConversationId = payload.conversation.id;
@@ -8984,6 +9135,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   activeRun.userMessage = localUser;
   activeRun.assistantMessage = localAssistant;
   activeRun.draft = { text, images, skillIds: sendSkillIds, skillMarks: sendSkillMarks };
+  voice?.onStart?.(() => abortController.abort());
   setAutoScroll(true);
   syncActiveRunningUi();
   renderMessages();
@@ -9019,9 +9171,12 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const courseSources = !temporaryChat && state.studyOpen ? studyHub?.chatSources?.() || [] : [];
     const payload = {
       text,
-      clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`,
+      // Voice turns stream directly (no queued turn), so interrupting one keeps its partial reply.
+      ...(voice ? {} : {
+        clientTurnKey: (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `00000000-0000-4000-8000-${Date.now().toString().padStart(12, "0").slice(-12)}`
+      }),
       attachments: uploaded.map((item) => item.id),
       role: selectedChatRole(),
       settings: chatRequestSettings(),
@@ -9033,7 +9188,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
       ...(courseSources.length ? { sources: courseSources } : {}),
       ...(paste ? { paste } : {}),
       ...(describeImages ? { describeImages: true } : {}),
-      ...(editMessageId ? { editUserMessageId: editMessageId } : {})
+      ...(editMessageId ? { editUserMessageId: editMessageId } : {}),
+      ...(voice ? { role: "think", voice: true } : {})
     };
 
     if (temporaryChat) {
@@ -9045,6 +9201,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         onEvent: (event) => {
           trackPendingTurnEvent(event, activeRun);
           applyStreamEvent(localAssistant, event);
+          voiceStreamEvent(voice, localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
           queueStreamRenderForEvent(localAssistant, event);
         }
@@ -9082,12 +9239,14 @@ async function executeSend({ text, images, compareModels, council = false, descr
         onEvent: (event) => {
           trackPendingTurnEvent(event, activeRun);
           applyStreamEvent(localAssistant, event);
+          voiceStreamEvent(voice, localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
           queueStreamRenderForEvent(localAssistant, event);
         }
       });
     }
 
+    voice?.onStreamEnd?.();
     markAssistantActivityDoneTree(localAssistant);
     await (temporaryChat ? loadMe() : Promise.all([loadMe(), loadConversations()]));
     shouldReloadConversation = true;
@@ -9161,6 +9320,14 @@ async function executeSend({ text, images, compareModels, council = false, descr
       });
     }
   }
+  return { ok: shouldReloadConversation, aborted: wasAborted, error: localAssistant.error || "" };
+}
+
+function voiceStreamEvent(voice, message, event) {
+  if (!voice) return;
+  if (typeof event?.type === "string" && event.type.startsWith("tool:")) voice.onTool?.(event);
+  const content = typeof message.content === "string" ? message.content : rawTextContent(message.content);
+  if (content) voice.onText?.(content);
 }
 
 async function signOutAndReset() {
@@ -10705,6 +10872,7 @@ function bindEvents() {
   });
   els.attachmentModelNoticeClose?.addEventListener("click", hideAttachmentModelNotice);
   els.voiceButton?.addEventListener("click", toggleVoiceRecording);
+  els.voiceModeButton?.addEventListener("click", () => { void openVoiceMode(); });
   els.stopButton.addEventListener("click", () => {
     if (state.activeResearchId) {
       cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));

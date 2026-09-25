@@ -265,7 +265,7 @@ const PALETTES = {
 const rgba = (color, alpha) => `rgba(${color[0] | 0}, ${color[1] | 0}, ${color[2] | 0}, ${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
 const shade = (color, amount) => color.map((channel) => amount >= 0 ? channel + (255 - channel) * amount : channel * (1 + amount));
 
-function createOrb(canvas, { calm = false } = {}) {
+export function createOrb(canvas, { calm = false } = {}) {
   const g = canvas.getContext("2d");
   const mix = JSON.parse(JSON.stringify(PALETTES.idle));
   let mode = "idle";
@@ -275,20 +275,30 @@ function createOrb(canvas, { calm = false } = {}) {
   let last = 0;
   let raf = 0;
   let ripple = 0;
+  let tint = null;
+  let stir = 0;
 
   function frame(now) {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, last ? (now - last) / 1000 : 0.016);
     last = now;
-    const goal = PALETTES[mode] || PALETTES.idle;
+    const modeGoal = PALETTES[mode] || PALETTES.idle;
+    const goal = tint ? { ...modeGoal, ...tint } : modeGoal;
     const blend = Math.min(1, dt * 3);
-    for (const key of ["a", "b", "c", "glow"]) mix[key] = mix[key].map((value, index) => value + (goal[key][index] - value) * blend);
+    // While stirring (a recolor), the inner swirls take the new colors first and the body follows,
+    // so the change blooms from inside the orb.
+    const rate = { a: stir ? dt * 2.6 : blend, glow: stir ? dt * 2.6 : blend, b: stir ? dt * 4 : blend, c: stir ? dt * 6 : blend };
+    for (const key of ["a", "b", "c", "glow"]) mix[key] = mix[key].map((value, index) => value + (goal[key][index] - value) * Math.min(1, rate[key]));
+    stir = Math.max(0, stir - dt * 1.1);
     mix.speed += (goal.speed - mix.speed) * blend;
     mix.wobble += (goal.wobble - mix.wobble) * blend;
     level += (target - level) * (target > level ? 0.4 : 0.07);
-    phase += dt * mix.speed * (calm ? 0.4 : 1);
+    phase += dt * (mix.speed + stir * 2.4) * (calm ? 0.4 : 1);
     ripple = (ripple + dt * (0.35 + level * 0.6)) % 1;
 
+    // Mid-recolor the orb brightens toward white, so two far-apart colors never meet as grey.
+    const bloom = 0.4 * Math.sin(Math.PI * stir);
+    const show = bloom ? { a: shade(mix.a, bloom), b: shade(mix.b, bloom), c: shade(mix.c, bloom), glow: shade(mix.glow, bloom) } : mix;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     if (!width || !height) return;
@@ -306,8 +316,8 @@ function createOrb(canvas, { calm = false } = {}) {
     const radius = base * (1 + 0.09 * level * lift + 0.02 * Math.sin(phase * 1.4));
 
     const glow = g.createRadialGradient(cx, cy, radius * 0.55, cx, cy, Math.min(radius * 1.75, Math.min(width, height) / 2 - 1));
-    glow.addColorStop(0, rgba(mix.glow, 0.34 + 0.3 * level));
-    glow.addColorStop(1, rgba(mix.glow, 0));
+    glow.addColorStop(0, rgba(show.glow, 0.34 + 0.3 * level));
+    glow.addColorStop(1, rgba(show.glow, 0));
     g.fillStyle = glow;
     g.fillRect(0, 0, width, height);
 
@@ -317,7 +327,7 @@ function createOrb(canvas, { calm = false } = {}) {
         const p = (ripple + k * 0.5) % 1;
         g.beginPath();
         g.arc(cx, cy, radius * (1.02 + p * 0.55), 0, Math.PI * 2);
-        g.strokeStyle = rgba(mix.b, (1 - p) * (0.12 + level * 0.35));
+        g.strokeStyle = rgba(show.b, (1 - p) * (0.12 + level * 0.35));
         g.lineWidth = 1.5;
         g.stroke();
       }
@@ -339,18 +349,18 @@ function createOrb(canvas, { calm = false } = {}) {
     g.clip();
     // Grass green sweeping into sky blue across the orb, so the hue shift stays visible.
     const body = g.createLinearGradient(cx - radius, cy - radius, cx + radius * 0.9, cy + radius);
-    body.addColorStop(0, rgba(shade(mix.b, 0.35), 1));
-    body.addColorStop(0.4, rgba(mix.b, 1));
-    body.addColorStop(0.75, rgba(mix.a, 1));
-    body.addColorStop(1, rgba(shade(mix.a, -0.08), 1));
+    body.addColorStop(0, rgba(shade(show.b, 0.35), 1));
+    body.addColorStop(0.4, rgba(show.b, 1));
+    body.addColorStop(0.75, rgba(show.a, 1));
+    body.addColorStop(1, rgba(shade(show.a, -0.08), 1));
     g.fillStyle = body;
     g.fillRect(cx - radius * 1.3, cy - radius * 1.3, radius * 2.6, radius * 2.6);
 
     g.globalCompositeOperation = "screen";
-    [mix.b, mix.c, shade(mix.b, 0.2)].forEach((color, k) => {
+    [show.b, show.c, shade(show.b, 0.2)].forEach((color, k) => {
       const x = cx + radius * 0.44 * Math.sin(phase * (0.7 + k * 0.23) + k * 2.1);
       const y = cy + radius * 0.4 * Math.cos(phase * (0.9 + k * 0.17) + k * 1.3);
-      const r = radius * (0.5 + 0.12 * Math.sin(phase * 0.8 + k) + 0.18 * level);
+      const r = radius * (0.5 + 0.12 * Math.sin(phase * 0.8 + k) + 0.18 * level + 0.3 * Math.sin(Math.PI * stir));
       const swirl = g.createRadialGradient(x, y, 0, x, y, r);
       swirl.addColorStop(0, rgba(color, k === 1 ? 0.4 : 0.6));
       swirl.addColorStop(1, rgba(color, 0));
@@ -389,6 +399,12 @@ function createOrb(canvas, { calm = false } = {}) {
   return {
     setMode(next) { mode = next; },
     setLevel(value) { target = Math.max(0, Math.min(1, value)); },
+    // Recolors the orb, swirling the new colors in from the middle; `instant` skips the blend.
+    setPalette(colors, { instant = false } = {}) {
+      tint = colors ? { a: colors.a, b: colors.b, c: colors.c, glow: colors.glow } : null;
+      if (instant && tint) for (const key of ["a", "b", "c", "glow"]) mix[key] = [...tint[key]];
+      else stir = 1;
+    },
     start() { if (!raf) { last = 0; raf = requestAnimationFrame(frame); } },
     stop() { cancelAnimationFrame(raf); raf = 0; }
   };

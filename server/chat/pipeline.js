@@ -28,7 +28,7 @@ import {
   sanitizeProviderEvent
 } from "../saas/messages.js";
 import { modelSupportsVision } from "../saas/models.js";
-import { loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
+import { VOICE_SYSTEM_PROMPT, loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { loadUserMemory, maybeRefreshUserMemory, withUserMemorySystemPrompt } from "../saas/userMemory.js";
 import {
@@ -71,7 +71,7 @@ import { requireChatContext } from "../routes/context.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
-import { buildUntrustedWebContext, injectWebContextMessage } from "./shared.js";
+import { buildUntrustedWebContext, injectWebContextMessage, withoutReasoning } from "./shared.js";
 import {
   createAssistantOutputMessage,
   hasAssistantOutput,
@@ -864,7 +864,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
       throw new HttpError(400, `Council supports up to ${COUNCIL_MAX_MODELS} models.`);
     }
   }
-  const skillIds = isRetry || isEdit
+  // Voice mode: one model, spoken replies. Retries and edits of a voice turn run as text.
+  const voiceMode = body.voice === true && !isRetry && !isEdit;
+  if (voiceMode && (councilEnabled || compareModels.length)) {
+    throw new HttpError(400, "Voice mode answers with one model.");
+  }
+  const skillIds = voiceMode
+    ? []
+    : isRetry || isEdit
     ? normalizeComposerSkillIds(userMessage?.metadata?.skillIds)
     : normalizeComposerSkillIds(body.skillIds);
   const visualizing = skillIds.includes("visualize");
@@ -883,14 +890,14 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const settings = normalizeMessageSettings(body);
   if (routed.effort) settings.reasoning_effort = routed.effort;
   const [globalSystemPrompt, userMemory] = await Promise.all([
-    loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+    voiceMode ? VOICE_SYSTEM_PROMPT : loadGlobalSystemPrompt(context.db, { signal: req.signal }),
     loadUserMemory(context.db, context.user.id, { signal: req.signal })
   ]);
-  settings.systemPrompt = withWritingStyleSystemPrompt(
-    withUserMemorySystemPrompt(globalSystemPrompt, userMemory?.content),
-    body.writingStyle
-  );
-  settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, skillIds);
+  settings.systemPrompt = withUserMemorySystemPrompt(globalSystemPrompt, userMemory?.content);
+  if (!voiceMode) {
+    settings.systemPrompt = withWritingStyleSystemPrompt(settings.systemPrompt, body.writingStyle);
+    settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, skillIds);
+  }
   settings.systemPrompt = withResponseAdjustmentSystemPrompt(
     settings.systemPrompt,
     responseAdjustment,
@@ -906,9 +913,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
   if (project?.instructions) {
     settings.systemPrompt = `${settings.systemPrompt || ""}\n\nProject instructions from the user:\n${project.instructions}`.trim();
   }
-  settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt, {
-    emailMode: needsEmailPrompt(contentText(userContent), existingMessages)
-  });
+  if (!voiceMode) {
+    settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt, {
+      emailMode: needsEmailPrompt(contentText(userContent), existingMessages)
+    });
+  }
   const fencedModelClient = wrapProviderCallsWithTurnFence({
     modelClient: { chatCompletion, streamChatCompletion },
     db: context.db,
@@ -1372,6 +1381,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;
   const { augmented, enabled: toolEnabled } = toolSetup;
+  if (voiceMode) equippedRequest = withoutReasoning(equippedRequest);
   if (directPdfContext.textMessage || directPdfContext.message) {
     let messages = injectWebContextMessage(equippedRequest.messages, directPdfContext.textMessage);
     if (directPdfContext.message) messages = [...messages, directPdfContext.message];
@@ -1619,7 +1629,8 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       ...(typeof body.chairmanModel === "string" && body.chairmanModel.trim()
         ? { chairmanModel: body.chairmanModel.trim() }
         : {}),
-      ...(body.describeImages ? { describeImages: true } : {})
+      ...(body.describeImages ? { describeImages: true } : {}),
+      ...(body.voice === true && !models.length ? { voice: true } : {})
     }
   };
 }

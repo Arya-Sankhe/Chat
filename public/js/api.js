@@ -231,6 +231,36 @@ export async function transcribeSpeech(session, audio) {
   return response.json();
 }
 
+export async function warmVoiceMode(session) {
+  const response = await apiFetch("/api/voice/warm", { session, method: "POST" });
+  if (!response.ok) throw new Error(await readProblem(response));
+}
+
+export async function transcribeVoiceTurn(session, audio, { signal } = {}) {
+  const response = await apiFetch("/api/voice/transcribe", {
+    session,
+    method: "POST",
+    headers: { "content-type": audio.type || "audio/webm" },
+    body: audio,
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+/** Speaks one short piece of text with Kokoro; resolves to the MP3 bytes. */
+export async function synthesizeVoice(session, { text, voice, speed }, { signal } = {}) {
+  const response = await apiFetch("/api/voice/speech", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text, voice, speed }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.arrayBuffer();
+}
+
 export async function listConversations(session) {
   const response = await apiFetch("/api/conversations", { session });
   if (!response.ok) throw new Error(await readProblem(response));

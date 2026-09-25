@@ -200,9 +200,10 @@ function speechRoute(config) {
   return { url: `${provider.baseUrl}/audio/speech`, apiKey: provider.apiKey, model: TTS_MODEL, extra: { provider: TTS_PROVIDER } };
 }
 
-export async function synthesizeSpeech({ config, text, voice, signal, fetchImpl = fetch }) {
+export async function synthesizeSpeech({ config, text, voice, speed = 1, signal, fetchImpl = fetch }) {
   const route = speechRoute(config);
-  const body = JSON.stringify({ model: route.model, input: text, voice, response_format: "mp3", ...route.extra });
+  const pace = Number(speed) || 1;
+  const body = JSON.stringify({ model: route.model, input: text, voice, response_format: "mp3", ...(pace !== 1 ? { speed: pace } : {}), ...route.extra });
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const timeout = AbortSignal.timeout(TTS_TIMEOUT_MS);
     let response;

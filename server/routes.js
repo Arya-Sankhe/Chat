@@ -57,6 +57,7 @@ import { handleConversationMessage, handlePendingDocumentTurnCancel } from "./ch
 import { handleTemporaryChat } from "./chat/temporary.js";
 import { handleEmailRevise } from "./chat/emailRevise.js";
 import { handleSpeechToText } from "./routes/speech.js";
+import { handleVoiceSpeech, handleVoiceTranscribe, handleVoiceWarm } from "./routes/voice.js";
 import { handleStudyCourseTutor, handleStudyTutorById, handleStudyTutorEnd, handleStudyTutorTranscribe, handleStudyTutorTurn } from "./routes/tutor.js";
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
@@ -459,6 +460,21 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/speech-to-text") {
       await handleSpeechToText(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/voice/transcribe") {
+      await handleVoiceTranscribe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/voice/warm") {
+      await handleVoiceWarm(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/voice/speech") {
+      await handleVoiceSpeech(req, res, config);
       return;
     }
 

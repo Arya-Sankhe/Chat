@@ -96,3 +96,10 @@ export function hasAssistantOutput(accumulated, artifacts = []) {
     (Array.isArray(artifacts) && artifacts.length)
   );
 }
+
+// Voice replies skip the reasoning pass: spoken answers are short, and the first words arrive
+// one to two seconds sooner. The model (Think) stays the same.
+export function withoutReasoning(request) {
+  const { reasoning_effort: _effort, ...rest } = request || {};
+  return { ...rest, reasoning: { enabled: false } };
+}

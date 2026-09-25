@@ -8,7 +8,7 @@ import {
   normalizeMessageSettings,
   sanitizeProviderEvent
 } from "../saas/messages.js";
-import { loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
+import { VOICE_SYSTEM_PROMPT, loadGlobalSystemPrompt, needsEmailPrompt, withEmailComposerPrompt, withModelSystemPrompt } from "../saas/systemPrompt.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { illustrationSkillFromIds, withComposerSkillsSystemPrompt } from "../saas/composerSkills.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
@@ -25,7 +25,7 @@ import {
   resolveWebSearchMode,
   withAvailableTools
 } from "./pipeline.js";
-import { hasAssistantOutput, writeSse } from "./shared.js";
+import { hasAssistantOutput, withoutReasoning, writeSse } from "./shared.js";
 import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
 
 function normalizeTemporaryHistory(messages) {
@@ -89,15 +89,20 @@ export async function handleTemporaryChat(req, res, config) {
   if (routed.effort) settings.reasoning_effort = routed.effort;
   const userContent = buildStoredUserContent(body.text, attachments);
   const priorMessages = normalizeTemporaryHistory(body.messages);
-  settings.systemPrompt = withWritingStyleSystemPrompt(
-    await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
-    body.writingStyle
-  );
-  settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, body.skillIds);
-  settings.systemPrompt += "\n\nTemporary chat cannot create, edit, or export documents. If the user asks for a document, tell them: “I can’t create documents in temporary chat. I can only create documents in a normal chat.” Do not claim document tools are generally unavailable or list unrelated capabilities.";
-  settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt, {
-    emailMode: needsEmailPrompt(contentText(userContent), priorMessages)
-  });
+  if (body.voice === true) {
+    // Spoken replies: the short voice prompt, like voice mode in saved chats.
+    settings.systemPrompt = VOICE_SYSTEM_PROMPT;
+  } else {
+    settings.systemPrompt = withWritingStyleSystemPrompt(
+      await loadGlobalSystemPrompt(context.db, { signal: req.signal }),
+      body.writingStyle
+    );
+    settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, body.skillIds);
+    settings.systemPrompt += "\n\nTemporary chat cannot create, edit, or export documents. If the user asks for a document, tell them: “I can’t create documents in temporary chat. I can only create documents in a normal chat.” Do not claim document tools are generally unavailable or list unrelated capabilities.";
+    settings.systemPrompt = withEmailComposerPrompt(settings.systemPrompt, {
+      emailMode: needsEmailPrompt(contentText(userContent), priorMessages)
+    });
+  }
   const promptText = contentText(userContent);
   const historyMessages = [
     ...priorMessages,
@@ -148,7 +153,7 @@ export async function handleTemporaryChat(req, res, config) {
         userText: promptText
       })
     : { request: baseChatRequest, augmented: false };
-  const chatRequest = toolSetup.request;
+  const chatRequest = body.voice === true ? withoutReasoning(toolSetup.request) : toolSetup.request;
   const controller = new AbortController();
   res.on("close", () => {
     if (!res.writableEnded) controller.abort();

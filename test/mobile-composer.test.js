@@ -4,7 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 
 const appJs = readFileSync(new URL("../public/js/app.js", import.meta.url), "utf8");
-const functions = ["updateSendButton", "setVoiceState", "finishVoiceRecording", "stopVoiceRecording", "toggleVoiceRecording", "sendPrompt"]
+const functions = ["updateSendButton", "voiceModeAvailable", "setVoiceModeButton", "setVoiceState", "finishVoiceRecording", "stopVoiceRecording", "toggleVoiceRecording", "sendPrompt"]
   .map((name) => {
     const source = appJs.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n\\}(?=\\n|$)`))?.[0];
     assert.ok(source, `${name} not found`);
@@ -15,14 +15,24 @@ const listeners = appJs.slice(
   appJs.indexOf('  els.clarificationCard?.addEventListener("click"')
 );
 
-function composer({ native = true } = {}) {
+function composer({ native = true, voiceMode = false } = {}) {
   const classes = new Set();
+  const voiceModeClasses = new Set(["hidden"]);
+  const voiceModeButton = {
+    disabled: true,
+    classList: {
+      toggle(name, on) { if (on) voiceModeClasses.add(name); else voiceModeClasses.delete(name); },
+      contains: (name) => voiceModeClasses.has(name),
+    },
+  };
   const stopClasses = new Set(["hidden"]);
   const handlers = {};
   const sendButton = {
     disabled: false,
     classList: {
       toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
     },
     setAttribute() {},
     addEventListener(type, handler) { handlers[type] = handler; },
@@ -37,9 +47,11 @@ function composer({ native = true } = {}) {
     Blob, Event,
     voiceState: "idle", voiceChunks: [], voiceCommit: true, voiceStream: null, voiceRecorder: null,
     state: { running: true, clarificationChecking: false, images: [], followUps: [], config: { services: { speech: true } } },
+    voiceModeSupported: () => voiceMode,
     els: {
       sendButton,
       stopButton,
+      voiceModeButton,
       promptInput: {
         focus() {}, blur() {},
         dispatchEvent(event) { assert.equal(event.type, "input"); ctx.inputs += 1; ctx.updateSendButton(); },
@@ -63,7 +75,7 @@ function composer({ native = true } = {}) {
   };
   runInNewContext(`${functions}\n${listeners}`, ctx);
   return {
-    ctx, classes, stopClasses, sendButton, stopButton,
+    ctx, classes, stopClasses, voiceModeClasses, sendButton, stopButton, voiceModeButton,
     pointer(options = {}) {
       const event = { button: 0, isPrimary: true, prevented: false, preventDefault() { this.prevented = true; }, ...options };
       handlers.pointerdown(event);
@@ -207,4 +219,33 @@ test("native generic hover and press backgrounds cannot override the send accent
     }
   }
   assert.match(css, /body\.capacitor-native \.send-btn:active,[^{}]*\{\s*transform: scale\(0\.94\)/);
+});
+
+test("an empty idle composer offers voice mode in place of Send", () => {
+  const c = composer({ voiceMode: true });
+  c.ctx.state.running = false;
+  c.ctx.updateSendButton();
+  assert.equal(c.classes.has("hidden"), true, "send yields to the voice button");
+  assert.equal(c.voiceModeClasses.has("hidden"), false);
+  assert.equal(c.voiceModeButton.disabled, false);
+
+  c.ctx.text = "hello";
+  c.ctx.updateSendButton();
+  assert.equal(c.classes.has("hidden"), false, "typing brings Send back");
+  assert.equal(c.classes.has("is-from-voice"), true, "Send morphs in from the voice button");
+  assert.equal(c.voiceModeClasses.has("hidden"), true);
+  c.ctx.text = "hello!";
+  c.classes.delete("is-from-voice");
+  c.ctx.updateSendButton();
+  assert.equal(c.classes.has("is-from-voice"), false, "more typing does not replay the morph");
+
+  c.ctx.text = "";
+  c.ctx.state.running = true;
+  c.ctx.updateSendButton();
+  assert.equal(c.voiceModeClasses.has("hidden"), true, "no voice button while a reply runs");
+
+  c.ctx.state.running = false;
+  c.record();
+  assert.equal(c.voiceModeClasses.has("hidden"), true, "no voice button while dictating");
+  assert.equal(c.classes.has("hidden"), false, "the transcribe tick stays visible");
 });

@@ -1,21 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { HttpError, parseJsonBody, readRawBody, sendJson } from "../http/responses.js";
+import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { startSse, writeSse } from "../chat/shared.js";
-import { apiUsageWindow } from "../saas/billing.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
-import { validatedAudioDuration } from "../speech/audio.js";
 import { endTutorSession, prepareTutorSession, publicTutorSession, runTutorTurn } from "../study/tutor.js";
 import { requireChatContext } from "./context.js";
-import { settleSpeechUsage, transcribeAudio } from "./speech.js";
+import { transcribeLiveRecording } from "./speech.js";
 import { cleanDeckTitle, endStudySse, requireCourse, requireCourseSource } from "./study.js";
 
-// Grok STT takes the browser's WebM/Opus recording as is, so no client-side WAV conversion.
-export const TUTOR_STT_MODEL = "x-ai/grok-stt-1.0";
-// $0.10 per audio hour; a spoken answer is capped at three minutes, which costs $0.005.
-const TUTOR_STT_RESERVATION = 0.01;
-const TUTOR_STT_MAX_BYTES = 4 * 1024 * 1024;
-const TUTOR_STT_MAX_SECONDS = 180;
 const TURN_TIMEOUT_MS = 90_000;
 const PREPARE_TIMEOUT_MS = 5 * 60_000;
 
@@ -171,60 +162,7 @@ export async function handleStudyTutorTranscribe(req, res, config, sessionId) {
   enforceRateLimit(req, "study-tutor-stt", 90, 60_000, context.user.id);
   const session = await requireTutorSession(context, sessionId, req.signal);
   if (session.status === "ended") throw new HttpError(409, "This tutor session has ended.");
-  const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
-  if (!contentType.startsWith("audio/")) throw new HttpError(415, "An audio recording is required.");
-  const audio = await readRawBody(req, TUTOR_STT_MAX_BYTES);
-  if (!audio.length) throw new HttpError(400, "The audio recording is empty.");
-  // Live MediaRecorder WebM has no duration header; the byte cap bounds it and billing uses
-  // the seconds Grok reports.
-  let durationSeconds = 0;
-  try {
-    durationSeconds = validatedAudioDuration(audio, contentType, { maxSeconds: TUTOR_STT_MAX_SECONDS });
-  } catch (error) {
-    if (error?.status === 413) throw error;
-  }
-
-  const requestId = randomUUID();
-  const reservation = await context.db.reserveApiUsage({
-    userId: context.user.id,
-    requestId,
-    subscriptionId: context.subscription?.id || null,
-    planId: context.plan.id,
-    surface: "web",
-    modality: "stt",
-    oauthClientId: null,
-    provider: "openrouter",
-    model: TUTOR_STT_MODEL,
-    ...apiUsageWindow(context.subscription, context.plan),
-    reservedCredits: TUTOR_STT_RESERVATION
-  }, { signal: AbortSignal.timeout(15_000) });
-  if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
-  if (reservation?.reason === "usage_metering_disabled") throw new HttpError(503, "Usage metering is temporarily unavailable.");
-  if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
-
-  const signal = AbortSignal.any([req.signal || new AbortController().signal, AbortSignal.timeout(30_000)]);
-  const settle = (fields) => settleSpeechUsage(context, { requestId, durationSeconds, signal: AbortSignal.timeout(15_000), ...fields });
-  try {
-    await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });
-  } catch {
-    await context.db.releaseApiUsage({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
-    throw new HttpError(503, "Usage metering is temporarily unavailable.");
-  }
-  let response;
-  try {
-    response = await transcribeAudio(config, audio, contentType, signal, TUTOR_STT_MODEL);
-  } catch {
-    await settle({ ok: false }).catch(() => {});
-    throw new HttpError(signal.aborted ? 504 : 502, "Speech transcription is temporarily unavailable.");
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
-    await settle({ ok: false }).catch(() => {});
-    throw new HttpError(502, "Speech transcription failed.");
-  }
-  const payload = await response.json().catch(() => ({}));
-  await settle({ payload, ok: true }).catch(() => {});
-  sendJson(res, 200, { text: String(payload?.text || "").trim(), seconds: Number(payload?.usage?.seconds) || durationSeconds || 0 });
+  sendJson(res, 200, await transcribeLiveRecording(req, context, config));
 }
 
 export async function handleStudyTutorEnd(req, res, config, sessionId) {

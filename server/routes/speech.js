@@ -76,6 +76,74 @@ export async function settleSpeechUsage(context, { requestId, durationSeconds, p
   return usage;
 }
 
+// Live voice turns (tutor calls, chat voice mode). Grok STT takes the browser's WebM/Opus
+// recording as is, so there is no client-side WAV conversion and no extra latency.
+export const LIVE_STT_MODEL = "x-ai/grok-stt-1.0";
+// $0.10 per audio hour; a spoken turn is capped at three minutes, which costs $0.005.
+const LIVE_STT_RESERVATION = 0.01;
+const LIVE_STT_MAX_BYTES = 4 * 1024 * 1024;
+const LIVE_STT_MAX_SECONDS = 180;
+
+/** Meters and transcribes one live recording from the request body. Returns { text, seconds }. */
+export async function transcribeLiveRecording(req, context, config) {
+  if (!config.providers?.openrouter?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
+  const contentType = String(req.headers["content-type"] || "").split(";", 1)[0].trim().toLowerCase();
+  if (!contentType.startsWith("audio/")) throw new HttpError(415, "An audio recording is required.");
+  const audio = await readRawBody(req, LIVE_STT_MAX_BYTES);
+  if (!audio.length) throw new HttpError(400, "The audio recording is empty.");
+  // Live MediaRecorder WebM has no duration header; the byte cap bounds it and billing uses
+  // the seconds Grok reports.
+  let durationSeconds = 0;
+  try {
+    durationSeconds = validatedAudioDuration(audio, contentType, { maxSeconds: LIVE_STT_MAX_SECONDS });
+  } catch (error) {
+    if (error?.status === 413) throw error;
+  }
+
+  const requestId = randomUUID();
+  const reservation = await context.db.reserveApiUsage({
+    userId: context.user.id,
+    requestId,
+    subscriptionId: context.subscription?.id || null,
+    planId: context.plan.id,
+    surface: "web",
+    modality: "stt",
+    oauthClientId: null,
+    provider: "openrouter",
+    model: LIVE_STT_MODEL,
+    ...apiUsageWindow(context.subscription, context.plan),
+    reservedCredits: LIVE_STT_RESERVATION
+  }, { signal: AbortSignal.timeout(15_000) });
+  if (reservation?.duplicate) throw new HttpError(409, "This request ID has already been used.");
+  if (reservation?.reason === "usage_metering_disabled") throw new HttpError(503, "Usage metering is temporarily unavailable.");
+  if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
+
+  const signal = AbortSignal.any([req.signal || new AbortController().signal, AbortSignal.timeout(30_000)]);
+  const settle = (fields) => settleSpeechUsage(context, { requestId, durationSeconds, signal: AbortSignal.timeout(15_000), ...fields });
+  try {
+    await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });
+  } catch {
+    await context.db.releaseApiUsage({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) }).catch(() => {});
+    throw new HttpError(503, "Usage metering is temporarily unavailable.");
+  }
+  let response;
+  try {
+    response = await transcribeAudio(config, audio, contentType, signal, LIVE_STT_MODEL);
+  } catch {
+    await settle({ ok: false }).catch(() => {});
+    throw new HttpError(signal.aborted ? 504 : 502, "Speech transcription is temporarily unavailable.");
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    await settle({ ok: false }).catch(() => {});
+    throw new HttpError(502, "Speech transcription failed.");
+  }
+  const payload = await response.json().catch(() => ({}));
+  // Settling does not hold up the transcript: the next turn is waiting on it.
+  void settle({ payload, ok: true }).catch(() => {});
+  return { text: String(payload?.text || "").trim(), seconds: Number(payload?.usage?.seconds) || durationSeconds || 0 };
+}
+
 export async function handleSpeechToText(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   if (!config.providers?.openrouter?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
