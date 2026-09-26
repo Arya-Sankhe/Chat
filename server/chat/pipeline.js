@@ -66,8 +66,7 @@ import {
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
   resolveProvider,
-  thinkUsesLunaFlex,
-  voiceModeRole
+  thinkUsesLunaFlex
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import { purgeMessageStorage } from "../routes/conversations.js";
@@ -843,9 +842,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   const provider = resolveProvider("openrouter", config);
   const hasCompareMedia = requestHasCompareMedia({ userContent, existingMessages, attachments });
-  // Voice mode: Nitro while it is fast enough to speak from, otherwise Think.
+  // Voice mode always answers with Think (DeepSeek V4 Flash), reasoning off (see withVoiceReasoning).
   const voiceRole = body.voice === true && !isRetry && !isEdit && earlyRoute.role !== "compare" && earlyRoute.role !== "council"
-    ? await voiceModeRole(provider)
+    ? "think"
     : null;
   const routed = resolveChatRole({
     role: voiceRole || body.role,

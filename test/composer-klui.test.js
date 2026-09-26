@@ -11,7 +11,7 @@ function fakeElement() {
   const element = {
     dataset: {}, style: { setProperty() {} },
     classList: { add() {}, remove() {} },
-    setAttribute() {}, append() {}, prepend() {}, remove() {},
+    setAttribute() {}, append() {}, prepend() {}, remove() {}, addEventListener() {},
     getAnimations: () => animations.filter((a) => !a.cancelled && (a.running || a.options.fill === "forwards")),
     animate(frames, options) {
       const animation = { frames, options, running: true, cancelled: false, cancel() { this.cancelled = true; } };

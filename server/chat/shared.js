@@ -97,9 +97,8 @@ export function hasAssistantOutput(accumulated, artifacts = []) {
   );
 }
 
-// Voice replies think at low effort: enough to keep answers right, without the long pause a
-// higher effort adds before the first spoken word.
+// Voice replies skip reasoning, so the first spoken word comes as soon as the answer starts.
 export function withVoiceReasoning(request) {
-  const { reasoning: _reasoning, ...rest } = request || {};
-  return { ...rest, reasoning_effort: "low" };
+  const { reasoning_effort: _effort, ...rest } = request || {};
+  return { ...rest, reasoning: { enabled: false } };
 }

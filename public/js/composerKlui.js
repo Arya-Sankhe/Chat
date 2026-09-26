@@ -2,6 +2,8 @@
 // turns sideways to a mini laptop, types for a moment, puts it away and turns back to the user,
 // blinking now and then. When the user sends a message it drops into a portal, and the thinking
 // bar's own Klui falls out of another portal above the new reply.
+// Tapping Klui makes it hop; tap it five times quickly and it runs off through a portal at the far
+// end of the composer, coming back ten seconds later the way it does after a reply.
 
 const COLORS = {
   body: "#8fd3fb",
@@ -11,6 +13,9 @@ const COLORS = {
   screen: "#bfe6ff"
 };
 const TYPING_MS = 2400;
+const RUNAWAY_TAPS = 5;
+const TAP_WINDOW_MS = 2200;
+const AWAY_MS = 10_000;
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,6 +78,9 @@ export function createComposerKlui({ host, findTarget }) {
   const stage = document.createElement("div");
   stage.className = "kp-stage";
   stage.innerHTML = spriteMarkup();
+  const hit = document.createElement("span");
+  hit.className = "kp-hit";
+  stage.append(hit);
   root.append(back, stage, front);
   host.prepend(root);
   const sprite = stage.firstElementChild;
@@ -83,6 +91,11 @@ export function createComposerKlui({ host, findTarget }) {
   let run = 0; // bumps whenever a new sequence starts, so an old one stops where it is
   let blinkTimer = 0;
   let teleporting = false;
+  let lastShow = false;
+  let away = false; // ran off through the portal; back after AWAY_MS
+  let awayTimer = 0;
+  let taps = [];
+  let hop = null;
 
   function set(attrs) {
     for (const [key, value] of Object.entries(attrs)) root.dataset[key] = value;
@@ -221,6 +234,110 @@ export function createComposerKlui({ host, findTarget }) {
     }
   }
 
+  // A tap stops whatever Klui is doing and it hops; enough quick taps and it has had enough.
+  function poke() {
+    if (!shown || away || teleporting || lastRunning) return;
+    const now = Date.now();
+    taps = taps.filter((at) => now - at < TAP_WINDOW_MS);
+    taps.push(now);
+    if (taps.length >= RUNAWAY_TAPS) {
+      taps = [];
+      void runAway();
+      return;
+    }
+    if (root.dataset.facing !== "front" || root.dataset.laptop !== "none") {
+      run += 1;
+      root.classList.remove("is-turning");
+      set({ facing: "front", laptop: "none", typing: "false" });
+      blinkSoon();
+    }
+    if (reducedMotion()) return;
+    hop?.cancel();
+    hop = sprite.animate([
+      { transform: "none" },
+      { transform: "scale(1.14, .86)", offset: 0.14 },
+      { transform: "translateY(-48%) scale(.93, 1.08)", offset: 0.48, easing: "cubic-bezier(.4, 0, .9, .6)" },
+      { transform: "none", offset: 0.8 },
+      { transform: "scale(1.12, .88)", offset: 0.88 },
+      { transform: "none" }
+    ], { duration: 440, easing: "cubic-bezier(.2, .7, .4, 1)" });
+  }
+
+  async function runAway() {
+    const token = ++run;
+    const still = async (ms) => { await wait(ms); return token === run; };
+    away = true;
+    clearTimeout(blinkTimer);
+    for (const animation of sprite.getAnimations()) animation.cancel();
+    set({ facing: "front", laptop: "none", typing: "false", blink: "false", portal: "closed" });
+    const unit = parseFloat(getComputedStyle(root).getPropertyValue("--kp-unit")) || 4;
+    // The gate stands just inside the composer's far edge; Klui's body starts 8 units into its box.
+    const gateX = 18;
+    const bodyLeft = root.offsetLeft + unit * 8;
+    const runTo = -(bodyLeft - gateX - 2);
+    const gate = makePortal("is-gate");
+    gate.style.left = `${gateX}px`;
+    host.append(gate);
+    let dash = null;
+    let enter = null;
+    try {
+      if (!reducedMotion()) {
+        // A startled hop, a turn toward the far end, then off it goes.
+        const startle = sprite.animate([
+          { transform: "none" },
+          { transform: "translateY(-30%) scale(.95, 1.06)", offset: 0.45 },
+          { transform: "none" }
+        ], { duration: 240, easing: "cubic-bezier(.2, .7, .4, 1)" });
+        await played(startle, 240);
+        if (!await still(60)) return;
+        root.classList.add("is-turning");
+        if (!await still(70)) return;
+        set({ facing: "side" });
+        root.classList.remove("is-turning");
+        if (!await still(120)) return;
+        root.classList.add("is-running");
+        const runMs = Math.max(420, Math.min(1500, Math.abs(runTo) / 0.5));
+        dash = root.animate([{ transform: "none" }, { transform: `translateX(${runTo}px)` }], { duration: runMs, easing: "cubic-bezier(.45, 0, .8, .9)", fill: "forwards" });
+        await wait(Math.max(0, runMs - 380));
+        if (token !== run) return;
+        void gate.offsetWidth;
+        gate.dataset.open = "true";
+        await played(dash, 380);
+        if (token !== run) return;
+        // Into the gate: everything past its line is clipped away as Klui keeps running.
+        const inset = bodyLeft + runTo - gateX;
+        const depth = unit * 15;
+        enter = root.animate([
+          { transform: `translateX(${runTo}px)`, clipPath: `inset(-80px -80px -80px ${inset}px)` },
+          { transform: `translateX(${runTo - depth}px)`, clipPath: `inset(-80px -80px -80px ${inset + depth}px)` }
+        ], { duration: 260, easing: "linear", fill: "forwards" });
+        await played(enter, 260);
+        if (token !== run) return;
+        await wait(140);
+        gate.dataset.open = "false";
+        await wait(160);
+      }
+      if (token === run) hide();
+    } finally {
+      root.classList.remove("is-running");
+      dash?.cancel();
+      enter?.cancel();
+      gate.remove();
+      clearTimeout(awayTimer);
+      if (token === run || !shown) {
+        // Gone: come back after a while, the same way Klui arrives after a reply.
+        awayTimer = setTimeout(() => {
+          away = false;
+          if (lastShow && !lastRunning && !shown) void arrive({ laptop: true });
+        }, AWAY_MS);
+      } else {
+        away = false;
+      }
+    }
+  }
+
+  hit.addEventListener("click", poke);
+
   return {
     root,
     /**
@@ -232,6 +349,7 @@ export function createComposerKlui({ host, findTarget }) {
       const wasRunning = lastRunning;
       lastRunning = running;
       lastKey = key;
+      lastShow = show;
       if (!show) {
         if (shown) hide();
         return;
@@ -241,6 +359,8 @@ export function createComposerKlui({ host, findTarget }) {
         else if (shown && !teleporting) hide();
         return;
       }
+      // Off through the portal: it comes back on its own timer.
+      if (away) return;
       if (wasRunning && sameChat) void arrive({ laptop: true });
       else if (!shown) void arrive({ laptop: false });
     }

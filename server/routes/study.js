@@ -516,7 +516,7 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
     context.db.listProjectDocuments(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyCards(context.user.id, course.id, {
-      select: "id,document_file_id,note_id,deck_key",
+      select: "id,document_file_id,note_id,deck_key,created_at",
       signal: req.signal
     }),
     context.db.listStudyQuizzes(context.user.id, course.id, { signal: req.signal }),
@@ -553,7 +553,8 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
       id: key,
       ...source,
       title: String(deckTitlesFromMeta(meta)[key] || "").trim() || fallback,
-      cardCount: 0
+      cardCount: 0,
+      createdAt: card.created_at
     };
     deck.cardCount += 1;
     decks.set(key, deck);
@@ -563,7 +564,8 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
     quizzes: (quizzes || []).map((quiz) => ({
       id: quiz.id,
       title: quiz.title || "",
-      questionCount: Array.isArray(quiz.questions) ? quiz.questions.length : 0
+      questionCount: Array.isArray(quiz.questions) ? quiz.questions.length : 0,
+      createdAt: quiz.created_at
     })),
     podcasts: (podcasts || []).map((podcast) => ({
       id: podcast.id,

@@ -962,7 +962,7 @@
       <aside class="side-chat-panel hidden" id="sideChatPanel" role="dialog" aria-label="Temporary side chat">
         <header class="side-chat-header" id="sideChatHeader">
           <div>
-            <strong>Side chat</strong>
+            <strong id="sideChatTitle">Side chat</strong>
             <span>Temporary</span>
           </div>
           <button type="button" id="sideChatClose" aria-label="Close side chat" title="Close">
@@ -971,6 +971,7 @@
         </header>
         <button class="side-chat-context" id="sideChatContext" type="button" aria-label="View selected context"></button>
         <div class="side-chat-messages" id="sideChatMessages" aria-live="polite"></div>
+        <div class="side-chat-suggest hidden" id="sideChatSuggest" aria-label="Suggested questions"></div>
         <div class="side-chat-composer">
           <textarea id="sideChatInput" rows="1" placeholder="Ask about this" spellcheck="true"></textarea>
           <button type="button" id="sideChatSend" aria-label="Send side chat message">

@@ -44,6 +44,8 @@ const ICONS = {
   pause: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.4"/><rect x="13.5" y="5" width="4" height="14" rx="1.4"/></svg>',
   play: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 0 0 1.5.9l10-6.4a1 1 0 0 0 0-1.8l-10-6.4A1 1 0 0 0 8 5.6Z"/></svg>',
   hangup: svg('<path d="M3.4 14.2c-.5-.5-.5-1.3 0-1.8C5.8 10.1 8.8 9 12 9s6.2 1.1 8.6 3.4c.5.5.5 1.3 0 1.8l-1.5 1.5c-.4.4-1.1.5-1.6.2l-2-1.2c-.4-.3-.7-.8-.6-1.3l.2-1.5a11 11 0 0 0-6.2 0l.2 1.5c.1.5-.2 1-.6 1.3l-2 1.2c-.5.3-1.2.2-1.6-.2z"/>', 22, 1.8),
+  expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', 18),
+  shrink: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>', 18),
   keyboard: svg('<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>', 18),
   send: svg('<path d="M5 12h13m-5-6 6 6-6 6"/>', 16, 2),
   clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', 13),
@@ -485,7 +487,7 @@ function base64Bytes(value) {
  * and end(id, body). The call moves through: thinking (waiting on the tutor), speaking, listening,
  * paused, and finishing (writing the recap).
  */
-export function createTutorCall({ session, api, escapeHtml, reducedMotion = false, onFinished, onToast }) {
+export function createTutorCall({ session, api, escapeHtml, reducedMotion = false, onFinished, onToast, onFullscreenExit }) {
   const style = tutorStyleOf(session.style);
   const steps = session.plan?.steps || [];
   const root = document.createElement("div");
@@ -514,6 +516,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       <button class="tutor-btn is-ghost" type="button" data-tutor-keys aria-label="Type instead" title="Type instead" aria-pressed="false">${ICONS.keyboard}</button>
       <button class="tutor-btn is-pause" type="button" data-tutor-pause aria-label="Pause" title="Pause">${ICONS.pause}</button>
       <button class="tutor-btn is-end" type="button" data-tutor-end aria-label="End call" title="End call">${ICONS.hangup}</button>
+      <button class="tutor-btn is-ghost" type="button" data-tutor-full aria-label="Full screen" title="Full screen" aria-pressed="false">${ICONS.expand}</button>
     </div>`;
   const $ = (selector) => root.querySelector(selector);
   const canvas = $("canvas");
@@ -553,6 +556,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   let listen = null;
   let held = null; // what was heard while the call got paused mid-transcription
   let typing = false;
+  let compact = false;
+  let fullscreenLayer = null;
 
   /* Timer */
   const elapsed = () => elapsedBase + (runningSince ? (performance.now() - runningSince) / 1000 : 0);
@@ -607,6 +612,60 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     if (label && steps.length) label.textContent = `Step ${index} of ${steps.length} · ${steps[index - 1]?.title || ""}`;
   }
 
+  /* Layout */
+  // Moves elements to a new layout and glides them there from where they were (FLIP).
+  function glide(nodes, change) {
+    const before = nodes.map((node) => node.getBoundingClientRect());
+    change();
+    if (reducedMotion || !root.isConnected) return;
+    nodes.forEach((node, i) => {
+      const after = node.getBoundingClientRect();
+      if (!after.width || !before[i].width) return;
+      const dx = before[i].left - after.left;
+      const dy = before[i].top - after.top;
+      const scale = before[i].width / after.width;
+      node.animate([
+        { transformOrigin: "top left", transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
+        { transformOrigin: "top left", transform: "none" }
+      ], { duration: 520, easing: "cubic-bezier(.22, 1, .36, 1)" });
+    });
+  }
+  // After the tutor's opening, the orb tucks into the top corner so the conversation has the room.
+  function compactStage() {
+    if (compact) return;
+    compact = true;
+    const stick = nearBottom();
+    glide([$("[data-tutor-orb]"), $("[data-tutor-status]")], () => root.classList.add("is-compact"));
+    if (stick) captions.scrollTop = captions.scrollHeight;
+  }
+  function setFullscreen(on) {
+    if (on === Boolean(fullscreenLayer) || (on && finished)) return;
+    const stick = nearBottom();
+    const button = $("[data-tutor-full]");
+    if (on) {
+      // The panel slot is a size container, which would trap a fixed overlay, so the call moves to its own layer.
+      fullscreenLayer = document.createElement("div");
+      fullscreenLayer.className = "study-session tutor-fullscreen";
+      document.body.append(fullscreenLayer);
+      fullscreenLayer.append(root);
+      document.body.classList.add("study-session-open");
+    } else {
+      const layer = fullscreenLayer;
+      fullscreenLayer = null;
+      root.remove();
+      layer.remove();
+      if (!document.querySelector(".study-session:not(.hidden):not(.tutor-fullscreen)")) document.body.classList.remove("study-session-open");
+      onFullscreenExit?.();
+    }
+    root.classList.toggle("is-fullscreen", on);
+    button.innerHTML = on ? ICONS.shrink : ICONS.expand;
+    button.setAttribute("aria-pressed", String(on));
+    button.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+    button.title = on ? "Exit full screen" : "Full screen";
+    if (!finished) orb.start();
+    if (stick) captions.scrollTop = captions.scrollHeight;
+  }
+
   /* Captions */
   function nearBottom() {
     return captions.scrollHeight - captions.scrollTop - captions.clientHeight < 40;
@@ -632,7 +691,9 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       const said = line.full.slice(0, line.spoken);
       const rest = line.full.slice(line.spoken);
       p.innerHTML = line.full
-        ? `${escapeHtml(said)}<span class="tutor-pending">${escapeHtml(rest)}</span>${line.cut ? '<span class="tutor-cut">—</span>' : ""}`
+        ? line.cut
+          ? `${escapeHtml(said)}${rest.trim() ? `<span class="tutor-skipped" title="Not read aloud: you jumped in">${escapeHtml(rest)}</span>` : '<span class="tutor-cut">—</span>'}`
+          : `${escapeHtml(said)}<span class="tutor-pending">${escapeHtml(rest)}</span>`
         : '<span class="tutor-dots" aria-label="Thinking"><i></i><i></i><i></i></span>';
     }
     if (stick) captions.scrollTop = captions.scrollHeight;
@@ -800,9 +861,9 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     turnAbort?.abort();
     stopPlayback();
     if (tutorLine) {
-      if (!tutorLine.spoken) tutorLine.node.remove();
+      // The reply stays on screen when the student jumps in; the unread part is just shown as skipped.
+      if (!tutorLine.full.trim()) tutorLine.node.remove();
       else {
-        tutorLine.full = tutorLine.full.slice(0, tutorLine.spoken);
         tutorLine.cut = true;
         tutorLine.node.classList.remove("is-live");
         paintLine(tutorLine);
@@ -853,6 +914,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   }
   function beginListening() {
     if (finished) return;
+    compactStage();
     setPhase("listening", typing || !stream ? "Your turn" : "Listening…");
     setRunning(!paused);
     if (!stream || typing) {
@@ -1135,6 +1197,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     await chimeDone;
     orb.stop();
     ctx?.close().catch(() => {});
+    setFullscreen(false);
     onFinished?.(result?.session || null);
   }
 
@@ -1143,6 +1206,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     if (event.target.closest("[data-tutor-end]")) { void finish(); return; }
     if (event.target.closest("[data-tutor-pause]")) { paused ? resume() : pause(); return; }
     if (event.target.closest("[data-tutor-keys]")) { setTyping(!typing); return; }
+    if (event.target.closest("[data-tutor-full]")) { setFullscreen(!fullscreenLayer); return; }
     if (event.target.closest("[data-tutor-orb]")) {
       if (paused) resume();
       else if (phase === "speaking" || phase === "thinking") interrupt(false);
@@ -1161,6 +1225,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     root,
     get active() { return !finished; },
     get paused() { return paused; },
+    get fullscreen() { return Boolean(fullscreenLayer); },
+    setFullscreen,
     async start() {
       if (started) return;
       started = true;

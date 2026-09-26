@@ -1,11 +1,8 @@
 // Practice test markup: the exam, marking, report, and answer review.
-// The same markup runs in the Create side panel and full screen; studyHub owns state and events.
+// Tests always run full screen; studyHub owns state and events.
 
 const svg = (paths, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICONS = {
-  back: svg('<path d="M19 12H5m6-6-6 6 6 6"/>'),
-  full: svg('<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>'),
-  dock: svg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M14 4v16"/><path d="m8 10 2 2-2 2"/>'),
   close: svg('<path d="M6 6l12 12M18 6 6 18"/>'),
   clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', 14),
   prev: svg('<path d="m15 18-6-6 6-6"/>', 15),
@@ -15,6 +12,8 @@ const ICONS = {
   spark: svg('<path d="M12 3.5 13.9 10l6.6 2-6.6 2L12 20.5 10.1 14l-6.6-2 6.6-2Z"/>', 15),
   sprout: svg('<path d="M12 20v-8m0 0c0-4 3-6.5 7-6.5 0 4-3 6.5-7 6.5Zm0 0C12 8.5 9.5 6.5 5.5 6.5c0 3.5 2.5 5.5 6.5 5.5Z"/>', 15),
   compass: svg('<circle cx="12" cy="12" r="8.5"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8Z"/>', 15),
+  mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>', 15),
+  stop: svg('<rect x="7" y="7" width="10" height="10" rx="2"/>', 13),
   note: svg('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>', 14)
 };
 
@@ -68,18 +67,20 @@ export function sessionElapsed(session) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-function head(session, { escapeHtml, host }) {
+function head(session, { escapeHtml }) {
   const live = session.phase === "test" || session.phase === "marking";
-  const tools = host === "panel"
-    ? `<button class="study-icon-btn" type="button" data-test-host="full" aria-label="Continue in full screen" title="Full screen">${ICONS.full}</button>`
-    : `<button class="study-icon-btn" type="button" data-test-host="panel" aria-label="Continue in the side panel" title="Side panel">${ICONS.dock}</button>
-       <button class="study-icon-btn" type="button" data-test-exit aria-label="Close test" title="Close">${ICONS.close}</button>`;
   return `<header class="study-test-top">
-    ${host === "panel" ? `<button class="study-icon-btn" type="button" data-test-exit aria-label="Leave test" title="Back">${ICONS.back}</button>` : ""}
     <div class="study-test-title"><small>Practice test</small><h2 title="${escapeHtml(session.quiz.title || "Practice test")}">${escapeHtml(session.quiz.title || "Practice test")}</h2></div>
     <span class="study-test-clock${live ? " is-live" : ""}" title="${live ? "Time so far" : "Time taken"}">${ICONS.clock}<span data-test-clock>${formatClock(sessionElapsed(session))}</span></span>
-    ${tools}
+    <button class="study-icon-btn" type="button" data-test-exit aria-label="Close test" title="Close">${ICONS.close}</button>
   </header>`;
+}
+
+// The mic under a written answer: idle, "recording" or "processing" (being transcribed).
+export function dictationButton(state = "") {
+  const label = state === "recording" ? "Stop" : state === "processing" ? "Transcribing…" : "Speak";
+  const title = state === "recording" ? "Stop and add what you said" : state === "processing" ? "Turning your speech into text" : "Speak your answer";
+  return `<button class="study-test-mic${state ? ` is-${state}` : ""}" type="button" data-test-mic aria-pressed="${state === "recording"}" title="${title}"${state === "processing" ? " disabled" : ""}>${state === "recording" ? ICONS.stop : ICONS.mic}<span>${label}</span></button>`;
 }
 
 function examMarkup(session, helpers) {
@@ -105,11 +106,12 @@ function examMarkup(session, helpers) {
     </button>`;
   }).join("");
   const words = String(value || "").trim().split(/\s+/).filter(Boolean).length;
+  const mic = helpers.canDictate ? dictationButton(session.dictation?.index === index ? session.dictation.state : "") : "";
   const body = short
-    ? `<label class="study-test-written"><span class="study-test-written-label">Your answer</span>
-        <textarea data-test-written rows="7" placeholder="Explain it in your own words…" spellcheck="true">${escapeHtml(value || "")}</textarea>
-        <span class="study-test-written-foot"><span>Aim for ${plural(marks, "clear point")}</span><span data-test-words>${plural(words, "word")}</span></span>
-      </label>`
+    ? `<div class="study-test-written"><label class="study-test-written-label" for="study-test-answer">Your answer</label>
+        <textarea id="study-test-answer" data-test-written rows="7" placeholder="${mic ? "Type or speak your answer…" : "Explain it in your own words…"}" spellcheck="true">${escapeHtml(value || "")}</textarea>
+        <span class="study-test-written-foot">${mic}<span>Aim for ${plural(marks, "clear point")}</span><span class="study-test-words" data-test-words>${plural(words, "word")}</span></span>
+      </div>`
     : `<div class="study-test-choices" role="radiogroup" aria-label="Answer choices">${choices}</div>`;
   const submit = `<button class="study-test-submit" type="button" data-test-submit>Submit for marking ${ICONS.send}</button>`;
   return `<div class="study-test-scroll dojo-view-body">
@@ -241,12 +243,12 @@ function reviewMarkup(session, helpers) {
   </div></div>`;
 }
 
-// helpers: { escapeHtml, spinner, host: "panel" | "full" }
+// helpers: { escapeHtml, spinner }
 export function testMarkup(session, helpers) {
   const body = session.phase === "marking" ? markingMarkup(session)
     : session.phase === "results" ? reportMarkup(session, helpers)
       : session.phase === "review" ? reviewMarkup(session, helpers)
         : examMarkup(session, helpers);
   // Entrances play only when the screen changes, never on repaints of the same screen.
-  return `<div class="study-test is-${helpers.host} is-${session.phase}${session.enter ? " is-entering" : ""}" data-test>${head(session, helpers)}${body}</div>`;
+  return `<div class="study-test is-full is-${session.phase}${session.enter ? " is-entering" : ""}" data-test>${head(session, helpers)}${body}</div>`;
 }

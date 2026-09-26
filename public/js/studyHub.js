@@ -3,11 +3,13 @@ import { renderMindMap } from "./mindMap.js";
 import { createCourseContextPicker } from "./studyContext.js";
 import { createStudySourceDialog } from "./studySources.js";
 import { createAudioSourceViewer } from "./studyAudio.js";
+import { createPanelResizer, panelResizeHandles } from "./dojoPanelResize.js";
+import { clearDeckProgress, deckBuckets, deckProgressSummary, readDeckProgress, writeDeckProgress } from "./deckProgress.js";
 import { deleteSavedRecording } from "./studyRecorder.js";
 import { extractAudioTrack, isVideoFile } from "./videoAudio.js";
 import { completeCourseAudio, fetchCourseTranscriptions, fetchStudyAudio, presignCourseAudio, putCourseAudio, retryCourseTranscription } from "./api.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
-import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
+import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
 
@@ -66,6 +68,8 @@ export function createStudyHubController({
   updateStudyTutor,
   deleteStudyTutor,
   transcribeTutorAudio,
+  transcribeDictation,
+  speechEnabled,
   streamTutorTurn,
   endStudyTutor,
   submitStudyQuizAttempt,
@@ -103,9 +107,13 @@ export function createStudyHubController({
   const inflight = new Map();
   /** @type {Map<string, object>} in-memory generation cards; survives SPA nav while page stays open */
   const generations = new Map();
+  const FAILED_GENERATION_MS = 3000;
   let elapsedTimer = null;
   let quizMenuKey = "";
   let reviewSession = null;
+  const cardChatKey = "klui.dojo.cardChat.v1";
+  let cardChatOpen = false;
+  try { cardChatOpen = localStorage.getItem(cardChatKey) === "1"; } catch { /* Storage is optional. */ }
   let quizSession = null;
   let testClock = null;
   let podcastAudio = null;
@@ -125,7 +133,8 @@ export function createStudyHubController({
   let studioView = null;
   // Entrance animations play once per item; later repaints of the same item stay still.
   const shownEntrances = new Set();
-  const deckLayoutKey = "klui.dojo.deckLayout.v1";
+  // v2: Flip became the default, so earlier saved choices (usually the old Column default) reset once.
+  const deckLayoutKey = "klui.dojo.deckLayout.v2";
   let sourceListScrollTop = 0;
   let collectionScrollTop = 0;
   const pinnedCollectionKey = "klui.dojo.collectionPins.v1";
@@ -134,6 +143,13 @@ export function createStudyHubController({
     const saved = JSON.parse(localStorage.getItem(pinnedCollectionKey) || "[]");
     if (Array.isArray(saved)) saved.filter(key => typeof key === "string").forEach(key => pinnedCollection.add(key));
   } catch { /* Browsers without storage still keep pins for this session. */ }
+  // Collection groups the reader folded away, per course and type.
+  const collapsedGroupsKey = "klui.dojo.collectionGroups.v1";
+  const collapsedGroups = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem(collapsedGroupsKey) || "[]");
+    if (Array.isArray(saved)) saved.filter(key => typeof key === "string").forEach(key => collapsedGroups.add(key));
+  } catch { /* Groups just start open. */ }
   const createSelected = new Set();
   const audioViewer = createAudioSourceViewer({
     escapeHtml,
@@ -178,11 +194,41 @@ export function createStudyHubController({
     else pinnedCollection.add(key);
     try { localStorage.setItem(pinnedCollectionKey, JSON.stringify([...pinnedCollection])); } catch { /* Keep the in-memory pin. */ }
     quizMenuKey = "";
-    const collectionList = els.studyView.querySelector(".dojo-artifacts");
+    const collectionList = els.studyView.querySelector(".dojo-collection");
     if (collectionList) collectionList.scrollTop = 0;
     collectionScrollTop = 0;
     render();
   }
+
+  function collectionGroupId(type) {
+    return `${state.activeCourseId}:${type}`;
+  }
+
+  function saveCollapsedGroups() {
+    try { localStorage.setItem(collapsedGroupsKey, JSON.stringify([...collapsedGroups])); } catch { /* Keep it for this visit. */ }
+  }
+
+  // Folding only flips the group's class, so the list keeps its scroll position and the fold animates.
+  function toggleCollectionGroup(button) {
+    const type = button.dataset.collectionGroup;
+    const key = collectionGroupId(type);
+    const open = collapsedGroups.has(key);
+    if (open) collapsedGroups.delete(key);
+    else collapsedGroups.add(key);
+    saveCollapsedGroups();
+    button.setAttribute("aria-expanded", String(open));
+    button.closest(".dojo-group")?.classList.toggle("is-collapsed", !open);
+  }
+
+  // A finished generation lands at the top of the collection, in an open group.
+  function revealNewCollectionItem(type) {
+    if (collapsedGroups.delete(collectionGroupId(type))) saveCollapsedGroups();
+    const collectionList = els.studyView?.querySelector(".dojo-collection");
+    if (collectionList) collectionList.scrollTop = 0;
+    collectionScrollTop = 0;
+  }
+
+  const COLLECTION_GROUPS = { flashcards: "Flashcards", mindmap: "Mind maps", notes: "Notes", quiz: "Practice tests", podcast: "Podcasts", tutor: "AI tutor sessions" };
 
   const sound = createSounds(reducedMotion);
 
@@ -597,17 +643,23 @@ export function createStudyHubController({
   }
 
   // Compact type tag for the create picker, so file names can drop their extension.
-  function sourceBadge(doc) {
-    if (doc?.kind === "audio") return `<span class="dojo-source-badge is-audio" aria-hidden="true">AUD</span>`;
-    if (doc?.kind === "website") return `<span class="dojo-source-badge is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></svg></span>`;
+  // [badge label, type] for a source; the type also drives the "File type" sort.
+  function sourceType(doc) {
+    if (doc?.kind === "audio") return ["AUD", "audio"];
+    if (doc?.kind === "website") return ["WEB", "website"];
     const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
-    const [label, type] = doc?.kind === "text" ? ["TXT", "text"]
+    return doc?.kind === "text" ? ["TXT", "text"]
       : ext === "pdf" ? ["PDF", "pdf"]
         : ["ppt", "pptx"].includes(ext) ? ["PPT", "slides"]
           : ["doc", "docx"].includes(ext) ? ["DOC", "word"]
             : ["xls", "xlsx", "csv"].includes(ext) ? [ext === "csv" ? "CSV" : "XLS", "sheet"]
               : ["png", "jpg", "jpeg", "webp"].includes(ext) ? ["IMG", "image"]
                 : ["FILE", "file"];
+  }
+
+  function sourceBadge(doc) {
+    const [label, type] = sourceType(doc);
+    if (type === "website") return `<span class="dojo-source-badge is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></svg></span>`;
     return `<span class="dojo-source-badge is-${type}" aria-hidden="true">${label}</span>`;
   }
 
@@ -617,15 +669,22 @@ export function createStudyHubController({
     return name.replace(/\.(pdf|pptx?|docx?|xlsx?|csv|png|jpe?g|webp|txt|md)$/i, "") || name;
   }
 
+  const SOURCE_SORTS = [["recent", "Recently added"], ["type", "File type"], ["asc", "Name · A–Z"], ["desc", "Name · Z–A"]];
+  const SOURCE_TYPE_NAMES = { pdf: "PDFs", slides: "Slides", word: "Documents", sheet: "Spreadsheets", text: "Pasted text", image: "Images", audio: "Audio", website: "Websites", file: "Other files" };
+  const SOURCE_TYPE_ORDER = Object.keys(SOURCE_TYPE_NAMES);
+
   function sortedSources() {
-    return [...(state.studyMaterials?.documents || [])].sort((a, b) => sourceSort === "recent"
-      ? (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)
-      : documentDisplayName(a).localeCompare(documentDisplayName(b), undefined, { numeric: true, sensitivity: "base" }) * (sourceSort === "desc" ? -1 : 1));
+    const byName = (a, b) => documentDisplayName(a).localeCompare(documentDisplayName(b), undefined, { numeric: true, sensitivity: "base" });
+    const byRecent = (a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0);
+    const typeRank = doc => SOURCE_TYPE_ORDER.indexOf(sourceType(doc)[1]);
+    return [...(state.studyMaterials?.documents || [])].sort((a, b) => sourceSort === "recent" ? byRecent(a, b)
+      : sourceSort === "type" ? typeRank(a) - typeRank(b) || byName(a, b)
+        : byName(a, b) * (sourceSort === "desc" ? -1 : 1));
   }
 
   function sourcesHeaderMarkup() {
     return `<header class="dojo-panel-header"><h2>Sources</h2><div class="dojo-source-actions">
-      <details class="dojo-source-sort"><summary class="study-icon-btn" aria-label="Sort sources" title="Sort sources">${icon("sort")}</summary><div class="dojo-sort-menu" role="group" aria-label="Source order">${[["recent", "Recently added"], ["asc", "Name · A–Z"], ["desc", "Name · Z–A"]].map(([value, label]) => `<button type="button" data-source-sort="${value}" aria-pressed="${sourceSort === value}">${label}<span aria-hidden="true">${sourceSort === value ? "✓" : ""}</span></button>`).join("")}</div></details>
+      <details class="dojo-source-sort"><summary class="study-icon-btn" aria-label="Sort sources" title="Sort sources">${icon("sort")}</summary><div class="dojo-sort-menu" role="group" aria-label="Source order">${SOURCE_SORTS.map(([value, label]) => `<button type="button" data-source-sort="${value}" aria-pressed="${sourceSort === value}">${label}<span aria-hidden="true">${sourceSort === value ? "✓" : ""}</span></button>`).join("")}</div></details>
       <button class="study-icon-btn dojo-collapse-sources" type="button" data-collapse-sources aria-expanded="${!sourcesCollapsed}" aria-label="Collapse sources" title="Collapse sources">${icon("sidebar")}</button>
     </div></header>`;
   }
@@ -773,7 +832,7 @@ export function createStudyHubController({
       <div class="study-material-board">
         ${audioCards}
         ${pendingUploads.map(item => `<article class="study-material-card">${sourceFileIcon({ file_name: item.name })}<div class="study-material-copy"><strong>${escapeHtml(item.name)}</strong>${statusLine(item.status)}</div></article>`).join("")}
-        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text", "audio"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : doc.kind === "audio" ? ["Audio", audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ") : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
+        ${docs.map((doc, index) => `${sourceSort === "type" && (!index || sourceType(doc)[1] !== sourceType(docs[index - 1])[1]) ? `<p class="dojo-source-type-head">${SOURCE_TYPE_NAMES[sourceType(doc)[1]]}</p>` : ""}<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text", "audio"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : doc.kind === "audio" ? ["Audio", audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ") : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
         ${!docs.length && !pendingUploads.length && !audioCards ? emptyState("Bring your knowledge", "Add files, a website, pasted text, or a recorded lecture. This is where your course begins.") : ""}
       </div>
     </div>`;
@@ -790,6 +849,7 @@ export function createStudyHubController({
     workspace.dataset[`${panel}Collapsed`] = String(collapsed);
     workspace.querySelectorAll(`[data-collapse-${panel}]`).forEach(button => button.setAttribute("aria-expanded", String(!collapsed)));
     workspace.dataset.sourceMotion = event.detail && !reducedMotion() ? "on" : "off";
+    panelResizer.apply();
     const end = getComputedStyle(workspace).gridTemplateColumns;
     if (workspace.dataset.sourceMotion === "on" && start !== end) {
       panelResizeAnimation = workspace.animate([
@@ -856,13 +916,12 @@ export function createStudyHubController({
   }
 
   function openStudioView(kind, id, event) {
-    if (quizSession?.host === "panel") endPanelTest();
     const workspace = els.studyView.querySelector(".dojo-workspace");
     const start = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
-    let layout = "column";
+    let layout = "flip";
     try { layout = localStorage.getItem(deckLayoutKey) || layout; } catch { /* Storage is optional. */ }
     studioView = kind === "deck"
-      ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "column", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, typed: {}, checked: new Set(), open: new Set() }
+      ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "flip", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, typed: {}, checked: new Set(), open: new Set() }
       : kind === "quiz" ? { kind, id, questions: null, error: "", open: new Set() }
         : kind === "podcast" ? { kind, id, podcast: null, error: "", speedOpen: false }
           : kind === "tutor" ? { kind, id, session: null, error: "" } : { kind, id };
@@ -882,7 +941,6 @@ export function createStudyHubController({
   function closeStudioView(event) {
     if (!studioView) return;
     const { kind, id } = studioView;
-    if (quizSession?.host === "panel") endPanelTest();
     if (kind === "podcast") podcastAudio?.pause();
     if (kind === "tutor") tutorCall?.pause();
     const start = getComputedStyle(els.studyView.querySelector(".dojo-workspace")).gridTemplateColumns;
@@ -892,11 +950,6 @@ export function createStudyHubController({
     animatePreviewResize(start, event);
     const attr = kind === "deck" ? "data-open-deck" : kind === "quiz" ? "data-open-quiz" : kind === "podcast" ? "data-open-podcast" : kind === "tutor" ? "data-open-tutor" : "data-open-note";
     els.studyView.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
-  }
-
-  function endPanelTest() {
-    stopTestClock();
-    quizSession = null;
   }
 
   async function loadStudioCards() {
@@ -1201,10 +1254,21 @@ export function createStudyHubController({
     if (event.target.closest("[data-studio-back]")) { closeStudioView(event); return true; }
     if (studioView.kind === "podcast" && handlePodcastClick(event)) return true;
     if (studioView.kind === "tutor" && event.target.closest("[data-tutor-start]")) { void startTutorCall(); return true; }
+    if (studioView.kind === "deck" && event.target.closest("[data-deck-fresh]")) {
+      clearDeckProgress(deckProgressKey(studioView.id));
+      void startReview(findDeck(studioView.id), { fresh: true });
+      return true;
+    }
+    if (studioView.kind === "deck" && event.target.closest("[data-deck-revisit]")) {
+      const saved = readDeckProgress(deckProgressKey(studioView.id));
+      const only = saved ? saved.order.filter((id) => saved.marks?.[id] !== 3) : [];
+      void startReview(findDeck(studioView.id), { only });
+      return true;
+    }
     const full = event.target.closest("[data-studio-full], [data-studio-learn]");
     if (full) {
       if (studioView.kind === "note") openNote(studioView.id);
-      else if (studioView.kind === "quiz") void startQuiz(studioView.id, full.matches("[data-studio-full]") ? "full" : "panel");
+      else if (studioView.kind === "quiz") void startQuiz(studioView.id);
       else {
         const startId = full.matches("[data-studio-full]") && studioView.layout === "flip" ? currentFlipCard()?.id : "";
         void startReview(findDeck(studioView.id), { startId });
@@ -1310,13 +1374,10 @@ export function createStudyHubController({
   }
 
   function studioViewMarkup(item) {
-    if (studioView.kind === "deck") return deckViewMarkup(studioView, item, studioHelpers());
+    if (studioView.kind === "deck") return deckViewMarkup(studioView, item, { ...studioHelpers(), progress: deckProgressSummary(readDeckProgress(deckProgressKey(item.id)), studioView.cards?.map((card) => card.id)) });
     if (studioView.kind === "podcast") return podcastViewMarkup(studioView, item, { escapeHtml, player: podcastState() });
     if (studioView.kind === "tutor") return tutorViewMarkup(studioView, item, { escapeHtml, callActive: Boolean(tutorCall?.active && tutorCall.id === studioView.id) });
     if (studioView.kind === "quiz") {
-      if (quizSession?.host === "panel" && quizSession.quiz.id === studioView.id) {
-        return `<div class="dojo-studio-content dojo-studio-view is-test" data-studio-kind="quiz">${testMarkup(quizSession, testHelpers("panel"))}</div>`;
-      }
       return quizViewMarkup(studioView, item, { escapeHtml });
     }
     let body;
@@ -1336,7 +1397,7 @@ export function createStudyHubController({
     const notes = state.studyMaterials?.notes || [];
     const podcasts = state.studyPractice?.podcasts || [];
     const tutors = state.studyPractice?.tutors || [];
-    const tools = [["flashcards", "Flashcards"], ["mindmap", "Mind map"], ["notes", "Notes"], ["quiz", "Practice test"], ["podcast", "Podcast"], ["tutor", "AI tutor"]];
+    const tools = [["flashcards", "Flashcards", "Flashcards"], ["mindmap", "Mind map", "Mind map"], ["notes", "Notes", "Notes"], ["quiz", "Test", "Practice test"], ["podcast", "Podcast", "Podcast"], ["tutor", "Tutor", "AI tutor"]];
     const artifacts = [
       ...decks.map(d => ({ ...d, pinKind: "deck", type: "flashcards", action: "data-open-deck", meta: `${d.cardCount || 0} cards`, menu: practiceMenu("deck", d.id) })),
       ...quizzes.map(q => ({ ...q, pinKind: "quiz", type: "quiz", action: "data-open-quiz", meta: `${q.questionCount || 0} questions`, menu: practiceMenu("quiz", q.id) })),
@@ -1344,13 +1405,32 @@ export function createStudyHubController({
       ...tutors.map(t => ({ ...t, pinKind: "tutor", type: "tutor", action: "data-open-tutor", meta: tutorMeta(t), menu: t.status === "preparing" ? "" : practiceMenu("tutor", t.id) })),
       ...notes.map(n => ({ ...n, pinKind: "note", type: isMindMap(n) ? "mindmap" : "notes", action: "data-open-note", meta: isMindMap(n) ? "Mind map" : noteKindLabel(n), menu: materialMenu("note", n.id) }))
     ];
-    artifacts.forEach(a => { a.pinned = pinnedCollection.has(collectionPinId(a.pinKind, a.id)); });
-    artifacts.sort((a, b) => Number(b.pinned) - Number(a.pinned));
-    return `<div class="dojo-studio-content">
-      <div class="dojo-tools">${tools.map(([type, label]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}"><span class="dojo-tool-icon">${icon(type)}</span><span class="dojo-tool-arrow">${icon("plus")}</span><strong>${label}</strong></button>`).join("")}</div>
+    // Newest first; an item still being made has no date yet and counts as the newest.
+    const made = a => Date.parse(a.createdAt || a.created_at || "") || Infinity;
+    artifacts.forEach(a => { a.pinned = pinnedCollection.has(collectionPinId(a.pinKind, a.id)); a.made = made(a); });
+    const byNewest = (a, b) => (b > a) - (b < a);
+    artifacts.sort((a, b) => Number(b.pinned) - Number(a.pinned) || byNewest(a.made, b.made));
+    // Groups follow their newest item, so whatever was made last sits at the top.
+    const groups = new Map();
+    for (const a of artifacts) {
+      if (!groups.has(a.type)) groups.set(a.type, []);
+      groups.get(a.type).push(a);
+    }
+    const newest = items => Math.max(...items.map(a => a.made));
+    const ordered = [...groups].sort(([, a], [, b]) => byNewest(newest(a), newest(b)));
+    const card = a => `<article class="study-practice-card"><button class="study-practice-open" type="button" ${a.action}="${escapeHtml(a.id)}"><span class="dojo-artifact-icon dojo-tool--${a.type}">${icon(a.type)}</span><span><strong>${a.pinned ? `<span class="dojo-pin-mark" title="Pinned">${icon("pin")}</span>` : ""}${escapeHtml(a.title || jobTypeLabel(a.type))}</strong><small>${escapeHtml(a.meta)}</small></span></button>${a.menu}</article>`;
+    const groupMarkup = ([type, items]) => {
+      const collapsed = collapsedGroups.has(collectionGroupId(type));
+      return `<section class="dojo-group dojo-tool--${type}${collapsed ? " is-collapsed" : ""}">
+        <button class="dojo-group-head" type="button" data-collection-group="${type}" aria-expanded="${!collapsed}"><span class="dojo-group-icon">${icon(type)}</span><span class="dojo-group-name">${COLLECTION_GROUPS[type] || jobTypeLabel(type)}</span><span class="dojo-group-count">${items.length}</span><svg class="dojo-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="dojo-group-body"><div class="dojo-group-list">${items.map(card).join("")}</div></div>
+      </section>`;
+    };
+    return `<div class="dojo-studio-content dojo-collection">
+      <div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>`).join("")}</div>
       ${generationCardsMarkup()}
       <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
-      <div class="dojo-artifacts">${artifacts.map(a => `<article class="study-practice-card"><button class="study-practice-open" type="button" ${a.action}="${escapeHtml(a.id)}"><span class="dojo-artifact-icon dojo-tool--${a.type}">${icon(a.type)}</span><span><strong>${a.pinned ? `<span class="dojo-pin-mark" title="Pinned">${icon("pin")}</span>` : ""}${escapeHtml(a.title || jobTypeLabel(a.type))}</strong><small>${escapeHtml(a.meta)}</small></span></button>${a.menu}</article>`).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, and tutor sessions will find a home here.")}</div>
+      <div class="dojo-artifacts">${ordered.map(groupMarkup).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, and tutor sessions will find a home here.")}</div>
     </div>`;
   }
 
@@ -1368,6 +1448,7 @@ export function createStudyHubController({
         <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
         <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse create" title="Collapse create">${icon("expand")}</button></header>${practiceMarkup()}</div>
       </section>
+      ${panelResizeHandles()}
     </div>`;
   }
 
@@ -1465,6 +1546,7 @@ export function createStudyHubController({
   }
 
   function finishCoursePaint() {
+    panelResizer.attach(els.studyView.querySelector(".dojo-workspace"));
     const preview = els.studyView.querySelector(".dojo-source-preview-slot");
     if (preview && sourcePreviewId && audioViewer.id === sourcePreviewId) audioViewer.mount(preview);
     else if (preview && sourcePreviewId && els.documentViewer && !document.body.classList.contains("document-viewer-fullscreen")) preview.append(els.documentViewer);
@@ -1525,7 +1607,7 @@ export function createStudyHubController({
       return;
     }
     const currentSourceScroll = els.studyView.querySelector(".study-material-board")?.scrollTop;
-    const currentCollectionScroll = els.studyView.querySelector(".dojo-artifacts")?.scrollTop;
+    const currentCollectionScroll = els.studyView.querySelector(".dojo-collection")?.scrollTop;
     const studioScroll = els.studyView.querySelector(".dojo-studio-view .dojo-view-body")?.scrollTop;
     if (currentSourceScroll != null) sourceListScrollTop = currentSourceScroll;
     if (currentCollectionScroll != null) collectionScrollTop = currentCollectionScroll;
@@ -1544,7 +1626,7 @@ export function createStudyHubController({
     settleEntrances();
     if (!transcriptionTimer && !transcriptionPolling && activeAudioDocs().length) scheduleTranscriptionPoll(1500);
     const sourceList = els.studyView.querySelector(".study-material-board");
-    const collectionList = els.studyView.querySelector(".dojo-artifacts");
+    const collectionList = els.studyView.querySelector(".dojo-collection");
     if (sourceList) sourceList.scrollTop = sourceListScrollTop;
     if (collectionList) collectionList.scrollTop = collectionScrollTop;
     const studioBody = els.studyView.querySelector(".dojo-studio-view .dojo-view-body");
@@ -1594,6 +1676,54 @@ export function createStudyHubController({
       changed = true;
     }
     if (changed) ensureElapsedTimer();
+  }
+
+  // Asking again for a map, notes or deck the source already has opens that one instead.
+  function existingGeneration(job) {
+    const docId = job.documentFileId || (job.documentFileIds?.length === 1 ? job.documentFileIds[0] : "");
+    if (job.type === "flashcards") {
+      const deck = (state.studyPractice?.decks || []).find((item) => docId
+        ? item.documentFileId === docId
+        : job.noteId && item.noteId === job.noteId);
+      return deck ? { kind: "deck", id: deck.id } : null;
+    }
+    if (!docId) return null;
+    const note = (state.studyMaterials?.notes || []).find((item) => item.document_file_id === docId && (
+      job.type === "mindmap" ? isMindMap(item)
+        : job.type === "notes" && !isMindMap(item) && (job.mode === "detailed" ? isDetailedNote(item) : item.kind === "summary" && !isDetailedNote(item))
+    ));
+    return note ? { kind: "note", id: note.id } : null;
+  }
+
+  async function openExistingGeneration(job, message) {
+    job.error = message;
+    if (state.activeCourseId !== job.courseId) return false;
+    let found = existingGeneration(job);
+    if (!found) {
+      await Promise.all([loadMaterials(true).catch(() => {}), loadPractice(true).catch(() => {})]);
+      if (state.activeCourseId !== job.courseId || !generations.has(job.id)) return false;
+      found = existingGeneration(job);
+    }
+    if (!found) return false;
+    generations.delete(job.id);
+    const what = job.type === "flashcards" ? "deck" : job.type === "mindmap" ? "mind map" : job.mode === "detailed" ? "detailed review" : "summary";
+    showToast(job.type === "flashcards" && /deep/i.test(job.error || "") ? job.error : `You already have this ${what} — opening it`);
+    if (studyVisible()) openStudioView(found.kind, found.id);
+    return true;
+  }
+
+  // The toast already carries the error, so a failed card fades out on its own.
+  function dismissFailedGeneration(job) {
+    setTimeout(() => {
+      if (generations.get(job.id) !== job) return;
+      const card = els.studyView?.querySelector(`[data-gen-id="${CSS.escape(job.id)}"]`);
+      card?.classList.add("is-leaving");
+      setTimeout(() => {
+        if (generations.get(job.id) !== job) return;
+        generations.delete(job.id);
+        if (studyVisible() && state.activeCourseId === job.courseId) render();
+      }, card ? 220 : 0);
+    }, FAILED_GENERATION_MS);
   }
 
   function toastForGeneration(job) {
@@ -1656,6 +1786,7 @@ export function createStudyHubController({
       job.stage = "";
       job.result = result;
       job.finishedAt = new Date().toISOString();
+      if (state.activeCourseId === courseId) revealNewCollectionItem(job.type);
       toastForGeneration(job);
       generations.delete(job.id);
       if (studyVisible() && state.activeCourseId === courseId) render();
@@ -1671,11 +1802,13 @@ export function createStudyHubController({
         return;
       }
       if (!generations.has(job.id)) return;
+      if (/already created/i.test(error?.message || "") && await openExistingGeneration(job, error.message)) return;
       job.status = "failed";
       job.stage = "";
       job.error = error?.message || "Could not generate.";
       job.finishedAt = new Date().toISOString();
       toastForGeneration(job);
+      dismissFailedGeneration(job);
     } finally {
       ensureElapsedTimer();
       if (studyVisible() && state.activeCourseId === courseId) render();
@@ -2181,7 +2314,8 @@ export function createStudyHubController({
 
   function mountTutorCall() {
     const slot = els.studyView?.querySelector(".dojo-tutor-slot");
-    if (!slot || !tutorCall?.active) return;
+    // A full-screen call lives in its own layer until it leaves full screen.
+    if (!slot || !tutorCall?.active || tutorCall.fullscreen) return;
     slot.append(tutorCall.root);
     tutorCall.mounted();
   }
@@ -2291,7 +2425,8 @@ export function createStudyHubController({
         transcribe: (id, blob, options) => transcribeTutorAudio(state.session, id, blob, options),
         end: (id, body) => endStudyTutor(state.session, id, body)
       },
-      onFinished: (ended) => finishTutorCall(session.id, ended)
+      onFinished: (ended) => finishTutorCall(session.id, ended),
+      onFullscreenExit: () => mountTutorCall()
     });
     upsertTutor({ ...tutorListItem(session), status: "live" });
     render();
@@ -2871,6 +3006,10 @@ export function createStudyHubController({
     return (state.studyMaterials?.documents || []).filter((doc) => materialStatus(doc) === "ready");
   }
 
+  const panelResizer = createPanelResizer({
+    mode: side => side === "sources" ? (sourcePreviewId ? "sources:preview" : "sources:list") : (studioView ? "studio:view" : "studio:list"),
+    collapsed: side => side === "sources" ? sourcesCollapsed : studioCollapsed
+  });
   const contextPicker = createCourseContextPicker({ state, escapeHtml, readyDocs: readyCreateDocs, documentDisplayName, sourceBadge, sourceShortName });
 
   function renderCreateList() {
@@ -2954,7 +3093,7 @@ export function createStudyHubController({
       ${type === "quiz" ? field("Test format", "examType", [["mixed", "Mixed", "A little of both", "mixed"], ["short", "Short answer", "Write, then self-assess", "short"], ["mcq", "Multiple choice", "Choose your answer", "mcq"]], "mixed", "is-illustrated") + field("Questions", "count", [["5", "5", "Quick"], ["10", "10", "Standard"], ["15", "15", "Extended"], ["20", "20", "Full"], ["25", "25", "Extra"]], "10", "is-count") : ""}
       ${type === "notes" ? field("Detail", "mode", [["summary", "The essentials", "A clear, focused summary", "summary"], ["detailed", "Detailed review", "Ideas, examples & explanations", "detailed"]], "summary", "is-illustrated is-pair") : ""}
       ${type === "flashcards" || type === "quiz" ? field("Difficulty", "difficulty", [["easy", "Easy", "Facts & recall"], ["medium", "Medium", "Apply your knowledge"], ["hard", "Hard", "Analyze & connect"]], "medium", "is-difficulty") : ""}
-      ${field("Style", "style", [["", "Default", "Balanced"], ["concise", "Concise", "Short & direct"], ["exam", "Exam prep", "Applied scenarios"], ["conceptual", "Connections", "The bigger picture"]], "", "is-style")}
+      ${field("Style", "style", [["", "Default", "Balanced"], ["concise", "Concise", "Short & direct"], ["exam", "Exam prep", "Applied scenarios"], ...(type === "flashcards" || type === "mindmap" ? [] : [["conceptual", "Connections", "The bigger picture"]])], "", "is-style")}
       <label class="dojo-focus-field">Focus area <span>Optional</span><textarea name="focus" maxlength="1000" placeholder="A topic, chapter, or question to focus on…" rows="2"></textarea></label>`;
   }
 
@@ -3104,9 +3243,10 @@ export function createStudyHubController({
 
   function closeSession() {
     const reviewed = Boolean(reviewSession);
-    const panelTest = quizSession?.host === "panel";
+    saveReviewProgress();
     clearTimeout(reviewSession?.animTimer);
     reviewSession = null;
+    stopDictation({ discard: true });
     stopTestClock();
     quizSession = null;
     if (quizMenuKey === "review") quizMenuKey = "";
@@ -3114,7 +3254,6 @@ export function createStudyHubController({
     closeSideChat?.();
     closeNote();
     if (reviewed) render();
-    else if (panelTest) patchStudio({ keepScroll: false });
     // Full-screen review can star, edit, or delete cards; refresh the open deck.
     if (reviewed && studioView?.kind === "deck") void loadStudioCards();
   }
@@ -3157,15 +3296,75 @@ export function createStudyHubController({
       </button>`;
   }
 
-  function askMarkup() {
-    if (!canUseSideChat?.()) return "";
+  function cardChatButton() {
+    if (!canUseSideChat?.() || !openSideChat) return "";
+    return `<button class="study-chip-btn study-card-chat-toggle${cardChatOpen ? " is-on" : ""}" type="button" data-card-chat aria-pressed="${cardChatOpen}" aria-label="${cardChatOpen ? "Hide card chat" : "Ask about this card"}" title="${cardChatOpen ? "Hide card chat" : "Ask about this card"}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></svg><span class="study-chip-label">Ask</span>
+      </button>`;
+  }
+
+  function reviewMinutes(ms) {
+    const minutes = Math.round(ms / 60000);
+    return minutes < 1 ? "under a minute" : `${minutes} min`;
+  }
+
+  function bucketMarkup(key, label, cards, open) {
+    if (!cards.length) return "";
+    const text = (value) => escapeHtml(value || "").replaceAll("___", '<span class="study-blank" aria-label="blank"></span>');
+    return `<details class="study-bucket is-${key}"${open ? " open" : ""}>
+        <summary><span class="study-bucket-dot" aria-hidden="true"></span><span class="study-bucket-name">${label}</span><span class="study-bucket-count">${cards.length}</span><svg class="study-bucket-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <ol>${cards.map((card) => `<li><details><summary><span>${text(card.front)}</span></summary><p>${text(card.back)}</p></details></li>`).join("")}</ol>
+      </details>`;
+  }
+
+  // End of a round: score, the cards to revisit, and what to do next.
+  function reviewDoneMarkup(session) {
+    const { missed, skipped, got } = deckBuckets(session.cards, session.marks);
+    const total = session.cards.length;
+    const pct = total ? Math.round((got.length / total) * 100) : 0;
+    const revisit = missed.length + skipped.length;
+    const previous = session.history?.at(-1);
+    const headline = pct === 100 ? (session.round > 1 ? "All fixed." : "Flawless.")
+      : pct >= 80 ? "Strong round." : pct >= 50 ? "Getting there." : "Good start.";
+    const sub = previous
+      ? `Round ${session.round} · ${got.length} of ${total} fixed this time`
+      : `${got.length} of ${total} cards · ${reviewMinutes(session.finishedAt - session.startedAt)}`;
+    const ring = 2 * Math.PI * 42;
+    const actions = revisit
+      ? `<button class="study-primary-btn" type="button" data-review-again="revisit">Review ${revisit} to revisit</button>
+          ${missed.length && skipped.length ? `<button class="study-chip-btn" type="button" data-review-again="missed">Only missed · ${missed.length}</button>` : ""}
+          <button class="study-chip-btn" type="button" data-review-again="all">Whole deck again</button>`
+      : `<button class="study-primary-btn" type="button" data-review-again="all">Go through the deck again</button>`;
     return `
-      <form class="study-ask" data-study-ask>
-        <input class="study-ask-input" type="text" maxlength="2000" placeholder="Ask any doubts." autocomplete="off" spellcheck="true">
-        <button class="study-ask-send" type="submit" aria-label="Send">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/></svg>
-        </button>
-      </form>`;
+      <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
+      <div class="study-done" role="region" aria-label="Round results">
+        <header class="study-done-head">
+          <div class="study-done-ring${pct === 100 ? " is-perfect" : ""}" style="--pct:${pct}" role="img" aria-label="${pct}% got it">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="study-done-track" cx="50" cy="50" r="42"/><circle class="study-done-fill" cx="50" cy="50" r="42" stroke-dasharray="${ring.toFixed(1)}" style="--ring:${ring.toFixed(1)}"/></svg>
+            <span><strong>${pct}%</strong><small>got it</small></span>
+          </div>
+          <div class="study-done-copy">
+            <p class="study-kicker">${session.round > 1 ? `Round ${session.round} complete` : "Round complete"}</p>
+            <h2>${headline}</h2>
+            <p>${escapeHtml(sub)}</p>
+          </div>
+        </header>
+        <div class="study-done-stats">
+          <div class="is-got"><strong>${got.length}</strong><span>Got it</span></div>
+          <div class="is-missed"><strong>${missed.length}</strong><span>Missed</span></div>
+          <div class="is-skipped"><strong>${skipped.length}</strong><span>Skipped</span></div>
+        </div>
+        <div class="study-done-actions">
+          ${actions}
+          <button class="study-chip-btn" type="button" data-close-session>Done</button>
+        </div>
+        ${revisit ? `<p class="study-done-note">Missed and skipped cards are saved. Next time you open this deck you can pick up with just those.</p>` : ""}
+        <div class="study-done-buckets">
+          ${bucketMarkup("missed", "Missed", missed, true)}
+          ${bucketMarkup("skipped", "Skipped", skipped, !missed.length)}
+          ${bucketMarkup("got", "Got it", got, false)}
+        </div>
+      </div>`;
   }
 
   function reviewEditMarkup(card) {
@@ -3203,6 +3402,7 @@ export function createStudyHubController({
           <button class="study-primary-btn" type="button" data-close-session>Close</button>
         </div>`;
     }
+    if (session.phase === "done") return reviewDoneMarkup(session);
     const card = session.cards[session.index];
     if (session.editing) {
       return `
@@ -3215,7 +3415,7 @@ export function createStudyHubController({
     const starred = Boolean(card.starred);
     return `
       <button class="study-session-close" type="button" data-close-session aria-label="Close review">×</button>
-      ${starredToggleMarkup(session)}
+      <div class="study-review-actions">${cardChatButton()}${starredToggleMarkup(session)}</div>
       <p class="study-review-hint">Press “Space” to flip, “← / →” to navigate</p>
       <div class="study-review">
         <div class="study-review-glow" aria-hidden="true"></div>
@@ -3268,20 +3468,24 @@ export function createStudyHubController({
             <span class="study-review-n">${escapeHtml(String(session.counts[3] || 0))}</span>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>
           </button>
-          <button class="study-review-nav is-next" type="button" data-study-nav="1" aria-label="Next card"${atEnd ? " disabled" : ""}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          <button class="study-review-nav is-next${atEnd ? " is-finish" : ""}" type="button" data-study-nav="1" aria-label="${atEnd ? "Finish round" : "Next card"}" title="${atEnd ? "Finish round" : "Next card"}">
+            ${atEnd
+              ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>'
+              : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>'}
           </button>
         </div>
-        ${askMarkup()}
+        ${session.round > 1 ? `<p class="study-review-round">Round ${session.round} · revisiting ${session.cards.length} card${session.cards.length === 1 ? "" : "s"}</p>` : ""}
       </div>`;
   }
 
   function renderReview() {
     if (!reviewSession) return;
-    openSessionShell(`<div class="study-session-frame is-review">${reviewCardMarkup(reviewSession)}</div>`);
+    openSessionShell(`<div class="study-session-frame is-review${reviewSession.phase === "done" ? " is-done" : ""}">${reviewCardMarkup(reviewSession)}</div>`);
+    syncCardChat();
   }
 
-  async function startReview(deck, { startId = "" } = {}) {
+  // Learn resumes a paused round; `only` starts a revisit round with just those cards.
+  async function startReview(deck, { startId = "", only = null, fresh = false } = {}) {
     if (!state.activeCourseId || !deck) return;
     try {
       const payload = await fetchStudyQueue(state.session, state.activeCourseId, deckSourceOf(deck));
@@ -3291,28 +3495,118 @@ export function createStudyHubController({
         return;
       }
       const list = (cards || []).map((card) => ({ ...card, starred: card.starred === true }));
+      const byId = new Map(list.map((card) => [card.id, card]));
+      const saved = readDeckProgress(deckProgressKey(deck.id));
+      let round = { cards: list.slice(), index: Math.max(0, list.findIndex((card) => card.id === startId)), marks: {}, number: 1, elapsed: 0, starredOnly: false, pool: null };
+      let resumed = false;
+      if (only?.length) {
+        const pick = new Set(only);
+        const picked = list.filter((card) => pick.has(card.id));
+        if (picked.length) round = { ...round, cards: picked, index: 0, number: (saved?.round || 1) + 1, pool: picked.map((card) => card.id) };
+      } else if (!startId && !fresh && saved && !saved.done) {
+        const restored = saved.order.map((id) => byId.get(id)).filter(Boolean);
+        if (restored.length) {
+          const marks = Object.fromEntries(Object.entries(saved.marks || {}).filter(([id, mark]) => byId.has(id) && (mark === 1 || mark === 3)));
+          round = { cards: restored, index: Math.min(saved.index || 0, restored.length - 1), marks, number: saved.round || 1, elapsed: saved.elapsedMs || 0, starredOnly: Boolean(saved.starredOnly), pool: Array.isArray(saved.pool) ? saved.pool : null };
+          resumed = round.index > 0 || Object.keys(marks).length > 0;
+        }
+      }
       reviewSession = {
-        cards: list.slice(),
+        cards: round.cards,
         original: list.slice(),
-        index: Math.max(0, list.findIndex((card) => card.id === startId)),
+        index: round.index,
         flipped: false,
-        reviewed: 0,
-        counts: { 1: 0, 2: 0, 3: 0, 4: 0 },
-        marks: {},
+        reviewed: Object.keys(round.marks).length,
+        counts: countMarks(round.marks),
+        marks: round.marks,
         deckId: deck?.id || "",
-        starredOnly: false,
-        editing: false
+        progressKey: deck?.id ? deckProgressKey(deck.id) : "",
+        pool: round.pool,
+        deckTitle: deck?.title || "Flashcards",
+        starredOnly: round.starredOnly,
+        editing: false,
+        phase: "cards",
+        round: round.number,
+        startedAt: Date.now() - round.elapsed,
+        finishedAt: 0
       };
       renderReview();
+      if (resumed) showToast(`Picked up at card ${round.index + 1} of ${round.cards.length}`);
     } catch (error) {
       showToast(error.message || "Could not start review.");
     }
   }
 
+  // Every course has its own "Your cards" deck with the same id, so progress is kept per course.
+  function deckProgressKey(deckId) {
+    return `${state.activeCourseId}:${deckId}`;
+  }
+
+  function countMarks(marks) {
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    Object.values(marks || {}).forEach((mark) => { if (counts[mark] != null) counts[mark] += 1; });
+    return counts;
+  }
+
+  // A round that has not been touched yet is not saved, so it never hides the last finished one.
+  function saveReviewProgress() {
+    const session = reviewSession;
+    if (!session?.progressKey || !session.cards.length) return;
+    if (session.phase !== "done" && !session.index && !Object.keys(session.marks).length) return;
+    writeDeckProgress(session.progressKey, {
+      order: session.cards.map((card) => card.id),
+      index: session.index,
+      marks: session.marks,
+      round: session.round,
+      done: session.phase === "done",
+      starredOnly: session.starredOnly,
+      pool: session.pool,
+      elapsedMs: (session.finishedAt || Date.now()) - session.startedAt
+    });
+  }
+
+  function finishReview() {
+    const session = reviewSession;
+    if (!session?.cards.length || session.editing) return;
+    clearTimeout(session.animTimer);
+    session.animating = false;
+    session.phase = "done";
+    session.finishedAt = Date.now();
+    session.flipped = false;
+    closeReviewMenu();
+    saveReviewProgress();
+    renderReview();
+    sessionRoot()?.querySelector(".study-done [data-review-again]")?.focus({ preventScroll: true });
+  }
+
+  // kind: "revisit" (missed + skipped), "missed", or "all" for the whole deck again.
+  function reviewAgain(kind) {
+    const session = reviewSession;
+    if (!session) return;
+    const { missed, skipped } = deckBuckets(session.cards, session.marks);
+    const pick = kind === "missed" ? missed : kind === "revisit" ? [...missed, ...skipped] : null;
+    const ids = new Set((pick || []).map((card) => card.id));
+    if (pick && !ids.size) return;
+    session.history = pick ? [...(session.history || []), { round: session.round, got: session.counts[3] || 0, total: session.cards.length }] : [];
+    session.pool = pick ? [...ids] : null;
+    session.cards = pick ? session.cards.filter((card) => ids.has(card.id)) : visibleReviewCards();
+    session.round = pick ? session.round + 1 : 1;
+    session.index = 0;
+    session.flipped = false;
+    session.marks = {};
+    session.counts = countMarks({});
+    session.reviewed = 0;
+    session.phase = "cards";
+    session.startedAt = Date.now();
+    session.finishedAt = 0;
+    if (!pick) clearDeckProgress(session.progressKey);
+    renderReview();
+  }
+
+  // A revisit round keeps to its own cards, so Starred only narrows that pool.
   function visibleReviewCards() {
-    return reviewSession.starredOnly
-      ? reviewSession.original.filter((card) => card.starred)
-      : reviewSession.original.slice();
+    const pool = reviewSession.pool ? new Set(reviewSession.pool) : null;
+    return reviewSession.original.filter((card) => (!pool || pool.has(card.id)) && (!reviewSession.starredOnly || card.starred));
   }
 
   function syncVisibleCards(keepId) {
@@ -3334,8 +3628,63 @@ export function createStudyHubController({
     return `Question: ${card.front || ""}\n\nAnswer: ${card.back || ""}`;
   }
 
+  // Card chat: a docked sidebar that follows the current card while it stays open.
+  const CARD_PROMPTS = [
+    ["Explain this card", "Explain this card to me clearly."],
+    ["Explain in one line", "Explain this card in one line."],
+    ["Give me an analogy", "Give me a simple analogy for this card."],
+    ["Why is this the answer?", "Why is this the answer? Walk me through the reasoning."],
+    ["Quiz me on this", "Ask me one quick question that tests whether I really understand this card. Wait for my answer."]
+  ];
+  let cardChatCardId = "";
+  let cardChatQuiet = false;
+
   function resetCardAsk() {
+    if (!cardChatOpen) closeSideChat?.();
+  }
+
+  function openCardChat(card, { focus = false } = {}) {
+    cardChatCardId = card.id;
+    openSideChat(cardAskContext(card), null, {
+      flashcard: true,
+      role: "think",
+      docked: true,
+      focus,
+      title: "Ask about this card",
+      suggestions: CARD_PROMPTS,
+      onAddToCard: addReplyToCard,
+      onClose: () => {
+        cardChatCardId = "";
+        if (cardChatQuiet || !reviewSession) return;
+        setCardChatOpen(false);
+      }
+    });
+  }
+
+  function closeCardChatQuietly() {
+    if (!cardChatCardId) return;
+    cardChatQuiet = true;
     closeSideChat?.();
+    cardChatQuiet = false;
+    cardChatCardId = "";
+  }
+
+  // Keeps the sidebar on the card on screen; the end screen and card editing hide it.
+  function syncCardChat() {
+    const card = reviewSession?.cards[reviewSession.index];
+    const show = cardChatOpen && canUseSideChat?.() && openSideChat && card && reviewSession.phase !== "done" && !reviewSession.editing;
+    if (!show) return closeCardChatQuietly();
+    if (cardChatCardId !== card.id) openCardChat(card);
+  }
+
+  function setCardChatOpen(open, { focus = false } = {}) {
+    cardChatOpen = open;
+    try { localStorage.setItem(cardChatKey, open ? "1" : "0"); } catch { /* Storage is optional. */ }
+    const button = sessionRoot()?.querySelector("[data-card-chat]");
+    if (button) button.outerHTML = cardChatButton();
+    if (!open) return closeCardChatQuietly();
+    const card = reviewSession?.cards[reviewSession.index];
+    if (card) openCardChat(card, { focus });
   }
 
   async function saveCardPatch(card, patch) {
@@ -3357,6 +3706,7 @@ export function createStudyHubController({
     closeReviewMenu();
     resetCardAsk();
     syncVisibleCards(keepId);
+    saveReviewProgress();
     renderReview();
   }
 
@@ -3429,24 +3779,6 @@ export function createStudyHubController({
     } catch (error) {
       showToast(error.message || "Could not save card.");
     }
-  }
-
-  function sendCardAsk() {
-    if (!canUseSideChat?.() || !openSideChat) return;
-    const card = reviewSession?.cards[reviewSession.index];
-    const form = sessionRoot()?.querySelector("[data-study-ask]");
-    const input = form?.querySelector(".study-ask-input");
-    const text = input?.value.trim();
-    if (!card || !text) return;
-    const rect = (form || sessionRoot()?.querySelector(".study-review-stage"))?.getBoundingClientRect();
-    input.value = "";
-    openSideChat(cardAskContext(card), rect, {
-      flashcard: true,
-      role: "think",
-      initialText: text,
-      send: true,
-      onAddToCard: addReplyToCard
-    });
   }
 
   async function addReplyToCard(text) {
@@ -3522,11 +3854,13 @@ export function createStudyHubController({
   function navReview(delta) {
     if (!reviewSession?.cards.length || reviewSession.animating || reviewSession.editing) return;
     const next = reviewSession.index + Number(delta);
-    if (next < 0 || next >= reviewSession.cards.length) return;
+    if (next >= reviewSession.cards.length) return finishReview();
+    if (next < 0) return;
     reviewSession.index = next;
     reviewSession.flipped = false;
     closeReviewMenu();
     resetCardAsk();
+    saveReviewProgress();
     renderReview();
   }
 
@@ -3537,12 +3871,19 @@ export function createStudyHubController({
     reviewSession.editing = false;
     closeReviewMenu();
     resetCardAsk();
+    reviewSession.pool = null;
     reviewSession.cards = visibleReviewCards();
     reviewSession.index = 0;
     reviewSession.flipped = false;
     reviewSession.reviewed = 0;
     reviewSession.counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
     reviewSession.marks = {};
+    reviewSession.round = 1;
+    reviewSession.history = [];
+    reviewSession.phase = "cards";
+    reviewSession.startedAt = Date.now();
+    reviewSession.finishedAt = 0;
+    clearDeckProgress(reviewSession.progressKey);
     renderReview();
   }
 
@@ -3560,6 +3901,7 @@ export function createStudyHubController({
     reviewSession.cards = cards;
     reviewSession.index = 0;
     reviewSession.flipped = false;
+    saveReviewProgress();
     renderReview();
   }
 
@@ -3613,10 +3955,6 @@ export function createStudyHubController({
     const advance = () => {
       if (!reviewSession) return;
       reviewSession.animating = false;
-      if (reviewSession.index >= reviewSession.cards.length - 1) {
-        sessionRoot()?.querySelector(".study-review-stage")?.classList.remove("is-got", "is-miss");
-        return;
-      }
       navReview(1);
     };
     if (reducedMotion()) return advance();
@@ -3641,6 +3979,7 @@ export function createStudyHubController({
       else reviewSession.reviewed += 1;
       reviewSession.counts[value] += 1;
       reviewSession.marks[card.id] = value;
+      saveReviewProgress();
       if (value === 3) sound.tick();
       if (!patchReviewChrome()) renderReview();
     }
@@ -3656,12 +3995,113 @@ export function createStudyHubController({
     return added;
   }
 
-  function quizPanelReady(quizId) {
-    return Boolean(els.studyView?.querySelector(".dojo-studio-expanded")) && studioView?.kind === "quiz" && studioView.id === quizId;
+  // Speaking a written answer: record, transcribe, then append the text to that question's answer.
+  // The job lives on the test session so a new or closed test can never receive a late transcript.
+  function canDictate() {
+    return Boolean(speechEnabled?.() && transcribeDictation && navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined");
   }
 
-  function testHelpers(host) {
-    return { escapeHtml, spinner, host };
+  function paintDictation() {
+    if (!quizSession) return;
+    const button = sessionRoot()?.querySelector("[data-test-mic]");
+    const job = quizSession.dictation;
+    if (button) button.outerHTML = dictationButton(job?.index === quizSession.index ? job.state : "");
+  }
+
+  async function toggleDictation() {
+    const session = quizSession;
+    if (!session || session.phase !== "test") return;
+    if (session.dictation) {
+      if (session.dictation.state === "recording") stopDictation();
+      return;
+    }
+    const job = { index: session.index, state: "starting", chunks: [], discard: false };
+    job.finished = new Promise((resolve) => { job.resolve = resolve; });
+    session.dictation = job;
+    try {
+      job.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (quizSession?.dictation !== job) {
+        job.stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(value => MediaRecorder.isTypeSupported?.(value)) || "";
+      job.recorder = new MediaRecorder(job.stream, type ? { mimeType: type } : undefined);
+      job.recorder.addEventListener("dataavailable", event => { if (event.data?.size) job.chunks.push(event.data); });
+      job.recorder.addEventListener("stop", () => void finishDictation(session, job), { once: true });
+      job.recorder.start();
+      job.state = "recording";
+    } catch (error) {
+      job.stream?.getTracks().forEach(track => track.stop());
+      if (session.dictation === job) session.dictation = null;
+      showToast(error?.name === "NotAllowedError" ? "Microphone access was blocked." : "Could not start voice input.");
+    }
+    paintDictation();
+  }
+
+  // Stops the recording; the transcript is still added unless `discard` is set.
+  function stopDictation({ discard = false } = {}) {
+    const job = quizSession?.dictation;
+    if (!job) return;
+    job.discard ||= discard;
+    if (job.recorder?.state === "recording") {
+      job.state = "processing";
+      job.recorder.stop();
+    } else if (job.state === "starting") {
+      quizSession.dictation = null;
+      job.resolve();
+    }
+    if (discard) quizSession.dictation = null;
+    paintDictation();
+  }
+
+  async function finishDictation(session, job) {
+    try {
+      await addDictation(session, job);
+    } finally {
+      job.resolve();
+    }
+  }
+
+  async function addDictation(session, job) {
+    job.stream?.getTracks().forEach(track => track.stop());
+    const blob = new Blob(job.chunks, { type: job.chunks[0]?.type || "audio/webm" });
+    let text = "";
+    if (!job.discard && blob.size) {
+      try {
+        text = await transcribeDictation(blob);
+        if (!text) showToast("No speech was detected.");
+      } catch (error) {
+        showToast(error?.message || "Speech transcription failed.");
+      }
+    }
+    if (session.dictation === job) session.dictation = null;
+    if (quizSession !== session || session.phase !== "test") return;
+    if (!text || job.discard) {
+      paintDictation();
+      return;
+    }
+    const current = String(session.answers[job.index] || "");
+    session.answers[job.index] = `${current}${current && !/\s$/.test(current) ? " " : ""}${text}`;
+    // The student may have moved on and be typing another answer; keep their caret there.
+    const typing = document.activeElement?.matches?.("[data-test-written]") ? document.activeElement : null;
+    const caret = typing && { start: typing.selectionStart, end: typing.selectionEnd, scroll: typing.scrollTop };
+    renderQuiz();
+    const textarea = sessionRoot()?.querySelector("[data-test-written]");
+    if (session.index !== job.index) {
+      if (caret && textarea) {
+        textarea.focus({ preventScroll: true });
+        textarea.setSelectionRange(caret.start, caret.end);
+        textarea.scrollTop = caret.scroll;
+      }
+    } else if (textarea) {
+      textarea.focus({ preventScroll: true });
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      textarea.scrollTop = textarea.scrollHeight;
+    }
+  }
+
+  function testHelpers() {
+    return { escapeHtml, spinner, canDictate: canDictate() };
   }
 
   function tickTestClock() {
@@ -3680,29 +4120,42 @@ export function createStudyHubController({
     testClock = setInterval(tickTestClock, 1000);
   }
 
-  // Paint the test wherever it lives: the Create panel, or the full-screen session layer.
+  // Tests always run in the full-screen session layer.
   function renderQuiz({ scrollTop = false } = {}) {
     if (!quizSession) return;
-    if (quizSession.host === "panel") {
-      const root = sessionRoot();
-      if (root && !reviewSession && !root.classList.contains("hidden")) closeSessionLayer();
-      patchStudio({ keepScroll: !scrollTop });
-    } else {
-      const scroll = sessionRoot()?.querySelector(".study-test-scroll");
-      const keep = scrollTop ? 0 : scroll?.scrollTop || 0;
-      openSessionShell(`<div class="study-session-frame is-test">${testMarkup(quizSession, testHelpers("full"))}</div>`);
-      const next = sessionRoot()?.querySelector(".study-test-scroll");
-      if (next) next.scrollTop = keep;
-    }
+    const root = sessionRoot();
+    const scroll = root?.querySelector(".study-test-scroll");
+    const keep = scrollTop ? 0 : scroll?.scrollTop || 0;
+    const dotsLeft = root?.querySelector(".study-test-dots")?.scrollLeft || 0;
+    openSessionShell(`<div class="study-session-frame is-test">${testMarkup(quizSession, testHelpers())}</div>`);
+    const next = root?.querySelector(".study-test-scroll");
+    if (next) next.scrollTop = keep;
+    revealCurrentDot(root, dotsLeft);
     quizSession.enter = false;
   }
 
-  function focusTest(selector) {
-    const scope = quizSession?.host === "full" ? sessionRoot() : els.studyView;
-    scope?.querySelector(selector)?.focus({ preventScroll: true });
+  // The question strip scrolls on its own; keep the current question in view, gliding from where it was.
+  function revealCurrentDot(root, fromLeft) {
+    const dots = root?.querySelector(".study-test-dots");
+    const current = dots?.querySelector(".study-test-dot.is-current");
+    if (!current) return;
+    dots.scrollLeft = fromLeft;
+    // Next frame: focusing a question button right after a repaint would cancel a smooth scroll.
+    requestAnimationFrame(() => {
+      if (!current.isConnected) return;
+      const box = dots.getBoundingClientRect();
+      const dot = current.getBoundingClientRect();
+      const target = dots.scrollLeft + dot.left - box.left - (box.width - dot.width) / 2;
+      const left = Math.max(0, Math.min(dots.scrollWidth - dots.clientWidth, target));
+      if (Math.abs(left - dots.scrollLeft) > 1) dots.scrollTo({ left, behavior: reducedMotion() ? "auto" : "smooth" });
+    });
   }
 
-  async function startQuiz(quizId, host = "panel") {
+  function focusTest(selector) {
+    sessionRoot()?.querySelector(selector)?.focus({ preventScroll: true });
+  }
+
+  async function startQuiz(quizId) {
     try {
       const payload = await fetchStudyQuiz(state.session, quizId);
       const quiz = payload?.quiz || payload;
@@ -3712,7 +4165,6 @@ export function createStudyHubController({
       }
       const existingFronts = Array.isArray(payload?.existingFronts) ? payload.existingFronts : [];
       quizSession = newQuizSession(quiz, {
-        host: host === "panel" && !quizPanelReady(quiz.id) ? "full" : host,
         courseId: state.activeCourseId,
         existingFronts
       });
@@ -3724,10 +4176,9 @@ export function createStudyHubController({
     }
   }
 
-  function newQuizSession(quiz, { host, courseId, existingFronts }) {
+  function newQuizSession(quiz, { courseId, existingFronts }) {
     return {
       quiz,
-      host,
       courseId,
       index: 0,
       answers: quiz.questions.map(() => null),
@@ -3745,8 +4196,9 @@ export function createStudyHubController({
 
   function retakeQuiz() {
     if (!quizSession?.quiz) return;
-    const { quiz, host, courseId, existingFronts } = quizSession;
-    quizSession = newQuizSession(quiz, { host, courseId, existingFronts: existingFronts || [] });
+    const { quiz, courseId, existingFronts } = quizSession;
+    stopDictation({ discard: true });
+    quizSession = newQuizSession(quiz, { courseId, existingFronts: existingFronts || [] });
     startTestClock();
     renderQuiz({ scrollTop: true });
   }
@@ -3755,6 +4207,7 @@ export function createStudyHubController({
     if (!quizSession || quizSession.phase !== "test") return;
     const next = Math.max(0, Math.min(quizSession.quiz.questions.length - 1, index));
     if (next === quizSession.index) return;
+    stopDictation();
     quizSession.index = next;
     quizSession.enter = true;
     renderQuiz({ scrollTop: true });
@@ -3789,8 +4242,18 @@ export function createStudyHubController({
   }
 
   async function submitQuiz() {
-    if (!quizSession || quizSession.phase !== "test") return;
+    if (!quizSession || quizSession.phase !== "test" || quizSession.submitting) return;
     const session = quizSession;
+    // A spoken answer still being recorded or transcribed is part of the submission.
+    const spoken = session.dictation;
+    if (spoken && spoken.state !== "starting") {
+      session.submitting = true;
+      stopDictation();
+      await spoken.finished;
+      session.submitting = false;
+      if (quizSession !== session || session.phase !== "test") return;
+    }
+    stopDictation({ discard: true });
     session.elapsedMs = Date.now() - session.startedAt;
     session.phase = "marking";
     session.enter = true;
@@ -3818,16 +4281,9 @@ export function createStudyHubController({
     renderQuiz({ scrollTop: true });
   }
 
-  function endQuizSession() {
-    stopTestClock();
-    const wasPanel = quizSession?.host === "panel";
-    quizSession = null;
-    if (wasPanel) patchStudio({ keepScroll: false });
-  }
-
   function leaveQuiz() {
     if (!quizSession) return;
-    const finish = () => (quizSession?.host === "full" ? closeSession() : endQuizSession());
+    const finish = () => closeSession();
     if (quizSession.phase === "test" && answeredCount(quizSession)) {
       openDeleteConfirm({
         title: "Leave this test?",
@@ -3840,37 +4296,13 @@ export function createStudyHubController({
     finish();
   }
 
-  function moveQuiz(host) {
-    if (!quizSession || quizSession.host === host) return;
-    quizSession.enter = true;
-    if (host === "panel") {
-      if (!els.studyView?.querySelector(".dojo-workspace")) return;
-      if (studioView?.kind !== "quiz" || studioView.id !== quizSession.quiz.id) {
-        studioView = { kind: "quiz", id: quizSession.quiz.id, questions: quizSession.quiz.questions, error: "", open: new Set() };
-      }
-      studioCollapsed = false;
-      quizSession.host = "panel";
-      closeSessionLayer();
-      render();
-      quizSession.enter = false;
-    } else {
-      quizSession.host = "full";
-      patchStudio({ keepScroll: false });
-      renderQuiz();
-    }
-    focusTest(".study-test-top [data-test-host]");
-  }
-
   function showReview(index = null) {
     if (!quizSession?.report) return;
     quizSession.phase = "review";
     quizSession.enter = true;
     if (index != null && quizSession.report.results[index]?.status === "full") quizSession.reviewFilter = "all";
     renderQuiz({ scrollTop: true });
-    if (index != null) {
-      const scope = quizSession.host === "full" ? sessionRoot() : els.studyView;
-      scope?.querySelector(`#study-answer-${index}`)?.scrollIntoView({ block: "start" });
-    }
+    if (index != null) sessionRoot()?.querySelector(`#study-answer-${index}`)?.scrollIntoView({ block: "start" });
   }
 
   async function addMissedCard(index) {
@@ -3906,8 +4338,7 @@ export function createStudyHubController({
   function handleTestClick(event) {
     if (!quizSession || !event.target.closest("[data-test]")) return false;
     if (event.target.closest("[data-test-exit]")) { leaveQuiz(); return true; }
-    const host = event.target.closest("[data-test-host]");
-    if (host) { moveQuiz(host.dataset.testHost); return true; }
+    if (event.target.closest("[data-test-mic]")) { void toggleDictation(); return true; }
     const go = event.target.closest("[data-test-go]");
     if (go) { goToQuestion(Number(go.dataset.testGo)); return true; }
     const pick = event.target.closest("[data-test-pick]");
@@ -3930,11 +4361,7 @@ export function createStudyHubController({
       return true;
     }
     if (event.target.closest("[data-quiz-retake]")) { retakeQuiz(); return true; }
-    if (event.target.closest("[data-test-finish]")) {
-      if (quizSession.host === "full") closeSession();
-      else endQuizSession();
-      return true;
-    }
+    if (event.target.closest("[data-test-finish]")) { closeSession(); return true; }
     const miss = event.target.closest("[data-add-missed]");
     if (miss) { void addMissedCard(Number(miss.dataset.addMissed)); return true; }
     return true;
@@ -3976,11 +4403,13 @@ export function createStudyHubController({
         return;
       }
       if (event.target.closest("[data-review-restart]")) return restartReview();
+      if (event.target.closest("[data-card-chat]")) return setCardChatOpen(!cardChatOpen, { focus: true });
+      const again = event.target.closest("[data-review-again]");
+      if (again) return reviewAgain(again.dataset.reviewAgain);
       if (event.target.closest("[data-review-shuffle]")) return shuffleReview();
       if (event.target.closest("[data-review-delete]")) return confirmDeleteCard();
       if (quizMenuKey === "review" && !event.target.closest(".study-review-menu")) closeReviewMenu();
       if (reviewSession.editing) return;
-      if (event.target.closest("[data-study-ask]")) return;
       if (event.target.closest("[data-study-flip]")) {
         flipReview();
         return;
@@ -4002,7 +4431,7 @@ export function createStudyHubController({
     if (reviewSession?.cards.length) {
       if (confirmOpen()) return;
       if (event.target.closest?.("input, textarea, [contenteditable=true]")) return;
-      if (reviewSession.editing) return;
+      if (reviewSession.editing || reviewSession.phase === "done") return;
       if (event.key === " " || event.code === "Space") {
         event.preventDefault();
         flipReview();
@@ -4019,7 +4448,7 @@ export function createStudyHubController({
       }
       return;
     }
-    if (quizSession?.host === "full" && !confirmOpen()) handleTestKey(event);
+    if (quizSession && !confirmOpen()) handleTestKey(event);
   }
 
   function closeNote() {
@@ -4090,6 +4519,10 @@ export function createStudyHubController({
   }
 
   function handleEscape() {
+    if (tutorCall?.fullscreen && !confirmOpen()) {
+      tutorCall.setFullscreen(false);
+      return true;
+    }
     if (reviewSession && quizMenuKey === "review") {
       closeReviewMenu();
       return true;
@@ -4099,16 +4532,12 @@ export function createStudyHubController({
       return true;
     }
     if (confirmOpen()) return false;
-    if (quizSession?.host === "panel") {
+    if (quizSession) {
       if (document.activeElement?.matches?.("[data-test] textarea")) document.activeElement.blur();
       else leaveQuiz();
       return true;
     }
-    if (quizSession && els.studyView?.querySelector(".dojo-workspace")) {
-      moveQuiz("panel");
-      return true;
-    }
-    if (reviewSession || quizSession) {
+    if (reviewSession) {
       closeSession();
       return true;
     }
@@ -4144,7 +4573,7 @@ export function createStudyHubController({
     if (handleStudioClick(event)) return;
     const sort = event.target.closest("[data-source-sort]");
     if (sort) {
-      if (!["recent", "asc", "desc"].includes(sort.dataset.sourceSort)) return;
+      if (!SOURCE_SORTS.some(([value]) => value === sort.dataset.sourceSort)) return;
       sourceSort = sort.dataset.sourceSort;
       render();
       els.studyView.querySelector(".dojo-source-sort summary")?.focus();
@@ -4226,6 +4655,8 @@ export function createStudyHubController({
       sourceDialog.open(event);
       return;
     }
+    const group = event.target.closest("[data-collection-group]");
+    if (group) return toggleCollectionGroup(group);
     const practiceCreate = event.target.closest("[data-practice-create]");
     if (practiceCreate) {
       event.stopPropagation();
@@ -4314,7 +4745,6 @@ export function createStudyHubController({
   }
 
   function handleViewKey(event) {
-    if (quizSession?.host === "panel" && event.target.closest?.("[data-test]") && handleTestKey(event)) return;
     if (handlePodcastKey(event)) return;
     if (event.key === "Enter" && !event.shiftKey && event.target.matches?.("[data-typing-answer]")) {
       event.preventDefault();
@@ -4498,11 +4928,6 @@ export function createStudyHubController({
     els.studySession?.addEventListener("input", (event) => {
       if (quizSession && event.target.matches?.("[data-test-written]")) writeAnswer(event.target);
     });
-    els.studySession?.addEventListener("submit", (event) => {
-      if (!event.target.closest("[data-study-ask]")) return;
-      event.preventDefault();
-      sendCardAsk();
-    });
     document.addEventListener("keydown", (event) => {
       if (!reviewSession && !quizSession) return;
       handleSessionKey(event);
@@ -4519,7 +4944,7 @@ export function createStudyHubController({
     loadCourse,
     resetCourseCaches,
     chatSources: contextPicker.sources,
-    isSessionOpen: () => Boolean(reviewSession || quizSession?.host === "full")
+    isSessionOpen: () => Boolean(reviewSession || quizSession)
   };
 }
 

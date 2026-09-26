@@ -862,6 +862,62 @@ body.chat-empty .composer-area {
   z-index: 60;
 }
 
+/* Tapping Klui: only its body takes taps, and only while it is standing there. */
+.kp-hit {
+  position: absolute;
+  left: calc(var(--kp-unit) * 8);
+  top: calc(var(--kp-unit) * 2);
+  width: calc(var(--kp-unit) * 14);
+  height: calc(var(--kp-unit) * 10);
+  pointer-events: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.composer-klui[data-shown="true"] .kp-hit {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.kp-svg {
+  transform-origin: 65% 100%;
+}
+
+/* Running off: the legs take turns and the body bobs. */
+.composer-klui.is-running .kp-hit {
+  pointer-events: none;
+}
+
+.composer-klui.is-running .kp-legs rect:first-child { animation: kp-stride 160ms steps(1, end) infinite; }
+.composer-klui.is-running .kp-legs rect:last-child { animation: kp-stride 160ms steps(1, end) 80ms infinite; }
+.composer-klui.is-running .kp-stage { animation: kp-bob 160ms steps(1, end) infinite; }
+
+@keyframes kp-stride {
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes kp-bob {
+  50% { transform: translateY(-2px); }
+}
+
+/* The gate Klui runs into: a portal standing on the composer's far edge. */
+.composer > .kp-portal.is-gate {
+  position: absolute;
+  bottom: calc(100% - 3px);
+  z-index: 4;
+  width: 12px;
+  height: 50px;
+  translate: -50% 0;
+  transform: scale(.2, 0);
+  transform-origin: 50% 100%;
+  background: radial-gradient(closest-side, #1b1446 0 40%, #5b6cff 62%, #a9d6ff 82%, transparent 100%);
+  transition: transform 140ms cubic-bezier(.3, 1.5, .6, 1), opacity 90ms linear;
+}
+
+.composer > .kp-portal.is-gate[data-open="true"] {
+  transform: none;
+  opacity: 1;
+}
+
 /* The thinking bar's mascot waits out of sight until it drops out of its portal. */
 body.klui-portal-pending .klui-bar.is-active .klui {
   visibility: hidden;

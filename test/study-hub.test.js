@@ -31,6 +31,7 @@ test("photo transcript menus generate flashcards and practice tests from the not
     } },
     els: { studyView: { querySelector: () => null, querySelectorAll: () => [] } },
     generations: new Map(), quizMenuKey: "", pinnedCollection: new Set(), handleStudioClick: () => false,
+    collapsedGroups: new Set(), collectionGroupId: type => type, COLLECTION_GROUPS: { notes: "Notes" },
     escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
     isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
     startGeneration: job => jobs.push(job), studioItem: () => null, handleAudioCardClick: () => false
@@ -58,6 +59,35 @@ test("photo transcript menus generate flashcards and practice tests from the not
   assert.doesNotMatch(ctx.materialMenu("doc", "doc-1"), /data-gen-kind="note"/);
 });
 
+test("duplicate note and photo-transcript decks open the existing deck", async () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const functions = ["existingGeneration", "openExistingGeneration"].map(name =>
+    hub.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n  \\}`))[0]
+  ).join("\n");
+  const opened = [];
+  const documentDeck = { id: "doc:file-1", documentFileId: "file-1" };
+  const ctx = {
+    state: { activeCourseId: "course-1", studyPractice: { decks: [documentDeck] } },
+    generations: new Map(), showToast() {}, studyVisible: () => true,
+    loadMaterials: async () => {},
+    loadPractice: async () => {
+      ctx.state.studyPractice.decks = [documentDeck, { id: "note:photo-1", noteId: "photo-1" }];
+    },
+    openStudioView: (kind, id) => opened.push({ kind, id })
+  };
+  runInNewContext(functions, ctx);
+  assert.equal(ctx.existingGeneration({ type: "flashcards", documentFileId: "file-1" }).id, documentDeck.id);
+  assert.equal(ctx.existingGeneration({ type: "flashcards" }), null);
+  for (const noteId of ["note-1", "photo-1"]) {
+    if (noteId === "note-1") ctx.state.studyPractice.decks.push({ id: `note:${noteId}`, noteId });
+    const job = { id: noteId, courseId: "course-1", type: "flashcards", noteId };
+    ctx.generations.set(job.id, job);
+    assert.equal(await ctx.openExistingGeneration(job, "Deep deck already created."), true);
+    assert.deepEqual(opened.at(-1), { kind: "deck", id: `note:${noteId}` });
+    assert.equal(ctx.generations.has(job.id), false);
+  }
+});
+
 test("practice can create multi-file decks and quizzes", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const html = readFileSync(resolve(publicDir, "index.html"), "utf8");
@@ -67,7 +97,7 @@ test("practice can create multi-file decks and quizzes", () => {
   const generate = readFileSync(resolve(here, "../server/study/generate.js"), "utf8");
   assert.match(hub, /data-practice-create=/);
   assert.match(hub, /\["flashcards", "Flashcards"/);
-  assert.match(hub, /\["quiz", "Practice test"/);
+  assert.match(hub, /\["quiz", "Test", "Practice test"\]/);
   assert.match(hub, /function openCreatePicker\(/);
   assert.match(hub, /documentFileIds/);
   assert.match(hub, /CREATE_FILE_CAP = 10/);
@@ -92,7 +122,7 @@ test("practice decks are openable and have rename/delete menus", () => {
   assert.match(hub, /data-delete-deck=/);
   assert.match(hub, /data-rename-quiz=/);
   assert.match(hub, /data-delete-quiz=/);
-  assert.match(hub, /function startReview\(deck, \{ startId = "" \} = \{\}\)/);
+  assert.match(hub, /function startReview\(deck, \{ startId = "", only = null, fresh = false \} = \{\}\)/);
   assert.match(hub, /openTitleRename/);
   assert.match(hub, /updateStudyDeck/);
   assert.match(hub, /deleteStudyDeck/);
@@ -166,7 +196,8 @@ test("review can star cards in the current deck and edit both sides", () => {
   assert.match(hub, /function toggleStarredOnly\(/);
   assert.match(hub, /data-edit-side="front"/);
   assert.match(hub, /data-edit-side="back"/);
-  assert.match(hub, /Ask any doubts\./);
+  assert.match(hub, /data-card-chat/);
+  assert.match(hub, /docked: true/);
   assert.match(hub, /canUseSideChat\?/);
   assert.match(hub, /role: "think"/);
   assert.match(hub, /onAddToCard: addReplyToCard/);
@@ -309,12 +340,14 @@ test("deleting a note warns that linked practice content is also deleted", () =>
   assert.match(hub, /This will also delete its flashcard decks and quizzes\./);
 });
 
-test("practice tests run in the panel or full screen and end with a marked report", () => {
+test("practice tests run full screen and end with a marked report", () => {
   const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
   const test = readFileSync(resolve(publicDir, "js/studyTest.js"), "utf8");
   const css = readFileSync(resolve(publicDir, "styles/study-hub.css"), "utf8");
-  assert.match(hub, /startQuiz\(studioView\.id, full\.matches\("\[data-studio-full\]"\) \? "full" : "panel"\)/);
-  assert.match(hub, /function moveQuiz\(host\)/);
+  assert.match(hub, /void startQuiz\(studioView\.id\)/);
+  assert.doesNotMatch(hub, /function moveQuiz\(/);
+  assert.doesNotMatch(test, /data-test-host/, "no side-panel toggle in the test header");
+  assert.match(test, /data-test-mic/, "written answers can be spoken");
   assert.match(hub, /function submitQuiz\(/);
   assert.match(hub, /function retakeQuiz\(/);
   assert.match(hub, /quizId:\s*quizSession\.quiz\.id/);
@@ -471,4 +504,40 @@ test("successful generation cards remove themselves immediately", () => {
   assert.doesNotMatch(hub, /Available in Practice/);
   assert.match(hub, /const failed = job\.status === "failed";/);
   assert.match(hub, /data-retry-generation=/);
+});
+
+test("flashcard rounds end on a results screen and save what to revisit", async () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  const { deckBuckets, deckProgressSummary, readDeckProgress, writeDeckProgress, clearDeckProgress } = await import("../public/js/deckProgress.js");
+  const cards = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  const buckets = deckBuckets(cards, { a: 3, b: 1 });
+  assert.deepEqual(buckets.got.map((c) => c.id), ["a"]);
+  assert.deepEqual(buckets.missed.map((c) => c.id), ["b"]);
+  assert.deepEqual(buckets.skipped.map((c) => c.id), ["c", "d"]);
+  writeDeckProgress("deck1", { order: ["a", "b", "c", "d"], index: 2, marks: { a: 3, b: 1 }, round: 1, done: false });
+  assert.deepEqual(deckProgressSummary(readDeckProgress("deck1"), ["a", "b", "c", "d"]), { state: "resume", seen: 3, total: 4, got: 1, missed: 1, round: 1 });
+  writeDeckProgress("deck1", { order: ["a", "b", "c", "d"], index: 3, marks: { a: 3, b: 1 }, round: 1, done: true });
+  assert.equal(deckProgressSummary(readDeckProgress("deck1"), ["a", "b", "c"]).revisit, 2);
+  clearDeckProgress("deck1");
+  assert.equal(readDeckProgress("deck1"), null);
+  delete globalThis.localStorage;
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /function reviewDoneMarkup\(session\)/);
+  assert.match(hub, /data-review-again="revisit"/);
+  assert.match(hub, /if \(next >= reviewSession\.cards\.length\) return finishReview\(\);/);
+});
+
+test("review progress is per course, revisit rounds keep their pool and failed generations clear themselves", () => {
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  assert.match(hub, /return `\$\{state\.activeCourseId\}:\$\{deckId\}`;/);
+  assert.doesNotMatch(hub, /(read|write|clear)DeckProgress\((studioView\.id|deck\.id|session\.deckId|reviewSession\.deckId)\)/);
+  assert.match(hub, /\(!pool \|\| pool\.has\(card\.id\)\) && \(!reviewSession\.starredOnly \|\| card\.starred\)/);
+  assert.match(hub, /dismissFailedGeneration\(job\);/);
+  assert.match(hub, /const FAILED_GENERATION_MS = 3000;/);
+  assert.match(hub, /type === "flashcards" \|\| type === "mindmap" \? \[\] : \[\["conceptual"/);
+  assert.match(hub, /await spoken\.finished;/);
+  const resize = readFileSync(resolve(publicDir, "js/dojoPanelResize.js"), "utf8");
+  assert.match(resize, /window\.addEventListener\("pointerup", endDrag\)/);
+  assert.match(resize, /new ResizeObserver\(schedule\)/);
 });

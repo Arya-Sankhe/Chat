@@ -2,7 +2,7 @@
 // studyHub owns the state and events; everything here is a pure function of it.
 import { questionMarks, testSummary } from "./studyTest.js";
 
-export const DECK_LAYOUTS = [["column", "Column"], ["list", "List"], ["toggle", "Toggle"], ["typing", "Typing"], ["flip", "Flip"]];
+export const DECK_LAYOUTS = [["flip", "Flip"], ["column", "Column"], ["list", "List"], ["toggle", "Toggle"], ["typing", "Typing"]];
 export const DECK_SORTS = [["original", "Original order"], ["source", "Source page"], ["alpha", "A–Z"], ["starred", "Starred first"]];
 
 const svg = paths => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -113,6 +113,17 @@ export function deckBodyMarkup(view, helpers) {
   }).join("");
 }
 
+// The last round on this device: resume a paused one, or revisit what was missed.
+function deckProgressMarkup(progress) {
+  if (!progress) return "";
+  if (progress.state === "resume") {
+    const marked = [progress.got && `${progress.got} got it`, progress.missed && `${progress.missed} missed`].filter(Boolean).join(" · ");
+    return `<div class="dojo-deck-progress is-resume"><span class="dojo-deck-progress-bar" style="--done:${Math.round((progress.seen / progress.total) * 100)}%"></span><p><strong>Paused at card ${progress.seen} of ${progress.total}</strong>${marked ? `<small>${marked}</small>` : ""}</p><button class="study-chip-btn" type="button" data-deck-fresh>Start over</button><button class="study-primary-btn" type="button" data-studio-learn>Resume</button></div>`;
+  }
+  if (!progress.revisit) return `<div class="dojo-deck-progress is-clear"><p><strong>Last round: all ${progress.total} right</strong><small>Nothing left to revisit.</small></p></div>`;
+  return `<div class="dojo-deck-progress is-revisit"><p><strong>${progress.revisit} card${progress.revisit === 1 ? "" : "s"} to revisit</strong><small>Last round: ${progress.got} of ${progress.total} right</small></p><button class="study-primary-btn" type="button" data-deck-revisit>Review ${progress.revisit}</button></div>`;
+}
+
 export function deckViewMarkup(view, deck, helpers) {
   const { escapeHtml } = helpers;
   const count = view.cards?.length ?? deck.cardCount ?? 0;
@@ -121,12 +132,13 @@ export function deckViewMarkup(view, deck, helpers) {
     ${viewHeader(deck.title || "Flashcards", count, { escapeHtml, fullLabel: "Open full screen" })}
     <div class="dojo-view-modes" role="tablist" aria-label="Deck layout">${DECK_LAYOUTS.map(([value, label]) => `<button type="button" role="tab" data-deck-layout="${value}" aria-selected="${view.layout === value}">${ICONS[value]}<span>${label}</span></button>`).join("")}</div>
     <div class="dojo-view-tools">
-      <button class="dojo-view-action" type="button" data-studio-learn${count ? "" : " disabled"}>${ICONS.learn}<span>Learn</span><span class="dojo-view-badge">${escapeHtml(String(count))}</span></button>
+      <button class="dojo-view-action" type="button" data-studio-learn${count ? "" : " disabled"}>${ICONS.learn}<span>${helpers.progress?.state === "resume" ? "Resume" : "Learn"}</span><span class="dojo-view-badge">${escapeHtml(String(count))}</span></button>
       <span class="dojo-view-tools-end">
         <button class="study-icon-btn${view.searchOpen ? " is-on" : ""}" type="button" data-deck-search aria-expanded="${view.searchOpen}" aria-label="Search cards" title="Search cards">${ICONS.search}</button>
         <details class="dojo-source-sort dojo-deck-sort"><summary class="study-icon-btn" aria-label="Sort cards" title="Sort cards">${ICONS.sort}</summary><div class="dojo-sort-menu" role="group" aria-label="Card order">${DECK_SORTS.map(([value, label]) => `<button type="button" data-deck-sort="${value}" aria-pressed="${view.sort === value}">${label}<span aria-hidden="true">${view.sort === value ? "✓" : ""}</span></button>`).join("")}</div></details>
       </span>
     </div>
+    ${deckProgressMarkup(helpers.progress)}
     ${view.searchOpen ? `<label class="dojo-view-search">${ICONS.search}<input type="search" data-deck-query value="${escapeHtml(view.query)}" placeholder="Search questions and answers" aria-label="Search cards" autocomplete="off"><span data-deck-shown>${shown} / ${count}</span></label>` : ""}
     <div class="dojo-view-body" data-deck-body>${deckBodyMarkup(view, helpers)}</div>
   </div>`;

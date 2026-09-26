@@ -19,8 +19,7 @@ import {
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
   resolveProvider,
-  thinkUsesLunaFlex,
-  voiceModeRole
+  thinkUsesLunaFlex
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import {
@@ -84,8 +83,8 @@ export async function handleTemporaryChat(req, res, config) {
   })();
   res.on("close", () => { void cleanupImages(); });
 
-  // Voice mode: Nitro while it is fast enough to speak from, otherwise Think.
-  const voiceRole = body.voice === true ? await voiceModeRole(resolveProvider("openrouter", config)) : null;
+  // Voice mode always answers with Think (DeepSeek V4 Flash), reasoning off (see withVoiceReasoning).
+  const voiceRole = body.voice === true ? "think" : null;
   const routed = resolveChatRole({
     role: voiceRole || body.role,
     model: body.model,
