@@ -541,3 +541,41 @@ test("review progress is per course, revisit rounds keep their pool and failed g
   assert.match(resize, /window\.addEventListener\("pointerup", endDrag\)/);
   assert.match(resize, /new ResizeObserver\(schedule\)/);
 });
+
+test("flip preview grades cards, counts ticks and crosses, and revisits the misses", async () => {
+  const { deckBodyMarkup, visibleDeckCards } = await import("../public/js/studyStudio.js");
+  const helpers = { escapeHtml: (value) => String(value), starIcon: () => "", sourceName: () => "" };
+  const cards = [1, 2, 3].map((n) => ({ id: `c${n}`, front: `Q${n}`, back: `A${n}`, sources: [] }));
+  const view = { cards, layout: "flip", query: "", sort: "original", flipIndex: 1, flipped: false, marks: { c1: 3 }, pool: null };
+  const html = deckBodyMarkup(view, helpers);
+  assert.match(html, /data-flip-grade="1"[^>]*aria-pressed="false"[^>]*>.*?<span>0<\/span>/);
+  assert.match(html, /data-flip-grade="3"[^>]*><span>1<\/span>/);
+  assert.match(html, /data-flip-nav="-1"(?![^>]*disabled)/);
+  assert.match(html, /data-flip-nav="1"(?![^>]*disabled)/);
+  const done = deckBodyMarkup({ ...view, marks: { c1: 3, c2: 1, c3: 3 } }, helpers);
+  assert.match(done, /Round done/);
+  assert.match(done, /data-flip-round="revisit"[^>]*>.*Revisit 1/);
+  assert.deepEqual(visibleDeckCards({ ...view, pool: ["c2"] }).map((card) => card.id), ["c2"]);
+  assert.equal(visibleDeckCards({ ...view, layout: "list", pool: ["c2"] }).length, 3);
+});
+
+test("flip preview keeps grading after a completed search is cleared", async () => {
+  const { deckBodyMarkup, visibleDeckCards } = await import("../public/js/studyStudio.js");
+  const hub = readFileSync(resolve(publicDir, "js/studyHub.js"), "utf8");
+  const grade = hub.match(/function gradeStudioFlip\([\s\S]*?\n  \}/)[0];
+  const helpers = { escapeHtml: String, starIcon: () => "", sourceName: () => "" };
+  const view = {
+    cards: [{ id: "a", front: "Alpha" }, { id: "b", front: "Beta" }],
+    layout: "flip", query: "Alpha", sort: "original", flipIndex: 0, marks: {}
+  };
+  const ctx = { studioView: view, visibleDeckCards, patchDeckBody() {}, els: { studyView: { querySelector: () => null } } };
+  runInNewContext(grade, ctx);
+  ctx.gradeStudioFlip(3);
+  assert.match(deckBodyMarkup(view, helpers), /All right\. Nice\./);
+  view.query = "";
+  view.flipIndex = 1;
+  assert.match(deckBodyMarkup(view, helpers), /data-flip-grade/);
+  ctx.gradeStudioFlip(1);
+  assert.deepEqual(view.marks, { a: 3, b: 1 });
+  assert.match(deckBodyMarkup(view, helpers), /Round done/);
+});

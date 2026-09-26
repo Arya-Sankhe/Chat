@@ -921,7 +921,7 @@ export function createStudyHubController({
     let layout = "flip";
     try { layout = localStorage.getItem(deckLayoutKey) || layout; } catch { /* Storage is optional. */ }
     studioView = kind === "deck"
-      ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "flip", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, typed: {}, checked: new Set(), open: new Set() }
+      ? { kind, id, cards: null, error: "", layout: DECK_LAYOUTS.some(([value]) => value === layout) ? layout : "flip", query: "", searchOpen: false, sort: "original", flipIndex: 0, flipped: false, marks: {}, pool: null, typed: {}, checked: new Set(), open: new Set() }
       : kind === "quiz" ? { kind, id, questions: null, error: "", open: new Set() }
         : kind === "podcast" ? { kind, id, podcast: null, error: "", speedOpen: false }
           : kind === "tutor" ? { kind, id, session: null, error: "" } : { kind, id };
@@ -1214,6 +1214,32 @@ export function createStudyHubController({
     els.studyView.querySelector("[data-studio-flip]")?.focus({ preventScroll: true });
   }
 
+  // Flip preview rounds: grade a card and move on; the round ends once every card has a mark.
+  function gradeStudioFlip(mark) {
+    const cards = visibleDeckCards(studioView);
+    const index = Math.min(studioView.flipIndex, cards.length - 1);
+    const card = cards[index];
+    if (!card || cards.every(item => studioView.marks[item.id])) return;
+    studioView.marks[card.id] = mark;
+    const unmarked = cards.findIndex((item, at) => at > index && !studioView.marks[item.id]);
+    const next = unmarked >= 0 ? unmarked : cards.findIndex(item => !studioView.marks[item.id]);
+    if (next >= 0) studioView.flipIndex = next;
+    studioView.flipped = false;
+    patchDeckBody();
+    els.studyView.querySelector(next < 0 ? "[data-flip-round]" : "[data-studio-flip]")?.focus({ preventScroll: true });
+  }
+
+  function restartStudioFlip(revisit) {
+    const cards = visibleDeckCards(studioView);
+    const left = cards.filter(card => studioView.marks[card.id] !== 3).map(card => card.id);
+    studioView.pool = revisit && left.length ? left : null;
+    studioView.marks = {};
+    studioView.flipIndex = 0;
+    studioView.flipped = false;
+    patchDeckBody();
+    els.studyView.querySelector("[data-studio-flip]")?.focus({ preventScroll: true });
+  }
+
   function patchTypingCard(id, focus) {
     const card = studioView.cards.find(item => item.id === id);
     const el = els.studyView.querySelector(`.dojo-qa.is-typing[data-card-id="${CSS.escape(id)}"]`);
@@ -1307,6 +1333,10 @@ export function createStudyHubController({
     if (flip) { flipStudioCard(flip); return true; }
     const nav = event.target.closest("[data-flip-nav]");
     if (nav) { navStudioFlip(Number(nav.dataset.flipNav)); return true; }
+    const grade = event.target.closest("[data-flip-grade]");
+    if (grade) { gradeStudioFlip(Number(grade.dataset.flipGrade)); return true; }
+    const round = event.target.closest("[data-flip-round]");
+    if (round) { restartStudioFlip(round.dataset.flipRound === "revisit"); return true; }
     const typing = event.target.closest(".dojo-qa.is-typing");
     if (typing && event.target.closest("[data-typing-check]")) {
       studioView.checked.add(typing.dataset.cardId);
@@ -4760,6 +4790,11 @@ export function createStudyHubController({
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         navStudioFlip(event.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+      if ((event.key === "1" || event.key === "2") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        gradeStudioFlip(event.key === "1" ? 1 : 3);
         return;
       }
     }
