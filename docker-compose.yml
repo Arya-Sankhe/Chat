@@ -20,6 +20,7 @@ services:
       WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_QUEUE: ${RESEARCH_QUEUE:-local}
+      TRANSCRIBE_QUEUE: ${TRANSCRIBE_QUEUE:-local}
     depends_on:
       searxng:
         condition: service_healthy
@@ -110,6 +111,40 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Speech-to-text for Dojo audio sources (Parakeet TDT 0.6B v2 int8 via sherpa-onnx).
+  # Isolated on purpose: one job at a time, 4 threads, low CPU priority, and a hard 3 GB
+  # memory cap with no swap, so it can only ever take itself down, never the site.
+  transcriber:
+    build:
+      context: .
+      dockerfile: transcriber/Dockerfile
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TRANSCRIBE_THREADS: ${TRANSCRIBE_THREADS:-4}
+      # Must match klui-chat's; only jobs from this queue are claimed.
+      TRANSCRIBE_QUEUE: ${TRANSCRIBE_QUEUE:-local}
+      TRANSCRIBE_MAX_SECONDS: ${STUDY_AUDIO_MAX_SECONDS:-14400}
+      # Soft ceiling for the per-job child; the service stops it cleanly before the hard cap.
+      TRANSCRIBE_CHILD_MAX_RSS_MB: ${TRANSCRIBE_CHILD_MAX_RSS_MB:-2600}
+    cpus: "4.0"
+    cpu_shares: 256
+    mem_limit: 3g
+    memswap_limit: 3g
+    pids_limit: 256
+    stop_grace_period: 30s
+    volumes:
+      - transcriber-work:/work
+    healthcheck:
+      test: ["CMD", "python", "-m", "transcriber.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
   research-worker:
     build: .
     command: ["node", "server/research/worker.js"]
@@ -144,3 +179,6 @@ services:
         required: false
     profiles: ["maintenance"]
     restart: "no"
+
+volumes:
+  transcriber-work:

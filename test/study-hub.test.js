@@ -33,7 +33,7 @@ test("photo transcript menus generate flashcards and practice tests from the not
     generations: new Map(), quizMenuKey: "", pinnedCollection: new Set(), handleStudioClick: () => false,
     escapeHtml: String, kebabIcon: () => "", collectionPinMarkup: () => "", collectionPinId: (kind, id) => `${kind}:${id}`,
     isMindMap: () => false, noteKindLabel: () => "Image transcript", icon: () => "", generationCardsMarkup: () => "", render() {},
-    startGeneration: job => jobs.push(job), studioItem: () => null
+    startGeneration: job => jobs.push(job), studioItem: () => null, handleAudioCardClick: () => false
   };
   runInNewContext(functions, ctx);
   const markup = ctx.practiceMarkup();

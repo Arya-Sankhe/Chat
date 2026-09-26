@@ -2498,3 +2498,143 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
   .dojo-tutor-orb, .dojo-tutor-orb i, .dojo-tutor-plan li, .dojo-tutor-recap, .tutor-line, .tutor-dots i, .tutor-status i, .dojo-tutor-preview q.is-new { animation: none !important; }
   .dojo-tutor-stages li.is-now > span { animation-duration: 2s; }
 }
+
+/* ---------- Audio sources: recorder, queue cards, lecture player ---------- */
+body.study-open, .dojo-source-dialog, .dojo-rec-pill { --dojo-audio: #de5f4c; --dojo-audio-soft: color-mix(in srgb, var(--dojo-audio) 10%, var(--bg)); }
+body[data-mode="dark"].study-open, body[data-mode="dark"] .dojo-source-dialog, body[data-mode="dark"] .dojo-rec-pill { --dojo-audio: #f29682; }
+
+/* Option card */
+.dojo-source-options [data-source-kind="text"] > svg { color: var(--study-purple, #9572d0); }
+.dojo-source-options .dojo-source-audio-option { grid-column: 1 / -1; min-height: 64px; }
+.dojo-source-options button.dojo-source-audio-option > svg { color: var(--dojo-audio); }
+.dojo-source-options .dojo-source-audio-option[aria-expanded="true"] { border-color: var(--dojo-audio); background: var(--dojo-audio-soft); }
+.dojo-source-audio-option.has-recovery strong::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 7px; border-radius: 50%; background: var(--dojo-audio); vertical-align: middle; }
+.dojo-source-audio-live { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; padding: 4px 10px 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--dojo-audio) 13%, transparent); color: var(--dojo-audio); font-size: 12px !important; font-weight: 650; font-variant-numeric: tabular-nums; }
+.dojo-source-audio-live[hidden] { display: none; }
+.dojo-source-audio-live:not([hidden]) + span { margin-left: 10px; }
+.dojo-rec-mini { display: inline-flex; align-items: center; gap: 2px; height: 14px; }
+.dojo-rec-mini i, .dojo-rec-pill-bars i { width: 2.5px; height: 100%; border-radius: 2px; background: currentColor; transform: scaleY(.07); transform-origin: center; transition: transform 90ms linear; }
+
+/* Panel: two choices */
+.dojo-audio-panel { display: grid; gap: 12px; }
+.dojo-audio-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dojo-audio-choice { display: grid; justify-items: center; gap: 6px; padding: 18px 12px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); text-align: center; }
+.dojo-audio-choice strong { font-size: 13px; font-weight: 600; }
+.dojo-audio-choice small { color: var(--text-secondary); font-size: 10.5px; }
+.dojo-audio-choice-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 4px; border-radius: 50%; background: var(--bg-secondary); color: var(--study-green, #479a83); }
+.dojo-audio-choice-icon svg { width: 20px; height: 20px; }
+.dojo-audio-choice.is-record .dojo-audio-choice-icon { background: var(--dojo-audio); color: #fff; box-shadow: 0 6px 16px color-mix(in srgb, var(--dojo-audio) 35%, transparent); }
+body[data-mode="dark"] .dojo-audio-choice.is-record .dojo-audio-choice-icon { color: #2a1511; }
+.dojo-audio-panel .dojo-source-hint { margin: 0; text-align: center; }
+@media (hover: hover) {
+  .dojo-audio-choice:hover:not(:disabled) { border-color: color-mix(in srgb, var(--text) 22%, var(--border)); background: var(--bg-secondary); }
+  .dojo-audio-choice.is-record:hover:not(:disabled) { border-color: var(--dojo-audio); background: var(--dojo-audio-soft); }
+}
+
+/* Recovery */
+.dojo-rec-recover { display: grid; gap: 8px; }
+.dojo-rec-recover-row { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; border: 1px solid color-mix(in srgb, var(--dojo-audio) 35%, var(--border)); border-radius: 12px; background: var(--dojo-audio-soft); }
+.dojo-rec-recover-icon { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--bg); color: var(--dojo-audio); }
+.dojo-rec-recover-icon svg { width: 17px; height: 17px; }
+.dojo-rec-recover-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.dojo-rec-recover-copy strong { font-size: 12px; font-weight: 600; }
+.dojo-rec-recover-copy small { overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dojo-rec-ghost, .dojo-rec-soft { flex: none; padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text); font-size: 12px !important; }
+.dojo-rec-soft { border-color: transparent; background: var(--text); color: var(--bg); font-weight: 550 !important; }
+
+/* Live recorder */
+.dojo-rec-live { display: grid; justify-items: center; gap: 10px; padding: 8px 0 2px; }
+.dojo-rec-head { display: inline-flex; align-items: center; gap: 8px; color: var(--dojo-audio); font-size: 12px; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
+.dojo-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dojo-audio); box-shadow: 0 0 0 0 color-mix(in srgb, var(--dojo-audio) 50%, transparent); animation: dojo-rec-pulse 1.6s ease-out infinite; }
+@keyframes dojo-rec-pulse { 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.dojo-rec-live.is-paused .dojo-rec-head, .dojo-rec-live.is-waiting .dojo-rec-head { color: var(--text-secondary); }
+.dojo-rec-live.is-paused .dojo-rec-dot, .dojo-rec-live.is-waiting .dojo-rec-dot, .dojo-rec-pill.is-paused .dojo-rec-dot { background: var(--text-secondary); animation: none; }
+.dojo-rec-time { font: 600 40px/1 var(--dojo-display, var(--font-sans)); letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+.dojo-rec-live.is-paused .dojo-rec-time { color: var(--text-secondary); }
+.dojo-rec-levels { display: flex; align-items: center; justify-content: center; gap: 3px; width: 100%; max-width: 360px; height: 56px; padding: 0 8px; color: var(--dojo-audio); }
+.dojo-rec-levels i { flex: 1; max-width: 5px; height: 100%; border-radius: 3px; background: currentColor; opacity: .85; transform: scaleY(.07); transform-origin: center; transition: transform 90ms linear, opacity 200ms ease; }
+.dojo-rec-levels:not(.is-hearing) i { opacity: .45; }
+.dojo-rec-live.is-paused .dojo-rec-levels { color: var(--text-secondary); }
+.dojo-rec-controls { display: flex; gap: 10px; margin-top: 4px; }
+.dojo-rec-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 18px 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font-size: 13px !important; font-weight: 600 !important; }
+.dojo-rec-btn svg { width: 16px; height: 16px; }
+.dojo-rec-btn.is-stop { border-color: transparent; background: var(--dojo-audio); color: #fff; box-shadow: 0 6px 16px color-mix(in srgb, var(--dojo-audio) 32%, transparent); }
+body[data-mode="dark"] .dojo-rec-btn.is-stop { color: #2a1511; }
+.dojo-rec-note { max-width: 340px; margin: 2px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; text-align: center; }
+.dojo-rec-note.is-warning { color: var(--dojo-audio); font-weight: 550; }
+
+/* Review */
+.dojo-rec-review { display: grid; gap: 10px; }
+.dojo-rec-review-head { display: flex; align-items: center; gap: 11px; margin-bottom: 4px; }
+.dojo-rec-review-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 11px; background: var(--dojo-audio-soft); color: var(--dojo-audio); }
+.dojo-rec-review-icon svg { width: 19px; height: 19px; }
+.dojo-rec-review-head strong { display: block; font-size: 13px; font-weight: 600; }
+.dojo-rec-review-head small { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dojo-rec-review label { margin: 0 !important; }
+.dojo-rec-listen { display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-secondary); }
+.dojo-rec-listen-btn { display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); }
+.dojo-rec-listen-btn svg { width: 14px; height: 14px; }
+.dojo-rec-listen-track { position: relative; flex: 1; height: 4px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb, var(--text) 12%, transparent); }
+.dojo-rec-listen-track i { position: absolute; inset: 0; background: var(--dojo-audio); transform: scaleX(0); transform-origin: left; }
+.dojo-rec-listen time { flex: none; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dojo-rec-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.dojo-rec-actions .dojo-source-submit { margin-left: 0; }
+.dojo-source-submit.is-audio { background: var(--dojo-audio); color: #fff; transition: background-color 160ms ease; }
+.dojo-source-submit.is-audio:hover { background: color-mix(in srgb, var(--dojo-audio) 88%, #000); }
+body[data-mode="dark"] .dojo-source-submit.is-audio { color: #2a130e; }
+body[data-mode="dark"] .dojo-source-submit.is-audio:hover { background: color-mix(in srgb, var(--dojo-audio) 88%, #fff); }
+
+/* Floating pill while the dialog is closed */
+.dojo-rec-pill { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top)); z-index: 60; display: flex; align-items: center; gap: 4px; padding: 5px 5px 5px 6px; border: 1px solid color-mix(in srgb, var(--dojo-audio) 30%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 12px 36px #0000002a; transform: translateX(-50%); animation: dojo-pill-in 260ms cubic-bezier(.23, 1, .32, 1); font-family: var(--font-sans); }
+.dojo-rec-pill[hidden] { display: none; }
+@keyframes dojo-pill-in { from { opacity: 0; transform: translate(-50%, -12px) scale(.96); } }
+.dojo-rec-pill button { font: inherit; cursor: pointer; }
+.dojo-rec-pill-open { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--text); }
+.dojo-rec-pill-copy { display: grid; gap: 1px; text-align: left; }
+.dojo-rec-pill-copy strong { font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--dojo-audio); }
+.dojo-rec-pill.is-paused .dojo-rec-pill-copy strong { color: var(--text-secondary); }
+.dojo-rec-pill-copy time { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.dojo-rec-pill-bars { display: inline-flex; align-items: center; gap: 2px; height: 20px; color: var(--dojo-audio); }
+.dojo-rec-pill-btn { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--bg); color: var(--text); }
+.dojo-rec-pill-btn svg { width: 15px; height: 15px; }
+.dojo-rec-pill-btn.is-stop { border-color: transparent; background: var(--dojo-audio); color: #fff; }
+body[data-mode="dark"] .dojo-rec-pill-btn.is-stop { color: #2a1511; }
+.dojo-rec-pill button:focus-visible { outline: 2px solid var(--dojo-audio); outline-offset: 2px; }
+
+/* Queue cards in Sources */
+.dojo-audio-cards { display: grid; gap: 8px; margin-bottom: 8px; }
+.dojo-audio-card .study-gen-body { gap: 3px; }
+.dojo-audio-detail { overflow: hidden; color: var(--study-muted); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dojo-audio-detail:empty { display: none; }
+.dojo-audio-card .study-status { font-weight: 550; }
+.dojo-audio-card.is-waiting .study-gen-icon { color: var(--dojo-audio); background: var(--dojo-audio-soft); }
+.dojo-audio-card.is-waiting .study-gen-icon svg { width: 16px; height: 16px; animation: dojo-audio-breathe 2.4s ease-in-out infinite; }
+@keyframes dojo-audio-breathe { 50% { opacity: .45; } }
+.dojo-audio-bar { position: relative; display: block; height: 3px; margin-top: 4px; overflow: hidden; border-radius: 3px; background: color-mix(in srgb, var(--study-ink) 8%, transparent); }
+.dojo-audio-bar i { position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg, var(--study-green), #7aa7e8); transform-origin: left; transition: transform 600ms cubic-bezier(.23, 1, .32, 1); }
+.dojo-audio-actions { display: flex; gap: 6px; }
+.dojo-file-icon.is-audio { color: var(--dojo-audio); background: color-mix(in srgb, var(--dojo-audio) 9%, transparent); }
+.dojo-source-badge.is-audio { --tag: var(--dojo-audio); }
+
+/* Lecture player in the source preview */
+.dojo-lecture-root { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--dojo-surface); }
+.dojo-lecture { --pod: var(--dojo-audio); display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; animation: dojo-view-in 260ms var(--ease-out); }
+.dojo-lecture .dojo-view-head { padding-left: 12px; }
+.dojo-lecture-badge { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px; background: color-mix(in srgb, var(--dojo-audio) 12%, transparent); color: var(--dojo-audio); }
+.dojo-lecture-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.dojo-lecture .dojo-pod-play { color: #fff; }
+body[data-mode="dark"] .dojo-lecture .dojo-pod-play { color: #2a1511; }
+.dojo-lecture-line { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; }
+.dojo-lecture-line time { padding-top: 2px; color: var(--study-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dojo-lecture-line.is-active time { color: var(--dojo-audio); font-weight: 650; }
+@media (prefers-reduced-motion: reduce) {
+  .dojo-rec-dot, .dojo-audio-card.is-waiting .study-gen-icon svg, .dojo-rec-pill, .dojo-lecture { animation: none; }
+  .dojo-rec-levels i, .dojo-rec-mini i, .dojo-rec-pill-bars i { transition: none; }
+}
+@media (max-width: 560px) {
+  .dojo-audio-choices { grid-template-columns: 1fr; }
+  .dojo-audio-choice { grid-template-columns: auto 1fr; justify-items: start; text-align: left; column-gap: 12px; padding: 14px; }
+  .dojo-audio-choice-icon { grid-row: span 2; margin: 0; }
+  .dojo-rec-time { font-size: 34px; }
+  .dojo-rec-pill { width: max-content; max-width: calc(100vw - 24px); }
+}

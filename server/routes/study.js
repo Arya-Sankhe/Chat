@@ -20,6 +20,7 @@ import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { requireChatContext } from "./context.js";
 import { attachmentStorageKeys } from "./uploads.js";
 import { createCourseSource } from "../study/sources.js";
+import { cancelCourseTranscription } from "../study/audio.js";
 import { gradeQuizAttempt, questionMarks } from "../study/grade.js";
 import { generatePodcast, normalizePodcastOptions } from "../study/podcast.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
@@ -221,6 +222,8 @@ export async function handleStudyCourseMaterials(req, res, config, courseId) {
     if (!documentFileId) throw new HttpError(400, "documentFileId is required.");
     const documentFile = await context.db.getDocumentFile(context.user.id, documentFileId, { signal: req.signal });
     if (!documentFile || documentFile.project_id !== course.id) throw new HttpError(404, "Material not found.");
+    // Stop a queued or running transcription first so the worker can't publish into a deleted source.
+    if (documentFile.kind === "audio") await cancelCourseTranscription(context, documentFileId, req.signal);
     const nested = Array.isArray(documentFile.attachments) ? documentFile.attachments[0] : documentFile.attachments;
     const attachmentId = documentFile.attachment_id || nested?.id;
     const attachment = attachmentId

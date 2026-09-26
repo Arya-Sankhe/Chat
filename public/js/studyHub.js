@@ -2,9 +2,12 @@ import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
 import { createCourseContextPicker } from "./studyContext.js";
 import { createStudySourceDialog } from "./studySources.js";
+import { createAudioSourceViewer } from "./studyAudio.js";
+import { deleteSavedRecording } from "./studyRecorder.js";
+import { completeCourseAudio, fetchCourseTranscriptions, fetchStudyAudio, presignCourseAudio, putCourseAudio, retryCourseTranscription } from "./api.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
-import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, speedLabel, styleOf, voiceOf } from "./studyPodcast.js";
+import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
 import { createTutorCall, syncTutorOptions, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "./studyTutor.js";
 
 // The tutor's icon is a tiny version of its call orb: grass green into sky blue with a soft highlight.
@@ -77,9 +80,23 @@ export function createStudyHubController({
   closeSideChat
 }) {
   const TABS = ["materials", "chat", "practice"];
+  // Leaving mid-upload would lose the lecture; the browser asks first.
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasAudioWork()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && activeAudioDocs().length) scheduleTranscriptionPoll(500);
+  });
   const CREATE_FILE_CAP = 5;
 
   let pendingUploads = [];
+  // Audio sources: uploads still on their way to R2, and the server queue per source.
+  let audioUploads = [];
+  const transcriptionJobs = new Map();
+  let transcriptionTimer = 0;
+  let transcriptionPolling = false;
   let cacheCourseId = "";
   let projectsAt = Date.now();
   const inflight = new Map();
@@ -117,8 +134,24 @@ export function createStudyHubController({
     if (Array.isArray(saved)) saved.filter(key => typeof key === "string").forEach(key => pinnedCollection.add(key));
   } catch { /* Browsers without storage still keep pins for this session. */ }
   const createSelected = new Set();
+  const audioViewer = createAudioSourceViewer({
+    escapeHtml,
+    showToast,
+    reducedMotion,
+    fetchAudio: (id) => fetchStudyAudio(state.session, id),
+    onClose(id, event) {
+      if (sourcePreviewId !== id) return;
+      const workspace = els.studyView.querySelector(".dojo-workspace");
+      const before = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
+      sourcePreviewId = "";
+      render();
+      animatePreviewResize(before, event);
+      els.studyView.querySelector(`[data-view-source="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    }
+  });
   const sourceDialog = createStudySourceDialog({
-    state, uploadFiles: uploadCourseFiles, showToast,
+    state, uploadFiles: uploadCourseFiles, uploadAudio: uploadCourseAudio, showToast,
+    busyRecordingIds: () => audioUploads.map((item) => item.meta.recordingId).filter(Boolean),
     onCreated(courseId, doc) {
       if (state.activeCourseId !== courseId) return;
       state.studyMaterials = {
@@ -181,7 +214,16 @@ export function createStudyHubController({
   }
 
   function isStudyFile(file) {
-    return String(file?.type || "").startsWith("image/") || isSupportedDocumentFile(file);
+    return String(file?.type || "").startsWith("image/") || isSupportedDocumentFile(file) || isAudioFile(file);
+  }
+
+  function isAudioFile(file) {
+    const type = String(file?.type || "").toLowerCase();
+    return type.startsWith("audio/") || /\.(mp3|m4a|wav|webm|ogg|oga|opus|flac|aac|aiff?|caf)$/i.test(String(file?.name || ""));
+  }
+
+  function isAudioDoc(doc) {
+    return doc?.kind === "audio";
   }
 
   function documentDisplayName(doc) {
@@ -537,6 +579,7 @@ export function createStudyHubController({
   }
 
   function sourceFileIcon(doc) {
+    if (doc?.kind === "audio") return `<span class="dojo-file-icon is-audio" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 12h2m3-5v10m4-13v16m4-11v6m3-3h2"/></svg></span>`;
     if (doc?.kind === "website") return `<span class="dojo-file-icon is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>`;
     const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
     const kind = ["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv", "png", "jpg", "jpeg", "webp"].includes(ext) ? ext : String(doc?.kind || ext).toLowerCase();
@@ -554,6 +597,7 @@ export function createStudyHubController({
 
   // Compact type tag for the create picker, so file names can drop their extension.
   function sourceBadge(doc) {
+    if (doc?.kind === "audio") return `<span class="dojo-source-badge is-audio" aria-hidden="true">AUD</span>`;
     if (doc?.kind === "website") return `<span class="dojo-source-badge is-website" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></svg></span>`;
     const ext = documentDisplayName(doc).split(".").pop().toLowerCase();
     const [label, type] = doc?.kind === "text" ? ["TXT", "text"]
@@ -568,7 +612,7 @@ export function createStudyHubController({
 
   function sourceShortName(doc) {
     const name = documentDisplayName(doc);
-    if (doc?.kind === "website" || doc?.kind === "text") return name;
+    if (["website", "text", "audio"].includes(doc?.kind)) return name;
     return name.replace(/\.(pdf|pptx?|docx?|xlsx?|csv|png|jpe?g|webp|txt|md)$/i, "") || name;
   }
 
@@ -590,16 +634,139 @@ export function createStudyHubController({
     return `<div class="dojo-source-rail"><button class="study-icon-btn" type="button" data-collapse-sources aria-expanded="false" aria-label="Expand sources" title="Expand sources">${icon("expand")}</button><span class="dojo-rail-label">Sources</span><span class="dojo-rail-count">${docs.length}</span><button class="study-icon-btn" type="button" data-study-add-files aria-label="Add sources" title="Add sources">${icon("plus")}</button><div class="dojo-rail-files">${docs.slice(0, 6).map(doc => `<button type="button" data-view-source="${escapeHtml(doc.id)}" aria-label="Open ${escapeHtml(documentDisplayName(doc))}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}</button>`).join("")}</div></div>`;
   }
 
+  /* ---------- Audio sources: upload + transcription cards ---------- */
+
+  function audioLengthLabel(seconds) {
+    const minutes = Math.round((Number(seconds) || 0) / 60);
+    if (!seconds) return "";
+    if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`;
+    return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60 ? `${minutes % 60} min` : ""}`.trim();
+  }
+
+  function formatMb(bytes) {
+    const mb = (Number(bytes) || 0) / (1024 * 1024);
+    return mb < 10 ? mb.toFixed(1) : String(Math.round(mb));
+  }
+
+  // One entry per card: uploads still leaving the browser, then sources in the server queue.
+  function audioCardEntries(courseId = state.activeCourseId) {
+    const entries = audioUploads.filter((item) => item.courseId === courseId).map((item) => {
+      if (item.status === "failed") {
+        return { key: `up:${item.id}`, title: item.title, phase: "upload-failed", label: "Upload failed", detail: "", error: item.error, progress: null, active: false, failed: true, uploadId: item.id };
+      }
+      if (item.status === "queuing") {
+        return { key: `up:${item.id}`, title: item.title, phase: "queuing", label: "Adding to queue", detail: "", progress: 1, active: true, uploadId: item.id };
+      }
+      const done = (item.file?.size || 0) * item.progress;
+      return {
+        key: `up:${item.id}`, title: item.title, phase: "uploading", label: "Uploading",
+        detail: `${Math.round(item.progress * 100)}% · ${formatMb(done)} of ${formatMb(item.file?.size)} MB`,
+        progress: item.progress, active: true, uploadId: item.id
+      };
+    });
+    const docs = (state.studyMaterials?.documents || [])
+      .filter((doc) => isAudioDoc(doc) && materialStatus(doc) !== "ready")
+      .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
+    for (const doc of docs) {
+      const job = transcriptionJobs.get(doc.id);
+      const title = documentDisplayName(doc);
+      const length = audioLengthLabel(job?.durationSeconds || doc.duration_seconds);
+      if (doc.processing_status === "failed" || job?.status === "failed") {
+        entries.push({ key: `doc:${doc.id}`, docId: doc.id, title, phase: "failed", label: "Couldn’t transcribe", detail: length, error: job?.error || doc.error?.message || "Transcription failed.", progress: null, active: false, failed: true });
+        continue;
+      }
+      if (!job || job.status === "queued") {
+        entries.push({ key: `doc:${doc.id}`, docId: doc.id, title, phase: "queued", label: "In queue", detail: length, progress: null, active: true, waiting: true });
+        continue;
+      }
+      const stage = job.stage || "preparing";
+      const raw = Math.min(1, Math.max(0, Number(job.progress) || 0));
+      const overall = stage === "preparing" ? 0.02 + raw * 0.08 : stage === "transcribing" ? 0.1 + raw * 0.87 : 0.98;
+      const bits = [];
+      if (stage === "transcribing") {
+        bits.push(`${Math.round(overall * 100)}%`);
+        const started = Date.parse(job.startedAt || "");
+        const spent = Number.isFinite(started) ? (Date.now() - started) / 1000 : 0;
+        if (overall > 0.15 && spent > 20) {
+          const left = Math.max(0, (spent / overall) * (1 - overall));
+          bits.push(left < 60 ? "under a minute left" : `about ${Math.round(left / 60)} min left`);
+        }
+      }
+      if (length) bits.push(length);
+      entries.push({
+        key: `doc:${doc.id}`, docId: doc.id, title, phase: `running-${stage}`,
+        label: stage === "preparing" ? "Preparing audio" : stage === "saving" ? "Saving transcript" : "Transcribing",
+        detail: bits.join(" · "), progress: overall, active: true
+      });
+    }
+    return entries;
+  }
+
+  function audioCardMarkup(entry) {
+    const micIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 12h2m3-5v10m4-13v16m4-11v6m3-3h2"/></svg>`;
+    const alertIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></svg>`;
+    const x = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>`;
+    const retry = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>`;
+    const target = entry.uploadId ? `data-audio-upload="${escapeHtml(entry.uploadId)}"` : `data-audio-doc="${escapeHtml(entry.docId)}"`;
+    const actions = entry.failed
+      ? `<button class="study-gen-action is-retry" type="button" data-audio-retry ${target} aria-label="Retry" title="Retry">${retry}</button><button class="study-gen-action" type="button" data-audio-remove ${target} aria-label="Remove" title="Remove">${x}</button>`
+      : entry.phase === "queuing" ? "" : `<button class="study-gen-action" type="button" data-audio-remove ${target} aria-label="Cancel" title="Cancel">${x}</button>`;
+    const wave = entry.active && !entry.waiting ? `<span class="study-gen-wave" style="animation-delay: -${(Date.now() % 2400) / 1000}s" aria-hidden="true"></span>` : "";
+    const bar = entry.progress != null ? `<span class="dojo-audio-bar" aria-hidden="true"><i data-audio-bar style="transform: scaleX(${entry.progress.toFixed(4)})"></i></span>` : "";
+    return `<article class="study-gen-card dojo-audio-card is-${entry.failed ? "failed" : "running"}${entry.waiting ? " is-waiting" : ""}" data-audio-card="${escapeHtml(entry.key)}" data-phase="${escapeHtml(entry.phase)}">
+      ${wave}
+      <span class="study-gen-icon">${entry.failed ? alertIcon : entry.waiting ? micIcon : spinner()}</span>
+      <div class="study-gen-body">
+        <strong title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</strong>
+        <span class="study-gen-line" aria-live="polite"><span class="study-status is-${entry.failed ? "failed" : "reading"}" data-audio-label>${escapeHtml(entry.label)}</span></span>
+        <span class="dojo-audio-detail" data-audio-detail>${escapeHtml(entry.detail || "")}</span>
+        ${entry.failed && entry.error ? `<span class="study-gen-error" title="${escapeHtml(entry.error)}">${escapeHtml(entry.error)}</span>` : ""}
+        ${bar}
+      </div>
+      <span class="dojo-audio-actions">${actions}</span>
+    </article>`;
+  }
+
+  function audioCardsMarkup() {
+    const entries = audioCardEntries();
+    return entries.length ? `<div class="dojo-audio-cards">${entries.map(audioCardMarkup).join("")}</div>` : "";
+  }
+
+  // Progress changes every few seconds; update the cards in place and only repaint the
+  // panel when a card appears, disappears, or changes phase.
+  function patchAudioCards() {
+    if (!studyVisible() || !state.activeCourseId || !els.studyView) return;
+    const entries = audioCardEntries();
+    const nodes = [...els.studyView.querySelectorAll("[data-audio-card]")];
+    const board = els.studyView.querySelector(".study-material-board");
+    const structural = Boolean(board) && (nodes.length !== entries.length
+      || entries.some((entry, index) => nodes[index]?.dataset.audioCard !== entry.key || nodes[index]?.dataset.phase !== entry.phase));
+    if (structural) { render(); return; }
+    entries.forEach((entry, index) => {
+      const node = nodes[index];
+      if (!node) return;
+      const label = node.querySelector("[data-audio-label]");
+      if (label && label.textContent !== entry.label) label.textContent = entry.label;
+      const detail = node.querySelector("[data-audio-detail]");
+      if (detail && detail.textContent !== entry.detail) detail.textContent = entry.detail;
+      const bar = node.querySelector("[data-audio-bar]");
+      if (bar && entry.progress != null) bar.style.transform = `scaleX(${entry.progress.toFixed(4)})`;
+    });
+  }
+
   function materialsMarkup() {
     if (sourcePreviewId) return '<div class="dojo-source-preview-slot"></div>';
-    const docs = sortedSources();
+    // Audio still in the transcription queue shows as a progress card instead of a file.
+    const docs = sortedSources().filter((doc) => !isAudioDoc(doc) || materialStatus(doc) === "ready");
+    const audioCards = audioCardsMarkup();
     return `<div class="study-materials" data-study-drop>
       <div class="dojo-add-source-row"><svg class="dojo-source-nudge" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg><button class="study-dropzone" type="button" data-study-add-files>${icon("plus")}<span>Add sources</span></button><svg class="dojo-source-nudge dojo-source-nudge--right" viewBox="0 0 36 30" fill="none" aria-hidden="true"><path d="M2 4c15 0 16 18 31 18m-8-7 8 7-9 4"/></svg></div>
       <div class="dojo-source-caption">Course material <span>${docs.length}</span></div>
       <div class="study-material-board">
+        ${audioCards}
         ${pendingUploads.map(item => `<article class="study-material-card">${sourceFileIcon({ file_name: item.name })}<div class="study-material-copy"><strong>${escapeHtml(item.name)}</strong>${statusLine(item.status)}</div></article>`).join("")}
-        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
-        ${!docs.length && !pendingUploads.length ? emptyState("Bring your knowledge", "Add files, a website, or pasted text. This is where your course begins.") : ""}
+        ${docs.map(doc => `<article class="study-material-card"><button class="dojo-source-open" type="button" data-view-source="${escapeHtml(doc.id)}" title="${escapeHtml(documentDisplayName(doc))}">${sourceFileIcon(doc)}<span class="study-material-copy"><strong>${escapeHtml(documentDisplayName(doc))}</strong>${materialStatus(doc) === "ready" ? (["website", "text", "audio"].includes(doc.kind) ? `<small class="dojo-source-kind">${doc.kind === "website" ? "Website" : doc.kind === "audio" ? ["Audio", audioLengthLabel(doc.duration_seconds)].filter(Boolean).join(" · ") : "Pasted text"}</small>` : "") : statusLine(materialStatus(doc))}</span></button>${materialMenu("doc", doc.id)}</article>`).join("")}
+        ${!docs.length && !pendingUploads.length && !audioCards ? emptyState("Bring your knowledge", "Add files, a website, pasted text, or a recorded lecture. This is where your course begins.") : ""}
       </div>
     </div>`;
   }
@@ -639,6 +806,21 @@ export function createStudyHubController({
 
   function openSource(id, event, page = 1) {
     const doc = (state.studyMaterials?.documents || []).find(item => item.id === id);
+    if (isAudioDoc(doc)) {
+      if (materialStatus(doc) !== "ready") return;
+      const workspace = els.studyView.querySelector(".dojo-workspace");
+      const start = workspace ? getComputedStyle(workspace).gridTemplateColumns : "";
+      const hadDocument = Boolean(sourcePreviewId) && audioViewer.id !== sourcePreviewId;
+      sourcePreviewId = id;
+      sourcesCollapsed = false;
+      quizMenuKey = "";
+      audioViewer.open({ id, title: documentDisplayName(doc) });
+      if (hadDocument) void closeDocumentViewer?.();
+      render();
+      animatePreviewResize(start, event);
+      return;
+    }
+    if (audioViewer.id) audioViewer.close(null, { silent: true });
     const attachment = Array.isArray(doc?.attachments) ? doc.attachments[0] : doc?.attachments;
     const attachmentId = doc?.attachment_id || attachment?.id;
     if (!attachmentId) { showToast("This source has no file preview."); return; }
@@ -771,16 +953,12 @@ export function createStudyHubController({
     return els.studyView?.querySelector('.dojo-studio-view[data-studio-kind="podcast"]') || null;
   }
 
-  // Controls repaint for view changes such as the speed menu (never during a slider drag).
-  function repaintPodcastPlayer(focusSelector = "") {
+  // The speed menu opens and closes in place; repainting the player for it flickers.
+  function setPodcastSpeedOpen(open, focusSelector = "") {
+    studioView.speedOpen = open;
     const root = podcastRoot();
-    const section = root?.querySelector(".dojo-pod-player");
-    if (!section) return;
-    const template = document.createElement("template");
-    template.innerHTML = podcastViewMarkup(studioView, studioItem(), { escapeHtml, player: podcastState() });
-    const next = template.content.querySelector(".dojo-pod-player");
-    section.replaceWith(next);
-    if (focusSelector) next.querySelector(focusSelector)?.focus({ preventScroll: true });
+    syncSpeedMenu(root?.querySelector(".dojo-pod-speed"), { open, rate: podcastState().rate, attr: "pod" });
+    if (focusSelector) root?.querySelector(focusSelector)?.focus({ preventScroll: true });
   }
 
   // Audio events patch the live DOM in place so playback, drags, and scroll are never disturbed.
@@ -804,12 +982,7 @@ export function createStudyHubController({
         toggle.setAttribute("aria-label", label);
         toggle.title = `${label} (Space)`;
       }
-      const speed = section.querySelector("[data-pod-speed-toggle]");
-      if (speed) {
-        speed.querySelector("span").textContent = speedLabel(player.rate);
-        speed.classList.toggle("is-on", player.rate !== 1);
-        speed.setAttribute("aria-label", `Playback speed ${speedLabel(player.rate)}`);
-      }
+      syncSpeedMenu(section.querySelector(".dojo-pod-speed"), { open: studioView.speedOpen, rate: player.rate, attr: "pod" });
     }
     if (kind === "volume") {
       const wrap = section.querySelector(".dojo-pod-volume");
@@ -863,24 +1036,20 @@ export function createStudyHubController({
   function handlePodcastClick(event) {
     const audio = podcastAudio;
     if (!audio || !studioView.podcast || audio.id !== studioView.id) return false;
-    if (studioView.speedOpen && !event.target.closest(".dojo-pod-speed")) {
-      studioView.speedOpen = false;
-      repaintPodcastPlayer();
-    }
+    if (studioView.speedOpen && !event.target.closest(".dojo-pod-speed")) setPodcastSpeedOpen(false);
     if (event.target.closest("[data-pod-toggle]")) { void audio.toggle(); return true; }
     const skip = event.target.closest("[data-pod-skip]");
     if (skip) { audio.skip(Number(skip.dataset.podSkip)); return true; }
     if (event.target.closest("[data-pod-mute]")) { audio.toggleMute(); return true; }
     if (event.target.closest("[data-pod-speed-toggle]")) {
-      studioView.speedOpen = !studioView.speedOpen;
-      repaintPodcastPlayer(studioView.speedOpen ? `[data-pod-speed="${audio.state().rate}"]` : "[data-pod-speed-toggle]");
+      const open = !studioView.speedOpen;
+      setPodcastSpeedOpen(open, open ? `[data-pod-speed="${audio.state().rate}"]` : "");
       return true;
     }
     const speed = event.target.closest("[data-pod-speed]");
     if (speed) {
-      studioView.speedOpen = false;
       audio.setRate(Number(speed.dataset.podSpeed));
-      repaintPodcastPlayer("[data-pod-speed-toggle]");
+      setPodcastSpeedOpen(false, "[data-pod-speed-toggle]");
       return true;
     }
     const line = event.target.closest("[data-pod-line]");
@@ -897,8 +1066,7 @@ export function createStudyHubController({
     if (!event.target.closest?.('[data-studio-kind="podcast"]') || event.metaKey || event.ctrlKey || event.altKey) return false;
     const onRange = event.target.matches?.("input[type=range]");
     if (event.key === "Escape" && studioView.speedOpen) {
-      studioView.speedOpen = false;
-      repaintPodcastPlayer("[data-pod-speed-toggle]");
+      setPodcastSpeedOpen(false, "[data-pod-speed-toggle]");
       return true;
     }
     if (event.key === " " && !event.target.matches?.("[data-pod-toggle], textarea, input:not([type=range])")) {
@@ -1290,7 +1458,8 @@ export function createStudyHubController({
 
   function finishCoursePaint() {
     const preview = els.studyView.querySelector(".dojo-source-preview-slot");
-    if (preview && sourcePreviewId && els.documentViewer && !document.body.classList.contains("document-viewer-fullscreen")) preview.append(els.documentViewer);
+    if (preview && sourcePreviewId && audioViewer.id === sourcePreviewId) audioViewer.mount(preview);
+    else if (preview && sourcePreviewId && els.documentViewer && !document.body.classList.contains("document-viewer-fullscreen")) preview.append(els.documentViewer);
     const slot = els.studyView.querySelector(".study-composer-slot");
     if (slot && els.composerArea) { slot.append(els.composerArea); els.composerArea.classList.remove("hidden"); }
     const messagesSlot = els.studyView.querySelector(".dojo-messages-slot");
@@ -1323,6 +1492,7 @@ export function createStudyHubController({
     const visible = studyVisible();
     if (podcastAudio && (!visible || !state.activeCourseId || studioView?.kind !== "podcast" || !studioItem())) podcastAudio.pause();
     if (tutorCall?.active && (!visible || !state.activeCourseId)) tutorCall.pause();
+    if (!visible || !state.activeCourseId) audioViewer.pause();
     els.studyView.classList.toggle("hidden", !visible);
     els.studyView.classList.toggle("study-view--detail", Boolean(visible && state.activeCourseId));
     els.studyHubButton?.classList.toggle("active", state.studyOpen);
@@ -1364,6 +1534,7 @@ export function createStudyHubController({
     }
     finishCoursePaint();
     settleEntrances();
+    if (!transcriptionTimer && !transcriptionPolling && activeAudioDocs().length) scheduleTranscriptionPoll(1500);
     const sourceList = els.studyView.querySelector(".study-material-board");
     const collectionList = els.studyView.querySelector(".dojo-artifacts");
     if (sourceList) sourceList.scrollTop = sourceListScrollTop;
@@ -1599,6 +1770,10 @@ export function createStudyHubController({
 
   function resetCourseCaches() {
     sourceDialog.close();
+    if (audioViewer.id) audioViewer.close(null, { silent: true });
+    clearTimeout(transcriptionTimer);
+    transcriptionTimer = 0;
+    transcriptionJobs.clear();
     sourcePreviewId = "";
     studioView = null;
     sourceListScrollTop = 0;
@@ -2207,9 +2382,13 @@ export function createStudyHubController({
     if (!doc) return;
     quizMenuKey = "";
     render();
+    const audio = isAudioDoc(doc);
+    const pending = audio && materialStatus(doc) !== "ready" && doc.processing_status !== "failed";
     openDeleteConfirm({
-      title: "Remove file?",
-      body: `Remove "${documentDisplayName(doc)}" from materials? Notes, flashcards, and quizzes you made from it will stay.`,
+      title: pending ? "Cancel transcription?" : audio ? "Remove recording?" : "Remove file?",
+      body: pending
+        ? `Stop transcribing "${documentDisplayName(doc)}" and remove it from this course?`
+        : `Remove "${documentDisplayName(doc)}" from materials? Notes, flashcards, and quizzes you made from it will stay.`,
       onConfirm: () => deleteDoc(doc)
     });
   }
@@ -2218,6 +2397,11 @@ export function createStudyHubController({
     if (!state.activeCourseId) return;
     try {
       await deleteStudyMaterial(state.session, state.activeCourseId, doc.id);
+      if (audioViewer.id === doc.id) {
+        audioViewer.close(null, { silent: true });
+        sourcePreviewId = "";
+      }
+      transcriptionJobs.delete(doc.id);
       if (state.studyMaterials) {
         state.studyMaterials = {
           ...state.studyMaterials,
@@ -2226,7 +2410,7 @@ export function createStudyHubController({
       }
       await Promise.all([loadMaterials(), loadPractice().catch(() => {})]);
       render();
-      showToast("File removed.");
+      showToast(isAudioDoc(doc) ? "Recording removed." : "File removed.");
     } catch (error) {
       showToast(error.message || "File could not be removed.");
     }
@@ -2277,12 +2461,17 @@ export function createStudyHubController({
   }
 
   async function uploadCourseFiles(files) {
-    const accepted = [...files].filter(isStudyFile);
-    if (!accepted.length) {
-      showToast("Choose a PDF, Word, Excel, PowerPoint, CSV, or image file.");
+    const all = [...files].filter(isStudyFile);
+    if (!all.length) {
+      showToast("Choose a PDF, Word, Excel, PowerPoint, CSV, image, or audio file.");
       return;
     }
     if (!state.activeCourseId) return;
+    // Audio goes to the transcription queue; everything else keeps the document pipeline.
+    const audio = all.filter(isAudioFile);
+    audio.forEach((file) => { void uploadCourseAudio(file, { source: "upload" }); });
+    const accepted = all.filter((file) => !isAudioFile(file));
+    if (!accepted.length) return;
     const courseId = state.activeCourseId;
     state.studyUploading = true;
     const locals = accepted.map((file) => ({
@@ -2354,6 +2543,209 @@ export function createStudyHubController({
       state.studyUploading = false;
       if (state.activeCourseId === courseId) render();
     }
+  }
+
+  function probeAudioDuration(file) {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      const url = URL.createObjectURL(file);
+      const done = (value) => { URL.revokeObjectURL(url); audio.removeAttribute("src"); resolve(value); };
+      const timer = setTimeout(() => done(0), 6000);
+      audio.preload = "metadata";
+      audio.onloadedmetadata = () => { clearTimeout(timer); done(Number.isFinite(audio.duration) ? audio.duration : 0); };
+      audio.onerror = () => { clearTimeout(timer); done(0); };
+      audio.src = url;
+    });
+  }
+
+  function hasAudioWork() {
+    return audioUploads.some((item) => item.status !== "failed");
+  }
+
+  async function uploadCourseAudio(file, meta = {}) {
+    const courseId = meta.courseId || state.activeCourseId;
+    if (!courseId || !state.session) return;
+    const item = {
+      id: `au_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      courseId,
+      title: meta.title || String(file.name || "Audio").replace(/\.[a-z0-9]{1,5}$/i, "") || "Audio",
+      file,
+      meta: { ...meta, source: meta.source || "upload" },
+      status: "uploading",
+      progress: 0,
+      error: "",
+      controller: null
+    };
+    audioUploads = [...audioUploads, item];
+    if (state.activeCourseId === courseId) render();
+    await runAudioUpload(item);
+  }
+
+  async function runAudioUpload(item) {
+    item.status = "uploading";
+    item.progress = 0;
+    item.error = "";
+    item.controller = new AbortController();
+    const { signal } = item.controller;
+    const repaint = () => { if (state.activeCourseId === item.courseId) patchAudioCards(); };
+    repaint();
+    // After the file is stored, a failed "add to queue" may still have landed (only the
+    // response was lost). Retry repeats that step for the same upload, which the server
+    // answers idempotently, instead of uploading everything again as a second source.
+    let upload = item.stored || null;
+    let stage = upload ? "complete" : "presign";
+    try {
+      if (!upload) {
+        const duration = item.meta.durationSeconds || await probeAudioDuration(item.file);
+        upload = await presignCourseAudio(state.session, item.courseId, {
+          fileName: item.file.name, contentType: item.file.type, sizeBytes: item.file.size,
+          durationSeconds: duration, source: item.meta.source
+        }, { signal });
+        upload.durationSeconds = duration;
+        stage = "upload";
+        let painted = 0;
+        await putCourseAudio(state.session, upload, item.file, {
+          signal,
+          onProgress: (value) => {
+            item.progress = value;
+            if (performance.now() - painted > 250) { painted = performance.now(); repaint(); }
+          }
+        });
+        stage = "complete";
+        item.stored = upload;
+      }
+      item.status = "queuing";
+      item.progress = 1;
+      repaint();
+      let result;
+      try {
+        result = await completeCourseAudio(state.session, item.courseId, {
+          uploadId: upload.uploadId, title: item.title, durationSeconds: upload.durationSeconds, source: item.meta.source
+        });
+      } catch (error) {
+        // Start over only once the server says the upload is gone. Any other failure (a lost
+        // connection, a rate limit, a sign-in error) may hide a success, so keep it.
+        if (error?.uploadReleased || error?.status === 404) item.stored = null;
+        throw error;
+      }
+      // The server has it now; the copy kept on this device can go.
+      if (item.meta.recordingId) await deleteSavedRecording(item.meta.recordingId);
+      audioUploads = audioUploads.filter((row) => row !== item);
+      if (result?.job) transcriptionJobs.set(result.job.documentFileId, result.job);
+      if (result?.document && state.activeCourseId === item.courseId && state.studyMaterials) {
+        const documents = state.studyMaterials.documents || [];
+        if (!documents.some((doc) => doc.id === result.document.id)) {
+          state.studyMaterials = { ...state.studyMaterials, documents: [...documents, { ...result.document, source_title: result.document.metadata?.title, duration_seconds: result.document.metadata?.duration_seconds }] };
+        }
+      }
+      if (state.activeCourseId === item.courseId) render();
+      scheduleTranscriptionPoll(1500);
+    } catch (error) {
+      // Only an upload that never reached the queue is released here; a failed
+      // "complete" is cleaned up by the server, and must not touch a queued source.
+      if (upload && stage === "upload") void deleteAttachment(state.session, upload.uploadId).catch(() => {});
+      if (error?.name === "AbortError") {
+        audioUploads = audioUploads.filter((row) => row !== item);
+        if (state.activeCourseId === item.courseId) render();
+        return;
+      }
+      item.status = "failed";
+      item.error = error?.message || "Upload failed.";
+      if (state.activeCourseId === item.courseId) render();
+      else showToast(`${item.title}: ${item.error}`);
+    } finally {
+      item.controller = null;
+    }
+  }
+
+  function activeAudioDocs() {
+    return (state.studyMaterials?.documents || []).filter((doc) => isAudioDoc(doc) && ["pending", "processing"].includes(doc.processing_status));
+  }
+
+  function scheduleTranscriptionPoll(delay = 3000) {
+    clearTimeout(transcriptionTimer);
+    transcriptionTimer = 0;
+    if (!state.session || !state.activeCourseId || !activeAudioDocs().length) return;
+    transcriptionTimer = setTimeout(() => { void pollTranscriptions(); }, document.visibilityState === "hidden" ? Math.max(delay, 15000) : delay);
+  }
+
+  async function pollTranscriptions() {
+    if (transcriptionPolling) return;
+    const courseId = state.activeCourseId;
+    if (!courseId || !state.session) return;
+    transcriptionPolling = true;
+    try {
+      const payload = await fetchCourseTranscriptions(state.session, courseId);
+      if (state.activeCourseId !== courseId) return;
+      const finished = [];
+      let changed = false;
+      for (const job of payload?.jobs || []) {
+        transcriptionJobs.set(job.documentFileId, job);
+        const doc = (state.studyMaterials?.documents || []).find((item) => item.id === job.documentFileId);
+        if (!doc || doc.processing_status === "ready") continue;
+        if (job.status === "succeeded") finished.push(doc);
+        else if (job.status === "failed" && doc.processing_status !== "failed") {
+          doc.processing_status = "failed";
+          doc.error = { message: job.error };
+          changed = true;
+        } else if (job.status === "queued" && doc.processing_status === "failed") {
+          doc.processing_status = "pending";
+          changed = true;
+        } else if (job.status === "running" && doc.processing_status !== "processing") {
+          doc.processing_status = "processing";
+          changed = true;
+        }
+      }
+      if (finished.length) {
+        await loadMaterials(true);
+        if (state.activeCourseId !== courseId) return;
+        render();
+        showToast(finished.length === 1 ? `“${documentDisplayName(finished[0])}” is transcribed and ready.` : `${finished.length} recordings are transcribed and ready.`);
+      } else if (changed) render();
+      else patchAudioCards();
+    } catch {
+      // A missed poll is harmless; try again on the next tick.
+    } finally {
+      transcriptionPolling = false;
+      scheduleTranscriptionPoll();
+    }
+  }
+
+  async function retryAudioDoc(docId) {
+    try {
+      const { job } = await retryCourseTranscription(state.session, state.activeCourseId, docId);
+      if (job) transcriptionJobs.set(docId, job);
+      const doc = (state.studyMaterials?.documents || []).find((item) => item.id === docId);
+      if (doc) { doc.processing_status = "pending"; doc.error = null; }
+      render();
+      scheduleTranscriptionPoll(1000);
+    } catch (error) {
+      showToast(error.message || "Could not retry this recording.");
+    }
+  }
+
+  function handleAudioCardClick(event) {
+    const retry = event.target.closest("[data-audio-retry]");
+    const remove = event.target.closest("[data-audio-remove]");
+    const button = retry || remove;
+    if (!button) return false;
+    const uploadId = button.dataset.audioUpload;
+    const docId = button.dataset.audioDoc;
+    if (uploadId) {
+      const item = audioUploads.find((row) => row.id === uploadId);
+      if (!item) return true;
+      if (retry) { void runAudioUpload(item); return true; }
+      if (item.controller) { item.controller.abort(); return true; }
+      audioUploads = audioUploads.filter((row) => row !== item);
+      render();
+      if (item.meta.recordingId && item.meta.backedUp !== false) showToast("Recording kept on this device. Find it again under Add sources → Audio.");
+      return true;
+    }
+    if (docId) {
+      if (retry) { void retryAudioDoc(docId); return true; }
+      confirmDeleteDoc(docId);
+    }
+    return true;
   }
 
   async function runGenerate(kind, id, type, { count, mode, ...options } = {}) {
@@ -3730,6 +4122,7 @@ export function createStudyHubController({
     }
     if (event.target.closest("[data-collapse-sources]")) return togglePanel("sources", event);
     if (event.target.closest("[data-collapse-studio]")) return togglePanel("studio", event);
+    if (handleAudioCardClick(event)) return;
     const source = event.target.closest("[data-view-source]");
     if (source) return openSource(source.dataset.viewSource, event);
     const menuBtn = event.target.closest("[data-toggle-course-menu]");

@@ -22,6 +22,7 @@ import {
   handleStudyNote,
   handleStudyNoteExport
 } from "./routes/study.js";
+import { handleStudyAudioSource, handleStudyCourseAudio, handleStudyCourseTranscriptions } from "./routes/studyAudio.js";
 import {
   handleAdminPaymentRequests,
   handleAdminUpdatePaymentRequest,
@@ -323,6 +324,21 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (parts[0] === "api" && parts[1] === "projects" && parts[2] && !parts[3]) {
       await handleProjectById(req, res, config, parts[2]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "audio" && !parts[6]) {
+      await handleStudyCourseAudio(req, res, config, parts[3], parts[5] || "");
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "transcriptions" && !parts[7]) {
+      await handleStudyCourseTranscriptions(req, res, config, parts[3], parts[5] || "", parts[6] || "");
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "audio" && parts[3] && !parts[4]) {
+      await handleStudyAudioSource(req, res, config, parts[3]);
       return;
     }
 

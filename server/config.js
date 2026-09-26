@@ -254,6 +254,18 @@ export function loadConfig(env = process.env) {
       maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 75),
       jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000)
     },
+    // Dojo audio sources: lectures uploaded or recorded in the browser, transcribed by
+    // the transcriber service. Only a compact speech copy is kept once transcribed.
+    studyAudio: {
+      enabled: readBoolean(env.STUDY_AUDIO_ENABLED, true),
+      maxUploadBytes: readInt(env.STUDY_AUDIO_MAX_UPLOAD_BYTES, 300 * 1024 * 1024),
+      maxSeconds: readInt(env.STUDY_AUDIO_MAX_SECONDS, 4 * 3600),
+      maxActivePerUser: readInt(env.STUDY_AUDIO_MAX_ACTIVE_PER_USER, 5),
+      uploadExpiresSeconds: readInt(env.STUDY_AUDIO_UPLOAD_EXPIRES_SECONDS, 3600),
+      // Jobs carry the queue of the app that created them and a transcriber only claims its
+      // own, so a laptop on the production database never takes production lectures.
+      queue: readResearchQueue(env.TRANSCRIBE_QUEUE)
+    },
     websearch: {
       defaultMode: readSearchMode(env.WEBSEARCH_DEFAULT_MODE),
       primaryProvider: readSearchProvider(env.WEBSEARCH_PRIMARY_PROVIDER),

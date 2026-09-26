@@ -835,6 +835,7 @@ const els = {
   confirmTitle: document.querySelector("#confirmTitle"),
   confirmBody: document.querySelector("#confirmBody"),
   confirmCancelButton: document.querySelector("#confirmCancelButton"),
+  confirmCloseButton: document.querySelector("#confirmCloseButton"),
   confirmDeleteButton: document.querySelector("#confirmDeleteButton"),
   renameDialog: document.querySelector("#renameDialog"),
   renameTitle: document.querySelector("#renameTitle"),
@@ -10378,6 +10379,7 @@ function bindEvents() {
   });
 
   els.confirmCancelButton.addEventListener("click", closeConfirmDialog);
+  els.confirmCloseButton.addEventListener("click", closeConfirmDialog);
   els.confirmDeleteButton.addEventListener("click", () => {
     void confirmPendingDelete();
   });

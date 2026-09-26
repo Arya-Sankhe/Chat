@@ -1544,163 +1544,104 @@ body[data-mode="light"] .settings-drawer.open .wallpaper-option[data-wallpaper="
 /* ─── Confirm Dialog ─── */
 
 .confirm-dialog {
-
   position: fixed;
-
   top: 50%;
-
   left: 50%;
-
   display: grid;
-
-  grid-template-columns: auto minmax(0, 1fr);
-
-  gap: 14px;
-
-  width: min(420px, calc(100vw - 32px));
-
-  padding: 18px;
-
+  gap: 22px;
+  width: min(460px, calc(100vw - 32px));
+  padding: 26px 26px 22px;
   background: var(--bg);
-
   border: 1px solid var(--border-light);
-
-  border-radius: var(--radius-lg);
-
-  box-shadow: var(--shadow-lg);
-
+  border-radius: 22px;
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.06);
   transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
-
   opacity: 0;
-
   pointer-events: none;
-
   transition: opacity 140ms ease, transform 140ms ease;
-
   z-index: 45;
-
 }
 
 .confirm-dialog.open {
-
   opacity: 1;
-
   pointer-events: auto;
-
   transform: translate(-50%, -50%) scale(1);
-
 }
 
-.confirm-icon {
-
+.confirm-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
   display: flex;
-
   align-items: center;
-
   justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
 
-  width: 38px;
-
-  height: 38px;
-
-  border-radius: var(--radius-full);
-
-  background: #fef2f2;
-
-  color: var(--danger);
-
+.confirm-close:hover {
+  background: var(--bg-secondary);
 }
 
 .confirm-copy {
-
   min-width: 0;
-
+  padding-right: 36px;
 }
 
 .confirm-copy h2 {
-
   margin: 0;
-
   color: var(--text);
-
-  font-size: 16px;
-
+  font-size: 22px;
   font-weight: 650;
-
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 .confirm-copy p {
-
-  margin: 6px 0 0;
-
+  margin: 10px 0 0;
   color: var(--text-secondary);
-
-  font-size: 13px;
-
-  line-height: 1.45;
-
+  font-size: 15px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
-
 }
 
 .confirm-actions {
-
-  grid-column: 1 / -1;
-
   display: flex;
-
   justify-content: flex-end;
-
-  gap: 8px;
-
-  margin-top: 4px;
-
+  gap: 10px;
 }
 
 .confirm-cancel,
-
 .confirm-danger {
-
-  min-height: 36px;
-
-  padding: 0 14px;
-
-  border-radius: 8px;
-
-  font-size: 13px;
-
-  font-weight: 650;
-
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .confirm-cancel {
-
   color: var(--text);
-
   background: var(--bg);
-
   border: 1px solid var(--border);
-
 }
 
 .confirm-cancel:hover {
-
   background: var(--bg-secondary);
-
 }
 
 .confirm-danger {
-
-  color: white;
-
-  background: var(--danger);
-
+  color: #dc2626;
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg));
+  border: 1px solid transparent;
 }
 
 .confirm-danger:hover {
-
-  background: #dc2626;
-
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg));
 }
 
 /* ─── Rename Dialog ─── */

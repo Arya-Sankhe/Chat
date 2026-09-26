@@ -63,6 +63,37 @@ export function speedLabel(rate) {
   return `${Number(rate).toString()}×`;
 }
 
+// Opens, closes, or updates the speed menu in place. Re-rendering the player for this
+// restarts its animations and swaps every icon, which reads as a flicker.
+export function syncSpeedMenu(wrap, { open, rate, attr }) {
+  if (!wrap) return null;
+  const toggle = wrap.querySelector(`[data-${attr}-speed-toggle]`);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", `Playback speed ${speedLabel(rate)}`);
+    toggle.classList.toggle("is-on", rate !== 1);
+    const label = toggle.querySelector("span");
+    if (label && label.textContent !== speedLabel(rate)) label.textContent = speedLabel(rate);
+  }
+  let menu = wrap.querySelector(".dojo-pod-speed-menu");
+  if (!open) {
+    menu?.remove();
+    return null;
+  }
+  if (!menu) {
+    menu = document.createElement("div");
+    menu.className = "dojo-pod-speed-menu";
+    menu.setAttribute("role", "group");
+    menu.setAttribute("aria-label", "Playback speed");
+    menu.innerHTML = PODCAST_SPEEDS.map((value) => `<button type="button" data-${attr}-speed="${value}">${speedLabel(value)}</button>`).join("");
+    wrap.append(menu);
+  }
+  menu.querySelectorAll("button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(Number(button.getAttribute(`data-${attr}-speed`)) === rate));
+  });
+  return menu;
+}
+
 export function styleOf(value) {
   return PODCAST_STYLES.find((style) => style.value === value) || PODCAST_STYLES[0];
 }

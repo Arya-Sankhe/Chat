@@ -1022,3 +1022,87 @@ export async function endStudyTutor(session, sessionId, body = {}) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
+
+/* ---------- Dojo audio sources ---------- */
+
+export async function presignCourseAudio(session, courseId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/audio`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+// XHR instead of fetch so long lectures can show real upload progress.
+function putWithProgress(url, { method = "PUT", headers = {}, body, onProgress, signal }) {
+  return new Promise((resolve, reject) => {
+    // A cancel that landed while an earlier step was awaiting would never fire the listener.
+    if (signal?.aborted) {
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const settle = (fn, value) => {
+      signal?.removeEventListener("abort", abort);
+      fn(value);
+    };
+    xhr.open(method, url);
+    Object.entries(headers).forEach(([key, value]) => xhr.setRequestHeader(key, value));
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress?.(event.loaded / event.total); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? settle(resolve) : settle(reject, Object.assign(new Error("Upload failed."), { status: xhr.status })));
+    xhr.onerror = () => settle(reject, Object.assign(new Error("Network error during upload."), { network: true }));
+    xhr.onabort = () => settle(reject, new DOMException("Upload cancelled.", "AbortError"));
+    signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(body);
+  });
+}
+
+export async function putCourseAudio(session, upload, file, { onProgress, signal } = {}) {
+  try {
+    await putWithProgress(upload.uploadUrl, { method: upload.method, headers: upload.headers, body: file, onProgress, signal });
+    return { mode: "direct" };
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    // Same fallback as other uploads: relay through the app when R2 rejects the browser.
+  }
+  const activeSession = await resolveSession(session);
+  await putWithProgress(apiUrl(`/api/uploads/${encodeURIComponent(upload.uploadId)}/content`), {
+    headers: apiHeaders(activeSession, { "content-type": upload.contentType || file.type || "application/octet-stream" }),
+    body: file, onProgress, signal
+  });
+  return { mode: "relay" };
+}
+
+export async function completeCourseAudio(session, courseId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/audio/complete`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(problem.error || response.statusText || "Request failed."), {
+      status: response.status, uploadReleased: problem.details?.uploadReleased === true
+    });
+  }
+  return response.json();
+}
+
+export async function fetchCourseTranscriptions(session, courseId, { signal } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/transcriptions`, { session, signal });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function retryCourseTranscription(session, courseId, documentFileId) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/transcriptions/${encodeURIComponent(documentFileId)}/retry`, {
+    session, method: "POST", headers: { "content-type": "application/json" }, body: "{}"
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function fetchStudyAudio(session, documentFileId) {
+  const response = await apiFetch(`/api/study/audio/${encodeURIComponent(documentFileId)}`, { session });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}

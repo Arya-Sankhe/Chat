@@ -9,6 +9,7 @@ import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { stripImageMetadata } from "../storage/stripImageMetadata.js";
 import { DocumentService } from "../documents/index.js";
 import { transcribeCourseImage } from "../study/generate.js";
+import { isAudioUpload } from "../study/audio.js";
 import { requireChatContext } from "./context.js";
 
 const REVISE_SELECTION_MAX = 24_000;
@@ -122,14 +123,19 @@ export async function handleUploadContent(req, res, config, uploadId) {
     throw new HttpError(503, "Document uploads are not configured.");
   }
 
-  const maxBytes = category === "document" ? documentUploadMaxBytes(context, config) : config.r2.maxImageBytes;
+  // Course audio is reserved through /api/study/courses/:id/audio; this relay only runs
+  // when the browser cannot PUT to R2 directly.
+  const audio = category === "document" && Boolean(attachment.project_id)
+    && isAudioUpload({ fileName: attachment.file_name, contentType: attachment.content_type });
+  const maxBytes = audio ? config.studyAudio.maxUploadBytes
+    : category === "document" ? documentUploadMaxBytes(context, config) : config.r2.maxImageBytes;
   const raw = await readRawBody(req, maxBytes);
   const expectedSize = Number(attachment.size_bytes);
   if (Number.isInteger(expectedSize) && expectedSize > 0 && raw.length !== expectedSize) {
     throw new HttpError(400, "Uploaded file size did not match the presigned upload.");
   }
 
-  assertUpload({
+  if (!audio) assertUpload({
     category,
     contentType: attachment.content_type,
     fileName: attachment.file_name,
