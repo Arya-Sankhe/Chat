@@ -192,6 +192,8 @@ export function normalizeChatRequest(input) {
   if (stop !== undefined) normalized.stop = stop;
   if (tools !== undefined) normalized.tools = tools;
   if (reasoningEffort !== undefined) normalized.reasoning_effort = reasoningEffort;
+  // Internal: Think's Luna turns stay on OpenAI's flex tier (see thinkUsesLunaFlex).
+  if (input.flex_only === true) normalized.flex_only = true;
 
   return normalized;
 }

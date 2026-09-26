@@ -79,10 +79,11 @@ export async function settleSpeechUsage(context, { requestId, durationSeconds, p
 // Live voice turns (tutor calls, chat voice mode). Grok STT takes the browser's WebM/Opus
 // recording as is, so there is no client-side WAV conversion and no extra latency.
 export const LIVE_STT_MODEL = "x-ai/grok-stt-1.0";
-// $0.10 per audio hour; a spoken turn is capped at three minutes, which costs $0.005.
+// $0.10 per audio hour; a spoken turn is capped at five minutes, which costs about $0.008.
 const LIVE_STT_RESERVATION = 0.01;
-const LIVE_STT_MAX_BYTES = 4 * 1024 * 1024;
-const LIVE_STT_MAX_SECONDS = 180;
+// Browsers record Opus at up to ~128 kbps by default, about 4.8 MB for five minutes.
+const LIVE_STT_MAX_BYTES = 8 * 1024 * 1024;
+const LIVE_STT_MAX_SECONDS = 5 * 60;
 
 /** Meters and transcribes one live recording from the request body. Returns { text, seconds }. */
 export async function transcribeLiveRecording(req, context, config) {
@@ -118,7 +119,7 @@ export async function transcribeLiveRecording(req, context, config) {
   if (reservation?.reason === "usage_metering_disabled") throw new HttpError(503, "Usage metering is temporarily unavailable.");
   if (!reservation?.allowed) throw new HttpError(429, "You've reached your weekly limit. You can continue after it resets.", { code: "usage_exhausted", retryable: false });
 
-  const signal = AbortSignal.any([req.signal || new AbortController().signal, AbortSignal.timeout(30_000)]);
+  const signal = AbortSignal.any([req.signal || new AbortController().signal, AbortSignal.timeout(60_000)]);
   const settle = (fields) => settleSpeechUsage(context, { requestId, durationSeconds, signal: AbortSignal.timeout(15_000), ...fields });
   try {
     await context.db.markApiUsageSubmitted({ userId: context.user.id, requestId }, { signal: AbortSignal.timeout(15_000) });

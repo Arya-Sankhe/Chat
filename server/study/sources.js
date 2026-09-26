@@ -2,7 +2,7 @@ import { HttpError } from "../http/responses.js";
 import { readWebPage } from "../websearch/index.js";
 import { deleteReservedUpload, mapStorageRpcError } from "../saas/storageQuota.js";
 
-export const SOURCE_MAX_CHARS = 200_000;
+export const SOURCE_MAX_CHARS = 250_000;
 
 export async function createCourseSource({ context, config, course, body, signal, readPage = readWebPage }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "Provide a source object.");
@@ -37,8 +37,8 @@ export async function createCourseSource({ context, config, course, body, signal
   if (content.includes("\0")) throw new HttpError(400, "Source contains unsupported null characters.");
   if (content.length > SOURCE_MAX_CHARS) {
     throw new HttpError(413, kind === "website"
-      ? "This page is longer than 200,000 characters. Paste the section you need instead."
-      : "Use a source of 200,000 characters or fewer. Split longer material into separate sources.");
+      ? "This page is longer than 250,000 characters. Paste the section you need instead."
+      : "Use a source of 250,000 characters or fewer. Split longer material into separate sources.");
   }
   title ||= content.split(/\r?\n/)[0].replace(/^#+\s*/, "").slice(0, 80) || "Pasted text";
   const fileName = `${title.replace(/[\\/\x00-\x1f]/g, " ").trim() || "Source"}.${kind === "website" ? "md" : "txt"}`;

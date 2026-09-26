@@ -131,7 +131,7 @@ test("adaptChatRequestForProvider keeps top_p for DeepSeek", () => {
 
 test("adaptChatRequestForProvider enables reasoning without effort for MiMo", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "xiaomi/mimo-v2.6-flash",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high"
   }, "openrouter");
@@ -141,7 +141,7 @@ test("adaptChatRequestForProvider enables reasoning without effort for MiMo", ()
 
 test("adaptChatRequestForProvider pins OpenRouter routing to tool-capable endpoints when tools are present", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "xiaomi/mimo-v2.6-flash",
     messages: [{ role: "user", content: "search" }],
     tools: [{ type: "function", function: { name: "web_search" } }],
     tool_choice: "auto"
@@ -153,7 +153,7 @@ test("adaptChatRequestForProvider pins OpenRouter routing to tool-capable endpoi
 
 test("adaptChatRequestForProvider does not force require_parameters without tools", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "xiaomi/mimo-v2.6-flash",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
@@ -285,7 +285,7 @@ test("DeepSeek routing dedupes duplicate catalog tags", () => {
 
 test("adaptChatRequestForProvider preserves caller provider routing alongside require_parameters", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "xiaomi/mimo-v2.5",
+    model: "xiaomi/mimo-v2.6-flash",
     messages: [{ role: "user", content: "search" }],
     tools: [{ type: "function", function: { name: "web_search" } }],
     provider: { order: ["Xiaomi"] }
@@ -331,9 +331,9 @@ test("adaptChatRequestForProvider maps max reasoning effort to xhigh", () => {
   assert.deepEqual(adapted.reasoning, { effort: "xhigh", exclude: false });
 });
 
-test("Pro smart-routes GPT-5.6 Luna across OpenAI tiers at max reasoning", () => {
+test("Pro smart-routes GPT-6 Luna across OpenAI tiers at max reasoning", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "openai/gpt-5.6-luna",
+    model: "openai/gpt-6-luna",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "low",
     temperature: 0.7,
@@ -357,7 +357,7 @@ test("Pro smart-routes GPT-5.6 Luna across OpenAI tiers at max reasoning", () =>
 
 test("website and desktop Luna requests share smart OpenAI tier routing", () => {
   const website = adaptChatRequestForProvider({
-    model: "openai/gpt-5.6-luna",
+    model: "openai/gpt-6-luna",
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
   assert.equal(website.service_tier, undefined);
@@ -369,7 +369,7 @@ test("website and desktop Luna requests share smart OpenAI tier routing", () => 
   });
 
   const desktop = adaptChatRequestForProvider({
-    model: "openai/gpt-5.6-luna",
+    model: "openai/gpt-6-luna",
     messages: [{ role: "user", content: "hi" }],
     service_tier: "flex",
     provider: { order: ["openai/flex"], allow_fallbacks: false, max_price: { prompt: 0.2, completion: 1.2 } }
@@ -518,7 +518,7 @@ test("streamChatCompletion retries transient upstream failures then succeeds", a
       apiKey: "test",
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
-      body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+      body: { model: "xiaomi/mimo-v2.6-flash", messages: [{ role: "user", content: "hi" }] },
       signal: AbortSignal.timeout(5000)
     });
     assert.equal(response.status, 200);
@@ -547,7 +547,7 @@ test("streamChatCompletion does not retry deterministic client errors", async ()
         baseUrl: "https://openrouter.ai/api/v1",
         providerId: "openrouter",
         body: {
-          model: "xiaomi/mimo-v2.5",
+          model: "xiaomi/mimo-v2.6-flash",
           messages: [{ role: "user", content: "hi" }],
           tools: [{ type: "function", function: { name: "web_search" } }],
           tool_choice: "auto"
@@ -602,7 +602,7 @@ test("streamChatCompletion stops retrying after the attempt cap", async () => {
         apiKey: "test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerId: "openrouter",
-        body: { model: "xiaomi/mimo-v2.5", messages: [{ role: "user", content: "hi" }] },
+        body: { model: "xiaomi/mimo-v2.6-flash", messages: [{ role: "user", content: "hi" }] },
         signal: AbortSignal.timeout(5000),
         maxAttempts: 2
       }),
@@ -692,7 +692,7 @@ test("chatCompletion returns assistant text and invokes response hooks", async (
   }
 });
 
-test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async () => {
+test("streamChatCompletion falls back from GPT-6 Luna to MiniMax M3", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (_url, options = {}) => {
@@ -714,7 +714,7 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "openai/gpt-5.6-luna",
+        model: "openai/gpt-6-luna",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "low"
       },
@@ -722,7 +722,7 @@ test("streamChatCompletion falls back from GPT-5.6 Luna to MiniMax M3", async ()
       maxAttempts: 1
     });
 
-    assert.equal(requests[0].model, "openai/gpt-5.6-luna");
+    assert.equal(requests[0].model, "openai/gpt-6-luna");
     assert.equal(requests[0].service_tier, undefined);
     assert.deepEqual(requests[0].provider, {
       order: ["openai/flex", "openai"],

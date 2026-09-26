@@ -140,7 +140,7 @@ function voiceChips(slot, selected, blocked, escapeHtml) {
   }).join("");
 }
 
-export function podcastOptionsMarkup({ escapeHtml, style = "casual", length = "standard", voices = ["af_heart", "am_michael"] }) {
+export function podcastOptionsMarkup({ escapeHtml, style = "casual", length = "standard", voices = ["af_heart", "am_puck"] }) {
   const roles = styleOf(style).roles;
   const styles = PODCAST_STYLES.map((item) => `<label class="dojo-option" data-value="${item.value}"><input type="radio" name="style" value="${item.value}"${item.value === style ? " checked" : ""}><span class="dojo-option-face"><span class="dojo-option-preview is-podcast">${STYLE_ART[item.value]}</span><span class="dojo-option-copy"><strong>${item.title}</strong><small>${item.description}</small></span><span class="dojo-option-check" aria-hidden="true">✓</span></span></label>`).join("");
   const lengths = PODCAST_LENGTHS.map((item) => `<label class="dojo-option" data-value="${item.value}"><input type="radio" name="length" value="${item.value}"${item.value === length ? " checked" : ""}><span class="dojo-option-face"><span class="dojo-option-copy"><span class="dojo-length-top"><strong>${item.title}</strong><span class="dojo-length-time">~${item.minutes} min</span></span><small>${item.description}</small></span></span></label>`).join("");

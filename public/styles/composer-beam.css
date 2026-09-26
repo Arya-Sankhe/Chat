@@ -10,7 +10,7 @@
   --beam-strength: 1;
 }
 
-.composer > :not(.composer-beam) {
+.composer > :not(.composer-beam, .composer-klui) {
   position: relative;
   z-index: 1;
 }

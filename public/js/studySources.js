@@ -20,7 +20,7 @@ const pauseIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 const playIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 0 0 1.5.9l10-6.4a1 1 0 0 0 0-1.8l-10-6.4A1 1 0 0 0 8 5.6Z"/></svg>';
 const stopIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 const LEVEL_BARS = 32;
-export const AUDIO_ACCEPT = "audio/*,.mp3,.m4a,.wav,.webm,.ogg,.oga,.opus,.flac,.aac,.aif,.aiff,.caf";
+export const AUDIO_ACCEPT = "audio/*,video/*,.mp3,.m4a,.wav,.webm,.ogg,.oga,.opus,.flac,.aac,.aif,.aiff,.caf,.mp4,.mov,.m4v,.mkv";
 
 export function formatClock(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -42,13 +42,13 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
     <header class="dojo-source-dialog-head"><span class="dojo-source-brand">What are we learning today?</span><button type="button" class="study-icon-btn" data-source-close aria-label="Close add sources">${svg('<path d="m6 6 12 12M18 6 6 18"/>')}</button></header>
     <button type="button" class="dojo-source-upload" data-source-files>
       <span class="dojo-upload-symbol">${upload}</span><strong>Drop your files here</strong>
-      <span>or <u>choose files</u> to get started</span><small>PDF, Word, slides, spreadsheets, images & audio</small>
+      <span>or <u>choose files</u> to get started</span><small>PDF, Word, slides, spreadsheets, images, audio & video</small>
     </button>
     <div class="dojo-source-divider"><span>Or add something else</span></div>
     <div class="dojo-source-options">
       <button type="button" data-source-kind="website" aria-expanded="false" aria-controls="dojo-source-website">${globe}<span><strong>Website</strong><small>A page worth keeping</small></span><span aria-hidden="true">↗</span></button>
       <button type="button" data-source-kind="text" aria-expanded="false" aria-controls="dojo-source-text">${text}<span><strong>Paste text</strong><small>Your words, notes, anything</small></span><span aria-hidden="true">+</span></button>
-      <button type="button" class="dojo-source-audio-option" data-source-kind="audio" aria-expanded="false" aria-controls="dojo-source-audio">${mic}<span><strong>Audio</strong><small>Record a lecture or upload a recording</small></span><span class="dojo-source-audio-live" data-audio-live hidden><span class="dojo-rec-mini" data-audio-live-bars aria-hidden="true">${"<i></i>".repeat(5)}</span><b data-audio-live-time>0:00</b></span><span aria-hidden="true">+</span></button>
+      <button type="button" class="dojo-source-audio-option" data-source-kind="audio" aria-expanded="false" aria-controls="dojo-source-audio">${mic}<span><strong>Audio</strong><small>Record a lecture or upload a recording or video</small></span><span class="dojo-source-audio-live" data-audio-live hidden><span class="dojo-rec-mini" data-audio-live-bars aria-hidden="true">${"<i></i>".repeat(5)}</span><b data-audio-live-time>0:00</b></span><span aria-hidden="true">+</span></button>
     </div>
     <form data-source-form="website" id="dojo-source-website" class="dojo-source-form" hidden>
       <label for="dojo-source-url">Website link</label>
@@ -60,8 +60,8 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
       <label for="dojo-source-name">Title <span class="dojo-source-optional">optional</span></label>
       <input id="dojo-source-name" name="title" placeholder="e.g. Biology lecture notes" maxlength="120">
       <div class="dojo-source-text-label"><label for="dojo-source-content">Your text</label><button type="button" data-source-paste>${paste}<span>Paste</span></button></div>
-      <textarea id="dojo-source-content" name="text" placeholder="Paste something you want to learn…" maxlength="200000" rows="4" required></textarea>
-      <div class="dojo-source-text-footer"><span data-source-count>0 / 200,000</span><button class="dojo-source-submit" type="submit">Add text <span aria-hidden="true">+</span></button></div>
+      <textarea id="dojo-source-content" name="text" placeholder="Paste something you want to learn…" maxlength="250000" rows="4" required></textarea>
+      <div class="dojo-source-text-footer"><span data-source-count>0 / 250,000</span><button class="dojo-source-submit" type="submit">Add text <span aria-hidden="true">+</span></button></div>
     </form>
     <section data-source-form="audio" id="dojo-source-audio" class="dojo-source-form dojo-audio-panel" aria-label="Audio" hidden></section>
     <input type="file" data-audio-input accept="${AUDIO_ACCEPT}" multiple hidden>
@@ -183,7 +183,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
       ${recoveryMarkup()}
       <div class="dojo-audio-choices">
         <button type="button" class="dojo-audio-choice is-record" data-rec-start ${supported ? "" : "disabled"}><span class="dojo-audio-choice-icon">${mic}</span><strong>Record now</strong><small>${supported ? "Capture a lecture live" : "Not supported in this browser"}</small></button>
-        <button type="button" class="dojo-audio-choice" data-audio-pick><span class="dojo-audio-choice-icon">${upload}</span><strong>Upload audio</strong><small>MP3, M4A, WAV, WebM · up to 4 h</small></button>
+        <button type="button" class="dojo-audio-choice" data-audio-pick><span class="dojo-audio-choice-icon">${upload}</span><strong>Upload audio or video</strong><small>MP3, M4A, WAV, MP4, MOV · up to 4 h</small></button>
       </div>
       <p class="dojo-source-hint">English lectures work best. Transcripts get timestamps you can tap to replay.</p>`;
   }
@@ -464,7 +464,7 @@ export function createStudySourceDialog({ state, uploadFiles, uploadAudio, busyR
       forms.forEach(form => { if (form.tagName === "FORM") form.reset(); });
       const kind = panel || (recorder.active || recorder.state === "stopped" ? "audio" : "");
       showPanel(kind);
-      dialog.querySelector("[data-source-count]").textContent = "0 / 200,000";
+      dialog.querySelector("[data-source-count]").textContent = "0 / 250,000";
       message("");
       dialog.dataset.motion = event?.detail ? "on" : "off";
       dialog.showModal();

@@ -1,9 +1,7 @@
 /* Voice mode: the composer's voice button, the full-screen conversation, and the voice picker.
-   The composer button is plain light grass green; each voice has its own orb colors. */
+   The composer button uses the user's accent color, like send; each voice has its own orb colors. */
 
 :root {
-  --voice-leaf: #93d36b;
-  --voice-leaf-lip: #74b44f;
   --voice-ink: #16384a;
   --voice-surface: rgba(255, 255, 255, 0.72);
   --voice-surface-strong: rgba(255, 255, 255, 0.92);
@@ -30,13 +28,16 @@ body[data-mode="dark"] {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-full, 999px);
-  background: var(--voice-leaf);
-  color: #fff;
+  /* Declared here, not on :root, so they follow body[data-accent]. */
+  --voice-btn-lip: color-mix(in srgb, var(--accent) 78%, #000);
+  --voice-btn-shade: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
   box-shadow:
     inset 0 1.5px 0 rgba(255, 255, 255, 0.4),
-    inset 0 -2px 4px rgba(40, 90, 20, 0.12),
-    0 4px 0 var(--voice-leaf-lip),
-    0 8px 14px rgba(90, 160, 60, 0.26);
+    inset 0 -2px 4px rgba(0, 0, 0, 0.1),
+    0 4px 0 var(--voice-btn-lip),
+    0 8px 14px var(--voice-btn-shade);
   transform: translateY(-3px);
   transition:
     transform var(--motion-fast, 140ms) var(--ease-out, ease-out),
@@ -46,7 +47,7 @@ body[data-mode="dark"] {
 }
 
 .voice-mode-btn svg {
-  filter: drop-shadow(0 1px 1px rgba(40, 90, 20, 0.3));
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
 }
 
 .voice-mode-btn svg path {
@@ -75,9 +76,9 @@ body[data-mode="dark"] {
 .voice-mode-btn:active {
   transform: translateY(3px);
   box-shadow:
-    inset 0 2px 4px rgba(40, 90, 20, 0.22),
-    0 1px 0 var(--voice-leaf-lip),
-    0 2px 4px rgba(40, 90, 20, 0.14);
+    inset 0 2px 4px rgba(0, 0, 0, 0.2),
+    0 1px 0 var(--voice-btn-lip),
+    0 2px 4px var(--voice-btn-shade);
   transition-duration: 90ms;
 }
 
@@ -100,10 +101,10 @@ body.capacitor-native .voice-mode-btn {
 }
 
 /* Send and voice share one spot, so each arrives as if the other turned into it: the color
-   crossfades, the button gives a small squash, and the icon swaps (the arrow spins in, the
+   stays the accent, the button gives a small squash, and the icon swaps (the arrow spins in, the
    waveform bars grow up from the middle). */
 @keyframes voice-btn-in {
-  from { background-color: var(--accent, #1c7ed6); scale: 0.88; }
+  from { scale: 0.88; }
   55% { scale: 1.06; }
 }
 
@@ -120,7 +121,7 @@ body.capacitor-native .voice-mode-btn {
 }
 
 @keyframes send-from-voice {
-  from { background-color: var(--voice-leaf); scale: 0.88; }
+  from { scale: 0.88; }
   55% { scale: 1.06; }
 }
 
@@ -415,47 +416,13 @@ body[data-mode="dark"] .voice-mode[data-phase="speaking"] .voice-aura i:nth-chil
   40% { transform: scale(1.05); }
 }
 
-/* Little sparks circle the orb while Klui thinks. */
-.voice-orb-sparks {
-  position: absolute;
-  inset: 12%;
+/* The small orbs around the big one, drawn by voiceSatellites.js. The canvas overhangs the orb
+   by 14% on every side (SATELLITE_OVERHANG) so comet tails and echoes have room. */
+.voice-orb canvas.voice-orb-satellites {
+  inset: -14%;
+  width: 128%;
+  height: 128%;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 400ms ease;
-  animation: voice-orbit 5.5s linear infinite;
-}
-
-.voice-orb-sparks i {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  margin: -3.5px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-glow) 70%, transparent);
-  transform: rotate(calc(var(--i) * 72deg)) translateY(calc(-1 * min(37vw, 22vh, 170px) * 0.86)) scale(var(--s, 1));
-  animation: voice-twinkle 1.6s ease-in-out infinite;
-  animation-delay: calc(var(--i) * -0.32s);
-}
-
-.voice-orb-sparks i:nth-child(1) { --i: 0; }
-.voice-orb-sparks i:nth-child(2) { --i: 1; --s: 0.7; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-deep) 75%, transparent); }
-.voice-orb-sparks i:nth-child(3) { --i: 2; --s: 0.85; }
-.voice-orb-sparks i:nth-child(4) { --i: 3; --s: 0.6; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-pale) 80%, transparent); }
-.voice-orb-sparks i:nth-child(5) { --i: 4; --s: 0.75; box-shadow: 0 0 10px 3px color-mix(in srgb, var(--voice-deep) 75%, transparent); }
-
-.voice-mode[data-phase="thinking"] .voice-orb-sparks,
-.voice-mode[data-phase="connecting"] .voice-orb-sparks { opacity: 1; }
-
-@keyframes voice-orbit {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes voice-twinkle {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
 }
 
 .voice-status {
@@ -967,8 +934,6 @@ body[data-mode="dark"] .vp-arrow:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .voice-aura i,
-  .voice-orb-sparks,
-  .voice-orb-sparks i,
   .voice-mode.is-heard .voice-orb,
   .voice-mode.is-heard .voice-orb-ripple i,
   .voice-mode-btn,

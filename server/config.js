@@ -134,7 +134,7 @@ export function loadConfig(env = process.env) {
       betaAccountIds: readList(env.DESKTOP_BETA_ACCOUNT_IDS).map((id) => id.toLowerCase()),
       meteringMode: readMeteringMode(env.API_USAGE_METERING_MODE),
       privacyPolicyVersion: clean(env.DESKTOP_PRIVACY_POLICY_VERSION) || "2026-08-11",
-      model: clean(env.DESKTOP_CHAT_MODEL) || "openai/gpt-5.6-luna",
+      model: clean(env.DESKTOP_CHAT_MODEL) || "openai/gpt-6-luna",
       maxCompletionTokens: Math.min(readInt(env.DESKTOP_MAX_COMPLETION_TOKENS, 8192), 8192),
       // These are enforceable OpenRouter routing ceilings, not pricing
       // estimates. If an endpoint becomes more expensive, OpenRouter rejects
@@ -223,10 +223,10 @@ export function loadConfig(env = process.env) {
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
-      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 100 * 1024 * 1024),
+      maxFileBytes: readInt(env.DOCUMENT_MAX_FILE_BYTES, 150 * 1024 * 1024),
       maxFilesPerMessage: readInt(env.DOCUMENT_MAX_FILES_PER_MESSAGE, 5),
-      maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 60 * 1024 * 1024),
-      maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 100),
+      maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 150 * 1024 * 1024),
+      maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 150),
       maxDocxWords: readInt(env.DOCUMENT_MAX_DOCX_WORDS, 80_000),
       maxXlsxSheets: readInt(env.DOCUMENT_MAX_XLSX_SHEETS, 25),
       maxXlsxCells: readInt(env.DOCUMENT_MAX_XLSX_CELLS, 250_000),
@@ -334,7 +334,7 @@ export function loadConfig(env = process.env) {
     study: {
       maxRunMs: readInt(env.STUDY_MAX_RUN_MS, 10 * 60 * 1000),
       inactivityMs: readInt(env.STUDY_INACTIVITY_MS, 30_000),
-      visionModel: clean(env.STUDY_VISION_MODEL) || "xiaomi/mimo-v2.5"
+      visionModel: clean(env.STUDY_VISION_MODEL) || "xiaomi/mimo-v2.6-flash"
     },
     illustrations: {
       enabled: Boolean(

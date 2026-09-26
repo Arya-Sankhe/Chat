@@ -261,7 +261,7 @@ regex substitutions) are deliberately not listed.
 - **Responsibility**: Vision detection from OpenRouter model
   descriptors (`input_modalities` plus a name regex), and resolution
   of the vision describe model (config override → kimi/moonshot
-  scan → `OPENROUTER_VISION_MODEL` / `xiaomi/mimo-v2.5`).
+  scan → `OPENROUTER_VISION_MODEL` / `xiaomi/mimo-v2.6-flash`).
 - **Callers**: `server/chat/pipeline.js`.
 - **Major dependencies**: none.
 

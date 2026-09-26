@@ -43,7 +43,7 @@ test("conversation titles use Laguna for text and MiMo only when an image carrie
   assert.equal(textTitle, "Compare VPS Hosting Costs");
   assert.equal(imageTitle, "Identify Unclogged Roads");
   assert.equal(requests[0].body.model, "poolside/laguna-xs-2.1");
-  assert.equal(requests[1].body.model, "xiaomi/mimo-v2.5");
+  assert.equal(requests[1].body.model, "xiaomi/mimo-v2.6-flash");
   assert.equal(requests[1].body.messages[1].content[1].image_url.url, "https://signed.example/traffic.png");
   assert.equal(requests[1].body.messages[1].content[1].image_url.detail, "low");
   assert.deepEqual(requests[0].body.models, [

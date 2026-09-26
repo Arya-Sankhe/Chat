@@ -35,7 +35,7 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision({ id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" }), true);
   assert.equal(modelSupportsVision({ id: "qwen/qwen2.5-vl-72b", name: "Qwen2.5 VL 72B" }), true);
   // MiMo v2.5 is omnimodal (image input); the -pro variant is text-only.
-  assert.equal(modelSupportsVision("xiaomi/mimo-v2.5"), true);
+  assert.equal(modelSupportsVision("xiaomi/mimo-v2.6-flash"), true);
   assert.equal(modelSupportsVision("xiaomi/mimo-v2.5-pro"), false);
   assert.equal(modelSupportsVision("qwen/qwen3.7-flash"), true);
   assert.equal(modelSupportsVision("qwen/qwen3.8-flash"), true);
@@ -43,7 +43,7 @@ test("modelSupportsVision detects kimi and generic vision models", () => {
   assert.equal(modelSupportsVision("minimax/minimax-m3"), true);
   // Metadata (input modalities) still wins when available.
   assert.equal(modelSupportsVision({
-    id: "xiaomi/mimo-v2.5",
+    id: "xiaomi/mimo-v2.6-flash",
     name: "Xiaomi: MiMo-V2.5",
     architecture: { input_modalities: ["text", "audio", "image", "video"], output_modalities: ["text"] }
   }), true);
@@ -241,7 +241,7 @@ test("describeConversationImages uses streaming descriptions when provided", asy
     config: {},
     provider: MODEL_PROVIDER,
     attachmentIds: ["att_1"],
-    describeModel: "xiaomi/mimo-v2.5",
+    describeModel: "xiaomi/mimo-v2.6-flash",
     streamChatCompletionFn: async () => new Response([
       "data: {\"choices\":[{\"delta\":{\"content\":\"A decision tree image with tables.\"}}]}\n\n",
       "data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n",
@@ -269,7 +269,7 @@ test("describeConversationImages rejects empty visual descriptions", async () =>
       config: {},
       provider: MODEL_PROVIDER,
       attachmentIds: ["att_1"],
-      describeModel: "xiaomi/mimo-v2.5",
+      describeModel: "xiaomi/mimo-v2.6-flash",
       chatCompletionFn: async () => ""
     }),
     /empty response/

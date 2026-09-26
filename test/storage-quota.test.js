@@ -377,7 +377,7 @@ test("/api/me loads usage and storage concurrently", async () => {
 
 test("lite document completion caps extract pages at the plan limit", async () => {
   const calls = [];
-  const liteConfig = loadConfig({ ...SUPABASE_ENV, TEST_PLAN_ID: "lite" });
+  const liteConfig = loadConfig({ ...SUPABASE_ENV, DOCUMENT_MAX_PDF_PAGES: "300", TEST_PLAN_ID: "lite" });
   const attachment = {
     id: "upload-1",
     user_id: "user-1",
@@ -409,7 +409,7 @@ test("lite document completion caps extract pages at the plan limit", async () =
     })
   });
   assert.equal(res.statusCode, 200);
-  assert.equal(calls[0].limits.max_pdf_pages, 50);
+  assert.equal(calls[0].limits.max_pdf_pages, 150);
   assert.equal(calls[0].accountMaxBytes, LITE_BYTES);
 });
 

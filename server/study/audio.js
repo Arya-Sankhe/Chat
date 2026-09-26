@@ -17,8 +17,20 @@ const AUDIO_EXTENSIONS = new Map([
   [".flac", "audio/flac"],
   [".caf", "audio/x-caf"],
   [".aiff", "audio/aiff"],
-  [".aif", "audio/aiff"]
+  [".aif", "audio/aiff"],
+  // Videos arrive here when the browser couldn't copy their audio out. The transcriber
+  // decodes only the sound and replaces the upload with a small audio copy.
+  [".mov", "audio/mp4"],
+  [".m4v", "audio/mp4"],
+  [".mkv", "audio/x-matroska"],
+  [".avi", "audio/x-msvideo"],
+  [".wmv", "audio/x-ms-wmv"],
+  [".mpg", "audio/mpeg"],
+  [".mpeg", "audio/mpeg"],
+  [".3gp", "audio/3gpp"],
+  [".ogv", "audio/ogg"]
 ]);
+const VIDEO_TYPES = new Map([["quicktime", "mp4"], ["x-m4v", "mp4"]]);
 
 export const AUDIO_SOURCE_KINDS = ["upload", "recording"];
 
@@ -30,10 +42,18 @@ function extensionOf(fileName) {
 export function audioContentType({ fileName, contentType }) {
   const type = String(contentType || "").toLowerCase().split(";")[0].trim();
   if (type.startsWith("audio/")) return type;
-  // Recorders on some browsers label audio-only captures as video/webm or video/mp4.
-  if (type === "video/webm") return "audio/webm";
-  if (type === "video/mp4") return "audio/mp4";
+  // Recorders label audio-only captures video/webm or video/mp4, and whole videos keep
+  // their container name as an audio/* type.
+  if (type.startsWith("video/")) {
+    const subtype = type.slice(6);
+    return /^[a-z0-9.+-]+$/.test(subtype) ? `audio/${VIDEO_TYPES.get(subtype) || subtype}` : "";
+  }
   return AUDIO_EXTENSIONS.get(extensionOf(fileName)) || "";
+}
+
+function isVideoInput({ fileName, contentType }) {
+  const type = String(contentType || "").toLowerCase();
+  return type.startsWith("video/") || /\.(mov|m4v|mkv|avi|wmv|mpe?g|3gp|ogv)$/i.test(String(fileName || ""));
 }
 
 export function isAudioUpload(input) {
@@ -62,19 +82,24 @@ function requireAudioEnabled(config) {
   if (!config.studyAudio?.enabled) throw new HttpError(503, "Audio sources are not available right now.");
 }
 
-function uploadLimitMessage(maxBytes) {
-  return `Audio files can be up to ${Math.round(maxBytes / (1024 * 1024))} MB.`;
+function uploadLimitMessage(maxBytes, video) {
+  const mb = Math.round(maxBytes / (1024 * 1024));
+  return video
+    ? `This browser couldn't separate the sound from this video, and whole videos can be up to ${mb} MB. Save the audio as MP3 or M4A and upload that instead.`
+    : `Audio files can be up to ${mb} MB.`;
 }
 
 export async function presignCourseAudio({ context, config, course, body, signal }) {
   requireAudioEnabled(config);
   const fileName = String(body?.fileName || "").trim().slice(0, 200) || "Recording.webm";
   const contentType = audioContentType({ fileName, contentType: body?.contentType });
-  if (!contentType) throw new HttpError(400, "Choose an audio file such as MP3, M4A, WAV, or WebM.");
+  if (!contentType) throw new HttpError(400, "Choose an audio or video file such as MP3, M4A, WAV, or MP4.");
   const sizeBytes = Number(body?.sizeBytes);
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) throw new HttpError(400, "This audio file is empty.");
   const maxBytes = config.studyAudio.maxUploadBytes;
-  if (sizeBytes > maxBytes) throw new HttpError(413, uploadLimitMessage(maxBytes));
+  if (sizeBytes > maxBytes) {
+    throw new HttpError(413, uploadLimitMessage(maxBytes, isVideoInput({ fileName, contentType: body?.contentType })));
+  }
   cleanDuration(body?.durationSeconds, config.studyAudio.maxSeconds);
 
   const objectKey = context.r2.objectKey({ userId: context.user.id, fileName });

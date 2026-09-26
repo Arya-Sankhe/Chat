@@ -3,6 +3,7 @@ import {
   adaptChatRequestForProvider,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
+  OPENROUTER_VISION_MODEL,
   refreshDeepSeekProviderOrder
 } from "../providers.js";
 import { stripLeakedReasoningMarkup } from "../saas/messages/content.js";
@@ -157,6 +158,12 @@ export async function listModels({ apiKey, baseUrl, signal }) {
   return response.json();
 }
 
+// Pro falls back to MiniMax. Think's flex-only Luna falls back to MiMo, Think's usual model.
+function proFallbackBody(body) {
+  const { provider: _provider, flex_only: flexOnly, ...rest } = body;
+  return { ...rest, model: flexOnly === true ? OPENROUTER_VISION_MODEL : OPENROUTER_PRO_FALLBACK_MODEL };
+}
+
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
   if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
     await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
@@ -173,9 +180,8 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
     return await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
   } catch (error) {
     if (error?.name === "AbortError" || providerId !== "openrouter" || body?.model !== OPENROUTER_PRO_MODEL) throw error;
-    const { provider: _provider, ...fallbackBody } = body;
     requestBody = {
-      ...adaptChatRequestForProvider({ ...fallbackBody, model: OPENROUTER_PRO_FALLBACK_MODEL }, providerId),
+      ...adaptChatRequestForProvider(proFallbackBody(body), providerId),
       stream: true,
       stream_options: { include_usage: true }
     };
@@ -193,9 +199,8 @@ export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId
     response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });
   } catch (error) {
     if (error?.name === "AbortError" || providerId !== "openrouter" || body?.model !== OPENROUTER_PRO_MODEL) throw error;
-    const { provider: _provider, ...fallbackBody } = body;
     requestBody = {
-      ...adaptChatRequestForProvider({ ...fallbackBody, model: OPENROUTER_PRO_FALLBACK_MODEL }, providerId),
+      ...adaptChatRequestForProvider(proFallbackBody(body), providerId),
       stream: false
     };
     response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts });

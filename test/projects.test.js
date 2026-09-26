@@ -12,9 +12,9 @@ const publicDir = resolve(here, "..", "public");
 
 test("project capacities are source-byte limits per plan", () => {
   const plans = Object.fromEntries(loadPlans({}).map((plan) => [plan.id, plan]));
-  assert.equal(plans.lite.maxProjectBytes, 50 * 1024 * 1024);
-  assert.equal(plans.pro.maxProjectBytes, 100 * 1024 * 1024);
-  assert.equal(plans.max.maxProjectBytes, 150 * 1024 * 1024);
+  assert.equal(plans.lite.maxProjectBytes, 750 * 1024 * 1024);
+  assert.equal(plans.pro.maxProjectBytes, 750 * 1024 * 1024);
+  assert.equal(plans.max.maxProjectBytes, 750 * 1024 * 1024);
   assert.equal(plans.lite.maxStorageBytes, 750 * 1024 * 1024);
   assert.equal(plans.pro.maxStorageBytes, 2684354560);
   assert.equal(plans.max.maxStorageBytes, 5 * 1024 * 1024 * 1024);

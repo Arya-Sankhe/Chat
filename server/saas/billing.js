@@ -7,12 +7,14 @@ const OPENROUTER_FALLBACK_PRICING = {
   "deepseek/deepseek-v4-flash-0731": { prompt: 0.09, completion: 0.18 },
   "tencent/hy3": { prompt: 0.132, completion: 0.528 },
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },
+  "xiaomi/mimo-v2.6-flash": { prompt: 0.14, completion: 0.28 },
   "xiaomi/mimo-v2.5-pro": { prompt: 1.20, completion: 3.60 },
   "qwen/qwen3.7-plus": { prompt: 0.32, completion: 1.28 },
   "minimax/minimax-m3": { prompt: 0.30, completion: 1.20 },
   // Conservative ceiling for the pinned desktop route. Exact OpenRouter
   // usage/generation cost wins whenever it is available.
-  "openai/gpt-5.6-luna": { prompt: 0.20, completion: 1.20 }
+  "openai/gpt-5.6-luna": { prompt: 0.20, completion: 1.20 },
+  "openai/gpt-6-luna": { prompt: 0.10, completion: 0.50 }
 };
 
 function dateOnly(date) {

@@ -3,6 +3,7 @@
 // chat pipeline with the short voice prompt, and it is spoken sentence by sentence with Kokoro
 // while the model is still writing. Turn-taking and the orb come from the AI tutor call.
 import { CHIMES, createOrb, endOfTurnSilence, looksComplete, playChime } from "./studyTutor.js";
+import { createSatellites } from "./voiceSatellites.js";
 
 // Mirrors server/speech/voices.js. Abstract names only, never people's names.
 // Each voice has its own orb: one hue in light shades. `b` is the pale top, `a` the richer side,
@@ -508,9 +509,9 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     <div class="voice-stage">
       <button class="voice-orb" type="button" data-voice-orb aria-label="Klui">
         <span class="voice-orb-halo" aria-hidden="true"><i></i><i></i></span>
-        <span class="voice-orb-sparks" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         <span class="voice-orb-ripple" aria-hidden="true"><i></i><i></i></span>
-        <canvas></canvas>
+        <canvas data-voice-orb-canvas></canvas>
+        <canvas class="voice-orb-satellites" data-voice-satellites aria-hidden="true"></canvas>
       </button>
       <span class="voice-status" role="status" data-voice-status><i></i><span>Connecting…</span></span>
       <span class="voice-hint" data-voice-hint></span>
@@ -524,7 +525,8 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       <button class="voice-ctl is-end" type="button" data-voice-end aria-label="End voice mode" title="End">${VOICE_ICONS.close}</button>
     </footer>`;
   const $ = (selector) => root.querySelector(selector);
-  const orb = createOrb($("canvas"), { calm: reducedMotion });
+  const orb = createOrb($("[data-voice-orb-canvas]"), { calm: reducedMotion });
+  const satellites = createSatellites($("[data-voice-satellites]"), { calm: reducedMotion });
   const youLine = $("[data-voice-you]");
   const replyLine = $("[data-voice-reply]");
 
@@ -567,9 +569,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     $("[data-voice-chip-name]").textContent = item.name;
     $("[data-voice-chip-speed]").textContent = voiceSpeedLabel(speed);
     if (item.id === paintedVoice) return;
-    // The orb, aura, rings, sparks and status dot all take the chosen voice's colors;
+    // The orb, aura, rings, small orbs and status dot all take the chosen voice's colors;
     // switching voices mid-call swirls the new colors in.
     orb.setPalette(item.palette, { instant: !paintedVoice });
+    satellites.setPalette(item.palette, { instant: !paintedVoice });
     root.style.setProperty("--voice-deep", rgb(item.palette.a));
     root.style.setProperty("--voice-glow", rgb(item.palette.glow));
     root.style.setProperty("--voice-pale", rgb(item.palette.b));
@@ -579,7 +582,9 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   function setPhase(next, label = LABELS[next]) {
     phase = next;
     root.dataset.phase = next;
-    orb.setMode(next === "connecting" ? "thinking" : next === "muted" ? "paused" : next);
+    const mode = next === "connecting" ? "thinking" : next === "muted" ? "paused" : next;
+    orb.setMode(mode);
+    satellites.setMode(mode);
     setStatus(label);
     $("[data-voice-orb]").setAttribute("aria-label", next === "speaking" || next === "thinking" ? "Klui is answering. Tap to interrupt."
       : next === "listening" ? "Listening. Tap when you're done." : next === "muted" ? "Microphone off. Tap to turn it on." : "Klui");
@@ -1005,6 +1010,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     floor = Math.max(0.002, Math.min(0.05, floor));
     const level = phase === "speaking" ? out * 5.5 : phase === "listening" && listen?.heard ? mic * 7 : phase === "listening" ? mic * 3 : 0;
     orb.setLevel(level);
+    satellites.setLevel(level);
     root.style.setProperty("--voice-level", Math.min(1, level).toFixed(3));
     if (phase === "listening") listenTick(mic, now);
     else if (phase === "speaking" && stream && !muted) {
@@ -1050,6 +1056,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     root.classList.add("is-closing");
     await new Promise((resolve) => setTimeout(resolve, Math.max(reducedMotion ? 0 : 280, tail * 1000)));
     orb.stop();
+    satellites.stop();
     ctx?.close().catch(() => {});
     root.remove();
     onClose?.();
@@ -1086,6 +1093,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       document.addEventListener("keydown", onKey, true);
       setPhase("connecting");
       orb.start();
+      satellites.start();
       requestAnimationFrame(() => root.classList.add("is-open"));
       try {
         await openAudio();

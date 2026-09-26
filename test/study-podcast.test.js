@@ -74,10 +74,10 @@ test("podcast options fall back to safe defaults and never repeat a voice", () =
   const options = normalizePodcastOptions({ style: "nope", length: "huge", voiceA: "am_puck", voiceB: "am_puck", focus: ` ${"x".repeat(2000)}` });
   assert.equal(options.style, "casual");
   assert.equal(options.length, "standard");
-  assert.deepEqual(options.voices.map((voice) => voice.id), ["am_puck", "am_michael"]);
+  assert.deepEqual(options.voices.map((voice) => voice.id), ["am_puck", "af_heart"]);
   assert.equal(options.focus.length, 1000);
   const prompt = podcastSystemPrompt({ ...options, style: "recall", focus: "osmosis" });
-  assert.match(prompt, /A is Leo, the coach\. B is Michael, the learner\./);
+  assert.match(prompt, /A is Leo, the coach\. B is Maya, the learner\./);
   assert.match(prompt, /PAUSE/);
   assert.match(prompt, /focus on: osmosis/);
   assert.match(prompt, new RegExp(`about ${PODCAST_LENGTHS.standard.words} words`));

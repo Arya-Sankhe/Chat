@@ -4,6 +4,7 @@ import { createCourseContextPicker } from "./studyContext.js";
 import { createStudySourceDialog } from "./studySources.js";
 import { createAudioSourceViewer } from "./studyAudio.js";
 import { deleteSavedRecording } from "./studyRecorder.js";
+import { extractAudioTrack, isVideoFile } from "./videoAudio.js";
 import { completeCourseAudio, fetchCourseTranscriptions, fetchStudyAudio, presignCourseAudio, putCourseAudio, retryCourseTranscription } from "./api.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
@@ -219,7 +220,7 @@ export function createStudyHubController({
 
   function isAudioFile(file) {
     const type = String(file?.type || "").toLowerCase();
-    return type.startsWith("audio/") || /\.(mp3|m4a|wav|webm|ogg|oga|opus|flac|aac|aiff?|caf)$/i.test(String(file?.name || ""));
+    return type.startsWith("audio/") || isVideoFile(file) || /\.(mp3|m4a|wav|webm|ogg|oga|opus|flac|aac|aiff?|caf)$/i.test(String(file?.name || ""));
   }
 
   function isAudioDoc(doc) {
@@ -653,6 +654,13 @@ export function createStudyHubController({
     const entries = audioUploads.filter((item) => item.courseId === courseId).map((item) => {
       if (item.status === "failed") {
         return { key: `up:${item.id}`, title: item.title, phase: "upload-failed", label: "Upload failed", detail: "", error: item.error, progress: null, active: false, failed: true, uploadId: item.id };
+      }
+      if (item.status === "extracting") {
+        return {
+          key: `up:${item.id}`, title: item.title, phase: "extracting", label: "Taking the audio from the video",
+          detail: `${Math.round(item.progress * 100)}% · ${formatMb(item.file?.size)} MB video`,
+          progress: item.progress, active: true, uploadId: item.id
+        };
       }
       if (item.status === "queuing") {
         return { key: `up:${item.id}`, title: item.title, phase: "queuing", label: "Adding to queue", detail: "", progress: 1, active: true, uploadId: item.id };
@@ -2463,7 +2471,7 @@ export function createStudyHubController({
   async function uploadCourseFiles(files) {
     const all = [...files].filter(isStudyFile);
     if (!all.length) {
-      showToast("Choose a PDF, Word, Excel, PowerPoint, CSV, image, or audio file.");
+      showToast("Choose a PDF, Word, Excel, PowerPoint, CSV, image, audio, or video file.");
       return;
     }
     if (!state.activeCourseId) return;
@@ -2595,6 +2603,27 @@ export function createStudyHubController({
     let upload = item.stored || null;
     let stage = upload ? "complete" : "presign";
     try {
+      if (!upload && item.meta.source === "upload" && !item.extracted && isVideoFile(item.file)) {
+        // Only the sound is uploaded. If the browser can't read this video, the original
+        // goes up instead and the transcriber drops the picture.
+        item.status = "extracting";
+        repaint();
+        let painted = 0;
+        const audio = await extractAudioTrack(item.file, {
+          signal,
+          onProgress: (value) => {
+            item.progress = value;
+            if (performance.now() - painted > 250) { painted = performance.now(); repaint(); }
+          }
+        });
+        if (audio) {
+          item.file = audio.file;
+          item.meta.durationSeconds ||= audio.durationSeconds;
+        }
+        item.extracted = true;
+        item.status = "uploading";
+        item.progress = 0;
+      }
       if (!upload) {
         const duration = item.meta.durationSeconds || await probeAudioDuration(item.file);
         upload = await presignCourseAudio(state.session, item.courseId, {

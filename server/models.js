@@ -1,7 +1,7 @@
 import {
   OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_LAGUNA_S,
+  OPENROUTER_MIMO_V25_MODEL,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
@@ -49,7 +49,7 @@ export const MODEL_ROUTES = Object.freeze({
     ],
     mediaModels: [
       OPENROUTER_VISION_MODEL,
-      OPENROUTER_GLM_FLASH_MODEL,
+      OPENROUTER_MIMO_V25_MODEL,
       OPENROUTER_VISION_L3,
       OPENROUTER_VISION_L2
     ]
@@ -64,7 +64,9 @@ export const LEGACY_ROLE_ALIASES = Object.freeze({
   "deepseek/deepseek-v4-flash": "think",
   "deepseek/deepseek-v4-flash-0731": "think",
   "xiaomi/mimo-v2.5": "think",
-  "openai/gpt-5.6-luna": "pro"
+  "xiaomi/mimo-v2.6-flash": "think",
+  "openai/gpt-5.6-luna": "pro",
+  "openai/gpt-6-luna": "pro"
 });
 
 const LEGACY_MODEL_IDS = Object.freeze({

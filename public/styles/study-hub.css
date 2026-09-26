@@ -2428,8 +2428,10 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-tutor-cut { margin-left: 3px; color: var(--study-muted); }
 
 /* Live call */
-.dojo-tutor-slot { display: flex; flex: 1; min-height: 0; }
-.tutor-call { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px 14px 16px; }
+/* The slot is a size container so the orb can shrink on short screens (phones with browser
+   bars) and the call controls always stay on screen. */
+.dojo-tutor-slot { display: flex; flex: 1; min-height: 0; container-type: size; }
+.tutor-call { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; padding: 12px 14px 16px; overflow-y: auto; }
 .tutor-call-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tutor-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 10px 5px 8px; border-radius: 999px; background: linear-gradient(120deg, color-mix(in srgb, var(--dojo-tutor-grass) 24%, transparent), color-mix(in srgb, var(--dojo-tutor-sky) 26%, transparent)); color: var(--tc); font-size: 11.5px; font-weight: 650; white-space: nowrap; }
 .tutor-timer { display: flex; align-items: center; gap: 8px; }
@@ -2446,7 +2448,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-step-dots i.is-now { width: 22px; background: var(--dojo-tutor-hue); }
 .tutor-step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tutor-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 2px; }
-.tutor-orb { position: relative; display: block; width: min(250px, 66cqw); aspect-ratio: 1; margin: -6px 0 -10px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--ease-out); }
+.tutor-orb { position: relative; display: block; width: clamp(88px, min(250px, 66cqw, 100cqh - 300px), 250px); aspect-ratio: 1; margin: -6px 0 -10px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 200ms var(--ease-out); }
 .tutor-orb:active { transform: scale(.98); }
 .tutor-orb canvas { display: block; width: 100%; height: 100%; }
 .tutor-orb:focus-visible { outline: 2px solid var(--tc); outline-offset: -22%; }
@@ -2458,7 +2460,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-call[data-phase="paused"] .tutor-status i { background: var(--study-muted); }
 .tutor-hint { min-height: 15px; color: var(--study-muted); font-size: 11px; transition: opacity 200ms ease; }
 .tutor-hint:empty { opacity: 0; }
-.tutor-captions { display: flex; flex: 1; flex-direction: column; gap: 10px; min-height: 90px; padding: 10px 2px 4px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 26px); mask-image: linear-gradient(to bottom, transparent 0, #000 26px); }
+.tutor-captions { display: flex; flex: 1; flex-direction: column; gap: 10px; min-height: 64px; padding: 10px 2px 4px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 26px); mask-image: linear-gradient(to bottom, transparent 0, #000 26px); }
 .tutor-line { display: grid; gap: 2px; animation: tutor-line-in 260ms var(--ease-out) both; }
 .tutor-line-who { color: var(--study-muted); font-size: 10.5px; font-weight: 650; letter-spacing: .02em; }
 .tutor-line p { margin: 0; color: var(--study-ink); font-size: 13.5px; line-height: 1.55; }
@@ -2475,7 +2477,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .tutor-type input { flex: 1; min-width: 0; height: 40px; padding: 0 14px; border: 1px solid var(--study-stroke); border-radius: 999px; background: var(--dojo-soft); color: var(--study-ink); font: 13px var(--study-font); }
 .tutor-type input:focus-visible { outline: 2px solid var(--tc); outline-offset: 1px; }
 .tutor-type button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--tc); color: var(--bg); cursor: pointer; }
-.tutor-controls { display: flex; align-items: center; justify-content: center; gap: 16px; padding-top: 6px; }
+.tutor-controls { display: flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 16px; padding-top: 6px; }
 .tutor-btn { display: grid; place-items: center; width: 58px; height: 58px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; transition: transform 160ms var(--ease-out), filter 160ms ease, background 200ms ease, color 200ms ease; }
 .tutor-btn[hidden] { display: none; }
 .tutor-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
@@ -2492,7 +2494,7 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 @keyframes tutor-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: .9; transform: translateY(-2px); } }
 @keyframes tutor-line-in { from { opacity: 0; transform: translateY(5px); } }
 @media (max-height: 760px) {
-  .tutor-orb { width: min(180px, 54cqw); }
+  .tutor-orb { width: clamp(88px, min(180px, 54cqw, 100cqh - 300px), 180px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .dojo-tutor-orb, .dojo-tutor-orb i, .dojo-tutor-plan li, .dojo-tutor-recap, .tutor-line, .tutor-dots i, .tutor-status i, .dojo-tutor-preview q.is-new { animation: none !important; }

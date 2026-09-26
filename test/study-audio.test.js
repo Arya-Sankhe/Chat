@@ -8,6 +8,11 @@ test("audio uploads are recognised by type or extension and stored as audio/*", 
   assert.equal(audioContentType({ fileName: "rec.webm", contentType: "video/webm;codecs=opus" }), "audio/webm");
   assert.equal(audioContentType({ fileName: "voice.opus", contentType: "application/octet-stream" }), "audio/ogg");
   assert.equal(audioContentType({ fileName: "notes.pdf", contentType: "application/pdf" }), "");
+  // Videos the browser couldn't split keep their container as an audio/* type for the queue.
+  assert.equal(audioContentType({ fileName: "lecture.mov", contentType: "video/quicktime" }), "audio/mp4");
+  assert.equal(audioContentType({ fileName: "lecture.mkv", contentType: "video/x-matroska" }), "audio/x-matroska");
+  assert.equal(audioContentType({ fileName: "lecture.mov", contentType: "" }), "audio/mp4");
+  assert.equal(audioContentType({ fileName: "x.mp4", contentType: "video/<script>" }), "");
   assert.equal(isAudioUpload({ fileName: "slides.pptx", contentType: "" }), false);
 });
 

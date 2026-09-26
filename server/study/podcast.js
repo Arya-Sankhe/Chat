@@ -23,7 +23,7 @@ export const PODCAST_VOICES = [
   { id: "am_fenrir", name: "Finn" },
   { id: "am_puck", name: "Leo" }
 ];
-export const DEFAULT_PODCAST_VOICES = ["af_heart", "am_michael"];
+export const DEFAULT_PODCAST_VOICES = ["af_heart", "am_puck"];
 
 export const PODCAST_STYLES = {
   casual: {

@@ -7,15 +7,15 @@ export const DEFAULT_PROVIDER_ID = "openrouter";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
-export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
 export const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
 // Text-only; used only as a Council panelist.
 export const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
-export const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
+export const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 export const OPENROUTER_PRO_FALLBACK_MODEL = "minimax/minimax-m3";
 export const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 export const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
-export const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
+export const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
 export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
@@ -262,6 +262,76 @@ export function resetVoiceModeRoleCache() {
   nitroRefresh = null;
 }
 
+// Think answers images and documents with MiMo, or with Luna on its flex tier while flex is the
+// faster of the two. Each side is scored on its p50 throughput and p50 time to first token over
+// the last 30 minutes, with equal weight as log ratios: twice the tokens/sec makes up for twice
+// the wait. MiMo counts as its best healthy host. Same five-minute cache as the Nitro check.
+export const LUNA_FLEX_TAG = "openai/flex";
+
+function latencyP50(endpoint) {
+  const raw = endpoint?.latency_last_30m;
+  const value = raw != null && typeof raw === "object" ? raw.p50 : raw;
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
+
+/** Equal-weight speed score (higher is better), or null for an unhealthy host or no stats. */
+export function endpointSpeedScore(endpoint) {
+  if (endpoint?.status != null && Number(endpoint.status) !== 0) return null;
+  const tps = throughputP50(endpoint);
+  const latency = latencyP50(endpoint);
+  if (!tps || !latency) return null;
+  return 0.5 * Math.log(tps) - 0.5 * Math.log(latency / 1000);
+}
+
+/** True when Luna's flex host currently scores above MiMo's best host. */
+export function lunaFlexBeatsMimo(lunaEndpoints, mimoEndpoints) {
+  const flex = (Array.isArray(lunaEndpoints) ? lunaEndpoints : []).find((endpoint) => endpoint?.tag === LUNA_FLEX_TAG);
+  const lunaScore = endpointSpeedScore(flex);
+  if (lunaScore == null) return false;
+  const mimoScores = (Array.isArray(mimoEndpoints) ? mimoEndpoints : []).map(endpointSpeedScore).filter((score) => score != null);
+  // With no MiMo stats there is nothing to beat; stay on MiMo rather than guess.
+  return mimoScores.length > 0 && lunaScore > Math.max(...mimoScores);
+}
+
+let thinkFlex = null;
+let thinkFlexExpiresAt = 0;
+let thinkFlexRefresh = null;
+
+async function refreshThinkFlex({ apiKey, baseUrl }) {
+  const endpoints = async (model) => {
+    const response = await fetch(`${baseUrl}/models/${model}/endpoints`, {
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      signal: AbortSignal.timeout(2000)
+    });
+    if (!response.ok) throw new Error(`endpoints ${response.status}`);
+    return (await response.json())?.data?.endpoints;
+  };
+  try {
+    const [luna, mimo] = await Promise.all([endpoints(OPENROUTER_PRO_MODEL), endpoints(OPENROUTER_VISION_MODEL)]);
+    thinkFlex = lunaFlexBeatsMimo(luna, mimo);
+  } catch {
+    // Keep the last reading; with none yet, Think stays on MiMo.
+  } finally {
+    thinkFlexExpiresAt = Date.now() + DEEPSEEK_PRICE_TTL_MS;
+    thinkFlexRefresh = null;
+  }
+  return thinkFlex;
+}
+
+/** True while Think should answer images and documents with Luna (flex tier only), not MiMo. */
+export async function thinkUsesLunaFlex({ apiKey, baseUrl = OPENROUTER_BASE_URL } = {}) {
+  if (Date.now() >= thinkFlexExpiresAt && !thinkFlexRefresh) thinkFlexRefresh = refreshThinkFlex({ apiKey, baseUrl });
+  // Only the very first lookup waits; after that a stale reading is used while it refreshes.
+  return Boolean(thinkFlex == null && thinkFlexRefresh ? await thinkFlexRefresh : thinkFlex);
+}
+
+export function resetThinkFlexCache() {
+  thinkFlex = null;
+  thinkFlexExpiresAt = 0;
+  thinkFlexRefresh = null;
+}
+
 function providerSlug(name) {
   return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -304,7 +374,7 @@ export function stickyProviderTags(model, providerName, order = null) {
 export function adaptChatRequestForProvider(body, providerId) {
   if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
 
-  const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, ...rest } = body;
+  const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, flex_only: flexOnly, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
   const modelId = String(rest.model || "").trim().toLowerCase();
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
@@ -383,9 +453,14 @@ export function adaptChatRequestForProvider(body, providerId) {
     // Prefer the hosts fast enough to have earned Nitro its place in voice mode.
     providerPrefs.preferred_min_throughput = { p50: NITRO_VOICE_MIN_THROUGHPUT_P50 };
   }
-  if (isProModel) {
+  if (isProModel && flexOnly === true) {
+    // Think's Luna runs on the flex tier only; the caller falls back to MiMo if flex fails.
     delete adapted.service_tier;
-    providerPrefs.order = ["openai/flex", "openai"];
+    providerPrefs.order = [LUNA_FLEX_TAG];
+    providerPrefs.allow_fallbacks = false;
+  } else if (isProModel) {
+    delete adapted.service_tier;
+    providerPrefs.order = [LUNA_FLEX_TAG, "openai"];
     providerPrefs.allow_fallbacks = true;
     providerPrefs.preferred_max_latency = 6;
     providerPrefs.preferred_min_throughput = 25;

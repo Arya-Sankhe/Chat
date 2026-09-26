@@ -1248,7 +1248,7 @@ class Processor:
             "DOCUMENT_PAGE_UPLOAD_WORKERS", 4, minimum=1, maximum=PAGE_UPLOAD_WORKERS_CAP
         )
         self.default_limits = {
-            "max_pdf_pages": int(env("DOCUMENT_MAX_PDF_PAGES", "100")),
+            "max_pdf_pages": int(env("DOCUMENT_MAX_PDF_PAGES", "150")),
             "max_docx_words": int(env("DOCUMENT_MAX_DOCX_WORDS", "80000")),
             "max_xlsx_sheets": int(env("DOCUMENT_MAX_XLSX_SHEETS", "25")),
             "max_xlsx_cells": int(env("DOCUMENT_MAX_XLSX_CELLS", "250000")),
@@ -1661,7 +1661,7 @@ class Processor:
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
         page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 100)
+        max_pages = self.limit(limits, "max_pdf_pages", 150)
         if page_count > max_pages:
             raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
 
@@ -1780,7 +1780,7 @@ class Processor:
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
         page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 100)
+        max_pages = self.limit(limits, "max_pdf_pages", 150)
         if page_count > max_pages:
             raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
 
@@ -2231,7 +2231,7 @@ class Processor:
         if reader.is_encrypted:
             raise RuntimeError("password_protected")
         pdf_page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 100)
+        max_pages = self.limit(limits, "max_pdf_pages", 150)
         if pdf_page_count > max_pages:
             raise RuntimeError(f"too_many_pages: PDF has {pdf_page_count} pages; limit is {max_pages}")
 

@@ -1429,7 +1429,7 @@ describe("tool", () => {
 
     await runChatWithToolLoop({
       chatRequest: {
-        model: "xiaomi/mimo-v2.5",
+        model: "xiaomi/mimo-v2.6-flash",
         messages: [{ role: "user", content: "ping" }],
         reasoning_effort: "high"
       },
@@ -1592,7 +1592,7 @@ describe("tool", () => {
 
     const result = await runChatWithToolLoop({
       chatRequest: {
-        model: "xiaomi/mimo-v2.5",
+        model: "xiaomi/mimo-v2.6-flash",
         messages: [{ role: "user", content: "compare prices" }],
         tools: buildWebSearchTools(),
         tool_choice: "auto"

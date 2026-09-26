@@ -712,3 +712,173 @@ body.chat-empty .composer-area {
     transition: none;
   }
 }
+
+/* ---------- Composer Klui (composerKlui.js) ----------
+   A blocky Klui standing on the composer's top edge. The SVG's viewBox is 23 x 12 units, drawn
+   at a whole 4px a unit so every edge stays crisp; its body is centered 8 units from the right edge. */
+.composer-klui {
+  --kp-unit: 4px;
+  position: absolute;
+  right: 83px;
+  bottom: 100%;
+  z-index: 3;
+  width: calc(var(--kp-unit) * 23);
+  height: calc(var(--kp-unit) * 12);
+  margin-bottom: -1px;
+  pointer-events: none;
+}
+
+.composer-klui[data-shown="false"] .kp-stage {
+  visibility: hidden;
+}
+
+/* Something else is using the space above the composer. */
+.composer-wrap:has(.followup-queue:not(.hidden), .clarification-card:not(.hidden), .attachment-model-notice[aria-hidden="false"]) .composer-klui {
+  opacity: 0;
+}
+
+/* Only the bottom is clipped, so Klui sinks into (and rises out of) the composer's edge. */
+.kp-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  clip-path: inset(-60px -60px 0 -60px);
+}
+
+.kp-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Turning: a quick squash hides the swap between front and side views. */
+.kp-turner {
+  transform-origin: 8px 12px;
+  transition: transform 70ms steps(2, end);
+}
+
+.composer-klui.is-turning .kp-turner {
+  transform: scaleX(.3);
+}
+
+.composer-klui[data-facing="front"] :is(.kp-face-side, .kp-arm-side),
+.composer-klui[data-facing="side"] :is(.kp-face-front, .kp-arms-front) {
+  display: none;
+}
+
+.kp-eyes-shut,
+.composer-klui[data-blink="true"] .kp-eyes-open {
+  visibility: hidden;
+}
+
+.composer-klui[data-blink="true"] .kp-eyes-shut {
+  visibility: visible;
+}
+
+/* Idle: a tiny double flap of the arms every few seconds. */
+.composer-klui[data-shown="true"][data-facing="front"] .kp-arms-front {
+  animation: kp-flap 3.4s steps(1, end) 1.2s infinite;
+}
+
+@keyframes kp-flap {
+  0%, 84%, 90%, 100% { transform: none; }
+  87%, 93% { transform: translateY(-1px); }
+}
+
+/* Laptop: pops up shut, opens, and later shuts and drops away. */
+.kp-laptop {
+  opacity: 0;
+  transform: translateY(2px);
+  transition: transform 120ms steps(2, end), opacity 120ms steps(2, end);
+}
+
+.composer-klui:is([data-laptop="shut"], [data-laptop="open"]) .kp-laptop {
+  opacity: 1;
+  transform: none;
+}
+
+.composer-klui:not([data-laptop="open"]) .kp-lid-open,
+.composer-klui[data-laptop="open"] .kp-lid-shut,
+.kp-keys rect {
+  visibility: hidden;
+}
+
+/* Typing: the hand taps the keys, the screen flickers, and key taps float up. */
+.composer-klui[data-typing="true"] .kp-arm-side { animation: kp-tap 240ms steps(1, end) infinite; }
+.composer-klui[data-typing="true"] .kp-screen { animation: kp-flicker 700ms steps(1, end) infinite; }
+.composer-klui[data-typing="true"] .kp-keys rect { visibility: visible; animation: kp-key 720ms steps(3, end) infinite; }
+.composer-klui[data-typing="true"] .kp-keys rect:nth-child(2) { animation-delay: 360ms; }
+
+@keyframes kp-tap {
+  0% { transform: none; }
+  50% { transform: translateY(1px); }
+}
+
+@keyframes kp-flicker {
+  0%, 100% { opacity: 1; }
+  40% { opacity: .65; }
+  70% { opacity: .85; }
+}
+
+@keyframes kp-key {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-3px); }
+}
+
+/* Portals: flat glowing rings that snap open and shut. The composer's has a back half behind
+   Klui and a front lip over it, so Klui sinks into the hole. */
+.kp-portal {
+  --kp-portal-w: 52px;
+  position: absolute;
+  width: var(--kp-portal-w);
+  height: calc(var(--kp-portal-w) * .24);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #1b1446 0 45%, #5b6cff 64%, #a9d6ff 82%, transparent 100%);
+  box-shadow: 0 0 10px 1px rgba(120, 150, 255, 0.55);
+  translate: -50% -50%;
+  transform: scale(0, .3);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 90ms cubic-bezier(.3, 1.5, .6, 1), opacity 60ms linear;
+}
+
+.composer-klui .kp-portal {
+  left: calc(100% - var(--kp-unit) * 8);
+  top: 100%;
+}
+
+.composer-klui .kp-portal.is-front {
+  z-index: 2;
+  clip-path: inset(50% -20px -20px -20px);
+}
+
+.composer-klui[data-portal="open"] .kp-portal,
+.kp-portal.is-drop[data-open="true"] {
+  transform: none;
+  opacity: 1;
+}
+
+.kp-portal.is-drop {
+  position: fixed;
+  z-index: 60;
+}
+
+/* The thinking bar's mascot waits out of sight until it drops out of its portal. */
+body.klui-portal-pending .klui-bar.is-active .klui {
+  visibility: hidden;
+}
+
+@media (max-width: 768px) {
+  .composer-klui {
+    right: 60px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-klui,
+  .composer-klui * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

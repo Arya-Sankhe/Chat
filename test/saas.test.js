@@ -4,7 +4,7 @@ import test from "node:test";
 import { loadConfig } from "../server/config.js";
 import { SupabaseRest } from "../server/db/supabaseRest.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
-import { apiUsageWindow, usageCostCredits } from "../server/saas/billing.js";
+import { apiUsageWindow, estimateOpenRouterCostCredits, usageCostCredits } from "../server/saas/billing.js";
 import { buildStoredUserContent, imageCountFromContent, normalizePastedTextRange } from "../server/saas/messages.js";
 import { applyEditedUserText } from "../server/routes.js";
 import { loadPlans, publicPlan } from "../server/saas/plans.js";
@@ -64,9 +64,9 @@ test("loadPlans maps Klui payment tiers from env", () => {
       maxDocumentBytesPerMessage
     })),
     [
-      { id: "lite", maxDocumentFileBytes: 50 * 1024 * 1024, maxDocumentBytesPerMessage: 50 * 1024 * 1024 },
-      { id: "pro", maxDocumentFileBytes: 70 * 1024 * 1024, maxDocumentBytesPerMessage: 100 * 1024 * 1024 },
-      { id: "max", maxDocumentFileBytes: 100 * 1024 * 1024, maxDocumentBytesPerMessage: 100 * 1024 * 1024 }
+      { id: "lite", maxDocumentFileBytes: 150 * 1024 * 1024, maxDocumentBytesPerMessage: 150 * 1024 * 1024 },
+      { id: "pro", maxDocumentFileBytes: 150 * 1024 * 1024, maxDocumentBytesPerMessage: 150 * 1024 * 1024 },
+      { id: "max", maxDocumentFileBytes: 150 * 1024 * 1024, maxDocumentBytesPerMessage: 150 * 1024 * 1024 }
     ]
   );
 });
@@ -689,4 +689,10 @@ test("R2 readUrl can create inline preview URLs", () => {
   assert.equal(url.searchParams.get("response-content-disposition"), "inline; filename=\"Report.pdf\"");
   assert.equal(url.searchParams.get("response-content-type"), "application/pdf");
   assert.ok(url.searchParams.get("X-Amz-Signature"));
+});
+
+test("fallback cost estimate uses MiMo 2.6 Flash's own prices", () => {
+  const usage = { promptTokens: 100_000, completionTokens: 10_000 };
+  const credits = estimateOpenRouterCostCredits({ model: "xiaomi/mimo-v2.6-flash", usage });
+  assert.ok(Math.abs(credits - 0.0168) < 1e-9, `expected 0.0168, got ${credits}`);
 });

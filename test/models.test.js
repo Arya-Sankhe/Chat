@@ -13,8 +13,8 @@ import {
 } from "../server/models.js";
 import {
   OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_GLM_FLASH_MODEL,
   OPENROUTER_LAGUNA_S,
+  OPENROUTER_MIMO_V25_MODEL,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_TEXT_MODEL,
@@ -47,7 +47,7 @@ test("resolveChatRole maps product roles to the current MODEL_ROUTES models", ()
   ]);
   assert.equal(OPENROUTER_VISION_L2, "qwen/qwen3.7-flash");
   assert.equal(OPENROUTER_VISION_L3, "qwen/qwen3.8-flash");
-  assert.equal(OPENROUTER_GLM_FLASH_MODEL, "z-ai/glm-5.3-flash");
+  assert.equal(OPENROUTER_MIMO_V25_MODEL, "xiaomi/mimo-v2.5");
   assert.deepEqual(resolveChatRole({ role: "compare", hasMedia: true }).models, [
     OPENROUTER_VISION_MODEL,
     OPENROUTER_VISION_L2
@@ -55,7 +55,7 @@ test("resolveChatRole maps product roles to the current MODEL_ROUTES models", ()
   assert.equal(resolveChatRole({ role: "council" }).models.length, 4);
   assert.deepEqual(resolveChatRole({ role: "council", hasMedia: true }).models, [
     OPENROUTER_VISION_MODEL,
-    OPENROUTER_GLM_FLASH_MODEL,
+    OPENROUTER_MIMO_V25_MODEL,
     OPENROUTER_VISION_L3,
     OPENROUTER_VISION_L2
   ]);
@@ -127,6 +127,6 @@ test("website send path uses role and does not ship OpenRouter IDs", () => {
   assert.doesNotMatch(research, /OPENROUTER_/);
   assert.match(app, /OPENROUTER_VISION_L2 = "qwen\/qwen3\.7-flash"/);
   assert.match(app, /OPENROUTER_VISION_L3 = "qwen\/qwen3\.8-flash"/);
-  assert.match(app, /OPENROUTER_GLM_FLASH_MODEL = "z-ai\/glm-5\.3-flash"/);
+  assert.match(app, /OPENROUTER_MIMO_V25_MODEL = "xiaomi\/mimo-v2\.5"/);
   assert.doesNotMatch(app, /google\/gemma-4-31b-it/);
 });

@@ -757,7 +757,7 @@ test("project detail reports source-byte capacity and scoped resources", async (
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().usage.usedBytes, 1024);
-  assert.equal(res.json().usage.maxBytes, 100 * 1024 * 1024);
+  assert.equal(res.json().usage.maxBytes, 750 * 1024 * 1024);
   assert.deepEqual(res.json().documents, [{ id: "doc-1", project_id: "project-1" }]);
   assert.deepEqual(res.json().conversations, [{ id: "conv-1", project_id: "project-1" }]);
 });
@@ -795,7 +795,7 @@ test("document presign enforces the current plan's single-file limit", async () 
     R2_ACCESS_KEY_ID: "r2-key",
     R2_SECRET_ACCESS_KEY: "r2-secret",
     R2_BUCKET: "uploads",
-    DOCUMENT_MAX_FILE_BYTES: String(100 * 1024 * 1024),
+    DOCUMENT_MAX_FILE_BYTES: String(200 * 1024 * 1024),
     TEST_PLAN_ID: "lite"
   });
   const res = await dispatch(config, {
@@ -805,13 +805,13 @@ test("document presign enforces the current plan's single-file limit", async () 
       category: "document",
       contentType: "application/pdf",
       fileName: "large.pdf",
-      sizeBytes: 50 * 1024 * 1024 + 1
+      sizeBytes: 150 * 1024 * 1024 + 1
     },
     overrides: stubbedDeps()
   });
 
   assert.equal(res.statusCode, 413);
-  assert.match(res.json().error, /50MB or smaller/);
+  assert.match(res.json().error, /150MB or smaller/);
 });
 
 test("document upload completion queues extraction through one atomic RPC", async () => {

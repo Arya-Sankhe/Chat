@@ -166,7 +166,7 @@ export async function enrichSourceWithSelectiveVision({
             char_count: text.length,
             metadata: {
               ...prevMeta,
-              vision_model: config?.study?.visionModel || "xiaomi/mimo-v2.5",
+              vision_model: config?.study?.visionModel || "xiaomi/mimo-v2.6-flash",
               vision_version: STUDY_VISION_VERSION,
               vision_at: new Date().toISOString()
             }

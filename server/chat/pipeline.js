@@ -66,6 +66,7 @@ import {
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
   resolveProvider,
+  thinkUsesLunaFlex,
   voiceModeRole
 } from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
@@ -855,7 +856,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
   });
   const councilEnabled = routed.role === "council";
   const compareModels = routed.role === "compare" || councilEnabled ? routed.models : [];
-  const requestedModel = routed.models[0];
+  // Think answers images and documents with Luna on its flex tier while flex is faster than MiMo.
+  const thinkFlex = routed.role === "think" && routed.models[0] === OPENROUTER_VISION_MODEL
+    && await thinkUsesLunaFlex(provider);
+  const requestedModel = thinkFlex ? OPENROUTER_PRO_MODEL : routed.models[0];
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;
@@ -1118,7 +1122,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     : [normalizeChatRequest({
         model: requestedModel,
         messages: await providerMessagesForModel(requestedModel),
-        ...settings
+        ...settings,
+        flex_only: thinkFlex
       })];
 
   const conversationModel = routed.role || requestedModel;
@@ -1345,12 +1350,16 @@ async function executeConversationMessage(req, res, config, conversationId, {
   if (directPdfContext.message && !selectedModelSupportsVision) {
     // The answer lives in page images (tables, figures): use the role's vision
     // model, the same switch an uploaded image triggers.
-    const visionModel = routed.role ? modelsForRole(routed.role, { hasMedia: true })[0] : "";
+    const roleVisionModel = routed.role ? modelsForRole(routed.role, { hasMedia: true })[0] : "";
+    const visionFlex = routed.role === "think" && roleVisionModel === OPENROUTER_VISION_MODEL
+      && await thinkUsesLunaFlex(provider);
+    const visionModel = visionFlex ? OPENROUTER_PRO_MODEL : roleVisionModel;
     if (visionModel && visionModel !== chatRequest.model) {
       chatRequest = normalizeChatRequest({
         model: visionModel,
         messages: await providerMessagesForModel(visionModel),
-        ...settings
+        ...settings,
+        flex_only: visionFlex
       });
       selectedModelMetadata = await resolveCachedModelMetadata({
         context,

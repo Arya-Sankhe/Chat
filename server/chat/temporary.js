@@ -15,7 +15,13 @@ import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
 import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
 import { resolveChatRole } from "../models.js";
-import { resolveProvider, voiceModeRole } from "../providers.js";
+import {
+  OPENROUTER_PRO_MODEL,
+  OPENROUTER_VISION_MODEL,
+  resolveProvider,
+  thinkUsesLunaFlex,
+  voiceModeRole
+} from "../providers.js";
 import { requireChatContext } from "../routes/context.js";
 import {
   buildMeteredWebsearch,
@@ -110,8 +116,11 @@ export async function handleTemporaryChat(req, res, config) {
     ...priorMessages,
     { role: "user", content: userContent }
   ];
-  const model = routed.models[0];
   const provider = resolveProvider("openrouter", config);
+  // Think answers images with Luna on its flex tier while flex is faster than MiMo.
+  const thinkFlex = routed.role === "think" && routed.models[0] === OPENROUTER_VISION_MODEL
+    && await thinkUsesLunaFlex(provider);
+  const model = thinkFlex ? OPENROUTER_PRO_MODEL : routed.models[0];
   const modelClient = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
@@ -135,7 +144,8 @@ export async function handleTemporaryChat(req, res, config) {
       contextConfig: config.context,
       summarizeHistory
     }),
-    ...settings
+    ...settings,
+    flex_only: thinkFlex
   });
   const agentMode = normalizeAgentMode(body.agentMode);
   const visualizing = Array.isArray(body.skillIds) && body.skillIds.includes("visualize");

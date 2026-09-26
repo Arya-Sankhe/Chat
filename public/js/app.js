@@ -165,6 +165,7 @@ import {
   stopHomeGreeting,
   updateKluiBar
 } from "./klui.js";
+import { createComposerKlui } from "./composerKlui.js";
 
 const SETTINGS_KEY = "klui.chat.controls.v1";
 const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
@@ -178,15 +179,15 @@ const RENAME_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M17 3a2.85 2.83 0
 const DELETE_MENU_ICON_SVG = `<svg ${MENU_ICON_ATTRS}><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>`;
 
 const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
-const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.5";
+const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
 const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
 // Text-only; used only as a Council panelist.
 const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
-const OPENROUTER_PRO_MODEL = "openai/gpt-5.6-luna";
+const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
 const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
-const OPENROUTER_GLM_FLASH_MODEL = "z-ai/glm-5.3-flash";
+const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
 const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 // Text compare: DeepSeek and Laguna S (Laguna S runs at medium effort).
 const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S];
@@ -199,7 +200,7 @@ const DEFAULT_COUNCIL_MODELS = [
 ];
 const COUNCIL_MEDIA_MODELS = [
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_GLM_FLASH_MODEL,
+  OPENROUTER_MIMO_V25_MODEL,
   OPENROUTER_VISION_L3,
   OPENROUTER_VISION_L2
 ];
@@ -3935,10 +3936,10 @@ function modelDisplayName(id) {
   if (id === OPENROUTER_VISION_MODEL) return "MiMo";
   if (id === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) return "MiMo Pro";
   if (id === OPENROUTER_LAGUNA_S) return "Laguna S";
-  if (id === OPENROUTER_PRO_MODEL) return "GPT-5.6 Luna";
+  if (id === OPENROUTER_PRO_MODEL) return "GPT-6 Luna";
   if (id === OPENROUTER_VISION_L2) return "Qwen 3.7 Flash";
   if (id === OPENROUTER_VISION_L3) return "Qwen 3.8 Flash";
-  if (id === OPENROUTER_GLM_FLASH_MODEL) return "GLM 5.3 Flash";
+  if (id === OPENROUTER_MIMO_V25_MODEL) return "MiMo 2.5";
   return compactModelDisplayName(id) || id;
 }
 
@@ -5703,6 +5704,7 @@ function renderMessages() {
   resetCodeSourceStore();
   const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
   document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
+  syncComposerKlui();
   renderTemporaryChatMode();
   if (showSkeleton) {
     stopHomeGreeting();
@@ -7184,6 +7186,22 @@ function syncComposerBeam() {
   setMicPulseActive(el, mode === "mic");
 }
 
+// Pixel Klui on the composer: shown once a chat has messages; it teleports to the thinking bar on
+// send and comes back with its laptop when the reply is done.
+let composerKlui = null;
+function syncComposerKlui() {
+  if (!els.composer || !els.messages) return;
+  composerKlui ||= createComposerKlui({
+    host: els.composer,
+    findTarget: () => [...els.messages.querySelectorAll(".klui-bar.is-active .klui")].at(-1) || null
+  });
+  composerKlui.sync({
+    show: state.messages.length > 0 && !document.body.classList.contains("chat-empty"),
+    running: Boolean(state.running),
+    key: state.activeConversationId || ""
+  });
+}
+
 function setRunning(running) {
   state.running = running;
   els.promptInput?.setAttribute("contenteditable", "true");
@@ -7195,6 +7213,7 @@ function setRunning(running) {
   updateComposerPlaceholder();
   updateSendButton();
   syncComposerBeam();
+  syncComposerKlui();
 }
 
 function trackPendingTurnEvent(event, run = getConversationRun()) {

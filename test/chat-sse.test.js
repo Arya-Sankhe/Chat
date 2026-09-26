@@ -21,7 +21,7 @@ import { filterCurrentTurnMessages, normalizeSourceScope } from "../server/chat/
  */
 
 const TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
-const VISION_MODEL = "xiaomi/mimo-v2.5";
+const VISION_MODEL = "xiaomi/mimo-v2.6-flash";
 const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, "poolside/laguna-s-2.1"];
 const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "poolside/laguna-s-2.1"];
 
@@ -398,7 +398,7 @@ test("Pro sends Luna through OpenAI at max reasoning", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({
     streamFor: (body) => {
-      assert.equal(body.model, "openai/gpt-5.6-luna");
+      assert.equal(body.model, "openai/gpt-6-luna");
       assert.deepEqual(body.reasoning, { effort: "xhigh", exclude: false });
       assert.equal(body.service_tier, undefined);
       assert.deepEqual(body.provider, {
@@ -419,7 +419,7 @@ test("Pro sends Luna through OpenAI at max reasoning", async (t) => {
     path: "/api/conversations/conv-1/messages",
     body: {
       text: "Use Pro",
-      model: "openai/gpt-5.6-luna",
+      model: "openai/gpt-6-luna",
       settings: { reasoning_effort: "low" },
       agentMode: false
     }

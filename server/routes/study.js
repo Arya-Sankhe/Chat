@@ -210,7 +210,7 @@ export async function handleStudyCourseMaterials(req, res, config, courseId) {
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
   if (req.method === "POST") {
-    enforceRateLimit(req, "study-source", 10, 60_000, context.user.id);
+    enforceRateLimit(req, "study-source", 30, 60_000, context.user.id);
     const body = await parseJsonBody(req);
     const document = await createCourseSource({ context, config, course, body, signal: req.signal });
     sendJson(res, 201, { document });
@@ -667,7 +667,7 @@ export async function handleStudyCourseNotes(req, res, config, courseId) {
   const file = await requireReadyCourseFile(context, course, String(body.documentFileId || ""), req.signal);
   const title = String(body.title || "Mind map").trim().slice(0, 120) || "Mind map";
   const content = String(body.content || "").trim();
-  if (!content.startsWith("<!--klui:mindmap-->") || content.length > 200_000) throw new HttpError(400, "Invalid mind map.");
+  if (!content.startsWith("<!--klui:mindmap-->") || content.length > 250_000) throw new HttpError(400, "Invalid mind map.");
   const note = await context.db.createStudyNote(context.user.id, { project_id: course.id, document_file_id: file.id, kind: "summary", title, content }, { signal: req.signal });
   sendJson(res, 201, { note });
 }
