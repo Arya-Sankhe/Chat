@@ -2186,7 +2186,8 @@ function applyAppearance() {
       "--home-wallpaper-base",
       usesNightSky ? `url("/images/home-night-sky.webp${isNative() ? "" : "?v=20260723-1"}")` : "none",
     );
-    const currentWallpaperPath = els.homeWallpaper ? new URL(els.homeWallpaper.src).pathname : "";
+    // index.html leaves the image empty when the saved choice was "no wallpaper".
+    const currentWallpaperPath = els.homeWallpaper?.src ? new URL(els.homeWallpaper.src).pathname : "";
     const nextWallpaperPath = new URL(wallpaperSrc, window.location.href).pathname;
     if (els.homeWallpaper && currentWallpaperPath !== nextWallpaperPath) {
       els.homeWallpaper.src = wallpaperSrc;
@@ -5704,6 +5705,7 @@ function renderMessages() {
   resetCodeSourceStore();
   const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
   document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
+  if (state.messages.length) void loadRichTextAssets();
   syncComposerKlui();
   renderTemporaryChatMode();
   if (showSkeleton) {
@@ -6854,7 +6856,15 @@ function closeAccount() {
   }
 }
 
+// The sign-in art is 450 KB and the dialog is only faded out when closed, so it would download on
+// every visit; it loads when the dialog opens, or in the background for signed-out visitors.
+function loadAuthArt() {
+  const art = els.authDialog?.querySelector("img[data-src]");
+  if (art && !art.getAttribute("src")) art.src = art.dataset.src;
+}
+
 function openAuthDialog() {
+  loadAuthArt();
   els.authDialog.classList.add("open");
   els.authDialog.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -7189,14 +7199,20 @@ function syncComposerBeam() {
 // Pixel Klui on the composer: shown once a chat has messages; it teleports to the thinking bar on
 // send and comes back with its laptop when the reply is done.
 let composerKlui = null;
+// Phones have no mascot beside the home greeting, so Klui stands on the composer there too.
+const phoneLayout = window.matchMedia("(max-width: 860px)");
+
 function syncComposerKlui() {
   if (!els.composer || !els.messages) return;
+  if (!composerKlui) phoneLayout.addEventListener("change", syncComposerKlui);
   composerKlui ||= createComposerKlui({
     host: els.composer,
     findTarget: () => [...els.messages.querySelectorAll(".klui-bar.is-active .klui")].at(-1) || null
   });
+  const home = document.body.classList.contains("chat-empty");
+  const phone = phoneLayout.matches || document.body.classList.contains("capacitor-native");
   composerKlui.sync({
-    show: state.messages.length > 0 && !document.body.classList.contains("chat-empty"),
+    show: home ? phone : state.messages.length > 0,
     running: Boolean(state.running),
     key: state.activeConversationId || ""
   });
@@ -7416,6 +7432,10 @@ adminPanel = createAdminPanel({
   syncSettingsInputs
 });
 
+// Stop takes the send button's place mid-tap, so the tap that sent a message could land on it too.
+// Only a press that began on Stop itself (or a keyboard click) counts.
+let stopPressStarted = false;
+
 function updateSendButton() {
   if (els.voiceButton) {
     els.voiceButton.disabled = voiceState === "processing"
@@ -7425,6 +7445,7 @@ function updateSendButton() {
   const canStop = Boolean(state.activeResearchId || getConversationRun());
   els.sendButton.classList.toggle("hidden", state.running && !voiceBusy);
   els.stopButton?.classList.toggle("hidden", !state.running || voiceBusy || !canStop);
+  if (els.stopButton?.classList.contains("hidden")) stopPressStarted = false;
   if (voiceBusy || state.running) setVoiceModeButton(false);
   if (voiceBusy) {
     els.sendButton.classList.toggle("active", voiceState === "recording");
@@ -9381,6 +9402,11 @@ async function signOutAndReset() {
 
 let richTextAssetsPromise;
 
+function whenIdle(callback) {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(callback, { timeout: 4000 });
+  else setTimeout(callback, 2500);
+}
+
 function loadRichTextAssets() {
   if (richTextAssetsPromise) return richTextAssetsPromise;
   document.head.insertAdjacentHTML("beforeend", `
@@ -9469,7 +9495,12 @@ async function bootstrap() {
       }
     }
     renderShell();
-    void loadRichTextAssets();
+    // Math and code highlighting (~390 KB of script) only matter once there are messages;
+    // renderMessages() asks for them then, and an idle home screen fetches them in the background.
+    whenIdle(() => {
+      void loadRichTextAssets();
+      if (!state.session) loadAuthArt();
+    });
     if (state.session) {
       paymentRequestsPromise = loadPaymentRequests();
       void paymentRequestsPromise.then(() => {
@@ -10897,7 +10928,10 @@ function bindEvents() {
   els.attachmentModelNoticeClose?.addEventListener("click", hideAttachmentModelNotice);
   els.voiceButton?.addEventListener("click", toggleVoiceRecording);
   els.voiceModeButton?.addEventListener("click", () => { void openVoiceMode(); });
-  els.stopButton.addEventListener("click", () => {
+  els.stopButton.addEventListener("pointerdown", () => { stopPressStarted = true; });
+  els.stopButton.addEventListener("click", (event) => {
+    if (event.detail > 0 && !stopPressStarted) return;
+    stopPressStarted = false;
     if (state.activeResearchId) {
       cancelResearch(state.session, state.activeResearchId).catch((error) => showToast(error.message));
       return;

@@ -5,12 +5,14 @@ import {
   TUTOR_MAX_SECONDS,
   createSpeechChunker,
   endTutorSession,
+  hedgedSpeech,
   normalizeTutorOptions,
   publicTutorSession,
   recapLine,
   summarizeTutorSession,
   runTutorTurn,
   tutorMessages,
+  tutorSystemPrompt,
   tutorTurnGuard
 } from "../server/study/tutor.js";
 import { endOfTurnSilence, looksComplete, tutorMeta, tutorOptionsMarkup, tutorViewMarkup } from "../public/js/studyTutor.js";
@@ -64,7 +66,38 @@ function stubFetch({ deltas, provider = "DeepInfra", hang = false, requests = []
 test("options keep only known styles and voices and cap instructions", () => {
   assert.deepEqual(normalizeTutorOptions({ style: "nope", voice: "zz", instructions: "x".repeat(900) }).style, "teacher");
   const picked = normalizeTutorOptions({ style: "socratic", voice: "am_puck", instructions: "  Be quick.  " });
-  assert.deepEqual(picked, { style: "socratic", voice: "am_puck", instructions: "Be quick." });
+  assert.deepEqual(picked, { style: "socratic", format: "quiz", voice: "am_puck", instructions: "Be quick." });
+  assert.equal(normalizeTutorOptions({ format: "teach" }).format, "teach");
+  assert.equal(normalizeTutorOptions({ format: "lecture" }).format, "quiz");
+});
+
+test("teach sessions lecture in small pieces; sessions without a format keep the quiz call", () => {
+  const teach = tutorSystemPrompt(session({ plan: { ...plan, format: "teach" } }));
+  assert.match(teach, /you do most of the talking/);
+  assert.match(teach, /check-in that hands the turn back/);
+  assert.doesNotMatch(teach, /under 70 words/);
+  const quiz = tutorSystemPrompt(session());
+  assert.match(quiz, /under 70 words/);
+  for (const prompt of [teach, quiz]) assert.match(prompt, /end every reply by handing the turn to the student/);
+  assert.equal(publicTutorSession(session({ plan: { ...plan, format: "teach" } })).format, "teach");
+  assert.equal(publicTutorSession(session()).format, "quiz");
+});
+
+test("a slow speech request is raced by a second one, and the first answer wins", async () => {
+  const calls = [];
+  const slowThenFast = (args) => new Promise((resolve, reject) => {
+    const n = calls.push(args.signal);
+    const timer = setTimeout(() => resolve(`audio-${n}`), n === 1 ? 500 : 10);
+    args.signal.addEventListener("abort", () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  });
+  assert.equal(await hedgedSpeech(slowThenFast, { hedgeMs: 20 })({ text: "Hi" }), "audio-2");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].aborted, true, "the slower request is cancelled");
+
+  let tries = 0;
+  const failOnce = async () => { tries += 1; if (tries === 1) throw new Error("503"); return "ok"; };
+  assert.equal(await hedgedSpeech(failOnce, { hedgeMs: 1000 })({ text: "Hi" }), "ok");
+  await assert.rejects(hedgedSpeech(async () => { throw new Error("down"); }, { hedgeMs: 5 })({ text: "Hi" }), /down/);
 });
 
 test("the speech chunker releases the first sentence early and never leaves a short tail alone", () => {
@@ -240,6 +273,9 @@ test("create options and views render every state", () => {
   for (const title of ["Patient teacher", "Study buddy", "Socratic guide", "Strict professor"]) assert.ok(options.includes(title), title);
   assert.ok(options.includes('name="instructions" maxlength="1000"'));
   assert.ok(options.includes('data-voice-preview="bf_emma"'));
+  assert.ok(options.includes("Teach me") && options.includes("Test me"));
+  assert.match(options, /name="format" value="teach" checked/);
+  assert.ok(!options.includes("How it sounds"));
   const shown = publicTutorSession(session({ created_at: "2026-09-25T00:00:00Z" }));
   const ready = tutorViewMarkup({ kind: "tutor", id: "tut-1", session: shown }, null, { escapeHtml });
   assert.ok(ready.includes("data-tutor-start") && ready.includes("Baroreflex"));

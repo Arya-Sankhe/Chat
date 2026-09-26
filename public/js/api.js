@@ -71,8 +71,19 @@ async function apiFetch(path, { session, headers, retryOnUnauthorized = true, ..
   return response;
 }
 
+// A boot request index.html already started, handed out once so later calls fetch fresh data.
+// A failed early response is dropped so the caller makes its normal request instead.
+async function takeBootResponse(name) {
+  const boot = isNative() ? null : globalThis.__kluiBoot;
+  const pending = boot?.[name];
+  if (!pending) return null;
+  delete boot[name];
+  const response = await pending;
+  return response?.ok ? response : null;
+}
+
 export async function fetchConfig() {
-  const response = await fetch(apiUrl("/api/config"), { cache: "no-store" });
+  const response = await takeBootResponse("config") || await fetch(apiUrl("/api/config"), { cache: "no-store" });
   if (!response.ok) throw new Error(await readProblem(response));
   const config = await response.json();
   if (Number.isInteger(config.maxImageBytes) && config.maxImageBytes > 0) {
@@ -88,7 +99,7 @@ export async function fetchBuild() {
 }
 
 export async function fetchPlans() {
-  const response = await fetch(apiUrl("/api/plans"));
+  const response = await takeBootResponse("plans") || await fetch(apiUrl("/api/plans"));
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }

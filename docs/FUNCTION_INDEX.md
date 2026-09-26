@@ -46,11 +46,25 @@ regex substitutions) are deliberately not listed.
 
 ### `serveStatic`
 - **Path**: `server/static.js`
-- **Responsibility**: Serves `public/` files; falls back to
-  `index.html` for unknown paths (SPA); applies CORS to
-  `/downloads/android/latest.json`; serves APK downloads.
+- **Responsibility**: Serves `public/` files; serves the app page
+  from `appShellHtml` for `/` and unknown paths (SPA) but 404s missing
+  asset files; caches `?v=` requests for a year; keeps a Brotli-11 /
+  gzip-9 copy of text assets made off the request path; applies CORS
+  to `/downloads/android/latest.json`; serves APK downloads.
 - **Callers**: `server/index.js`.
-- **Major dependencies**: `node:fs`, `node:path`, `server/http/cors.js`.
+- **Major dependencies**: `node:fs`, `node:path`, `node:zlib`,
+  `server/http/cors.js`, `server/appShell.js`.
+
+### `appShellHtml`
+- **Path**: `server/appShell.js`
+- **Responsibility**: Renders `public/index.html` with content-hashed
+  asset URLs: expands the `styles.css` @import list into direct links,
+  adds an import map for every module reachable from `js/app.js`
+  (static and lazy) and `modulepreload` links for the static graph.
+  Re-renders when any file it read changes; falls back to the plain
+  page if rendering fails.
+- **Callers**: `server/static.js`.
+- **Major dependencies**: `node:crypto`, `node:fs`, `node:path`.
 
 ### `loadConfig`, `configuredServices`
 - **Path**: `server/config.js`

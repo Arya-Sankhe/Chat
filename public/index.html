@@ -6,6 +6,16 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)">
     <title>Klui AI</title>
+    <script>
+      // Start the app's two boot requests with the page rather than after its scripts load.
+      // api.js takes each response once; the packaged app ignores them and asks its API origin.
+      if (/^https?:$/.test(location.protocol) && !window.androidBridge && !window.Capacitor) {
+        window.__kluiBoot = {
+          config: fetch("/api/config", { cache: "no-store" }).catch(function () { return null; }),
+          plans: fetch("/api/plans").catch(function () { return null; })
+        };
+      }
+    </script>
     <meta name="description" content="Klui is the AI built for students. Chat, research, and write in one place — notes, files, citations, essays, and slides.">
     <link rel="canonical" href="https://klui.ai/">
     <meta property="og:type" content="website">
@@ -93,7 +103,23 @@
       <div class="app-shell" id="chatView">
         <h1 class="sr-only">Klui AI</h1>
 
-        <img class="home-wallpaper" id="homeWallpaper" src="/images/home-clouds.webp" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
+        <img class="home-wallpaper" id="homeWallpaper" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
+        <script>
+          // Download only the wallpaper this theme shows; applyAppearance() in app.js picks the same one.
+          (function () {
+            var settings = {};
+            try { settings = JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}") || {}; } catch (error) {}
+            var wallpaper = ["none", "clouds", "alpine", "valley", "launch"].indexOf(settings.wallpaper) >= 0 ? settings.wallpaper : "clouds";
+            if (wallpaper === "none") return;
+            var mode = settings.appearance === "light" || settings.appearance === "dark"
+              ? settings.appearance
+              : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            var packaged = Boolean(window.androidBridge || window.Capacitor);
+            document.getElementById("homeWallpaper").src = mode === "dark" && wallpaper === "clouds"
+              ? "/images/home-clouds-dark-v3.webp" + (packaged ? "" : "?v=20260825-clouds-dark-v3")
+              : "/images/home-" + wallpaper + (mode === "light" ? "-light" : "") + ".webp" + (packaged ? "" : "?v=20260825-clouds-b-1080");
+          })();
+        </script>
         <svg class="temporary-chat-art" viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
           <path class="temporary-chat-line temporary-chat-line-fragments" pathLength="1000" vector-effect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94"/>
           <path class="temporary-chat-line temporary-chat-line-connector" pathLength="1000" vector-effect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94"/>
@@ -771,7 +797,7 @@
         <section class="auth-dialog" id="authDialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" aria-describedby="authLegal" aria-hidden="true">
           <div class="auth-dialog-layout">
             <div class="auth-dialog-art">
-              <img src="/images/auth-login.webp" alt="" width="987" height="1288" decoding="async">
+              <img data-src="/images/auth-login.webp" alt="" width="987" height="1288" decoding="async">
             </div>
             <div class="auth-dialog-panel">
               <h2 id="authDialogTitle" class="auth-dialog-brand">KLUI</h2>

@@ -269,10 +269,8 @@
 /* ── Spectrum model picker (Experimental) ── */
 @font-face {
   font-family: "Korataki";
-  src: local("Korataki"), local("Korataki Regular"),
-       url("/fonts/Korataki.woff2") format("woff2"),
-       url("/fonts/Korataki.woff") format("woff"),
-       url("/fonts/Korataki.ttf") format("truetype");
+  /* Only when installed on the device; the font files were never shipped, so Orbitron shows otherwise. */
+  src: local("Korataki"), local("Korataki Regular");
   font-display: swap;
 }
 

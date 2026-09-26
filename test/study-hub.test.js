@@ -70,7 +70,7 @@ test("practice can create multi-file decks and quizzes", () => {
   assert.match(hub, /\["quiz", "Practice test"/);
   assert.match(hub, /function openCreatePicker\(/);
   assert.match(hub, /documentFileIds/);
-  assert.match(hub, /CREATE_FILE_CAP = 5/);
+  assert.match(hub, /CREATE_FILE_CAP = 10/);
   assert.match(html, /id="studyCreateDialog"/);
   assert.match(api, /params\.deckKey/);
   assert.match(schema, /study_cards \([\s\S]*deck_key text/);

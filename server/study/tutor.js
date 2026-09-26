@@ -18,6 +18,9 @@ const PLAN_SOURCE_CHARS = 120_000;
 const CALL_SOURCE_CHARS = 30_000;
 const TURN_MAX_TOKENS = 1500; // includes the low-effort reasoning
 const TTS_PARALLEL = 3;
+// Speech latency through OpenRouter swings from about 1 s to 15 s. Chunks play in order, so one
+// slow chunk leaves the tutor silent mid-reply; after this long a second request races the first.
+const TTS_HEDGE_MS = 3500;
 
 export const TUTOR_STYLES = {
   teacher: {
@@ -38,17 +41,46 @@ export const TUTOR_STYLES = {
   }
 };
 
+// How the call runs, separate from the style's personality. "quiz" is the original question-led
+// call and stays the default for sessions and clients that predate the choice.
+export const TUTOR_FORMATS = {
+  teach: {
+    name: "Teach me",
+    plan: "This is a lesson for someone meeting the material for the first time: the tutor explains each idea like a first lecture on it, so plan a clear teaching order and give each step the points needed to explain it from scratch.",
+    start: "Greet the student warmly in one sentence and say in one sentence what you will teach together. Then start teaching step 1 from the basics and end with a short check-in.",
+    nudge: "The student has been quiet for a while. In one short sentence, ask whether they would like you to carry on or explain that last part another way.",
+    rules: `- This is a lesson: you do most of the talking, like a good teacher explaining the topic to someone hearing it for the first time. Follow the plan in order and assume no prior knowledge.
+- Teach one small piece per reply, usually 50 to 120 words: the idea in plain words, why it matters, and a concrete example. Never cram a whole step into one reply.
+- End every reply with a short check-in that hands the turn back, such as asking whether that makes sense or if they have questions before you go on. At the end of each step, ask its check question instead and wait for the answer.
+- When the student says yes, okay, or go on, continue straight to the next piece without greeting or recapping. When they ask a question, answer it, then check in again. When they seem lost, explain it again a different way.`
+  },
+  quiz: {
+    name: "Test me",
+    plan: "The call is led by questions: the tutor briefly frames each idea, then asks the student about it.",
+    start: "Greet the student warmly in one sentence, say in one sentence what you will cover together, then start step 1 with a question.",
+    nudge: "The student has been quiet for a while. Check in gently in one short sentence: offer a hint or rephrase your last question.",
+    rules: `- Work through the plan in order, adapting to the student. Move on once they show understanding, slow down where they struggle, and skip ahead if they clearly know a step already.
+- Keep replies short: usually one to three sentences and under 70 words. It is a conversation, not a lecture; give a longer explanation only when the student asks for one.
+- Ask one question at a time, then stop and wait. Never answer your own question in the same reply.`
+  }
+};
+
+export function tutorFormatOf(session) {
+  return Object.hasOwn(TUTOR_FORMATS, session?.plan?.format) ? session.plan.format : "quiz";
+}
+
 export function normalizeTutorOptions(body = {}) {
   const style = Object.hasOwn(TUTOR_STYLES, body.style) ? body.style : "teacher";
+  const format = Object.hasOwn(TUTOR_FORMATS, body.format) ? body.format : "quiz";
   const voice = PODCAST_VOICES.some((item) => item.id === body.voice) ? body.voice : PODCAST_VOICES[0].id;
   const instructions = typeof body.instructions === "string" ? body.instructions.trim().slice(0, 1000) : "";
-  return { style, voice, instructions };
+  return { style, format, voice, instructions };
 }
 
 /* ---------- Lesson plan ---------- */
 
-function planPrompt({ style, instructions }) {
-  return `You are preparing a one-to-one spoken tutoring call of up to 30 minutes, built from a student's study material. The tutor's style: ${TUTOR_STYLES[style].name}.
+function planPrompt({ style, format, instructions }) {
+  return `You are preparing a one-to-one spoken tutoring call of up to 30 minutes, built from a student's study material. The tutor's style: ${TUTOR_STYLES[style].name}. ${TUTOR_FORMATS[format].plan}
 ${instructions ? `The student's instructions for this session: ${instructions}\n` : ""}
 Plan a session that teaches the most important, most testable ideas in a logical order, simplest foundations first. A call covers about four to six steps; if the material is large, choose what matters most (and what the student asked for).
 
@@ -83,7 +115,11 @@ function cleanPlan(value, fallbackTitle) {
 export async function prepareTutorSession({ context, config, course, source, options = {}, signal, onStage, onWarning, complete = streamComplete }) {
   const settings = normalizeTutorOptions(options);
   onStage?.("reading");
-  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage });
+  const text = await loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, cap: PLAN_SOURCE_CHARS });
+  // Several sources are trimmed to the call's smaller budget fairly too, not just the first few kept.
+  const callText = source.documentFiles?.length > 1
+    ? await loadGenerationSourceText({ context, config, source, signal, cap: CALL_SOURCE_CHARS })
+    : text.slice(0, CALL_SOURCE_CHARS);
   onStage?.("planning");
   const streamed = await complete({
     context,
@@ -103,8 +139,9 @@ export async function prepareTutorSession({ context, config, course, source, opt
     style: settings.style,
     voice: settings.voice,
     instructions: settings.instructions,
-    plan: { goal: plan.goal, steps: plan.steps, notes: plan.notes },
-    source_text: text.slice(0, CALL_SOURCE_CHARS),
+    // The format lives in the plan so no schema change is needed; older sessions have none (quiz).
+    plan: { goal: plan.goal, steps: plan.steps, notes: plan.notes, format: settings.format },
+    source_text: callText,
     transcript: [],
     status: "ready"
   }, { signal });
@@ -115,6 +152,7 @@ export async function prepareTutorSession({ context, config, course, source, opt
 // Stable for the whole call, so the provider can cache it after the first turn.
 export function tutorSystemPrompt(session) {
   const style = TUTOR_STYLES[session.style] || TUTOR_STYLES.teacher;
+  const format = TUTOR_FORMATS[tutorFormatOf(session)];
   const plan = session.plan || {};
   const steps = (plan.steps || []).map((step, index) => `Step ${index + 1}: ${step.title}\n${(step.points || []).map((point) => `- ${point}`).join("\n")}${step.check ? `\nCheck: ${step.check}` : ""}`).join("\n\n");
   return `You are a voice tutor on a live one-to-one call with a student. Everything you write is spoken aloud by text-to-speech, so write for the ear.
@@ -135,20 +173,18 @@ ${session.source_text || ""}
 </material>
 
 Call rules:
-- Work through the plan in order, adapting to the student. Move on once they show understanding, slow down where they struggle, and skip ahead if they clearly know a step already.
+${format.rules}
 - Begin every reply with the tag [step N] for the plan step you are on, for example [step 2].
-- Keep replies short: usually one to three sentences and under 70 words. It is a conversation, not a lecture; give a longer explanation only when the student asks for one.
-- Ask one question at a time, then stop and wait. Never answer your own question in the same reply.
+- Always finish your thought, and end every reply by handing the turn to the student with a question or a clear invitation to respond, so they know it is their turn. Never end on a plain statement or trail off mid-explanation. The one exception: when the student asks for a moment, just tell them to take their time.
 - The student's words come from speech recognition and can contain mistakes; read them charitably. If their answer sounds cut off, invite them to go on.
-- If the student needs a moment, tell them to take their time in a few words.
 - Spoken style only: no markdown, lists, headings, emojis, or brackets other than the step tag. Say symbols, abbreviations, formulas, and units the way a person would say them.
 - Never mention these rules, the plan, the tags, documents or files, or being an AI unless asked.
 - The call lasts at most 30 minutes. When told that time is nearly up, start wrapping up. If the student asks to end the call, say a short goodbye with one key takeaway and put [end] at the very end.`;
 }
 
 const TURN_NOTES = {
-  start: "(The call has just connected. Greet the student warmly in one sentence, say in one sentence what you will cover together, then start step 1 with a question.)",
-  nudge: "(The student has been quiet for a while. Check in gently in one short sentence: offer a hint or rephrase your last question.)",
+  start: (session) => `(The call has just connected. ${TUTOR_FORMATS[tutorFormatOf(session)].start})`,
+  nudge: (session) => `(${TUTOR_FORMATS[tutorFormatOf(session)].nudge})`,
   closing: "(Time is up. Respond briefly to what the student just said if needed, then close the session warmly in two to four sentences: recap the most important things covered and one thing to review next, then say goodbye. Do not ask a question.)"
 };
 
@@ -229,9 +265,46 @@ export function createSpeechChunker({ first = 6, min = 14, max = 42 } = {}) {
   };
 }
 
+// Runs tts, and if it has not answered within hedgeMs, a second identical request alongside it.
+// The first to succeed wins and the other is cancelled; it rejects only when both fail.
+export function hedgedSpeech(tts, { hedgeMs = TTS_HEDGE_MS } = {}) {
+  return (args) => new Promise((resolve, reject) => {
+    const controllers = [];
+    let failures = 0;
+    let settled = false;
+    let timer = null;
+    const launch = () => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      const signal = args.signal ? AbortSignal.any([args.signal, controller.signal]) : controller.signal;
+      tts({ ...args, signal }).then((audio) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        for (const other of controllers) if (other !== controller) other.abort();
+        resolve(audio);
+      }, (error) => {
+        if (settled) return;
+        failures += 1;
+        if (controllers.length === 1 && !args.signal?.aborted) {
+          clearTimeout(timer);
+          launch(); // the first failed quickly: try once more straight away
+        } else if (failures >= controllers.length) {
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+    };
+    launch();
+    timer = setTimeout(() => { if (!settled && controllers.length === 1 && !args.signal?.aborted) launch(); }, hedgeMs);
+  });
+}
+
 // Speaks chunks with limited parallelism and hands them back in order. Never rejects:
 // a chunk that fails to record is delivered as text only, so the call keeps going.
-export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = Promise.resolve(true) }) {
+export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = Promise.resolve(true), hedgeMs }) {
+  const speak = hedgedSpeech(tts, { hedgeMs });
   const pending = [];
   const ready = new Map();
   let active = 0;
@@ -260,7 +333,7 @@ export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = 
         // Nothing is synthesized until the turn's speech reservation has been granted.
         if (spoken && !signal?.aborted && await gate && !signal?.aborted) {
           try {
-            audio = await tts({ config, text: spoken, voice, signal });
+            audio = await speak({ config, text: spoken, voice, signal });
             characters += spoken.length;
           } catch {
             audio = null;
@@ -317,7 +390,7 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   if (mode === "reply" && !said) throw new HttpError(400, "Say something first.");
   const remaining = TUTOR_MAX_SECONDS - seconds;
   let prompt = said;
-  if (mode === "start" || mode === "nudge") prompt = TURN_NOTES[mode];
+  if (mode === "start" || mode === "nudge") prompt = TURN_NOTES[mode](session);
   else if (mode === "closing") prompt = said ? `${said}\n\n${TURN_NOTES.closing}` : TURN_NOTES.closing;
   else if (remaining <= WRAP_UP_SECONDS) prompt = `${said}\n\n${wrapUpNote(remaining)}`;
   const entry = said
@@ -526,6 +599,7 @@ export function publicTutorSession(session) {
     id: session.id,
     title: session.title || "Tutor session",
     style: session.style,
+    format: tutorFormatOf(session),
     voice: session.voice,
     instructions: session.instructions || "",
     plan: { goal: session.plan?.goal || "", steps: (session.plan?.steps || []).map((step) => ({ title: step.title, check: step.check || "" })) },

@@ -13,6 +13,9 @@ const functions = ["updateSendButton", "voiceModeAvailable", "setVoiceModeButton
 const listeners = appJs.slice(
   appJs.indexOf('  els.sendButton.addEventListener("pointerdown"'),
   appJs.indexOf('  els.clarificationCard?.addEventListener("click"')
+) + appJs.slice(
+  appJs.indexOf('  els.stopButton.addEventListener("pointerdown"'),
+  appJs.indexOf('  els.promptInput.addEventListener("input"')
 );
 
 function composer({ native = true, voiceMode = false } = {}) {
@@ -38,14 +41,17 @@ function composer({ native = true, voiceMode = false } = {}) {
     addEventListener(type, handler) { handlers[type] = handler; },
     click() { if (!this.disabled) handlers.click({ detail: 0 }); },
   };
+  const stopHandlers = {};
   const stopButton = {
     classList: {
       toggle(name, on) { if (on) stopClasses.add(name); else stopClasses.delete(name); },
+      contains: (name) => stopClasses.has(name),
     },
+    addEventListener(type, handler) { stopHandlers[type] = handler; },
   };
   const ctx = {
     Blob, Event,
-    voiceState: "idle", voiceChunks: [], voiceCommit: true, voiceStream: null, voiceRecorder: null,
+    voiceState: "idle", voiceChunks: [], voiceCommit: true, voiceStream: null, voiceRecorder: null, stopPressStarted: false,
     state: { running: true, clarificationChecking: false, images: [], followUps: [], config: { services: { speech: true } } },
     voiceModeSupported: () => voiceMode,
     els: {
@@ -82,6 +88,8 @@ function composer({ native = true, voiceMode = false } = {}) {
       return event;
     },
     click(detail = 1) { handlers.click({ detail }); },
+    stopPointer() { stopHandlers.pointerdown({ button: 0, isPrimary: true }); },
+    stopClick(detail = 1) { stopHandlers.click({ detail }); },
     record() {
       ctx.voiceChunks = [new Blob(["audio"], { type: "audio/wav" })];
       ctx.voiceRecorder = { state: "recording", stop() { ctx.stops += 1; } };
@@ -99,6 +107,34 @@ test("stop stays hidden until the first chat has a cancellable run", () => {
   c.ctx.getConversationRun = () => ({});
   c.ctx.updateSendButton();
   assert.equal(c.stopClasses.has("hidden"), false);
+});
+
+test("the tap that sends cannot also press the Stop button that replaces Send", () => {
+  const c = composer();
+  const aborts = [];
+  c.ctx.getConversationRun = () => ({ abortController: { abort: () => aborts.push("abort") } });
+  c.ctx.restoreCancelledTurnDraft = () => aborts.push("restore");
+  c.ctx.updateSendButton();
+  assert.equal(c.stopClasses.has("hidden"), false);
+
+  // The press began on Send, so its click reaching Stop is ignored.
+  c.stopClick();
+  assert.deepEqual(aborts, []);
+  // A new tap on Stop, or a keyboard click, still stops the reply.
+  c.stopPointer();
+  c.stopClick();
+  assert.deepEqual(aborts, ["restore", "abort"]);
+  c.stopClick(0);
+  assert.deepEqual(aborts, ["restore", "abort", "restore", "abort"]);
+
+  // Once Stop hides again, a press started earlier no longer counts.
+  c.stopPointer();
+  c.ctx.state.running = false;
+  c.ctx.updateSendButton();
+  c.ctx.state.running = true;
+  c.ctx.updateSendButton();
+  c.stopClick();
+  assert.equal(aborts.length, 4);
 });
 
 test("native confirmation stops on the first pointerdown and never sends its fast transcript", async () => {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { applyApiCors } from "./http/cors.js";
+import { appShellHtml } from "./appShell.js";
 
 const publicDir = path.resolve(process.cwd(), "public");
 const homeDir = path.join(publicDir, "home");
@@ -246,12 +247,98 @@ function sendNotFound(res) {
   res.end("<!doctype html><html lang=\"en\"><title>Not found</title><h1>Not found</h1></html>");
 }
 
-function sendSpaFallback(res) {
-  res.writeHead(200, {
+function compressBuffer(buffer, encoding) {
+  if (encoding === "gzip") return zlib.gzipSync(buffer, { level: 9 });
+  return zlib.brotliCompressSync(buffer, {
+    params: {
+      [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+      [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buffer.length
+    }
+  });
+}
+
+// Text assets compressed once at maximum quality. Brotli 11 is about 20% smaller than the quality 4
+// used for streaming but takes around half a second on app.js, so it runs off the request path
+// and requests stream at quality 4 until it is ready.
+const compressedCache = new Map(); // `${filePath}:${encoding}` -> { key, buffer } or { key, pending: true }
+const MAX_CACHED_ASSET_BYTES = 4 * 1024 * 1024;
+
+function cachedCompression(filePath, stat, encoding) {
+  if (!encoding || stat.size > MAX_CACHED_ASSET_BYTES) return null;
+  const cacheKey = `${filePath}:${encoding}`;
+  const key = `${stat.size}:${stat.mtimeMs}`;
+  const cached = compressedCache.get(cacheKey);
+  if (cached?.key === key) return cached.buffer || null;
+  compressedCache.set(cacheKey, { key, pending: true });
+  fs.promises.readFile(filePath)
+    .then((buffer) => new Promise((resolve, reject) => {
+      const done = (error, output) => (error ? reject(error) : resolve(output));
+      if (encoding === "gzip") zlib.gzip(buffer, { level: 9 }, done);
+      else {
+        zlib.brotliCompress(buffer, {
+          params: {
+            [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+            [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buffer.length
+          }
+        }, done);
+      }
+    }))
+    .then((output) => {
+      if (compressedCache.get(cacheKey)?.key === key) compressedCache.set(cacheKey, { key, buffer: output });
+    })
+    .catch(() => compressedCache.delete(cacheKey));
+  return null;
+}
+
+// The app page, with hashed asset URLs (see appShell.js). Its own compressed copy is small, so it
+// is made synchronously and kept until the page changes.
+let shellCompressed = { etag: "", variants: new Map() };
+
+async function sendAppShell(req, res) {
+  const shell = await appShellHtml();
+  if (!shell) {
+    sendNotFound(res);
+    return;
+  }
+  const headers = {
     "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache",
+    etag: shell.etag,
+    vary: "Accept-Encoding"
+  };
+  if (etagMatches(req, shell.etag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  const buffer = Buffer.from(shell.html);
+  const encoding = responseEncoding(req, headers["content-type"], buffer.length);
+  if (encoding === null) {
+    res.writeHead(406, { vary: "Accept-Encoding" });
+    res.end();
+    return;
+  }
+  if (shellCompressed.etag !== shell.etag) shellCompressed = { etag: shell.etag, variants: new Map() };
+  let body = buffer;
+  if (encoding) {
+    if (!shellCompressed.variants.has(encoding)) {
+      shellCompressed.variants.set(encoding, compressBuffer(buffer, encoding));
+    }
+    body = shellCompressed.variants.get(encoding);
+  }
+  res.writeHead(200, { ...headers, ...(encoding ? { "content-encoding": encoding } : {}) });
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
+// A missing script, stylesheet, font or image must not get the app page back with a 200.
+const ASSET_EXTENSION = /\.(?:m?js|css|map|woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|wasm|json|webmanifest)$/i;
+
+function sendMissingAsset(res) {
+  res.writeHead(404, {
+    "content-type": "text/plain; charset=utf-8",
     "cache-control": "no-cache"
   });
-  fs.createReadStream(path.join(publicDir, "index.html")).pipe(res);
+  res.end("Not found");
 }
 
 function isHomePreviewPath(pathname) {
@@ -284,7 +371,16 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
       sendNotFound(res);
       return;
     }
-    sendSpaFallback(res);
+    if (ASSET_EXTENSION.test(requestedPath)) {
+      sendMissingAsset(res);
+      return;
+    }
+    await sendAppShell(req, res);
+    return;
+  }
+
+  if (!marketing && filePath === path.join(publicDir, "index.html")) {
+    await sendAppShell(req, res);
     return;
   }
 
@@ -330,6 +426,11 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
   });
   if (req.method === "HEAD") {
     res.end();
+    return;
+  }
+  const precompressed = cachedCompression(filePath, stat, encoding);
+  if (precompressed) {
+    res.end(precompressed);
     return;
   }
   const stream = fs.createReadStream(filePath);

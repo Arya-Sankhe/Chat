@@ -2317,11 +2317,11 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 
 /* ---------- AI tutor ---------- */
 /* Create dialog */
-.dojo-tutor-style, .dojo-tutor-preview { --ink: var(--dojo-tutor); }
-.dojo-tutor-style.is-teacher, .dojo-tutor-preview.is-teacher { --ink: #d9843d; }
-.dojo-tutor-style.is-buddy, .dojo-tutor-preview.is-buddy { --ink: var(--study-green); }
-.dojo-tutor-style.is-socratic, .dojo-tutor-preview.is-socratic { --ink: var(--study-blue); }
-.dojo-tutor-style.is-professor, .dojo-tutor-preview.is-professor { --ink: var(--study-purple); }
+.dojo-tutor-style, .dojo-tutor-formats { --ink: var(--dojo-tutor); }
+.dojo-tutor-style.is-teacher, .dojo-tutor-formats.is-teacher { --ink: #d9843d; }
+.dojo-tutor-style.is-buddy, .dojo-tutor-formats.is-buddy { --ink: var(--study-green); }
+.dojo-tutor-style.is-socratic, .dojo-tutor-formats.is-socratic { --ink: var(--study-blue); }
+.dojo-tutor-style.is-professor, .dojo-tutor-formats.is-professor { --ink: var(--study-purple); }
 .dojo-tutor-style-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 #studyCreateDialog .dojo-tutor-style { position: relative; display: flex; min-width: 0; margin: 0; cursor: pointer; }
 #studyCreateDialog .dojo-tutor-style input { position: absolute; width: 1px; height: 1px; padding: 0; opacity: 0; }
@@ -2335,12 +2335,19 @@ body[data-mode="dark"] .dojo-pod-speed-menu button[aria-pressed="true"] { color:
 .dojo-tutor-style input:checked + .dojo-tutor-style-face { border-color: color-mix(in srgb, var(--ink) 60%, transparent); background: color-mix(in srgb, var(--ink) 8%, var(--bg)); box-shadow: 0 8px 20px -16px var(--ink); }
 .dojo-tutor-style input:checked + .dojo-tutor-style-face .dojo-tutor-style-icon { transform: scale(1.06); }
 .dojo-tutor-style input:focus-visible + .dojo-tutor-style-face { outline: 2px solid var(--ink); outline-offset: 3px; }
-.dojo-tutor-preview { margin-top: 10px; padding: 13px 16px 14px; border-radius: 14px; background: color-mix(in srgb, var(--ink) 6%, var(--bg)); transition: border-color 200ms ease, background 200ms ease; }
-.dojo-tutor-preview-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: var(--create-muted); font-size: 11px; font-weight: 500; }
-.dojo-tutor-preview-head svg { color: var(--ink); }
-.dojo-tutor-preview q { display: block; color: color-mix(in srgb, var(--text) 82%, var(--bg)); font-size: 13px; line-height: 1.6; }
-.dojo-tutor-preview q.is-new { animation: dojo-tutor-quote 280ms cubic-bezier(.23, 1, .32, 1); }
-@keyframes dojo-tutor-quote { from { opacity: 0; transform: translateY(3px); } }
+.dojo-tutor-format-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#studyCreateDialog .dojo-tutor-format { position: relative; display: flex; min-width: 0; margin: 0; cursor: pointer; }
+#studyCreateDialog .dojo-tutor-format input { position: absolute; width: 1px; height: 1px; padding: 0; opacity: 0; }
+.dojo-tutor-format-face { display: flex; flex: 1; align-items: flex-start; gap: 12px; min-width: 0; padding: 12px 14px 13px; border: 1px solid transparent; border-radius: 14px; background: var(--create-soft); transition: border-color 140ms ease, background 140ms ease, box-shadow 180ms ease; }
+.dojo-tutor-format-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px; background: var(--create-soft-strong); color: var(--create-muted); transition: background 160ms ease, color 160ms ease; }
+.dojo-tutor-format-copy { display: grid; gap: 3px; min-width: 0; }
+.dojo-tutor-format strong { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.dojo-tutor-format small { color: var(--create-muted); font-size: 11.5px; font-weight: 400; line-height: 1.5; }
+.dojo-tutor-format:hover .dojo-tutor-format-face { background: var(--create-soft-strong); }
+.dojo-tutor-format input:checked + .dojo-tutor-format-face { border-color: color-mix(in srgb, var(--ink) 60%, transparent); background: color-mix(in srgb, var(--ink) 8%, var(--bg)); box-shadow: 0 8px 20px -16px var(--ink); }
+.dojo-tutor-format input:checked + .dojo-tutor-format-face .dojo-tutor-format-icon { background: color-mix(in srgb, var(--ink) 14%, transparent); color: var(--ink); }
+.dojo-tutor-format input:focus-visible + .dojo-tutor-format-face { outline: 2px solid var(--ink); outline-offset: 3px; }
+@media (max-width: 560px) { .dojo-tutor-format-grid { grid-template-columns: 1fr; } }
 .dojo-voices.is-tutor legend small { color: var(--create-muted); font-size: 11px; font-weight: 400; }
 #studyCreateDialog .dojo-focus-field.is-tutor { align-items: baseline; }
 .dojo-focus-field > .dojo-focus-count { margin-left: 8px; font-variant-numeric: tabular-nums; }

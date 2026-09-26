@@ -34,7 +34,7 @@ export async function requireCourse(context, courseId, signal) {
   return project;
 }
 
-const COMBO_FILE_CAP = 5;
+const COMBO_FILE_CAP = 10;
 
 function uniqueFileIds(body = {}) {
   const fromList = Array.isArray(body.documentFileIds) ? body.documentFileIds : [];

@@ -20,26 +20,22 @@ export const TUTOR_STYLES = [
   {
     value: "teacher",
     title: "Patient teacher",
-    description: "Explains ideas from scratch with clear examples, then checks you've got it.",
-    preview: "Picture it like a ball rolling down a hill: the steeper the slope, the faster it goes. So what do you think would slow it down?"
+    description: "Explains ideas from scratch with clear examples, then checks you've got it."
   },
   {
     value: "buddy",
     title: "Study buddy",
-    description: "A friend who's a step ahead. Relaxed, encouraging, and quizzes you as you go.",
-    preview: "Okay, honestly this one confused me at first too. Here's the trick I use to remember it. Want to try saying it back in your own words?"
+    description: "A friend who's a step ahead. Relaxed, encouraging, and quizzes you as you go."
   },
   {
     value: "socratic",
     title: "Socratic guide",
-    description: "Asks the right questions so you work the answers out yourself.",
-    preview: "Before I explain, what would you expect to happen if we doubled it? Walk me through your thinking, one step at a time."
+    description: "Asks the right questions so you work the answers out yourself."
   },
   {
     value: "professor",
     title: "Strict professor",
-    description: "Viva-style drilling: precise questions, exact definitions, honest feedback.",
-    preview: "Define it precisely. Close, but you've left out the mechanism. Try again, and this time use the correct terminology."
+    description: "Viva-style drilling: precise questions, exact definitions, honest feedback."
   }
 ];
 
@@ -56,6 +52,26 @@ const ICONS = {
   target: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".6"/>', 14),
   replay: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/>', 14)
 };
+
+// Mirrors TUTOR_FORMATS in server/study/tutor.js: how the call runs, whatever the style.
+export const TUTOR_FORMATS = [
+  {
+    value: "teach",
+    title: "Teach me",
+    description: "Explains each topic from scratch like a first lesson, checking in as it goes.",
+    icon: '<path d="M12 6.5C10.3 5.2 7.9 4.5 4 4.5v13c3.9 0 6.3.7 8 2 1.7-1.3 4.1-2 8-2v-13c-3.9 0-6.3.7-8 2z"/><path d="M12 6.5v13"/>'
+  },
+  {
+    value: "quiz",
+    title: "Test me",
+    description: "Asks you questions and gives feedback on each answer. Best for revision.",
+    icon: '<path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/><path d="m8.6 12.2 2.3 2.3 4.6-4.8"/>'
+  }
+];
+
+export function tutorFormatOf(value) {
+  return TUTOR_FORMATS.find((format) => format.value === value) || TUTOR_FORMATS[1];
+}
 
 export function tutorStyleOf(value) {
   return TUTOR_STYLES.find((style) => style.value === value) || TUTOR_STYLES[0];
@@ -80,7 +96,7 @@ export function tutorMeta(item) {
 
 /* ---------- Create dialog ---------- */
 
-export function tutorOptionsMarkup({ escapeHtml, style = "teacher", voice = "af_heart" }) {
+export function tutorOptionsMarkup({ escapeHtml, style = "teacher", format = "teach", voice = "af_heart" }) {
   const styles = TUTOR_STYLES.map((item) => `<label class="dojo-tutor-style is-${item.value}">
       <input type="radio" name="style" value="${item.value}"${item.value === style ? " checked" : ""}>
       <span class="dojo-tutor-style-face">
@@ -92,14 +108,20 @@ export function tutorOptionsMarkup({ escapeHtml, style = "teacher", voice = "af_
       <label title="${escapeHtml(`${item.name} · ${item.tone} · ${item.accent}`)}"><input type="radio" name="voice" value="${item.id}"${item.id === voice ? " checked" : ""}><span class="dojo-voice-face"><span class="dojo-voice-avatar is-${item.id}">${item.name[0]}</span><span class="dojo-voice-name">${item.name}</span></span></label>
       <button class="dojo-voice-play" type="button" data-voice-preview="${item.id}" aria-label="Hear ${item.name}" title="Hear ${item.name}"><span class="dojo-voice-play-icon">${ICONS.play.replace('width="22" height="22"', 'width="11" height="11"')}</span><span class="dojo-voice-eq" aria-hidden="true"><i></i><i></i><i></i></span></button>
     </span>`).join("");
+  const formats = TUTOR_FORMATS.map((item) => `<label class="dojo-tutor-format">
+      <input type="radio" name="format" value="${item.value}"${item.value === format ? " checked" : ""}>
+      <span class="dojo-tutor-format-face">
+        <span class="dojo-tutor-format-icon">${svg(item.icon, 18)}</span>
+        <span class="dojo-tutor-format-copy"><strong>${item.title}</strong><small>${item.description}</small></span>
+      </span>
+    </label>`).join("");
   const picked = tutorStyleOf(style);
   const sound = voiceOf(voice);
   return `<fieldset class="dojo-option-group dojo-tutor-styles"><legend>Teaching style</legend>
       <div class="dojo-tutor-style-grid">${styles}</div>
-      <div class="dojo-tutor-preview is-${picked.value}" aria-live="polite">
-        <span class="dojo-tutor-preview-head">${svg(STYLE_ICONS[picked.value], 15)}<span>How it sounds</span></span>
-        <q data-tutor-preview>${escapeHtml(picked.preview)}</q>
-      </div>
+    </fieldset>
+    <fieldset class="dojo-option-group dojo-tutor-formats is-${picked.value}" data-tutor-formats><legend>Session</legend>
+      <div class="dojo-tutor-format-grid">${formats}</div>
     </fieldset>
     <fieldset class="dojo-option-group dojo-voices is-tutor"><legend>Voice <small data-tutor-voice-note>${escapeHtml(sound ? `${sound.tone} · ${sound.accent}` : "")}</small></legend>
       <div class="dojo-voice-list" role="radiogroup" aria-label="Tutor voice">${voices}</div>
@@ -107,22 +129,12 @@ export function tutorOptionsMarkup({ escapeHtml, style = "teacher", voice = "af_
     <label class="dojo-focus-field is-tutor">Custom instructions <span class="dojo-focus-tag">Optional</span><textarea name="instructions" maxlength="1000" placeholder="e.g. Quiz me with exam-style questions and keep explanations short." rows="3"></textarea></label>`;
 }
 
-// Keeps the preview and voice chips in step with the form.
+// Keeps the format colors and voice chips in step with the form.
 export function syncTutorOptions(root) {
   if (!root) return;
   const style = tutorStyleOf(root.querySelector('input[name="style"]:checked')?.value);
-  const preview = root.querySelector(".dojo-tutor-preview");
-  if (preview && !preview.classList.contains(`is-${style.value}`)) {
-    preview.className = `dojo-tutor-preview is-${style.value}`;
-    preview.querySelector(".dojo-tutor-preview-head svg")?.replaceWith(document.createRange().createContextualFragment(svg(STYLE_ICONS[style.value], 15)));
-    const quote = preview.querySelector("[data-tutor-preview]");
-    if (quote) {
-      quote.textContent = style.preview;
-      quote.classList.remove("is-new");
-      void quote.offsetWidth; // restart the fade-in
-      quote.classList.add("is-new");
-    }
-  }
+  const formats = root.querySelector("[data-tutor-formats]");
+  if (formats) formats.className = `dojo-option-group dojo-tutor-formats is-${style.value}`; // the picked format takes the style's color
   const voice = root.querySelector('input[name="voice"]:checked')?.value;
   root.querySelectorAll("[data-voice-chip]").forEach((chip) => chip.classList.toggle("is-picked", chip.dataset.voiceChip === voice));
   const sound = voiceOf(voice);
@@ -181,7 +193,7 @@ function planMarkup(session, escapeHtml) {
       <div class="dojo-tutor-hero">${staticOrb(" is-ready")}<span class="dojo-tutor-kicker">${ICONS.check}Lesson plan ready</span>${session.plan?.goal ? `<p>${escapeHtml(session.plan.goal)}</p>` : ""}</div>
       <ol class="dojo-tutor-plan">${steps.map((step, index) => `<li style="--i: ${index}"><span class="dojo-tutor-plan-num">${index + 1}</span><span>${escapeHtml(step.title)}</span></li>`).join("")}</ol>
       <div class="dojo-tutor-launch">
-        <span class="dojo-tutor-who"><span class="dojo-voice-avatar is-${escapeHtml(voice.id)}" aria-hidden="true">${escapeHtml(voice.name[0])}</span><span><strong>${escapeHtml(style.title)}</strong><small>${escapeHtml(voice.name)}'s voice · up to 30 minutes</small></span></span>
+        <span class="dojo-tutor-who"><span class="dojo-voice-avatar is-${escapeHtml(voice.id)}" aria-hidden="true">${escapeHtml(voice.name[0])}</span><span><strong>${escapeHtml(style.title)}</strong><small>${escapeHtml(tutorFormatOf(session.format).title)} · ${escapeHtml(voice.name)}'s voice · up to 30 minutes</small></span></span>
         <button class="dojo-tutor-start" type="button" data-tutor-start>${ICONS.play.replace('width="22" height="22"', 'width="15" height="15"')}Start call</button>
         <small class="dojo-tutor-mic-note">Uses your microphone. Pause whenever you need a moment.</small>
       </div>
@@ -898,7 +910,9 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
         void endListening(null);
         return;
       }
-      if (state.answering && !state.nudged && now - state.startedAt > 28_000) {
+      // After a question the student gets time to think; after anything else, a shorter wait,
+      // so a reply that forgot to hand over the turn is never left hanging in silence.
+      if (!state.nudged && now - state.startedAt > (state.answering ? 28_000 : 20_000)) {
         state.nudged = true;
         void stopRecorder(state);
         listen = null;

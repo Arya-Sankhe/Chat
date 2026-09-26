@@ -1770,8 +1770,8 @@ test("flashcard generate serializes Rapid and Deep for one material", async () =
   }
 });
 
-test("study generate rejects more than five files and sources outside the course", async () => {
-  const files = Array.from({ length: 6 }, (_, i) => `doc-${i + 1}`);
+test("study generate rejects more than ten files and sources outside the course", async () => {
+  const files = Array.from({ length: 11 }, (_, i) => `doc-${i + 1}`);
   const tooMany = await dispatch(authReadyConfig, {
     method: "POST",
     path: "/api/study/courses/course-1/generate",
@@ -1783,7 +1783,7 @@ test("study generate rejects more than five files and sources outside the course
     })
   });
   assert.equal(tooMany.statusCode, 400);
-  assert.match(tooMany.json().error, /up to 5/);
+  assert.match(tooMany.json().error, /up to 10/);
 
   const notes = await dispatch(authReadyConfig, {
     method: "POST",

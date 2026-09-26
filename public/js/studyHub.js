@@ -90,7 +90,7 @@ export function createStudyHubController({
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && activeAudioDocs().length) scheduleTranscriptionPoll(500);
   });
-  const CREATE_FILE_CAP = 5;
+  const CREATE_FILE_CAP = 10;
 
   let pendingUploads = [];
   // Audio sources: uploads still on their way to R2, and the server queue per source.
@@ -2214,6 +2214,7 @@ export function createStudyHubController({
       const result = await prepareStudyTutor(state.session, courseId, {
         documentFileIds,
         style: options.style,
+        format: options.format,
         voice: options.voice,
         instructions: options.instructions || ""
       }, {

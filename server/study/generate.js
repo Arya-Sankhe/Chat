@@ -256,26 +256,49 @@ function chunkText(chunks, cite = false) {
   }).filter(Boolean).join("\n").trim();
 }
 
-async function loadComboSourceText({ context, source, signal, cite = false }) {
-  const files = source.documentFiles || [];
-  const ids = files.map((file) => file.id).filter(Boolean);
-  const chunks = await context.db.listDocumentChunksForFiles(context.user.id, ids, {
-    limit: 5000,
-    signal
-  }) || [];
-  const parts = [];
-  files.forEach((file, index) => {
-    const text = chunkText(chunks.filter((chunk) => chunk.document_file_id === file.id), cite);
-    if (text) parts.push(cite ? `[S${index + 1}] ${fileDisplayName(file)}\n${text}` : `--- ${fileDisplayName(file)} ---\n${text}`);
-  });
-  const joined = parts.join("\n\n").trim();
-  if (!joined) throw new HttpError(400, "Material has no extracted text.");
-  // ponytail: dump-join, no vision; retrieve/cap per file if 5 fat PDFs start failing the model.
-  return joined.slice(0, NOTE_CONTENT_CAP);
+// Splits `cap` characters across texts: short ones keep everything, and whatever they leave over is
+// shared equally by the longer ones, so no source is cut off because the ones before it were long.
+export function fairShares(lengths, cap) {
+  const shares = lengths.map(() => 0);
+  let open = lengths.map((_, index) => index);
+  let left = cap;
+  while (open.length && left > 0) {
+    const each = Math.floor(left / open.length);
+    const fits = open.filter((index) => lengths[index] <= each);
+    if (!fits.length) {
+      for (const index of open) shares[index] = each;
+      break;
+    }
+    for (const index of fits) {
+      shares[index] = lengths[index];
+      left -= lengths[index];
+    }
+    open = open.filter((index) => lengths[index] > each);
+  }
+  return shares;
 }
 
-export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents, cite = false }) {
-  if (source.documentFiles?.length > 1) return loadComboSourceText({ context, source, signal, cite });
+async function loadComboSourceText({ context, source, signal, cite = false, cap = NOTE_CONTENT_CAP }) {
+  const files = source.documentFiles || [];
+  // One request per file, so a long first file can't use up the row limit for the rest.
+  const chunkLists = await Promise.all(files.map((file) => file.id
+    ? context.db.listDocumentChunksForFiles(context.user.id, [file.id], { limit: 5000, signal })
+    : []));
+  const parts = [];
+  files.forEach((file, index) => {
+    const text = chunkText((chunkLists[index] || []).filter((chunk) => chunk.document_file_id === file.id), cite);
+    if (text) parts.push(cite ? `[S${index + 1}] ${fileDisplayName(file)}\n${text}` : `--- ${fileDisplayName(file)} ---\n${text}`);
+  });
+  if (!parts.length) throw new HttpError(400, "Material has no extracted text.");
+  // Up to 10 sources: each gets a fair part of the budget rather than the first few taking it all.
+  const separators = (parts.length - 1) * 2;
+  const shares = fairShares(parts.map((part) => part.length), cap - separators);
+  return parts.map((part, index) => part.slice(0, shares[index])).join("\n\n").trim();
+}
+
+// `cap` only applies to several sources, which share it fairly; callers trim single sources themselves.
+export async function loadGenerationSourceText({ context, config, source, signal, onWarning, onStage, pageNumber, documents, cite = false, cap }) {
+  if (source.documentFiles?.length > 1) return loadComboSourceText({ context, source, signal, cite, cap });
   if (source.note) {
     const text = noteBody(source.note).trim();
     if (!text) throw new HttpError(400, "Material has no extracted text.");

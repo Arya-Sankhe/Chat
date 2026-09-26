@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   cardSources,
   cleanQuestions,
+  fairShares,
   loadGenerationSourceText,
   loadMaterialText,
   parseMarkdownNote,
@@ -275,6 +276,23 @@ test("Studio test formats filter incompatible questions and difficulty provides 
   assert.match(studyGenerationGuidance({ difficulty: "easy" }), /direct recall/);
   assert.match(studyGenerationGuidance({ difficulty: "medium" }), /apply concepts/);
   assert.match(studyGenerationGuidance({ difficulty: "hard" }), /multi-step reasoning/);
+});
+
+test("several sources share the text budget fairly instead of the first ones taking it all", async () => {
+  assert.deepEqual(fairShares([10, 500, 20, 900], 100), [10, 35, 20, 35]);
+  assert.deepEqual(fairShares([10, 20], 100), [10, 20]);
+  const files = Array.from({ length: 10 }, (_, index) => ({ id: `doc-${index}`, kind: "txt", file_name: `F${index}.txt` }));
+  const requested = [];
+  const context = { user: { id: "user-1" }, db: {
+    async listDocumentChunksForFiles(userId, ids) {
+      requested.push(ids);
+      return [{ document_file_id: ids[0], text: `${ids[0]} ${"x".repeat(50_000)}` }];
+    }
+  } };
+  const text = await loadGenerationSourceText({ context, config: {}, source: { documentFiles: files }, cap: 30_000 });
+  assert.equal(requested.length, 10, "one request per source");
+  assert.ok(text.length <= 30_000);
+  for (const file of files) assert.ok(text.includes(`--- ${file.file_name} ---`), `${file.file_name} is kept`);
 });
 
 test("flashcard sources are labeled for the model and resolved back to real course pages", async () => {
