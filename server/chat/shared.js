@@ -10,6 +10,13 @@ ${formatted}
 
 export function injectWebContextMessage(messages, contextMessage) {
   if (!contextMessage) return messages;
+  return insertBeforeLatestUserMessage(messages, { role: "user", content: contextMessage });
+}
+
+/* Evidence goes just before the user's latest message, so that message stays
+   last and "this" or "these slides" still points at what the user sent. */
+export function insertBeforeLatestUserMessage(messages, message) {
+  if (!message) return messages;
   const next = [...messages];
   let lastUserIdx = -1;
   for (let i = next.length - 1; i >= 0; i--) {
@@ -18,9 +25,8 @@ export function injectWebContextMessage(messages, contextMessage) {
       break;
     }
   }
-  const context = { role: "user", content: contextMessage };
-  if (lastUserIdx >= 0) next.splice(lastUserIdx, 0, context);
-  else next.push(context);
+  if (lastUserIdx >= 0) next.splice(lastUserIdx, 0, message);
+  else next.push(message);
   return next;
 }
 

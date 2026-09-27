@@ -136,12 +136,12 @@ function tick() {
   timer = mascots.size ? setTimeout(tick, 180) : null;
 }
 
-// Tap reaction: look at the user, crouch, hop, and land with a blink. Ignored
-// while the mascot is paused, so reduced motion and completed bars stay still.
+// Tap reaction: look at the user, crouch, hop, and land with a blink. The user
+// asked for it, so it plays with reduced motion too; completed bars stay still.
 export function playKluiReaction(element) {
   const record = element ? mascots.get(element) : null;
   if (!record) return;
-  if (pausedNow(element, record, matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+  if (pausedNow(element, record, false)) return;
 
   record.body.getAnimations().forEach((animation) => animation.cancel());
   record.body.animate([

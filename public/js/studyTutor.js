@@ -556,6 +556,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   let listen = null;
   let held = null; // what was heard while the call got paused mid-transcription
   let typing = false;
+  // The answer being spoken when the keyboard opened: its recorder is paused, not thrown away.
+  let parked = null;
   let compact = false;
   let fullscreenLayer = null;
 
@@ -774,6 +776,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   /* Turns */
   async function sendTurn(mode, text = "") {
     if (finished) return;
+    dropParked();
     if (mode === "closing") closingSent = true;
     const seq = ++turnSeq;
     turnAbort?.abort();
@@ -1058,9 +1061,18 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     paintLine(line);
     void sendTurn(timeUp ? "closing" : "reply", text);
   }
+  // A typed message (or the call moving on) replaces whatever was said before the keyboard opened.
+  function dropParked() {
+    if (!parked) return;
+    const state = parked;
+    parked = null;
+    void stopRecorder(state);
+    state.line?.node.remove();
+  }
   function sendTyped(text) {
     const clean = String(text || "").trim();
     if (!clean || finished) return;
+    dropParked();
     if (phase === "speaking" || phase === "thinking") interrupt(false);
     if (listen) {
       const state = listen;
@@ -1079,12 +1091,37 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     keys.hidden = !stream;
     root.classList.toggle("is-typing", typing);
     if (typing && listen) {
+      // Speech recognition waits while the keyboard is open; the answer so far is kept.
       const state = listen;
       listen = null;
-      void stopRecorder(state);
-      state.line?.node.remove();
+      if (state.heard && state.recorder?.state === "recording") {
+        try { state.recorder.pause(); } catch { /* A recorder that can't pause just keeps what it has. */ }
+        state.parkedAt = performance.now();
+        parked = state;
+      } else {
+        void stopRecorder(state);
+        state.line?.node.remove();
+      }
       if (phase === "listening") setStatus("Your turn");
-    } else if (!typing && phase === "listening" && !listen && !paused) beginListening();
+    } else if (!typing && phase === "listening" && !listen && !paused) {
+      if (parked) {
+        // Back to talking in the same turn: pick the answer up where it stopped.
+        const state = parked;
+        const now = performance.now();
+        parked = null;
+        listen = state;
+        // Time spent typing doesn't count toward the answer's length or the recorder's silence trim.
+        const away = now - (state.parkedAt || now);
+        state.firstVoiceAt += away;
+        state.recordStart += away;
+        state.spec = null;
+        state.lastVoiceAt = now;
+        state.startedAt = now;
+        try { if (state.recorder?.state === "paused") state.recorder.resume(); } catch { /* Keep what was recorded. */ }
+        setPhase("listening", "Listening…");
+        setRunning(!paused);
+      } else beginListening();
+    } else if (!typing) dropParked();
     if (typing) requestAnimationFrame(() => typeForm.querySelector("input")?.focus());
   }
 
@@ -1130,6 +1167,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   function pause() {
     if (!started || finished || paused) return;
     paused = true;
+    dropParked();
     setRunning(false);
     if (listen) {
       const state = listen;
@@ -1172,6 +1210,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   async function finish() {
     if (finished) return;
     finished = true;
+    dropParked();
     const seconds = Math.round(elapsed());
     setRunning(false);
     turnAbort?.abort();

@@ -146,13 +146,14 @@ function stubbedDeps({ role = "user", db = {} } = {}) {
   };
 }
 
+// A Segment Info header holding TimecodeScale and Duration, as recorded WebM files carry.
 function webmWithDuration(seconds) {
-  const audio = Buffer.alloc(32);
-  audio.set([0x2a, 0xd7, 0xb1, 0x84], 0);
-  audio.writeUInt32BE(1_000_000, 4);
-  audio.set([0x44, 0x89, 0x88], 8);
-  audio.writeDoubleBE(seconds * 1_000, 11);
-  return audio;
+  const children = Buffer.alloc(19);
+  children.set([0x2a, 0xd7, 0xb1, 0x84], 0);
+  children.writeUInt32BE(1_000_000, 4);
+  children.set([0x44, 0x89, 0x88], 8);
+  children.writeDoubleBE(seconds * 1_000, 11);
+  return Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x80, 0x15, 0x49, 0xa9, 0x66, 0x80 | children.length]), children, Buffer.alloc(13)]);
 }
 
 /*

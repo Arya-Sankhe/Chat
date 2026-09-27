@@ -398,7 +398,7 @@ test("buildRelevantDocumentContext always covers a document attached to this mes
 
   assert.deepEqual(seen, [[attachmentId]]);
   assert.equal(result.pageCount, 1);
-  assert.match(result.message.content[0].text, /relevant to this question are attached below as images/);
+  assert.match(result.message.content[0].text, /retrieved these pages from the course documents.*the user did not send them/);
 });
 
 test("buildRelevantDocumentContext leaves full-text documents to the library and lists the rest", async () => {
@@ -439,4 +439,30 @@ test("buildRelevantDocumentContext leaves full-text documents to the library and
   // Passages that matched in full-text documents are still listed as sources.
   assert.deepEqual(result.citations.map((citation) => citation.index), [1, 2]);
   assert.equal(result.message, null);
+});
+
+test("page evidence goes before the user's latest message so it stays last", async () => {
+  const { insertBeforeLatestUserMessage } = await import("../server/chat/shared.js");
+  const { latestUserImages } = await import("../server/chat/pipeline.js");
+  const image = { type: "image_url", image_url: { url: "https://r2.example/slide.png" } };
+  const user = { role: "user", content: [{ type: "text", text: "explain these slides" }, image] };
+  const pages = { role: "user", content: [{ type: "text", text: "retrieved pages" }] };
+  const messages = insertBeforeLatestUserMessage([{ role: "system", content: "s" }, user], pages);
+  assert.deepEqual(messages.map((message) => message.role), ["system", "user", "user"]);
+  assert.equal(messages[1], pages);
+  assert.equal(messages.at(-1), user);
+  assert.deepEqual(latestUserImages(messages), [image]);
+});
+
+test("ticked source pages survive only for sources in scope", async () => {
+  const { normalizeSourcePages } = await import("../server/chat/pipeline.js");
+  const id = "9e1284db-330c-4de2-8b8d-b0067c0cb171";
+  assert.deepEqual(normalizeSourcePages({ [id]: [3, "1", 3, 0, -2, 1.5], other: [1] }, [id]), { [id]: [1, 3] });
+  assert.deepEqual(normalizeSourcePages([1, 2], [id]), {});
+  assert.deepEqual(normalizeSourcePages({ [id]: [1] }, []), {});
+  // A source past the page cap keeps a page instead of falling back to the whole document.
+  const other = "0b6f2c4e-1d2a-4c55-9b0e-7a3f9c1d2e44";
+  const capped = normalizeSourcePages({ [id]: Array.from({ length: 60 }, (_, i) => i + 1), [other]: [7] }, [id, other]);
+  assert.equal(capped[id].length, 60);
+  assert.deepEqual(capped[other], [7]);
 });

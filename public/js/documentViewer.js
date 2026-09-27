@@ -54,6 +54,8 @@ export function createDocumentViewer({
   let currentPdfPage = 1;
   let initialPdfPage = 1;
   let resizeTimer = null;
+  // Inline Dojo sources tick pages for the chat: { isOn(page), toggle(page, on) }.
+  let pagePicker = null;
   const toolbar = document.createElement("div");
   toolbar.className = "document-preview-toolbar hidden";
   toolbar.innerHTML = `<div class="document-page-controls" hidden>
@@ -65,6 +67,48 @@ export function createDocumentViewer({
     <button type="button" data-preview-refresh aria-label="Refresh preview" title="Refresh preview">${viewerSvg('<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>')}</button>
   </div>`;
   elements.documentViewerBody?.before(toolbar);
+  elements.documentViewerBody?.addEventListener("change", (event) => {
+    const box = event.target.closest?.("[data-pick-page]");
+    if (!box || !pagePicker) return;
+    const pageNumber = Number(box.dataset.pickPage);
+    pagePicker.toggle(pageNumber, box.checked, box.checked ? pageThumb(pageNumber) : "");
+    syncPagePicks();
+  });
+
+  // A small render of a page for its card in the composer; empty until the page has drawn.
+  function pageThumb(pageNumber) {
+    const canvas = elements.documentViewerBody?.querySelector(`[data-page="${pageNumber}"] canvas`);
+    if (!canvas?.width) return "";
+    try {
+      const width = 128;
+      const thumb = document.createElement("canvas");
+      thumb.width = width;
+      thumb.height = Math.round(canvas.height * (width / canvas.width));
+      thumb.getContext("2d").drawImage(canvas, 0, 0, thumb.width, thumb.height);
+      return thumb.toDataURL("image/jpeg", 0.75);
+    } catch {
+      return "";
+    }
+  }
+
+  function pagePickMarkup(pageNumber) {
+    const noun = elements.documentViewer?.dataset.sourceFormat === "slides" ? "Slide" : "Page";
+    const on = Boolean(pagePicker?.isOn(pageNumber));
+    return `<input type="checkbox" data-pick-page="${pageNumber}"${on ? " checked" : ""}><span class="pdf-page-pick-box" aria-hidden="true">${viewerSvg('<path d="m5 12.5 4.5 4.5L19 7.5"/>')}</span><span class="pdf-page-pick-label">${noun} ${pageNumber}</span><span class="pdf-page-pick-hint">${on ? "In chat" : "Ask about this"}</span>`;
+  }
+
+  // Ticks follow the chat's selection, which the composer can also clear.
+  function syncPagePicks() {
+    elements.documentViewerBody?.querySelectorAll(".pdf-page-pick").forEach((label) => {
+      const pageNumber = Number(label.dataset.pickFor);
+      const on = Boolean(pagePicker?.isOn(pageNumber));
+      label.classList.toggle("is-on", on);
+      const box = label.querySelector("input");
+      if (box) box.checked = on;
+      const hint = label.querySelector(".pdf-page-pick-hint");
+      if (hint) hint.textContent = on ? "In chat" : "Ask about this";
+    });
+  }
 
   function resetPdf({ destroy = true } = {}) {
     pdfRenderToken += 1;
@@ -660,6 +704,14 @@ export function createDocumentViewer({
       pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
       container.appendChild(pageEl);
       placeholders.push(pageEl);
+      if (pagePicker) {
+        const pick = document.createElement("label");
+        pick.className = `pdf-page-pick${pagePicker.isOn(pageNumber) ? " is-on" : ""}`;
+        pick.dataset.pickFor = String(pageNumber);
+        pick.style.width = `${bodyWidth}px`;
+        pick.innerHTML = pagePickMarkup(pageNumber);
+        container.appendChild(pick);
+      }
     }
     // Citations open a source at the cited page; placeholders already reserve each page's height.
     if (initialPdfPage > 1) goToPdfPage(initialPdfPage);
@@ -692,6 +744,7 @@ export function createDocumentViewer({
       if (token !== pdfRenderToken) return;
       pageEl.style.minHeight = "";
       pageEl.replaceChildren(canvas);
+      if (pagePicker?.isOn(pageNumber)) pagePicker.thumb?.(pageNumber, pageThumb(pageNumber));
     };
 
     if ("IntersectionObserver" in window) {
@@ -809,8 +862,9 @@ export function createDocumentViewer({
     });
   }
 
-  async function openDocumentViewer({ attachmentId, fileName = "", format = "", container = null, onClose = null, page = 1 }) {
+  async function openDocumentViewer({ attachmentId, fileName = "", format = "", container = null, onClose = null, page = 1, pagePick = null }) {
     resetPdf();
+    pagePicker = container ? pagePick : null;
     if (isFullscreen) setFullscreen(false, { animate: false });
     if (!container) onViewerClose?.();
     inlineViewer = Boolean(container);
@@ -1039,6 +1093,7 @@ export function createDocumentViewer({
   return {
     openDocumentViewer,
     closeDocumentViewer,
+    syncPagePicks,
     renderDocumentViewer,
     setDocumentViewerState,
     syncPendingArtifactPolls,

@@ -929,9 +929,10 @@ body.klui-portal-pending .klui-bar.is-active .klui {
   }
 }
 
+/* Ambient motion stops; running off after being tapped still strides, since the user asked for it. */
 @media (prefers-reduced-motion: reduce) {
-  .composer-klui,
-  .composer-klui * {
+  .composer-klui:not(.is-running),
+  .composer-klui:not(.is-running) * {
     animation: none !important;
     transition: none !important;
   }

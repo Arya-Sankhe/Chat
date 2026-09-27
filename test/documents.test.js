@@ -753,6 +753,52 @@ test("DocumentService limits a course chat to its chosen sources", async () => {
   assert.match((await auto.documentLibrary({ docs: autoDocs, tokenBudget: 50_000 })).message, /Other evidence[\s\S]*Note evidence/);
 });
 
+test("DocumentService keeps only the pages ticked in a chosen source", async () => {
+  clearDocumentTextCache();
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  const doc = { id: documentFileId, attachment_id: documentFileId, project_id: projectId, kind: "pdf", page_count: 3, text_ready_at: "2026-07-13T00:00:00Z", word_count: 100, attachments: { file_name: "Slides.pdf" } };
+  const service = new DocumentService({
+    config: { documents: { enabled: true } },
+    db: {
+      async listDocumentChunksForFiles() {
+        return [1, 2, 3].map((page) => ({ document_file_id: documentFileId, chunk_index: page, source_label: `Page ${page}`, text: `Evidence on page ${page}`, metadata: { page } }));
+      }
+    },
+    r2: {}, userId, conversationId, projectId,
+    projectDocumentIds: [documentFileId],
+    projectDocumentPages: { [documentFileId]: [1, 3], "00000000-0000-4000-8000-000000000099": [2] },
+    plan: { id: "pro" }, signal: new AbortController().signal
+  });
+  assert.equal(service.hasPageScope, true);
+  assert.equal(service.inPageScope(documentFileId, 2), false);
+  assert.equal(service.inPageScope(documentFileId, 3), true);
+  const { message } = await service.documentLibrary({ docs: [doc], tokenBudget: 50_000 });
+  assert.match(message, /Slides\.pdf to pages 1, 3/);
+  assert.match(message, /Evidence on page 1[\s\S]*Evidence on page 3/);
+  assert.doesNotMatch(message, /Evidence on page 2/);
+});
+
+test("DocumentService budgets a page-scoped source by its ticked pages", async () => {
+  clearDocumentTextCache();
+  const projectId = "00000000-0000-4000-8000-000000000005";
+  const doc = { id: documentFileId, attachment_id: documentFileId, project_id: projectId, kind: "pdf", page_count: 100, text_ready_at: "2026-07-13T00:00:00Z", word_count: 50_000, attachments: { file_name: "Big.pdf" } };
+  const service = new DocumentService({
+    config: { documents: { enabled: true } },
+    db: {
+      async listDocumentChunksForFiles() {
+        return Array.from({ length: 100 }, (_, i) => ({ document_file_id: documentFileId, chunk_index: i, source_label: `Page ${i + 1}`, text: `Evidence on page ${i + 1} `.repeat(40), metadata: { page: i + 1 } }));
+      }
+    },
+    r2: {}, userId, conversationId, projectId,
+    projectDocumentIds: [documentFileId],
+    projectDocumentPages: { [documentFileId]: [7] },
+    plan: { id: "pro" }, signal: new AbortController().signal
+  });
+  const { message, tokens } = await service.documentLibrary({ docs: [doc], tokenBudget: 2_000 });
+  assert.match(message, /Evidence on page 7/);
+  assert.ok(tokens > 0 && tokens < 400, `charged ${tokens} tokens for one page`);
+});
+
 test("DocumentService rejects document_file_id edits outside the active conversation", async () => {
   const service = documentServiceWithDb({
     async getDocumentFile() {

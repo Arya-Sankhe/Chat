@@ -39,25 +39,52 @@ function findBytes(audio, needle) {
   return -1;
 }
 
+// Element IDs keep their length-marker bits, unlike sizes.
+function readEbmlId(audio, offset) {
+  const first = audio[offset];
+  if (!first) return null;
+  const width = first & 0x80 ? 1 : first & 0x40 ? 2 : first & 0x20 ? 3 : first & 0x10 ? 4 : 0;
+  if (!width || offset + width > audio.length) return null;
+  let value = 0;
+  for (let index = 0; index < width; index += 1) value = value * 256 + audio[offset + index];
+  return { width, value };
+}
+
+const EBML_SEGMENT_INFO = [0x15, 0x49, 0xa9, 0x66];
+const EBML_TIMECODE_SCALE = 0x2ad7b1;
+const EBML_DURATION = 0x4489;
+
+// Duration comes only from the Segment Info header's own children. Live MediaRecorder WebM has
+// none, and scanning the whole file for its ID found stray bytes in the audio instead, reading
+// garbage like "over five minutes" for a few seconds of speech.
 function webmDuration(audio) {
-  const scaleOffset = findBytes(audio, [0x2a, 0xd7, 0xb1]);
-  const durationOffset = findBytes(audio, [0x44, 0x89]);
+  const info = findBytes(audio.subarray(0, 4096), EBML_SEGMENT_INFO);
+  if (info < 0) return 0;
+  const infoSize = readEbmlSize(audio, info + 4);
+  if (!infoSize) return 0;
+  const unknown = infoSize.value === 2 ** (7 * infoSize.width) - 1;
+  let offset = info + 4 + infoSize.width;
+  const end = unknown ? audio.length : Math.min(audio.length, offset + infoSize.value);
   let scale = 1_000_000;
-  if (scaleOffset >= 0) {
-    const size = readEbmlSize(audio, scaleOffset + 3);
-    if (size && size.value > 0 && size.value <= 8 && scaleOffset + 3 + size.width + size.value <= audio.length) {
+  let ticks = 0;
+  while (offset < end) {
+    const id = readEbmlId(audio, offset);
+    const size = id && readEbmlSize(audio, offset + id.width);
+    if (!size) break;
+    const start = offset + id.width + size.width;
+    if (start + size.value > end) break;
+    if (id.value === EBML_TIMECODE_SCALE && size.value > 0 && size.value <= 8) {
       scale = 0;
-      const start = scaleOffset + 3 + size.width;
       for (let index = 0; index < size.value; index += 1) scale = scale * 256 + audio[start + index];
+    } else if (id.value === EBML_DURATION && (size.value === 4 || size.value === 8)) {
+      ticks = size.value === 4 ? audio.readFloatBE(start) : audio.readDoubleBE(start);
+    } else if (unknown && ![0x73a4, 0x7384, 0x2ad7b1, 0x4489, 0x4461, 0x7ba9, 0x4d80, 0x5741].includes(id.value)) {
+      // An Info of unknown size ends at the first element that isn't one of its children.
+      break;
     }
+    offset = start + size.value;
   }
-  if (durationOffset < 0) return 0;
-  const size = readEbmlSize(audio, durationOffset + 2);
-  if (!size || ![4, 8].includes(size.value)) return 0;
-  const start = durationOffset + 2 + size.width;
-  if (start + size.value > audio.length) return 0;
-  const ticks = size.value === 4 ? audio.readFloatBE(start) : audio.readDoubleBE(start);
-  return Number.isFinite(ticks) ? ticks * scale / 1_000_000_000 : 0;
+  return Number.isFinite(ticks) && ticks > 0 ? ticks * scale / 1_000_000_000 : 0;
 }
 
 function mp4Duration(audio) {

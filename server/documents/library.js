@@ -20,6 +20,11 @@ function cacheKey(doc) {
   return `${doc.id}:${doc.text_ready_at || ""}:${doc.updated_at || ""}`;
 }
 
+// The text is held twice: whole, and split by page.
+function entrySize(entry) {
+  return entry.text.length * 2;
+}
+
 function cacheGet(key) {
   const entry = textCache.get(key);
   if (!entry) return null;
@@ -30,15 +35,15 @@ function cacheGet(key) {
 
 function cacheSet(key, entry) {
   if (textCache.has(key)) {
-    cachedChars -= textCache.get(key).text.length;
+    cachedChars -= entrySize(textCache.get(key));
     textCache.delete(key);
   }
   textCache.set(key, entry);
-  cachedChars += entry.text.length;
+  cachedChars += entrySize(entry);
   while (textCache.size > CACHE_MAX_ENTRIES || cachedChars > CACHE_MAX_CHARS) {
     const [oldest, value] = textCache.entries().next().value;
     textCache.delete(oldest);
-    cachedChars -= value.text.length;
+    cachedChars -= entrySize(value);
   }
 }
 
@@ -83,16 +88,16 @@ function visualPageNumbers(doc, chunks) {
   return numbers.sort((a, b) => a - b);
 }
 
-function assembleText(chunks) {
+/** Each chunk's labeled text with its page, so a chat scoped to some pages can keep just those. */
+function assembleParts(chunks) {
   return chunks
     .map((chunk) => {
       const text = String(chunk.text || "").trim();
-      if (!text) return "";
+      if (!text) return null;
       const label = String(chunk.source_label || "").trim();
-      return label ? `[${label}]\n${text}` : text;
+      return { page: chunkPageNumber(chunk) || 0, text: label ? `[${label}]\n${text}` : text };
     })
-    .filter(Boolean)
-    .join("\n\n");
+    .filter(Boolean);
 }
 
 /**
@@ -125,8 +130,9 @@ export async function loadDocumentTexts({ db, userId, docs, signal }) {
 
   for (const doc of missing) {
     const chunks = chunksByDoc.get(doc.id).sort((a, b) => Number(a.chunk_index || 0) - Number(b.chunk_index || 0));
-    const text = assembleText(chunks);
-    const entry = { text, tokens: estimateTextTokens(text), visualPages: visualPageNumbers(doc, chunks) };
+    const parts = assembleParts(chunks);
+    const text = parts.map((part) => part.text).join("\n\n");
+    const entry = { text, parts, tokens: estimateTextTokens(text), visualPages: visualPageNumbers(doc, chunks) };
     cacheSet(cacheKey(doc), entry);
     result.set(doc.id, entry);
   }

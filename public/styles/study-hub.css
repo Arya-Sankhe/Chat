@@ -228,6 +228,8 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
 .study-menu { position: absolute; right: 0; top: 32px; min-width: 140px; padding: 5px; border: 1px solid var(--study-stroke); border-radius: 10px; background: var(--study-paper); box-shadow: 0 6px 24px #00000012; z-index: 6; }
 .study-menu-item { display: block; padding: 9px 12px; width: 100%; text-align: left; color: var(--study-ink); font: 12px var(--study-font); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .study-menu-danger { color: var(--study-red); }
+/* Placed by floatOpenMenu() against its button, clear of any clipping list. */
+.study-menu.is-floating { position: fixed; right: auto; z-index: 60; max-height: calc(100vh - 16px); overflow-y: auto; }
 .study-primary-btn, .study-chip-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 14px; border: 1px solid var(--study-stroke); border-radius: 8px; color: var(--study-ink); background: var(--dojo-soft); font: 12px var(--study-font); cursor: pointer; }
 .study-spin { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--study-stroke); border-top-color: var(--study-green); border-radius: 50%; animation: study-spin .65s linear infinite; }
 @keyframes study-spin { to { transform: rotate(360deg); } }
@@ -1619,6 +1621,31 @@ body.capacitor-native.study-open .study-view.study-view--detail {
 .composer-context-item.is-on .composer-context-check { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast, #fff); }
 .composer-context-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-context-item .dojo-source-badge { flex: 0 0 auto; }
+.composer-context-pages { flex: 0 0 auto; color: var(--accent); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Ticked source pages, shown with the composer's attachments. */
+.composer-scope-tray { margin-bottom: 10px; }
+.composer-scope-tray:empty { display: none; }
+.composer-scope-page { display: grid; place-items: center; width: 56px; height: 72px; background: #fff; }
+.composer-scope-page img { object-fit: cover; object-position: top; }
+.composer-scope-page-icon { display: grid; place-items: center; width: 100%; height: 100%; background: var(--bg-secondary); color: var(--text-tertiary, var(--text-secondary)); }
+.composer-scope-page-label { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; border-radius: 999px; background: rgba(0, 0, 0, .66); color: #fff; font: 600 10px/1.4 var(--study-font); font-variant-numeric: tabular-nums; }
+.composer-scope-pages-card { width: auto; max-width: 200px; height: 56px; }
+.composer-scope-pages-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.preview-file .composer-scope-pages-copy strong { overflow: hidden; color: var(--text); font-size: 12.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.preview-file .composer-scope-pages-copy small { overflow: hidden; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-scope-stack { color: var(--accent); }
+@media (hover: none) { .composer-scope-tray .preview-remove { opacity: 1; pointer-events: auto; } }
+/* Under each page of a Dojo source preview: tick it to ask about just that page. */
+.pdf-page-pick { position: relative; display: flex; align-items: center; gap: 8px; max-width: 100%; margin: -4px auto 14px; padding: 6px 4px; color: var(--text-secondary); font: 600 12px var(--study-font, inherit); cursor: pointer; user-select: none; }
+.pdf-page-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.pdf-page-pick-box { display: grid; flex: 0 0 auto; place-items: center; width: 18px; height: 18px; border: 1.5px solid color-mix(in srgb, var(--text) 28%, transparent); border-radius: 5px; color: transparent; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
+.pdf-page-pick-box svg { width: 12px; height: 12px; stroke-width: 3; }
+.pdf-page-pick-label { color: var(--text); font-variant-numeric: tabular-nums; }
+.pdf-page-pick-hint { margin-left: auto; color: var(--text-tertiary, var(--text-secondary)); font-weight: 500; }
+.pdf-page-pick:hover .pdf-page-pick-box { border-color: var(--accent); }
+.pdf-page-pick input:focus-visible + .pdf-page-pick-box { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.pdf-page-pick.is-on .pdf-page-pick-box { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast, #fff); }
+.pdf-page-pick.is-on .pdf-page-pick-hint { color: var(--accent); }
 .composer-context-empty { margin: 6px 10px 10px; color: var(--text-secondary); font-size: 12.5px; }
 @media (max-width: 560px) {
   .study-composer-slot .composer-context-btn > span:not(.composer-context-chevron) { max-width: 64px; }

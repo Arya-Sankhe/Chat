@@ -7,7 +7,7 @@
    only for the pages whose content lives in the picture. */
 
 import { chatCompletion } from "../model-api/client.js";
-import { OPENROUTER_NITRO_MODEL } from "../providers.js";
+import { OPENROUTER_NITRO_MODEL, OPENROUTER_VISION_MODEL } from "../providers.js";
 
 export const RRF_K = 60;
 
@@ -95,16 +95,20 @@ function messageText(content) {
 /**
  * Turn the latest message into a standalone search query using the recent
  * conversation. Falls back to the raw text on any failure or timeout.
+ * Images the user attached (provider-ready image_url parts) are read by a
+ * vision model, so "explain these slides" searches for what the slides show.
  */
 export async function rewriteDocumentQuery({
   userText,
   history = [],
+  images = [],
   config,
   completeChat = chatCompletion,
   timeoutMs = 3500
 } = {}) {
   const raw = clean(userText).slice(0, 1000);
-  if (!queryNeedsRewrite(raw, history)) return raw;
+  const pictures = (images || []).filter((part) => part?.type === "image_url").slice(0, 4);
+  if (!pictures.length && !queryNeedsRewrite(raw, history)) return raw;
   const provider = config?.providers?.openrouter;
   if (!provider?.apiKey) return raw;
 
@@ -118,20 +122,24 @@ export async function rewriteDocumentQuery({
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       providerId: "openrouter",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(pictures.length ? Math.max(timeoutMs, 9000) : timeoutMs),
       body: {
-        model: OPENROUTER_NITRO_MODEL,
+        model: pictures.length ? OPENROUTER_VISION_MODEL : OPENROUTER_NITRO_MODEL,
         reasoning: { enabled: false },
-        max_tokens: 60,
+        max_tokens: pictures.length ? 90 : 60,
         temperature: 0,
         messages: [
           {
             role: "system",
-            content: "Rewrite the user's latest message as one standalone search query for their course documents. Resolve pronouns and references using the conversation. Keep names, terms, numbers and codes. Output only the query, at most 20 words, no quotes."
+            content: pictures.length
+              ? "The user attached the image(s) below, usually screenshots of pages or slides from their course documents. Write one search query that finds exactly the pages shown: use the titles, headings and distinctive terms visible in the images, plus anything the message itself asks about. Output only the query, at most 30 words, no quotes."
+              : "Rewrite the user's latest message as one standalone search query for their course documents. Resolve pronouns and references using the conversation. Keep names, terms, numbers and codes. Output only the query, at most 20 words, no quotes."
           },
           {
             role: "user",
-            content: `<conversation>\n${recent}\n</conversation>\n\nLatest message: ${raw}`
+            content: pictures.length
+              ? [{ type: "text", text: `${recent ? `<conversation>\n${recent}\n</conversation>\n\n` : ""}Latest message: ${raw || "(no text)"}` }, ...pictures]
+              : `<conversation>\n${recent}\n</conversation>\n\nLatest message: ${raw}`
           }
         ]
       }

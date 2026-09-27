@@ -245,7 +245,7 @@ function pageHasUsableImage(page) {
 }
 
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, hiddenProjectDocumentIds = null, plan, signal }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal }) {
     this.config = config;
     this.documentsConfig = config.documents || {};
     this.db = db;
@@ -257,6 +257,10 @@ export class DocumentService {
     this.projectDocumentIds = Array.isArray(projectDocumentIds) && projectDocumentIds.length
       ? new Set(projectDocumentIds)
       : null;
+    // Pages ticked in a chosen source: Map(docId -> Set(page)). A source without ticks is whole.
+    this.projectDocumentPages = new Map(Object.entries(projectDocumentPages || {})
+      .filter(([id, pages]) => this.projectDocumentIds?.has(id) && Array.isArray(pages) && pages.length)
+      .map(([id, pages]) => [id, new Set(pages.map(Number))]));
     // Sources the learner removed from a course stay stored but leave chat context.
     this.hiddenProjectDocumentIds = new Set(Array.isArray(hiddenProjectDocumentIds) ? hiddenProjectDocumentIds : []);
     this.plan = plan;
@@ -298,6 +302,16 @@ export class DocumentService {
     return !this.projectDocumentIds || this.projectDocumentIds.has(doc?.id);
   }
 
+  get hasPageScope() {
+    return this.projectDocumentPages.size > 0;
+  }
+
+  /** False only for a page outside the pages the learner ticked in that source. */
+  inPageScope(docId, pageNumber) {
+    const pages = this.projectDocumentPages.get(docId);
+    return !pages || pages.has(Number(pageNumber));
+  }
+
   ownsDocument(doc) {
     return Boolean(doc && (
       (this.conversationId && doc.conversation_id === this.conversationId)
@@ -325,8 +339,14 @@ export class DocumentService {
 
     let estimated = 0;
     const candidates = [];
+    // A source cut to ticked pages costs only those pages.
+    const scopedShare = (doc) => {
+      const pages = this.projectDocumentPages.get(doc.id);
+      const total = Number(doc.page_count || 0);
+      return pages && total > 0 ? Math.min(1, pages.size / total) : 1;
+    };
     for (const doc of prioritized) {
-      const size = estimateDocumentTokens(doc);
+      const size = Math.ceil(estimateDocumentTokens(doc) * scopedShare(doc));
       if (estimated + size > budget) continue;
       candidates.push(doc);
       estimated += size;
@@ -338,20 +358,27 @@ export class DocumentService {
     // Processing stats are estimates; re-check with the real text.
     let used = 0;
     const chosen = [];
+    const contents = new Map();
     for (const doc of candidates) {
       const entry = texts.get(doc.id);
-      if (!entry?.text || used + entry.tokens > budget) continue;
+      if (!entry?.text) continue;
+      const pages = this.projectDocumentPages.get(doc.id);
+      const content = pages ? scopedDocumentText(entry, pages) : entry.text;
+      const tokens = pages ? estimateTextTokens(content) : entry.tokens;
+      if (!content || used + tokens > budget) continue;
       chosen.push(doc);
-      used += entry.tokens;
+      contents.set(doc.id, content);
+      used += tokens;
     }
 
     const results = chosen
       .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
       .map((doc) => {
-        const details = [clean(doc.kind), doc.page_count ? `${doc.page_count} pages` : "", doc.attachment_id ? `attachment_id ${doc.attachment_id}` : ""]
+        const pages = this.projectDocumentPages.get(doc.id);
+        const details = [clean(doc.kind), doc.page_count ? `${doc.page_count} pages` : "", pages ? `only ${pageListLabel(pages)}` : "", doc.attachment_id ? `attachment_id ${doc.attachment_id}` : ""]
           .filter(Boolean)
           .join(", ");
-        return { title: `${documentTitle(doc)}${details ? ` (${details})` : ""}`, content: texts.get(doc.id).text };
+        return { title: `${documentTitle(doc)}${details ? ` (${details})` : ""}`, content: contents.get(doc.id) };
       });
 
     // Notes are drawn from every source, so a chat scoped to chosen sources skips them.
@@ -368,7 +395,9 @@ export class DocumentService {
     }
     if (!results.length) return empty;
 
-    const lead = this.projectDocumentIds
+    const lead = this.hasPageScope
+      ? `The user limited this chat to the course sources below, and within ${chosen.filter((doc) => this.projectDocumentPages.has(doc.id)).map((doc) => `${documentTitle(doc)} to ${pageListLabel(this.projectDocumentPages.get(doc.id))}`).join("; ") || "them to the pages they ticked"}. Answer from exactly these pages and sources, and say so if they don't cover the question.`
+      : this.projectDocumentIds
       ? "The user limited this chat to the course sources below, included in full. Answer from these sources only."
       : "The user's documents below are included in full, so you can read all of them directly.";
     return {
@@ -896,6 +925,10 @@ export class DocumentService {
     const retrieval = clean(query)
       ? await this.retrieve(available, { query, maxPages: 24, maxChunks: 40 })
       : { query: "", chunks: [], pages: [], relevant: false, signals: null };
+    if (this.hasPageScope) {
+      retrieval.pages = retrieval.pages.filter((entry) => this.inPageScope(entry.doc?.id, entry.pageNumber));
+      retrieval.chunks = retrieval.chunks.filter((chunk) => this.inPageScope(chunk.document_file_id, chunkPageNumber(chunk)));
+    }
 
     const results = [];
     const citations = [];
@@ -917,6 +950,14 @@ export class DocumentService {
         pickedKeys.add(key);
         picked.push(page);
       };
+      // Pages the learner ticked are what they're asking about: shown first.
+      for (const [docId, pages] of this.projectDocumentPages) {
+        const doc = docById.get(docId);
+        const wanted = [...pages].sort((a, b) => a - b).slice(0, Math.max(0, slots - picked.length));
+        if (!doc || !wanted.length || !documentUsesVisualPages(doc)) continue;
+        const rows = await this.ensureDocumentPages(doc, wanted).catch(() => []);
+        for (const row of rows) pick(row);
+      }
       // A document attached to this message is shown whole when it fits;
       // otherwise its visual pages (known from processing) are candidates.
       const attachedVisual = new Map();
@@ -1368,6 +1409,26 @@ export class DocumentService {
       }
     });
   }
+}
+
+/** "pages 1, 3-5" for a set of page numbers. */
+export function pageListLabel(pages) {
+  const sorted = [...pages].map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+  const runs = [];
+  for (const page of sorted) {
+    const last = runs.at(-1);
+    if (last && page === last[1] + 1) last[1] = page;
+    else runs.push([page, page]);
+  }
+  const text = runs.map(([from, to]) => (from === to ? `${from}` : `${from}-${to}`)).join(", ");
+  return `${sorted.length === 1 ? "page" : "pages"} ${text}`;
+}
+
+// A source's text cut down to the ticked pages; text without page labels stays whole.
+function scopedDocumentText(entry, pages) {
+  const parts = entry?.parts || [];
+  if (!parts.some((part) => part.page)) return entry?.text || "";
+  return parts.filter((part) => pages.has(part.page)).map((part) => part.text).join("\n\n");
 }
 
 export function buildUntrustedDocumentContext({ lead, results }) {

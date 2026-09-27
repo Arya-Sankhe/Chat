@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DocumentService } from "../server/documents/index.js";
+import { OPENROUTER_VISION_MODEL } from "../server/providers.js";
 import {
   chunkPageNumber,
   pageLooksVisual,
@@ -148,6 +149,23 @@ test("query rewriting resolves follow-ups and falls back to the raw text on fail
     completeChat: async () => { throw new Error("timeout"); }
   });
   assert.equal(fallback, "when is the first one?");
+});
+
+test("query rewriting reads the user's screenshots so \"these slides\" searches for what they show", async () => {
+  const config = { providers: { openrouter: { apiKey: "key", baseUrl: "https://openrouter.example" } } };
+  const image = { type: "image_url", image_url: { url: "https://r2.example/slide.png" } };
+  let sent = null;
+  const query = await rewriteDocumentQuery({
+    userText: "explain these slides to me",
+    history: [],
+    images: [image],
+    config,
+    completeChat: async ({ body }) => { sent = body; return "Protection against infection, innate vs adaptive immunity"; }
+  });
+  assert.equal(query, "Protection against infection, innate vs adaptive immunity");
+  assert.equal(sent.model, OPENROUTER_VISION_MODEL);
+  assert.deepEqual(sent.messages[1].content.at(-1), image);
+  assert.match(sent.messages[1].content[0].text, /explain these slides/);
 });
 
 test("retrieve fuses keyword, semantic and page-image hits into ranked pages", async () => {

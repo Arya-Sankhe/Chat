@@ -32,6 +32,7 @@ export function createStudyHubController({
   clearClarification,
   closeDocumentViewer,
   openDocumentViewer,
+  syncPagePicks,
   renderShell,
   renderImages,
   openConversation,
@@ -94,6 +95,17 @@ export function createStudyHubController({
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && activeAudioDocs().length) scheduleTranscriptionPoll(500);
   });
+  // A floating ⋯ menu would drift off its button, so scrolling the list under it closes it.
+  document.addEventListener("scroll", (event) => {
+    const menu = els.studyView?.querySelector(".study-menu.is-floating:not(.hidden)");
+    if (!menu || !(event.target instanceof Element) || !event.target.contains(menu)) return;
+    // A repaint restoring the list's scroll position isn't the reader scrolling.
+    if (Math.abs(event.target.scrollTop - Number(menu.dataset.scrollFrom || 0)) < 2) return;
+    quizMenuKey = "";
+    menu.classList.add("hidden");
+    menu.previousElementSibling?.setAttribute("aria-expanded", "false");
+  }, true);
+  window.addEventListener("resize", () => floatOpenMenu());
   const CREATE_FILE_CAP = 10;
 
   let pendingUploads = [];
@@ -903,6 +915,11 @@ export function createStudyHubController({
       fileName: documentDisplayName(doc),
       format: doc.kind || "",
       page,
+      pagePick: {
+        isOn: (pageNumber) => contextPicker.pageOn(id, pageNumber),
+        toggle: (pageNumber, on, thumb) => contextPicker.togglePage(id, pageNumber, on, thumb),
+        thumb: (pageNumber, thumb) => contextPicker.pageThumb(id, pageNumber, thumb)
+      },
       container: els.studyView.querySelector(".dojo-source-preview-slot"),
       onClose: (closeEvent) => {
         if (sourcePreviewId !== id) return;
@@ -1661,7 +1678,28 @@ export function createStudyHubController({
     if (collectionList) collectionList.scrollTop = collectionScrollTop;
     const studioBody = els.studyView.querySelector(".dojo-studio-view .dojo-view-body");
     if (studioBody && studioScroll) studioBody.scrollTop = studioScroll;
-    collectionList?.querySelector(".study-menu:not(.hidden)")?.scrollIntoView({ block: "nearest" });
+    floatOpenMenu();
+  }
+
+  // A ⋯ menu in the Dojo panels floats over the page, so a folding group or the panel's
+  // scroll box can't clip it; it opens upward when there's no room below.
+  function floatOpenMenu() {
+    const menu = els.studyView?.querySelector(".dojo-workspace .study-card-menu-wrap > .study-menu:not(.hidden)");
+    if (!menu) return;
+    const button = menu.previousElementSibling;
+    const anchor = button?.getBoundingClientRect();
+    if (!anchor?.width) return;
+    menu.classList.add("is-floating");
+    menu.dataset.scrollFrom = String(menu.closest(".dojo-collection, .study-material-board")?.scrollTop || 0);
+    const { width, height } = menu.getBoundingClientRect();
+    const gap = 4;
+    const margin = 8;
+    const below = anchor.bottom + gap;
+    const top = below + height <= window.innerHeight - margin || anchor.top - gap - height < margin
+      ? Math.min(below, window.innerHeight - margin - height)
+      : anchor.top - gap - height;
+    menu.style.top = `${Math.max(margin, top)}px`;
+    menu.style.left = `${Math.max(margin, Math.min(anchor.right - width, window.innerWidth - margin - width))}px`;
   }
 
   function activeGenerationJobs() {
@@ -3040,7 +3078,11 @@ export function createStudyHubController({
     mode: side => side === "sources" ? (sourcePreviewId ? "sources:preview" : "sources:list") : (studioView ? "studio:view" : "studio:list"),
     collapsed: side => side === "sources" ? sourcesCollapsed : studioCollapsed
   });
-  const contextPicker = createCourseContextPicker({ state, escapeHtml, readyDocs: readyCreateDocs, documentDisplayName, sourceBadge, sourceShortName });
+  const contextPicker = createCourseContextPicker({
+    state, escapeHtml, readyDocs: readyCreateDocs, documentDisplayName, sourceBadge, sourceShortName,
+    onChange: () => syncPagePicks?.(),
+    onOpenPage: (id, page, event) => openSource(id, event, page)
+  });
 
   function renderCreateList() {
     const list = els.studyCreateList;
@@ -4979,6 +5021,12 @@ export function createStudyHubController({
     loadCourse,
     resetCourseCaches,
     chatSources: contextPicker.sources,
+    chatSourcePages: contextPicker.sourcePages,
+    openSourcePage(documentFileId, page, event) {
+      if (!state.activeCourseId || !(state.studyMaterials?.documents || []).some((doc) => doc.id === documentFileId)) return false;
+      openSource(documentFileId, event, page);
+      return true;
+    },
     isSessionOpen: () => Boolean(reviewSession || quizSession)
   };
 }

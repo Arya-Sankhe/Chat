@@ -4573,6 +4573,7 @@ function replacePendingArtifact(message, jobId, resolved) {
 const {
   openDocumentViewer,
   closeDocumentViewer,
+  syncPagePicks,
   renderDocumentViewer,
   syncPendingArtifactPolls,
   stopPendingArtifactPolls,
@@ -5032,6 +5033,21 @@ async function sendSideChatMessage() {
   }
 }
 
+// A marker is "[3]" or the page-carrying "[3, PDF p. 12]" / "[3, slide 4]" models also write.
+const CITATION_MARKER = /\[(\d+)(?:\s*,\s*(?:pdf\s+)?(?:pp?|pages?|slides?)\.?\s*(\d+)(?:\s*[-–]\s*\d+)?)?\]/gi;
+
+function isPageCitation(entry) {
+  return entry?.type === "document" && Boolean(entry.attachment_id);
+}
+
+// Document sources become page chips where they're cited; clicking one opens that page.
+function renderPageCitation(entry) {
+  const page = Number(entry.page) || 0;
+  const name = entry.source || citationDisplayTitle(entry) || "Document";
+  const label = page ? `${name} · page ${page}` : name;
+  return `<button class="page-cite" type="button" data-doc-cite="${escapeHtml(entry.attachment_id)}" data-doc-file="${escapeHtml(entry.document_file_id || "")}" data-doc-page="${page || ""}" data-file-name="${escapeHtml(name)}" title="${escapeHtml(label)}" aria-label="Open ${escapeHtml(label)}"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M4 1.75h5.2L12.5 5v9.25H4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9 1.9V5.3h3.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>${page || "↗"}</span></button>`;
+}
+
 function prepareCitationPlaceholders(text, citations) {
   const slots = [];
   if (!text || !citations?.length) return { text: String(text ?? ""), slots };
@@ -5041,25 +5057,43 @@ function prepareCitationPlaceholders(text, citations) {
     const idx = Number(entry.index);
     if (Number.isFinite(idx)) byIndex.set(idx, entry);
   }
+  const hold = (html) => {
+    const token = `KLUICITATIONPILL${slots.length}END`;
+    slots.push({ token, html });
+    return token;
+  };
 
   const blocks = String(text).split(/\n\n+/);
   const processed = blocks.map((block) => {
     const indices = [];
     const seen = new Set();
-    for (const match of block.matchAll(/\[(\d+)\]/g)) {
-      const n = Number(match[1]);
-      if (!seen.has(n) && byIndex.has(n)) {
+    const pages = new Set();
+    let out = block.replace(CITATION_MARKER, (marker, number, written, offset) => {
+      const n = Number(number);
+      let entry = byIndex.get(n);
+      if (!entry) return marker;
+      if (isPageCitation(entry)) {
+        // The page the model wrote wins when it names one: tool results number their sources separately.
+        const page = Number(written) || 0;
+        if (page && Number(entry.page) !== page) {
+          entry = citations.find((item) => item.attachment_id === entry.attachment_id && Number(item.page) === page) || { ...entry, page };
+        }
+        const key = `${entry.attachment_id}:${entry.page || ""}`;
+        const space = offset > 0 && /\s/.test(block[offset - 1]) ? "" : " ";
+        if (pages.has(key)) return "";
+        pages.add(key);
+        return `${space}${hold(renderPageCitation(entry))}`;
+      }
+      if (!seen.has(n)) {
         seen.add(n);
         indices.push(n);
       }
-    }
-    if (!indices.length) return block;
-
+      return "";
+    });
+    if (!indices.length) return out;
     const sources = indices.map((i) => byIndex.get(i)).filter(Boolean);
-    const token = `KLUICITATIONPILL${slots.length}END`;
-    slots.push({ token, html: renderInlineSourcePill(sources) });
-    const cleaned = block.replace(/\s*\[(\d+)\]/g, "").trimEnd();
-    return `${cleaned} ${token}`;
+    out = out.replace(/[ \t]+(?=[.,;:!?)]|$)/gm, "").trimEnd();
+    return `${out} ${hold(renderInlineSourcePill(sources))}`;
   });
 
   return { text: processed.join("\n\n"), slots };
@@ -7347,6 +7381,7 @@ async function loadStudyHub() {
         clearClarification,
         closeDocumentViewer,
         openDocumentViewer,
+        syncPagePicks,
         renderShell,
         renderImages,
         openConversation,
@@ -9258,6 +9293,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
     }
 
     const courseSources = !temporaryChat && state.studyOpen ? studyHub?.chatSources?.() || [] : [];
+    const coursePages = courseSources.length ? studyHub?.chatSourcePages?.() || {} : {};
     const payload = {
       text,
       // Voice turns stream directly (no queued turn), so interrupting one keeps its partial reply.
@@ -9275,6 +9311,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       agentMode: true,
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
       ...(courseSources.length ? { sources: courseSources } : {}),
+      ...(Object.keys(coursePages).length ? { sourcePages: coursePages } : {}),
       ...(paste ? { paste } : {}),
       ...(describeImages ? { describeImages: true } : {}),
       ...(editMessageId ? { editUserMessageId: editMessageId } : {}),
@@ -10728,6 +10765,20 @@ function bindEvents() {
     const previewImage = e.target.closest("[data-preview-src]");
     if (previewImage) {
       openLightbox(previewImage.dataset.previewSrc, previewImage.dataset.previewCaption || "");
+      return;
+    }
+
+    const pageCite = e.target.closest("[data-doc-cite]");
+    if (pageCite) {
+      e.preventDefault();
+      const page = Number(pageCite.dataset.docPage) || 1;
+      // In Dojo the page opens in the Sources panel beside the chat.
+      if (state.studyOpen && studyHub?.openSourcePage?.(pageCite.dataset.docFile, page, e)) return;
+      if (!state.session?.access_token) {
+        showToast("Sign in to view files.");
+        return;
+      }
+      openDocumentViewer({ attachmentId: pageCite.dataset.docCite, fileName: pageCite.dataset.fileName || "Document", page });
       return;
     }
 

@@ -399,6 +399,25 @@ test("speech audio is capped at ten minutes before provider submission", () => {
   assert.throws(() => validatedAudioDuration(wav, "audio/wav"), /10 minutes/);
 });
 
+test("WebM duration comes from the Segment Info header, never from stray bytes in the audio", () => {
+  const ebml = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x80]);
+  const segment = Buffer.from([0x18, 0x53, 0x80, 0x67, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+  const scale = Buffer.from([0x2a, 0xd7, 0xb1, 0x83, 0x0f, 0x42, 0x40]);
+  const duration = Buffer.alloc(7);
+  duration.set([0x44, 0x89, 0x84]); duration.writeFloatBE(6500, 3);
+  const info = (children, size = children.length) => Buffer.concat([Buffer.from([0x15, 0x49, 0xa9, 0x66, 0x80 | size]), children]);
+  // Opus data that happens to hold the Duration ID and a huge float after it.
+  const stray = Buffer.alloc(9);
+  stray.set([0x44, 0x89, 0x84]); stray.writeFloatBE(9_000_000, 3);
+  const cluster = Buffer.concat([Buffer.from([0x1f, 0x43, 0xb6, 0x75, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xa3, 0x88]), stray]);
+
+  const recorded = Buffer.concat([ebml, segment, info(Buffer.concat([scale, duration])), cluster]);
+  assert.equal(validatedAudioDuration(recorded, "audio/webm"), 6.5);
+  // Live MediaRecorder output has no Duration: unknown, not "over five minutes".
+  const live = Buffer.concat([ebml, segment, info(scale), cluster]);
+  assert.throws(() => validatedAudioDuration(live, "audio/webm", { maxSeconds: 300 }), /could not be validated/);
+});
+
 test("the desktop repository pins the immutable website OpenAPI artifact", async () => {
   const yaml = (await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.yaml", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const declaredHash = await readFile(new URL("../docs/openapi/desktop-v1.2026-08-13.sha256", import.meta.url), "utf8");

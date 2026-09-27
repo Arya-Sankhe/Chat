@@ -2292,6 +2292,34 @@ body.chat-empty .skill-command-menu {
 
 }
 
+/* ── Page citation chips (where a document is cited) ── */
+
+.page-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  margin: 0 1px;
+  padding: 0 6px 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font: 600 10.5px/1 var(--font-sans, inherit);
+  font-variant-numeric: tabular-nums;
+  vertical-align: 0.12em;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.page-cite svg { flex: none; opacity: .75; }
+
+.page-cite:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+@media (hover: hover) {
+  .page-cite:hover { background: color-mix(in srgb, var(--accent) 16%, var(--bg-secondary)); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--text); }
+}
+
 /* ── Inline citation pills (end of paragraph) ── */
 
 .inline-source-pill {

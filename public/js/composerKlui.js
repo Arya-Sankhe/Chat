@@ -251,7 +251,7 @@ export function createComposerKlui({ host, findTarget }) {
       set({ facing: "front", laptop: "none", typing: "false" });
       blinkSoon();
     }
-    if (reducedMotion()) return;
+    // A hop the user asked for plays even with reduced motion; only ambient motion stays still.
     hop?.cancel();
     hop = sprite.animate([
       { transform: "none" },
@@ -281,8 +281,9 @@ export function createComposerKlui({ host, findTarget }) {
     let dash = null;
     let enter = null;
     try {
-      if (!reducedMotion()) {
-        // A startled hop, a turn toward the far end, then off it goes.
+      {
+        // A startled hop, a turn toward the far end, then off it goes (tapped for, so it plays
+        // with reduced motion too).
         const startle = sprite.animate([
           { transform: "none" },
           { transform: "translateY(-30%) scale(.95, 1.06)", offset: 0.45 },
