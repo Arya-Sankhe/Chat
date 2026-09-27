@@ -579,3 +579,33 @@ test("flip preview keeps grading after a completed search is cleared", async () 
   assert.deepEqual(view.marks, { a: 3, b: 1 });
   assert.match(deckBodyMarkup(view, helpers), /Round done/);
 });
+
+test("message and resize renders keep the global prompt timeline hidden in Dojo", () => {
+  const app = readFileSync(resolve(publicDir, "js/app.js"), "utf8");
+  const render = app.match(/function renderChatPromptNavigator\([\s\S]*?\n\}/)[0];
+  const classes = new Set();
+  const ctx = {
+    state: { studyOpen: false }, renderedChatPromptSignature: "",
+    desktopChatNavigationEnabled: () => true,
+    userPromptItems: () => [{ id: "a", label: "First question" }, { id: "b", label: "Second question" }],
+    escapeHtml: String,
+    els: {
+      chatPromptNav: { classList: { toggle: (name, on) => on ? classes.add(name) : classes.delete(name) } },
+      chatPromptMarkers: { querySelector: () => null, innerHTML: "" },
+      chatPromptList: { innerHTML: "" }
+    }
+  };
+  runInNewContext(render, ctx);
+  ctx.renderChatPromptNavigator();
+  assert.equal(classes.has("hidden"), false);
+  ctx.state.studyOpen = true;
+  classes.add("hidden"); // Dojo's initial paint hides the global timeline.
+  ctx.renderChatPromptNavigator();
+  ctx.renderChatPromptNavigator(); // Another message or resize must not bring it back.
+  assert.equal(classes.has("hidden"), true);
+  assert.equal(ctx.renderedChatPromptSignature, "");
+  ctx.state.studyOpen = false;
+  ctx.renderChatPromptNavigator();
+  assert.equal(classes.has("hidden"), false);
+  assert.match(ctx.els.chatPromptList.innerHTML, /First question/);
+});

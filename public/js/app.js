@@ -6228,7 +6228,7 @@ function userPromptItems() {
 
 function renderChatPromptNavigator() {
   if (!els.chatPromptNav) return;
-  const prompts = desktopChatNavigationEnabled() ? userPromptItems() : [];
+  const prompts = !state.studyOpen && desktopChatNavigationEnabled() ? userPromptItems() : [];
   const visible = prompts.length > 1;
   els.chatPromptNav.classList.toggle("hidden", !visible);
   if (!visible) {
