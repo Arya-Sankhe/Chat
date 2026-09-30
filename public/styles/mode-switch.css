@@ -1,0 +1,241 @@
+/* Unified answer-mode switch in the composer: Think (one model), Compare (two models) and
+   Council (a panel plus a chairman) share one pill. The active mode opens up into a labelled
+   segment; the other two shrink to icons. #modeSwitch[data-active] is set in compare.js. */
+
+.mode-switch {
+  --mode-switch-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 38px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  box-shadow: inset 0 0 0 1px var(--border-light);
+  transition: background 260ms var(--mode-switch-ease), box-shadow 260ms var(--mode-switch-ease);
+}
+
+.mode-switch > .composer-model-wrap,
+.mode-switch > .composer-compare-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* ─── Shared segment shape ─── */
+
+.mode-switch .composer-model-btn.heat-btn,
+.mode-switch .compare-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  max-width: none;
+  height: 32px;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
+  overflow: hidden;
+  transition:
+    width 320ms var(--mode-switch-ease),
+    min-width 320ms var(--mode-switch-ease),
+    background 220ms var(--mode-switch-ease),
+    color 180ms var(--mode-switch-ease),
+    transform 160ms var(--mode-switch-ease);
+}
+
+.mode-switch .compare-btn:hover,
+.mode-switch .composer-model-btn.heat-btn:hover {
+  border: 0;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.mode-switch .compare-btn:active,
+.mode-switch .composer-model-btn.heat-btn:active {
+  transform: scale(0.95);
+}
+
+.mode-switch .compare-btn:disabled,
+.mode-switch .composer-model-btn.heat-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+.mode-switch .compare-btn:focus-visible,
+.mode-switch .composer-model-btn.heat-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mode-switch .compare-btn > svg,
+.mode-switch .mode-switch-icon {
+  flex: 0 0 auto;
+  transition: opacity 180ms var(--mode-switch-ease), transform 260ms var(--mode-switch-ease);
+}
+
+/* The label shares the THINK lettering. */
+.mode-switch .mode-switch-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Korataki", "Orbitron", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
+  transition: opacity 200ms var(--mode-switch-ease), transform 260ms var(--mode-switch-ease);
+}
+
+/* ─── Think (model) segment ─── */
+
+.mode-switch .mode-switch-icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  transform: scale(0.6) translateY(4px);
+}
+
+.mode-switch .heat-bar {
+  transition: opacity 200ms var(--mode-switch-ease);
+}
+
+.mode-switch[data-active="think"] .composer-model-btn.heat-btn {
+  width: 96px;
+  min-width: 96px;
+  overflow: visible;
+}
+
+.mode-switch[data-active="think"] .composer-model-btn.heat-btn:hover {
+  background: transparent;
+}
+
+.mode-switch:not([data-active="think"]) .heat-bar {
+  opacity: 0;
+}
+
+.mode-switch:not([data-active="think"]) .mode-switch-icon {
+  opacity: 1;
+  transform: none;
+}
+
+/* A tiny Klui stands in for "one model"; it hops when hovered. */
+.mode-switch:not([data-active="think"]) .composer-model-btn.heat-btn:hover .mode-switch-icon {
+  transform: translateY(-1.5px);
+}
+
+/* ─── Compare segment: two models, two tones (violet meets teal) ─── */
+
+.mode-switch[data-active="compare"] .compare-btn:not(.council-btn) {
+  width: 112px;
+  min-width: 112px;
+  color: #fff;
+  background: linear-gradient(100deg, #8b5cf6 0%, #6366f1 42%, #0ea5e9 72%, #14b8a6 100%);
+  box-shadow:
+    -4px 0 12px color-mix(in srgb, #8b5cf6 22%, transparent),
+    4px 0 12px color-mix(in srgb, #14b8a6 20%, transparent);
+}
+
+.mode-switch[data-active="compare"] .compare-btn:not(.council-btn) > svg {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.mode-switch[data-active="compare"] .compare-btn:not(.council-btn) .mode-switch-label {
+  opacity: 1;
+  transform: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* ─── Council: only its own segment turns black ─── */
+
+.mode-switch[data-active="council"] .council-btn {
+  width: 104px;
+  min-width: 104px;
+  color: #fff;
+  background: #0b0b0c;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.mode-switch[data-active="council"] .council-btn:hover {
+  background: #0b0b0c;
+  color: #fff;
+}
+
+.mode-switch[data-active="council"] .council-btn > svg {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.mode-switch[data-active="council"] .council-btn .mode-switch-label {
+  opacity: 1;
+  transform: none;
+}
+
+body[data-mode="dark"] .mode-switch[data-active="council"] .council-btn {
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+/* The model popover is anchored to the whole switch, not the shrunken segment. */
+.mode-switch .spectrum-pop {
+  left: -3px;
+}
+
+/* Native app: mode lives in the top bar. */
+body.capacitor-native .composer-bottom .mode-switch {
+  display: none !important;
+}
+
+@media (max-width: 520px) {
+  .mode-switch[data-active="think"] .composer-model-btn.heat-btn {
+    width: 84px;
+    min-width: 84px;
+  }
+  .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) {
+    width: 100px;
+    min-width: 100px;
+  }
+  .mode-switch[data-active="council"] .council-btn {
+    width: 94px;
+    min-width: 94px;
+  }
+  .mode-switch .mode-switch-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-switch,
+  .mode-switch .composer-model-btn.heat-btn,
+  .mode-switch .compare-btn,
+  .mode-switch .mode-switch-label,
+  .mode-switch .mode-switch-icon,
+  .mode-switch .compare-btn > svg {
+    transition: none;
+  }
+}

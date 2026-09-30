@@ -509,6 +509,7 @@ test("completeDocumentUpload uses the atomic upload queue RPC", async () => {
       p_size_bytes: 1234,
       p_etag: "etag-1",
       p_kind: "pdf",
+      p_queue: "local",
       p_limits: { max_pdf_pages: 100 },
       p_project_id: null,
       p_project_max_bytes: null,
@@ -699,7 +700,8 @@ test("queueDocumentPageRender uses the high-priority render RPC", async () => {
     assert.deepEqual(JSON.parse(options.body), {
       p_user_id: "user_1",
       p_document_file_id: "doc_1",
-      p_page_number: 7
+      p_page_number: 7,
+      p_queue: "local"
     });
     return jsonResponse({ page: null, job: { id: "job_7", priority: 100 } });
   }, async () => {

@@ -13,6 +13,14 @@ from worker import worker as w
 
 
 class EnvHelpersTest(unittest.TestCase):
+    def test_document_worker_claim_passes_its_queue(self):
+        db = w.Supabase.__new__(w.Supabase)
+        db.rpc = mock.Mock(return_value=[{"id": "job-1", "queue": "local"}])
+        self.assertEqual(db.claim_job("worker-1", 120, "local")["id"], "job-1")
+        db.rpc.assert_called_once_with("klui_claim_document_job", {
+            "p_worker_id": "worker-1", "p_lease_seconds": 120, "p_queue": "local"
+        })
+
     def test_env_int_clamps_to_bounds(self):
         with mock.patch.dict(os.environ, {"TEST_INT": "99"}, clear=False):
             self.assertEqual(w.env_int("TEST_INT", 2, minimum=1, maximum=4), 4)
@@ -1138,6 +1146,7 @@ class DispatchRoutingTest(unittest.TestCase):
             "id": "job-1",
             "user_id": "user-1",
             "conversation_id": "conversation-1",
+            "queue": "local",
             "input": {
                 "editor_markdown": "# Report\n\nEditable body.",
                 "account_max_bytes": 2684354560,
@@ -1162,6 +1171,7 @@ class DispatchRoutingTest(unittest.TestCase):
         self.assertEqual(reserved["project_id"], "project-1")
         self.assertEqual(completed["max_bytes"], 2684354560)
         self.assertEqual(created["project_id"], "project-1")
+        self.assertEqual(created["queue"], "local")
         self.assertTrue(created["metadata"]["editable"])
         self.assertEqual(updated["metadata"]["editor_markdown"], "# Report\n\nEditable body.")
         self.assertEqual(updated["metadata"]["editor_revision"], 1)
@@ -1625,6 +1635,16 @@ class JinaRateLimiterTest(unittest.TestCase):
 
 
 class EmbeddingBackfillTest(unittest.TestCase):
+    def test_automatic_backfill_filters_document_origin(self):
+        processor = w.Processor.__new__(w.Processor)
+        processor.db = mock.Mock()
+        processor.db.request.return_value = []
+        processor._embed_skip = set()
+        processor._pending_embedding_rows("document_pages", "id,image_key", 5, 0, queue="local")
+        params = processor.db.request.call_args.kwargs["params"]
+        self.assertEqual(params["select"], "id,image_key,document_files!inner(queue)")
+        self.assertEqual(params["document_files.queue"], "eq.local")
+
     def test_backfill_embeds_missing_chunks_and_isolates_rejected_rows(self):
         processor = w.Processor.__new__(w.Processor)
         processor._embed_skip = set()
@@ -1678,6 +1698,138 @@ class EmbeddingBackfillTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 processor.backfill_embeddings(max_pages=0, max_chunks=10, min_age_seconds=0)
             self.assertEqual(processor._embed_skip, set(), "outage rows stay eligible for the next pass")
+
+
+class StorageRetryTest(unittest.TestCase):
+    def test_busy_object_reads_retry_then_succeed(self):
+        from botocore.exceptions import ClientError
+
+        busy = ClientError({"Error": {"Code": "ServiceUnavailable", "Message": "Reduce your rate of simultaneous reads on the same object."}}, "GetObject")
+        calls, sleeps = [], []
+
+        def action():
+            calls.append(1)
+            if len(calls) < 3:
+                raise busy
+            return "ok"
+
+        self.assertEqual(w.with_storage_retries(action, sleep=sleeps.append), "ok")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(sleeps), 2)
+
+    def test_missing_object_is_not_retried(self):
+        from botocore.exceptions import ClientError
+
+        missing = ClientError({"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": 404}}, "GetObject")
+        calls = []
+
+        def action():
+            calls.append(1)
+            raise missing
+
+        with self.assertRaises(ClientError):
+            w.with_storage_retries(action, sleep=lambda _: None)
+        self.assertEqual(len(calls), 1)
+
+
+class PptxEditTest(unittest.TestCase):
+    def make_deck(self, path):
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1))
+        paragraph = box.text_frame.paragraphs[0]
+        first = paragraph.add_run()
+        first.text = "Revenue grew "
+        second = paragraph.add_run()
+        second.text = "18% in Q3"
+        second.font.bold = True
+        other = prs.slides.add_slide(prs.slide_layouts[6])
+        other.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1)).text_frame.text = "Q3 outlook"
+        prs.save(path)
+
+    def texts(self, path):
+        from pptx import Presentation
+
+        return [" ".join(p.text for p in w.iter_pptx_paragraphs(slide.shapes)) for slide in Presentation(str(path)).slides]
+
+    def test_replace_text_keeps_run_formatting_and_respects_slide_filter(self):
+        from pptx import Presentation
+
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "deck.pptx"
+            self.make_deck(source)
+            output = processor.replace_pptx_text(source, tmp_path, [
+                {"type": "replace_text", "find": "18%", "replace": "21%"},
+                {"type": "replace_text", "find": "Q3", "replace": "Q4", "slide": 2},
+                {"type": "replace_text", "find": "missing words", "replace": "x"},
+            ])
+            self.assertEqual(self.texts(output), ["Revenue grew 21% in Q3", "Q4 outlook"])
+            runs = Presentation(str(output)).slides[0].shapes[0].text_frame.paragraphs[0].runs
+            self.assertTrue(runs[1].font.bold)
+            self.assertEqual(processor.artifact_warnings, ["text not found: missing words"])
+
+    def test_replace_text_spanning_runs_and_nothing_found(self):
+        processor = w.Processor.__new__(w.Processor)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "deck.pptx"
+            self.make_deck(source)
+            output = processor.replace_pptx_text(source, tmp_path, [{"type": "replace_text", "find": "grew 18%", "replace": "fell 2%"}])
+            self.assertEqual(self.texts(output)[0], "Revenue fell 2% in Q3")
+            with self.assertRaises(RuntimeError):
+                processor.replace_pptx_text(source, tmp_path, [{"type": "replace_text", "find": "absent", "replace": "x"}])
+
+    def test_replace_spanning_runs_keeps_formatting_of_later_runs(self):
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        prs = Presentation()
+        paragraph = prs.slides.add_slide(prs.slide_layouts[6]).shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1)).text_frame.paragraphs[0]
+        for text, bold, italic in [("Revenue ", False, False), ("grew 18%", True, False), (" in Q3, ", False, False), ("a record", False, True), (" year", False, False)]:
+            run = paragraph.add_run()
+            run.text = text
+            run.font.bold = bold
+            run.font.italic = italic
+        count = w.replace_in_paragraph(paragraph, "Revenue grew", "Sales rose")
+        self.assertEqual(count, 1)
+        runs = paragraph.runs
+        self.assertEqual([run.text for run in runs], ["Sales rose", " 18%", " in Q3, ", "a record", " year"])
+        self.assertTrue(runs[1].font.bold)
+        self.assertTrue(runs[3].font.italic, "the italic phrase after the match keeps its formatting")
+        self.assertFalse(bool(runs[4].font.italic))
+        self.assertEqual(w.replace_in_paragraph(paragraph, "Q3, a", "Q4, the"), 1)
+        self.assertEqual([run.text for run in paragraph.runs], ["Sales rose", " 18%", " in Q4, the", " record", " year"])
+        self.assertTrue(paragraph.runs[3].font.italic)
+
+    def test_generated_deck_edit_re_renders_from_spec(self):
+        processor = w.Processor.__new__(w.Processor)
+        deck = {"title": "Churn", "slides": [{"type": "cover", "title": "Churn"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            rendered = tmp_path / "out" / "Churn.pptx"
+            rendered.parent.mkdir()
+            rendered.write_bytes(b"pptx")
+
+            def fake_render(tmp_arg, title, payload, fmt):
+                self.assertEqual((title, fmt), ("Churn", "pptx"))
+                self.assertEqual(payload, {"data": {"deck": deck}})
+                processor.artifact_warnings = ["slide 2: clipped: x"]
+                return rendered
+
+            processor.create_js_artifact = fake_render
+            output = processor.edit_pptx(tmp_path / "edited-edited-Churn.pptx", tmp_path, {"title": "Churn", "data": {"deck": deck}})
+            self.assertEqual(output.name, "edited-Churn.pptx")
+            self.assertEqual(output.read_bytes(), b"pptx")
+            self.assertEqual(processor.artifact_warnings, ["slide 2: clipped: x"])
+
+            processor.create_js_artifact = lambda *args: None
+            with self.assertRaises(RuntimeError):
+                processor.edit_pptx(tmp_path / "Churn.pptx", tmp_path, {"data": {"deck": deck}})
 
 
 class HealthcheckTest(unittest.TestCase):

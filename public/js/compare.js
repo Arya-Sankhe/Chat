@@ -150,7 +150,8 @@ export function createCompareController({
     elements.compareButton.setAttribute("aria-expanded", "false");
     elements.compareButton.disabled = state.running || state.temporaryChat;
     elements.compareButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (compareActive ? "Compare mode on" : "Compare two answers"));
-    elements.compareLabel.textContent = compareActive ? "Compare on" : "Compare";
+    elements.compareLabel.textContent = "Compare";
+    if (elements.modeSwitch) elements.modeSwitch.dataset.active = councilActive ? "council" : compareActive ? "compare" : "think";
     if (elements.councilButton) {
       elements.councilButton.classList.toggle("active", councilActive);
       elements.councilButton.classList.toggle("council-active", councilActive);
@@ -158,7 +159,7 @@ export function createCompareController({
       elements.councilButton.disabled = state.running || state.temporaryChat;
       elements.councilButton.setAttribute("title", state.temporaryChat ? "Temporary chat uses one model" : (councilActive ? "Council mode on" : "Council mode"));
     }
-    if (elements.councilLabel) elements.councilLabel.textContent = councilActive ? "Council on" : "Council";
+    if (elements.councilLabel) elements.councilLabel.textContent = "Council";
     renderResearchMode?.();
   }
 

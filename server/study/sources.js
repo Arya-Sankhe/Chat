@@ -55,7 +55,7 @@ export async function createCourseSource({ context, config, course, body, signal
     return await context.db.rpc("klui_complete_study_source", {
       p_user_id: context.user.id, p_attachment_id: attachment.id, p_project_id: course.id,
       p_kind: kind, p_title: title, p_content: content, p_source_url: sourceUrl,
-      p_project_max_bytes: context.plan.maxProjectBytes
+      p_project_max_bytes: context.plan.maxProjectBytes, p_document_queue: config.documents?.queue
     }, { signal });
   } catch (error) {
     // Cleanup must still run if the browser disconnects during an import.

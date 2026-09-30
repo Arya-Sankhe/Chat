@@ -31,7 +31,9 @@ function readyDocumentList(readyDocuments) {
     .join("\n");
 }
 
-export function selectDocumentSkills({ text = "", readyDocuments = [], messageHasDocuments = false } = {}) {
+// createFormat: "pptx" or "docx" when the user chose the Slides or Docs composer mode, so the
+// create tool is offered even when the prompt is only a topic ("photosynthesis for grade 10").
+export function selectDocumentSkills({ text = "", readyDocuments = [], messageHasDocuments = false, createFormat = "" } = {}) {
   const prompt = clean(text);
   const readyCount = Array.isArray(readyDocuments) ? readyDocuments.length : 0;
 
@@ -44,7 +46,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const fileDeliveryAction = /\b(give|send|provide|prepare|share|attach|deliver|download|export|add)\b/i.test(prompt)
     || /\b(can|could|may)\s+(i|we)\s+get\b/i.test(prompt)
     || /\bi(?:'d| would)?\s+(like|need|want)\b/i.test(prompt);
-  const editAction = /\b(edit|revise|redline|update|rewrite|change|modify|polish|fix)\b/i.test(prompt);
+  const editAction = /\b(edit|revise|redline|update|rewrite|change|modify|polish|fix|remove|delete|replace|recolou?r|swap|reorder|rename|hide|shorten|reword)\b/i.test(prompt);
+  // Parts of a slide or page a follow-up edit can point at without naming the file.
+  const mentionsDocumentPart = /\b(footer|header|title|subtitle|heading|page|pages|paragraph|bullet|card|chart|colou?rs?|font|theme|takeaway|slide)\b/i.test(prompt);
   const exportAction = /\b(export|convert|download\s+as|save\s+as)\b/i.test(prompt);
 
   const asksPdf = /\b(pdf|\.pdf)\b/i.test(prompt);
@@ -124,7 +128,13 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     }
   }
 
-  if (readyCount > 0 && editAction && (mentionsDocument || mentionsExisting)) {
+  if (createFormat === "pptx" || createFormat === "docx") {
+    skills.add("artifact-planner");
+    skills.add(createFormat === "pptx" ? "presentation-create" : "word-create");
+    tools.add("create_document");
+  }
+
+  if (readyCount > 0 && editAction && (mentionsDocument || mentionsExisting || mentionsDocumentPart)) {
     skills.add("document-edit");
     tools.add("edit_document");
     addAll(tools, READ_TOOLS);

@@ -3,6 +3,10 @@ services:
     environment:
       RESEARCH_QUEUE: production
       TRANSCRIBE_QUEUE: production
+      DOCUMENT_QUEUE: production
+  document-worker:
+    environment:
+      DOCUMENT_QUEUE: production
   research-worker:
     environment:
       RESEARCH_QUEUE: production

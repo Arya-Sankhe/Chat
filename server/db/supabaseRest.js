@@ -533,6 +533,10 @@ export class SupabaseRest {
     return documents.getDocumentJob(this, userId, jobId, options);
   }
 
+  async getDeckSpecForDocument(userId, documentFileId, options) {
+    return documents.getDeckSpecForDocument(this, userId, documentFileId, options);
+  }
+
   async createResearchRun(run, options) {
     return research.createResearchRun(this, run, options);
   }

@@ -334,7 +334,7 @@ export async function executeToolCall({ toolCall, websearch, weather, documents,
     }
 
     const citations = citationsFromResults(result.results)
-      .map((citation) => ({ ...citation, index: citation.index + citationOffset }));
+      .map((citation) => ({ ...citation, rank: citation.index, index: citation.index + citationOffset }));
     return {
       ok: true,
       name,
@@ -426,11 +426,20 @@ function normalizedToolCallsForMessage(toolCalls, iteration) {
 
 /* Web sources shown in the Sources panel are limited to what supports the
    final answer; document citations feed a separate panel and pass through. */
-function answerCitations(citations, content) {
-  return [
-    ...filterCitationsForAnswer(citations.filter((citation) => citation?.type !== "document"), content),
-    ...citations.filter((citation) => citation?.type === "document")
-  ];
+export function answerCitations(citations, content) {
+  const web = citations.filter((citation) => citation?.type !== "document");
+  let shown = filterCitationsForAnswer(web, content);
+  /* Without [n] markers nothing can be attributed to a source. Keep the
+     searches visible, but flag the entries as search results (not citations)
+     so the panel does not claim they support the answer. */
+  if (!shown.length && web.length) {
+    const ranked = web
+      .map((citation, order) => ({ citation, order }))
+      .sort((a, b) => (Number(a.citation.rank) || 99) - (Number(b.citation.rank) || 99) || a.order - b.order)
+      .map(({ citation }) => ({ ...citation, read: true }));
+    shown = filterCitationsForAnswer(ranked, "", 5).map(({ read, ...citation }) => ({ ...citation, searched: true }));
+  }
+  return [...shown, ...citations.filter((citation) => citation?.type === "document")];
 }
 
 /* ── Stream-aware run loop ── */

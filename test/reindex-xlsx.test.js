@@ -13,8 +13,8 @@ test("XLSX reindex stays dry-run by default and skips current or active files", 
         { id: "active", metadata: {} }
       ];
       if (path === "document_jobs" && !options.method) return [
-        { id: "job-old", document_file_id: "old", status: "succeeded" },
-        { id: "job-active", document_file_id: "active", status: "running" }
+        { id: "job-old", document_file_id: "old", status: "succeeded", queue: "local" },
+        { id: "job-active", document_file_id: "active", status: "running", queue: "local" }
       ];
       writes.push({ path, options });
       return [];
@@ -39,7 +39,7 @@ test("XLSX reindex resets the existing extraction job when applied", async () =>
     async request(path, options) {
       if (path === "document_files") return [{ id: "old", metadata: {} }];
       if (path === "document_jobs" && !options.method) {
-        return [{ id: "job-old", document_file_id: "old", status: "succeeded" }];
+        return [{ id: "job-old", document_file_id: "old", status: "succeeded", queue: "local" }];
       }
       writes.push({ path, options });
       return [];
@@ -52,4 +52,20 @@ test("XLSX reindex resets the existing extraction job when applied", async () =>
   assert.equal(writes[0].options.method, "PATCH");
   assert.equal(writes[0].options.body.status, "queued");
   assert.equal(writes[0].options.body.attempt_count, 0);
+});
+
+test("XLSX reindex leaves the other machine's jobs alone", async () => {
+  const writes = [];
+  const db = {
+    async request(path, options) {
+      if (path === "document_files") return [{ id: "prod-file", metadata: {} }];
+      if (path === "document_jobs" && !options.method) {
+        return [{ id: "prod-job", document_file_id: "prod-file", status: "succeeded", queue: "production" }];
+      }
+      writes.push({ path, options });
+      return [];
+    }
+  };
+  await reindexXlsxDocuments({ db, queue: "local", apply: true, logger: { log() {} } });
+  assert.deepEqual(writes, []);
 });

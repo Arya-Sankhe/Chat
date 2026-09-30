@@ -1558,22 +1558,11 @@ body.capacitor-native.study-open .study-view.study-view--detail {
 /* Dojo composer toolbar: soft round tools, the model pill and a Context pill. */
 .study-composer-slot .composer-bottom { margin-top: 8px; gap: 10px; }
 .study-composer-slot .composer-actions { gap: 6px; }
-.study-composer-slot .composer-plus-btn,
-.study-composer-slot .compare-btn { width: 34px; min-width: 34px; height: 34px; padding: 0; justify-content: center; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-secondary); box-shadow: none; transition: background 140ms ease, color 140ms ease, transform 140ms ease; }
-.study-composer-slot .compare-btn > span { display: none; }
-.study-composer-slot .composer-plus-btn:hover,
-.study-composer-slot .compare-btn:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); border: 0; }
-.study-composer-slot .composer-plus-btn:active,
-.study-composer-slot .compare-btn:active { transform: scale(.94); }
+.study-composer-slot .composer-plus-btn { width: 34px; min-width: 34px; height: 34px; padding: 0; justify-content: center; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text-secondary); box-shadow: none; transition: background 140ms ease, color 140ms ease, transform 140ms ease; }
+.study-composer-slot .composer-plus-btn:hover { background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); border: 0; }
+.study-composer-slot .composer-plus-btn:active { transform: scale(.94); }
 .study-composer-slot .composer-plus-btn[aria-expanded="true"] { background: var(--accent); color: var(--accent-contrast); }
 .study-composer-slot .composer-plus-btn[aria-expanded="true"]:hover { background: var(--accent-hover); color: var(--accent-contrast); }
-.study-composer-slot .compare-btn.active,
-.study-composer-slot .compare-btn.council-active { border: 0; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
-.study-composer-slot .compare-btn.active:hover,
-.study-composer-slot .compare-btn.council-active:hover { border: 0; background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent); }
-.study-composer-slot .composer-model-wrap { margin-right: 4px; }
-.study-composer-slot .composer-model-btn { min-width: 76px; }
-.study-composer-slot .composer-model-btn.heat-btn { height: 34px; }
 .study-composer-slot .heat-bar { box-shadow: none; }
 .study-composer-slot .composer-send { gap: 6px; }
 .study-composer-slot .voice-btn { width: 34px; height: 34px; }

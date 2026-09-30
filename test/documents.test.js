@@ -32,7 +32,8 @@ function documentServiceWithDb(db) {
     config: {
       documents: {
         enabled: true,
-        jobWaitMs: 10
+        jobWaitMs: 10,
+        queue: "local"
       }
     },
     db,
@@ -588,7 +589,8 @@ test("DocumentService queues every missing page before waiting for renders", asy
         image_key: `page-${pageNumber}.jpg`
       }];
     },
-    async queueDocumentPageRender({ pageNumber }) {
+    async queueDocumentPageRender({ pageNumber, queue }) {
+      assert.equal(queue, "local");
       queueCalls.push(pageNumber);
       if (queueCalls.length === 3) queueingComplete = true;
       return { job: { id: `job_${pageNumber}`, status: "queued" } };
@@ -887,6 +889,7 @@ test("DocumentService fills vague create-document requests from the previous ass
   });
 
   assert.equal(capturedJob.job_type, "document.create.pdf");
+  assert.equal(capturedJob.queue, "local");
   assert.match(capturedJob.input.content, /Regression fits a model/);
   assert.equal(capturedJob.input.content_source, "previous_assistant");
   assert.doesNotMatch(capturedJob.input.content, /Create a concise PDF/);

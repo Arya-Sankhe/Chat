@@ -174,6 +174,7 @@ export async function completeDocumentUpload(client, {
   sizeBytes,
   etag = null,
   kind,
+  queue = "local",
   limits = {},
   projectId = null,
   projectMaxBytes = null,
@@ -185,6 +186,7 @@ export async function completeDocumentUpload(client, {
     p_size_bytes: sizeBytes,
     p_etag: etag,
     p_kind: kind,
+    p_queue: queue,
     p_limits: limits,
     p_project_id: projectId,
     p_project_max_bytes: projectMaxBytes,
@@ -198,6 +200,27 @@ export async function getDocumentJob(client, userId, jobId, { signal } = {}) {
     signal
   });
   return single(rows);
+}
+
+// The DeckSpec a generated or edited PPTX was rendered from, stored on the job that made it.
+// The worker reports the deck exactly as rendered (resolved theme, markdown fallback); older
+// jobs only have the spec they were sent.
+export async function getDeckSpecForDocument(client, userId, documentFileId, { signal } = {}) {
+  const rows = await client.request("document_jobs", {
+    query: {
+      user_id: `eq.${userId}`,
+      "output->>document_file_id": `eq.${documentFileId}`,
+      status: "eq.succeeded",
+      job_type: "in.(document.create.pptx,document.edit.pptx)",
+      select: "id,rendered:output->deck,sent:input->data->deck",
+      order: "created_at.desc",
+      limit: "1"
+    },
+    signal
+  });
+  const row = single(rows);
+  const usable = (deck) => deck && typeof deck === "object" && Array.isArray(deck.slides);
+  return usable(row?.rendered) ? row.rendered : usable(row?.sent) ? row.sent : null;
 }
 
 export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, offset = 0, sourceType = "", sheet = "", signal } = {}) {
@@ -264,12 +287,14 @@ export async function updateDocumentPage(client, userId, documentFileId, pageNum
 export async function queueDocumentPageRender(client, {
   userId,
   documentFileId,
-  pageNumber
+  pageNumber,
+  queue = "local"
 }, { signal } = {}) {
   return client.rpc("klui_queue_document_page_render", {
     p_user_id: userId,
     p_document_file_id: documentFileId,
-    p_page_number: pageNumber
+    p_page_number: pageNumber,
+    p_queue: queue
   }, { signal });
 }
 

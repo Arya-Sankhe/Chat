@@ -1,0 +1,1180 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "id": "students",
+      "label": "Students",
+      "categories": [
+        {
+          "id": "lecture",
+          "label": "Lectures & courses"
+        },
+        {
+          "id": "research",
+          "label": "Research & thesis"
+        },
+        {
+          "id": "group",
+          "label": "Group projects"
+        },
+        {
+          "id": "class",
+          "label": "Class presentations"
+        }
+      ]
+    },
+    {
+      "id": "work",
+      "label": "Work",
+      "categories": [
+        {
+          "id": "business",
+          "label": "Business & strategy"
+        },
+        {
+          "id": "pitch",
+          "label": "Pitch decks"
+        },
+        {
+          "id": "report",
+          "label": "Reports & reviews"
+        },
+        {
+          "id": "finance",
+          "label": "Finance & investment"
+        },
+        {
+          "id": "marketing",
+          "label": "Marketing & brand"
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "id": "academy",
+      "name": "Academy",
+      "group": "students",
+      "category": "lecture",
+      "description": "Navy title slide, then clean white pages with one blue line and friendly callouts: courseware for lectures and study sessions.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "2F6BEB",
+        "F07B32",
+        "12A37A"
+      ],
+      "cover": "/deck-presets/academy/cover.webp",
+      "slides": [
+        "/deck-presets/academy/01.webp",
+        "/deck-presets/academy/02.webp",
+        "/deck-presets/academy/03.webp",
+        "/deck-presets/academy/04.webp",
+        "/deck-presets/academy/05.webp",
+        "/deck-presets/academy/06.webp",
+        "/deck-presets/academy/07.webp",
+        "/deck-presets/academy/08.webp"
+      ]
+    },
+    {
+      "id": "atlas",
+      "name": "Deep Blue Atlas",
+      "group": "students",
+      "category": "lecture",
+      "description": "Navy and sky blue with concentric arcs: calm, spacious courseware for lectures and workshops.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "2476C9",
+        "17285A",
+        "7FC4E8"
+      ],
+      "cover": "/deck-presets/atlas/cover.webp",
+      "slides": [
+        "/deck-presets/atlas/01.webp",
+        "/deck-presets/atlas/02.webp",
+        "/deck-presets/atlas/03.webp",
+        "/deck-presets/atlas/04.webp",
+        "/deck-presets/atlas/05.webp",
+        "/deck-presets/atlas/06.webp",
+        "/deck-presets/atlas/07.webp",
+        "/deck-presets/atlas/08.webp"
+      ]
+    },
+    {
+      "id": "pastel",
+      "name": "Pastel Derivation",
+      "group": "students",
+      "category": "lecture",
+      "description": "Pastel blueprint paper with condensed headings, built for derivations and step-by-step lectures.",
+      "dark": false,
+      "swatches": [
+        "E7EFF8",
+        "2E5EA8",
+        "16233F",
+        "E07A3F"
+      ],
+      "cover": "/deck-presets/pastel/cover.webp",
+      "slides": [
+        "/deck-presets/pastel/01.webp",
+        "/deck-presets/pastel/02.webp",
+        "/deck-presets/pastel/03.webp",
+        "/deck-presets/pastel/04.webp",
+        "/deck-presets/pastel/05.webp",
+        "/deck-presets/pastel/06.webp",
+        "/deck-presets/pastel/07.webp",
+        "/deck-presets/pastel/08.webp"
+      ]
+    },
+    {
+      "id": "chalk",
+      "name": "Chalkboard",
+      "group": "students",
+      "category": "lecture",
+      "description": "A green chalkboard with warm chalk colours: friendly for teaching, revision and classroom talks.",
+      "dark": true,
+      "swatches": [
+        "1E3A34",
+        "F2C94C",
+        "3F7A6C",
+        "F28B6B"
+      ],
+      "cover": "/deck-presets/chalk/cover.webp",
+      "slides": [
+        "/deck-presets/chalk/01.webp",
+        "/deck-presets/chalk/02.webp",
+        "/deck-presets/chalk/03.webp",
+        "/deck-presets/chalk/04.webp",
+        "/deck-presets/chalk/05.webp",
+        "/deck-presets/chalk/06.webp",
+        "/deck-presets/chalk/07.webp",
+        "/deck-presets/chalk/08.webp"
+      ]
+    },
+    {
+      "id": "defense",
+      "name": "Teal Academic Defense",
+      "group": "students",
+      "category": "research",
+      "description": "Deep teal with an orange signal and a section tracker: a rigorous look for thesis defences.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "0F7C74",
+        "0B3B38",
+        "F07A2B"
+      ],
+      "cover": "/deck-presets/defense/cover.webp",
+      "slides": [
+        "/deck-presets/defense/01.webp",
+        "/deck-presets/defense/02.webp",
+        "/deck-presets/defense/03.webp",
+        "/deck-presets/defense/04.webp",
+        "/deck-presets/defense/05.webp",
+        "/deck-presets/defense/06.webp",
+        "/deck-presets/defense/07.webp",
+        "/deck-presets/defense/08.webp"
+      ]
+    },
+    {
+      "id": "paper",
+      "name": "Paper White Study",
+      "group": "students",
+      "category": "research",
+      "description": "Warm paper, forest-green headings and a coral highlight for findings-driven study reports.",
+      "dark": false,
+      "swatches": [
+        "FAF6EE",
+        "2F7D4F",
+        "1D3B2A",
+        "F0835A"
+      ],
+      "cover": "/deck-presets/paper/cover.webp",
+      "slides": [
+        "/deck-presets/paper/01.webp",
+        "/deck-presets/paper/02.webp",
+        "/deck-presets/paper/03.webp",
+        "/deck-presets/paper/04.webp",
+        "/deck-presets/paper/05.webp",
+        "/deck-presets/paper/06.webp",
+        "/deck-presets/paper/07.webp",
+        "/deck-presets/paper/08.webp"
+      ]
+    },
+    {
+      "id": "journal",
+      "name": "Wine Red Data",
+      "group": "students",
+      "category": "research",
+      "description": "Blush paper and wine-red data ink with a technical-drawing cover. Made for quantitative results.",
+      "dark": false,
+      "swatches": [
+        "FBF4F2",
+        "9B1B30",
+        "5C0F1C",
+        "C9A27E"
+      ],
+      "cover": "/deck-presets/journal/cover.webp",
+      "slides": [
+        "/deck-presets/journal/01.webp",
+        "/deck-presets/journal/02.webp",
+        "/deck-presets/journal/03.webp",
+        "/deck-presets/journal/04.webp",
+        "/deck-presets/journal/05.webp",
+        "/deck-presets/journal/06.webp",
+        "/deck-presets/journal/07.webp",
+        "/deck-presets/journal/08.webp"
+      ]
+    },
+    {
+      "id": "scholar",
+      "name": "Scholar",
+      "group": "students",
+      "category": "research",
+      "description": "Classic serif on ivory with deep green and antique gold: humanities seminars and literature reviews.",
+      "dark": false,
+      "swatches": [
+        "F7F3EA",
+        "7A5C1E",
+        "1F3D33",
+        "B8913A"
+      ],
+      "cover": "/deck-presets/scholar/cover.webp",
+      "slides": [
+        "/deck-presets/scholar/01.webp",
+        "/deck-presets/scholar/02.webp",
+        "/deck-presets/scholar/03.webp",
+        "/deck-presets/scholar/04.webp",
+        "/deck-presets/scholar/05.webp",
+        "/deck-presets/scholar/06.webp",
+        "/deck-presets/scholar/07.webp",
+        "/deck-presets/scholar/08.webp"
+      ]
+    },
+    {
+      "id": "sage",
+      "name": "Sage Group Project",
+      "group": "students",
+      "category": "group",
+      "description": "Soft sage leaves on cream with an olive serif: a gentle, aesthetic group-project deck.",
+      "dark": false,
+      "swatches": [
+        "FBF8EF",
+        "5F7432",
+        "3E4A22",
+        "A9BF8A"
+      ],
+      "cover": "/deck-presets/sage/cover.webp",
+      "slides": [
+        "/deck-presets/sage/01.webp",
+        "/deck-presets/sage/02.webp",
+        "/deck-presets/sage/03.webp",
+        "/deck-presets/sage/04.webp",
+        "/deck-presets/sage/05.webp",
+        "/deck-presets/sage/06.webp",
+        "/deck-presets/sage/07.webp",
+        "/deck-presets/sage/08.webp"
+      ]
+    },
+    {
+      "id": "meadow",
+      "name": "Green Meadow",
+      "group": "students",
+      "category": "group",
+      "description": "Fresh mint with bold dark-green caps and leaf corners. Bright and upbeat for team presentations.",
+      "dark": false,
+      "swatches": [
+        "E8F1DE",
+        "3F6B1F",
+        "1F3510",
+        "8CB369"
+      ],
+      "cover": "/deck-presets/meadow/cover.webp",
+      "slides": [
+        "/deck-presets/meadow/01.webp",
+        "/deck-presets/meadow/02.webp",
+        "/deck-presets/meadow/03.webp",
+        "/deck-presets/meadow/04.webp",
+        "/deck-presets/meadow/05.webp",
+        "/deck-presets/meadow/06.webp",
+        "/deck-presets/meadow/07.webp",
+        "/deck-presets/meadow/08.webp"
+      ]
+    },
+    {
+      "id": "lagoon",
+      "name": "Lagoon",
+      "group": "students",
+      "category": "group",
+      "description": "Seafoam with deep-teal serif titles and soft blobs: elegant for technology or science group work.",
+      "dark": false,
+      "swatches": [
+        "DDEFEC",
+        "1C716B",
+        "12403C",
+        "7CC6BC"
+      ],
+      "cover": "/deck-presets/lagoon/cover.webp",
+      "slides": [
+        "/deck-presets/lagoon/01.webp",
+        "/deck-presets/lagoon/02.webp",
+        "/deck-presets/lagoon/03.webp",
+        "/deck-presets/lagoon/04.webp",
+        "/deck-presets/lagoon/05.webp",
+        "/deck-presets/lagoon/06.webp",
+        "/deck-presets/lagoon/07.webp",
+        "/deck-presets/lagoon/08.webp"
+      ]
+    },
+    {
+      "id": "terracotta",
+      "name": "Terracotta",
+      "group": "students",
+      "category": "group",
+      "description": "Peach and chocolate with bold caps and organic shapes. Warm and playful.",
+      "dark": false,
+      "swatches": [
+        "FBEBDD",
+        "A0522D",
+        "4A2C1D",
+        "E4B58F"
+      ],
+      "cover": "/deck-presets/terracotta/cover.webp",
+      "slides": [
+        "/deck-presets/terracotta/01.webp",
+        "/deck-presets/terracotta/02.webp",
+        "/deck-presets/terracotta/03.webp",
+        "/deck-presets/terracotta/04.webp",
+        "/deck-presets/terracotta/05.webp",
+        "/deck-presets/terracotta/06.webp",
+        "/deck-presets/terracotta/07.webp",
+        "/deck-presets/terracotta/08.webp"
+      ]
+    },
+    {
+      "id": "sunny",
+      "name": "Blue & Yellow Geometric",
+      "group": "students",
+      "category": "class",
+      "description": "Cobalt and sunshine yellow with rings and crosses. Energetic frameworks and business-class assignments.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "1D3F9A",
+        "1D3F9A",
+        "F2D300"
+      ],
+      "cover": "/deck-presets/sunny/cover.webp",
+      "slides": [
+        "/deck-presets/sunny/01.webp",
+        "/deck-presets/sunny/02.webp",
+        "/deck-presets/sunny/03.webp",
+        "/deck-presets/sunny/04.webp",
+        "/deck-presets/sunny/05.webp",
+        "/deck-presets/sunny/06.webp",
+        "/deck-presets/sunny/07.webp",
+        "/deck-presets/sunny/08.webp"
+      ]
+    },
+    {
+      "id": "mindmap",
+      "name": "Colourful Mind Map",
+      "group": "students",
+      "category": "class",
+      "description": "Playful multicolour infographics on lavender white, for concept maps, brainstorms and explainers.",
+      "dark": false,
+      "swatches": [
+        "F8F7FD",
+        "6A4FE8",
+        "2B2350",
+        "FF8A65"
+      ],
+      "cover": "/deck-presets/mindmap/cover.webp",
+      "slides": [
+        "/deck-presets/mindmap/01.webp",
+        "/deck-presets/mindmap/02.webp",
+        "/deck-presets/mindmap/03.webp",
+        "/deck-presets/mindmap/04.webp",
+        "/deck-presets/mindmap/05.webp",
+        "/deck-presets/mindmap/06.webp",
+        "/deck-presets/mindmap/07.webp",
+        "/deck-presets/mindmap/08.webp"
+      ]
+    },
+    {
+      "id": "bloom",
+      "name": "Pink Minimalist",
+      "group": "students",
+      "category": "class",
+      "description": "Blush pink, widely spaced serif caps and a fine frame: a soft, minimal proposal look.",
+      "dark": false,
+      "swatches": [
+        "F7EDEF",
+        "9A4F6B",
+        "5E3346",
+        "E8B8C8"
+      ],
+      "cover": "/deck-presets/bloom/cover.webp",
+      "slides": [
+        "/deck-presets/bloom/01.webp",
+        "/deck-presets/bloom/02.webp",
+        "/deck-presets/bloom/03.webp",
+        "/deck-presets/bloom/04.webp",
+        "/deck-presets/bloom/05.webp",
+        "/deck-presets/bloom/06.webp",
+        "/deck-presets/bloom/07.webp",
+        "/deck-presets/bloom/08.webp"
+      ]
+    },
+    {
+      "id": "minimal",
+      "name": "Black & Yellow Minimal",
+      "group": "students",
+      "category": "class",
+      "description": "Crisp black type, corner brackets and butter-yellow tabs. A clean default for any class talk.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "9A6F12",
+        "111111",
+        "F6E3B0"
+      ],
+      "cover": "/deck-presets/minimal/cover.webp",
+      "slides": [
+        "/deck-presets/minimal/01.webp",
+        "/deck-presets/minimal/02.webp",
+        "/deck-presets/minimal/03.webp",
+        "/deck-presets/minimal/04.webp",
+        "/deck-presets/minimal/05.webp",
+        "/deck-presets/minimal/06.webp",
+        "/deck-presets/minimal/07.webp",
+        "/deck-presets/minimal/08.webp"
+      ]
+    },
+    {
+      "id": "studio",
+      "name": "Final Project",
+      "group": "students",
+      "category": "class",
+      "description": "Beige, taupe and light type with a running header. Quiet and considered for final projects.",
+      "dark": false,
+      "swatches": [
+        "F8F4EC",
+        "8C6D46",
+        "3B342C",
+        "CDBA96"
+      ],
+      "cover": "/deck-presets/studio/cover.webp",
+      "slides": [
+        "/deck-presets/studio/01.webp",
+        "/deck-presets/studio/02.webp",
+        "/deck-presets/studio/03.webp",
+        "/deck-presets/studio/04.webp",
+        "/deck-presets/studio/05.webp",
+        "/deck-presets/studio/06.webp",
+        "/deck-presets/studio/07.webp",
+        "/deck-presets/studio/08.webp"
+      ]
+    },
+    {
+      "id": "notebook",
+      "name": "Notebook",
+      "group": "students",
+      "category": "class",
+      "description": "Exercise-book white with a red margin line and a highlighter-yellow band, for study notes and revision.",
+      "dark": false,
+      "swatches": [
+        "FDFCF8",
+        "C8413A",
+        "2F5DA8",
+        "F7DC6F"
+      ],
+      "cover": "/deck-presets/notebook/cover.webp",
+      "slides": [
+        "/deck-presets/notebook/01.webp",
+        "/deck-presets/notebook/02.webp",
+        "/deck-presets/notebook/03.webp",
+        "/deck-presets/notebook/04.webp",
+        "/deck-presets/notebook/05.webp",
+        "/deck-presets/notebook/06.webp",
+        "/deck-presets/notebook/07.webp",
+        "/deck-presets/notebook/08.webp"
+      ]
+    },
+    {
+      "id": "boardroom",
+      "name": "Boardroom",
+      "group": "work",
+      "category": "business",
+      "description": "Crisp Swiss consulting look in navy and electric blue, with a chapter tracker.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "1F4FE0",
+        "0A1633",
+        "10A5D8"
+      ],
+      "cover": "/deck-presets/boardroom/cover.webp",
+      "slides": [
+        "/deck-presets/boardroom/01.webp",
+        "/deck-presets/boardroom/02.webp",
+        "/deck-presets/boardroom/03.webp",
+        "/deck-presets/boardroom/04.webp",
+        "/deck-presets/boardroom/05.webp",
+        "/deck-presets/boardroom/06.webp",
+        "/deck-presets/boardroom/07.webp",
+        "/deck-presets/boardroom/08.webp"
+      ]
+    },
+    {
+      "id": "verdant",
+      "name": "Verdant",
+      "group": "work",
+      "category": "business",
+      "description": "Deep pine title bands, mint panels and a lime signal, for strategy and sustainability papers.",
+      "dark": false,
+      "swatches": [
+        "F7F6F1",
+        "0E7A5A",
+        "0B3A2C",
+        "8FCB3F"
+      ],
+      "cover": "/deck-presets/verdant/cover.webp",
+      "slides": [
+        "/deck-presets/verdant/01.webp",
+        "/deck-presets/verdant/02.webp",
+        "/deck-presets/verdant/03.webp",
+        "/deck-presets/verdant/04.webp",
+        "/deck-presets/verdant/05.webp",
+        "/deck-presets/verdant/06.webp",
+        "/deck-presets/verdant/07.webp",
+        "/deck-presets/verdant/08.webp"
+      ]
+    },
+    {
+      "id": "harbor",
+      "name": "Blue Company Profile",
+      "group": "work",
+      "category": "business",
+      "description": "Royal blue panels on cool white: a confident company profile or proposal.",
+      "dark": false,
+      "swatches": [
+        "F6F7F9",
+        "1747C9",
+        "1747C9",
+        "8FB0F5"
+      ],
+      "cover": "/deck-presets/harbor/cover.webp",
+      "slides": [
+        "/deck-presets/harbor/01.webp",
+        "/deck-presets/harbor/02.webp",
+        "/deck-presets/harbor/03.webp",
+        "/deck-presets/harbor/04.webp",
+        "/deck-presets/harbor/05.webp",
+        "/deck-presets/harbor/06.webp",
+        "/deck-presets/harbor/07.webp",
+        "/deck-presets/harbor/08.webp"
+      ]
+    },
+    {
+      "id": "cobalt",
+      "name": "Navy & Gold",
+      "group": "work",
+      "category": "business",
+      "description": "Navy with gold ribbon corners and spaced caps. Polished and formal.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "2A4FA8",
+        "1B2A5C",
+        "D4A93C"
+      ],
+      "cover": "/deck-presets/cobalt/cover.webp",
+      "slides": [
+        "/deck-presets/cobalt/01.webp",
+        "/deck-presets/cobalt/02.webp",
+        "/deck-presets/cobalt/03.webp",
+        "/deck-presets/cobalt/04.webp",
+        "/deck-presets/cobalt/05.webp",
+        "/deck-presets/cobalt/06.webp",
+        "/deck-presets/cobalt/07.webp",
+        "/deck-presets/cobalt/08.webp"
+      ]
+    },
+    {
+      "id": "onyx",
+      "name": "Onyx",
+      "group": "work",
+      "category": "business",
+      "description": "Charcoal and white with light type: understated and modern, lets the content lead.",
+      "dark": true,
+      "swatches": [
+        "1B1B1B",
+        "A9C4FF",
+        "3A3A3A",
+        "8A8A8A"
+      ],
+      "cover": "/deck-presets/onyx/cover.webp",
+      "slides": [
+        "/deck-presets/onyx/01.webp",
+        "/deck-presets/onyx/02.webp",
+        "/deck-presets/onyx/03.webp",
+        "/deck-presets/onyx/04.webp",
+        "/deck-presets/onyx/05.webp",
+        "/deck-presets/onyx/06.webp",
+        "/deck-presets/onyx/07.webp",
+        "/deck-presets/onyx/08.webp"
+      ]
+    },
+    {
+      "id": "launch",
+      "name": "Startup Launch",
+      "group": "work",
+      "category": "pitch",
+      "description": "Frosted blue gradients with heavy charcoal type. A modern startup pitch.",
+      "dark": false,
+      "swatches": [
+        "F3F5F8",
+        "2F6FE0",
+        "2E3136",
+        "A7C7F2"
+      ],
+      "cover": "/deck-presets/launch/cover.webp",
+      "slides": [
+        "/deck-presets/launch/01.webp",
+        "/deck-presets/launch/02.webp",
+        "/deck-presets/launch/03.webp",
+        "/deck-presets/launch/04.webp",
+        "/deck-presets/launch/05.webp",
+        "/deck-presets/launch/06.webp",
+        "/deck-presets/launch/07.webp",
+        "/deck-presets/launch/08.webp"
+      ]
+    },
+    {
+      "id": "aurora",
+      "name": "Aurora",
+      "group": "work",
+      "category": "pitch",
+      "description": "Night-sky black with blue and amber light, for keynotes and bold pitches.",
+      "dark": true,
+      "swatches": [
+        "07090F",
+        "6E9BFF",
+        "2A3550",
+        "F5A25D"
+      ],
+      "cover": "/deck-presets/aurora/cover.webp",
+      "slides": [
+        "/deck-presets/aurora/01.webp",
+        "/deck-presets/aurora/02.webp",
+        "/deck-presets/aurora/03.webp",
+        "/deck-presets/aurora/04.webp",
+        "/deck-presets/aurora/05.webp",
+        "/deck-presets/aurora/06.webp",
+        "/deck-presets/aurora/07.webp",
+        "/deck-presets/aurora/08.webp"
+      ]
+    },
+    {
+      "id": "crimson",
+      "name": "Red & Pink Bold",
+      "group": "work",
+      "category": "pitch",
+      "description": "Wine red and blush with huge condensed caps: a loud, confident pitch.",
+      "dark": false,
+      "swatches": [
+        "FFF1F3",
+        "A3162B",
+        "6E0F1A",
+        "F7B8C4"
+      ],
+      "cover": "/deck-presets/crimson/cover.webp",
+      "slides": [
+        "/deck-presets/crimson/01.webp",
+        "/deck-presets/crimson/02.webp",
+        "/deck-presets/crimson/03.webp",
+        "/deck-presets/crimson/04.webp",
+        "/deck-presets/crimson/05.webp",
+        "/deck-presets/crimson/06.webp",
+        "/deck-presets/crimson/07.webp",
+        "/deck-presets/crimson/08.webp"
+      ]
+    },
+    {
+      "id": "coral",
+      "name": "Coral Minimal",
+      "group": "work",
+      "category": "pitch",
+      "description": "White, black and one coral glow. A clean, professional company pitch.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "D9472F",
+        "1A1A1A",
+        "F6B7A8"
+      ],
+      "cover": "/deck-presets/coral/cover.webp",
+      "slides": [
+        "/deck-presets/coral/01.webp",
+        "/deck-presets/coral/02.webp",
+        "/deck-presets/coral/03.webp",
+        "/deck-presets/coral/04.webp",
+        "/deck-presets/coral/05.webp",
+        "/deck-presets/coral/06.webp",
+        "/deck-presets/coral/07.webp",
+        "/deck-presets/coral/08.webp"
+      ]
+    },
+    {
+      "id": "mint",
+      "name": "Mint Startup",
+      "group": "work",
+      "category": "pitch",
+      "description": "Soft mint and deep teal with outlined cards, fresh for startup and services pitches.",
+      "dark": false,
+      "swatches": [
+        "EEF2EC",
+        "1F6F5C",
+        "173B33",
+        "9CCFBF"
+      ],
+      "cover": "/deck-presets/mint/cover.webp",
+      "slides": [
+        "/deck-presets/mint/01.webp",
+        "/deck-presets/mint/02.webp",
+        "/deck-presets/mint/03.webp",
+        "/deck-presets/mint/04.webp",
+        "/deck-presets/mint/05.webp",
+        "/deck-presets/mint/06.webp",
+        "/deck-presets/mint/07.webp",
+        "/deck-presets/mint/08.webp"
+      ]
+    },
+    {
+      "id": "linen",
+      "name": "Cream Neutral",
+      "group": "work",
+      "category": "pitch",
+      "description": "Warm linen, serif headlines and spaced labels. Calm and premium.",
+      "dark": false,
+      "swatches": [
+        "ECEAE4",
+        "6E5B45",
+        "2B2B2B",
+        "B9A88E"
+      ],
+      "cover": "/deck-presets/linen/cover.webp",
+      "slides": [
+        "/deck-presets/linen/01.webp",
+        "/deck-presets/linen/02.webp",
+        "/deck-presets/linen/03.webp",
+        "/deck-presets/linen/04.webp",
+        "/deck-presets/linen/05.webp",
+        "/deck-presets/linen/06.webp",
+        "/deck-presets/linen/07.webp",
+        "/deck-presets/linen/08.webp"
+      ]
+    },
+    {
+      "id": "midnight",
+      "name": "Midnight",
+      "group": "work",
+      "category": "report",
+      "description": "Near-black canvas with cyan and amber signals, for product and engineering reviews.",
+      "dark": true,
+      "swatches": [
+        "0A0E16",
+        "22CCEE",
+        "F4B740",
+        "A78BFA"
+      ],
+      "cover": "/deck-presets/midnight/cover.webp",
+      "slides": [
+        "/deck-presets/midnight/01.webp",
+        "/deck-presets/midnight/02.webp",
+        "/deck-presets/midnight/03.webp",
+        "/deck-presets/midnight/04.webp",
+        "/deck-presets/midnight/05.webp",
+        "/deck-presets/midnight/06.webp",
+        "/deck-presets/midnight/07.webp",
+        "/deck-presets/midnight/08.webp"
+      ]
+    },
+    {
+      "id": "violet",
+      "name": "Electric Violet",
+      "group": "work",
+      "category": "report",
+      "description": "Black panels and electric violet data for sharp quarterly and operations reviews.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "5B2BE0",
+        "15121F",
+        "A78BFA"
+      ],
+      "cover": "/deck-presets/violet/cover.webp",
+      "slides": [
+        "/deck-presets/violet/01.webp",
+        "/deck-presets/violet/02.webp",
+        "/deck-presets/violet/03.webp",
+        "/deck-presets/violet/04.webp",
+        "/deck-presets/violet/05.webp",
+        "/deck-presets/violet/06.webp",
+        "/deck-presets/violet/07.webp",
+        "/deck-presets/violet/08.webp"
+      ]
+    },
+    {
+      "id": "sky",
+      "name": "Sky Blue Wayfinding",
+      "group": "work",
+      "category": "report",
+      "description": "Clear blues with serif headlines and a wayfinding band. Public-service and operations reports.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "1F5FD6",
+        "0F2350",
+        "9CC3F5"
+      ],
+      "cover": "/deck-presets/sky/cover.webp",
+      "slides": [
+        "/deck-presets/sky/01.webp",
+        "/deck-presets/sky/02.webp",
+        "/deck-presets/sky/03.webp",
+        "/deck-presets/sky/04.webp",
+        "/deck-presets/sky/05.webp",
+        "/deck-presets/sky/06.webp",
+        "/deck-presets/sky/07.webp",
+        "/deck-presets/sky/08.webp"
+      ]
+    },
+    {
+      "id": "lifeline",
+      "name": "Aqua Impact Report",
+      "group": "work",
+      "category": "report",
+      "description": "Spaced serif caps, water blue and a sunshine-yellow band, for impact and charity reports.",
+      "dark": false,
+      "swatches": [
+        "F6F3EA",
+        "1C6FB8",
+        "1C2B3A",
+        "F5C400"
+      ],
+      "cover": "/deck-presets/lifeline/cover.webp",
+      "slides": [
+        "/deck-presets/lifeline/01.webp",
+        "/deck-presets/lifeline/02.webp",
+        "/deck-presets/lifeline/03.webp",
+        "/deck-presets/lifeline/04.webp",
+        "/deck-presets/lifeline/05.webp",
+        "/deck-presets/lifeline/06.webp",
+        "/deck-presets/lifeline/07.webp",
+        "/deck-presets/lifeline/08.webp"
+      ]
+    },
+    {
+      "id": "annual",
+      "name": "Annual Report",
+      "group": "work",
+      "category": "report",
+      "description": "Black condensed caps with golden-yellow figures. A board-ready annual operations report.",
+      "dark": false,
+      "swatches": [
+        "FAF7EF",
+        "946600",
+        "141414",
+        "F2C14E"
+      ],
+      "cover": "/deck-presets/annual/cover.webp",
+      "slides": [
+        "/deck-presets/annual/01.webp",
+        "/deck-presets/annual/02.webp",
+        "/deck-presets/annual/03.webp",
+        "/deck-presets/annual/04.webp",
+        "/deck-presets/annual/05.webp",
+        "/deck-presets/annual/06.webp",
+        "/deck-presets/annual/07.webp",
+        "/deck-presets/annual/08.webp"
+      ]
+    },
+    {
+      "id": "clay",
+      "name": "Warm Clay",
+      "group": "work",
+      "category": "report",
+      "description": "Terracotta and cream with a soft serif. Warm for impact summaries and people-focused reports.",
+      "dark": false,
+      "swatches": [
+        "FBF6EE",
+        "B0532A",
+        "5A3522",
+        "E7B89A"
+      ],
+      "cover": "/deck-presets/clay/cover.webp",
+      "slides": [
+        "/deck-presets/clay/01.webp",
+        "/deck-presets/clay/02.webp",
+        "/deck-presets/clay/03.webp",
+        "/deck-presets/clay/04.webp",
+        "/deck-presets/clay/05.webp",
+        "/deck-presets/clay/06.webp",
+        "/deck-presets/clay/07.webp",
+        "/deck-presets/clay/08.webp"
+      ]
+    },
+    {
+      "id": "slate",
+      "name": "Slate History",
+      "group": "work",
+      "category": "report",
+      "description": "Sepia charcoal with tall serif caps and a fine frame, for history, heritage and retrospectives.",
+      "dark": true,
+      "swatches": [
+        "2A2724",
+        "D2B48C",
+        "8C7A62",
+        "C9A77C"
+      ],
+      "cover": "/deck-presets/slate/cover.webp",
+      "slides": [
+        "/deck-presets/slate/01.webp",
+        "/deck-presets/slate/02.webp",
+        "/deck-presets/slate/03.webp",
+        "/deck-presets/slate/04.webp",
+        "/deck-presets/slate/05.webp",
+        "/deck-presets/slate/06.webp",
+        "/deck-presets/slate/07.webp",
+        "/deck-presets/slate/08.webp"
+      ]
+    },
+    {
+      "id": "ledger",
+      "name": "Ledger",
+      "group": "work",
+      "category": "finance",
+      "description": "Warm paper, serif claims and brick-red exhibit labels: an editorial research memo.",
+      "dark": false,
+      "swatches": [
+        "FAF7F1",
+        "A43C28",
+        "1E2D4A",
+        "B58B45"
+      ],
+      "cover": "/deck-presets/ledger/cover.webp",
+      "slides": [
+        "/deck-presets/ledger/01.webp",
+        "/deck-presets/ledger/02.webp",
+        "/deck-presets/ledger/03.webp",
+        "/deck-presets/ledger/04.webp",
+        "/deck-presets/ledger/05.webp",
+        "/deck-presets/ledger/06.webp",
+        "/deck-presets/ledger/07.webp",
+        "/deck-presets/ledger/08.webp"
+      ]
+    },
+    {
+      "id": "goldleaf",
+      "name": "Black Gold Ledger",
+      "group": "work",
+      "category": "finance",
+      "description": "Black and gold with condensed caps. Premium for VC, market monitors and investor updates.",
+      "dark": true,
+      "swatches": [
+        "0F0F10",
+        "D4A64A",
+        "5E4A1F",
+        "E8C77A"
+      ],
+      "cover": "/deck-presets/goldleaf/cover.webp",
+      "slides": [
+        "/deck-presets/goldleaf/01.webp",
+        "/deck-presets/goldleaf/02.webp",
+        "/deck-presets/goldleaf/03.webp",
+        "/deck-presets/goldleaf/04.webp",
+        "/deck-presets/goldleaf/05.webp",
+        "/deck-presets/goldleaf/06.webp",
+        "/deck-presets/goldleaf/07.webp",
+        "/deck-presets/goldleaf/08.webp"
+      ]
+    },
+    {
+      "id": "indigo",
+      "name": "Indigo Due Diligence",
+      "group": "work",
+      "category": "finance",
+      "description": "Indigo line work and serif titles in a banker's layout, for due diligence and valuation.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "2432A0",
+        "141B3D",
+        "7C8BE0"
+      ],
+      "cover": "/deck-presets/indigo/cover.webp",
+      "slides": [
+        "/deck-presets/indigo/01.webp",
+        "/deck-presets/indigo/02.webp",
+        "/deck-presets/indigo/03.webp",
+        "/deck-presets/indigo/04.webp",
+        "/deck-presets/indigo/05.webp",
+        "/deck-presets/indigo/06.webp",
+        "/deck-presets/indigo/07.webp",
+        "/deck-presets/indigo/08.webp"
+      ]
+    },
+    {
+      "id": "memo",
+      "name": "Honey Investment Memo",
+      "group": "work",
+      "category": "finance",
+      "description": "Honey paper, navy and rust with a headline number, for investment-committee memos.",
+      "dark": false,
+      "swatches": [
+        "F5EEE2",
+        "C0501C",
+        "1E2433",
+        "E8A33D"
+      ],
+      "cover": "/deck-presets/memo/cover.webp",
+      "slides": [
+        "/deck-presets/memo/01.webp",
+        "/deck-presets/memo/02.webp",
+        "/deck-presets/memo/03.webp",
+        "/deck-presets/memo/04.webp",
+        "/deck-presets/memo/05.webp",
+        "/deck-presets/memo/06.webp",
+        "/deck-presets/memo/07.webp",
+        "/deck-presets/memo/08.webp"
+      ]
+    },
+    {
+      "id": "ebony",
+      "name": "Ebony Ledger",
+      "group": "work",
+      "category": "finance",
+      "description": "Editorial serif on stone with a green ledger accent: asset allocation and strategy notes.",
+      "dark": false,
+      "swatches": [
+        "F3EFE8",
+        "2E7D5B",
+        "1C1C1C",
+        "9CC5AE"
+      ],
+      "cover": "/deck-presets/ebony/cover.webp",
+      "slides": [
+        "/deck-presets/ebony/01.webp",
+        "/deck-presets/ebony/02.webp",
+        "/deck-presets/ebony/03.webp",
+        "/deck-presets/ebony/04.webp",
+        "/deck-presets/ebony/05.webp",
+        "/deck-presets/ebony/06.webp",
+        "/deck-presets/ebony/07.webp",
+        "/deck-presets/ebony/08.webp"
+      ]
+    },
+    {
+      "id": "atelier",
+      "name": "Atelier",
+      "group": "work",
+      "category": "marketing",
+      "description": "Cream stock with vermilion and cobalt blocks and condensed display caps.",
+      "dark": false,
+      "swatches": [
+        "F3EADB",
+        "E5532D",
+        "2449D6",
+        "141414"
+      ],
+      "cover": "/deck-presets/atelier/cover.webp",
+      "slides": [
+        "/deck-presets/atelier/01.webp",
+        "/deck-presets/atelier/02.webp",
+        "/deck-presets/atelier/03.webp",
+        "/deck-presets/atelier/04.webp",
+        "/deck-presets/atelier/05.webp",
+        "/deck-presets/atelier/06.webp",
+        "/deck-presets/atelier/07.webp",
+        "/deck-presets/atelier/08.webp"
+      ]
+    },
+    {
+      "id": "brief",
+      "name": "Red Creative Brief",
+      "group": "work",
+      "category": "marketing",
+      "description": "Signal red and black condensed caps: a punchy creative brief or campaign deck.",
+      "dark": false,
+      "swatches": [
+        "FFFFFF",
+        "D9321C",
+        "111111",
+        "FF6A4D"
+      ],
+      "cover": "/deck-presets/brief/cover.webp",
+      "slides": [
+        "/deck-presets/brief/01.webp",
+        "/deck-presets/brief/02.webp",
+        "/deck-presets/brief/03.webp",
+        "/deck-presets/brief/04.webp",
+        "/deck-presets/brief/05.webp",
+        "/deck-presets/brief/06.webp",
+        "/deck-presets/brief/07.webp",
+        "/deck-presets/brief/08.webp"
+      ]
+    },
+    {
+      "id": "magazine",
+      "name": "Silk Yellow Magazine",
+      "group": "work",
+      "category": "marketing",
+      "description": "Magazine grey with yellow tabs and bold caps, for trend reports and consumer insight.",
+      "dark": false,
+      "swatches": [
+        "EDEAE3",
+        "C23A24",
+        "1A1A1A",
+        "F4D03F"
+      ],
+      "cover": "/deck-presets/magazine/cover.webp",
+      "slides": [
+        "/deck-presets/magazine/01.webp",
+        "/deck-presets/magazine/02.webp",
+        "/deck-presets/magazine/03.webp",
+        "/deck-presets/magazine/04.webp",
+        "/deck-presets/magazine/05.webp",
+        "/deck-presets/magazine/06.webp",
+        "/deck-presets/magazine/07.webp",
+        "/deck-presets/magazine/08.webp"
+      ]
+    },
+    {
+      "id": "luxe",
+      "name": "Silver Luxury",
+      "group": "work",
+      "category": "marketing",
+      "description": "Silver, black and champagne gold with a quiet serif, for luxury brands and annual brand reviews.",
+      "dark": false,
+      "swatches": [
+        "F6F5F2",
+        "8C6A2E",
+        "1E1E1E",
+        "CDB27A"
+      ],
+      "cover": "/deck-presets/luxe/cover.webp",
+      "slides": [
+        "/deck-presets/luxe/01.webp",
+        "/deck-presets/luxe/02.webp",
+        "/deck-presets/luxe/03.webp",
+        "/deck-presets/luxe/04.webp",
+        "/deck-presets/luxe/05.webp",
+        "/deck-presets/luxe/06.webp",
+        "/deck-presets/luxe/07.webp",
+        "/deck-presets/luxe/08.webp"
+      ]
+    }
+  ]
+}

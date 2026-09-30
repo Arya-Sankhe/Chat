@@ -767,6 +767,8 @@ export function createDocumentViewer({
     }
   }
 
+  const retriedPreviewJobs = new Set();
+
   async function pollDocumentPreviewJob(jobId) {
     stopDocumentPreviewPoll();
     let attempts = 0;
@@ -794,6 +796,17 @@ export function createDocumentViewer({
             });
             return;
           }
+          // A fresh file can hit a transient storage error; ask for one new conversion first.
+          if (!retriedPreviewJobs.has(jobId)) {
+            retriedPreviewJobs.add(jobId);
+            await loadDocumentViewerUrl(state.viewer.attachmentId, {
+              downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
+              fileName: state.viewer.fileName,
+              sourceKind: state.viewer.sourceKind,
+              retryOf: jobId
+            });
+            return;
+          }
           setDocumentViewerState({ loading: false, error: "The preview could not be generated." });
           return;
         }
@@ -814,7 +827,8 @@ export function createDocumentViewer({
     downloadAttachmentId = "",
     fileName = "",
     sourceKind = "",
-    sheetFallback = false
+    sheetFallback = false,
+    retryOf = ""
   } = {}) {
     if (!state.session?.access_token) {
       setDocumentViewerState({ loading: false, error: "Sign in to view files." });
@@ -836,6 +850,8 @@ export function createDocumentViewer({
         loading: true,
         error: ""
       });
+      // The server may hand back the same failed job; never retry it twice.
+      if (retryOf && payload.jobId !== retryOf) retriedPreviewJobs.add(payload.jobId);
       pollDocumentPreviewJob(payload.jobId);
       return;
     }

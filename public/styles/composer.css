@@ -1066,6 +1066,12 @@ body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .resea
 
 }
 
+.composer .composer-prompt.is-skill-hint::after {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
 .composer .composer-prompt .composer-skill-token {
 
   margin: 0 0.2em 0 0;
@@ -1556,6 +1562,53 @@ body:not(.capacitor-native) .composer:has(#researchModeChip:not(.hidden)) .resea
 
 }
 
+.composer-skill-token[data-skill-id="slides"] {
+  color: #ea580c;
+}
+
+.composer-skill-token[data-skill-id="docs"] {
+  color: #2563eb;
+}
+
+.composer-skill-token-icon {
+  position: relative;
+}
+
+.composer-skill-token-icon > svg {
+  transition: opacity 140ms ease, transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Hovering a chip swaps its icon for a remove mark (clicking the chip removes the skill). */
+.composer-skill-token-remove {
+  position: absolute;
+  inset: -0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 140ms ease, transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.composer-skill-token-remove svg {
+  width: 72%;
+  height: 72%;
+}
+
+.composer-prompt .composer-skill-token:hover .composer-skill-token-icon > svg,
+.composer-prompt .composer-skill-token:focus-visible .composer-skill-token-icon > svg {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+.composer-prompt .composer-skill-token:hover .composer-skill-token-remove,
+.composer-prompt .composer-skill-token:focus-visible .composer-skill-token-remove {
+  opacity: 1;
+  transform: none;
+}
+
 .composer-skill-token[data-skill-id="visualize"] {
 
   color: #8b5cf6;
@@ -1693,6 +1746,18 @@ body.chat-empty .skill-command-menu {
 .skill-command-option[data-skill-id="visualize"] .skill-command-icon {
 
   color: #8b5cf6;
+
+}
+
+.skill-command-option[data-skill-id="slides"] .skill-command-icon {
+
+  color: #ea580c;
+
+}
+
+.skill-command-option[data-skill-id="docs"] .skill-command-icon {
+
+  color: #2563eb;
 
 }
 

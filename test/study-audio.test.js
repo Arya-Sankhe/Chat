@@ -63,7 +63,7 @@ function enqueueContext({ enqueue, release }) {
   return { context, deleted, calls };
 }
 
-const audioConfig = { studyAudio: { enabled: true, maxSeconds: 14_400, maxActivePerUser: 5, queue: "local" } };
+const audioConfig = { studyAudio: { enabled: true, maxSeconds: 14_400, maxActivePerUser: 5, queue: "local" }, documents: { queue: "dev-box" } };
 
 test("an enqueue error whose transaction committed keeps the upload", async () => {
   const { enqueueCourseAudio } = await import("../server/study/audio.js");
@@ -91,6 +91,8 @@ test("an enqueue error that left the upload pending releases it, and the limits 
   );
   const sent = calls[0].body;
   assert.equal(sent.p_queue, "local");
+  // The document file joins the embedding backfill of the app that created it.
+  assert.equal(sent.p_document_queue, "dev-box");
   assert.equal(sent.p_account_max_bytes, 90_000_000);
   assert.deepEqual(calls[1].body, { p_user_id: "u", p_attachment_id: "att-1", p_queue: "local" });
   assert.deepEqual(deleted, ["users/u/orig.mp3"]);

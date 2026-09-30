@@ -13,6 +13,10 @@ import {
   queryWantsVisual,
   reciprocalRankFusion
 } from "./retrieval.js";
+import { THEME_NAMES } from "../../worker/deck/themes.js";
+import { editDeck } from "./deckEditor.js";
+import { writeDeck } from "./deckWriter.js";
+import { alignDeck } from "../../worker/deck/spec.js";
 import { estimateDocumentTokens, estimateTextTokens, loadDocumentTexts } from "./library.js";
 
 const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -244,9 +248,33 @@ function pageHasUsableImage(page) {
   return Boolean(String(page?.image_key || "").trim());
 }
 
+// Render warnings the user should hear about: a slide redrawn as plain bullets (or the whole
+// deck on the basic layout) changes what they get, so it is always reported by page; text
+// shortened to fit is mentioned in one line.
+export function deckQualityOutput(warnings) {
+  const list = (Array.isArray(warnings) ? warnings : []).map((warning) => clean(String(warning))).filter(Boolean);
+  if (!list.length) return {};
+  const structural = list.filter((warning) => /layout failed|fallback/i.test(warning));
+  const note = structural.length
+    ? "Tell the user plainly which pages were simplified (listed in deck_quality_warnings) and offer to fix them with an edit. If text was also shortened, say so in the same sentence."
+    : "Tell the user in one short sentence that some text was shortened to fit its slide, and offer to restore any detail they want.";
+  return { deck_quality_warnings: [...structural, ...list.filter((warning) => !structural.includes(warning))].slice(0, 8), deck_quality_note: note };
+}
+
+// A slide preset id from the composer gallery, or "" when it is not a known theme.
+export function normalizeDeckTheme(value) {
+  const name = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return THEME_NAMES.includes(name) ? name : "";
+}
+
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal, modelClient = null, userRequest = "", deckTheme = "" }) {
     this.config = config;
+    // The preset the user picked for this turn's slides; it wins over any theme the model names.
+    this.deckTheme = normalizeDeckTheme(deckTheme);
+    // Metered model client for the turn and the user's message; the PPTX deck writer uses both.
+    this.modelClient = modelClient;
+    this.userRequest = userRequest;
     this.documentsConfig = config.documents || {};
     this.db = db;
     this.r2 = r2;
@@ -664,7 +692,8 @@ export class DocumentService {
       result: await this.db.queueDocumentPageRender({
         userId: this.userId,
         documentFileId: documentFile.id,
-        pageNumber
+        pageNumber,
+        queue: this.documentsConfig.queue
       }, { signal: this.signal })
     })));
     await Promise.all(queued.map(async ({ pageNumber, result }) => {
@@ -1220,6 +1249,7 @@ export class DocumentService {
     await this.consume({ toolCount: 1, generatedCount });
     const job = await this.db.createDocumentJob({
       user_id: this.userId,
+      queue: this.documentsConfig.queue,
       document_file_id: documentFileId,
       conversation_id: this.conversationId,
       job_type: jobType,
@@ -1311,7 +1341,36 @@ export class DocumentService {
     return explicit ? { content: explicit, source: "tool_argument" } : { content: "", source: "" };
   }
 
-  async createDocument({ format, title, instructions, content, sections, tables, data } = {}) {
+  // PPTX: a deck writer turns the brief and material into a slide-by-slide DeckSpec. Without a
+  // usable spec the worker still renders the markdown content with the same design system.
+  async writeDeckData({ title, instructions, content, sections, tables, data, theme }) {
+    const base = data && typeof data === "object" ? data : {};
+    if (base.deck && typeof base.deck === "object" && Array.isArray(base.deck.slides)) return base;
+    const legacySlides = Array.isArray(base.slides) ? JSON.stringify(base.slides).slice(0, 12_000) : "";
+    const written = await writeDeck({
+      config: this.config,
+      modelClient: this.modelClient,
+      signal: this.signal,
+      brief: {
+        userRequest: this.userRequest,
+        title,
+        instructions,
+        content: [content, legacySlides ? `Draft slide plan: ${legacySlides}` : ""].filter(Boolean).join("\n\n"),
+        sections,
+        tables,
+        theme: clean(theme || base.theme)
+      }
+    });
+    if (!written) return base;
+    // A theme the caller named is a requirement, not a hint the writer may override.
+    const requested = clean(theme || base.theme).toLowerCase();
+    // Stored aligned to pages so later edits can address "page 4" exactly.
+    const aligned = alignDeck(written.deck, { title });
+    const deck = THEME_NAMES.includes(requested) ? { ...aligned, theme: requested } : aligned;
+    return { ...base, deck, deck_model: written.model };
+  }
+
+  async createDocument({ format, title, instructions, content, sections, tables, data, theme } = {}) {
     const requestedFormat = inferCreateFormat(format, title, instructions);
     const normalizedFormat = requestedFormat === "md" ? "docx" : requestedFormat;
     if (!["docx", "xlsx", "pptx", "pdf"].includes(normalizedFormat)) {
@@ -1332,7 +1391,11 @@ export class DocumentService {
     const editorMarkdown = ["docx", "pdf"].includes(normalizedFormat)
       ? buildEditableMarkdown({ title, content: resolvedContent.content, sections, tables })
       : "";
-    return this.enqueueAndWait({
+    const deckTheme = normalizedFormat === "pptx" ? this.deckTheme || theme : theme;
+    const jobData = normalizedFormat === "pptx"
+      ? await this.writeDeckData({ title, instructions, content: resolvedContent.content, sections, tables, data: this.deckTheme && data?.deck ? { ...data, deck: { ...data.deck, theme: this.deckTheme } } : data, theme: deckTheme })
+      : data;
+    const result = await this.enqueueAndWait({
       jobType: `document.create.${normalizedFormat}`,
       generatedCount: 1,
       input: {
@@ -1344,10 +1407,72 @@ export class DocumentService {
         content_source: resolvedContent.source,
         sections: Array.isArray(sections) ? sections.slice(0, 50) : [],
         tables: Array.isArray(tables) ? tables.slice(0, 20) : [],
-        data: data && typeof data === "object" ? data : {},
+        theme: clean(deckTheme).slice(0, 40),
+        data: jobData && typeof jobData === "object" ? jobData : {},
         editor_markdown: editorMarkdown
       }
     });
+    // The designer, not the chat model, decided the slides; report them so the reply matches.
+    const slides = Array.isArray(jobData?.deck?.slides) ? jobData.deck.slides : [];
+    if (result.ok && slides.length) {
+      result.output = {
+        ...(result.output || {}),
+        deck_theme: result.output?.deck?.theme || jobData.deck.theme || "",
+        deck_outline: slides.map((slide, index) => `${index + 1}. ${clean(slide.title || slide.statement).replace(/\*\*/g, "").slice(0, 140)}`),
+        deck_note: "Describe the deck from deck_outline; the presentation designer chose these slides.",
+        ...deckQualityOutput(result.output?.quality_warnings)
+      };
+    }
+    return result;
+  }
+
+  // Decks Klui generated are edited through their DeckSpec and re-rendered, so any text, colour
+  // or piece of slide furniture can change precisely. Other PPTX files get text replacement.
+  async editPresentation(doc, { operations, instructions }) {
+    const spec = await this.db.getDeckSpecForDocument?.(this.userId, doc.id, { signal: this.signal });
+    const input = {
+      attachment_id: doc.attachment_id,
+      document_file_id: doc.id,
+      source_etag: doc.source_etag,
+      version_no: doc.version_no,
+      instructions: clean(instructions).slice(0, 30_000)
+    };
+    if (!spec) {
+      const replacements = (Array.isArray(operations) ? operations : []).filter((op) => String(op?.type || "") === "replace_text" && clean(op.find));
+      if (!replacements.length) {
+        throw new HttpError(400, "This presentation was not generated by Klui, so edit it with replace_text operations: {type: \"replace_text\", find, replace, slide?}.");
+      }
+      return this.enqueueAndWait({
+        jobType: "document.edit.pptx",
+        documentFileId: doc.id,
+        generatedCount: 1,
+        input: { ...input, operations: replacements.slice(0, 100) }
+      });
+    }
+    const edit = await editDeck({
+      config: this.config,
+      modelClient: this.modelClient,
+      signal: this.signal,
+      deck: spec,
+      instructions,
+      operations,
+      userRequest: this.userRequest
+    });
+    const result = await this.enqueueAndWait({
+      jobType: "document.edit.pptx",
+      documentFileId: doc.id,
+      generatedCount: 1,
+      input: { ...input, title: edit.deck.title || doc.file_name, data: { deck: edit.deck } }
+    });
+    if (result?.output && typeof result.output === "object") {
+      result.output = {
+        ...result.output,
+        deck_edit_summary: edit.summary,
+        deck_operations_applied: edit.applied,
+        ...deckQualityOutput(result.output?.quality_warnings)
+      };
+    }
+    return result;
   }
 
   async editDocument({ attachmentId, documentFileId, sourceEtag, versionNo, operations, instructions } = {}) {
@@ -1369,6 +1494,7 @@ export class DocumentService {
     if (doc.kind === "xlsx" && operations.length > 100) {
       throw new HttpError(400, "Excel edits are limited to 100 operations at a time.");
     }
+    if (doc.kind === "pptx") return this.editPresentation(doc, { operations, instructions });
     return this.enqueueAndWait({
       jobType: `document.edit.${doc.kind}`,
       documentFileId: doc.id,

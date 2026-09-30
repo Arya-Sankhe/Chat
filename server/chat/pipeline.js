@@ -44,7 +44,7 @@ import {
   withResponseAdjustmentSystemPrompt,
   withWritingStyleSystemPrompt
 } from "../saas/writingStyles.js";
-import { DocumentService, buildUntrustedDocumentContext } from "../documents/index.js";
+import { DocumentService, buildUntrustedDocumentContext, normalizeDeckTheme } from "../documents/index.js";
 import { retrievalWorthwhile, rewriteDocumentQuery } from "../documents/retrieval.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
 import { buildDocumentTools, isDocumentToolName } from "../documents/tool.js";
@@ -916,6 +916,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
   // Retries answer with the sources the original question was scoped to.
   const sourceScope = normalizeSourceScope(isRetry ? userMessage?.metadata?.sources : body.sources);
   const sourcePages = normalizeSourcePages(isRetry ? userMessage?.metadata?.sourcePages : body.sourcePages, sourceScope);
+  // The slide preset picked in the composer's Slides gallery; only meaningful with that skill.
+  const deckTheme = skillIds.includes("slides")
+    ? normalizeDeckTheme(isRetry || isEdit ? userMessage?.metadata?.deckTheme : body.deckTheme)
+    : "";
   const visualizing = skillIds.includes("visualize");
   const illustrationSkill = illustrationSkillFromIds(skillIds);
   if (illustrationSkill) {
@@ -1067,7 +1071,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
         projectDocumentPages: project?.kind === "course" ? sourcePages : null,
         hiddenProjectDocumentIds: project?.kind === "course" ? project.meta?.hiddenDocumentIds : null,
         plan: context.plan,
-        signal: req.turnController?.signal || req.signal
+        signal: req.turnController?.signal || req.signal,
+        modelClient,
+        userRequest: contentText(userContent),
+        deckTheme
       })
     : null;
   // Council answers without documents, even ones uploaded earlier in the chat or course.
@@ -1207,6 +1214,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       ...(pastedTextRange ? { paste: pastedTextRange } : {}),
       ...(skillIds.length ? { skillIds } : {}),
       ...(skillMarks.length ? { skillMarks } : {}),
+      ...(deckTheme ? { deckTheme } : {}),
       ...(sourceScope.length ? { sources: sourceScope } : {}),
       ...(Object.keys(sourcePages).length ? { sourcePages } : {})
     };
@@ -1415,7 +1423,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const documentSkills = agentMode && !visualizing && documents ? selectDocumentSkills({
     text: promptText,
     readyDocuments,
-    messageHasDocuments: attachments.some((attachment) => attachment.category === "document")
+    messageHasDocuments: attachments.some((attachment) => attachment.category === "document"),
+    createFormat: skillIds.includes("slides") ? "pptx" : skillIds.includes("docs") ? "docx" : ""
   }) : null;
   const deferredTools = documents && !visualizing ? buildDocumentTools() : [];
   const detection = webSearchMode !== "off"
@@ -1682,6 +1691,7 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       settings,
       writingStyle: normalizeWritingStyle(body.writingStyle),
       skillIds: normalizeComposerSkillIds(body.skillIds),
+      ...(normalizeDeckTheme(body.deckTheme) ? { deckTheme: normalizeDeckTheme(body.deckTheme) } : {}),
       agentMode: normalizeAgentMode(body.agentMode),
       webSearch: String(body.webSearch || "auto"),
       ...(sources.length ? { sources } : {}),
@@ -1716,6 +1726,7 @@ async function submitDocumentTurn({ req, config, context, conversation, body, at
       ...(paste ? { paste } : {}),
       ...(submittedSkillIds.length ? { skillIds: submittedSkillIds } : {}),
       ...(submittedSkillMarks.length ? { skillMarks: submittedSkillMarks } : {}),
+      ...(payload.deckTheme && submittedSkillIds.includes("slides") ? { deckTheme: payload.deckTheme } : {}),
       ...(payload.sources ? { sources: payload.sources } : {})
     },
     requestPayload: {

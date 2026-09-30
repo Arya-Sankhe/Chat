@@ -174,7 +174,8 @@ export async function enqueueCourseAudio({ context, config, course, body, signal
       p_project_max_bytes: context.plan.maxProjectBytes,
       p_max_active: config.studyAudio.maxActivePerUser,
       p_queue: config.studyAudio.queue,
-      p_account_max_bytes: context.plan.maxStorageBytes
+      p_account_max_bytes: context.plan.maxStorageBytes,
+      p_document_queue: config.documents?.queue
     }, { signal });
     return { document: result?.document, job: publicJob(result?.job) };
   } catch (error) {

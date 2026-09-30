@@ -241,6 +241,7 @@ export async function handleCompleteUpload(req, res, config) {
         sizeBytes,
         etag,
         kind,
+        queue: config.documents.queue,
         limits: documentExtractionLimits(config, context.plan),
         projectId: attachment.project_id || null,
         projectMaxBytes: context.plan.maxProjectBytes,
@@ -631,6 +632,7 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   const active = await context.db.getActivePdfPreviewJob(context.user.id, documentFile.id, { signal: req.signal });
   const job = active || await context.db.createDocumentJob({
     user_id: context.user.id,
+    queue: config.documents.queue,
     document_file_id: documentFile.id,
     conversation_id: documentFile.conversation_id,
     message_id: documentFile.message_id || null,

@@ -28,6 +28,9 @@ RUN apt-get update \
     qpdf \
     fonts-dejavu \
     fonts-liberation \
+    fonts-liberation-sans-narrow \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     libstdc++6 \
     libgcc-s1 \
   && rm -rf /var/lib/apt/lists/*
@@ -39,5 +42,11 @@ COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-deps /app/node_modules ./node_modules
 
 COPY worker ./worker
+# Deck themes use Georgia, Calibri, Arial and Arial Narrow. Previews render with their metric
+# twins (Gelasio, Carlito, Liberation Sans / Narrow) so slide text wraps as it does in PowerPoint.
+RUN mkdir -p /usr/share/fonts/truetype/klui \
+  && cp worker/fonts/*.ttf /usr/share/fonts/truetype/klui/ \
+  && cp worker/fonts/61-klui-deck-fonts.conf /etc/fonts/conf.d/ \
+  && fc-cache -f
 
 CMD ["python", "-m", "worker.worker"]

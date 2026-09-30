@@ -21,6 +21,7 @@ services:
       JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_QUEUE: ${RESEARCH_QUEUE:-local}
       TRANSCRIBE_QUEUE: ${TRANSCRIBE_QUEUE:-local}
+      DOCUMENT_QUEUE: ${DOCUMENT_QUEUE:-local}
     depends_on:
       searxng:
         condition: service_healthy
@@ -101,6 +102,7 @@ services:
       - path: .env
         required: false
     environment:
+      DOCUMENT_QUEUE: ${DOCUMENT_QUEUE:-local}
       DOCUMENT_WORKER_CONCURRENCY: ${DOCUMENT_WORKER_CONCURRENCY:-2}
       DOCUMENT_WORKER_MAX_IDLE_SECONDS: ${DOCUMENT_WORKER_MAX_IDLE_SECONDS:-10}
     mem_limit: ${DOCUMENT_WORKER_MEMORY_LIMIT:-6g}

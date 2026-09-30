@@ -19,6 +19,7 @@ import { searxngSearch, selectRelevantResults } from "../server/websearch/searxn
 import { tinyfishSearch } from "../server/websearch/tinyfish.js";
 import { tinyfetchRead } from "../server/websearch/tinyfetch.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
+import { answerCitations } from "../server/websearch/tool/loop.js";
 import {
   buildLoadToolsTool,
   buildWebSearchTools,
@@ -2513,6 +2514,24 @@ describe("Phase 5 relevance and reader regression", () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ index: i + 1, title: `S${i + 1}`, url: `https://s${i + 1}.example/` }));
     const cited = many.map((c) => `[${c.index}]`).join(" ");
     assert.equal(filterCitationsForAnswer(many, cited).length, 8);
+  });
+
+  test("answer sources read grouped markers and fall back to top results when uncited", () => {
+    const search = (offset, n) => Array.from({ length: n }, (_, i) => ({
+      index: offset + i + 1, rank: i + 1, title: `S${offset + i + 1}`, url: `https://s${offset + i + 1}.example/`
+    }));
+    const web = [...search(0, 4), ...search(4, 4)];
+    assert.deepEqual(filterCitationsForAnswer(web, "Prices [1, 3] and [5-6][8].").map((c) => c.index), [1, 3, 5, 6, 8]);
+
+    // Three searches, no markers: the panel keeps each search's best results, not nothing.
+    const shown = answerCitations([...web, { type: "document", index: 99, title: "Doc" }], "Plain answer.");
+    assert.deepEqual(shown.map((c) => c.index), [1, 5, 2, 6, 3, 99]);
+    assert.equal(shown.some((c) => c.read), false);
+    assert.equal(shown.filter((c) => c.type !== "document").every((c) => c.searched === true), true, "uncited results are flagged as search results");
+
+    // Cited answers still show only what they cite.
+    assert.deepEqual(answerCitations(web, "See [2].").map((c) => c.index), [2]);
+    assert.equal(answerCitations(web, "See [2].")[0].searched, undefined);
   });
 
   test("read timeout covers a stalled response body, not just headers", async () => {

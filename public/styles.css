@@ -7,10 +7,12 @@
 @import url("./styles/klui.css");
 @import url("./styles/composer.css");
 @import url("./styles/composer-beam.css");
+@import url("./styles/home-modes.css");
 @import url("./styles/council-images.css");
 @import url("./styles/drawers-dialogs.css");
 @import url("./styles/overlay-toast.css");
 @import url("./styles/mobile.css");
+@import url("./styles/mode-switch.css");
 @import url("./styles/research.css");
 @import url("./styles/projects.css");
 @import url("./styles/study-hub.css");

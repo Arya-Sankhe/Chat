@@ -224,6 +224,7 @@ create table if not exists public.document_files (
   project_id uuid references public.projects(id) on delete cascade,
   kind text not null check (kind in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv')),
   source text not null default 'upload' check (source in ('upload', 'generated', 'edited', 'exported')),
+  queue text not null default 'production',
   parent_document_id uuid references public.document_files(id) on delete set null,
   version_no integer not null default 1,
   source_etag text,
@@ -240,6 +241,10 @@ create table if not exists public.document_files (
   updated_at timestamptz not null default now(),
   unique (attachment_id)
 );
+
+alter table public.document_files add column if not exists queue text not null default 'production';
+alter table public.document_files drop constraint if exists document_files_queue_check;
+alter table public.document_files add constraint document_files_queue_check check (queue ~ '^[a-z][a-z0-9_-]{0,31}$');
 
 create table if not exists public.document_chunks (
   id uuid primary key default gen_random_uuid(),
@@ -291,6 +296,7 @@ create table if not exists public.document_jobs (
   conversation_id uuid references public.conversations(id) on delete cascade,
   message_id uuid references public.messages(id) on delete cascade,
   job_type text not null,
+  queue text not null default 'production',
   status text not null default 'queued' check (status in ('queued', 'running', 'succeeded', 'failed', 'expired')),
   priority integer not null default 0,
   attempt_count integer not null default 0,
@@ -308,6 +314,9 @@ create table if not exists public.document_jobs (
 
 alter table public.document_jobs
   add column if not exists cancel_requested boolean not null default false;
+alter table public.document_jobs add column if not exists queue text not null default 'production';
+alter table public.document_jobs drop constraint if exists document_jobs_queue_check;
+alter table public.document_jobs add constraint document_jobs_queue_check check (queue ~ '^[a-z][a-z0-9_-]{0,31}$');
 
 create table if not exists public.study_notes (
   id uuid primary key default gen_random_uuid(),
@@ -563,6 +572,7 @@ create index if not exists document_files_parent_document_idx on public.document
 create index if not exists document_files_project_idx on public.document_files (project_id) where project_id is not null;
 create index if not exists document_files_orphan_cleanup_idx on public.document_files (created_at) where conversation_id is null and message_id is null and project_id is null;
 create index if not exists document_jobs_claim_idx on public.document_jobs (priority desc, created_at asc) where status = 'queued';
+create index if not exists document_jobs_queue_claim_idx on public.document_jobs (queue, priority desc, created_at asc) where cancel_requested = false and status in ('queued', 'running');
 create index if not exists document_jobs_lease_idx on public.document_jobs (lease_until) where status = 'running';
 create index if not exists document_jobs_user_status_idx on public.document_jobs (user_id, status);
 create index if not exists document_jobs_document_file_idx on public.document_jobs (document_file_id) where document_file_id is not null;
@@ -1670,6 +1680,8 @@ revoke all on function public.klui_complete_attachment(uuid, uuid, integer, text
 grant execute on function public.klui_complete_attachment(uuid, uuid, integer, text, bigint)
   to service_role;
 
+drop function if exists public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint);
+
 create or replace function public.klui_complete_document_upload(
   p_user_id uuid,
   p_attachment_id uuid,
@@ -1679,7 +1691,8 @@ create or replace function public.klui_complete_document_upload(
   p_limits jsonb default '{}'::jsonb,
   p_project_id uuid default null,
   p_project_max_bytes bigint default null,
-  p_account_max_bytes bigint default null
+  p_account_max_bytes bigint default null,
+  p_queue text default 'production'
 ) returns jsonb
 language plpgsql
 security definer
@@ -1691,6 +1704,7 @@ declare
   v_jobs jsonb;
   v_used_bytes bigint;
 begin
+  if coalesce(p_queue, '') !~ '^[a-z][a-z0-9_-]{0,31}$' then raise exception 'invalid_document_queue'; end if;
   perform 1 from public.profiles where id = p_user_id for update;
   if not found then raise exception 'profile_not_found'; end if;
   if p_account_max_bytes is null or p_account_max_bytes <= 0 then
@@ -1747,7 +1761,7 @@ begin
 
   insert into public.document_files (
     attachment_id, user_id, conversation_id, message_id, project_id, kind, source,
-    source_etag, processing_status, metadata
+    source_etag, processing_status, metadata, queue
   ) values (
     v_attachment.id, v_attachment.user_id, v_attachment.conversation_id,
     v_attachment.message_id, v_attachment.project_id, p_kind, 'upload', v_attachment.etag, 'pending',
@@ -1755,7 +1769,7 @@ begin
       'file_name', v_attachment.file_name,
       'content_type', v_attachment.content_type,
       'size_bytes', v_attachment.size_bytes
-    )
+    ), p_queue
   )
   on conflict (attachment_id) do update
     set source_etag = coalesce(excluded.source_etag, public.document_files.source_etag),
@@ -1764,7 +1778,7 @@ begin
   returning * into v_document;
 
   insert into public.document_jobs (
-    user_id, document_file_id, conversation_id, message_id, job_type, priority, input
+    user_id, document_file_id, conversation_id, message_id, job_type, priority, input, queue
   )
   select
     v_attachment.user_id,
@@ -1781,7 +1795,8 @@ begin
       'size_bytes', v_attachment.size_bytes,
       'etag', v_attachment.etag,
       'limits', coalesce(p_limits, '{}'::jsonb)
-    )
+    ),
+    p_queue
   from (
     select 'document.extract.' || p_kind as job_type, 10 as priority
     union all
@@ -1806,9 +1821,9 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint)
+revoke all on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint, text)
   from public, anon, authenticated;
-grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint)
+grant execute on function public.klui_complete_document_upload(uuid, uuid, integer, text, text, jsonb, uuid, bigint, bigint, text)
   to service_role;
 
 create or replace function public.klui_complete_document_job(
@@ -2038,9 +2053,12 @@ revoke all on function public.klui_fail_document_job(uuid, text, jsonb)
 grant execute on function public.klui_fail_document_job(uuid, text, jsonb)
   to service_role;
 
+drop function if exists public.klui_claim_document_job(text, integer);
+
 create or replace function public.klui_claim_document_job(
   p_worker_id text,
-  p_lease_seconds integer default 120
+  p_lease_seconds integer default 120,
+  p_queue text default 'production'
 ) returns setof public.document_jobs
 language plpgsql
 security definer
@@ -2060,7 +2078,7 @@ begin
         finished_at = now(),
         lease_until = null,
         updated_at = now()
-    where status = 'running'
+    where queue = p_queue and status = 'running'
       and lease_until < now()
       and (cancel_requested = true or attempt_count >= 3)
     returning document_file_id, job_type, error
@@ -2105,7 +2123,7 @@ begin
   with next_job as (
     select id
     from public.document_jobs
-    where cancel_requested = false
+    where queue = p_queue and cancel_requested = false
       and (
         status = 'queued'
         or (status = 'running' and lease_until < now() and attempt_count < 3)
@@ -2127,14 +2145,17 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_claim_document_job(text, integer)
+revoke all on function public.klui_claim_document_job(text, integer, text)
   from public, anon, authenticated;
-grant execute on function public.klui_claim_document_job(text, integer) to service_role;
+grant execute on function public.klui_claim_document_job(text, integer, text) to service_role;
+
+drop function if exists public.klui_queue_document_page_render(uuid, uuid, integer);
 
 create or replace function public.klui_queue_document_page_render(
   p_user_id uuid,
   p_document_file_id uuid,
-  p_page_number integer
+  p_page_number integer,
+  p_queue text default 'production'
 ) returns jsonb
 language plpgsql
 security definer
@@ -2145,6 +2166,7 @@ declare
   v_page public.document_pages;
   v_job public.document_jobs;
 begin
+  if coalesce(p_queue, '') !~ '^[a-z][a-z0-9_-]{0,31}$' then raise exception 'invalid_document_queue'; end if;
   if p_page_number is null or p_page_number < 1 then raise exception 'invalid_page_number'; end if;
 
   select * into v_document
@@ -2178,15 +2200,16 @@ begin
   if v_job.id is null then
     insert into public.document_jobs (
       user_id, document_file_id, conversation_id, message_id,
-      job_type, priority, input
+      job_type, priority, input, queue
     ) values (
       v_document.user_id, v_document.id, v_document.conversation_id, v_document.message_id,
       'document.render_page', 100,
-      jsonb_build_object('page_number', p_page_number, 'attachment_id', v_document.attachment_id)
+      jsonb_build_object('page_number', p_page_number, 'attachment_id', v_document.attachment_id), p_queue
     ) returning * into v_job;
   elsif v_job.status in ('failed', 'expired', 'succeeded') then
     update public.document_jobs
     set status = 'queued',
+        queue = p_queue,
         priority = 100,
         attempt_count = 0,
         worker_id = null,
@@ -2205,9 +2228,9 @@ begin
 end;
 $$;
 
-revoke all on function public.klui_queue_document_page_render(uuid, uuid, integer)
+revoke all on function public.klui_queue_document_page_render(uuid, uuid, integer, text)
   from public, anon, authenticated;
-grant execute on function public.klui_queue_document_page_render(uuid, uuid, integer)
+grant execute on function public.klui_queue_document_page_render(uuid, uuid, integer, text)
   to service_role;
 
 create or replace function public.klui_submit_document_turn(
@@ -2762,10 +2785,11 @@ alter table public.document_files add constraint document_files_kind_check
   check (kind in ('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv', 'text', 'website'));
 
 -- Publish the source and its searchable chunks together; a partial import is never ready.
+drop function if exists public.klui_complete_study_source(uuid, uuid, uuid, text, text, text, text, bigint);
 create or replace function public.klui_complete_study_source(
   p_user_id uuid, p_attachment_id uuid, p_project_id uuid,
   p_kind text, p_title text, p_content text, p_source_url text,
-  p_project_max_bytes bigint
+  p_project_max_bytes bigint, p_document_queue text default 'production'
 ) returns jsonb
 language plpgsql
 security invoker
@@ -2779,6 +2803,7 @@ declare
   v_start integer := 1;
   v_index integer := 0;
 begin
+  if coalesce(p_document_queue, '') !~ '^[a-z][a-z0-9_-]{0,31}$' then raise exception 'invalid_document_queue'; end if;
   -- Match the lock order used by the upload pipeline.
   perform 1 from public.profiles where id = p_user_id for update;
   if not found then raise exception 'profile_not_found'; end if;
@@ -2801,11 +2826,12 @@ begin
   if v_used + v_attachment.size_bytes > p_project_max_bytes then raise exception 'project_storage_limit_exceeded'; end if;
 
   insert into public.document_files (
-    attachment_id, user_id, project_id, kind, source, processing_status, text_ready_at, word_count, metadata
+    attachment_id, user_id, project_id, kind, source, processing_status, text_ready_at, word_count, metadata, queue
   ) values (
     v_attachment.id, p_user_id, p_project_id, p_kind, 'upload', 'ready', now(),
     cardinality(regexp_split_to_array(trim(p_content), '\s+')),
-    jsonb_build_object('title', p_title, 'source_url', p_source_url, 'file_name', v_attachment.file_name)
+    jsonb_build_object('title', p_title, 'source_url', p_source_url, 'file_name', v_attachment.file_name),
+    p_document_queue
   ) returning * into v_document;
   while v_start <= length(p_content) loop
     -- Break near a word boundary without losing any characters between chunks.
@@ -2822,8 +2848,8 @@ begin
   return to_jsonb(v_document);
 end;
 $$;
-revoke all on function public.klui_complete_study_source(uuid, uuid, uuid, text, text, text, text, bigint) from public, anon, authenticated;
-grant execute on function public.klui_complete_study_source(uuid, uuid, uuid, text, text, text, text, bigint) to service_role;
+revoke all on function public.klui_complete_study_source(uuid, uuid, uuid, text, text, text, text, bigint, text) from public, anon, authenticated;
+grant execute on function public.klui_complete_study_source(uuid, uuid, uuid, text, text, text, text, bigint, text) to service_role;
 
 -- Hybrid document retrieval: stemmed any-word keyword search, text-chunk
 -- embeddings, and exact (filtered-first) vector search over pages and chunks.

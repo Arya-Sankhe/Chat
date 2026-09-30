@@ -357,13 +357,14 @@
                 <div class="research-mode-chip hidden" id="researchModeChip">
                   <svg class="research-mode-mark" data-chip-icon="research" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14.2 16.6 5.6a1.05 1.05 0 0 1 1.48 0l1.15 1.15a1.05 1.05 0 0 1 0 1.48L10.6 16.8z"/><path d="M6.2 15.6 8.4 13.4"/><path d="M6.5 16.2h11a1 1 0 0 1 1 1V19H5.5v-1.8a1 1 0 0 1 1-1z"/><path d="M4.5 19.5h15a1 1 0 0 1 1 1V22H3.5v-1.5a1 1 0 0 1 1-1z"/></svg>
                   <svg class="research-mode-mark hidden" data-chip-icon="compare" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>
-                  <svg class="research-mode-mark hidden" data-chip-icon="council" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/><path d="M11 12h2v3h-2z"/></svg>
+                  <svg class="research-mode-mark hidden" data-chip-icon="council" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.4" r="2.35"/><circle cx="5" cy="9" r="1.85"/><circle cx="19" cy="9" r="1.85"/><path d="M7.4 20v-1.5a4.6 4.6 0 0 1 9.2 0V20"/><path d="M2.4 20v-1.1A3.3 3.3 0 0 1 5.9 15.6"/><path d="M21.6 20v-1.1a3.3 3.3 0 0 0-3.5-3.3"/></svg>
                   <span class="research-mode-chip-label">Deep research</span>
                   <button type="button" id="researchModeClose" aria-label="Turn off Deep Research">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
                   </button>
                 </div>
                 <div class="composer-input">
+                  <div class="composer-deck-thumb hidden" id="composerDeckThumb" aria-hidden="true"></div>
                   <div id="promptInput" class="composer-prompt is-placeholder" contenteditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellcheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false"></div>
                 </div>
                 <div class="composer-bottom">
@@ -416,6 +417,7 @@
                         <button class="composer-style-option" type="button" data-writing-style="formal" role="menuitemradio" aria-checked="false"><span>Formal</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></button>
                       </div>
                     </div>
+                    <div class="mode-switch" id="modeSwitch" data-active="think" role="group" aria-label="Answer mode">
                     <div class="composer-model-wrap" id="composerModelWrap">
                       <div class="spectrum-pop" id="spectrumPop" role="dialog" aria-label="Model" hidden>
                         <div class="spectrum-head">Model</div>
@@ -430,6 +432,7 @@
                         </div>
                       </div>
                       <button class="composer-model-btn heat-btn" id="modelButton" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="spectrumPop" title="Think" aria-label="Think">
+                        <svg class="mode-switch-icon" width="22" height="14" viewBox="0 2.5 16 10" shape-rendering="crispEdges" aria-hidden="true"><g fill="#8fd3fb"><rect x="5" y="9.5" width="1" height="2.5"/><rect x="10" y="9.5" width="1" height="2.5"/><rect x="3" y="3.5" width="10" height="6"/><rect x="1" y="5.5" width="2" height="2"/><rect x="13" y="5.5" width="2" height="2"/></g><g class="mode-switch-eyes" fill="#16202e"><rect x="5" y="5" width="1" height="1.5"/><rect x="10" y="5" width="1" height="1.5"/></g></svg>
                         <span class="heat-bar" aria-hidden="true">
                           <span class="heat-name">Think</span>
                           <span class="heat-fill" id="heatFill">
@@ -446,8 +449,8 @@
                     </div>
                     <div class="composer-compare-wrap" id="compareWrap">
                       <button class="compare-btn" id="compareButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Compare models" title="Compare models">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>
-                        <span id="compareLabel">Compare</span>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>
+                        <span id="compareLabel" class="mode-switch-label">Compare</span>
                       </button>
                       <div class="compare-dropdown hidden" id="compareDropdown" role="listbox" aria-label="Compare models" aria-multiselectable="true">
                         <label for="compareInput" class="sr-only">Search compare models</label>
@@ -459,7 +462,7 @@
                             <span>Compare</span>
                           </button>
                           <button class="compare-mode-seg" data-compare-mode="council" type="button" role="radio" aria-checked="false">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/><path d="M11 12h2v3h-2z"/></svg>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.4" r="2.35"/><circle cx="5" cy="9" r="1.85"/><circle cx="19" cy="9" r="1.85"/><path d="M7.4 20v-1.5a4.6 4.6 0 0 1 9.2 0V20"/><path d="M2.4 20v-1.1A3.3 3.3 0 0 1 5.9 15.6"/><path d="M21.6 20v-1.1a3.3 3.3 0 0 0-3.5-3.3"/></svg>
                             <span>Council</span>
                           </button>
                         </div>
@@ -470,9 +473,10 @@
                     </div>
                     <div class="composer-compare-wrap" id="councilWrap">
                       <button class="compare-btn council-btn" id="councilButton" type="button" aria-pressed="false" aria-label="Council mode" title="Council mode">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
-                        <span id="councilLabel">Council</span>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.4" r="2.35"/><circle cx="5" cy="9" r="1.85"/><circle cx="19" cy="9" r="1.85"/><path d="M7.4 20v-1.5a4.6 4.6 0 0 1 9.2 0V20"/><path d="M2.4 20v-1.1A3.3 3.3 0 0 1 5.9 15.6"/><path d="M21.6 20v-1.1a3.3 3.3 0 0 0-3.5-3.3"/></svg>
+                        <span id="councilLabel" class="mode-switch-label">Council</span>
                       </button>
+                    </div>
                     </div>
                     <div class="composer-context-wrap" id="composerContextWrap"></div>
                     <div class="writing-style-pill hidden" id="writingStylePill">
@@ -501,9 +505,11 @@
                   </div>
                 </div>
               </div>
+              <div class="deck-picker-pop" id="deckPickerPop" role="dialog" aria-label="Slide themes" hidden></div>
               <div class="skill-command-menu hidden" id="skillCommandMenu" role="listbox" aria-label="Skills"></div>
               </div>
             </div>
+            <div class="home-modes" id="homeModes" hidden></div>
             <footer class="app-footer">
               <a class="accuracy-link" href="https://home.klui.ai/accuracy/" target="_blank" rel="noopener">Klui can make mistakes. Double-check important responses.</a>
             </footer>
@@ -873,6 +879,33 @@
           <input id="courseRenameTermInput" maxlength="40" autocomplete="off">
           <button type="submit" class="dojo-dialog-submit">Save changes</button>
         </form>
+      </dialog>
+
+      <dialog class="deck-preset-dialog" id="deckPresetDialog" aria-labelledby="deckPresetDialogTitle">
+        <button type="button" class="deck-preset-dialog-close" id="deckPresetDialogClose" aria-label="Close preview">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
+        </button>
+        <div class="deck-preset-dialog-body">
+          <div class="deck-preset-viewer">
+            <div class="deck-preset-viewer-stage">
+              <img id="deckPresetViewerImage" alt="">
+              <button type="button" class="deck-preset-viewer-nav deck-preset-viewer-prev" id="deckPresetPrev" aria-label="Previous slide">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button type="button" class="deck-preset-viewer-nav deck-preset-viewer-next" id="deckPresetNext" aria-label="Next slide">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+              </button>
+            </div>
+            <div class="deck-preset-viewer-thumbs" id="deckPresetThumbs"></div>
+          </div>
+          <div class="deck-preset-info">
+            <h2 id="deckPresetDialogTitle"></h2>
+            <p class="deck-preset-info-category" id="deckPresetCategory"></p>
+            <p class="deck-preset-info-desc" id="deckPresetDesc"></p>
+            <div class="deck-preset-swatches" id="deckPresetSwatches"></div>
+            <button type="button" class="deck-preset-use-btn" id="deckPresetUseBtn">Use</button>
+          </div>
+        </div>
       </dialog>
 
       <section class="research-report-view hidden" id="researchReportView" aria-label="Deep research report">

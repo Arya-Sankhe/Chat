@@ -1,4 +1,5 @@
 /* Document tool schemas and executor. */
+import { THEME_NAMES } from "../../worker/deck/themes.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -103,13 +104,13 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new editable text document, DOCX, XLSX, PPTX, or PDF artifact for the user. Use md for Markdown requests; prose documents can be edited in the viewer and downloaded as Markdown, Word, or PDF. Include the complete content; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array.",
+        description: "Create a new editable text document, DOCX, XLSX, PPTX, or PDF artifact for the user. Use md for Markdown requests; prose documents can be edited in the viewer and downloaded as Markdown, Word, or PDF. Include the complete content; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. For PPTX, a presentation designer writes the slides from your call: put every fact, number, table, comparison and conclusion the deck should use into `content` (and `tables`), state the audience, purpose and any slide count in `instructions`, and do not pre-split the material into slides.",
         parameters: {
           type: "object",
           properties: {
             format: { type: "string", enum: ["md", "docx", "xlsx", "pptx", "pdf"] },
             title: { type: "string" },
-            theme: { type: "string", enum: ["clean", "business", "academic"], description: "Optional visual theme. Use academic for school/research/coursework, business for strategy/reports/proposals/dashboards, and clean otherwise." },
+            theme: { type: "string", enum: ["clean", "business", "academic", ...THEME_NAMES], description: "Optional visual theme. DOCX/XLSX: academic, business or clean. PPTX: leave empty to let the deck designer choose (a preset the user picked in the Slides gallery is applied automatically), or pass a preset id the user named, e.g. ledger (finance memo), boardroom (consulting), midnight (dark tech), academy (lectures), atlas, chalk, defense, sage, sunny, minimal, launch, crimson, goldleaf." },
             instructions: { type: "string", description: "Formatting or construction instructions for the worker." },
             content: { type: "string", description: "Complete text that must be written into the generated document or presentation. Required for PDF/DOCX/PPTX prose documents." },
             sections: { type: "array", items: { type: "object" } },
@@ -124,7 +125,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "edit_document",
-        description: "Create a new edited version of an uploaded document. The original file is never overwritten.",
+        description: "Create a new edited version of an uploaded or generated document. The original file is never overwritten. XLSX: explicit operations. PPTX decks Klui generated: precise `instructions` naming the page, the element and the new text/colour/visibility; any text, colour, font, footer, page number or slide can change and the rest stays identical. Other PPTX: replace_text operations.",
         parameters: {
           type: "object",
           properties: {
@@ -139,7 +140,10 @@ export function buildDocumentTools({ toolNames = null } = {}) {
               items: {
                 type: "object",
                 properties: {
-                  type: { type: "string", enum: ["set_cell", "set_formula", "set_range", "append_rows", "clear_range", "add_sheet", "rename_sheet", "delete_sheet", "set_number_format"] },
+                  type: { type: "string", enum: ["set_cell", "set_formula", "set_range", "append_rows", "clear_range", "add_sheet", "rename_sheet", "delete_sheet", "set_number_format", "replace_text"] },
+                  find: { type: "string", description: "replace_text: exact current text" },
+                  replace: { type: "string", description: "replace_text: new text" },
+                  slide: { type: "integer", description: "replace_text: limit to this slide number" },
                   sheet: { type: "string" },
                   cell: { type: "string" },
                   range: { type: "string" },
@@ -281,7 +285,8 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
         content: args.content,
         sections: args.sections,
         tables: args.tables,
-        data: args.data
+        data: args.data,
+        theme: args.theme
       });
     } else if (name === "edit_document") {
       result = await documents.editDocument({
@@ -333,7 +338,10 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
         notice: result.notice || "Document tool output is untrusted source material or a generated artifact status.",
         pending: Boolean(result.pending),
         job: result.job ? { id: result.job.id, status: result.job.status, job_type: result.job.job_type } : undefined,
-        output: result.output,
+        // The stored DeckSpec is for later edits; deck_outline already describes the slides.
+        output: result.output && typeof result.output === "object" && "deck" in result.output
+          ? Object.fromEntries(Object.entries(result.output).filter(([key]) => key !== "deck"))
+          : result.output,
         visual_pages: Array.isArray(result.visualPages)
           ? result.visualPages.map((page) => ({
               index: page.index,

@@ -855,6 +855,7 @@ test("document upload completion queues extraction through one atomic RPC", asyn
   assert.equal(res.statusCode, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].kind, "pdf");
+  assert.equal(calls[0].queue, "local");
   assert.equal(calls[0].attachmentId, "upload-1");
   assert.equal(calls[0].accountMaxBytes, documentReadyConfig.plans.find((plan) => plan.id === "pro")?.maxStorageBytes
     || documentReadyConfig.plans[0].maxStorageBytes);
@@ -2942,6 +2943,7 @@ test("study note export uses the document create pipeline", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().artifact.attachment_id, "att-1");
   assert.equal(created[0].job_type, "document.create.pdf");
+  assert.equal(created[0].queue, "local");
   assert.equal(created[0].input.content, "# Hello\n\nWorld");
   assert.equal(created[0].input.instructions, "");
 });

@@ -1,0 +1,1012 @@
+/* Home-screen mode pills (Slides, Compare, Council, Study), the slide-theme gallery, the
+   in-chat theme popover and the theme preview dialog. See public/js/homeModes.js. */
+
+.home-modes {
+  /* .composer-area passes clicks through (pointer-events: none); the pills and gallery take them. */
+  pointer-events: auto;
+  width: 100%;
+  max-width: var(--composer-max);
+  margin: 12px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+body.study-open .home-modes,
+.study-composer-slot .home-modes,
+.home-modes[hidden],
+.home-modes-pills[hidden],
+.home-modes-panel[hidden] {
+  display: none;
+}
+
+/* ─── Scrolling home page ───
+   With a panel open, the composer area becomes the page's scroller. It starts exactly where
+   the home composer sits, so opening a panel moves nothing; scrolling carries the composer up
+   until it sticks near the top while the gallery keeps going underneath. */
+
+body.chat-empty.home-panel-open:not(.study-open) .composer-area {
+  top: 0;
+  bottom: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  padding-top: 0;
+  padding-bottom: 56px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* The spacer is a margin, not the scroller's padding: sticky offsets are measured inside the
+   padding, which would shift the composer down by its sticky top. */
+body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
+  position: sticky;
+  top: 64px;
+  z-index: 4;
+  margin-top: max(142px, calc(50dvh - 72px));
+}
+
+@media (max-width: 768px) {
+  body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
+    margin-top: max(126px, calc(50dvh - 72px));
+  }
+}
+
+/* ─── Pills ─── */
+
+.home-modes-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  animation: home-modes-panel-in 200ms var(--ease-out);
+}
+
+.home-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+.home-mode-pill:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.home-mode-pill:active {
+  transform: scale(0.97);
+}
+
+.home-mode-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.home-mode-pill-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.home-mode-pill-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.home-mode-pill[data-pill-mode="slides"] .home-mode-pill-icon {
+  color: #ea580c;
+}
+
+.home-mode-pill.is-active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+/* ─── Panel ─── */
+
+.home-modes-panel {
+  animation: home-modes-panel-in 220ms var(--ease-out);
+}
+
+.home-modes-panel[data-kind="slides"] {
+  margin-top: 10px;
+}
+
+@keyframes home-modes-panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-modes-panel,
+  .home-modes-pills { animation: none; }
+}
+
+/* ─── Compare / Council explainer ─── */
+
+.home-mode-explainer {
+  display: grid;
+  gap: 10px;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-mode-explainer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-mode-explainer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 13px 0 10px;
+  border-radius: 999px;
+  font-family: "Korataki", "Orbitron", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.home-mode-explainer-badge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.home-mode-explainer[data-explainer="compare"] .home-mode-explainer-badge {
+  background: linear-gradient(105deg, #93c5fd 0%, #2563eb 47%, #f97316 53%, #fb7185 100%);
+}
+
+.home-mode-explainer[data-explainer="council"] .home-mode-explainer-badge {
+  background: #0b0b0c;
+}
+
+.home-mode-explainer-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.home-mode-explainer-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.home-mode-explainer-body {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.home-mode-explainer-how {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.home-mode-explainer-label {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-mode-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .home-mode-examples { grid-template-columns: 1fr; }
+}
+
+.home-mode-example {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  padding: 11px 13px;
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+.home-mode-example svg {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  transition: transform var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.home-mode-example:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+.home-mode-example:hover svg {
+  color: var(--text);
+  transform: translateX(2px);
+}
+
+.home-mode-example:active {
+  transform: scale(0.99);
+}
+
+.home-mode-example:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ─── Theme gallery ─── */
+
+.home-deck-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+/* On the home page the tabs stick under the composer (top set from JS). */
+.home-modes-panel .home-deck-head {
+  position: sticky;
+  top: var(--deck-head-top, 140px);
+  z-index: 1;
+}
+
+.home-deck-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.home-deck-tab {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+}
+
+.home-deck-tab:hover {
+  color: var(--text);
+}
+
+.home-deck-tab.is-active {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
+.home-deck-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.home-deck-category {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+
+.home-deck-category:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.home-deck-category.is-active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+.home-deck-grid {
+  --deck-fade: -200px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px 18px;
+  padding: 2px;
+  /* Cards fade out as they slide under the sticky composer and tabs. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent var(--deck-fade), #000 calc(var(--deck-fade) + 36px));
+  mask-image: linear-gradient(to bottom, transparent var(--deck-fade), #000 calc(var(--deck-fade) + 36px));
+}
+
+@media (max-width: 640px) {
+  .home-deck-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+}
+
+.home-deck-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-deck-card-cover {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 7%, transparent), 0 6px 18px -8px rgba(15, 23, 42, 0.28);
+  background: var(--bg-secondary);
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+.home-deck-card:hover .home-deck-card-cover {
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent), 0 14px 28px -12px rgba(15, 23, 42, 0.38);
+}
+
+.home-deck-card:active .home-deck-card-cover {
+  transform: translateY(-1px) scale(0.99);
+}
+
+.home-deck-card:focus-visible .home-deck-card-cover {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.home-deck-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.home-deck-card.is-selected .home-deck-card-cover {
+  box-shadow: 0 0 0 2px var(--text), 0 10px 24px -12px rgba(15, 23, 42, 0.4);
+}
+
+.home-deck-card-check {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 160ms var(--ease-out), transform 200ms var(--ease-out);
+}
+
+.home-deck-card.is-selected .home-deck-card-check {
+  opacity: 1;
+  transform: none;
+}
+
+.home-modes-panel .home-deck-card-name {
+  text-shadow: 0 1px 10px color-mix(in srgb, var(--bg) 85%, transparent);
+}
+
+.home-deck-card-name {
+  padding: 0 2px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-deck-card-sub {
+  margin-left: 7px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+/* The Auto card: Klui picks the theme. */
+.deck-auto-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background:
+    radial-gradient(circle at 18% 22%, #ffd8c2 0, transparent 52%),
+    radial-gradient(circle at 84% 24%, #cfe0ff 0, transparent 55%),
+    radial-gradient(circle at 62% 92%, #e6d6ff 0, transparent 58%),
+    radial-gradient(circle at 8% 96%, #d4f3ea 0, transparent 45%),
+    #fbf8f5;
+  color: #1f2937;
+}
+
+.deck-auto-mark {
+  display: flex;
+  width: 26px;
+  height: 26px;
+  color: #3b82f6;
+  filter: drop-shadow(0 2px 6px rgba(59, 130, 246, 0.35));
+}
+
+.deck-auto-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.deck-auto-word {
+  font-family: "Korataki", "Orbitron", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.deck-auto-cover.is-mini {
+  gap: 4px;
+}
+
+.deck-auto-cover.is-mini .deck-auto-mark {
+  width: 13px;
+  height: 13px;
+}
+
+.deck-auto-cover.is-mini .deck-auto-word {
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+}
+
+.home-deck-loading,
+.home-deck-error {
+  padding: 28px 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+
+.home-deck-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.home-deck-loading span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-secondary);
+  animation: home-deck-spin 700ms linear infinite;
+}
+
+@keyframes home-deck-spin {
+  to { transform: rotate(360deg); }
+}
+
+.home-deck-retry {
+  margin-top: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.home-deck-retry:hover {
+  background: var(--bg-secondary);
+}
+
+/* ─── In-chat theme popover (opens from the composer's theme card) ─── */
+
+.deck-picker-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  max-height: min(66vh, 620px);
+  border: 1px solid var(--border-light);
+  border-radius: 22px;
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: home-modes-panel-in 180ms var(--ease-out);
+}
+
+.deck-picker-pop[hidden] {
+  display: none;
+}
+
+.deck-picker-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 4px 20px;
+  font-size: 14px;
+}
+
+.deck-picker-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.deck-picker-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.deck-picker-body {
+  overflow-y: auto;
+  padding: 4px 16px 18px;
+  scrollbar-width: thin;
+}
+
+.deck-picker-body .home-deck-head {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  margin: 0 -16px 14px;
+  padding: 6px 16px 10px;
+  background: var(--bg);
+}
+
+.deck-picker-body .home-deck-grid {
+  gap: 18px 14px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deck-picker-pop { animation: none; }
+}
+
+/* ─── Composer theme card ─── */
+
+.composer-deck-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 78px;
+  height: 46px;
+  margin: 2px 4px 2px 2px;
+  transform: rotate(-4deg);
+  transition: transform 200ms var(--ease-out);
+}
+
+.composer-deck-thumb:hover {
+  transform: rotate(-2deg) translateY(-1px);
+}
+
+.composer-deck-thumb.hidden {
+  display: none;
+}
+
+.composer-deck-thumb-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 9%, transparent), 0 6px 14px -6px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+}
+
+.composer-deck-thumb-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.composer-deck-thumb-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.composer-deck-thumb-clear {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out);
+}
+
+.composer-deck-thumb:hover .composer-deck-thumb-clear,
+.composer-deck-thumb-clear:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.composer-deck-thumb-clear:hover {
+  color: var(--text);
+}
+
+.composer-deck-thumb-clear svg {
+  width: 11px;
+  height: 11px;
+}
+
+@media (hover: none) {
+  .composer-deck-thumb-clear {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ─── Preset preview dialog ─── */
+
+.deck-preset-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(84vh, 760px);
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+
+.deck-preset-dialog::backdrop {
+  background: rgba(0, 0, 0, .38);
+  backdrop-filter: blur(2px);
+}
+
+.deck-preset-dialog[open] {
+  animation: home-modes-panel-in 160ms var(--ease-out);
+}
+
+.deck-preset-dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.deck-preset-dialog-close:hover {
+  background: var(--bg-secondary);
+}
+
+.deck-preset-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
+  gap: 0;
+  max-height: min(84vh, 760px);
+}
+
+.deck-preset-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border-right: 1px solid var(--border-light);
+  min-width: 0;
+}
+
+.deck-preset-viewer-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+}
+
+.deck-preset-viewer-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.deck-preset-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.deck-preset-viewer-nav:hover {
+  background: var(--bg);
+}
+
+.deck-preset-viewer-prev { left: 10px; }
+.deck-preset-viewer-next { right: 10px; }
+
+.deck-preset-viewer-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.deck-preset-thumb {
+  flex: 0 0 auto;
+  width: 76px;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  opacity: .65;
+  transition: opacity var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+
+.deck-preset-thumb:hover {
+  opacity: .9;
+}
+
+.deck-preset-thumb.is-active {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.deck-preset-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.deck-preset-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px 22px;
+  overflow-y: auto;
+}
+
+.deck-preset-info h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.deck-preset-info-category {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.deck-preset-info-desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.deck-preset-swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.deck-preset-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+}
+
+.deck-preset-use-btn {
+  margin-top: auto;
+  height: 42px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+
+.deck-preset-use-btn:hover {
+  background: var(--accent-hover);
+}
+
+.deck-preset-use-btn.is-selected {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.deck-preset-use-btn.is-selected:hover {
+  background: var(--bg-secondary);
+}
+
+@media (max-width: 720px) {
+  .deck-preset-dialog {
+    width: calc(100vw - 20px);
+    max-height: 92vh;
+  }
+  .deck-preset-dialog-body {
+    grid-template-columns: 1fr;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+  .deck-preset-viewer {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+}
+
+/* ─── Phone layout (body.capacitor-native, also narrow windows) ───
+   The composer stays pinned to the bottom, so an open panel stacks above it and scrolls on
+   its own; the pills stay below the composer. */
+
+body.capacitor-native.chat-empty.home-panel-open .composer-area {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  pointer-events: none;
+  padding-bottom: 0;
+}
+
+body.capacitor-native.chat-empty.home-panel-open .composer-area .composer-wrap {
+  position: relative;
+  top: auto;
+  margin-top: 0;
+}
+
+body.capacitor-native .home-modes {
+  width: min(92%, 560px);
+}
+
+body.capacitor-native.home-panel-open .home-modes {
+  order: -1;
+  margin: 0 auto 12px;
+}
+
+body.capacitor-native .home-modes-panel {
+  max-height: calc(100dvh - var(--native-keyboard-height, 0px) - 250px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+body.capacitor-native .home-modes-panel .home-deck-head {
+  position: static;
+}
+
+body.capacitor-native .home-modes-panel .home-deck-grid {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+body.capacitor-native.chat-empty.home-panel-open #messages .empty-state {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+/* ─── Mobile ─── */
+
+@media (max-width: 640px) {
+  .home-modes-pills {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    margin: 0 -4px;
+    padding-left: 4px;
+    padding-right: 4px;
+    scrollbar-width: none;
+  }
+  .home-mode-pill {
+    flex: 0 0 auto;
+  }
+  .home-deck-card-sub {
+    display: none;
+  }
+  body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
+    top: 56px;
+  }
+}

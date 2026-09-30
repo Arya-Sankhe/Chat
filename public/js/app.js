@@ -144,6 +144,7 @@ import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
 import { createCouncilController } from "./council.js";
+import { createHomeModesController } from "./homeModes.js";
 import { createAdminPanel } from "./adminPanel.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
 import {
@@ -447,6 +448,7 @@ let studyHubPromise;
 let compareController;
 let councilController;
 let adminPanel;
+let homeModesController;
 let selectedTextContext = null;
 const sideChatState = {
   context: "",
@@ -719,6 +721,20 @@ const els = {
   composerBeam: document.querySelector(".composer-beam"),
   composerArea: document.querySelector(".composer-area"),
   composerHomeAnchor: document.querySelector("#composerHomeAnchor"),
+  homeModes: document.querySelector("#homeModes"),
+  composerDeckThumb: document.querySelector("#composerDeckThumb"),
+  deckPresetDialog: document.querySelector("#deckPresetDialog"),
+  deckPickerPop: document.querySelector("#deckPickerPop"),
+  deckPresetDialogClose: document.querySelector("#deckPresetDialogClose"),
+  deckPresetViewerImage: document.querySelector("#deckPresetViewerImage"),
+  deckPresetPrev: document.querySelector("#deckPresetPrev"),
+  deckPresetNext: document.querySelector("#deckPresetNext"),
+  deckPresetThumbs: document.querySelector("#deckPresetThumbs"),
+  deckPresetDialogTitle: document.querySelector("#deckPresetDialogTitle"),
+  deckPresetCategory: document.querySelector("#deckPresetCategory"),
+  deckPresetDesc: document.querySelector("#deckPresetDesc"),
+  deckPresetSwatches: document.querySelector("#deckPresetSwatches"),
+  deckPresetUseBtn: document.querySelector("#deckPresetUseBtn"),
   followupQueue: document.querySelector("#followupQueue"),
   imageFileInput: document.querySelector("#imageFileInput"),
   cameraFileInput: document.querySelector("#cameraFileInput"),
@@ -831,6 +847,7 @@ const els = {
   compareButton: document.querySelector("#compareButton"),
   compareLabel: document.querySelector("#compareLabel"),
   councilWrap: document.querySelector("#councilWrap"),
+  modeSwitch: document.querySelector("#modeSwitch"),
   councilButton: document.querySelector("#councilButton"),
   councilLabel: document.querySelector("#councilLabel"),
   compareDropdown: document.querySelector("#compareDropdown"),
@@ -994,10 +1011,14 @@ function renderComposerModeChip() {
   if (!chip) return;
   const councilOn = isCouncilMode();
   const compareOn = Boolean(state.settings.compareEnabled) && !councilOn;
+  // On desktop the composer's mode switch already shows Compare and Council; phones hide the
+  // switch, so they keep the chip.
+  const switchShown = !document.body.classList.contains("capacitor-native");
   const mode = state.researchMode ? "research" : (councilOn ? "council" : (compareOn ? "compare" : ""));
+  const chipMode = switchShown && mode !== "research" ? "" : mode;
   const labels = { research: "Deep research", compare: "Compare", council: "Council" };
-  chip.classList.toggle("hidden", !mode);
-  chip.dataset.mode = mode;
+  chip.classList.toggle("hidden", !chipMode);
+  chip.dataset.mode = chipMode;
   const label = chip.querySelector(".research-mode-chip-label");
   if (label && mode) label.textContent = labels[mode];
   chip.querySelectorAll("[data-chip-icon]").forEach((icon) => {
@@ -1017,6 +1038,7 @@ function renderResearchMode() {
   if (els.imageToggle) els.imageToggle.disabled = state.running || state.researchMode;
   renderComposerModeChip();
   syncNativeTopBarMode();
+  homeModesController?.render();
 }
 
 function clearClarification() {
@@ -1170,6 +1192,9 @@ function setWritingStyle(value) {
 const HUMANIZER_ICON_SVG = '<svg viewBox="0 0 45 46" aria-hidden="true"><defs><mask id="humanizer-cut"><rect width="45" height="46" fill="#fff"/><path d="M7 40 38 6" stroke="#000" stroke-width="4.2" stroke-linecap="round"/></mask></defs><path d="M21.5 7.86C21.79 8.63 22.07 9.4 22.36 10.17C24.69 10.55 27.57 9.69 29.66 11.19C32.33 13.1 31.43 21.34 29.74 23.58C29.12 24.4 27.81 24.86 27.03 25.5C29.74 28.1 31.54 29.05 32.13 33.15C32.28 34.16 32.99 35.07 32.17 35.85C29.92 35.96 30.45 33.14 29.91 31.55C29.62 30.72 28.31 28.8 27.64 28.2C23.4 24.4 16.24 25.36 13.14 29.96C11.86 31.85 12.1 34.6 10.5 36.16C6.91 34.03 12.74 27.12 14.93 25.5C14.12 24.9 12.86 24.39 12.24 23.59C10.22 20.97 9.6 13.41 12.42 11.26C14.4 9.74 17.39 10.54 19.64 10.17C20.26 8.84 19.78 8.03 21.5 7.86ZM14.6 12.49C12.12 13.31 12.23 19.68 13.33 21.49C15.14 24.5 18.6 23.31 21.46 23.48C23.92 23.62 27.21 24.1 28.74 21.58C29.29 20.67 29.12 19.2 29.16 18.17C29.22 16.79 29.63 14.3 28.66 13.17C27.77 12.12 26.39 12.3 25.17 12.3C22.99 12.3 16.22 11.94 14.6 12.49ZM18.5 16.5C18.26 18.61 16.07 18.46 16.17 16.33C17.13 15.79 17.59 15.86 18.5 16.5ZM25.9 16.36C25.9 16.82 25.9 17.29 25.9 17.75C24.44 18.33 23.67 18.09 23.5 16.5C24.42 15.93 24.91 15.92 25.9 16.36Z" fill="currentColor" fill-rule="evenodd" mask="url(#humanizer-cut)"/><path d="M7 40 38 6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>';
 const ILLUSTRATION_ICON_SVG = '<svg viewBox="2 3.6 20 16.8" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.2" y="5" width="17.6" height="14" rx="3.2"/><circle cx="16.2" cy="9.35" r="1.55"/><path d="M4.45 16.4 9.15 11.45l3.15 3.15 2.4-2.8 4.85 4.55"/></svg>';
 const VISUALIZE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m8 15 3.1-3.1 2.4 2.1 3.7-5"/><circle cx="17.5" cy="7.5" r="1" fill="currentColor" stroke="none"/></svg>';
+const SLIDES_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="3.8" width="18.4" height="12.4" rx="2.6"/><path d="M12 16.2v3.6M8.4 20.2h7.2"/><path d="M7.6 12.6v-2.2M12 12.6V7.6M16.4 12.6V9.4"/></svg>';
+const DOCS_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M8.5 13h7M8.5 16.5h5"/></svg>';
+const SKILL_REMOVE_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10"/></svg>';
 const DEFAULT_SKILL_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5 12 8l2.5 2.5"/></svg>';
 
 function composerSkillById(id) {
@@ -1184,6 +1209,8 @@ function skillIconMarkup(id) {
   if (id === "humanizer") return HUMANIZER_ICON_SVG;
   if (id === "illustration") return ILLUSTRATION_ICON_SVG;
   if (id === "visualize") return VISUALIZE_ICON_SVG;
+  if (id === "slides") return SLIDES_ICON_SVG;
+  if (id === "docs") return DOCS_ICON_SVG;
   return DEFAULT_SKILL_ICON_SVG;
 }
 
@@ -1295,6 +1322,11 @@ function createSkillTokenEl(skill) {
   icon.className = "composer-skill-token-icon";
   icon.setAttribute("aria-hidden", "true");
   icon.innerHTML = skillIconMarkup(skill.id);
+  const remove = document.createElement("span");
+  remove.className = "composer-skill-token-remove";
+  remove.setAttribute("aria-hidden", "true");
+  remove.innerHTML = SKILL_REMOVE_ICON_SVG;
+  icon.append(remove);
   const label = document.createElement("span");
   label.textContent = skillDisplayName(skill);
   token.append(icon, label);
@@ -1341,6 +1373,7 @@ function setComposerPlainText(text, marks = []) {
 function syncComposerSkillState() {
   state.composerSkillIds = normalizeClientSkillIds(composerSkillMarks().map((mark) => mark.id));
   updateComposerPlaceholder();
+  homeModesController?.render();
 }
 
 function setComposerSkillIds(ids, marks) {
@@ -1815,6 +1848,8 @@ function modelModeLabel(mode = selectedModelMode()) {
 }
 
 function composerPlaceholder() {
+  const homeModePlaceholder = homeModesController?.placeholderOverride();
+  if (homeModePlaceholder) return homeModePlaceholder;
   if (state.composerSkillIds.length) return "";
   if (state.session && !hasChatAccess()) {
     return isNative() ? "Subscribe on the website to start chatting" : "Choose a plan to start chatting";
@@ -1830,6 +1865,9 @@ function updateComposerPlaceholder() {
   input.setAttribute("aria-label", placeholder || "Ask Klui");
   const empty = !composerPlainText().trim() && !state.composerSkillIds.length;
   input.classList.toggle("is-placeholder", empty && Boolean(placeholder));
+  // A skill like Slides keeps its own hint next to the chip until the user types.
+  const skillHint = Boolean(homeModesController?.placeholderOverride()) && state.composerSkillIds.length > 0 && !composerPlainText().trim();
+  input.classList.toggle("is-skill-hint", skillHint);
 }
 
 function renderFollowUps() {
@@ -5276,7 +5314,7 @@ function renderCitations(message) {
       ${icon ? `<img class="sources-row-icon" src="${escapeHtml(icon)}" alt="" width="16" height="16" decoding="async">` : `<span class="sources-row-fallback" aria-hidden="true"></span>`}
       <span class="sources-row-text">
         <span class="sources-row-title">${escapeHtml(title)}</span>
-        ${host ? `<span class="sources-row-host">${escapeHtml(host)}</span>` : ""}
+        ${host ? `<span class="sources-row-host">${escapeHtml(host)}${entry?.searched ? " · search result, not cited" : ""}</span>` : ""}
       </span>
     `;
     if (entry?.type === "document" && entry.attachment_id) {
@@ -5292,11 +5330,15 @@ function renderCitations(message) {
     `;
   }).join("");
 
+  // Search results the answer never cited are shown as what was searched, not as sources.
+  const searchedOnly = citations.every((entry) => entry?.searched === true);
+  const label = searchedOnly ? "Searched" : "Sources";
+  const hint = searchedOnly ? ` title="Pages the web search returned. The answer did not cite them."` : "";
   return `
     <details class="sources-pill">
-      <summary class="sources-pill-trigger">
+      <summary class="sources-pill-trigger"${hint}>
         ${faviconStack ? `<span class="sources-favicons">${faviconStack}</span>` : ""}
-        <span class="sources-pill-label">Sources</span>
+        <span class="sources-pill-label">${label}</span>
         <span class="sources-pill-count" aria-hidden="true">${citations.length}</span>
       </summary>
       <div class="sources-panel">${rows}</div>
@@ -5782,6 +5824,7 @@ function renderMessages() {
   resetCodeSourceStore();
   const showSkeleton = Boolean(state.conversationLoading && !state.messages.length && state.activeConversationId);
   document.body.classList.toggle("chat-empty", !state.messages.length && !showSkeleton);
+  homeModesController?.render();
   if (state.messages.length) void loadRichTextAssets();
   syncComposerKlui();
   renderTemporaryChatMode();
@@ -7457,7 +7500,8 @@ compareController = createCompareController({
     compareLabel: els.compareLabel,
     councilWrap: els.councilWrap,
     councilButton: els.councilButton,
-    councilLabel: els.councilLabel
+    councilLabel: els.councilLabel,
+    modeSwitch: els.modeSwitch
   },
   state,
   DEFAULT_COMPARE_MODELS,
@@ -7491,6 +7535,28 @@ councilController = createCouncilController({
   renderCompareControls: () => compareController.renderCompareControls(),
   renderResearchMode
 });
+
+homeModesController = createHomeModesController({
+  state,
+  els,
+  composerSkillById,
+  setComposerSkillIds,
+  fillComposerText: (text) => {
+    setComposerPlainText(text);
+    applyComposerHeight();
+    updateSendButton();
+    els.promptInput?.focus();
+  },
+  focusComposer: () => els.promptInput?.focus(),
+  enterCompareMode: () => compareController.activateCompareMode(),
+  enterCouncilMode,
+  exitCompareMode: () => compareController.cancelCompareMode(),
+  isCouncilMode,
+  setResearchMode,
+  openStudyHub: () => { void loadStudyHub().then((hub) => hub.openCourses()); },
+  showToast
+});
+homeModesController.init();
 
 adminPanel = createAdminPanel({
   elements: {
@@ -9118,6 +9184,8 @@ async function executeSend({ text, images, compareModels, council = false, descr
   compareController.closeCompareContextBanner();
   const sendSkillIds = editMessageId ? [] : normalizeClientSkillIds(skillIds);
   const sendSkillMarks = editMessageId ? [] : skillMarks.filter((mark) => sendSkillIds.includes(mark.id));
+  // Capture the selected deck theme before any composer/skill-chip mutation below clears it.
+  const sendDeckTheme = sendSkillIds.includes("slides") ? (homeModesController?.deckThemeForSend() || "") : "";
   if (illustrationSendBlocked(sendSkillIds, compareModels)) {
     showToast("Illustration works in standard chat.");
     return;
@@ -9312,6 +9380,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
       webSearch: state.settings.webSearchMode !== "off" ? "auto" : "off",
       ...(courseSources.length ? { sources: courseSources } : {}),
       ...(Object.keys(coursePages).length ? { sourcePages: coursePages } : {}),
+      ...(sendDeckTheme ? { deckTheme: sendDeckTheme } : {}),
       ...(paste ? { paste } : {}),
       ...(describeImages ? { describeImages: true } : {}),
       ...(editMessageId ? { editUserMessageId: editMessageId } : {}),
@@ -10187,6 +10256,12 @@ function bindEvents() {
     e.stopPropagation();
     closeActionMenu();
     compareController.closeCompareDropdown();
+    // In the unified mode switch, the collapsed model segment means "back to one model".
+    if (state.settings.compareEnabled) {
+      compareController.cancelCompareMode();
+      homeModesController?.render();
+      return;
+    }
     if (document.body.classList.contains("capacitor-native")) {
       applySpectrumLevel(selectedModelMode() === "pro" ? 1 : 2);
       closeModelDropdown();
@@ -10231,9 +10306,11 @@ function bindEvents() {
     if (state.researchMode) setResearchMode(false);
     if (state.settings.compareEnabled && state.settings.compareMode !== "council") {
       compareController.cancelCompareMode();
+      homeModesController?.render();
       return;
     }
     compareController.activateCompareMode();
+    homeModesController?.render();
   });
 
   if (els.councilButton) {
@@ -10245,9 +10322,11 @@ function bindEvents() {
       if (state.researchMode) setResearchMode(false);
       if (state.settings.compareEnabled && state.settings.compareMode === "council") {
         compareController.cancelCompareMode();
+        homeModesController?.render();
         return;
       }
       enterCouncilMode();
+      homeModesController?.render();
     });
   }
 

@@ -427,10 +427,20 @@ export function citationsFromResults(results) {
   }));
 }
 
+/* Markers the model writes: [2], [1, 3], [2-4], [1][2]. */
+export function citedIndexes(content) {
+  const cited = new Set();
+  for (const match of String(content || "").matchAll(/\[(\d+(?:\s*[,–-]\s*\d+)*)\]/g)) {
+    for (const part of match[1].split(/\s*,\s*/)) {
+      const [from, to = from] = part.split(/\s*[–-]\s*/).map(Number);
+      for (let n = from; n <= Math.min(to, from + 20); n += 1) cited.add(n);
+    }
+  }
+  return cited;
+}
+
 export function filterCitationsForAnswer(citations, content, limit = 8) {
-  const cited = new Set(
-    [...String(content || "").matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]))
-  );
+  const cited = citedIndexes(content);
   const seen = new Set();
   return (Array.isArray(citations) ? citations : [])
     .filter((citation) => citation?.read === true || cited.has(Number(citation?.index)))

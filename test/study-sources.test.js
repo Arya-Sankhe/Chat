@@ -18,7 +18,7 @@ function setup() {
       deleteObjects: async (...args) => calls.push(["cleanup", ...args])
     }
   };
-  return { calls, context, config: {}, course: { id: "course-1" } };
+  return { calls, context, config: { documents: { queue: "dev-box" } }, course: { id: "course-1" } };
 }
 
 test("pasted text reserves its actual UTF-8 size and publishes searchable source content", async () => {
@@ -35,6 +35,7 @@ test("pasted text reserves its actual UTF-8 size and publishes searchable source
   assert.equal(published.p_content, text);
   assert.equal(published.p_title, "Photosynthesis 🌱");
   assert.equal(published.p_project_max_bytes, args.context.plan.maxProjectBytes);
+  assert.equal(published.p_document_queue, "dev-box");
   args.context.db.listDocumentChunksForFiles = async () => [{ text: published.p_content }];
   assert.equal(await loadGenerationSourceText({ context: args.context, source: { documentFile: result } }), text);
 });

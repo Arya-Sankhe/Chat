@@ -4,7 +4,7 @@ import { SupabaseRest } from "../server/db/supabaseRest.js";
 
 const EXTRACTOR = "openpyxl_ranges_v2";
 
-export async function reindexXlsxDocuments({ db, apply = false, batchSize = 200, logger = console }) {
+export async function reindexXlsxDocuments({ db, queue = "local", apply = false, batchSize = 200, logger = console }) {
   let offset = 0;
   let scanned = 0;
   let alreadyCurrent = 0;
@@ -16,6 +16,7 @@ export async function reindexXlsxDocuments({ db, apply = false, batchSize = 200,
     const files = await db.request("document_files", {
       query: {
         kind: "eq.xlsx",
+        queue: `eq.${queue}`,
         text_ready_at: "not.is.null",
         select: "id,user_id,conversation_id,message_id,metadata",
         order: "created_at.asc",
@@ -39,7 +40,7 @@ export async function reindexXlsxDocuments({ db, apply = false, batchSize = 200,
       query: {
         document_file_id: `in.(${ids.join(",")})`,
         job_type: "eq.document.extract.xlsx",
-        select: "id,document_file_id,status"
+        select: "id,document_file_id,status,queue"
       }
     });
     const byFile = new Map(jobs.map((job) => [job.document_file_id, job]));
@@ -47,6 +48,7 @@ export async function reindexXlsxDocuments({ db, apply = false, batchSize = 200,
 
     for (const file of files) {
       const job = byFile.get(file.id);
+      if (job && job.queue !== queue) continue;
       if (job && ["queued", "running"].includes(job.status)) {
         active += 1;
         continue;
@@ -66,6 +68,7 @@ export async function reindexXlsxDocuments({ db, apply = false, batchSize = 200,
             conversation_id: file.conversation_id || null,
             message_id: file.message_id || null,
             job_type: "document.extract.xlsx",
+            queue,
             priority: -5,
             input: { reindex: true }
           }
@@ -103,6 +106,7 @@ async function main() {
   const config = loadConfig(process.env);
   await reindexXlsxDocuments({
     db: new SupabaseRest(config),
+    queue: config.documents.queue,
     apply: process.argv.includes("--apply")
   });
 }

@@ -18,6 +18,7 @@ import boto3
 import edgeparse
 import requests
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 from charset_normalizer import from_path
 from docx import Document
 from docx.shared import Inches as DocxInches
@@ -97,6 +98,30 @@ def is_retryable_http_status(status_code):
 def retry_sleep_seconds(attempt, base=0.5, cap=20.0):
     delay = min(cap, base * (2 ** max(0, attempt)))
     return delay * (0.5 + random.random())
+
+
+STORAGE_BUSY_CODES = {"ServiceUnavailable", "SlowDown", "TooManyRequests", "RequestTimeout", "InternalError", "503", "429", "500"}
+
+
+def is_storage_busy_error(exc):
+    """R2 throttles concurrent reads of one object (a fresh file is often read by
+    ingest and preview at once); those errors clear within seconds."""
+    if not isinstance(exc, ClientError):
+        return False
+    error = exc.response.get("Error", {}) if isinstance(exc.response, dict) else {}
+    status = (exc.response.get("ResponseMetadata", {}) if isinstance(exc.response, dict) else {}).get("HTTPStatusCode")
+    return str(error.get("Code", "")) in STORAGE_BUSY_CODES or is_retryable_http_status(status)
+
+
+def with_storage_retries(action, *, attempts=6, sleep=None):
+    sleep = sleep or time.sleep
+    for attempt in range(attempts):
+        try:
+            return action()
+        except ClientError as exc:
+            if attempt + 1 >= attempts or not is_storage_busy_error(exc):
+                raise
+            sleep(retry_sleep_seconds(attempt, base=1.0, cap=10.0))
 
 
 def request_with_retries(method, url, *, max_attempts=3, timeout=30, retry_statuses=True, **kwargs):
@@ -832,10 +857,11 @@ class Supabase:
     def rpc(self, name, body):
         return self.request(f"rpc/{name}", method="POST", body=body)
 
-    def claim_job(self, worker_id, lease_seconds):
+    def claim_job(self, worker_id, lease_seconds, queue):
         rows = self.rpc("klui_claim_document_job", {
             "p_worker_id": worker_id,
             "p_lease_seconds": lease_seconds,
+            "p_queue": queue,
         })
         return rows[0] if rows else None
 
@@ -1183,6 +1209,52 @@ class JinaEmbeddings:
         return embeddings
 
 
+def iter_pptx_paragraphs(shapes):
+    """Every paragraph in text boxes, table cells and groups on a slide."""
+    for shape in shapes:
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from iter_pptx_paragraphs(shape.shapes)
+            continue
+        if getattr(shape, "has_text_frame", False) and shape.has_text_frame:
+            yield from shape.text_frame.paragraphs
+        if getattr(shape, "has_table", False) and shape.has_table:
+            for row in shape.table.rows:
+                for cell in row.cells:
+                    yield from cell.text_frame.paragraphs
+
+
+def replace_in_paragraph(paragraph, find, replace):
+    """Replace text in a paragraph without touching the formatting of anything outside a match.
+
+    A match that spans runs is written into the run where it starts (taking that run's
+    formatting); only the matched characters are removed from the runs it continues into.
+    """
+    runs = list(paragraph.runs)
+    text = "".join(run.text for run in runs)
+    if not find or find not in text:
+        return 0
+    starts = {}
+    covered = set()
+    position = text.find(find)
+    while position >= 0:
+        starts[position] = True
+        covered.update(range(position, position + len(find)))
+        position = text.find(find, position + len(find))
+    offset = 0
+    for run in runs:
+        pieces = []
+        for index in range(offset, offset + len(run.text)):
+            if index in starts:
+                pieces.append(replace)
+            elif index not in covered:
+                pieces.append(text[index])
+        offset += len(run.text)
+        new_text = "".join(pieces)
+        if new_text != run.text:
+            run.text = new_text
+    return len(starts)
+
+
 class R2:
     def __init__(self):
         account_id = env("R2_ACCOUNT_ID")
@@ -1202,7 +1274,7 @@ class R2:
         )
 
     def download(self, key, path):
-        self.client.download_file(self.bucket, key, str(path))
+        with_storage_retries(lambda: self.client.download_file(self.bucket, key, str(path)))
 
     def upload(self, key, path, content_type):
         with open(path, "rb") as handle:
@@ -1224,6 +1296,10 @@ class Processor:
         self.r2 = R2()
         self.embeddings = JinaEmbeddings()
         self.worker_id = f"document-worker-{uuid.uuid4()}"
+        self.artifact_warnings = []
+        self.artifact_deck = None
+        configured_queue = env("DOCUMENT_QUEUE").lower()
+        self.queue = configured_queue if re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", configured_queue) else "local"
         self.lease_seconds = max(30, int(env("DOCUMENT_JOB_TIMEOUT_MS", "120000")) // 1000)
         self.error_backoff_seconds = env_float(
             "DOCUMENT_WORKER_ERROR_BACKOFF_SECONDS", 0.5, minimum=0.1
@@ -1269,12 +1345,12 @@ class Processor:
         return f"users/{user_id}/{uuid.uuid4()}/{safe_name(file_name)}"
 
     def run(self):
-        print(f"{self.worker_id} started", flush=True)
+        print(f"{self.worker_id} started queue={self.queue}", flush=True)
         consecutive_failures = 0
         empty_claims = 0
         while True:
             try:
-                job = self.db.claim_job(self.worker_id, self.lease_seconds)
+                job = self.db.claim_job(self.worker_id, self.lease_seconds, self.queue)
                 consecutive_failures = 0
                 if not job:
                     empty_claims += 1
@@ -1311,7 +1387,7 @@ class Processor:
         if now < self._backfill_next_at:
             return False
         try:
-            pages, chunks = self.backfill_embeddings(max_pages=32, max_chunks=64)
+            pages, chunks = self.backfill_embeddings(max_pages=32, max_chunks=64, queue=self.queue)
             self._backfill_failures = 0
         except Exception as exc:
             self._backfill_failures += 1
@@ -1329,9 +1405,9 @@ class Processor:
             print(f"embedding backfill: pages={pages} chunks={chunks}", flush=True)
         return did_work
 
-    def _pending_embedding_rows(self, table, select, limit, min_age_seconds, extra=None, document_ids=None):
+    def _pending_embedding_rows(self, table, select, limit, min_age_seconds, extra=None, document_ids=None, queue=None):
         params = {
-            "select": select,
+            "select": f"{select},document_files!inner(queue)" if queue else select,
             "embedding": "is.null",
             "order": "created_at.asc",
             "limit": str(limit + len(self._embed_skip)),
@@ -1339,6 +1415,8 @@ class Processor:
         }
         if document_ids:
             params["document_file_id"] = f"in.({','.join(document_ids)})"
+        if queue:
+            params["document_files.queue"] = f"eq.{queue}"
         if min_age_seconds > 0:
             cutoff = datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)
             params["created_at"] = f"lt.{cutoff.isoformat()}"
@@ -1364,7 +1442,7 @@ class Processor:
             results.extend(self._embed_rows([row], lambda single: [embed_one(single[0])], embed_one))
         return results
 
-    def backfill_embeddings(self, max_pages=32, max_chunks=64, min_age_seconds=600, document_ids=None):
+    def backfill_embeddings(self, max_pages=32, max_chunks=64, min_age_seconds=600, document_ids=None, queue=None):
         """Embed page images and text chunks that are still missing vectors.
 
         Uploads embed pages inline, but a provider outage or API change used to
@@ -1382,6 +1460,7 @@ class Processor:
                 min_age_seconds,
                 {"image_key": "not.is.null"},
                 document_ids,
+                queue,
             )
             if pages:
                 tmp = Path(tempfile.mkdtemp(prefix="doc-embed-backfill-"))
@@ -1431,7 +1510,7 @@ class Processor:
 
         if max_chunks:
             chunks = self._pending_embedding_rows(
-                "document_chunks", "id,text", max_chunks, min_age_seconds, document_ids=document_ids
+                "document_chunks", "id,text", max_chunks, min_age_seconds, document_ids=document_ids, queue=queue
             )
             for start in range(0, len(chunks), JINA_BATCH_SIZE_CAP):
                 batch = chunks[start:start + JINA_BATCH_SIZE_CAP]
@@ -2576,6 +2655,8 @@ class Processor:
         return chunks[:1000], {"row_count": row_count}
 
     def create_job(self, job, tmp):
+        self.artifact_warnings = []
+        self.artifact_deck = None
         input_data = job.get("input") or {}
         fmt = input_data.get("format") or job["job_type"].split(".")[-1]
         title = input_data.get("title") or "Generated document"
@@ -2591,11 +2672,19 @@ class Processor:
             path = self.create_xlsx(tmp, title, input_data)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         elif fmt == "pptx":
-            path = self.create_js_artifact(tmp, title, input_data, "pptx") or self.create_pptx(tmp, title, input_data)
+            path = self.create_js_artifact(tmp, title, input_data, "pptx")
+            if path is None:
+                path = self.create_pptx(tmp, title, input_data)
+                self.artifact_warnings = ["deck renderer failed; used the basic fallback layout"]
             content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         else:
             raise RuntimeError(f"Unsupported create format: {fmt}")
-        return self.store_generated(job, tmp, path, fmt, content_type, "generated", None)
+        output = self.store_generated(job, tmp, path, fmt, content_type, "generated", None)
+        if self.artifact_warnings:
+            output["quality_warnings"] = list(self.artifact_warnings)
+        if fmt == "pptx" and self.artifact_deck:
+            output["deck"] = self.artifact_deck
+        return output
 
     def create_js_artifact(self, tmp, title, input_data, fmt):
         if not USE_JS_ARTIFACT_GENERATOR:
@@ -2603,6 +2692,7 @@ class Processor:
         generator = Path(NODE_ARTIFACT_GENERATOR)
         if not generator.exists():
             return None
+        self.artifact_deck = None
         payload = dict(input_data or {})
         payload["format"] = fmt
         payload["title"] = title
@@ -2623,6 +2713,13 @@ class Processor:
                 raise RuntimeError("JS artifact generator returned a path outside the output directory.")
             if output.suffix.lower() != f".{fmt}":
                 raise RuntimeError("JS artifact generator returned the wrong file type.")
+            warnings = [str(item)[:240] for item in (data.get("warnings") or []) if item][:20]
+            if warnings:
+                print(f"{fmt} quality warnings ({len(warnings)}): {' | '.join(warnings[:6])}", flush=True)
+            self.artifact_warnings = warnings
+            # The DeckSpec as rendered; stored on the job so edits start from what is on the slides.
+            deck = data.get("deck")
+            self.artifact_deck = deck if isinstance(deck, dict) and isinstance(deck.get("slides"), list) else None
             return output
         except Exception as exc:
             print(f"JS artifact generator failed for {fmt}; using Python fallback: {exc}", flush=True)
@@ -2921,6 +3018,8 @@ class Processor:
             paragraph.font.color.rgb = color or RGBColor(45, 45, 45)
 
     def edit_job(self, job, tmp):
+        self.artifact_warnings = []
+        self.artifact_deck = None
         source_doc = self.db.get_document_file(job["document_file_id"])
         attachment = self.db.get_attachment(source_doc["attachment_id"])
         source = tmp / safe_name(attachment["file_name"])
@@ -2932,9 +3031,59 @@ class Processor:
         elif kind == "xlsx":
             output = self.edit_xlsx(source, tmp, job.get("input") or {})
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif kind == "pptx":
+            output = self.edit_pptx(source, tmp, job.get("input") or {})
+            content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         else:
             raise RuntimeError("Editing this document type is not supported yet.")
-        return self.store_generated(job, tmp, output, kind, content_type, "edited", source_doc)
+        stored = self.store_generated(job, tmp, output, kind, content_type, "edited", source_doc)
+        if self.artifact_warnings:
+            stored["quality_warnings"] = list(self.artifact_warnings)
+        if kind == "pptx" and self.artifact_deck:
+            stored["deck"] = self.artifact_deck
+        return stored
+
+    def edit_pptx(self, source, tmp, input_data):
+        self.artifact_warnings = []
+        deck = (input_data.get("data") or {}).get("deck")
+        if isinstance(deck, dict) and isinstance(deck.get("slides"), list):
+            # Klui decks re-render from the edited DeckSpec; the basic fallback would lose the design.
+            title = str(input_data.get("title") or deck.get("title") or source.stem)
+            rendered = self.create_js_artifact(tmp, title, {"data": {"deck": deck}}, "pptx")
+            if rendered is None:
+                raise RuntimeError("deck_render_failed: the edited deck could not be rendered")
+            output = tmp / f"edited-{re.sub(r'^(edited-)+', '', source.stem)}.pptx"
+            shutil.move(str(rendered), output)
+            return output
+        return self.replace_pptx_text(source, tmp, input_data.get("operations") or [])
+
+    def replace_pptx_text(self, source, tmp, operations):
+        prs = Presentation(str(source))
+        replacements = [
+            op for op in operations
+            if isinstance(op, dict) and str(op.get("type") or "") == "replace_text" and str(op.get("find") or "")
+        ]
+        if not replacements:
+            raise RuntimeError("pptx_edit_requires_replace_text_operations")
+        missing = []
+        for op in replacements[:100]:
+            find = str(op.get("find"))
+            replace = str(op.get("replace") or "")
+            slide_filter = op.get("slide")
+            count = 0
+            for number, slide in enumerate(prs.slides, start=1):
+                if slide_filter not in (None, "") and int(slide_filter) != number:
+                    continue
+                for paragraph in iter_pptx_paragraphs(slide.shapes):
+                    count += replace_in_paragraph(paragraph, find, replace)
+            if not count:
+                missing.append(find[:60])
+        if len(missing) == len(replacements[:100]):
+            raise RuntimeError(f"pptx_text_not_found: {', '.join(missing[:3])}")
+        self.artifact_warnings = [f"text not found: {item}" for item in missing[:10]]
+        output = tmp / f"edited-{re.sub(r'^(edited-)+', '', source.name)}"
+        prs.save(output)
+        return output
 
     def edit_docx(self, source, tmp, input_data):
         doc = Document(str(source))
@@ -3172,6 +3321,7 @@ class Processor:
             })
             document_file = self.db.create_document_file({
                 "attachment_id": attachment["id"],
+                "queue": job.get("queue", "production"),
                 "user_id": user_id,
                 "conversation_id": job.get("conversation_id"),
                 "message_id": job.get("message_id"),
