@@ -9,8 +9,13 @@ import { fitText, parseRuns, wrapLines } from "../worker/deck/measure.js";
 import { deckFromMarkdown, prepareDeck, renderDeck } from "../worker/deck/render.js";
 import { alignDeck, normalizeDeck } from "../worker/deck/spec.js";
 import { THEME_NAMES, chooseTheme } from "../worker/deck/themes.js";
-import { buildDeckWriterUser, deckLooksUsable, parseDeckJson, writeDeck } from "../server/documents/deckWriter.js";
+import { buildDeckWriterUser, deckLooksUsable, parseDeckJson, writeDeck, DECK_AUDIT_SYSTEM } from "../server/documents/deckWriter.js";
 import { applyDeckOperations, deckForEditor, editDeck } from "../server/documents/deckEditor.js";
+import { reviewDeck } from "../server/documents/deckReview.js";
+import { inspectDeck } from "../worker/deck/inspect.js";
+import { niceTicks } from "../worker/deck/charts.js";
+import { Painter } from "../worker/deck/core.js";
+import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL } from "../server/providers.js";
 import { DocumentService } from "../server/documents/index.js";
 
 const EVERY_TYPE = {
@@ -60,7 +65,7 @@ test("deck renderer draws every slide type in every theme without failures", asy
     const file = path.join(tmp, `${theme}.pptx`);
     const { warnings, deck } = await renderDeck({ ...EVERY_TYPE, theme }, file);
     assert.equal(deck.theme, theme);
-    assert.deepEqual(warnings.filter((warning) => /failed/.test(warning)), [], `${theme}: ${warnings.join("; ")}`);
+    assert.deepEqual(warnings.filter((warning) => /failed|text overlap/.test(warning)), [], `${theme}: ${warnings.join("; ")}`);
     const { texts, charts } = await slidesOf(file);
     assert.equal(texts.length, EVERY_TYPE.slides.length, theme);
     // Native, editable charts for the data chart types; text stays real text.
@@ -169,19 +174,23 @@ const DECK_JSON = JSON.stringify({
   ]
 });
 
-test("deck writer falls back to the next model when the first returns junk", async () => {
+test("deck writer always uses Pro and falls back to DeepSeek only when Pro fails", async () => {
   const models = [];
   const modelClient = {
     async streamChatCompletion({ body }) {
+      if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}');
       models.push(body.model);
       return sseResponse(models.length === 1 ? "Sorry, I cannot." : DECK_JSON);
     }
   };
-  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "first/model" } };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "openai/gpt-6-sol", deckAuditModel: "openai/gpt-6-sol" } };
   const result = await writeDeck({ config, modelClient, signal: new AbortController().signal, brief: { title: "Churn" } });
   assert.equal(models.length, 2);
-  assert.equal(models[0], "first/model");
+  assert.deepEqual(models, [OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL]);
   assert.equal(result.deck.slides.length, 3);
+  const pro = await writeDeck({ config, modelClient, signal: new AbortController().signal, brief: { title: "Churn" } });
+  assert.deepEqual(models.slice(2), [OPENROUTER_PRO_MODEL]);
+  assert.equal(pro.model, OPENROUTER_PRO_MODEL);
   assert.equal(await writeDeck({ config: {}, modelClient, brief: {} }), null);
 });
 
@@ -203,15 +212,25 @@ test("DocumentService writes a deck spec before queuing a PPTX job", async () =>
     conversationId: "00000000-0000-4000-8000-000000000002",
     plan: { id: "pro" },
     signal: new AbortController().signal,
-    modelClient: { async streamChatCompletion() { return sseResponse(DECK_JSON); } },
-    userRequest: "make me a churn deck"
+    modelClient: { async streamChatCompletion({ body }) { return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM ? '{"issues":[]}' : DECK_JSON); } },
+    userRequest: "make me a churn deck in the midnight theme"
   });
   const result = await service.createDocument({ format: "pptx", title: "Churn review", content: "Churn rose to 8%.", theme: "midnight" });
   assert.equal(job.job_type, "document.create.pptx");
   assert.equal(job.input.data.deck.title, "Churn review");
   assert.equal(job.input.theme, "midnight");
-  // The theme the caller named wins over the one the writer picked.
+  // A theme the user named wins over the one the writer picked.
   assert.equal(job.input.data.deck.theme, "midnight");
+  // On Auto, a theme the chat model picked on its own (or a document style) is ignored.
+  service.userRequest = "make me a churn deck";
+  await service.createDocument({ format: "pptx", title: "Churn review", content: "Churn rose to 8%.", theme: "academy" });
+  assert.equal(job.input.theme, "");
+  assert.equal(job.input.data.deck.theme, "boardroom");
+  // A topic word or a refusal is not a theme instruction.
+  for (const [request, theme] of [["compare Sage and QuickBooks; keep theme on Auto", "sage"], ["do not use academy", "academy"]]) {
+    service.userRequest = request;
+    assert.equal(service.requestedDeckTheme(theme), "", request);
+  }
   assert.deepEqual(result.output.deck_outline, ["1. Churn review", "2. Churn rose to 8%", "3. Next steps"]);
 });
 
@@ -287,6 +306,7 @@ test("deck editor plans operations with the model and applies them", async () =>
   let prompt = "";
   const modelClient = {
     async streamChatCompletion({ body }) {
+      assert.equal(body.model, OPENROUTER_PRO_MODEL);
       prompt = body.messages[1].content;
       return sseResponse(JSON.stringify({ summary: "Retitled page 2 and removed the footer.", operations: [
         { op: "set", path: "slides.2.title", value: "Churn hit **8.4%**" },
@@ -294,7 +314,7 @@ test("deck editor plans operations with the model and applies them", async () =>
       ] }));
     }
   };
-  const config = { providers: { openrouter: { apiKey: "test" } }, documents: {} };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "openai/gpt-6-sol" } };
   const result = await editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "Page 2 title should say 8.4%; remove the footer." });
   assert.match(prompt, /"page":2/);
   assert.equal(result.deck.slides[1].title, "Churn hit **8.4%**");
@@ -498,6 +518,118 @@ test("deck edits cannot remove or move the cover", async () => {
   }
 });
 
+// The deck from the Sol/Luna pricing prompt, reduced: a framework of placeholders and filler.
+const FILLER_DECK = {
+  theme: "boardroom",
+  title: "Pricing intelligence",
+  slides: [
+    { type: "cover", title: "Pricing intelligence: Sol and Luna", kpis: [{ value: "2", label: "families" }, { value: "5", label: "versions" }, { value: "Quarterly", label: "cadence" }] },
+    { type: "table", title: "Sol price snapshot", table: { columns: ["Version", "List price", "Discount"], rows: [["Sol 6.1", "To populate", "From CRM"], ["Sol 6", "To populate", "From CRM"], ["Sol 5.5", "To confirm", "From CRM"]] } },
+    { type: "process", title: "Refresh the price book", steps: [{ title: "Collect", body: "Quarterly refresh of list prices" }, { title: "Review", body: "Pricing team signs off" }] },
+    { type: "process", title: "Refresh the price book", steps: [{ title: "Collect", body: "Pull from CRM" }, { title: "Publish", body: "Share with sales" }] }
+  ]
+};
+
+test("deck review names placeholders, filler metrics, invented cadence and repeats", () => {
+  const { notes, score } = reviewDeck(FILLER_DECK, { material: "USER REQUEST: pricing to intelligence for sol 6.1, sol 6 and sol 5.5" });
+  const text = notes.join("\n");
+  assert.match(text, /Slide 2 .*placeholders/);
+  assert.match(text, /"Quarterly" is a word, not a figure/);
+  assert.match(text, /just counts what the request listed/);
+  assert.match(text, /"Quarterly refresh" is a process detail/);
+  assert.match(text, /Slide 4 .*repeats the title of slide 3/);
+  assert.ok(score >= 10);
+
+  const clean = {
+    title: "Sol vs Luna",
+    slides: [
+      { type: "cover", title: "Sol vs Luna pricing" },
+      { type: "chart", title: "Sol 6.1 costs **3x Luna 6** per 1M output tokens", chart: { type: "column", unit: "$", categories: ["Sol 6.1", "Sol 6", "Luna 6"], series: [{ name: "Output", values: [30, 20, 10] }] } },
+      { type: "table", title: "List prices by model", table: { columns: ["Model", "Input", "Output"], rows: [["Sol 6.1", "$5", "$30"], ["Luna 6", "$1.25", "$10"]] } }
+    ]
+  };
+  const material = "Sol 6.1: $5 input, $30 output. Sol 6: $20 output. Luna 6: $1.25 input, $10 output.";
+  assert.deepEqual(reviewDeck(clean, { material }).notes, []);
+  // Figures the material never gave are called out.
+  const invented = structuredClone(clean);
+  invented.slides[1].chart.series[0].values = [44, 27, 13];
+  invented.slides[2].table.rows[0] = ["Sol 6.1", "$7.5", "$44"];
+  assert.match(reviewDeck(invented, { material }).notes.join("\n"), /do not appear in the material: .*44/);
+});
+
+test("deck review asks for a chart over a numeric table and for sources on their slides", () => {
+  const deck = { slides: [
+    { type: "cover", title: "Prices" },
+    { type: "table", title: "List prices", table: { columns: ["Model", "Input", "Output"], rows: [["A", "$2.00", "$10.00"], ["B", "$4.00", "$20.00"], ["C", "$0.10", "$0.50"]] } },
+    { type: "cards", title: "Pricing sources", cards: [{ title: "OpenAI", body: "openai.com/index/introducing-gpt-6/" }, { title: "Docs", body: "developers.openai.com/api/docs/models" }] }
+  ] };
+  const text = reviewDeck(deck, { material: "A $2.00 $10.00 B $4.00 $20.00 C $0.10 $0.50" }).notes.join("\n");
+  assert.match(text, /Slide 2 .*no chart/);
+  assert.match(text, /Slide 3 .*listing sources/);
+  const leaky = { slides: [{ type: "cover", title: "T" }, { type: "statement", title: "Routing", statement: "Use Luna for volume.", attribution: "Routing pattern from the supplied material", source: "User-provided figures; sources listed in the material" }] };
+  assert.match(reviewDeck(leaky).notes.join("\n"), /talks about the brief/);
+});
+
+test("scatter axis ticks are round and always cover every point", () => {
+  for (const [min, max] of [[38, 73.3], [0, 33.5], [0.1, 1.3], [5, 5], [-12, 40]]) {
+    const ticks = niceTicks(min, max);
+    assert.ok(ticks[0] <= min && ticks.at(-1) >= max, `${min}-${max}: ${ticks}`);
+    assert.ok(ticks.length >= 2 && ticks.length <= 12);
+  }
+});
+
+test("long units move into the label instead of being cut mid-word", () => {
+  const deck = normalizeDeck({ slides: [
+    { type: "cover", title: "T", kpis: [{ value: "$0.10", unit: "per 1M cached input tokens", label: "GPT-6.1 Sol" }] },
+    { type: "bignumber", title: "Long prompts cost more", value: "2", unit: "× input and cached-input rates", label: "above 272K tokens" }
+  ] });
+  assert.deepEqual(deck.slides[0].kpis[0], { ...deck.slides[0].kpis[0], unit: "", label: "GPT-6.1 Sol · per 1M cached input tokens" });
+  assert.equal(deck.slides[1].unit, "×");
+  assert.equal(deck.slides[1].label, "above 272K tokens · input and cached-input rates");
+});
+
+test("the layout dry run reports text and rows that will not fit", () => {
+  const long = "A sentence that keeps running well past what a single table cell can hold on one slide. ".repeat(3);
+  const { problems } = inspectDeck({ slides: [
+    { type: "cover", title: "T" },
+    { type: "table", title: "Too many rows", table: { columns: ["A", "B", "C"], rows: Array.from({ length: 14 }, (_, index) => [`Row ${index}`, long, "1"]) } }
+  ] });
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0].page, 2);
+  assert.match(problems[0].warnings.join(" "), /table rows dropped/);
+});
+
+test("deck writer sends a flawed draft back once with the review notes and keeps the better deck", async () => {
+  const calls = [];
+  const good = JSON.stringify({ plan: { question: "price vs intelligence" }, title: "Sol vs Luna", slides: [
+    { type: "cover", title: "Sol vs Luna" },
+    { type: "bignumber", title: "Luna 6 is the value pick", value: "3", unit: "x", label: "cheaper than Sol 6.1", body: "Per 1M output tokens." },
+    { type: "cards", title: "When to use which", cards: [{ title: "Sol 6.1", body: "Use it for the hardest reasoning tasks, where accuracy matters more than cost per request." }, { title: "Luna 6", body: "Use it for high-volume work such as tagging and summaries, where cost per request dominates." }] }
+  ] });
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}');
+      calls.push(body.messages);
+      return sseResponse(calls.length === 1 ? JSON.stringify(FILLER_DECK) : good);
+    }
+  };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "first/model" } };
+  const result = await writeDeck({ config, modelClient, signal: new AbortController().signal, brief: { userRequest: "pricing for Sol and Luna" } });
+  assert.equal(calls.length, 2);
+  const revise = calls[1];
+  assert.equal(revise.at(-2).role, "assistant");
+  assert.match(revise.at(-1).content, /REVIEW NOTES:[\s\S]*placeholders/);
+  assert.equal(result.deck.title, "Sol vs Luna");
+  assert.equal(result.deck.plan, undefined, "the writer's plan is not stored with the deck");
+  assert.deepEqual(result.review, []);
+
+  // A clean first draft ships without a second call.
+  calls.length = 0;
+  const once = { async streamChatCompletion({ body }) { if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}'); calls.push(body.messages); return sseResponse(good); } };
+  await writeDeck({ config, modelClient: once, signal: new AbortController().signal, brief: { userRequest: "pricing" } });
+  assert.equal(calls.length, 1);
+});
+
 test("an already-cancelled turn never starts a deck writer or editor request", async () => {
   let calls = 0;
   const modelClient = { async streamChatCompletion() { calls += 1; return sseResponse(DECK_JSON); } };
@@ -509,6 +641,137 @@ test("an already-cancelled turn never starts a deck writer or editor request", a
   assert.equal(calls, 0);
 });
 
+test("deck audit catches a mispaired cost even when both figures exist in the evidence", async () => {
+  const make = (cost) => ({ title: "Model comparison", slides: [
+    { type: "cover", title: "Model comparison" },
+    { type: "table", title: "Measured runs", table: { columns: ["Model", "Score", "Cost"], rows: [["A high", "75.2%", `$${cost}`], ["A max", "71.9%", "$1.57"]] } },
+    { type: "statement", title: "Cost and score belong to one run", statement: "Compare scores at the same setting." }
+  ] });
+  const evidence = "https://example.org/runs A high: 75.2%, $0.65; A max: 71.9%, $1.57";
+  let audited = 0;
+  const client = { async streamChatCompletion({ body }) {
+    if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+      audited += 1;
+      assert.match(body.messages[1].content, /RETRIEVED EVIDENCE[\s\S]*A high: 75.2%, \$0.65/);
+      return sseResponse(JSON.stringify({ issues: audited === 1 ? [{ severity: "error", note: "Slide 2 pairs the high score with the max cost. Use $0.65 for A high." }] : [] }));
+    }
+    return sseResponse(JSON.stringify(make(body.messages.length === 2 ? "1.57" : "0.65")));
+  } };
+  const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } }, modelClient: client,
+    brief: { userRequest: "Create a 3-slide PPT", evidence, content: evidence } });
+  assert.equal(audited, 2);
+  assert.equal(result.deck.slides[1].table.rows[0][2], "$0.65");
+  assert.deepEqual(result.review, []);
+  assert.match(reviewDeck(make("0.65"), { userRequest: "Create a 2-slide PPT" }).notes.join("\n"), /including the cover/);
+  assert.deepEqual(reviewDeck(make("0.65"), { userRequest: "Create a deck of under 5 slides" }).notes, []);
+  assert.match(reviewDeck(make("0.65"), { userRequest: "about 6 slides please" }).notes.join("\n"), /about 6 slides/);
+});
+
+test("arrows preserve their target in every direction, including diagonal edges", () => {
+  const shapes = [];
+  const painter = new Painter({ ShapeType: { line: "line" } }, { addShape: (type, options) => shapes.push(options) }, { colors: { rule: "000000" } }, {});
+  for (const [x2, y2] of [[3, 3], [1, 3], [3, 1], [1, 1], [1, 2], [2, 1], [3, 2], [2, 3]]) {
+    painter.line(2, 2, x2, y2, { arrow: "triangle" });
+    const options = shapes.at(-1);
+    assert.equal(options.x + (options.flipH ? 0 : options.w), x2);
+    assert.equal(options.y + (options.flipV ? 0 : options.h), y2);
+    assert.equal(options.line.endArrowType, "triangle");
+  }
+});
+
+test("editable diagrams preserve relationships, reject dangling edges and re-place overlapping nodes", async () => {
+  const diagram = { type: "diagram", title: "A connected system", nodes: [
+    { id: "a", label: "Input", column: 0, row: 0 }, { id: "b", label: "Conversion", column: 1, row: 0 },
+    { id: "c", label: "Output", column: 2, row: 0 }
+  ], edges: [{ from: "a", to: "b", label: "energy" }, { from: "b", to: "c", label: "product" }, { from: "missing", to: "c" }] };
+  const deck = { title: "Systems", slides: [{ type: "cover", title: "Systems" }, diagram] };
+  assert.equal(normalizeDeck(deck).slides[1].edges.length, 2);
+  assert.deepEqual(inspectDeck(deck).problems, []);
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "diagram-"));
+  try {
+    const output = path.join(tmp, "diagram.pptx");
+    await renderDeck(deck, output);
+    const zip = await JSZip.loadAsync(await fs.readFile(output));
+    const xml = await zip.file("ppt/slides/slide2.xml").async("string");
+    assert.match(xml, /Diagram: Conversion/);
+    assert.match(xml, /type="triangle"/);
+    assert.match(xml, /product/);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+  // A node asked for an occupied cell moves to the next free one instead of drawing on top.
+  diagram.nodes[1].column = 0;
+  assert.deepEqual(normalizeDeck(deck).slides[1].nodes.map((node) => [node.column, node.row]), [[0, 0], [1, 0], [2, 0]]);
+  assert.deepEqual(inspectDeck(deck).problems, []);
+});
+
+test("review counts rendered charts and keeps citation notes out of visible-copy checks", () => {
+  const deck = { slides: [{ type: "cover", title: "Prices" }, { type: "table", title: "Prices", chart: {},
+    table: { columns: ["Name", "Price"], rows: [["A", "$1"], ["B", "$2"], ["C", "$3"]] },
+    notes: "The supplied material cites https://example.org/data" }] };
+  const notes = reviewDeck(deck).notes.join("\n");
+  assert.match(notes, /no chart/);
+  assert.doesNotMatch(notes, /talks about the brief/);
+  deck.slides[1].takeaway = "Too much visible text. ".repeat(20);
+  assert.match(reviewDeck(deck).notes.join("\n"), /normalization will truncate/);
+});
+
+test("opposing diagram labels stay separate; duplicated chrome disappears only when its header is shown", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "deck-overlap-"));
+  try {
+    for (const vertical of [true, false]) {
+      const deck = { theme: "academy", footer: "Machine Learning · Introduction", slides: [
+        { type: "cover", title: "Machine learning" },
+        { type: "diagram", title: "Learning changes parameters", source: "Learning reference", nodes: [
+          { id: "model", label: "Model", row: 0, column: 0 },
+          { id: "training", label: "Training", row: vertical ? 1 : 0, column: vertical ? 0 : 1 }
+        ], edges: [
+          { from: "model", to: "training", label: "current parameters" },
+          { from: "training", to: "model", label: "updates" }
+        ] }
+      ] };
+      assert.deepEqual(inspectDeck(deck).problems, []);
+      const file = path.join(tmp, `${vertical}.pptx`);
+      await renderDeck(deck, file);
+      const { texts } = await slidesOf(file);
+      assert.match(texts[1], /current parameters/);
+      assert.match(texts[1], /updates/);
+      assert.equal(texts[1].split(deck.footer).length - 1, 1);
+      assert.match(texts[1], /Source: Learning reference/);
+      assert.match(texts[1], /02 \/ 02/);
+      deck.slides[1].style = { hide: ["running_header"] };
+      await renderDeck(deck, file);
+      assert.equal((await slidesOf(file)).texts[1].split(deck.footer).length - 1, 1, "hidden header retains the footer label");
+    }
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
+test("duplicate diagram arrows merge and a failed audit never blocks the deck", async () => {
+  const deck = { title: "Learning", slides: [
+    { type: "cover", title: "Learning" },
+    { type: "diagram", title: "Learning loop", nodes: [
+      { id: "model", label: "Model", row: 0, column: 0 }, { id: "training", label: "Training", row: 1, column: 0 }
+    ], edges: [{ from: "model", to: "training", label: "parameters" }, { from: "model", to: "training", label: "updates" }] },
+    { type: "statement", title: "Learned rules", statement: "Examples determine learned rules." }
+  ] };
+  assert.deepEqual(normalizeDeck(deck).slides[1].edges, [{ from: "model", to: "training", label: "parameters · updates" }]);
+  assert.deepEqual(inspectDeck(deck).problems, []);
+  // An audit reply that is not JSON is not a factual error, but the deck is never reported as checked.
+  const client = { async streamChatCompletion({ body }) {
+    return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM ? "I could not check this." : JSON.stringify(deck));
+  } };
+  const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } } }, modelClient: client, brief: {} });
+  assert.equal(result.deck.title, "Learning");
+  assert.equal(result.unresolved.length, 1);
+  assert.match(result.unresolved[0], /fact check did not complete/);
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "diagram-deck-"));
+  try {
+    const file = path.join(tmp, "deck.pptx");
+    await renderDeck(deck, file);
+    const xml = await (await JSZip.loadAsync(await fs.readFile(file))).file("ppt/slides/slide2.xml").async("string");
+    assert.match(xml, /parameters · updates/);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
+
 test("a deck is edited from the spec the worker rendered, not only the one it was sent", async () => {
   const { getDeckSpecForDocument } = await import("../server/db/rest/documents.js");
   let query;
@@ -518,4 +781,117 @@ test("a deck is edited from the spec the worker rendered, not only the one it wa
   assert.match(query.select, /output->deck/);
   const legacy = { async request() { return [{ id: "job", rendered: null, sent: { theme: "boardroom", slides: [{ type: "cover" }] } }]; } };
   assert.equal((await getDeckSpecForDocument(legacy, "user", "doc")).theme, "boardroom");
+});
+
+
+test("fact errors outrank editorial scores, editorial notes get one revision, and unresolved errors ship with a warning", async () => {
+  const make = (title) => ({ title, slides: [{ type: "cover", title },
+    { type: "statement", title: "Mechanism", statement: "Verified mechanism." },
+    { type: "statement", title: "Recap", statement: "Recall the mechanism." }] });
+  let writes = 0, audits = 0;
+  const client = { async streamChatCompletion({ body }) {
+    if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+      audits += 1;
+      const issues = audits === 1 ? [{ severity: "error", note: "Correct the immediate product." }]
+        : audits === 2 ? Array.from({ length: 4 }, () => ({ severity: "warning", note: "Shorten a repeated sentence." })) : [];
+      return sseResponse(JSON.stringify({ issues }));
+    }
+    writes += 1;
+    return sseResponse(JSON.stringify(make(`Draft ${writes}`)));
+  } };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } };
+  const result = await writeDeck({ config, modelClient: client, brief: { userRequest: "Create a 3-slide PPT" } });
+  // The revision fixed the error; its editorial warnings do not cost a second round.
+  assert.equal(writes, 2);
+  assert.equal(result.deck.title, "Draft 2");
+  assert.equal(result.review.length, 4);
+  assert.deepEqual(result.unresolved, []);
+  const stuck = { async streamChatCompletion({ body }) {
+    return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM
+      ? JSON.stringify({ issues: [{ severity: "error", note: "Unsupported core score." }] }) : JSON.stringify(make("Wrong")));
+  } };
+  // Still wrong after two corrections: the deck ships and the chat is told what to double-check.
+  let calls = 0;
+  const counted = { streamChatCompletion: (args) => { calls += 1; return stuck.streamChatCompletion(args); } };
+  const shipped = await writeDeck({ config, modelClient: counted, brief: {} });
+  assert.equal(calls, 6);
+  assert.deepEqual(shipped.unresolved, ["Unsupported core score."]);
+  // A missed slide count is a requirement the chat reply must mention too.
+  const short = await writeDeck({ config, modelClient: stuck, brief: { userRequest: "Create a 4-slide PPT" } });
+  assert.ok(short.unresolved.some((note) => /asked for 4-slide/.test(note)));
+});
+
+test("currency is a prefix and parallel fact cards have no invented index", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "deck-labels-"));
+  try {
+    const output = path.join(tmp, "labels.pptx");
+    await renderDeck({ theme: "boardroom", slides: [{ type: "cover", title: "Results" },
+      { type: "bignumber", title: "Revenue per customer", value: "150", unit: "$", label: "Q1 and Q2" },
+      { type: "cards", title: "Related facts", cards: [{ title: "Growth", body: "More customers." }, { title: "Retention", body: "Higher churn." }] }] }, output);
+    const zip = await JSZip.loadAsync(await fs.readFile(output));
+    assert.match(await zip.file("ppt/slides/slide2.xml").async("string"), /\$150/);
+    assert.doesNotMatch(await zip.file("ppt/slides/slide3.xml").async("string"), /<a:t>0[12]<\/a:t>/);
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
+});
+
+
+test("an unchanged hero uses one value rather than an identical comparison rail", () => {
+  const deck = { slides: [{ type: "cover", title: "Results" },
+    { type: "bignumber", title: "Average spend stayed flat", value: "150", unit: "$", label: "Q2", compare: { value: "150", unit: "$", label: "Q1" } }] };
+  assert.match(reviewDeck(deck).notes.join("\n"), /identical value/);
+  delete deck.slides[1].compare;
+  assert.deepEqual(inspectDeck(deck).problems, []);
+});
+
+
+test("fact audit verifies literal source headings instead of relabelling a summary price", async () => {
+  const deck = { title: "Cost", slides: [{ type: "cover", title: "Cost" },
+    { type: "bignumber", title: "Measured cost", value: "1.05", unit: "$", label: "per task" },
+    { type: "statement", title: "Scope", statement: "One measured workload." }] };
+  let writes = 0;
+  const evidence = "Source: https://example.org/model. Summary Price $1.50; Cost per benchmark task $1.05. Same model and effort.";
+  const client = { async streamChatCompletion({ body }) {
+    if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+      assert.equal(body.model, OPENROUTER_PRO_MODEL);
+      assert.match(body.messages[0].content, /metric relabelled as a different metric/);
+      assert.match(body.messages[0].content, /the user did not request/);
+      return sseResponse(JSON.stringify({ issues: writes === 1 ? [{ severity: "error", note: "Summary Price is not cost per task; use the explicit $1.05 section." }] : [] }));
+    }
+    writes += 1;
+    return sseResponse(JSON.stringify({ ...deck, slides: deck.slides.map((s) => s.type === "bignumber" ? { ...s, value: writes === 1 ? "1.50" : "1.05" } : s) }));
+  } };
+  const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } }, modelClient: client, brief: { evidence, userRequest: "Compare measured cost" } });
+  assert.equal(result.deck.slides[1].value, "1.05");
+});
+
+test("a source naming the deck itself is dropped and a one-value chart is flagged", () => {
+  const deck = { title: "Causes of the 2008 Financial Crisis", source: "Causes of the 2008 Financial Crisis", slides: [
+    { type: "cover", title: "Causes" },
+    { type: "chart", title: "House prices doubled", source: "Source: Causes of the 2008 financial crisis",
+      chart: { type: "hbar", points: [{ label: "US house prices", value: 2, display: "Roughly 2×" }] } },
+    { type: "chart", title: "Rates fell", source: "Federal Reserve", chart: { type: "column", unit: "%", categories: ["2000", "2003"], series: [{ name: "Rate", values: [6.5, 1] }] } }
+  ] };
+  const normalized = normalizeDeck(deck);
+  assert.equal(normalized.source, "");
+  assert.equal(normalized.slides[1].source, "");
+  assert.equal(normalized.slides[2].source, "Federal Reserve");
+  const notes = reviewDeck(deck).notes.join("\n");
+  assert.match(notes, /Slide 2 .*single value/);
+  assert.doesNotMatch(notes, /Slide 3 .*single value/);
+});
+
+test("series of very different size on one axis are flagged", () => {
+  const deck = { title: "SaaS", slides: [{ type: "cover", title: "SaaS" },
+    { type: "chart", title: "Margin and churn", chart: { type: "column", unit: "%", categories: ["Q1", "Q2"], series: [{ name: "Gross margin", values: [68, 70] }, { name: "Churn", values: [3, 4] }] } }] };
+  assert.match(reviewDeck(deck).notes.join("\n"), /very different size/);
+});
+
+test("a slide whose text overlaps is exported as plain bullets, never overlapping", async () => {
+  const points = Array.from({ length: 5 }, (_, i) => ({ label: `Comparable detailed model version ${i}`, x: 1, y: 1 }));
+  const deck = { title: "Overlap", slides: [{ type: "cover", title: "Overlap" }, { type: "chart", title: "Evidence", chart: { type: "scatter", points } }] };
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "overlap-deck-"));
+  try {
+    const { warnings } = await renderDeck(deck, path.join(tmp, "deck.pptx"));
+    assert.ok(warnings.some((warning) => /chart layout failed \(text overlap/.test(warning)));
+  } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });

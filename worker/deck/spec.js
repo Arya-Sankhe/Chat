@@ -29,7 +29,7 @@ import { THEME_NAMES, chooseTheme } from "./themes.js";
 
 const TYPES = new Set([
   "cover", "agenda", "section", "summary", "chart", "table", "kpis", "comparison",
-  "timeline", "process", "cards", "statement", "bignumber", "matrix", "decision", "bullets"
+  "timeline", "process", "diagram", "cards", "statement", "bignumber", "matrix", "decision", "bullets"
 ]);
 
 const TYPE_ALIASES = {
@@ -47,15 +47,19 @@ export function str(value, max = 400) {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return String(value);
   if (typeof value === "object") return "";
-  return String(value)
+  const text = String(value)
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+/g, " ")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/(?<!\*)\*(?!\*)([^*\n]+)(?<!\*)\*(?!\*)/g, "$1")
-    .trim()
-    .slice(0, max);
+    .trim();
+  if (text.length <= max) return text;
+  // Over the limit: end on a whole word, never mid-word ("input toke").
+  const cut = text.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,.;:–—-]+$/, "")}…`;
 }
 
 function list(value, max) {
@@ -84,12 +88,28 @@ function items(value, max, sizes) {
   return list(value, max).map((entry) => item(entry, sizes)).filter((entry) => entry && (entry.title || entry.body));
 }
 
+// A unit sits beside the number in a smaller size, so it has to be short ("%", "×", "pts",
+// "$/1M"). A phrase such as "per 1M cached input tokens" moves in front of the label instead.
+const SHORT_UNIT = /^(?:[%×x$€£¥]|pts?|bps|pp|[kmb]|bn|mn|tn|k\+?|hrs?|h|days?|wks?|mos?|yrs?|ms|s|min|gb|tb|mb|kg|t|km|mi)$/i;
+
+export function splitUnit(unit, label) {
+  const text = String(unit || "").trim();
+  if (!text || (text.length <= 12 && text.split(/\s+/).length <= 2)) return { unit: text, label };
+  const [first, ...rest] = text.split(/\s+/);
+  // "million solar masses" keeps its magnitude beside the number: 4 M, then "solar masses".
+  const magnitude = { thousand: "k", million: "M", billion: "B", trillion: "T" }[first.toLowerCase()];
+  const keep = magnitude || (SHORT_UNIT.test(first) ? first : "");
+  const phrase = (keep ? rest.join(" ") : text).trim();
+  return { unit: keep, label: [label, phrase].filter(Boolean).join(" · ") };
+}
+
 function kpi(value) {
   if (!value || typeof value !== "object") return null;
+  const split = splitUnit(str(value.unit || value.suffix, 60), str(value.label || value.title || value.name, 90));
   const out = {
     value: str(value.value ?? value.number ?? value.metric, 24),
-    unit: str(value.unit || value.suffix, 24),
-    label: str(value.label || value.title || value.name, 90),
+    unit: split.unit,
+    label: str(split.label, 140),
     note: str(value.note || value.detail || value.body || value.context, 140),
     delta: str(value.delta || value.change, 30),
     status: str(value.status, 30)
@@ -97,8 +117,37 @@ function kpi(value) {
   return out.value ? out : null;
 }
 
+// A KPI tile states a figure; a word such as "Quarterly" or "High" in the value slot is filler.
+function figure(value) {
+  const entry = kpi(value);
+  return entry && /\d/.test(entry.value) ? entry : null;
+}
+
 function kpis(value, max) {
-  return list(value, max).map(kpi).filter(Boolean);
+  return list(value, max).map(figure).filter(Boolean);
+}
+
+// "2 families", "5 versions compared": a count of what the request itself listed, not a finding.
+const SCOPE_COUNT = /\b(famil(?:y|ies)|versions?|variants?|models?|products?|options?|items?|topics?|sections?|slides?|categories|tiers?|compared|covered|in scope|analy[sz]ed|reviewed|evaluated|included)\b/i;
+
+function isScopeCount(entry) {
+  return /^\d{1,2}$/.test(entry.value.trim()) && !entry.unit && !entry.delta && SCOPE_COUNT.test(entry.label);
+}
+
+// Cells a writer uses when it has no data. A column or row made only of these carries nothing.
+// "From CRM" / "From price list" point at a system instead of giving a value; "From Europe" is data.
+const PLACEHOLDER_CELL = /^(?:to (?:be )?(?:populate|populated|confirm|confirmed|determine|determined|add|added|come|verify|verified|source|sourced)|tbd|tbc|tba|n\/?a|pending|unknown|placeholder|not (?:yet )?(?:available|known|provided|public)|x{2,}|\?+|[-–—]+|\[[^\]]*\]|(?:pull |sourced? )?from (?:the )?(?:crm|erp|finance|sales|billing|internal|price ?list|pricing (?:page|sheet|team)|data ?(?:team|warehouse|base)|system|source|vendor|client|customer)(?: [a-z]+)?)\.?$/i;
+
+export function isPlaceholderCell(cell) {
+  const text = String(cell ?? "").trim();
+  return !text || PLACEHOLDER_CELL.test(text);
+}
+
+// A placeholder the writer typed in place of data. Blanks, dashes and "N/A" can be real answers
+// in a sparse matrix, so they do not count against a table.
+export function isWriterGap(cell) {
+  const text = String(cell ?? "").trim();
+  return Boolean(text) && !/^(?:[-–—]+|n\/?a)\.?$/i.test(text) && PLACEHOLDER_CELL.test(text);
 }
 
 function chart(value) {
@@ -179,13 +228,25 @@ function table(value) {
   }
   if (!columns.length || !rows.length) return null;
   rows = rows.map((row) => columns.map((_, index) => row[index] ?? ""));
+  // A table that is mostly placeholders has no data behind its title ("Price snapshot" with no
+  // prices); pruning it would leave a shell that still claims to show it.
+  const cells = rows.flatMap((row) => row.slice(1));
+  if (cells.length && cells.filter(isWriterGap).length / cells.length > 0.4) return null;
+  // Drop the columns and rows the writer could only fill with placeholders ("To populate"),
+  // carrying the highlight and status indexes over to what is left.
+  const keptColumns = columns.map((_, index) => index).filter((index) => index === 0 || rows.some((row) => !isPlaceholderCell(row[index])));
+  const keptRows = rows.map((_, index) => index).filter((index) => keptColumns.slice(1).some((column) => !isPlaceholderCell(rows[index][column])));
+  if (keptColumns.length < 2 || !keptRows.length) return null;
   const highlight = value.highlight_row ?? value.highlight;
+  const statusColumn = typeof value.status_column === "number" ? keptColumns.indexOf(value.status_column) : -1;
+  columns = keptColumns.map((index) => columns[index]);
+  rows = keptRows.map((index) => keptColumns.map((column, at) => (at > 0 && isPlaceholderCell(rows[index][column]) ? "—" : rows[index][column])));
   return {
     title: str(value.title || value.caption, 120),
     columns,
     rows,
-    highlightRow: typeof highlight === "number" ? highlight : rows.findIndex((row) => str(highlight, 60) && row[0] === str(highlight, 60)),
-    statusColumn: typeof value.status_column === "number" ? value.status_column : columns.findIndex((column) => /^(status|state|result|rag|verdict|assessment)$/i.test(column)),
+    highlightRow: typeof highlight === "number" ? keptRows.indexOf(highlight) : rows.findIndex((row) => str(highlight, 60) && row[0] === str(highlight, 60)),
+    statusColumn: typeof value.status_column === "number" ? statusColumn : columns.findIndex((column) => /^(status|state|result|rag|verdict|assessment)$/i.test(column)),
     note: str(value.note, 200)
   };
 }
@@ -212,7 +273,7 @@ function slide(raw, index) {
       return {
         ...base,
         kicker: str(raw.kicker, 90),
-        kpis: kpis(raw.kpis || raw.metrics, 4),
+        kpis: kpis(raw.kpis || raw.metrics, 4).filter((entry) => !isScopeCount(entry)),
         meta: list(raw.meta, 4).map((entry) => str(typeof entry === "object" ? `${entry.label || ""}${entry.label ? ": " : ""}${entry.value || ""}` : entry, 80)).filter(Boolean),
         tagline: str(raw.tagline, 160)
       };
@@ -226,8 +287,13 @@ function slide(raw, index) {
       const charts = [raw.chart, ...list(raw.charts, 2)].map(chart).filter(Boolean).slice(0, 2);
       return { ...base, charts, insights: items(raw.insights || raw.points, 4, { title: 90, body: 240 }), kpis: kpis(raw.kpis || raw.metrics, 4) };
     }
-    case "table":
-      return { ...base, table: table(raw.table || raw), insights: items(raw.insights || raw.points, 4, { title: 90, body: 220 }), kpis: kpis(raw.kpis || raw.metrics, 3) };
+    case "table": {
+      const drawn = table(raw.table || raw);
+      const source = raw.table || raw;
+      // Nothing real behind the table: its insights were written about data that is not there.
+      const gap = !drawn && list(source.rows || source.data, 14).some((row) => (Array.isArray(row) ? row : Object.values(row || {})).some(isWriterGap));
+      return { ...base, table: drawn, gap, insights: items(raw.insights || raw.points, 4, { title: 90, body: 220 }), kpis: kpis(raw.kpis || raw.metrics, 3) };
+    }
     case "kpis":
       return { ...base, kpis: kpis(raw.kpis || raw.metrics || raw.items, 6), body: str(raw.body || raw.text, 400) };
     case "comparison":
@@ -236,7 +302,7 @@ function slide(raw, index) {
         columns: list(raw.columns || raw.options || raw.items, 3).map((column) => (column && typeof column === "object" ? {
           title: str(column.title || column.name, 60),
           tag: str(column.tag || column.label, 40),
-          metric: kpi(column.metric || {}),
+          metric: figure(column.metric || {}),
           points: list(column.points || column.items, 6).map((point) => str(typeof point === "object" ? [point.title, point.body].filter(Boolean).join(": ") : point, 200)).filter(Boolean),
           status: str(column.status, 30),
           highlight: Boolean(column.highlight || column.recommended)
@@ -257,25 +323,55 @@ function slide(raw, index) {
         body: str(entry.body || entry.text || entry.description, 220),
         metric: str(entry.metric || entry.tag, 50)
       } : null)).filter((entry) => entry && entry.title), note: str(raw.note, 200) };
+    case "diagram": {
+      const ids = new Set();
+      const nodes = list(raw.nodes, 6).filter((entry) => entry && str(entry.id, 40) && str(entry.label, 80)).map((entry) => ({
+        id: str(entry.id, 40), label: str(entry.label, 80), detail: str(entry.detail, 160),
+        column: Math.max(0, Math.min(2, Math.round(num(entry.column) ?? 0))),
+        row: Math.max(0, Math.min(1, Math.round(num(entry.row) ?? 0)))
+      })).filter((node) => { if (ids.has(node.id)) return false; ids.add(node.id); return true; });
+      // Two nodes asked for the same cell: the later one takes the next free cell instead of
+      // being drawn on top of the first.
+      const taken = new Set();
+      for (const node of nodes) {
+        let cell = node.row * 3 + node.column;
+        while (taken.has(cell)) cell = (cell + 1) % 6;
+        taken.add(cell);
+        node.row = Math.floor(cell / 3);
+        node.column = cell % 3;
+      }
+      const edges = list(raw.edges, 8).filter((edge) => ids.has(edge?.from) && ids.has(edge?.to) && edge.from !== edge.to)
+        .map((edge) => ({ from: edge.from, to: edge.to, label: str(edge.label, 80) }))
+        // Two arrows for the same pair and direction would draw on top of each other: one arrow, both labels.
+        .filter((edge, index, all) => {
+          const first = all.findIndex((other) => other.from === edge.from && other.to === edge.to);
+          if (first === index) return true;
+          if (edge.label) all[first].label = [all[first].label, edge.label].filter(Boolean).join(" · ");
+          return false;
+        });
+      return { ...base, nodes, edges };
+    }
     case "cards":
       return { ...base, cards: list(raw.cards || raw.items, 6).map((entry) => (entry && typeof entry === "object" ? {
         kicker: str(entry.kicker || entry.label || entry.tag, 40),
         title: str(entry.title || entry.name, 80),
         body: str(entry.body || entry.text || entry.description, 260),
-        metric: kpi(entry.metric || {})
+        metric: figure(entry.metric || {})
       } : null)).filter((entry) => entry && (entry.title || entry.body)) };
     case "statement":
       return { ...base, statement: str(raw.statement || raw.quote || raw.text, 260), attribution: str(raw.attribution || raw.author, 100), points: items(raw.points || raw.items, 3, { title: 60, body: 200 }) };
-    case "bignumber":
+    case "bignumber": {
+      const split = splitUnit(str(raw.unit, 60), str(raw.label, 120));
       return {
         ...base,
         value: str(raw.value ?? raw.number, 16),
-        unit: str(raw.unit, 20),
-        label: str(raw.label, 120),
+        unit: split.unit,
+        label: str(split.label, 180),
         body: str(raw.body || raw.text, 360),
         compare: kpi(raw.compare || {}),
         points: items(raw.points || raw.items, 3, { title: 70, body: 200 })
       };
+    }
     case "matrix": {
       const axis = (value) => ({ label: str(value?.label, 40), low: str(value?.low, 30), high: str(value?.high, 30) });
       const quadrants = list(raw.quadrants, 4).map((entry) => (entry && typeof entry === "object" ? {
@@ -319,6 +415,7 @@ function hasBody(entry) {
     case "comparison": return entry.columns.length >= 2;
     case "timeline": return entry.items.length >= 2;
     case "process": return entry.steps.length >= 2;
+    case "diagram": return entry.nodes.length >= 2 && entry.edges.length > 0;
     case "cards": return entry.cards.length >= 2;
     case "statement": return Boolean(entry.statement);
     case "bignumber": return Boolean(entry.value);
@@ -330,6 +427,7 @@ function hasBody(entry) {
 
 // A slide whose body failed validation still carries its text; keep that text as bullets.
 function salvage(entry, raw) {
+  if (entry.gap) return null;
   const points = [];
   const push = (value) => {
     const text = str(typeof value === "object" && value ? [value.title || value.label, value.body || value.text || value.value].filter(Boolean).join(": ") : value, 260);
@@ -398,6 +496,11 @@ export function normalizeDeck(raw, fallback = {}) {
   if (!slides.length || slides[0].type !== "cover") {
     slides.unshift({ type: "cover", title, subtitle: str(deck.subtitle || fallback.subtitle, 220), kicker: str(deck.kicker, 90), kpis: [], meta: [], tagline: "", section: "", eyebrow: "", takeaway: "", source: "", notes: "", style: null });
   }
+  // A "source" that is just this deck's own name cites nothing.
+  const own = (value) => String(value || "").replace(/\*\*/g, "").toLowerCase().replace(/^source:\s*/, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const selfCited = (value) => value && [title, fallback.title, deck.footer].some((name) => name && own(name) === own(value));
+  for (const entry of slides) if (selfCited(entry.source)) entry.source = "";
+  const deckSource = selfCited(str(deck.source, 220)) ? "" : str(deck.source, 220);
   const text = [title, deck.subtitle, fallback.instructions, ...slides.map((entry) => entry.title)].join(" ");
   const theme = THEME_NAMES.includes(String(deck.theme || "").toLowerCase()) ? String(deck.theme).toLowerCase() : chooseTheme(text);
   return {
@@ -406,10 +509,22 @@ export function normalizeDeck(raw, fallback = {}) {
     subtitle: str(deck.subtitle || fallback.subtitle, 220),
     kicker: str(deck.kicker, 90),
     footer: str(deck.footer || deck.running_title, 90) || title.slice(0, 90),
-    source: str(deck.source, 220),
+    source: deckSource,
     date: str(deck.date, 40),
     author: str(deck.author || deck.organization || deck.org, 80),
     style: normalizeStyle(deck.style),
     slides
   };
+}
+
+// The deck exactly as the renderer lays it out: normalized, with the chapter list and the
+// comparison verdict standing in for a missing takeaway.
+export function prepareDeck(raw, fallback = {}) {
+  const deck = normalizeDeck(raw, fallback);
+  deck.sections = [];
+  for (const slide of deck.slides) {
+    if (slide.type === "comparison" && !slide.takeaway && slide.verdict) slide.takeaway = slide.verdict;
+    if (slide.section && slide.type !== "cover" && !deck.sections.includes(slide.section)) deck.sections.push(slide.section);
+  }
+  return deck;
 }

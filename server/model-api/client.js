@@ -1,6 +1,8 @@
 import { HttpError } from "../http/responses.js";
 import {
   adaptChatRequestForProvider,
+  assertAllowedChatModels,
+  OPENROUTER_IMAGE_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
   OPENROUTER_VISION_MODEL,
@@ -58,6 +60,7 @@ function sleep(ms, signal) {
  * callers can pipe it and non-streaming callers can parse it.
  */
 async function postChatCompletion({ apiKey, baseUrl, requestBody, signal, maxAttempts = DEFAULT_MAX_ATTEMPTS }) {
+  assertAllowedChatModels(requestBody);
   let lastError = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -165,6 +168,7 @@ function proFallbackBody(body) {
 }
 
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
+  assertAllowedChatModels(body);
   if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
     await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
   }
@@ -190,6 +194,7 @@ export async function streamChatCompletion({ apiKey, baseUrl, body, signal, prov
 }
 
 export async function chatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts, onResponseStarted, onResponsePayload }) {
+  assertAllowedChatModels(body);
   if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
     await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
   }
@@ -219,6 +224,7 @@ export async function imageGeneration({
   onResponseStarted,
   onResponsePayload
 }) {
+  if (body?.model !== OPENROUTER_IMAGE_MODEL) throw new HttpError(400, `Image model is not approved for Klui: ${body?.model}`);
   const response = await fetch(`${baseUrl}/images`, {
     method: "POST",
     headers: {

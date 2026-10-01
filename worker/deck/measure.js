@@ -84,6 +84,7 @@ export function wrapLines(text, widthIn, style) {
       if (lineWidth + width <= widthPt || !line.trim()) {
         if (width > widthPt && !line.trim()) {
           // A single word wider than the box breaks by character.
+          lines.broken = token.text;
           let chunk = "";
           for (const char of token.text) {
             const next = chunk + char;
@@ -108,7 +109,8 @@ export function wrapLines(text, widthIn, style) {
     }
     flush();
   }
-  return lines.length ? lines : [""];
+  if (!lines.length) lines.push("");
+  return lines;
 }
 
 export function lineHeightIn(size, lineHeight = 1.2) {
@@ -127,7 +129,7 @@ export function fitText(text, { w, h = Infinity, face, bold = false, emBold, max
     const lines = wrapLines(text, w, { ...style, size });
     const height = textHeightIn(lines.length, size, lineHeight);
     if (height <= h + 0.001 && lines.length <= maxLines) {
-      return { text, size, lines, height, fits: true };
+      return { text, size, lines, height, fits: true, broken: lines.broken || "" };
     }
   }
   const size = min;
@@ -136,11 +138,11 @@ export function fitText(text, { w, h = Infinity, face, bold = false, emBold, max
   const room = Math.max(1, Math.min(maxLines, Math.floor((h + 0.001) / lineHeightIn(size, lineHeight))));
   if (lines.length <= room) {
     const height = textHeightIn(lines.length, size, lineHeight);
-    return { text, size, lines, height, fits: height <= h + 0.001 };
+    return { text, size, lines, height, fits: height <= h + 0.001, broken: lines.broken || "" };
   }
   const kept = lines.slice(0, room);
   kept[room - 1] = `${kept[room - 1].replace(/[\s,.;:–—-]+$/, "")}…`;
-  return { text: truncateTo(text, kept), size, lines: kept, height: textHeightIn(room, size, lineHeight), fits: false };
+  return { text: truncateTo(text, kept), size, lines: kept, height: textHeightIn(room, size, lineHeight), fits: false, broken: lines.broken || "" };
 }
 
 // Cut the marked-up source so it holds only the visible lines' words, keeping emphasis markers.

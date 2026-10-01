@@ -416,12 +416,18 @@ export function normalizeSourcePages(value, sources = []) {
   return out;
 }
 
-export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, documentSkills } = {}) {
+// A document built from what is already here (this chat, an upload, the last answer) needs no
+// search; one on a fresh subject ("a pricing deck for Sol 6.1 and Luna 6") needs facts the
+// model may not have, so search stays available and the model decides.
+const WORKS_FROM_EXISTING = /\b(attached|uploaded|attachment)\b|\b(this|that|previous|last|earlier)\s+(answer|response|conversation|chat|document|file|deck)\b|\b(turn|convert|export|reformat|save)\s+(this|that|it|these|those)\b|\b(from|using|based on)\s+(the\s+)?(above|previous|supplied|provided)\b|\buse only\s+(these\s+)?(supplied|provided)\b/i;
+
+export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, documentSkills, text = "" } = {}) {
   if (webMode === "on") return false;
   if (!documentSkills?.toolNames?.includes("create_document")) return false;
   if (detection?.hasUrls) return false;
   if ((detection?.reasons || []).includes("explicit-search-command")) return false;
-  return Number(detection?.score || 0) === 0;
+  if (Number(detection?.score || 0) > 0) return false;
+  return WORKS_FROM_EXISTING.test(String(text || ""));
 }
 
 export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, deferredTools = [], userText = "", study = null }) {
@@ -1433,7 +1439,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const effectiveWebSearchMode = shouldSuppressWebSearchForDocumentTurn({
     webMode: webSearchMode,
     detection,
-    documentSkills
+    documentSkills,
+    text: promptText
   }) ? "off" : webSearchMode;
   const hint = effectiveWebSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
   let toolSetup = (agentMode || (study && readyDocuments.some((doc) => doc.project_id === study.course.id))) && !visualizing

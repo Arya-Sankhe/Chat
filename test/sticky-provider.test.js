@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, adaptChatRequestForProvider, stickyProviderTags } from "../server/providers.js";
+import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, adaptChatRequestForProvider, stickyProviderTags } from "../server/providers.js";
 import { createModelUsageMeter } from "../server/saas/usageMeter.js";
 
 const sse = (events) => new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n", {
@@ -22,8 +22,8 @@ test("a host outside the price-ranked order is not pinned", () => {
 });
 
 test("other models pin by provider slug; the pro model keeps its fixed order", () => {
-  const glm = adaptChatRequestForProvider({ model: "z-ai/glm-5.3-flash", sticky_provider: "Atlas Cloud", messages: [] }, "openrouter");
-  assert.deepEqual(glm.provider.order, ["atlas-cloud"]);
+  const vision = adaptChatRequestForProvider({ model: OPENROUTER_VISION_MODEL, sticky_provider: "Atlas Cloud", messages: [] }, "openrouter");
+  assert.deepEqual(vision.provider.order, ["atlas-cloud"]);
   const pro = adaptChatRequestForProvider({ model: OPENROUTER_PRO_MODEL, sticky_provider: "OpenAI", messages: [] }, "openrouter");
   assert.deepEqual(pro.provider.order, ["openai/flex", "openai"]);
   assert.equal("sticky_provider" in pro, false);

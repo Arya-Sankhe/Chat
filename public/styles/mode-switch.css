@@ -147,16 +147,20 @@
   transform: translateY(-1.5px);
 }
 
-/* ─── Compare segment: two models, two tones (violet meets teal) ─── */
+/* ─── Compare segment: a slate-grey blend with white text ─── */
 
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) {
   width: 112px;
   min-width: 112px;
   color: #fff;
-  background: linear-gradient(100deg, #8b5cf6 0%, #6366f1 42%, #0ea5e9 72%, #14b8a6 100%);
-  box-shadow:
-    -4px 0 12px color-mix(in srgb, #8b5cf6 22%, transparent),
-    4px 0 12px color-mix(in srgb, #14b8a6 20%, transparent);
+  background: hsla(208, 7%, 46%, 1);
+  background: linear-gradient(90deg, hsla(208, 7%, 46%, 1) 0%, hsla(191, 5%, 40%, 1) 100%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.mode-switch[data-active="compare"] .compare-btn:not(.council-btn):hover {
+  color: #fff;
+  background: linear-gradient(90deg, hsla(208, 7%, 41%, 1) 0%, hsla(191, 5%, 35%, 1) 100%);
 }
 
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) > svg {
@@ -167,7 +171,7 @@
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) .mode-switch-label {
   opacity: 1;
   transform: none;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  color: #fff;
 }
 
 /* ─── Council: only its own segment turns black ─── */
@@ -195,9 +199,13 @@
   transform: none;
 }
 
-body[data-mode="dark"] .mode-switch[data-active="council"] .council-btn {
-  background: #000;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+/* Dark mode inverts Council: a white segment with black text. */
+body[data-mode="dark"] .mode-switch[data-active="council"] .council-btn,
+body[data-mode="dark"] .mode-switch[data-active="council"] .council-btn:hover,
+body[data-mode="dark"] .mode-switch[data-active="council"] .council-btn .mode-switch-label {
+  color: #0b0b0c;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* The model popover is anchored to the whole switch, not the shrunken segment. */

@@ -13,6 +13,10 @@ from worker import worker as w
 
 
 class EnvHelpersTest(unittest.TestCase):
+    def test_embedding_model_cannot_be_overridden(self):
+        with mock.patch.dict(os.environ, {"DOCUMENT_VISUAL_EMBED_MODEL": "openai/gpt-6-sol"}):
+            self.assertEqual(w.JinaEmbeddings().model, "jina-embeddings-v5-omni-nano")
+
     def test_document_worker_claim_passes_its_queue(self):
         db = w.Supabase.__new__(w.Supabase)
         db.rpc = mock.Mock(return_value=[{"id": "job-1", "queue": "local"}])

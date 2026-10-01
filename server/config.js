@@ -2,6 +2,7 @@ import { loadPlans } from "./saas/plans.js";
 import { normalizeAllowedOrigins } from "./http/cors.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { OPENROUTER_IMAGE_MODEL, OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL } from "./providers.js";
 
 function readPort(value) {
   const port = Number.parseInt(value || "3000", 10);
@@ -134,7 +135,7 @@ export function loadConfig(env = process.env) {
       betaAccountIds: readList(env.DESKTOP_BETA_ACCOUNT_IDS).map((id) => id.toLowerCase()),
       meteringMode: readMeteringMode(env.API_USAGE_METERING_MODE),
       privacyPolicyVersion: clean(env.DESKTOP_PRIVACY_POLICY_VERSION) || "2026-08-11",
-      model: clean(env.DESKTOP_CHAT_MODEL) || "openai/gpt-6-luna",
+      model: OPENROUTER_PRO_MODEL,
       maxCompletionTokens: Math.min(readInt(env.DESKTOP_MAX_COMPLETION_TOKENS, 8192), 8192),
       // These are enforceable OpenRouter routing ceilings, not pricing
       // estimates. If an endpoint becomes more expensive, OpenRouter rejects
@@ -160,7 +161,6 @@ export function loadConfig(env = process.env) {
         }
       }
     },
-    visionDescribeModel: clean(env.VISION_DESCRIBE_MODEL),
     plans,
     access: {
       mode: accessMode,
@@ -218,7 +218,7 @@ export function loadConfig(env = process.env) {
         readInt(env.CONTEXT_RESERVE_TOKENS, 32_000),
         Math.max(1, contextMaxTokens - 1)
       ),
-      summaryModel: clean(env.CONTEXT_SUMMARY_MODEL) || "deepseek/deepseek-v4-flash-0731",
+      summaryModel: OPENROUTER_TEXT_MODEL,
       summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000)
     },
     documents: {
@@ -240,9 +240,9 @@ export function loadConfig(env = process.env) {
       visualInlineImages: readBoolean(env.DOCUMENT_VISUAL_INLINE_IMAGES, true),
       visualInlineMaxBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_BYTES, 2 * 1024 * 1024),
       visualInlineMaxTotalBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES, 12 * 1024 * 1024),
-      visualEmbedModel: clean(env.DOCUMENT_VISUAL_EMBED_MODEL) || "jina-embeddings-v5-omni-nano",
+      visualEmbedModel: "jina-embeddings-v5-omni-nano",
       jinaApiKey: clean(env.JINA_API_KEY),
-      rerankModel: /^(off|none|false|0)$/i.test(clean(env.DOCUMENT_RERANK_MODEL)) ? "" : (clean(env.DOCUMENT_RERANK_MODEL) || "jina-reranker-v3"),
+      rerankModel: /^(off|none|false|0)$/i.test(clean(env.DOCUMENT_RERANK_MODEL)) ? "" : "jina-reranker-v3",
       retrievalMaxChunkDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_CHUNK_DISTANCE, 0.72),
       retrievalMaxPageDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_PAGE_DISTANCE, 0.8),
       retrievalMinRerankScore: Number.isFinite(Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE)) ? Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE) : -0.08,
@@ -254,8 +254,6 @@ export function loadConfig(env = process.env) {
       maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 75),
       jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000),
       queue: readResearchQueue(env.DOCUMENT_QUEUE),
-      // Model that writes PPTX decks (storyline, titles, exhibits); empty uses the Pro model.
-      deckModel: clean(env.DOCUMENT_DECK_MODEL),
       deckWriterTimeoutMs: readInt(env.DOCUMENT_DECK_WRITER_TIMEOUT_MS, 150_000)
     },
     // Dojo audio sources: lectures uploaded or recorded in the browser, transcribed by
@@ -313,7 +311,7 @@ export function loadConfig(env = process.env) {
     research: {
       enabled: readBoolean(env.RESEARCH_ENABLED, true),
       queue: readResearchQueue(env.RESEARCH_QUEUE),
-      cheapModel: clean(env.RESEARCH_CHEAP_MODEL) || "deepseek/deepseek-v4-flash-0731",
+      cheapModel: OPENROUTER_TEXT_MODEL,
       workerConcurrency: readInt(env.RESEARCH_WORKER_CONCURRENCY, 3),
       leaseSeconds: readInt(env.RESEARCH_LEASE_SECONDS, 120),
       pollMs: readInt(env.RESEARCH_WORKER_POLL_MS, 5000),
@@ -338,7 +336,7 @@ export function loadConfig(env = process.env) {
     study: {
       maxRunMs: readInt(env.STUDY_MAX_RUN_MS, 10 * 60 * 1000),
       inactivityMs: readInt(env.STUDY_INACTIVITY_MS, 30_000),
-      visionModel: clean(env.STUDY_VISION_MODEL) || "xiaomi/mimo-v2.6-flash"
+      visionModel: OPENROUTER_VISION_MODEL
     },
     illustrations: {
       enabled: Boolean(
@@ -351,7 +349,7 @@ export function loadConfig(env = process.env) {
         && clean(env.SUPABASE_ANON_KEY)
         && clean(env.SUPABASE_SERVICE_ROLE_KEY)
       ),
-      model: "krea/krea-2-medium-turbo",
+      model: OPENROUTER_IMAGE_MODEL,
       maxImages: 1,
       maxBytes: 3 * 1024 * 1024,
       reservationCreditsPerImage: readPositiveNumber(env.ILLUSTRATION_RESERVATION_CREDITS, 0.25)

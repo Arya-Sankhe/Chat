@@ -17,6 +17,7 @@ export class Painter {
     this.theme = theme;
     this.deck = deck;
     this.warnings = [];
+    this.textBounds = [];
   }
 
   hidden(name) {
@@ -69,6 +70,16 @@ export class Painter {
     return fitText(text, { ...resolved, w, h });
   }
 
+  trackText(text, box, name = "Text") {
+    // ponytail: compare measured text rectangles; use glyph outlines if font-specific cases require it.
+    for (const other of this.textBounds) {
+      const width = Math.min(box.x + box.w, other.x + other.w) - Math.max(box.x, other.x);
+      const height = Math.min(box.y + box.h, other.y + other.h) - Math.max(box.y, other.y);
+      if (width > 0.025 && height > 0.025) this.warnings.push(`text overlap: "${plain(other.text).slice(0, 55)}" and "${plain(text).slice(0, 55)}"`);
+    }
+    this.textBounds.push({ ...box, text: plain(text), name });
+  }
+
   // Draw text in a box. Returns the fit ({ size, height, lines, fits }).
   text(value, box, style = {}) {
     if (value === null || value === undefined || String(value).trim() === "") return { size: 0, height: 0, lines: [], fits: true };
@@ -76,6 +87,7 @@ export class Painter {
     const source = resolved.caps ? String(value).toUpperCase() : String(value);
     const fit = fitText(source, { ...resolved, w: box.w, h: box.h ?? Infinity });
     if (!fit.fits) this.warnings.push(`clipped: ${plain(source).slice(0, 60)}`);
+    if (fit.broken) this.warnings.push(`word split across lines: "${fit.broken.slice(0, 30)}" is wider than its box`);
     const runs = [];
     const paragraphs = fit.text.split("\n");
     paragraphs.forEach((paragraph, paragraphIndex) => {
@@ -92,6 +104,17 @@ export class Painter {
       });
     });
     const drawHeight = resolved.valign === "top" ? Math.max(fit.height + 0.06, 0.18) : Math.max(box.h ?? fit.height, fit.height + 0.06);
+    const inkW = Math.min(box.w, Math.max(...fit.lines.map((line) => textWidthPt(line, { face: resolved.face, size: fit.size, bold: resolved.bold || (source.includes("**") && resolved.emBold), charSpacing: resolved.charSpacing }) / 72)));
+    const bounds = { x: box.x + (resolved.align === "right" ? box.w - inkW : resolved.align === "center" ? (box.w - inkW) / 2 : 0),
+      y: box.y + (resolved.valign === "bottom" ? drawHeight - fit.height : resolved.valign === "middle" ? (drawHeight - fit.height) / 2 : 0), w: inkW, h: fit.height };
+    if (style.rotate) {
+      const angle = style.rotate * Math.PI / 180, cx = box.x + box.w / 2, cy = box.y + drawHeight / 2;
+      const corners = [[bounds.x, bounds.y], [bounds.x + bounds.w, bounds.y], [bounds.x, bounds.y + bounds.h], [bounds.x + bounds.w, bounds.y + bounds.h]]
+        .map(([x, y]) => [cx + (x - cx) * Math.cos(angle) - (y - cy) * Math.sin(angle), cy + (x - cx) * Math.sin(angle) + (y - cy) * Math.cos(angle)]);
+      bounds.x = Math.min(...corners.map(([x]) => x)); bounds.y = Math.min(...corners.map(([, y]) => y));
+      bounds.w = Math.max(...corners.map(([x]) => x)) - bounds.x; bounds.h = Math.max(...corners.map(([, y]) => y)) - bounds.y;
+    }
+    this.trackText(fit.text, bounds, style.name);
     this.slide.addText(runs, {
       x: box.x,
       y: box.y,
@@ -151,9 +174,8 @@ export class Painter {
     };
     if (Math.abs(x2 - x1) < 0.0002) options.w = 0;
     if (Math.abs(y2 - y1) < 0.0002) options.h = 0;
-    if ((x2 < x1) !== (y2 < y1) && options.w && options.h) options.flipV = true;
-    if (x2 < x1 && !options.h) options.flipH = true;
-    if (y2 < y1 && !options.w) options.flipV = true;
+    if (x2 < x1) options.flipH = true;
+    if (y2 < y1) options.flipV = true;
     this.slide.addShape(this.pptx.ShapeType.line, options);
   }
 
@@ -220,6 +242,7 @@ export function measureKpi(p, kpiItem, w, { size = 30, labelSize = 10, noteSize 
 }
 
 export function drawKpi(p, kpiItem, box, { size = 30, labelSize = 10, noteSize = 9, color = "ink", align = "left", labelColor = "body", noteColor = "muted", labelBold = false, unitColor = "muted" } = {}) {
+  if (/^[$€£¥]$/.test(kpiItem.unit) && /^[+-]?[\d,.]+$/.test(kpiItem.value)) kpiItem = { ...kpiItem, value: `${kpiItem.unit}${kpiItem.value}`, unit: "" };
   const m = measureKpi(p, kpiItem, box.w, { size, labelSize, noteSize });
   const face = p.face("number");
   const valueW = textWidthPt(kpiItem.value, { face, size: m.valueSize, bold: p.theme.fonts.numberBold }) / 72;
@@ -369,37 +392,53 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
   const n = columns.length;
   const face = p.face("body");
   const numericCol = columns.map((_, col) => rowsData.filter((row) => isNumericCell(row[col])).length >= Math.max(1, rowsData.length * 0.6));
+  // Text that follows a right-aligned number column starts a little further in, so "-26%" and
+  // "Payments" do not read as one cell.
+  const lead = columns.map((_, col) => (col > 0 && numericCol[col - 1] && !numericCol[col] ? 0.25 : 0));
+  const pad = 0.08;
   // Column widths from content at the current type size: the 75th-percentile cell width,
-  // clamped; spare width goes to text columns so numbers stay tight and never wrap.
+  // clamped; spare width goes to text columns so numbers stay tight and never wrap. No column
+  // is narrower than its longest word, so names like "Obsidian" never break mid-word.
   const columnWidths = (fontSizeNow) => {
+    const longestWord = columns.map((column, col) => Math.max(
+      ...[column, ...rowsData.map((row) => row[col])].flatMap((value, at) => plain(value).split(/\s+/)
+        .map((word) => textWidthPt(word, { face, size: at === 0 ? fontSizeNow - 1 : fontSizeNow, bold: at === 0 || col === 0 }) / 72))
+    ) + pad * 2 + 0.04 + lead[col]);
+    const floor = longestWord.map((value) => Math.min(value, box.w * 0.34));
     const natural = columns.map((column, col) => {
       const cells = rowsData.map((row) => textWidthPt(plain(row[col]), { face, size: fontSizeNow, bold: col === 0 }) / 72).sort((a, b) => a - b);
       const p75 = cells[Math.floor(cells.length * 0.75)] || 0;
       const widest = cells[cells.length - 1] || 0;
       const head = textWidthPt(plain(column), { face, size: fontSizeNow - 1, bold: true }) / 72;
       const want = numericCol[col] ? Math.max(widest, head * 0.9) : Math.max(p75, head * 0.8);
-      return Math.min(4.2, Math.max(0.7, want + 0.26));
+      return Math.max(floor[col], Math.min(4.2, Math.max(0.7, want + 0.26)) + lead[col]);
     });
     const naturalTotal = natural.reduce((a, b) => a + b, 0);
-    if (naturalTotal >= box.w) return natural.map((value) => (value / naturalTotal) * box.w);
+    if (naturalTotal >= box.w) {
+      // Too wide: every column keeps its floor and the rest shrinks in proportion.
+      const floorTotal = floor.reduce((a, b) => a + b, 0);
+      if (floorTotal >= box.w) return floor.map((value) => (value / floorTotal) * box.w);
+      const shrink = (box.w - floorTotal) / (naturalTotal - floorTotal);
+      return natural.map((value, col) => floor[col] + (value - floor[col]) * shrink);
+    }
+    // Half the spare width spreads evenly, half goes to text columns, so numbers stay near
+    // their labels without one text column swallowing the slide.
     const spare = box.w - naturalTotal;
-    const textCols = numericCol.map((isNum, col) => (!isNum ? col : -1)).filter((col) => col >= 0);
-    if (!textCols.length) return natural.map((value) => value + spare / natural.length);
-    return natural.map((value, col) => value + (textCols.includes(col) ? spare / textCols.length : 0));
+    const textCols = numericCol.filter((isNum) => !isNum).length;
+    return natural.map((value, col) => value + spare / (textCols ? 2 : 1) / n + (textCols && !numericCol[col] ? spare / 2 / textCols : 0));
   };
   let widths = columnWidths(size);
-
-  const pad = 0.08;
   // Start large and step down: short tables get bigger type instead of a half-empty slide.
-  let fontSize = Math.min(13, size + 2.5);
+  // Short tables in a wide box read at presentation size, not handout size.
+  let fontSize = rowsData.length <= 5 && columns.length <= 4 ? Math.min(16, size + 5) : Math.min(13.5, size + 3);
   const roomy = (total) => total <= box.h * 0.82;
   let rowHeights = [];
   let visibleRows = rowsData;
   for (;;) {
     widths = columnWidths(fontSize);
     const lh = fontSize * 1.18 / 72;
-    const headH = Math.max(...columns.map((column, col) => p.measure(column, widths[col] - pad * 2, { size: fontSize - 1, bold: true, maxLines: 2 }).lines.length)) * lh + 0.16;
-    rowHeights = [headH, ...visibleRows.map((row) => Math.max(...row.map((cell, col) => p.measure(cell, widths[col] - pad * 2, { size: fontSize, bold: col === 0, maxLines: 3 }).lines.length)) * lh + 0.2)];
+    const headH = Math.max(...columns.map((column, col) => p.measure(column, widths[col] - pad * 2 - lead[col], { size: fontSize - 1, bold: true, maxLines: 2 }).lines.length)) * lh + 0.16;
+    rowHeights = [headH, ...visibleRows.map((row) => Math.max(...row.map((cell, col) => p.measure(cell, widths[col] - pad * 2 - lead[col], { size: fontSize, bold: col === 0, maxLines: 3 }).lines.length)) * lh + 0.2)];
     const total = rowHeights.reduce((a, b) => a + b, 0);
     if (fontSize > size && !roomy(total)) {
       fontSize -= 0.5;
@@ -407,7 +446,7 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
     }
     if (total <= box.h) {
       // Spread spare height across body rows, capped so tables stay tight.
-      const extra = Math.min((box.h - total) / Math.max(1, visibleRows.length), 0.3);
+      const extra = Math.min((box.h - total) / Math.max(1, visibleRows.length), 0.4);
       rowHeights = rowHeights.map((value, index) => (index === 0 ? value : value + extra));
       break;
     }
@@ -422,6 +461,8 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
     break;
   }
   if (visibleRows.length < rowsData.length) p.warnings.push(`table rows dropped: ${rowsData.length - visibleRows.length}`);
+  const split = [columns, ...visibleRows].flatMap((row, at) => row.map((value, col) => p.measure(value, widths[col] - pad * 2 - lead[col], { size: at ? fontSize : fontSize - 1, bold: !at || col === 0, maxLines: 3 }).broken)).find(Boolean);
+  if (split) p.warnings.push(`word split across lines: "${split.slice(0, 30)}" is wider than its table column; use fewer columns or shorter cells`);
 
   const headerFill = p.theme.chrome.tableHeader === "fill";
   const border = (color, pt) => ({ type: "solid", color: p.color(color), pt });
@@ -440,6 +481,7 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
     fill: headerFill ? { color: p.color("accent2") } : undefined,
     align: numericCol[col] ? "right" : "left",
     valign: "bottom",
+    ...(lead[col] ? { margin: [0.04, pad, 0.04, pad + lead[col]] } : {}),
     border: [none, none, headerFill ? none : border("ruleStrong", 1), none]
   }));
   const body = visibleRows.map((row, rowIndex) => row.map((value, col) => {
@@ -453,6 +495,7 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
       fill: highlight ? { color: p.color("surfaceStrong") } : headerFill && rowIndex % 2 === 1 ? { color: p.color("surface") } : undefined,
       align: numericCol[col] ? "right" : "left",
       valign: "middle",
+      ...(lead[col] ? { margin: [0.04, pad, 0.04, pad + lead[col]] } : {}),
       border: [none, none, border(rowIndex === visibleRows.length - 1 ? "ruleStrong" : "rule", rowIndex === visibleRows.length - 1 ? 1 : 0.75), none]
     });
   }));
@@ -469,5 +512,6 @@ export function drawTable(p, box, table, { size = 10.5 } = {}) {
     autoPage: false,
     objectName: "Table"
   });
+  p.trackText("Table", { ...box, h: rowHeights.reduce((a, b) => a + b, 0) }, "Table");
   return rowHeights.reduce((a, b) => a + b, 0);
 }

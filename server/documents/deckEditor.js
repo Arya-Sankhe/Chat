@@ -3,7 +3,8 @@
 // ("slides.4.title", "style.hide", "slides.6.points.2.body"), applies them exactly, and the
 // worker re-renders. Everything not addressed by an operation stays byte-for-byte the same.
 import { HttpError } from "../http/responses.js";
-import { OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
+import { OPENROUTER_PRO_MODEL, resolveProvider } from "../providers.js";
+import { DECK_MODELS } from "./deckWriter.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { alignDeck, emptySlides, normalizeDeck } from "../../worker/deck/spec.js";
 import { FONT_CHOICES, HIDEABLE } from "../../worker/deck/style.js";
@@ -207,8 +208,7 @@ function parseEditorJson(text) {
 async function requestOperations({ config, modelClient, signal, deck, instructions, userRequest, timeoutMs, previous = null }) {
   if (!modelClient?.streamChatCompletion) throw new HttpError(503, "Deck editing is not available right now.");
   const provider = resolveProvider("openrouter", config);
-  const configured = String(config?.documents?.deckModel || "").trim();
-  const models = [...new Set([configured || OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL].filter(Boolean))];
+  const models = DECK_MODELS;
   const user = [
     userRequest ? `USER REQUEST (their words):\n${String(userRequest).slice(0, 4000)}` : "",
     instructions ? `EDIT INSTRUCTIONS FROM THE ASSISTANT:\n${String(instructions).slice(0, 8000)}` : "",

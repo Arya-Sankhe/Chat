@@ -3,19 +3,11 @@ import pptxgen from "pptxgenjs";
 
 import { Painter, W, H } from "./core.js";
 import { renderSlide } from "./layouts.js";
-import { normalizeDeck, str } from "./spec.js";
+import { prepareDeck, str } from "./spec.js";
 import { styledTheme } from "./style.js";
 import { THEMES } from "./themes.js";
 
-export function prepareDeck(raw, fallback = {}) {
-  const deck = normalizeDeck(raw, fallback);
-  deck.sections = [];
-  for (const slide of deck.slides) {
-    if (slide.type === "comparison" && !slide.takeaway && slide.verdict) slide.takeaway = slide.verdict;
-    if (slide.section && slide.type !== "cover" && !deck.sections.includes(slide.section)) deck.sections.push(slide.section);
-  }
-  return deck;
-}
+export { prepareDeck };
 
 export async function renderDeck(raw, outputPath, fallback = {}) {
   const deck = prepareDeck(raw, fallback);
@@ -37,6 +29,9 @@ export async function renderDeck(raw, outputPath, fallback = {}) {
     let painter = new Painter(pptx, slide, slideTheme, deck);
     try {
       renderSlide(painter, deck, spec, index, deck.slides.length, ctx);
+      // Overlapping text never ships; the writer was already asked to fix it, so fall back.
+      const overlap = painter.warnings.find((warning) => /(?:text|nodes) overlap/.test(warning));
+      if (overlap) throw new Error(overlap);
     } catch (error) {
       // Never ship a half-drawn slide: wipe it and redraw its text as a plain bullet slide.
       const fallback = fallbackSlide(spec);
@@ -77,7 +72,7 @@ function fallbackSlide(spec) {
       if (joined) walk(joined, depth + 1);
     }
   };
-  for (const key of ["points", "items", "cards", "steps", "events", "kpis", "quadrants", "options", "columns", "left", "right", "body", "statement", "value"]) walk(spec[key]);
+  for (const key of ["points", "items", "cards", "steps", "nodes", "events", "kpis", "quadrants", "options", "columns", "left", "right", "body", "statement", "value"]) walk(spec[key]);
   const title = spec.title || spec.statement || "";
   if (!title && !points.length) return null;
   return { ...spec, type: "bullets", title: title || "Summary", points: points.length ? points : [{ title: "", body: spec.takeaway || title }] };

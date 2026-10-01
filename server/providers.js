@@ -9,8 +9,6 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
 export const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
-// Text-only; used only as a Council panelist.
-export const OPENROUTER_COUNCIL_MIMO_PRO_MODEL = "xiaomi/mimo-v2.5-pro";
 export const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 export const OPENROUTER_PRO_FALLBACK_MODEL = "minimax/minimax-m3";
 export const OPENROUTER_VISION_L2 = "qwen/qwen3.7-flash";
@@ -19,6 +17,22 @@ export const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
 export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
+export const OPENROUTER_IMAGE_MODEL = "krea/krea-2-medium-turbo";
+
+// Product models only: configuration, saved chats and fallback lists cannot add models.
+export const ALLOWED_CHAT_MODELS = Object.freeze([
+  OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_COUNCIL_HY3_MODEL,
+  OPENROUTER_PRO_MODEL, OPENROUTER_PRO_FALLBACK_MODEL, OPENROUTER_VISION_L2,
+  OPENROUTER_VISION_L3, OPENROUTER_MIMO_V25_MODEL, OPENROUTER_NITRO_MODEL,
+  OPENROUTER_TITLE_MODEL, OPENROUTER_LAGUNA_S
+]);
+
+export function assertAllowedChatModels(body) {
+  if (body?.models != null && !Array.isArray(body.models)) throw new HttpError(400, "Fallback models must be an array of approved Klui model IDs.");
+  for (const model of [body?.model, ...(Array.isArray(body?.models) ? body.models : [])]) {
+    if (!ALLOWED_CHAT_MODELS.includes(model)) throw new HttpError(400, `Model is not approved for Klui: ${model}`);
+  }
+}
 
 const DEEPSEEK_PROVIDER_ORDER = ["relace/fp4", "streamlake/fp8", "deepinfra/fp8", "makora", "coreweave/fp8", "together"];
 // Hard-excluded DeepSeek hosts (quality/policy — not price; price is handled
@@ -331,6 +345,7 @@ export function stickyProviderTags(model, providerName, order = null) {
  */
 export function adaptChatRequestForProvider(body, providerId) {
   if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
+  assertAllowedChatModels(body);
 
   const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, flex_only: flexOnly, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);

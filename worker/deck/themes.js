@@ -390,7 +390,7 @@ const CORE_META = {
   boardroom: { group: "work", category: "business", description: "Crisp Swiss consulting look in navy and electric blue, with a chapter tracker.", use: "business strategy, operations, market analysis, proposals; the general professional default" },
   midnight: { group: "work", category: "report", description: "Near-black canvas with cyan and amber signals, for product and engineering reviews.", use: "technology, AI, software, product launches, engineering reviews" },
   atelier: { group: "work", category: "marketing", description: "Cream stock with vermilion and cobalt blocks and condensed display caps.", use: "marketing, brand, events, campaigns, travel, food, culture, creative pitches" },
-  academy: { group: "students", category: "lecture", description: "Navy title slide, then clean white pages with one blue line and friendly callouts: courseware for lectures and study sessions.", use: "lectures, courses, study notes, school or university topics, tutorials" },
+  academy: { group: "students", category: "lecture", description: "Navy title slide, then clean white pages with one blue line and friendly callouts: courseware for lectures and study sessions.", use: "general courseware, computing and technical tutorials, study sessions when no subject-specific theme fits" },
   verdant: { group: "work", category: "business", description: "Deep pine title bands, mint panels and a lime signal, for strategy and sustainability papers.", use: "sustainability, climate, health, science outreach, ESG, green-brand strategy" }
 };
 for (const [name, meta] of Object.entries(CORE_META)) THEMES[name].meta = meta;

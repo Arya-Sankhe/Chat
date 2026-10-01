@@ -5,7 +5,7 @@ import { contentText, hydrateMessagesForClient } from "./messages.js";
 import { substituteImagesWithDescriptions } from "./images.js";
 import { createModelUsageMeter } from "./usageMeter.js";
 import { deleteReservedUpload, mapStorageRpcError } from "./storageQuota.js";
-import { resolveProvider } from "../providers.js";
+import { OPENROUTER_IMAGE_MODEL, resolveProvider } from "../providers.js";
 import {
   createAssistantOutputMessage,
   startSse,
@@ -13,7 +13,7 @@ import {
   writeSse
 } from "../chat/shared.js";
 
-export const ILLUSTRATION_MODEL = "krea/krea-2-medium-turbo";
+export const ILLUSTRATION_MODEL = OPENROUTER_IMAGE_MODEL;
 export const ILLUSTRATION_MAX_BYTES = 3 * 1024 * 1024;
 export const HAN_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
 export const TEXT_FREE_SUFFIX = " One scene, one metaphor. Short handwritten English labels with red/blue/orange arrows. No numbered comic panels. No Chinese characters. 16:9 pure white. Sparse uneven black line art. Klui is a cute rounded light-sky-blue squircle with tall navy oval eyes, a tiny smile, rosy cheeks, and short stubby legs. Not a black bean. No photoreal people, nudes, minors, or face swap.";

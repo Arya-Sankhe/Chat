@@ -85,15 +85,16 @@ function hasDocumentArtifactTool(chatRequest) {
     && chatRequest.tools.some((tool) => artifactTools.has(tool?.function?.name));
 }
 
-function assistantLooksLikeDocumentArtifactHandoff(content) {
+function assistantLooksLikeDocumentArtifactHandoff(content, includeRefusal = true) {
   const text = textFromContent(content).trim();
   if (!text) return false;
   const lower = text.toLowerCase();
   const claimsReady = /\b(ready|created|generated|regenerated|updated|edited|exported|converted|download|downloadable|here you go|attached|artifact card|download card)\b/.test(lower);
+  const promisesCreation = /\b(?:i(?:['’]ll| will)|let me)\s+(?:create|generate|build|make|prepare|edit|export|convert)\b|\bi(?:['’]m| am)\s+(?:(?:going|about) to\s+)?(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|prepar(?:e|ing)|edit(?:ing)?|export(?:ing)?|convert(?:ing)?)\b/.test(lower);
   const deniesAvailableCapability = /\b(can(?:not|'t)|unable to|do not have|don't have)\b[^.]{0,80}\b(create|generate|attach|provide|edit|export)\b/.test(lower);
   const namesArtifact = /\.(docx|pdf|xlsx|xls|pptx)\b/i.test(text)
     || /\b(docx?|word document|pdf|xlsx?|excel|spreadsheet|pptx?|powerpoint|slides?|deck|document)\b/.test(lower);
-  return namesArtifact && (claimsReady || deniesAvailableCapability);
+  return namesArtifact && (claimsReady || promisesCreation || (includeRefusal && deniesAvailableCapability));
 }
 
 /* ── Tool schema ── */
@@ -516,8 +517,16 @@ export async function runChatWithToolLoop({
   let finalInstructionSent = false;
   const inlineImageCache = new Map();
   const originalQuestion = latestUserText(chatRequest.messages);
+  const artifactNames = new Set(["create_document", "edit_document", "export_document"]);
+  const reserveArtifact = Boolean(documents && hasDocumentArtifactTool(chatRequest) && maxToolCalls >= 3);
+  let artifactBudgetNotice = false;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
+    if (reserveArtifact && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool)) && toolCallCount >= maxToolCalls - 2 && !artifactBudgetNotice) {
+      artifactBudgetNotice = true;
+      activeTools = activeTools.filter((tool) => artifactNames.has(toolName(tool)));
+      messages.push({ role: "user", content: "Research is now complete for this turn; the remaining calls are reserved for creating the requested artifact. Use verified evidence already gathered and call the document tool now. Omit unsupported estimates; show a missing core fact once if necessary. If the evidence cannot support the deliverable, explain that plainly without claiming a file exists." });
+    }
     onIterationStart(messages);
 
     let upstream;
@@ -619,14 +628,15 @@ export async function runChatWithToolLoop({
     if (!hasToolCalls || !finishedForTools) {
       const deferredArtifactTools = ["create_document", "edit_document", "export_document"]
         .filter((name) => deferredByName.has(name));
+      const missingArtifactHandoff = documents
+        && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool))
+        && (hasDocumentArtifactTool({ tools: activeTools }) || deferredArtifactTools.length > 0)
+        && assistantLooksLikeDocumentArtifactHandoff(accumulated.content);
       if (
-        documents
+        missingArtifactHandoff
         && !forceFinalWithoutTools
         && toolFallbackLevel < 2
         && !artifactHandoffCorrectionSent
-        && artifacts.length === 0
-        && (hasDocumentArtifactTool({ tools: activeTools }) || deferredArtifactTools.length > 0)
-        && assistantLooksLikeDocumentArtifactHandoff(accumulated.content)
       ) {
         if (!hasDocumentArtifactTool({ tools: activeTools })) {
           activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
@@ -639,12 +649,16 @@ export async function runChatWithToolLoop({
         messages.push({
           role: "user",
           content: [
-            "The previous response claimed a downloadable document, but no document tool returned a real artifact card.",
+            "The previous response promised or claimed a document, but no document tool returned a real artifact card.",
+            "This is a synchronous turn: saying you will create it does not start any background work.",
             "Do not write markdown download links or claim the file is ready from text alone.",
             "Call create_document, edit_document, or export_document now to produce the real artifact card. If you cannot create it, say plainly that the file could not be created."
           ].join(" ")
         });
         continue;
+      }
+      if (missingArtifactHandoff && artifactHandoffCorrectionSent && assistantLooksLikeDocumentArtifactHandoff(accumulated.content, false)) {
+        throw new Error("The model stopped without creating the requested document after a tool-call retry.");
       }
       if (!String(accumulated.content || "").trim() && !emptyAnswerRetrySent) {
         emptyAnswerRetrySent = true;
@@ -683,6 +697,10 @@ export async function runChatWithToolLoop({
     });
 
     for (const call of toolCalls) {
+      if (reserveArtifact && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool)) && toolCallCount >= maxToolCalls - 2 && !artifactNames.has(call.function?.name)) {
+        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "The remaining tool budget is reserved for the requested artifact. Use the verified evidence already collected and create the file." }) });
+        continue;
+      }
       if (toolCallCount >= maxToolCalls) {
         if (!limitEventSent) {
           onToolEvent({ type: "tool:limit", limit: maxToolCalls });
@@ -765,6 +783,14 @@ export async function runChatWithToolLoop({
           };
         }
       } else {
+        // Give the slide writer the actual retrieved evidence, not only the chat model's paraphrase.
+        if (documents && call.function?.name === "create_document") {
+          const readIds = new Set(messages.flatMap((message) => (message.tool_calls || [])
+            .filter((tool) => ["read_url", "web_search", "read_document", "search_document", "extract_tables"].includes(tool.function?.name))
+            .map((tool) => tool.id)));
+          documents.deckEvidence = messages.filter((message) => message.role === "tool" && readIds.has(message.tool_call_id))
+            .map((message) => message.content).join("\n\n").slice(-120_000);
+        }
         result = await executeToolCall({
           toolCall: call,
           websearch,

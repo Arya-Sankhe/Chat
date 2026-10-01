@@ -201,8 +201,21 @@ test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups chea
   assert.equal(shouldSuppressWebSearchForDocumentTurn({
     webMode: "auto",
     detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
-    documentSkills
+    documentSkills,
+    text: "turn this into a deck"
   }), true);
+
+  // Pronouns describe subject matter too: "where it happens" is not a conversion request.
+  for (const text of ["Create a 6-slide PPT explaining photosynthesis and where it happens", "Create a PPT about this year's history", "Create a PPT explaining why those reactions release oxygen"])
+    assert.equal(shouldSuppressWebSearchForDocumentTurn({ webMode: "auto", detection: { score: 0, reasons: [], hasUrls: false }, documentSkills: { toolNames: ["create_document"] }, text }), false);
+
+  // A deck on a fresh subject keeps search: the model may not know the products or prices.
+  assert.equal(shouldSuppressWebSearchForDocumentTurn({
+    webMode: "auto",
+    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
+    documentSkills,
+    text: "create me a pricing to intelligence for sol 6.1, sol 6 and sol 5.5, luna 6 and luna 5.6"
+  }), false);
 
   assert.equal(shouldSuppressWebSearchForDocumentTurn({
     webMode: "auto",

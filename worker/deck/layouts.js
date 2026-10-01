@@ -173,7 +173,7 @@ function navRuns(p, deck, s, size) {
 }
 
 function drawNav(p, deck, s, right, y, maxW) {
-  if (p.theme.chrome.nav !== "text" || deck.sections.length < 2 || p.hidden("nav")) return 0;
+  if (p.theme.chrome.nav !== "text" || deck.sections.length < 2 || deck.slides.length < 12 || p.hidden("nav")) return 0;
   const size = 8.5;
   const face = p.face("label");
   const items = navRuns(p, deck, s, size);
@@ -181,12 +181,8 @@ function drawNav(p, deck, s, right, y, maxW) {
   const text = items.map((item) => item.name).join(sep);
   const width = textWidthPt(text, { face, size, bold: false }) / 72 + 0.3;
   if (width > maxW) return 0;
-  const runs = [];
-  items.forEach((item, index) => {
-    runs.push({ text: item.name, options: item.current ? { bold: true, color: p.color("accent") } : { color: p.color("faint") } });
-    if (index < items.length - 1) runs.push({ text: sep, options: { color: p.color("faint") } });
-  });
-  p.slide.addText(runs, { x: right - width, y, w: width, h: 0.22, fontFace: face, fontSize: size, align: "right", valign: "top", margin: 0, fit: "none" });
+  p.text(items.map((item) => item.current ? `**${item.name}**` : item.name).join(sep), { x: right - width, y, w: width, h: 0.22 },
+    { name: "Navigation", role: "label", size, color: "faint", align: "right", maxLines: 1, em: { bold: true, color: "accent" } });
   return width;
 }
 
@@ -264,7 +260,9 @@ function footer(p, deck, s, index, total) {
   const page = p.hidden("page_number") ? "" : `${pad2(index + 1)} / ${pad2(total)}`;
   const pageW = page ? textWidthPt(page, { face: p.face("label"), size: 8 }) / 72 + 0.1 : 0;
   const source = p.hidden("source") ? "" : s.source || deck.source;
-  const label = p.hidden("footer_label") ? "" : deck.footer;
+  const repeatedLabel = p.textBounds.some((text) => text.name?.startsWith("Running header")
+    && plain(text.text).trim().toLowerCase() === plain(deck.footer).trim().toLowerCase());
+  const label = p.hidden("footer_label") || repeatedLabel ? "" : deck.footer;
   if (!page && !source && !label) return H - 0.4;
   if (chrome.footerRule) p.line(MX, y - 0.1, MX + CW, y - 0.1, { color: "rule", width: 0.5 });
   const labelW = label ? Math.min(3.2, textWidthPt(label, { face: p.face("label"), size: 8 }) / 72 + 0.1) : 0;
@@ -281,8 +279,7 @@ function footer(p, deck, s, index, total) {
 function takeaway(p, s, bottom) {
   if (!s.takeaway || p.hidden("takeaway")) return bottom;
   const style = p.theme.chrome.takeaway;
-  const defaults = { "rule-label": "Takeaway", band: "So what", bar: "", block: "", panel: "Key takeaway" };
-  const label = s.takeawayLabel || defaults[style] || "";
+  const label = s.takeawayLabel || "";
   const text = label ? `**${label}:** ${s.takeaway}` : s.takeaway;
   const inset = style === "band" || style === "panel" || style === "block" ? 0.22 : style === "bar" ? 0.22 : 0;
   const textW = CW - inset * 2;
@@ -324,10 +321,11 @@ function frame(p, deck, s, index, total) {
 // Exhibit header above a chart or table: "Exhibit 01 | Title" in the theme's voice.
 
 function exhibitHeader(p, ctx, box, title, unit) {
-  if (!title && !unit) return 0;
+  // A bare symbol ("$", "%") with no title says nothing the value labels do not; "$M" or "ms" does.
+  if (!title && (!unit || /^[%$€£¥]$/.test(plain(unit).trim()))) return 0;
   ctx.exhibit += 1;
   const label = p.theme.chrome.exhibitLabel;
-  const text = [plain(title), unit && !plain(title).includes(unit) ? `(${unit})` : ""].filter(Boolean).join(" ");
+  const text = title ? [plain(title), unit && !plain(title).includes(unit) ? `(${unit})` : ""].filter(Boolean).join(" ") : plain(unit);
   if (label === "Fig.") {
     const tag = `Fig. ${ctx.exhibit}`;
     const tagW = textWidthPt(tag, { face: p.face("label"), size: 8.5 }) / 72 + 0.18;
@@ -341,7 +339,8 @@ function exhibitHeader(p, ctx, box, title, unit) {
 }
 
 function chartBlock(p, ctx, box, chart) {
-  const head = exhibitHeader(p, ctx, box, chart.title, chart.unit);
+  // A scatter names its units on the axes.
+  const head = exhibitHeader(p, ctx, box, chart.title, chart.type === "scatter" ? "" : chart.unit);
   const note = chart.note ? p.measure(chart.note, box.w, { size: 8.5, min: 7.5, maxLines: 2 }) : null;
   const noteH = note ? note.height + 0.1 : 0;
   const area = { x: box.x, y: box.y + head, w: box.w, h: box.h - head - noteH };
@@ -365,6 +364,140 @@ function rail(p, box, s, { numbered = true } = {}) {
 // Content layouts
 
 const LAYOUTS = {
+  diagram(p, s, box) {
+    const columns = Math.max(...s.nodes.map((node) => node.column)) + 1;
+    const rows = Math.max(...s.nodes.map((node) => node.row)) + 1;
+    const byId = new Map(s.nodes.map((node) => [node.id, node]));
+    // Edges that skip a column inside one row run around the boxes, so leave a lane outside them.
+    const skips = s.edges.filter((edge) => byId.get(edge.from).row === byId.get(edge.to).row && Math.abs(byId.get(edge.from).column - byId.get(edge.to).column) > 1);
+    const laneTop = skips.some((edge) => byId.get(edge.from).row === 0) ? 0.55 : 0;
+    const laneBottom = skips.some((edge) => byId.get(edge.from).row > 0) ? 0.55 : 0;
+    const gapX = columns > 1 ? 1.3 : 0;
+    const gapY = rows > 1 ? 1.25 : 0;
+    const area = { x: box.x, y: box.y + laneTop, w: box.w, h: box.h - laneTop - laneBottom };
+    const w = Math.min(4, (area.w - gapX * (columns - 1)) / columns);
+    const h = Math.min(1.65, (area.h - gapY * (rows - 1)) / rows);
+    const left = area.x + (area.w - (w * columns + gapX * (columns - 1))) / 2;
+    const top = area.y + (area.h - (h * rows + gapY * (rows - 1))) / 2;
+    const rect = (node) => ({ x: left + node.column * (w + gapX), y: top + node.row * (h + gapY), w, h });
+    const rects = new Map(s.nodes.map((node) => [node.id, rect(node)]));
+    const hits = (a, b, pad = 0.04) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+
+    // Orthogonal routes between box borders: straight for neighbours, an elbow through the gap
+    // between rows, or a lane outside the boxes for a skip within one row. Arrows never cross a box.
+    const lanes = new Map();
+    const lane = (key, from, to) => {
+      const taken = lanes.get(key) || [];
+      const [lo, hi] = [Math.min(from, to) - 0.1, Math.max(from, to) + 0.1];
+      const offset = [0, -0.22, 0.22, -0.44, 0.44].find((candidate) => !taken.some((entry) => entry.offset === candidate && entry.lo < hi && lo < entry.hi)) ?? 0;
+      taken.push({ offset, lo, hi });
+      lanes.set(key, taken);
+      return offset;
+    };
+    const ports = new Map();
+    const port = (id, edgeSide, x, outward) => {
+      const key = `${id}:${edgeSide}:${outward}`;
+      const used = ports.get(key) || 0;
+      ports.set(key, used + 1);
+      return x - outward * used * 0.24;
+    };
+    const sides = [];
+    const routes = s.edges.map((edge, index) => {
+      const a = byId.get(edge.from), b = byId.get(edge.to), ra = rects.get(edge.from), rb = rects.get(edge.to);
+      const dc = b.column - a.column, dr = b.row - a.row;
+      // Two arrows between the same pair take opposite sides of the centre line.
+      const side = s.edges.some((other) => other.from === edge.to && other.to === edge.from) ? (edge.from < edge.to ? -1 : 1) * 0.16 : 0;
+      sides[index] = side;
+      const cx = (r) => r.x + r.w / 2, cy = (r) => r.y + r.h / 2;
+      if (!dr && Math.abs(dc) === 1) return [[dc > 0 ? ra.x + w : ra.x, cy(ra) + side], [dc > 0 ? rb.x : rb.x + w, cy(rb) + side]];
+      if (!dc && Math.abs(dr) === 1) return [[cx(ra) + side, dr > 0 ? ra.y + h : ra.y], [cx(rb) + side, dr > 0 ? rb.y : rb.y + h]];
+      if (!dr) {
+        const up = a.row === 0;
+        const y = (up ? top - 0.3 : top + rows * h + gapY * (rows - 1) + 0.3) + lane(up ? "top" : "bottom", cx(ra), cx(rb)) * 0.5;
+        const xa = cx(ra) + (dc > 0 ? 0.3 : -0.3), xb = cx(rb) + (dc > 0 ? -0.3 : 0.3);
+        return [[xa, up ? ra.y : ra.y + h], [xa, y], [xb, y], [xb, up ? rb.y : rb.y + h]];
+      }
+      // Leave and enter off-centre so elbows do not share the vertical neighbours use, and give
+      // each further elbow on the same side of a box its own stem.
+      const xa = port(edge.from, dr > 0 ? "bottom" : "top", dc ? cx(ra) + Math.sign(dc) * w * 0.28 : cx(ra) + 0.32, Math.sign(dc) || 1);
+      const xb = port(edge.to, dr > 0 ? "top" : "bottom", dc ? cx(rb) - Math.sign(dc) * w * 0.28 : cx(rb) + 0.32, -(Math.sign(dc) || 1));
+      const gapTop = top + Math.min(a.row, b.row) * (h + gapY) + h;
+      const y = gapTop + gapY / 2 + lane(`gap${Math.min(a.row, b.row)}`, xa, xb);
+      return [[xa, dr > 0 ? ra.y + h : ra.y], [xa, y], [xb, y], [xb, dr > 0 ? rb.y : rb.y + h]];
+    });
+    routes.forEach((points) => points.slice(1).forEach(([x2, y2], index) => {
+      const [x1, y1] = points[index];
+      p.line(x1, y1, x2, y2, { color: "accent", width: 1.8, arrow: index === points.length - 2 ? "triangle" : undefined });
+    }));
+
+    // Labels sit beside their own arrow, in the first spot clear of every box and label.
+    const placed = [];
+    const nodeBoxes = [...rects.values()];
+    const strokes = routes.flatMap((points) => points.slice(1).map(([x2, y2], at) => {
+      const [x1, y1] = points[at];
+      return { x: Math.min(x1, x2) - 0.01, y: Math.min(y1, y2) - 0.01, w: Math.abs(x2 - x1) + 0.02, h: Math.abs(y2 - y1) + 0.02 };
+    }));
+    const bent = routes.filter((points) => points.length > 2).length;
+    if (bent > 3) p.warnings.push(`diagram has ${bent} bent arrows; place connected nodes side by side (same row, neighbouring columns) or drop secondary arrows so the flow reads at a glance`);
+    const face = p.face("body");
+    s.edges.forEach((edge, index) => {
+      if (!edge.label) return;
+      const segments = routes[index].slice(1).map(([x2, y2], at) => ({ x1: routes[index][at][0], y1: routes[index][at][1], x2, y2 }))
+        .sort((m, n) => Math.hypot(n.x2 - n.x1, n.y2 - n.y1) - Math.hypot(m.x2 - m.x1, m.y2 - m.y1));
+      let best = null;
+      for (const size of [11.5, 10]) {
+        for (const seg of segments) {
+          const vertical = Math.abs(seg.x2 - seg.x1) < Math.abs(seg.y2 - seg.y1);
+          const fit = p.measure(edge.label, vertical ? 1.8 : Math.max(0.9, Math.abs(seg.x2 - seg.x1) - 0.12), { size, maxLines: 3 });
+          if (!fit.fits) continue;
+          const lw = Math.max(...fit.lines.map((line) => textWidthPt(line, { face, size }) / 72)) + 0.08;
+          const lh = fit.height + 0.04;
+          const spots = [];
+          for (const t of [0.5, 0.3, 0.7]) {
+            const mx = seg.x1 + (seg.x2 - seg.x1) * t, my = seg.y1 + (seg.y2 - seg.y1) * t;
+            // A two-way pair labels outward: the left arrow on its left, the lower one below.
+            const right = [mx + 0.08, my - lh / 2, "left"], leftSpot = [mx - lw - 0.08, my - lh / 2, "right"];
+            const above = [mx - lw / 2, my - lh - 0.05, "center"], below = [mx - lw / 2, my + 0.06, "center"];
+            if (vertical) spots.push(...(sides[index] < 0 ? [leftSpot, right] : [right, leftSpot]));
+            else spots.push(...(sides[index] > 0 ? [below, above] : [above, below]));
+          }
+          for (const [x, y, align] of spots) {
+            const candidate = { x, y, w: lw, h: lh, size, align };
+            const inside = x >= box.x - 0.2 && x + lw <= box.x + box.w + 0.2 && y >= box.y - 0.3 && y + lh <= box.y + box.h + 0.3;
+            if (inside && !nodeBoxes.some((r) => hits(candidate, r)) && !placed.some((r) => hits(candidate, r, 0.06)) && !strokes.some((r) => hits(candidate, r, 0.03))) { best = candidate; break; }
+          }
+          if (best) break;
+        }
+        if (best) break;
+      }
+      if (!best) {
+        p.warnings.push(`diagram label "${plain(edge.label).slice(0, 40)}" has no clear spot; shorten it or use fewer arrows`);
+        return;
+      }
+      placed.push(best);
+      p.text(edge.label, { x: best.x, y: best.y, w: best.w, h: best.h }, { name: `Edge: ${edge.label}`, size: best.size, min: best.size, color: "body", align: best.align, maxLines: 3 });
+    });
+
+    // Nodes are filled panels with an accent edge; where the flow ends (arrows in, none out) the
+    // node is solid accent, so the outcome reads first. A node with no arrows stays plain.
+    const into = new Set(s.edges.map((edge) => edge.to));
+    const out = new Set(s.edges.map((edge) => edge.from));
+    const soft = ["soft", "surface"].includes(p.theme.chrome.cardStyle);
+    s.nodes.forEach((node) => {
+      const b = rects.get(node.id);
+      const outcome = into.has(node.id) && !out.has(node.id);
+      const loose = !into.has(node.id) && !out.has(node.id);
+      const fill = outcome ? "accent" : loose ? "bg" : "surface";
+      p.rect(b, { fill, line: loose ? "rule" : outcome ? undefined : "rule", lineWidth: 0.75, dash: loose ? "dash" : undefined, radius: soft ? 0.06 : 0, name: `Diagram: ${node.label}` });
+      if (!outcome && !loose) p.rect({ x: b.x, y: b.y, w: b.w, h: 0.06 }, { fill: "accent" });
+      const ink = outcome ? onFill(p, "accent") : "ink";
+      const title = p.measure(node.label, w - 0.32, { size: 18, min: 14, bold: true, maxLines: 2 });
+      const detail = node.detail ? p.measure(node.detail, w - 0.32, { size: 13.5, min: 12, maxLines: 3 }) : { height: 0 };
+      let y = b.y + Math.max(0.12, (h - title.height - detail.height - (detail.height ? 0.13 : 0)) / 2);
+      y += p.text(node.label, { x: b.x + 0.16, y, w: w - 0.32 }, { size: 18, min: 14, bold: true, color: ink, align: "center", maxLines: 2 }).height + 0.13;
+      if (node.detail) p.text(node.detail, { x: b.x + 0.16, y, w: w - 0.32, h: b.y + h - y - 0.1 }, { size: 13.5, min: 12, color: outcome ? ink : "body", align: "center", maxLines: 3 });
+    });
+  },
   summary(p, s, box) {
     const hasRail = s.kpis.length > 0;
     const mainW = hasRail ? box.w * 0.65 : box.w;
@@ -405,8 +538,10 @@ const LAYOUTS = {
     const used = drawTable(p, { x: box.x, y: box.y + head, w: mainW, h: box.h - head - (note ? note.height + 0.12 : 0) }, s.table);
     if (note) p.text(s.table.note, { x: box.x, y: box.y + head + used + 0.1, w: mainW }, { size: 8.5, color: "muted", maxLines: 2 });
     if (hasRail) {
-      divider(p, box.x + mainW + 0.28, box.y, box.h);
-      rail(p, { x: box.x + mainW + 0.56, y: box.y, w: box.w - mainW - 0.56, h: box.h }, s, { numbered: false });
+      // The divider ends with the content, so a short table can still sit balanced on the slide.
+      const railH = rail(p, { x: box.x + mainW + 0.56, y: box.y, w: box.w - mainW - 0.56, h: box.h }, s, { numbered: false });
+      const tableH = head + used + (note ? note.height + 0.1 : 0);
+      divider(p, box.x + mainW + 0.28, box.y, Number.isFinite(railH) ? Math.min(box.h, Math.max(tableH, railH)) : box.h);
     }
   },
 
@@ -475,23 +610,19 @@ const LAYOUTS = {
     const usePairs = columns.every((column) => column.points.length && column.points.every((point) => pairOf(point)));
     const gap = 0.35;
     const w = (box.w - gap * (columns.length - 1)) / columns.length;
-    columns.forEach((column, index) => {
-      const x = box.x + index * (w + gap);
+    const wide = columns.length === 2;
+    // Type grows when the columns are sparse, so two short lists do not float in a big panel.
+    const drawColumn = (q, column, x, { scale, height }) => {
       const focus = column.highlight;
-      if (focus) p.rect({ x: x - 0.14, y: box.y - 0.12, w: w + 0.28, h: box.h + 0.24 }, { fill: "surface" });
       let y = box.y;
-      const tagW = column.tag ? Math.min(w * 0.45, textWidthPt(column.tag, { face: p.face("label"), size: 8.5, bold: true }) / 72 + 0.24) : 0;
-      const titleFit = p.text(column.title, { x, y, w: w - tagW - 0.1 }, { size: 16, min: 12, bold: true, color: focus ? "accent" : "ink", maxLines: 2 });
-      if (column.tag) chip(p, column.tag, x + w - tagW, y + 0.02, { size: 8.5, fill: focus ? "accent" : p.theme.dark ? "surfaceStrong" : "surfaceStrong", color: focus ? "onAccent" : "ink" });
+      const tagW = column.tag ? Math.min(w * 0.45, textWidthPt(column.tag, { face: q.face("label"), size: 9, bold: true }) / 72 + 0.24) : 0;
+      const titleFit = q.text(column.title, { x, y, w: w - tagW - 0.1 }, { size: Math.min(16 * scale, 22), min: 12, bold: true, color: focus ? "accent" : "ink", maxLines: 2 });
+      if (column.tag) chip(q, column.tag, x + w - tagW, y + 0.03, { size: 9, fill: focus ? "accent" : "surfaceStrong", color: focus ? "onAccent" : "ink" });
       y += titleFit.height + 0.12;
-      p.line(x, y, x + w, y, { color: focus ? "accent" : "ruleStrong", width: focus ? 2.5 : 1 });
-      y += 0.2;
-      if (column.metric) {
-        y += drawKpi(p, column.metric, { x, y, w }, { size: 34, color: focus ? "accent" : "ink" }).height + 0.22;
-      }
-      if (column.status) {
-        y += statusLabel(p, column.status, { x, y, w }, { size: 10 }).height + 0.12;
-      }
+      q.line(x, y, x + w, y, { color: focus ? "accent" : "ruleStrong", width: focus ? 2.5 : 1 });
+      y += 0.22;
+      if (column.metric) y += drawKpi(q, column.metric, { x, y, w }, { size: 34 * Math.min(scale, 1.25), labelSize: 10.5 * Math.min(scale, 1.2), color: focus ? "accent" : "ink" }).height + 0.22;
+      if (column.status) y += statusLabel(q, column.status, { x, y, w }, { size: 10 * Math.min(scale, 1.2) }).height + 0.12;
       // "Label: short value" points read as a key/value list; longer points stay as notes.
       const pairs = [];
       const notes = [];
@@ -501,14 +632,28 @@ const LAYOUTS = {
         if (pair) pairs.push(pair);
         else notes.push(match ? { title: match[1], body: match[2] } : { title: "", body: point });
       });
-      const rowH = 0.4;
+      const rowH = 0.42 * Math.min(scale, 1.25);
       pairs.forEach((pair) => {
-        p.text(pair.key, { x, y: y + 0.09, w: w * 0.55 }, { size: 11, min: 9.5, color: "muted", maxLines: 1 });
-        p.text(pair.value, { x: x + w * 0.45, y: y + 0.08, w: w * 0.55 }, { size: 12, min: 10, bold: true, color: "ink", align: "right", maxLines: 1 });
+        q.text(pair.key, { x, y: y + 0.09, w: w * 0.55 }, { size: 11 * Math.min(scale, 1.25), min: 9.5, color: "muted", maxLines: 1 });
+        q.text(pair.value, { x: x + w * 0.45, y: y + 0.08, w: w * 0.55 }, { size: 12 * Math.min(scale, 1.25), min: 10, bold: true, color: "ink", align: "right", maxLines: 1 });
         y += rowH;
-        p.line(x, y, x + w, y, { color: "rule", width: 0.5 });
+        q.line(x, y, x + w, y, { color: "rule", width: 0.5 });
       });
-      if (notes.length) rows(p, { x, y, w, h: box.y + box.h - y }, notes, { marker: true, titleSize: 12, bodySize: 11, divider: false, maxGap: 0.16, labelColor: "accent" });
+      if (notes.length) y += rows(q, { x, y, w, h: Math.min(height, box.y + box.h) - y }, notes, { marker: true, titleSize: (wide ? 13 : 12) * scale, bodySize: (wide ? 12 : 11) * scale, divider: false, maxGap: 0.12, labelColor: "accent" });
+      return y;
+    };
+    let scale = 1;
+    for (const candidate of [1.3, 1.2, 1.1, 1]) {
+      scale = candidate;
+      const reach = Math.max(...columns.map((column, index) => dryRun(p, (dry) => drawColumn(dry, column, box.x + index * (w + gap), { scale, height: Infinity }), box.y)?.bottom ?? Infinity));
+      if (reach <= box.y + box.h * (candidate > 1 ? 0.85 : 1)) break;
+    }
+    const bottom = Math.min(box.y + box.h, Math.max(...columns.map((column, index) => dryRun(p, (dry) => drawColumn(dry, column, box.x + index * (w + gap), { scale, height: box.y + box.h }), box.y)?.bottom ?? box.y + box.h)));
+    columns.forEach((column, index) => {
+      const x = box.x + index * (w + gap);
+      // The recommended option sits on a panel that ends with the content, not at the footer.
+      if (column.highlight) p.rect({ x: x - 0.16, y: box.y - 0.14, w: w + 0.32, h: bottom - box.y + 0.3 }, { fill: "surface", radius: p.theme.chrome.cardStyle === "soft" ? 0.06 : 0 });
+      drawColumn(p, column, x, { scale, height: box.y + box.h });
     });
   },
 
@@ -567,8 +712,8 @@ const LAYOUTS = {
     const inner = w - 0.4;
     let sizes;
     let contentH;
-    for (const scale of [1.35, 1.25, 1.15, 1.05, 1, 0.92, 0.85]) {
-      sizes = { title: Math.min(13 * scale, 17), body: Math.min(10.5 * scale, 13.5), metric: Math.min(11.5 * scale, 14) };
+    for (const scale of [1.6, 1.48, 1.35, 1.25, 1.15, 1.05, 1, 0.92, 0.85]) {
+      sizes = { title: Math.min(13 * scale, n <= 3 ? 20 : 18), body: Math.min(10.5 * scale, n <= 3 ? 15.5 : 14), metric: Math.min(11.5 * scale, 15) };
       contentH = Math.max(...steps.map((step) => {
         const title = p.measure(step.title, inner, { size: sizes.title, bold: true, maxLines: 3 });
         const body = step.body ? p.measure(step.body, inner, { size: sizes.body, maxLines: 8 }) : { height: 0 };
@@ -576,7 +721,9 @@ const LAYOUTS = {
       }));
       if (contentH <= available * (scale > 1 ? 0.8 : 1)) break;
     }
-    const h = Math.min(available, Math.max(contentH, available * 0.72));
+    // Cards hug their content (the slide balances the band vertically) instead of stretching
+    // into tall panels with an empty middle.
+    const h = Math.min(available, contentH + 0.1);
     const style = p.theme.chrome.cardStyle;
     steps.forEach((step, index) => {
       const x = box.x + index * (w + arrowW);
@@ -640,7 +787,7 @@ const LAYOUTS = {
       return textH;
     });
     // One row of sparse cards would stretch into tall empty panels; cap it near its content.
-    const cardH = rowCount === 1 ? Math.min(h, Math.max(plan.contentH + 1.4, 2.9)) : h;
+    const cardH = rowCount === 1 ? Math.min(h, Math.max(plan.contentH + (cards.some((card) => card.metric) ? 0.9 : 0.35), 2.2)) : h;
     const rowTextH = [];
     textHeights.forEach((value, index) => {
       const row = Math.floor(index / cols);
@@ -670,10 +817,9 @@ const LAYOUTS = {
       }
       let cy = y + (style === "rule" ? 0.22 : 0.26);
       // Tall filled cards: metric (or a big index) holds the top, the text block sits at the bottom.
-      const anchorBottom = style !== "rule" && h - plan.contentH > 0.9;
-      if (anchorBottom && !card.metric) {
-        p.text(pad2(index + 1), { x: x + padX, y: cy, w: inner }, { role: "number", size: Math.min(44, h * 9), color: style === "block" ? "FFFFFF" : "accent", maxLines: 1, lineHeight: 1 });
-      }
+      // Only when the whole row has metrics, so titles still line up across the row.
+      const rowCards = cards.slice(Math.floor(index / cols) * cols, Math.floor(index / cols) * cols + cols);
+      const anchorBottom = rowCards.every((entry) => entry.metric) && style !== "rule" && h - plan.contentH > 0.9;
       if (anchorBottom) {
         const textH = rowTextH[Math.floor(index / cols)];
         const bottomPadA = style === "block" && card.kicker ? 0.62 : 0.3;
@@ -704,8 +850,8 @@ const LAYOUTS = {
     // A quotation mark only for real quotes; otherwise a short accent rule opens the statement.
     let y = box.y + 0.15;
     if (s.attribution) {
-      p.text("“", { x: box.x - 0.04, y: box.y, w: 1 }, { role: "title", size: 60, color: "accent", maxLines: 1, lineHeight: 1 });
-      y = box.y + 0.75;
+      const quote = p.text("“", { x: box.x - 0.04, y: box.y, w: 1 }, { role: "title", size: 60, color: "accent", maxLines: 1, lineHeight: 1 });
+      y = box.y + quote.height + 0.1;
     } else {
       p.rect({ x: box.x, y, w: 0.8, h: 0.06 }, { fill: "accent" });
       y += 0.4;
@@ -721,20 +867,29 @@ const LAYOUTS = {
   },
 
   bignumber(p, s, box) {
-    const leftW = box.w * 0.46;
+    const hasRail = Boolean(s.compare || s.points.length);
+    const leftW = hasRail ? box.w * 0.46 : Math.min(box.w, 9);
+    const leftX = hasRail ? box.x : box.x + (box.w - leftW) / 2;
+    const align = hasRail ? "left" : "center";
     const face = p.face("number");
     let size = 120;
     while (size > 48 && textWidthPt(s.value, { face, size, bold: p.theme.fonts.numberBold }) / 72 + (s.unit ? textWidthPt(s.unit, { face, size: size * 0.35 }) / 72 + 0.1 : 0) > leftW) size -= 4;
     const valueH = size * 1.0 / 72;
     let y = box.y + Math.max(0, (box.h - valueH - 1.6) / 2 - 0.2);
-    drawKpi(p, { value: s.value, unit: s.unit }, { x: box.x, y, w: leftW }, { size, color: "accent" });
+    drawKpi(p, { value: s.value, unit: s.unit }, { x: leftX, y, w: leftW }, { size, color: "accent", align });
     y += valueH + 0.12;
-    if (s.label) y += p.text(s.label, { x: box.x, y, w: leftW }, { size: 15, min: 12, bold: true, color: "ink", maxLines: 2 }).height + 0.1;
-    if (s.body) p.text(s.body, { x: box.x, y, w: leftW, h: box.y + box.h - y }, { size: 11.5, min: 10, color: "body", maxLines: 6 });
+    if (s.label) y += p.text(s.label, { x: leftX, y, w: leftW }, { size: 15, min: 12, align, bold: true, color: "ink", maxLines: 2 }).height + 0.1;
+    if (s.body) p.text(s.body, { x: leftX, y, w: leftW, h: box.y + box.h - y }, { size: 11.5, min: 10, align, color: "body", maxLines: 6 });
+    if (!hasRail) return;
     const x = box.x + leftW + 0.6;
     const rw = box.w - leftW - 0.6;
     divider(p, x - 0.3, box.y, box.h);
-    let ry = box.y;
+    const railH = dryRun(p, (dry) => {
+      let y = box.y;
+      if (s.compare) y += drawKpi(dry, s.compare, { x, y, w: rw }, { size: 40 }).height + 0.3;
+      if (s.points.length) rows(dry, { x, y, w: rw, h: box.y + box.h - y }, s.points, { titleSize: 12.5, bodySize: 10.5, divider: true, maxGap: 0.35 });
+    }, box.y)?.bottom - box.y;
+    let ry = box.y + (Number.isFinite(railH) ? Math.max(0, (box.h - railH) * 0.4) : 0);
     if (s.compare) {
       ry += drawKpi(p, s.compare, { x, y: ry, w: rw }, { size: 40, color: "ink", labelColor: "body" }).height + 0.3;
       if (s.points.length) p.line(x, ry - 0.15, x + rw, ry - 0.15, { color: "rule", width: 0.75 });
@@ -1120,7 +1275,10 @@ function centeredBlock(p, deck, s, { w = CW * 0.78 } = {}) {
 
 // Numbered list for the right side of a cover: the agenda, else the sections.
 function coverAgenda(deck) {
-  return (deck.slides.find((entry) => entry.type === "agenda")?.items || deck.sections.map((name) => ({ title: name, body: "" }))).slice(0, 4);
+  // The cover numbers the list itself, so "01 · Pricing" from the writer becomes "Pricing".
+  const unnumbered = (title) => String(title || "").replace(/^\s*(?:\d{1,2}|[ivx]{1,4})\s*[.·:|)\-–—]\s*/i, "");
+  return (deck.slides.find((entry) => entry.type === "agenda")?.items || deck.sections.map((name) => ({ title: name, body: "" })))
+    .slice(0, 4).map((item) => ({ ...item, title: unnumbered(item.title) }));
 }
 
 Object.assign(COVERS, {
@@ -1364,5 +1522,41 @@ export function renderSlide(p, deck, s, index, total, ctx) {
     return;
   }
   const box = frame(p, deck, s, index, total);
-  (LAYOUTS[s.type] || LAYOUTS.bullets)(p, s, box, ctx);
+  const layout = LAYOUTS[s.type] || LAYOUTS.bullets;
+  layout(p, s, balanced(p, s, box, ctx, layout), ctx);
+}
+
+// How far down `draw` reaches, from a dry run on a stub slide: { bottom, warnings } or null.
+function dryRun(p, draw, top) {
+  let bottom = top;
+  const reach = (options) => {
+    const h = options?.h ?? (Array.isArray(options?.rowH) ? options.rowH.reduce((a, b) => a + b, 0) : 0);
+    if (Number.isFinite(options?.y)) bottom = Math.max(bottom, options.y + h);
+  };
+  const slide = { addText: (_, o) => reach(o), addShape: (_, o) => reach(o), addTable: (_, o) => reach(o), addChart: (_, d, o) => reach(o || d), addImage: (o) => reach(o), addNotes() {} };
+  const dry = new p.constructor(p.pptx, slide, p.theme, p.deck);
+  try {
+    draw(dry);
+  } catch {
+    return null;
+  }
+  return { bottom, warnings: dry.warnings.length };
+}
+
+function probe(p, s, box, ctx, layout) {
+  return dryRun(p, (dry) => layout(dry, s, box, { ...ctx }), box.y);
+}
+
+// Sparse bodies sit a little above the middle of the space between title and footer instead of
+// hugging the title with an empty bottom third. Layouts that fill their box are left alone.
+function balanced(p, s, box, ctx, layout) {
+  if (s.type === "diagram" || s.type === "kpis") return box;
+  const first = probe(p, s, box, ctx, layout);
+  if (!first) return box;
+  const slack = box.y + box.h - first.bottom;
+  if (slack < 0.45) return box;
+  const shift = Math.min(slack * 0.42, 1.1);
+  const moved = { ...box, y: box.y + shift, h: box.h - shift };
+  const second = probe(p, s, moved, ctx, layout);
+  return second && second.bottom <= box.y + box.h + 0.01 && second.warnings <= first.warnings ? moved : box;
 }

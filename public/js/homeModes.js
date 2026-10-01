@@ -18,7 +18,6 @@ export const AUTO_PRESET_ID = "auto";
 
 const CLOSE_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const CHECK_ICON_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
-const SPARKLE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8c.6 4.7 3.1 7.2 7.8 7.8-4.7.6-7.2 3.1-7.8 7.8-.6-4.7-3.1-7.2-7.8-7.8 4.7-.6 7.2-3.1 7.8-7.8Z" fill="currentColor"/><path d="M19 15.6c.25 1.9 1.25 2.9 3.1 3.15-1.85.25-2.85 1.25-3.1 3.15-.25-1.9-1.25-2.9-3.1-3.15 1.85-.25 2.85-1.25 3.1-3.15Z" fill="currentColor" opacity=".6"/></svg>';
 
 const PILL_ICONS = {
   slides: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="3.8" width="18.4" height="12.4" rx="2.6"/><path d="M12 16.2v3.6M8.4 20.2h7.2"/><path d="M7.6 12.6v-2.2M12 12.6V7.6M16.4 12.6V9.4"/></svg>',
@@ -37,24 +36,22 @@ const PILLS = [
 const EXPLAINERS = {
   compare: {
     title: "Compare",
-    body: "Two different models answer the same message side by side, so you can see where they agree, where they differ and pick the answer you trust.",
-    how: "Ask as usual. Each reply comes back as two answers next to each other; switch back to Think in the composer for a single answer.",
+    body: "One prompt, two answers side by side.",
     examples: [
-      "Explain how transformers work to a first-year student.",
-      "Write a cover letter for a junior data analyst role.",
-      "Which is better for a small team: Postgres or MongoDB?",
-      "Summarize the causes of the 2008 financial crisis."
+      "What should I cook for dinner tonight?",
+      "Explain how the internet works.",
+      "Write a birthday message for my best friend.",
+      "How can I sleep better?"
     ]
   },
   council: {
     title: "Council",
-    body: "Several models each answer on their own, then a chairman model reads every answer, weighs where they disagree and writes one final response.",
-    how: "Use it for questions where a second opinion matters. Ask once and Klui runs the panel and returns a single, reviewed reply.",
+    body: "One prompt, 4 models solve, one final answer.",
     examples: [
-      "What's the strongest counterargument to universal basic income?",
-      "Give me a rigorous second opinion on this business plan.",
-      "Is it worth doing a master's in computer science in 2026?",
-      "What am I missing in this argument for remote-first hiring?"
+      "Should I rent or buy a home?",
+      "Is coffee good or bad for you?",
+      "What's the best way to learn a new language?",
+      "Plan a relaxing weekend trip."
     ]
   }
 };
@@ -117,7 +114,7 @@ export function presetById(presets, id) {
 }
 
 function autoCoverMarkup(extraClass = "") {
-  return `<span class="deck-auto-cover${extraClass ? ` ${extraClass}` : ""}"><span class="deck-auto-mark">${SPARKLE_SVG}</span><span class="deck-auto-word">Auto</span></span>`;
+  return `<span class="deck-auto-cover${extraClass ? ` ${extraClass}` : ""}"><span class="deck-auto-word">Auto</span></span>`;
 }
 
 export function createHomeModesController({
@@ -234,6 +231,17 @@ export function createHomeModesController({
     focusComposer();
   }
 
+  // The composer's Compare/Council switch opens the same explainer as the pills.
+  function showAnswerModeExplainer() {
+    if (!answerMode() || !isHomeScreen()) {
+      render();
+      return;
+    }
+    if (slidesActive()) removeSlides();
+    explainerOpen = true;
+    render();
+  }
+
   function closeExplainer() {
     explainerOpen = false;
     exitCompareMode();
@@ -268,7 +276,7 @@ export function createHomeModesController({
           ${autoCoverMarkup()}
           <span class="home-deck-card-check">${CHECK_ICON_SVG}</span>
         </span>
-        <span class="home-deck-card-name">Auto<span class="home-deck-card-sub">Klui picks the look</span></span>
+        <span class="home-deck-card-name">Auto</span>
       </button>`;
   }
 
@@ -306,12 +314,10 @@ export function createHomeModesController({
     return `
       <div class="home-mode-explainer" data-explainer="${mode}">
         <div class="home-mode-explainer-top">
-          <span class="home-mode-explainer-badge">${PILL_ICONS[mode]}<span>${escapeHtml(copy.title)}</span></span>
+          <p class="home-mode-explainer-body">${escapeHtml(copy.body)}</p>
           <button type="button" class="home-mode-explainer-close" data-explainer-close aria-label="Turn off ${escapeHtml(copy.title)}">${CLOSE_ICON_SVG}</button>
         </div>
-        <p class="home-mode-explainer-body">${escapeHtml(copy.body)}</p>
-        <p class="home-mode-explainer-how">${escapeHtml(copy.how)}</p>
-        <p class="home-mode-explainer-label">Try one</p>
+        <p class="home-mode-explainer-label">Try now</p>
         <div class="home-mode-examples">
           ${copy.examples.map((example) => `<button type="button" class="home-mode-example" data-pill-example="${escapeHtml(example)}"><span>${escapeHtml(example)}</span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>`).join("")}
         </div>
@@ -701,7 +707,6 @@ export function createHomeModesController({
   }
 
   function placeholderOverride() {
-    if (slidesActive()) return "Enter the topic for your slides";
     if (skillIds().includes("docs")) return "Describe the document you want";
     return "";
   }
@@ -714,6 +719,7 @@ export function createHomeModesController({
     init,
     render,
     placeholderOverride,
-    deckThemeForSend
+    deckThemeForSend,
+    showAnswerModeExplainer
   };
 }

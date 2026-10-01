@@ -39,16 +39,6 @@ export function modelSupportsVision(modelOrId) {
   return VISION_HINT.test(haystack);
 }
 
-export function resolveVisionDescribeModel(config, modelIds = [], catalog = []) {
-  if (config.visionDescribeModel) return config.visionDescribeModel;
-
-  for (const id of modelIds) {
-    if (/kimi|moonshot/i.test(id)) return id;
-  }
-
-  for (const model of catalog) {
-    if (/kimi|moonshot/i.test(`${model?.id || ""} ${model?.name || ""}`)) return model.id;
-  }
-
+export function resolveVisionDescribeModel() {
   return OPENROUTER_VISION_MODEL;
 }

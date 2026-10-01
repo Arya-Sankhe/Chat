@@ -1419,6 +1419,50 @@ describe("tool", () => {
     assert.equal(result.artifacts[0].download_url, "/api/attachments/att-pptx/download");
   });
 
+  test("document promises execute the artifact tool instead of ending the turn", async () => {
+    for (const [promise, deferred] of [["I'll create the deck now.", false], ["I’m creating the PowerPoint now.", true], ["Let me prepare the document.", false]]) {
+      const tools = buildDocumentTools({ toolNames: ["create_document"] });
+      const bodies = [];
+      const result = await runChatWithToolLoop({
+        chatRequest: { model: "test", messages: [{ role: "user", content: "create me on the topic machine learning" }],
+          tools: deferred ? [buildLoadToolsTool(tools)] : tools },
+        deferredTools: deferred ? tools : [],
+        modelClient: { async streamChatCompletion({ body }) {
+          bodies.push(body);
+          if (bodies.length === 1) return streamResponse([contentDelta(promise)]);
+          if (bodies.length === 2) return streamResponse([toolCallDelta({ name: "create_document", args: { format: "pptx", title: "Machine learning", content: "Complete teaching content." } })]);
+          return streamResponse([contentDelta("Created the presentation.")]);
+        } },
+        config: { documents: { maxToolCallsPerTurn: 2, maxToolResultChars: 5000 } },
+        documents: { async createDocument() { return { ok: true, output: { attachment_id: "real-ppt", kind: "pptx", status: "ready" } }; } },
+        onUpstreamEvent() {}
+      });
+      assert.equal(bodies[1].tool_choice, "required");
+      assert.deepEqual(bodies[1].tools.map((t) => t.function.name), ["create_document"]);
+      assert.equal(result.toolCallCount, 1);
+      assert.equal(result.artifacts[0].attachment_id, "real-ppt");
+    }
+  });
+
+  test("a repeated creation promise without a file surfaces a failure", async () => {
+    await assert.rejects(runChatWithToolLoop({
+      chatRequest: { model: "test", messages: [{ role: "user", content: "Make a PPT" }], tools: buildDocumentTools({ toolNames: ["create_document"] }) },
+      modelClient: { async streamChatCompletion() { return streamResponse([contentDelta("I'll create the deck now.")]); } },
+      config: { documents: { maxToolCallsPerTurn: 2 } }, documents: {}, onUpstreamEvent() {}
+    }), /stopped without creating the requested document/);
+  });
+
+  test("a concrete document creation failure can still be explained after recovery", async () => {
+    let attempts = 0;
+    const result = await runChatWithToolLoop({
+      chatRequest: { model: "test", messages: [{ role: "user", content: "Make a PPT" }], tools: buildDocumentTools({ toolNames: ["create_document"] }) },
+      modelClient: { async streamChatCompletion() { return streamResponse([contentDelta(++attempts === 1 ? "I'll create the deck now." : "I cannot create the PPT because the document service is unavailable.")]); } },
+      config: { documents: { maxToolCallsPerTurn: 2 } }, documents: {}, onUpstreamEvent() {}
+    });
+    assert.match(result.accumulated.content, /document service is unavailable/);
+    assert.equal(result.artifacts.length, 0);
+  });
+
   test("runChatWithToolLoop routes through the supplied provider override", async () => {
     const seenAuth = [];
     const modelClient = {
@@ -1768,6 +1812,31 @@ describe("tool", () => {
     assert.equal(searchCalls, 1);
     assert.equal(result.toolCallCount, 1);
     assert.equal(toolEvents.some((event) => event.type === "tool:limit"), true);
+  });
+
+  test("artifact turns reserve creation calls and pass retrieved evidence to the slide writer", async () => {
+    let rounds = 0;
+    const documents = { async createDocument() {
+      assert.match(this.deckEvidence, /source text/);
+      return { ok: true, output: { attachment_id: "file", file_name: "report.pptx", format: "pptx" } };
+    } };
+    const client = { async streamChatCompletion({ body }) {
+      rounds += 1;
+      if (rounds === 1) return streamResponse([toolCallDelta()]);
+      if (rounds === 2) {
+        assert.deepEqual(body.tools.map((tool) => tool.function.name), ["create_document"]);
+        assert.match(body.messages.at(-1).content, /reserved for creating/);
+        return streamResponse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: "create", type: "function", function: { name: "create_document", arguments: '{"format":"pptx","title":"Report","content":"source text"}' } }] }, finish_reason: "tool_calls" }] }]);
+      }
+      return streamResponse([contentDelta("Created")]);
+    } };
+    const result = await runChatWithToolLoop({ chatRequest: { model: "test", messages: [{ role: "user", content: "Create a PPT" }],
+      tools: [...buildWebSearchTools(), ...buildDocumentTools({ toolNames: ["create_document"] })] },
+      modelClient: client, config: { websearch: { maxToolCallsPerTurn: 3 } }, documents,
+      websearch: { search: async () => ({ ok: true, provider: "jina", results: [{ index: 1, title: "Reference", url: "https://example.org", snippet: "source text", content: "source text" }] }) },
+      onUpstreamEvent: () => {}, onToolEvent: (event) => { if (event.type === "tool:error") throw new Error(event.error?.message); } });
+    assert.equal(result.toolCallCount, 2);
+    assert.equal(result.artifacts.length, 1);
   });
 
   test("runChatWithToolLoop retries once then errors if force-final still returns tool calls", async () => {

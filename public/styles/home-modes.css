@@ -152,34 +152,7 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.home-mode-explainer-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 13px 0 10px;
-  border-radius: 999px;
-  font-family: "Korataki", "Orbitron", sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #fff;
-}
-
-.home-mode-explainer-badge svg {
-  width: 16px;
-  height: 16px;
-}
-
-.home-mode-explainer[data-explainer="compare"] .home-mode-explainer-badge {
-  background: linear-gradient(105deg, #93c5fd 0%, #2563eb 47%, #f97316 53%, #fb7185 100%);
-}
-
-.home-mode-explainer[data-explainer="council"] .home-mode-explainer-badge {
-  background: #0b0b0c;
+  gap: 12px;
 }
 
 .home-mode-explainer-close {
@@ -201,17 +174,10 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
 }
 
 .home-mode-explainer-body {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--text);
   font-size: 14.5px;
   line-height: 1.55;
-}
-
-.home-mode-explainer-how {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 13.5px;
-  line-height: 1.5;
 }
 
 .home-mode-explainer-label {
@@ -451,12 +417,6 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
   white-space: nowrap;
 }
 
-.home-deck-card-sub {
-  margin-left: 7px;
-  color: var(--text-tertiary);
-  font-weight: 400;
-}
-
 /* The Auto card: Klui picks the theme. */
 .deck-auto-cover {
   position: absolute;
@@ -474,19 +434,6 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
   color: #1f2937;
 }
 
-.deck-auto-mark {
-  display: flex;
-  width: 26px;
-  height: 26px;
-  color: #3b82f6;
-  filter: drop-shadow(0 2px 6px rgba(59, 130, 246, 0.35));
-}
-
-.deck-auto-mark svg {
-  width: 100%;
-  height: 100%;
-}
-
 .deck-auto-word {
   font-family: "Korataki", "Orbitron", sans-serif;
   font-size: 15px;
@@ -497,11 +444,6 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
 
 .deck-auto-cover.is-mini {
   gap: 4px;
-}
-
-.deck-auto-cover.is-mini .deck-auto-mark {
-  width: 13px;
-  height: 13px;
 }
 
 .deck-auto-cover.is-mini .deck-auto-word {
@@ -1002,9 +944,6 @@ body.capacitor-native.chat-empty.home-panel-open #messages .empty-state {
   }
   .home-mode-pill {
     flex: 0 0 auto;
-  }
-  .home-deck-card-sub {
-    display: none;
   }
   body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
     top: 56px;

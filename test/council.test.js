@@ -4,7 +4,7 @@ import {
   OPENROUTER_TEXT_MODEL,
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_VISION_MODEL,
-  OPENROUTER_COUNCIL_MIMO_PRO_MODEL,
+  OPENROUTER_MIMO_V25_MODEL,
   adaptChatRequestForProvider
 } from "../server/providers.js";
 import {
@@ -141,7 +141,7 @@ test("runPeerReview gives real council models a 32k output budget and formats re
     { modelId: OPENROUTER_TEXT_MODEL, responseText: "Answer DeepSeek." },
     { modelId: OPENROUTER_COUNCIL_HY3_MODEL, responseText: "Answer Hy3." },
     { modelId: OPENROUTER_VISION_MODEL, responseText: "Answer MiMo." },
-    { modelId: OPENROUTER_COUNCIL_MIMO_PRO_MODEL, responseText: "Answer MiMo Pro." }
+    { modelId: OPENROUTER_MIMO_V25_MODEL, responseText: "Answer MiMo v2.5." }
   ];
   const result = await runPeerReview({
     panelists,
@@ -170,14 +170,14 @@ test("runPeerReview gives real council models a 32k output budget and formats re
   assert.deepEqual(mimoBody.reasoning, { enabled: true, exclude: false });
   assert.equal("effort" in mimoBody.reasoning, false);
 
-  const mimoProBody = bodies.find((b) => b.model === OPENROUTER_COUNCIL_MIMO_PRO_MODEL);
-  assert.deepEqual(mimoProBody.reasoning, { enabled: true, exclude: false });
-  assert.equal("effort" in mimoProBody.reasoning, false);
+  const mimoV25Body = bodies.find((b) => b.model === OPENROUTER_MIMO_V25_MODEL);
+  assert.deepEqual(mimoV25Body.reasoning, { enabled: true, exclude: false });
+  assert.equal("effort" in mimoV25Body.reasoning, false);
 
   // When adapted for OpenRouter provider, verify none of the MiMo requests contain effort
   for (const b of bodies) {
     const adapted = adaptChatRequestForProvider(b, "openrouter");
-    if (b.model === OPENROUTER_VISION_MODEL || b.model === OPENROUTER_COUNCIL_MIMO_PRO_MODEL) {
+    if (b.model === OPENROUTER_VISION_MODEL || b.model === OPENROUTER_MIMO_V25_MODEL) {
       assert.equal("effort" in adapted.reasoning, false);
       assert.equal(adapted.reasoning.enabled, true);
     }

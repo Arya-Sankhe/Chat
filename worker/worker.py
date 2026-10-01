@@ -1094,7 +1094,7 @@ JINA_TEXT_CHAR_LIMIT = 8000
 class JinaEmbeddings:
     def __init__(self):
         self.api_key = env("JINA_API_KEY")
-        self.model = env("DOCUMENT_VISUAL_EMBED_MODEL", "jina-embeddings-v5-omni-nano")
+        self.model = "jina-embeddings-v5-omni-nano"
         self.dimensions = 768
         self.endpoint = env("JINA_EMBEDDINGS_URL", "https://api.jina.ai/v1/embeddings")
         self.batch_size = env_int("DOCUMENT_JINA_BATCH_SIZE", 8, minimum=1, maximum=JINA_BATCH_SIZE_CAP)

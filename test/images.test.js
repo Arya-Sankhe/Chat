@@ -103,9 +103,9 @@ test("modelSupportsVision does not flag image-generation-only models on output m
   }), false);
 });
 
-test("resolveVisionDescribeModel prefers configured and kimi models", () => {
-  assert.equal(resolveVisionDescribeModel({ visionDescribeModel: "custom-vision" }, [], []), "custom-vision");
-  assert.equal(resolveVisionDescribeModel({}, ["deepseek-v3.2", "moonshot/kimi-k2.6"], []), "moonshot/kimi-k2.6");
+test("image descriptions always use the product vision model", () => {
+  assert.equal(resolveVisionDescribeModel({ visionDescribeModel: "custom-vision" }, [], []), OPENROUTER_VISION_MODEL);
+  assert.equal(resolveVisionDescribeModel({}, ["deepseek-v3.2", "moonshot/kimi-k2.6"], []), OPENROUTER_VISION_MODEL);
   assert.equal(resolveVisionDescribeModel({}, [], []), OPENROUTER_VISION_MODEL);
 });
 
@@ -206,7 +206,7 @@ test("describeConversationImages can describe only missing image ids in one call
       config: {},
       provider: MODEL_PROVIDER,
       attachmentIds: ["att_2"],
-      describeModel: "moonshot/kimi-k2.6"
+      describeModel: OPENROUTER_VISION_MODEL
     });
 
     const sentImages = requestBody.messages[0].content.filter((part) => part.type === "image_url");

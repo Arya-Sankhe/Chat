@@ -195,3 +195,26 @@ test("chart edits address the stored chart and no-op edits are rejected", async 
   await assert.rejects(editDeck({ deck: result.deck, operations: [{ op: "set", path: "slides.3.chart.type", value: "area" }] }), /charts\.1/);
   await assert.rejects(editDeck({ deck: result.deck, operations: [{ op: "set", path: "slides.2.chart.shape", value: "round" }] }), /change nothing/);
 });
+
+test("placeholder cells and word-only KPIs never reach the slides", () => {
+  const deck = prepareDeck({ slides: [
+    { type: "cover", title: "Pricing", kpis: [{ value: "Quarterly", label: "cadence" }, { value: "12", unit: "%", label: "uplift" }, { value: "5", label: "versions compared" }] },
+    { type: "table", title: "Versions", table: {
+      columns: ["Dimension", "Sol 5.5", "Sol 6", "Sol 6.1"],
+      rows: [["Release status", "Legacy", "Current", "Preview"], ["List price", "$10", "$15", "TBD"], ["Discount", "From CRM", "From CRM", "From CRM"], ["Upgrade path", "To 6", "Latest", "Latest"], ["Region", "From Europe", "Global", "Global"]],
+      highlight_row: 3
+    } },
+    // Mostly placeholders: no data behind "Price snapshot", so no table and no bullet rescue.
+    { type: "table", title: "Price snapshot", takeaway: "Prices to be confirmed with finance.", table: {
+      columns: ["Product", "List price", "Discount", "Notes"],
+      rows: [["Sol 5.5", "To populate", "To populate", "Legacy"], ["Sol 6", "To confirm", "To confirm", "Current"]]
+    } },
+    { type: "cards", title: "Plans", cards: [{ title: "A", body: "x", metric: { value: "Quarterly" } }, { title: "B", body: "y", metric: { value: "3", unit: "x" } }] }
+  ] });
+  assert.deepEqual(deck.slides[0].kpis.map((entry) => entry.value), ["12"]);
+  const versions = deck.slides[1].table;
+  assert.deepEqual(versions.rows, [["Release status", "Legacy", "Current", "Preview"], ["List price", "$10", "$15", "—"], ["Upgrade path", "To 6", "Latest", "Latest"], ["Region", "From Europe", "Global", "Global"]]);
+  assert.equal(versions.highlightRow, 2);
+  assert.deepEqual(deck.slides.map((entry) => entry.title), ["Pricing", "Versions", "Plans"]);
+  assert.deepEqual(deck.slides[2].cards.map((card) => card.metric?.value ?? null), [null, "3"]);
+});

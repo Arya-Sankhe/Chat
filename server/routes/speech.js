@@ -40,6 +40,7 @@ export function speechUsage(payload, fallbackSeconds = 0) {
 }
 
 export async function transcribeAudio(config, audio, contentType, signal, model = STT_MODEL) {
+  if (![STT_MODEL, LIVE_STT_MODEL].includes(model)) throw new HttpError(400, `Speech model is not approved for Klui: ${model}`);
   const provider = config.providers?.openrouter;
   if (!provider?.apiKey) throw new HttpError(503, "Speech transcription is not configured on the server.");
   const headers = {

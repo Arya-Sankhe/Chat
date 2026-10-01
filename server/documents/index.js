@@ -13,7 +13,7 @@ import {
   queryWantsVisual,
   reciprocalRankFusion
 } from "./retrieval.js";
-import { THEME_NAMES } from "../../worker/deck/themes.js";
+import { THEMES, THEME_NAMES } from "../../worker/deck/themes.js";
 import { editDeck } from "./deckEditor.js";
 import { writeDeck } from "./deckWriter.js";
 import { alignDeck } from "../../worker/deck/spec.js";
@@ -460,7 +460,7 @@ export class DocumentService {
         "content-type": "application/json"
       },
       body: JSON.stringify({
-        model: clean(this.documentsConfig.visualEmbedModel) || "jina-embeddings-v5-omni-nano",
+        model: "jina-embeddings-v5-omni-nano",
         task: "retrieval.query",
         normalized: true,
         embedding_type: "float",
@@ -488,6 +488,7 @@ export class DocumentService {
     const apiKey = clean(this.documentsConfig.jinaApiKey);
     const model = clean(this.documentsConfig.rerankModel);
     if (!apiKey || !model || chunks.length < 2) return null;
+    if (model !== "jina-reranker-v3") throw new HttpError(400, `Rerank model is not approved for Klui: ${model}`);
     const response = await fetch("https://api.jina.ai/v1/rerank", {
       method: "POST",
       headers: {
@@ -1347,27 +1348,45 @@ export class DocumentService {
     const base = data && typeof data === "object" ? data : {};
     if (base.deck && typeof base.deck === "object" && Array.isArray(base.deck.slides)) return base;
     const legacySlides = Array.isArray(base.slides) ? JSON.stringify(base.slides).slice(0, 12_000) : "";
+    const named = this.requestedDeckTheme(theme || base.theme);
     const written = await writeDeck({
       config: this.config,
       modelClient: this.modelClient,
       signal: this.signal,
       brief: {
         userRequest: this.userRequest,
+        evidence: this.deckEvidence || "",
         title,
         instructions,
         content: [content, legacySlides ? `Draft slide plan: ${legacySlides}` : ""].filter(Boolean).join("\n\n"),
         sections,
         tables,
-        theme: clean(theme || base.theme)
+        theme: named
       }
     });
     if (!written) return base;
-    // A theme the caller named is a requirement, not a hint the writer may override.
-    const requested = clean(theme || base.theme).toLowerCase();
     // Stored aligned to pages so later edits can address "page 4" exactly.
     const aligned = alignDeck(written.deck, { title });
-    const deck = THEME_NAMES.includes(requested) ? { ...aligned, theme: requested } : aligned;
-    return { ...base, deck, deck_model: written.model };
+    // A theme the user chose is a requirement, not a hint the writer may override.
+    const deck = named ? { ...aligned, theme: named } : aligned;
+    return { ...base, deck, deck_model: written.model, deck_review: written.review, deck_unresolved: written.unresolved || [] };
+  }
+
+  // The deck theme the user chose: a Slides gallery pick, or a theme the chat model passed that
+  // the user named in their own words. On Auto the chat model's own pick is ignored ("academy"
+  // for every school topic) and the deck designer chooses from the full catalog.
+  requestedDeckTheme(theme) {
+    if (this.deckTheme) return this.deckTheme;
+    const name = clean(theme).toLowerCase();
+    if (!THEME_NAMES.includes(name)) return "";
+    // Only an appearance instruction counts ("the midnight theme", "style: ledger"); a topic word
+    // ("compare Sage and QuickBooks") or a refusal ("not academy") leaves the choice on Auto.
+    const words = clean(this.userRequest).toLowerCase();
+    const names = [...new Set([name, clean(THEMES[name]?.label).toLowerCase()].filter(Boolean))].join("|");
+    const look = "theme|style|look|template|palette|design";
+    const asked = new RegExp(`\\b(?:${names})\\s+(?:${look})\\b|\\b(?:${look})\\b\\s*(?:[:=]|is|to|of|as|in|on)?\\s*(?:the\\s+)?["']?(?:${names})\\b`);
+    const refused = new RegExp(`\\b(?:no|not|don'?t|never|avoid|without|instead of)\\b[^.;]{0,24}\\b(?:${names})\\b`);
+    return asked.test(words) && !refused.test(words) ? name : "";
   }
 
   async createDocument({ format, title, instructions, content, sections, tables, data, theme } = {}) {
@@ -1391,7 +1410,9 @@ export class DocumentService {
     const editorMarkdown = ["docx", "pdf"].includes(normalizedFormat)
       ? buildEditableMarkdown({ title, content: resolvedContent.content, sections, tables })
       : "";
-    const deckTheme = normalizedFormat === "pptx" ? this.deckTheme || theme : theme;
+    // Decks carry only a theme the user chose; on Auto the designer's pick must not be overridden
+    // at render time by the chat model's "academic"/"business" style.
+    const deckTheme = normalizedFormat === "pptx" ? this.requestedDeckTheme(theme) : theme;
     const jobData = normalizedFormat === "pptx"
       ? await this.writeDeckData({ title, instructions, content: resolvedContent.content, sections, tables, data: this.deckTheme && data?.deck ? { ...data, deck: { ...data.deck, theme: this.deckTheme } } : data, theme: deckTheme })
       : data;
@@ -1420,6 +1441,10 @@ export class DocumentService {
         deck_theme: result.output?.deck?.theme || jobData.deck.theme || "",
         deck_outline: slides.map((slide, index) => `${index + 1}. ${clean(slide.title || slide.statement).replace(/\*\*/g, "").slice(0, 140)}`),
         deck_note: "Describe the deck from deck_outline; the presentation designer chose these slides.",
+        ...(jobData.deck_unresolved?.length ? {
+          deck_unverified: jobData.deck_unresolved.slice(0, 4).map((note) => clean(note).slice(0, 400)),
+          deck_unverified_note: "A final fact check could not confirm these points. Tell the user briefly which slides to double-check."
+        } : {}),
         ...deckQualityOutput(result.output?.quality_warnings)
       };
     }

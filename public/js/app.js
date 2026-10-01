@@ -1408,6 +1408,20 @@ function placeCaretAfter(node) {
   selection.addRange(range);
 }
 
+// Focus with the caret after everything, so it lands after a skill chip rather than before it.
+function focusComposerEnd() {
+  const root = els.promptInput;
+  if (!root) return;
+  root.focus();
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function insertComposerText(text) {
   const root = els.promptInput;
   if (!root || !text) return;
@@ -7547,7 +7561,7 @@ homeModesController = createHomeModesController({
     updateSendButton();
     els.promptInput?.focus();
   },
-  focusComposer: () => els.promptInput?.focus(),
+  focusComposer: focusComposerEnd,
   enterCompareMode: () => compareController.activateCompareMode(),
   enterCouncilMode,
   exitCompareMode: () => compareController.cancelCompareMode(),
@@ -10310,7 +10324,7 @@ function bindEvents() {
       return;
     }
     compareController.activateCompareMode();
-    homeModesController?.render();
+    homeModesController?.showAnswerModeExplainer();
   });
 
   if (els.councilButton) {
@@ -10325,8 +10339,8 @@ function bindEvents() {
         homeModesController?.render();
         return;
       }
-      enterCouncilMode();
-      homeModesController?.render();
+      if (!enterCouncilMode()) return;
+      homeModesController?.showAnswerModeExplainer();
     });
   }
 

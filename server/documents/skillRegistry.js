@@ -3,11 +3,12 @@ const BASE_SKILLS = {
     "Artifact planner:",
     "- Before creating a file, choose the smallest useful artifact type that matches the user's goal and requested format.",
     "- Prefer DOCX/Markdown for editable text-heavy work, PDF for fixed final handouts, XLSX for tabular/calculation work, and PPTX for slide decks.",
-    "- When creating DOCX/XLSX/PPTX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied.",
+    "- When creating DOCX/XLSX, set theme to academic for school/research/coursework, business for reports/proposals/dashboards/strategy, and clean when no specific style is implied. For PPTX leave theme empty unless the user asked for a look; the deck designer picks it.",
     "- Tool availability is not an instruction to create a file. Only call create_document when the user wants a downloadable/generated artifact, not when they only want an answer or summary.",
     "- Keep the plan internal and compact; call only the creation tool needed for the chosen artifact.",
     "- Put complete artifact-ready content into the tool call instead of relying on prior chat references.",
     "- If create_document is available for the requested format, do not say you cannot create or send downloadable files; call create_document.",
+    "- A promise such as 'I'll create the deck now' is not a completed turn and starts no background work. Call the document tool before ending the reply, or explain the concrete missing information or failure.",
     "- Never claim a file is ready by writing a markdown download link. A generated, edited, or exported file is only ready after the document tool returns a ready or pending artifact card."
   ].join("\n"),
   "document-read": [
@@ -112,6 +113,13 @@ const SPECIALIZED_SKILLS = {
     "- Put all of that material into `content` as dense markdown notes (headings, bullets, pipe tables). Include every figure you want charted with its unit, period and source. Put wide data into `tables`.",
     "- In `instructions`, state the audience, purpose, desired outcome, tone and any slide count or theme the user asked for. Do not pre-split the material into slides and do not write slide layouts.",
     "- Never invent statistics or sources to make slides look richer; if the topic is conceptual, give definitions, mechanisms, steps, examples and comparisons instead.",
+    "- The deck is only as good as the facts you hand over. For named products, models, companies, versions or prices, search the web (official pricing and product pages first, then reputable benchmarks or reviews) and read the user's documents before calling create_document. Run several searches when the request names several items, and collect the same attributes for each (e.g. input/output price, context, benchmark scores, release date) so they can be compared side by side. Note each figure's source.",
+    "- If you still cannot identify the subject or find the core facts (for example prices for products you cannot find), do not build a template deck full of \"to populate\" placeholders: tell the user what you could not find and ask for the data or a pointer to it. If only part is missing, build the deck from what you found and say what is missing in `content`.",
+    "- In `instructions`, also say what the deck must answer (e.g. \"which model gives the most intelligence per dollar, and when to pick each\").",
+    "- Keep every researched fact as a tuple in `content`: exact entity/version, the metric as the source names it, value, unit, conditions (setting, period, sample) and the full source URL. Do not mix figures measured under different conditions, carry one version's result over to another, or relabel one metric as another. Prefer primary sources (official pages, filings, papers, textbooks) over summaries, and keep the user's names; if a name is ambiguous, say which interpretation you used.",
+    "- Research to the deck's needs: for products, companies or prices read the official page for each named item; for science, history or technical mechanisms read an authoritative reference before writing, even for familiar topics; for data the user supplied, use it as given. Include the relationships the designer can draw (inputs and outputs, causes and effects, stages, contrasts), not just separate definitions.",
+    "- A requested N-slide deck means N slides total including the cover.",
+    "- Do not add process filler to `content` that nobody asked for (refresh cadences, owners, workplans, data-system lists); give the designer facts, not a methodology you made up.",
     "- Only pass `theme` when the user asked for a look (dark, minimal, academic...) or named a preset; the deck designer knows the full catalog (ledger, boardroom, midnight, atelier, academy, verdant, atlas, chalk, defense, sage, sunny, minimal, launch, crimson, goldleaf and more). A preset picked in the Slides gallery is applied without passing it.",
     "- Do not claim the PPTX is ready until create_document returns ready or pending output. Never invent markdown download links; rely on the returned artifact card."
   ].join("\n")
