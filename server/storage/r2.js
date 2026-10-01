@@ -341,11 +341,15 @@ export class R2Client {
       throw new HttpError(502, "Uploaded files could not be listed from storage.");
     }
     const xml = await response.text();
-    const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXml(match[1]));
+    const objects = [...xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)].map((match) => ({
+      key: decodeXml(match[1].match(/<Key>([\s\S]*?)<\/Key>/)?.[1]),
+      lastModified: match[1].match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1] || null
+    }));
+    const keys = objects.map((object) => object.key);
     const isTruncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
     const nextToken = decodeXml(xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/i)?.[1]);
     if (isTruncated && !nextToken) throw new HttpError(502, "Storage returned an invalid object listing.");
-    return { keys, isTruncated, nextToken: nextToken || null };
+    return { keys, objects, isTruncated, nextToken: nextToken || null };
   }
 
   async deletePrefix(prefix, { signal } = {}) {

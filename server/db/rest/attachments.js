@@ -133,6 +133,41 @@ export async function listAccountObjectKeysBatch(client, userId, {
   };
 }
 
+// Every R2 key a row still points at, across all accounts, plus the ids of documents whose
+// page images live under users/<user>/documents/<id>/. The storage sweep keeps all of these.
+// Audio keys awaiting the transcriber's own cleanup count as referenced too.
+export async function listStorageReferences(client, { pageSize = 1000, signal } = {}) {
+  const keys = new Set();
+  const documentIds = new Set();
+  const sources = [
+    { table: "attachments", columns: ["object_key"], cursor: "id" },
+    { table: "document_files", columns: ["extraction_key", "preview_key"], cursor: "id", ids: documentIds },
+    { table: "document_pages", columns: ["image_key"], cursor: "id" },
+    { table: "audio_object_cleanup", columns: ["object_key"], cursor: "object_key" }
+  ];
+  for (const source of sources) {
+    let after = null;
+    for (;;) {
+      const rows = await client.request(source.table, {
+        query: {
+          ...(after ? { [source.cursor]: `gt.${after}` } : {}),
+          select: [...new Set([source.cursor, ...source.columns])].join(","),
+          order: `${source.cursor}.asc`,
+          limit: String(pageSize)
+        },
+        signal
+      });
+      for (const row of rows || []) {
+        for (const column of source.columns) if (row[column]) keys.add(row[column]);
+        if (source.ids) source.ids.add(row.id);
+      }
+      if (!rows?.length || rows.length < pageSize) break;
+      after = rows.at(-1)[source.cursor];
+    }
+  }
+  return { keys, documentIds };
+}
+
 export async function listConversationStorageTotals(client, userId, { signal } = {}) {
   return client.rpc("klui_conversation_storage_totals", { p_user_id: userId }, { signal });
 }

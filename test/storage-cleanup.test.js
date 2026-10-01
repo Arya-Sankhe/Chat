@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { cleanupOrphanStorage } from "../scripts/cleanup-orphan-storage.mjs";
+import { cleanupOrphanStorage, sweepUnreferencedObjects } from "../scripts/cleanup-orphan-storage.mjs";
 
 const CONFIG = {
   storageCleanup: { graceDays: 7, pendingGraceMinutes: 30, batchSize: 100 },
@@ -171,4 +171,66 @@ test("orphan cleanup does not touch R2 when document key discovery fails", async
 
   assert.equal(result.failed, 1);
   assert.equal(r2Deletes, 0);
+});
+
+function sweepFixture(objects, references) {
+  const deleted = [];
+  return {
+    deleted,
+    db: { async listStorageReferences() { return references; } },
+    r2: {
+      async listObjects(prefix, { continuationToken } = {}) {
+        assert.equal(prefix, "users/");
+        // Two pages, to exercise the continuation token.
+        const half = Math.ceil(objects.length / 2);
+        return continuationToken
+          ? { objects: objects.slice(half), isTruncated: false, nextToken: null }
+          : { objects: objects.slice(0, half), isTruncated: true, nextToken: "next" };
+      },
+      async deleteObjects(keys) {
+        deleted.push(...keys);
+        return keys.length;
+      }
+    }
+  };
+}
+
+test("storage sweep deletes only old objects that no row points at", async () => {
+  const old = "2026-07-01T00:00:00.000Z";
+  const objects = [
+    { key: "users/u1/a1/file.pdf", lastModified: old },
+    { key: "users/u1/x9/file.extraction.json", lastModified: old },
+    { key: "users/u1/documents/doc_live/pages/page-0003.jpg", lastModified: old },
+    { key: "users/u1/documents/doc_gone/pages/page-0001.jpg", lastModified: old },
+    { key: "users/u1/x8/stale.extraction.json", lastModified: old },
+    { key: "users/u1/x7/fresh.extraction.json", lastModified: "2026-07-12T00:00:00.000Z" },
+    ...Array.from({ length: 40 }, (_, index) => ({ key: `users/u2/k${index}/f.png`, lastModified: old }))
+  ];
+  const keys = new Set(["users/u1/a1/file.pdf", "users/u1/x9/file.extraction.json", ...objects.slice(6).map((object) => object.key)]);
+  const { db, r2, deleted } = sweepFixture(objects, { keys, documentIds: new Set(["doc_live"]) });
+
+  const result = await sweepUnreferencedObjects({
+    config: CONFIG, db, r2, now: new Date("2026-07-13T00:00:00.000Z"), logger: { log() {} }
+  });
+
+  assert.deepEqual(deleted, [
+    "users/u1/documents/doc_gone/pages/page-0001.jpg",
+    "users/u1/x8/stale.extraction.json"
+  ]);
+  assert.equal(result.objects, 46);
+  assert.equal(result.objectsDeleted, 2);
+  assert.equal(result.failed, 0);
+});
+
+test("storage sweep refuses when most of the bucket looks unreferenced", async () => {
+  const objects = Array.from({ length: 100 }, (_, index) => ({ key: `users/u/k${index}/f.png`, lastModified: "2026-07-01T00:00:00.000Z" }));
+  const { db, r2, deleted } = sweepFixture(objects, { keys: new Set(), documentIds: new Set() });
+
+  const result = await sweepUnreferencedObjects({
+    config: CONFIG, db, r2, now: new Date("2026-07-13T00:00:00.000Z"), logger: { log() {} }
+  });
+
+  assert.equal(deleted.length, 0);
+  assert.equal(result.failed, 1);
+  assert.match(result.error, /refusing to delete 100 of 100/);
 });

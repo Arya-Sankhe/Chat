@@ -430,6 +430,10 @@ export class SupabaseRest {
     return attachments.listAccountObjectKeysBatch(this, userId, options);
   }
 
+  async listStorageReferences(options) {
+    return attachments.listStorageReferences(this, options);
+  }
+
   async exportAccountData(userId, options) {
     return accountExport.exportAccountData(this, userId, options);
   }
