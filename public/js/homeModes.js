@@ -317,7 +317,6 @@ export function createHomeModesController({
           <p class="home-mode-explainer-body">${escapeHtml(copy.body)}</p>
           <button type="button" class="home-mode-explainer-close" data-explainer-close aria-label="Turn off ${escapeHtml(copy.title)}">${CLOSE_ICON_SVG}</button>
         </div>
-        <p class="home-mode-explainer-label">Try now</p>
         <div class="home-mode-examples">
           ${copy.examples.map((example) => `<button type="button" class="home-mode-example" data-pill-example="${escapeHtml(example)}"><span>${escapeHtml(example)}</span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>`).join("")}
         </div>

@@ -180,15 +180,6 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
   line-height: 1.55;
 }
 
-.home-mode-explainer-label {
-  margin: 6px 0 0;
-  color: var(--text-tertiary);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 .home-mode-examples {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -147,20 +147,21 @@
   transform: translateY(-1.5px);
 }
 
-/* ─── Compare segment: a slate-grey blend with white text ─── */
+/* ─── Compare segment: a peach-to-butter blend with white text ─── */
 
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) {
   width: 112px;
   min-width: 112px;
   color: #fff;
-  background: hsla(208, 7%, 46%, 1);
-  background: linear-gradient(90deg, hsla(208, 7%, 46%, 1) 0%, hsla(191, 5%, 40%, 1) 100%);
+  background: hsla(16, 72%, 68%, 1);
+  background: linear-gradient(90deg, hsla(16, 72%, 68%, 1) 0%, hsla(44, 70%, 70%, 1) 100%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  text-shadow: 0 1px 2px rgba(120, 50, 10, 0.35);
 }
 
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn):hover {
   color: #fff;
-  background: linear-gradient(90deg, hsla(208, 7%, 41%, 1) 0%, hsla(191, 5%, 35%, 1) 100%);
+  background: linear-gradient(90deg, hsla(16, 72%, 63%, 1) 0%, hsla(44, 70%, 65%, 1) 100%);
 }
 
 .mode-switch[data-active="compare"] .compare-btn:not(.council-btn) > svg {

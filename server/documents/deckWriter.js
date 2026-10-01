@@ -303,7 +303,8 @@ export async function writeDeck({ config, modelClient, signal, brief, timeoutMs 
             // A cut-off or chatty reply still carries its complete issue objects.
             const issues = salvageJsonObjects(stripFences(content)).filter((entry) => typeof entry?.note === "string");
             // A refusal or prose reply is a check that did not happen, not a clean deck.
-            if (!issues.length && !/"issues"\s*:/.test(content)) throw new Error("audit reply was not JSON");
+            // Only an explicit empty list is clean; a reply cut off before its first complete issue was not checked.
+            if (!issues.length && !/"issues"\s*:\s*\[\s*\]/.test(content)) throw new Error("audit reply was not JSON");
             parsed = { issues };
           }
           if (!Array.isArray(parsed?.issues)) throw new Error("audit returned no issues array");

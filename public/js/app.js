@@ -322,7 +322,8 @@ const defaultSettings = {
   webSearchMode: "auto",
   writingStyle: "normal",
   appearance: "system",
-  colorPreset: "default",
+  colorPreset: "ocean",
+  colorChosen: false,
   wallpaper: "clouds",
   showModelReasoning: true,
   weatherUnits: "metric",
@@ -2192,7 +2193,10 @@ function loadSettings() {
     delete loaded.kluiModel;
     delete loaded.theme;
     loaded.appearance = APPEARANCES.has(loaded.appearance) ? loaded.appearance : "system";
-    loaded.colorPreset = COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "default";
+    // Blue until someone actually picks a swatch; a stored "default" alone was never a choice,
+    // but any other saved swatch predates the flag and was picked on purpose.
+    loaded.colorChosen = loaded.colorChosen === true || (COLOR_PRESETS.has(loaded.colorPreset) && loaded.colorPreset !== "default");
+    loaded.colorPreset = loaded.colorChosen && COLOR_PRESETS.has(loaded.colorPreset) ? loaded.colorPreset : "ocean";
     loaded.wallpaper = HOME_WALLPAPERS.has(loaded.wallpaper) ? loaded.wallpaper : "clouds";
   loaded.showModelReasoning = loaded.showModelReasoning !== false;
   loaded.uiTextScale = clampTextScale(loaded.uiTextScale);
@@ -11289,6 +11293,7 @@ function bindEvents() {
   els.colorPresetRow?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-accent]");
     if (!btn) return;
+    state.settings.colorChosen = true;
     updateSetting("colorPreset", COLOR_PRESETS.has(btn.dataset.accent) ? btn.dataset.accent : "default");
   });
   window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {

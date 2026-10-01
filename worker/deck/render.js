@@ -56,8 +56,10 @@ export async function renderDeck(raw, outputPath, fallback = {}) {
 function fallbackSlide(spec) {
   const points = [];
   const seen = new Set();
+  // Data lines are short, so a chart or table keeps up to ten of them across two columns.
+  let cap = 10;
   const walk = (value, depth = 0) => {
-    if (points.length >= 6 || depth > 3 || value == null) return;
+    if (points.length >= cap || depth > 3 || value == null) return;
     if (typeof value === "string" || typeof value === "number") {
       const text = str(value, 260);
       if (text && !seen.has(text)) {
@@ -72,7 +74,24 @@ function fallbackSlide(spec) {
       if (joined) walk(joined, depth + 1);
     }
   };
-  for (const key of ["points", "items", "cards", "steps", "nodes", "events", "kpis", "quadrants", "options", "columns", "left", "right", "body", "statement", "value"]) walk(spec[key]);
+  // The data a chart or table carried comes first, one line per item, so the fallback keeps it.
+  for (const chart of [spec.chart, ...(Array.isArray(spec.charts) ? spec.charts : [])].filter(Boolean)) {
+    const unit = chart.unit ? ` ${chart.unit}` : "";
+    if (chart.type === "scatter") {
+      for (const point of chart.points || []) walk(`${point.label}: ${chart.xLabel || "x"} ${point.x ?? "n/a"}, ${chart.yLabel || "y"} ${point.y ?? "n/a"}`);
+    } else if (chart.points?.length && !chart.categories?.length) {
+      for (const point of chart.points) walk(`${point.label}: ${point.display || (point.value ?? "n/a")}${point.display ? "" : unit}`);
+    } else {
+      const series = chart.series || [];
+      (chart.categories || []).forEach((category, index) => walk(`${category}: ${series.map((entry) => `${series.length > 1 ? `${entry.name} ` : ""}${entry.values[index] ?? "n/a"}`).join(", ")}${unit}`));
+    }
+  }
+  const table = spec.table;
+  if (table?.columns?.length && Array.isArray(table.rows)) {
+    for (const row of table.rows) walk(`${row[0]}: ${table.columns.slice(1).map((column, index) => `${column} ${row[index + 1] || "n/a"}`).join(", ")}`);
+  }
+  cap = Math.max(6, points.length);
+  for (const key of ["points", "items", "cards", "steps", "nodes", "events", "kpis", "quadrants", "options", "columns", "left", "right", "insights", "body", "statement", "value"]) walk(spec[key]);
   const title = spec.title || spec.statement || "";
   if (!title && !points.length) return null;
   return { ...spec, type: "bullets", title: title || "Summary", points: points.length ? points : [{ title: "", body: spec.takeaway || title }] };

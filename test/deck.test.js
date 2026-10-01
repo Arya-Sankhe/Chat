@@ -754,14 +754,17 @@ test("duplicate diagram arrows merge and a failed audit never blocks the deck", 
   ] };
   assert.deepEqual(normalizeDeck(deck).slides[1].edges, [{ from: "model", to: "training", label: "parameters · updates" }]);
   assert.deepEqual(inspectDeck(deck).problems, []);
-  // An audit reply that is not JSON is not a factual error, but the deck is never reported as checked.
-  const client = { async streamChatCompletion({ body }) {
-    return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM ? "I could not check this." : JSON.stringify(deck));
-  } };
-  const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } } }, modelClient: client, brief: {} });
-  assert.equal(result.deck.title, "Learning");
-  assert.equal(result.unresolved.length, 1);
-  assert.match(result.unresolved[0], /fact check did not complete/);
+  // An audit reply that is not JSON, or is cut off before its first complete issue, is not a
+  // factual error, but the deck is never reported as checked.
+  for (const reply of ["I could not check this.", '{"issues":[{"severity":"error","note":"Slide 2 mis']) {
+    const client = { async streamChatCompletion({ body }) {
+      return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM ? reply : JSON.stringify(deck));
+    } };
+    const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } } }, modelClient: client, brief: {} });
+    assert.equal(result.deck.title, "Learning");
+    assert.equal(result.unresolved.length, 1, reply);
+    assert.match(result.unresolved[0], /fact check did not complete/);
+  }
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "diagram-deck-"));
   try {
     const file = path.join(tmp, "deck.pptx");
@@ -891,7 +894,11 @@ test("a slide whose text overlaps is exported as plain bullets, never overlappin
   const deck = { title: "Overlap", slides: [{ type: "cover", title: "Overlap" }, { type: "chart", title: "Evidence", chart: { type: "scatter", points } }] };
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "overlap-deck-"));
   try {
-    const { warnings } = await renderDeck(deck, path.join(tmp, "deck.pptx"));
+    const file = path.join(tmp, "deck.pptx");
+    const { warnings } = await renderDeck(deck, file);
     assert.ok(warnings.some((warning) => /chart layout failed \(text overlap/.test(warning)));
+    // The bullets keep every data point the chart carried, not just its title.
+    const text = (await slidesOf(file)).texts[1];
+    for (const point of points) assert.match(text, new RegExp(`${point.label}: x 1, y 1`));
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
