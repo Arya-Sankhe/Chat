@@ -412,6 +412,16 @@ export const THEME_GROUPS = [
   ] }
 ];
 
+// Order of the Slides gallery, best-looking covers first. The All, Students and Work tabs
+// (and each category chip) show their themes in this order.
+export const GALLERY_ORDER = [
+  "aurora", "ledger", "defense", "midnight", "atelier", "ebony", "goldleaf", "harbor", "academy",
+  "violet", "crimson", "onyx", "chalk", "coral", "launch", "memo", "journal", "luxe", "annual", "scholar",
+  "terracotta", "verdant", "mint", "brief", "boardroom", "indigo", "mindmap", "slate", "atlas",
+  "clay", "paper", "linen", "lagoon", "sage", "meadow", "cobalt", "sunny", "pastel", "studio",
+  "sky", "lifeline", "magazine", "notebook", "bloom", "minimal"
+];
+
 export const THEME_NAMES = Object.keys(THEMES);
 
 // Fallback theme choice when the deck writer did not pick one.

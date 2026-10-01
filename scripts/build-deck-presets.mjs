@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderDeck } from "../worker/deck/render.js";
-import { THEMES, THEME_GROUPS } from "../worker/deck/themes.js";
+import { GALLERY_ORDER, THEMES, THEME_GROUPS } from "../worker/deck/themes.js";
 import { SAMPLES, SAMPLE_FOR_CATEGORY } from "./deck-presets/samples.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -68,11 +68,11 @@ for pdf in sorted(glob.glob("pdf/*.pdf")):
     execFileSync("cp", ["-R", join(work, "out", name), target]);
   }
 
-  // The catalog always lists every theme, in gallery order (students first, then work).
-  const order = THEME_GROUPS.flatMap((group) => group.categories.map((category) => category.id));
+  // The catalog always lists every theme, in gallery order (best-looking first).
+  const rank = (name) => (GALLERY_ORDER.includes(name) ? GALLERY_ORDER.indexOf(name) : GALLERY_ORDER.length);
   const presets = Object.values(THEMES)
     .filter((theme) => theme.meta && existsSync(join(outDir, theme.name)))
-    .sort((a, b) => order.indexOf(a.meta.category) - order.indexOf(b.meta.category))
+    .sort((a, b) => rank(a.name) - rank(b.name))
     .map((theme) => {
       const slides = readdirSync(join(outDir, theme.name)).filter((file) => /^\d+\.webp$/.test(file)).sort();
       return {

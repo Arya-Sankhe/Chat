@@ -705,6 +705,14 @@ body.chat-empty.home-panel-open:not(.study-open) .composer-area .composer-wrap {
   padding: 20px;
   border-right: 1px solid var(--border-light);
   min-width: 0;
+  /* Fast clicks on the arrows count as double clicks; keep them from selecting the slide. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.deck-preset-viewer img {
+  -webkit-user-drag: none;
 }
 
 .deck-preset-viewer-stage {

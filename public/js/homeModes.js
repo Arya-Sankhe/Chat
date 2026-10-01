@@ -182,7 +182,7 @@ export function createHomeModesController({
   // A failed load waits for Retry (or another explicit pick) instead of refetching on every render.
   function ensureCatalogLoaded() {
     if (catalog || catalogPromise || catalogError) return;
-    catalogPromise = fetch(apiUrl(CATALOG_URL), { cache: "force-cache" })
+    catalogPromise = fetch(apiUrl(CATALOG_URL), { cache: "no-cache" })
       .then((res) => {
         if (!res.ok) throw new Error(`catalog ${res.status}`);
         return res.json();
@@ -650,6 +650,10 @@ export function createHomeModesController({
     els.deckPresetPrev?.addEventListener("click", () => stepModal(-1));
     els.deckPresetNext?.addEventListener("click", () => stepModal(1));
     els.deckPresetUseBtn?.addEventListener("click", () => toggleSelectedFromModal());
+    // A double click would otherwise select the slide image behind the arrows.
+    dialog.querySelector(".deck-preset-viewer")?.addEventListener("mousedown", (event) => {
+      if (event.detail > 1) event.preventDefault();
+    });
     els.deckPresetThumbs?.addEventListener("click", (event) => {
       const thumb = event.target.closest("[data-deck-slide]");
       if (!thumb) return;

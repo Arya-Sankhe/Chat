@@ -902,3 +902,10 @@ test("a slide whose text overlaps is exported as plain bullets, never overlappin
     for (const point of points) assert.match(text, new RegExp(`${point.label}: x 1, y 1`));
   } finally { await fs.rm(tmp, { recursive: true, force: true }); }
 });
+
+test("the Slides gallery lists every theme once, in gallery order", async () => {
+  const { GALLERY_ORDER } = await import("../worker/deck/themes.js");
+  const catalog = JSON.parse(await fs.readFile(new URL("../public/deck-presets/catalog.json", import.meta.url), "utf8"));
+  assert.deepEqual([...GALLERY_ORDER].sort(), [...THEME_NAMES].sort());
+  assert.deepEqual(catalog.presets.map((preset) => preset.id), GALLERY_ORDER);
+});
