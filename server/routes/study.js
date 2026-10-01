@@ -232,6 +232,12 @@ export async function handleStudyCourseMaterials(req, res, config, courseId) {
     if (attachment) {
       const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
       if (keys.length) await context.r2.deleteObjects(keys, { signal: req.signal });
+      // Page rows and file keys point at the objects just deleted; left behind, the embedding
+      // backfill keeps fetching them and logging 404s. Chunks stay for the decks/quizzes below.
+      await context.db.deleteDocumentPages(context.user.id, documentFile.id, { signal: req.signal });
+      if (documentFile.extraction_key || documentFile.preview_key) {
+        await context.db.updateDocumentFile(context.user.id, documentFile.id, { extraction_key: null, preview_key: null }, { signal: req.signal });
+      }
       // ponytail: keep the attachment/document_files rows so decks/quizzes stay keyed; course delete cascades them.
       if (Number(attachment.size_bytes) !== 0) {
         await context.db.updateAttachment(context.user.id, attachment.id, { size_bytes: 0 }, { signal: req.signal });

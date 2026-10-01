@@ -284,6 +284,15 @@ export async function updateDocumentPage(client, userId, documentFileId, pageNum
   return single(rows);
 }
 
+export async function deleteDocumentPages(client, userId, documentFileId, { signal } = {}) {
+  return client.request("document_pages", {
+    method: "DELETE",
+    query: { user_id: `eq.${userId}`, document_file_id: `eq.${documentFileId}` },
+    prefer: "return=minimal",
+    signal
+  });
+}
+
 export async function queueDocumentPageRender(client, {
   userId,
   documentFileId,

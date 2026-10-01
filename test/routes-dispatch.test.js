@@ -1613,6 +1613,8 @@ test("source creation requires an owned course and the saved source has a readab
 
 test("deleting a study file hides it, frees quota, and keeps the document id", async () => {
   const patches = [];
+  const docPatches = [];
+  const deletedPages = [];
   const sizePatches = [];
   const deletedKeys = [];
   let deletedAttachment = false;
@@ -1622,7 +1624,12 @@ test("deleting a study file hides it, frees quota, and keeps the document id", a
         return { id: "course-1", kind: "course", name: "CMP 321", meta: { term: "Fall" } };
       },
       async getDocumentFile() {
-        return { id: "doc-1", project_id: "course-1", attachment_id: "att-1" };
+        return { id: "doc-1", project_id: "course-1", attachment_id: "att-1", extraction_key: "users/user-1/extract.json", preview_key: "users/user-1/preview.json" };
+      },
+      async deleteDocumentPages(_userId, documentFileId) { deletedPages.push(documentFileId); },
+      async updateDocumentFile(_userId, id, patch) {
+        docPatches.push({ id, patch });
+        return { id, ...patch };
       },
       async getAttachment() {
         return {
@@ -1676,6 +1683,9 @@ test("deleting a study file hides it, frees quota, and keeps the document id", a
   assert.equal(deletedKeys.includes("users/user-1/extract.json"), true);
   assert.equal(deletedKeys.includes("users/user-1/preview.json"), true);
   assert.equal(deletedKeys.includes("users/user-1/documents/doc-1/pages/page-0001.jpg"), true);
+  // Nothing may keep pointing at the deleted objects, or the embedding backfill fetches them forever.
+  assert.deepEqual(deletedPages, ["doc-1"]);
+  assert.deepEqual(docPatches, [{ id: "doc-1", patch: { extraction_key: null, preview_key: null } }]);
 });
 
 test("flashcard generate rejects a second Rapid and a missing mode", async () => {

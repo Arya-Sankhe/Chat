@@ -577,6 +577,10 @@ export class SupabaseRest {
     return documents.updateDocumentPage(this, userId, documentFileId, pageNumber, patch, options);
   }
 
+  async deleteDocumentPages(userId, documentFileId, options) {
+    return documents.deleteDocumentPages(this, userId, documentFileId, options);
+  }
+
   async queueDocumentPageRender(params, options) {
     return documents.queueDocumentPageRender(this, params, options);
   }
