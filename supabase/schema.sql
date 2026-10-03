@@ -1797,20 +1797,17 @@ begin
       'limits', coalesce(p_limits, '{}'::jsonb)
     ),
     p_queue
+  -- One ingest job stores the text and page images together.
   from (
     select 'document.extract.' || p_kind as job_type, 10 as priority
-    union all
-    select 'document.enrich.pdf', 0
-    where p_kind in ('pdf', 'docx', 'xlsx', 'pptx')
   ) queued
   on conflict do nothing;
 
-  select coalesce(jsonb_agg(to_jsonb(j) order by j.priority desc, j.created_at asc), '[]'::jsonb)
+  select coalesce(jsonb_agg(to_jsonb(j) order by j.created_at asc), '[]'::jsonb)
   into v_jobs
   from public.document_jobs j
   where j.document_file_id = v_document.id
-    and (j.job_type = 'document.extract.' || p_kind
-      or (p_kind in ('pdf', 'docx', 'xlsx', 'pptx') and j.job_type = 'document.enrich.pdf'));
+    and j.job_type = 'document.extract.' || p_kind;
 
   return jsonb_build_object(
     'attachment', to_jsonb(v_attachment),

@@ -3,13 +3,14 @@ import { documentSkillText, isKnownDocumentSkill } from "./skillRegistry.js";
 const ALL_DOCUMENT_TOOLS = [
   "search_document",
   "read_document",
-  "extract_tables",
+  "query_spreadsheet",
   "create_document",
   "edit_document",
   "export_document"
 ];
 
-const READ_TOOLS = ["search_document", "read_document", "extract_tables"];
+const READ_TOOLS = ["search_document", "read_document"];
+const SHEET_KINDS = new Set(["xlsx", "csv", "tsv"]);
 
 function clean(value) {
   return String(value || "").trim();
@@ -24,8 +25,7 @@ function readyDocumentList(readyDocuments) {
     .slice(0, 10)
     .map((doc) => {
       const pageCount = Number(doc.page_count || doc.metadata?.page_count || 0);
-      const hasVisualPages = doc.kind === "pdf" || Boolean(doc.visual_ready_at);
-      const pageText = hasVisualPages && pageCount ? `, ${pageCount} pages` : "";
+      const pageText = pageCount && !SHEET_KINDS.has(doc.kind) ? `, ${pageCount} ${doc.kind === "pptx" ? "slides" : "pages"}` : "";
       return `- ${doc.attachments?.file_name || "Document"} (${doc.kind}${pageText}, attachment_id: ${doc.attachment_id}, version: ${doc.version_no || 1})`;
     })
     .join("\n");
@@ -55,8 +55,12 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const mentionsDocument = /\b(document|documents|file|files|attachment|attachments|upload|uploaded|attached|pdf|docx|word|xlsx|excel|spreadsheet|workbook|worksheet|csv|tsv|table|tables|slides?|pptx?|presentation)\b/i.test(prompt);
   const mentionsExisting = /\b(this|that|it|them|above|previous|attached|uploaded|source|original)\b/i.test(prompt);
   const readAction = /\b(summarize|summarise|summary|explain|analyze|analyse|review|read|search|find|extract|pull|compare|answer|solve|homework|questions?|what|where|which|how)\b/i.test(prompt);
-  const taskOnUploadedDocs = /\b(solve|homework|assignment|worksheet|problem\s?set|exercise|quiz|exam)\b/i.test(prompt);
-  const followUpOnDocs = /\b(try again|retry|do (it|that) again|regenerate|recreate|redo|where is (it|the (document|file|pdf|docx))|use (the )?(document )?tools?|read (it|them|the (document|file|pdf)))\b/i.test(prompt);
+  // Asking for a file again ("try again", "where is the pdf?"). Reading follow-ups ("read it",
+  // "use the tools") are not here: they ask about a document, not for a new one.
+  const followUpOnDocs = /\b(try again|retry|do (it|that) again|regenerate|recreate|redo|where is (it|the (document|file|pdf|docx)))\b/i.test(prompt);
+  // "Read it, don't create or edit anything": the user rules a new file out.
+  const refusesNewFile = /\b(?:don['’]?t|do not|without|no need to|never|not)\s+(?:\w+\s+){0,3}?(?:create|generate|make|produce|write|edit|export|save)\b/i.test(prompt)
+    || /\bno (?:new )?(?:files?|documents?|edits?)\b/i.test(prompt);
   const createAction = /\b(create|make|generate|regenerate|recreate|redo|draft|write|build|produce|turn|convert|put)\b/i.test(prompt);
   const fileDeliveryAction = /\b(give|send|provide|prepare|share|attach|deliver|download|export|add)\b/i.test(prompt)
     || /\b(can|could|may)\s+(i|we)\s+get\b/i.test(prompt)
@@ -72,11 +76,8 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const asksPpt = /\b(powerpoint|ppt|pptx|slides?|deck|presentation)\b/i.test(prompt);
   const asksMarkdown = /\b(markdown|\.md)\b/i.test(prompt);
   const asksGenericDocument = /\b(doc|document|file|report|contract|proposal|memo|letter|invoice|brief)\b/i.test(prompt);
-  const hasReadyVisualDocument = (readyDocuments || []).some((doc) => (
-    doc?.kind === "pdf"
-    || (["docx", "pptx"].includes(doc?.kind) && Boolean(doc?.visual_ready_at))
-  ));
-  const hasReadySpreadsheet = (readyDocuments || []).some((doc) => doc?.kind === "xlsx" && Boolean(doc?.text_ready_at));
+  const hasReadyVisualDocument = (readyDocuments || []).some((doc) => ["pdf", "docx", "pptx"].includes(doc?.kind));
+  const hasReadySpreadsheet = (readyDocuments || []).some((doc) => SHEET_KINDS.has(doc?.kind));
   const wordOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?(word|docx)\b/i.test(prompt)
     || (fileDeliveryAction && /\b(word\s+(doc|document|file)|docx\s+(file|document)|\.docx)\b/i.test(prompt));
   const pdfOutput = /\b(create|make|generate|draft|write|build|produce|turn|convert|put|give|send|provide|prepare|share|attach|deliver|download|export|add)\s+(an?\s+)?pdf\b/i.test(prompt)
@@ -89,10 +90,14 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const markdownOutput = /\b(create|make|generate|draft|write|build|produce|give|send|provide|prepare|share|attach|deliver|download|export)\s+(an?\s+)?markdown\b/i.test(prompt)
     || (fileDeliveryAction && /\b(markdown\s+(file|document)|\.md)\b/i.test(prompt));
   const explicitArtifactFormat = asksPdf || asksWord || asksExcel || asksPpt || asksMarkdown;
-  const artifactTaskIntent = createAction || fileDeliveryAction || mentionsExisting || readAction;
-  const wantsArtifactOutput = createAction || wordOutput || pdfOutput || excelOutput || pptOutput || markdownOutput
+  // Naming a format only asks for a file alongside a create or delivery verb: "what does the
+  // pdf say" reads the pdf, "send me a pdf" asks for one.
+  const artifactTaskIntent = createAction || fileDeliveryAction;
+  const wantsArtifactOutput = !refusesNewFile && (
+    createAction || wordOutput || pdfOutput || excelOutput || pptOutput || markdownOutput
     || (explicitArtifactFormat && artifactTaskIntent)
-    || (readyCount > 0 && followUpOnDocs);
+    || (readyCount > 0 && followUpOnDocs)
+  );
 
   const skills = new Set();
   const tools = new Set();
@@ -100,24 +105,16 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   const createFromExistingDocument = wantsArtifactOutput
     && /\b(from|based\s+on|using)\b[\s\S]{0,60}\b(this|that|it|attached|uploaded|document|file|pdf|docx|spreadsheet|attachment|upload)\b/i.test(prompt);
 
-  if (hasReadyVisualDocument || hasReadySpreadsheet) {
+  // Any ready document can be read: the context says which ones are only partly included,
+  // and the model decides whether it needs to read further.
+  if (readyCount > 0) {
     skills.add("document-read");
     if (hasReadyVisualDocument) skills.add("pdf-read");
-    if (hasReadySpreadsheet) skills.add("xlsx-read");
-    addAll(tools, READ_TOOLS);
-  } else {
-    const shouldRead = readyCount > 0 && (
-      !prompt
-      || messageHasDocuments
-      || createFromExistingDocument
-      || followUpOnDocs
-      || (readAction && (mentionsDocument || mentionsExisting || taskOnUploadedDocs))
-      || (wantsArtifactOutput && mentionsExisting)
-    );
-    if (shouldRead) {
-      skills.add("document-read");
-      addAll(tools, READ_TOOLS);
+    if (hasReadySpreadsheet) {
+      skills.add("xlsx-read");
+      tools.add("query_spreadsheet");
     }
+    addAll(tools, READ_TOOLS);
   }
 
   if (wantsArtifactOutput) {
@@ -149,13 +146,14 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     tools.add("create_document");
   }
 
-  if (readyCount > 0 && editAction && (mentionsDocument || mentionsExisting || mentionsDocumentPart)) {
+  if (readyCount > 0 && editAction && !refusesNewFile && (mentionsDocument || mentionsExisting || mentionsDocumentPart)) {
     skills.add("document-edit");
     tools.add("edit_document");
     addAll(tools, READ_TOOLS);
+    if (hasReadySpreadsheet) tools.add("query_spreadsheet");
   }
 
-  if (readyCount > 0 && exportAction && (mentionsDocument || mentionsExisting || asksPdf || asksWord || asksExcel)) {
+  if (readyCount > 0 && exportAction && !refusesNewFile && (mentionsDocument || mentionsExisting || asksPdf || asksWord || asksExcel)) {
     skills.add("document-export");
     tools.add("export_document");
   }
@@ -175,6 +173,9 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
     enabled: toolNames.length > 0,
     skills: skillNames,
     toolNames,
+    // This turn asks for a file to be created, edited or exported. Only then does a reply that
+    // talks about a document without making one count as a missed handoff.
+    artifactRequested: ["create_document", "edit_document", "export_document"].some((name) => tools.has(name)),
     ready: readyCount,
     unsupported: []
   };

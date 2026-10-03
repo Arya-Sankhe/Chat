@@ -219,7 +219,11 @@ export function loadConfig(env = process.env) {
         Math.max(1, contextMaxTokens - 1)
       ),
       summaryModel: OPENROUTER_TEXT_MODEL,
-      summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000)
+      summaryMaxTokens: readInt(env.CONTEXT_SUMMARY_MAX_TOKENS, 4000),
+      // A model call with no answer or tool call this long after its request, or silent this
+      // long mid-answer, is stopped and retried once with the same request.
+      answerStallMs: readInt(env.MODEL_ANSWER_STALL_MS, 240_000),
+      answerIdleMs: readInt(env.MODEL_ANSWER_IDLE_MS, 120_000)
     },
     documents: {
       enabled: readDocumentMode(env.DOCUMENTS_ENABLED),
@@ -227,25 +231,22 @@ export function loadConfig(env = process.env) {
       maxFilesPerMessage: readInt(env.DOCUMENT_MAX_FILES_PER_MESSAGE, 5),
       maxTotalBytesPerMessage: readInt(env.DOCUMENT_MAX_TOTAL_BYTES_PER_MESSAGE, 150 * 1024 * 1024),
       maxPdfPages: readInt(env.DOCUMENT_MAX_PDF_PAGES, 150),
-      maxDocxWords: readInt(env.DOCUMENT_MAX_DOCX_WORDS, 80_000),
       maxXlsxSheets: readInt(env.DOCUMENT_MAX_XLSX_SHEETS, 25),
       maxXlsxCells: readInt(env.DOCUMENT_MAX_XLSX_CELLS, 250_000),
       maxCsvRows: readInt(env.DOCUMENT_MAX_CSV_ROWS, 100_000),
       maxCsvColumns: readInt(env.DOCUMENT_MAX_CSV_COLUMNS, 100),
-      maxExtractedChars: readInt(env.DOCUMENT_MAX_EXTRACTED_CHARS, 500_000),
       maxToolResultChars: readInt(env.DOCUMENT_MAX_TOOL_RESULT_CHARS, 80_000),
-      visualPageDpi: readInt(env.DOCUMENT_VISUAL_PAGE_DPI, 144),
-      visualMaxPagesPerTool: readInt(env.DOCUMENT_VISUAL_MAX_PAGES_PER_TOOL, 40),
-      visualMaxImageInputsPerTurn: readInt(env.DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN, 24),
+      visualPageDpi: readInt(env.DOCUMENT_VISUAL_PAGE_DPI, 110),
+      visualMaxPagesPerTool: readInt(env.DOCUMENT_VISUAL_MAX_PAGES_PER_TOOL, 12),
+      // Page images that document tools may hold in one request at once (older ones are
+      // swapped for a note); the turn's own context adds at most maxContextImages more.
+      visualMaxImageInputsPerTurn: readInt(env.DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN, 12),
+      // Page images in one turn's document context, and what each costs the model in tokens.
+      maxContextImages: readInt(env.DOCUMENT_MAX_CONTEXT_IMAGES, 20),
+      pageImageTokens: readInt(env.DOCUMENT_PAGE_IMAGE_TOKENS, 1900),
       visualInlineImages: readBoolean(env.DOCUMENT_VISUAL_INLINE_IMAGES, true),
       visualInlineMaxBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_BYTES, 2 * 1024 * 1024),
       visualInlineMaxTotalBytes: readInt(env.DOCUMENT_VISUAL_INLINE_MAX_TOTAL_BYTES, 12 * 1024 * 1024),
-      visualEmbedModel: "jina-embeddings-v5-omni-nano",
-      jinaApiKey: clean(env.JINA_API_KEY),
-      rerankModel: /^(off|none|false|0)$/i.test(clean(env.DOCUMENT_RERANK_MODEL)) ? "" : "jina-reranker-v3",
-      retrievalMaxChunkDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_CHUNK_DISTANCE, 0.72),
-      retrievalMaxPageDistance: readPositiveNumber(env.DOCUMENT_RETRIEVAL_MAX_PAGE_DISTANCE, 0.8),
-      retrievalMinRerankScore: Number.isFinite(Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE)) ? Number.parseFloat(env.DOCUMENT_RETRIEVAL_MIN_RERANK_SCORE) : -0.08,
       workerConcurrency: readInt(env.DOCUMENT_WORKER_CONCURRENCY, 1),
       jobTimeoutMs: readInt(env.DOCUMENT_JOB_TIMEOUT_MS, 120_000),
       uploadExpiresSeconds: readInt(env.DOCUMENT_UPLOAD_EXPIRES_SECONDS, 900),

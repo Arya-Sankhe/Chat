@@ -1341,15 +1341,26 @@ test("editable document revise stops a hung provider request", async () => {
   }
 });
 
-test("editable document saves canonical markdown into existing metadata", async () => {
+test("editable document saves canonical markdown, and the chat then reads the saved text", async () => {
   let savedPatch = null;
+  let savedUnits = null;
+  let pagesDeleted = false;
   const overrides = stubbedDeps({
     db: {
       async getDocumentFileByAttachment() {
         return {
           id: "doc-1",
-          metadata: { editable: true, editor_markdown: "# Before", editor_revision: 1 }
+          metadata: { editable: true, editor_markdown: "# Before", editor_revision: 1, visual_pages: [2] }
         };
+      },
+      async replaceDocumentChunks(_userId, _documentId, units) {
+        savedUnits = units;
+      },
+      async listDocumentPages() {
+        return [{ page_number: 1, image_key: "users/u/documents/doc-1/pages/page-0001.jpg" }];
+      },
+      async deleteDocumentPages() {
+        pagesDeleted = true;
       },
       async updateDocumentFile(_userId, _documentId, patch) {
         savedPatch = patch;
@@ -1361,14 +1372,24 @@ test("editable document saves canonical markdown into existing metadata", async 
   const res = await dispatch(documentReadyConfig, {
     method: "PATCH",
     path: "/api/attachments/doc-attachment/editor",
-    body: { markdown: "# After", revision: 1 },
+    body: { markdown: "# After\nNew opening.\n\n## Costs\nNow 41 dollars.", revision: 1 },
     overrides
   });
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().revision, 2);
-  assert.equal(savedPatch.metadata.editor_markdown, "# After");
+  assert.match(savedPatch.metadata.editor_markdown, /Now 41 dollars/);
   assert.equal(savedPatch.metadata.editor_revision, 2);
+  assert.deepEqual(savedPatch.metadata.visual_pages, []);
+  assert.deepEqual(savedPatch.metadata.page_index.map((entry) => [entry.label, entry.start]), [
+    ["After", "# After New opening."],
+    ["Costs", "## Costs Now 41 dollars."]
+  ]);
+  assert.deepEqual(savedUnits.map((unit) => [unit.source_label, unit.text]), [
+    ["After", "# After\nNew opening."],
+    ["Costs", "## Costs\nNow 41 dollars."]
+  ]);
+  assert.equal(pagesDeleted, true, "page images of the old render no longer match and are removed");
 });
 
 test("authenticated routes dispatch to their resource-specific handlers", async () => {

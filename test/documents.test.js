@@ -45,12 +45,12 @@ function documentServiceWithDb(db) {
   });
 }
 
-test("buildDocumentTools exposes read/search/table/create/edit/export tools", () => {
+test("buildDocumentTools exposes search/read/spreadsheet-query/create/edit/export tools", () => {
   const toolNames = buildDocumentTools().map((tool) => tool.function.name);
   assert.deepEqual(toolNames, [
     "search_document",
     "read_document",
-    "extract_tables",
+    "query_spreadsheet",
     "create_document",
     "edit_document",
     "export_document"
@@ -84,9 +84,11 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     attachments: { file_name: "Lecture.pdf" }
   }];
 
+  // Summarizing a pdf is answered in chat: no file is asked for.
   const read = selectDocumentSkills({ text: "can you summarize this pdf for me", readyDocuments });
-  assert.deepEqual(read.skills.sort(), ["artifact-planner", "document-read", "pdf-create", "pdf-read"].sort());
-  assert.deepEqual(read.toolNames.sort(), ["create_document", "search_document", "read_document", "extract_tables"].sort());
+  assert.deepEqual(read.skills.sort(), ["document-read", "pdf-read"].sort());
+  assert.deepEqual(read.toolNames.sort(), ["search_document", "read_document"].sort());
+  assert.equal(read.artifactRequested, false);
 
   /* When the prompt mentions documents and includes summary-like
      read-actions, expose both read and create skills so the model can
@@ -95,14 +97,14 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(createPdf.skills.sort(), ["artifact-planner", "document-read", "pdf-create", "pdf-read"].sort());
   assert.deepEqual(
     createPdf.toolNames.sort(),
-    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+    ["create_document", "read_document", "search_document"].sort()
   );
 
   const word = selectDocumentSkills({ text: "create a Word document with the concise summary of the PDF", readyDocuments });
   assert.deepEqual(word.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     word.toolNames.sort(),
-    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+    ["create_document", "read_document", "search_document"].sort()
   );
 
   /* No ready documents → just the create skill, no read tools. */
@@ -113,7 +115,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   const idle = selectDocumentSkills({ text: "thanks, that makes sense", readyDocuments });
   assert.equal(idle.enabled, true);
   assert.deepEqual(idle.skills, ["document-read", "pdf-read"]);
-  assert.deepEqual(idle.toolNames, ["search_document", "read_document", "extract_tables"]);
+  assert.deepEqual(idle.toolNames, ["search_document", "read_document"]);
 
   /* PPTX creation now follows the same generated artifact path. */
   const ppt = selectDocumentSkills({ text: "create a ppt with this summary", readyDocuments });
@@ -165,7 +167,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(summarizeAndCreate.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     summarizeAndCreate.toolNames.sort(),
-    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+    ["create_document", "read_document", "search_document"].sort()
   );
 
   const createAboutCats = selectDocumentSkills({
@@ -175,7 +177,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
   assert.deepEqual(createAboutCats.skills.sort(), ["artifact-planner", "document-read", "pdf-read", "word-create"].sort());
   assert.deepEqual(
     createAboutCats.toolNames.sort(),
-    ["create_document", "extract_tables", "read_document", "search_document"].sort()
+    ["create_document", "read_document", "search_document"].sort()
   );
 
   const solveHomework = selectDocumentSkills({
@@ -183,7 +185,7 @@ test("selectDocumentSkills routes only the relevant document skills", () => {
     readyDocuments
   });
   assert.deepEqual(solveHomework.skills, ["document-read", "pdf-read"]);
-  assert.deepEqual(solveHomework.toolNames, ["search_document", "read_document", "extract_tables"]);
+  assert.deepEqual(solveHomework.toolNames, ["search_document", "read_document"]);
 
   const tryAgain = selectDocumentSkills({
     text: "u do have the ability try again",
@@ -215,6 +217,7 @@ test("selectDocumentSkills routes ready spreadsheets to structured reading", () 
   assert.ok(selection.skills.includes("document-read"));
   assert.ok(selection.skills.includes("xlsx-read"));
   assert.ok(!selection.skills.includes("pdf-read"));
+  assert.ok(selection.toolNames.includes("query_spreadsheet"));
 });
 
 test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the chat", () => {
@@ -229,16 +232,16 @@ test("selectDocumentSkills always attaches pdf-read when a ready PDF is in the c
 
   const selection = selectDocumentSkills({ text: "hello", readyDocuments });
   assert.deepEqual(selection.skills, ["document-read", "pdf-read"]);
-  assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
+  assert.deepEqual(selection.toolNames, ["search_document", "read_document"]);
 
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
-  assert.match(hint, /Visual document reading/);
-  assert.match(hint, /page images are the source of truth/);
-  assert.match(hint, /inspect returned page images before answering/);
+  assert.match(hint, /PDF, Word and PowerPoint reading/);
+  assert.match(hint, /also come as page images/);
+  assert.match(hint, /include_images true/);
   assert.match(hint, /cmp466 hw3\.pdf \(pdf, 3 pages/);
 });
 
-test("selectDocumentSkills attaches visual reading for enriched Office documents", () => {
+test("selectDocumentSkills attaches page reading for Office documents", () => {
   const readyDocuments = [{
     id: documentFileId,
     attachment_id: attachmentId,
@@ -252,8 +255,8 @@ test("selectDocumentSkills attaches visual reading for enriched Office documents
   const selection = selectDocumentSkills({ text: "hello", readyDocuments });
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
   assert.deepEqual(selection.skills, ["document-read", "pdf-read"]);
-  assert.match(hint, /Visual document reading/);
-  assert.match(hint, /Roadmap\.pptx \(pptx, 4 pages/);
+  assert.match(hint, /PDF, Word and PowerPoint reading/);
+  assert.match(hint, /Roadmap\.pptx \(pptx, 4 slides/);
 });
 
 test("buildDocumentSystemHint injects selected skills without unrelated formats", () => {
@@ -305,7 +308,7 @@ test("buildDocumentSystemHint advertises deferred creation instead of read-only 
     readyDocuments: [{ attachment_id: "a1", kind: "docx", attachments: { file_name: "Report.docx" } }],
     messageHasDocuments: false
   });
-  assert.deepEqual(selection.toolNames, ["search_document", "read_document", "extract_tables"]);
+  assert.deepEqual(selection.toolNames, ["search_document", "read_document"]);
 
   const hint = buildDocumentSystemHint({
     readyDocuments: [],
@@ -358,8 +361,8 @@ test("buildDocumentSystemHint injects visual-reading guidance for ready PDFs", (
   const selection = selectDocumentSkills({ text: "solve all questions in this pdf", readyDocuments });
   const hint = buildDocumentSystemHint({ readyDocuments, selection });
 
-  assert.match(hint, /Visual document reading/);
-  assert.match(hint, /start with read_document/);
+  assert.match(hint, /PDF, Word and PowerPoint reading/);
+  assert.match(hint, /read it range by range until you have covered every page/);
   assert.match(hint, /Homework\.pdf \(pdf, 5 pages/);
 });
 
@@ -402,164 +405,6 @@ test("DocumentService searches ready document chunks and returns document citati
   assert.equal(result.citations[0].page, 4);
 });
 
-test("DocumentService searches visual PDF pages and returns page image context", async () => {
-  const db = {
-    async listUsableDocumentFiles() {
-      return [{
-        id: documentFileId,
-        attachment_id: attachmentId,
-        conversation_id: conversationId,
-        processing_status: "ready",
-        visual_ready_at: "2026-07-11T00:00:00.000Z",
-        kind: "pdf",
-        version_no: 1,
-        page_count: 5,
-        attachments: { file_name: "Homework.pdf" }
-      }];
-    },
-    async listDocumentPages(_userId, docId) {
-      assert.equal(docId, documentFileId);
-      return [{
-        id: "page_1",
-        document_file_id: documentFileId,
-        page_number: 1,
-        source_label: "Page 1",
-        image_key: "users/user/documents/doc/pages/page-0001.jpg",
-        image_content_type: "image/jpeg",
-        text: "",
-        metadata: { page: 1 }
-      }];
-    },
-    async searchDocumentChunks() {
-      return [];
-    }
-  };
-
-  const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
-    db,
-    r2: {
-      readUrl(key) {
-        return `https://signed.example/${key}`;
-      }
-    },
-    userId,
-    conversationId,
-    plan: { id: "pro" },
-    signal: new AbortController().signal
-  });
-
-  const result = await service.search({ query: "solve q1", maxResults: 2 });
-
-  assert.equal(result.ok, true);
-  assert.equal(result.results[0].source_type, "page_image");
-  assert.equal(result.visualPages[0].url, "https://signed.example/users/user/documents/doc/pages/page-0001.jpg");
-  assert.equal(result.citations[0].page, 1);
-});
-
-test("DocumentService searches visually enriched Office pages", async () => {
-  const db = {
-    async listUsableDocumentFiles() {
-      return [{
-        id: documentFileId,
-        attachment_id: attachmentId,
-        conversation_id: conversationId,
-        text_ready_at: "2026-07-12T00:00:00.000Z",
-        visual_ready_at: "2026-07-12T00:01:00.000Z",
-        kind: "pptx",
-        page_count: 3,
-        attachments: { file_name: "Roadmap.pptx" }
-      }];
-    },
-    async listDocumentPages() {
-      return [{
-        id: "page_2",
-        document_file_id: documentFileId,
-        page_number: 2,
-        source_label: "Page 2",
-        image_key: "users/user/documents/doc/pages/page-0002.jpg",
-        text: ""
-      }];
-    },
-    async searchDocumentChunks() {
-      return [];
-    }
-  };
-  const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
-    db,
-    r2: { readUrl: (key) => `https://signed.example/${key}` },
-    userId,
-    conversationId,
-    plan: { id: "pro" },
-    signal: new AbortController().signal
-  });
-
-  const result = await service.search({ query: "timeline", maxResults: 2 });
-  assert.equal(result.results[0].source_type, "page_image");
-  assert.equal(result.visualPages[0].page_number, 2);
-  assert.equal(result.citations[0].title, "Roadmap.pptx - Page 2");
-});
-
-test("DocumentService reads XLSX ranges first and images only when pages are requested", async () => {
-  let pageReads = 0;
-  const db = {
-    async getDocumentFileByAttachment() {
-      return {
-        id: documentFileId,
-        attachment_id: attachmentId,
-        conversation_id: conversationId,
-        text_ready_at: "2026-07-16T00:00:00Z",
-        visual_ready_at: "2026-07-16T00:01:00Z",
-        kind: "xlsx",
-        page_count: 3,
-        attachments: { file_name: "Budget.xlsx" }
-      };
-    },
-    async listDocumentChunks(_userId, _documentId, options) {
-      assert.equal(options.sourceType, "sheet_range");
-      assert.equal(options.sheet, "Budget");
-      return [{
-        id: "chunk_1",
-        source_type: "sheet_range",
-        source_label: "Budget — A1:B20",
-        text: "Item\tCost\nHosting\t20",
-        metadata: { sheet: "Budget", row_start: 1, row_end: 20, column_start: 1, column_end: 2 }
-      }];
-    },
-    async listDocumentPagesByNumbers() {
-      pageReads += 1;
-      return [{
-        id: "page_1",
-        document_file_id: documentFileId,
-        page_number: 1,
-        source_label: "Page 1",
-        image_key: "users/user/documents/doc/pages/page-0001.jpg",
-        text: ""
-      }];
-    }
-  };
-  const service = new DocumentService({
-    config: { documents: { enabled: true, visualMaxPagesPerTool: 5 } },
-    db,
-    r2: { readUrl: (key) => `https://signed.example/${key}` },
-    userId,
-    conversationId,
-    plan: { id: "pro" },
-    signal: new AbortController().signal
-  });
-
-  const structured = await service.read({ attachmentId, sheet: "Budget", cellRange: "A1:B20" });
-  assert.equal(structured.results[0].source_type, "sheet_range");
-  assert.equal(structured.visualPages, undefined);
-  assert.equal(pageReads, 0);
-
-  const visual = await service.read({ attachmentId, pageStart: 1, pageEnd: 1 });
-  assert.equal(visual.results[0].source_type, "page_image");
-  assert.equal(visual.visualPages[0].page_number, 1);
-  assert.equal(pageReads, 1);
-});
-
 test("DocumentService hides internal preview exports from automatic ready documents", async () => {
   const service = documentServiceWithDb({
     async listUsableDocumentFiles() {
@@ -574,71 +419,6 @@ test("DocumentService hides internal preview exports from automatic ready docume
   assert.deepEqual(docs.map((doc) => doc.id), ["doc_1"]);
 });
 
-test("DocumentService queues every missing page before waiting for renders", async () => {
-  const queueCalls = [];
-  let queueingComplete = false;
-  const db = {
-    async listDocumentPagesByNumbers(_userId, _documentId, pageNumbers) {
-      if (pageNumbers.length > 1) return [];
-      assert.equal(queueingComplete, true, "page polling starts only after all render jobs are queued");
-      const pageNumber = pageNumbers[0];
-      return [{
-        id: `page_${pageNumber}`,
-        document_file_id: documentFileId,
-        page_number: pageNumber,
-        image_key: `page-${pageNumber}.jpg`
-      }];
-    },
-    async queueDocumentPageRender({ pageNumber, queue }) {
-      assert.equal(queue, "local");
-      queueCalls.push(pageNumber);
-      if (queueCalls.length === 3) queueingComplete = true;
-      return { job: { id: `job_${pageNumber}`, status: "queued" } };
-    }
-  };
-  const service = documentServiceWithDb(db);
-  const pages = await service.ensureDocumentPages({ id: documentFileId }, [3, 1, 2]);
-
-  assert.deepEqual(queueCalls.sort((a, b) => a - b), [1, 2, 3]);
-  assert.deepEqual(pages.map((page) => page.page_number), [3, 1, 2]);
-});
-
-test("DocumentService rerenders a page row that has no usable image key", async () => {
-  let queued = false;
-  const service = documentServiceWithDb({
-    async listDocumentPagesByNumbers() {
-      if (!queued) {
-        return [{ id: "broken", document_file_id: documentFileId, page_number: 2, image_key: "" }];
-      }
-      return [{ id: "fixed", document_file_id: documentFileId, page_number: 2, image_key: "page-2.jpg" }];
-    },
-    async queueDocumentPageRender({ pageNumber }) {
-      assert.equal(pageNumber, 2);
-      queued = true;
-      return { job: { id: "job-2", status: "queued" } };
-    },
-    async getDocumentJob() {
-      return { id: "job-2", status: "running" };
-    }
-  });
-
-  const pages = await service.ensureDocumentPages({ id: documentFileId }, [2]);
-  assert.deepEqual(pages.map((page) => page.id), ["fixed"]);
-  assert.equal(queued, true);
-});
-
-test("DocumentService bounds an on-demand page render wait", async () => {
-  const service = documentServiceWithDb({
-    async listDocumentPagesByNumbers() { return []; },
-    async getDocumentJob() { return { id: "job_1", status: "running" }; }
-  });
-
-  await assert.rejects(
-    service.waitForRenderedPage({ id: documentFileId }, 7, { id: "job_1", status: "queued" }),
-    (error) => error?.status === 504 && /still rendering/.test(error.message)
-  );
-});
-
 test("DocumentService validates attachment ownership-shaped ids before document lookup", async () => {
   const service = documentServiceWithDb({});
 
@@ -646,159 +426,6 @@ test("DocumentService validates attachment ownership-shaped ids before document 
     service.search({ attachmentIds: ["not-a-uuid"], query: "anything" }),
     /Document attachment id is invalid/
   );
-});
-
-test("DocumentService library includes documents in full while they fit the token budget", async () => {
-  clearDocumentTextCache();
-  const projectId = "00000000-0000-4000-8000-000000000005";
-  const bigFileId = "00000000-0000-4000-8000-000000000007";
-  const chunkRequests = [];
-  const docs = [
-    {
-      id: documentFileId,
-      attachment_id: attachmentId,
-      project_id: projectId,
-      kind: "pdf",
-      page_count: 2,
-      created_at: "2026-07-13T00:00:00Z",
-      text_ready_at: "2026-07-13T00:00:00Z",
-      word_count: 100,
-      attachments: { file_name: "Brief.pdf" }
-    },
-    {
-      id: bigFileId,
-      attachment_id: "00000000-0000-4000-8000-000000000008",
-      project_id: projectId,
-      kind: "pdf",
-      created_at: "2026-07-14T00:00:00Z",
-      text_ready_at: "2026-07-14T00:00:00Z",
-      word_count: 400_000
-    }
-  ];
-  const service = new DocumentService({
-    config: { documents: { enabled: true } },
-    db: {
-      async listDocumentChunksForFiles(_user, ids, options) {
-        chunkRequests.push({ ids, offset: options.offset });
-        return ids.includes(documentFileId)
-          ? [
-              { document_file_id: documentFileId, chunk_index: 1, source_label: "Page 2", text: `Second page ${"prose ".repeat(200)}`, metadata: { page: 2 } },
-              { document_file_id: documentFileId, chunk_index: 0, source_label: "Page 1", text: "Project evidence", metadata: { page: 1, has_visual: true } }
-            ]
-          : [];
-      }
-    },
-    r2: {}, userId, conversationId, projectId, plan: { id: "pro" }, signal: new AbortController().signal
-  });
-
-  const library = await service.documentLibrary({ docs, tokenBudget: 50_000 });
-  // The 400k-word document can't fit, so only the brief is loaded and included.
-  assert.deepEqual(chunkRequests, [{ ids: [documentFileId], offset: 0 }]);
-  assert.deepEqual([...library.fullDocIds], [documentFileId]);
-  assert.match(library.message, /included in full/);
-  assert.match(library.message, /Brief\.pdf \(pdf, 2 pages, attachment_id [0-9a-f-]+\)\n\[Page 1\]\nProject evidence\n\n\[Page 2\]\nSecond page prose/);
-  assert.deepEqual(library.texts.get(documentFileId).visualPages, [1]);
-
-  // A second turn reuses the cached text instead of reloading chunks.
-  await service.documentLibrary({ docs, tokenBudget: 50_000 });
-  assert.equal(chunkRequests.length, 1);
-
-  assert.equal((await service.documentLibrary({ docs, tokenBudget: 0 })).message, "");
-});
-
-test("DocumentService limits a course chat to its chosen sources", async () => {
-  clearDocumentTextCache();
-  const projectId = "00000000-0000-4000-8000-000000000005";
-  const otherFileId = "00000000-0000-4000-8000-000000000006";
-  const file = (id, name, text) => ({
-    id,
-    attachment_id: id,
-    project_id: projectId,
-    text_ready_at: "2026-07-13T00:00:00Z",
-    word_count: 100,
-    attachments: { file_name: name },
-    text
-  });
-  const docs = [file(documentFileId, "Chosen.pdf"), file(otherFileId, "Other.pdf")];
-  let noteCalls = 0;
-  const db = {
-    async listUsableDocumentFiles() { return []; },
-    async listUsableProjectDocumentFiles() { return docs; },
-    async listDocumentChunksForFiles(_user, ids) {
-      return ids.map((id) => ({ document_file_id: id, source_label: "Page 1", text: id === documentFileId ? "Chosen evidence" : "Other evidence", token_estimate: 3 }));
-    },
-    async listStudyNotes() { noteCalls += 1; return [{ title: "Note", content: "Note evidence" }]; }
-  };
-  const make = (projectDocumentIds) => new DocumentService({
-    config: { documents: { enabled: true } },
-    db, r2: {}, userId, conversationId, projectId, projectDocumentIds, plan: { id: "pro" }, signal: new AbortController().signal
-  });
-
-  const scoped = make([documentFileId]);
-  assert.deepEqual((await scoped.readyDocuments()).map((doc) => doc.id), [documentFileId]);
-  assert.equal(scoped.ownsDocument(docs[0]), true);
-  assert.equal(scoped.ownsDocument(docs[1]), false);
-  const context = (await scoped.documentLibrary({ docs: await scoped.readyDocuments(), tokenBudget: 50_000 })).message;
-  assert.match(context, /Chosen evidence/);
-  assert.doesNotMatch(context, /Other evidence|Note evidence/);
-  assert.equal(noteCalls, 0);
-
-  const auto = make([]);
-  assert.equal((await auto.readyDocuments()).length, 2);
-  const withRemoved = new DocumentService({
-    config: { documents: { enabled: true } },
-    db, r2: {}, userId, conversationId, projectId, hiddenProjectDocumentIds: [otherFileId], plan: { id: "pro" }, signal: new AbortController().signal
-  });
-  assert.deepEqual((await withRemoved.readyDocuments()).map((doc) => doc.id), [documentFileId]);
-  assert.equal(withRemoved.ownsDocument(docs[1]), false);
-  const autoDocs = await auto.readyDocuments();
-  assert.match((await auto.documentLibrary({ docs: autoDocs, tokenBudget: 50_000 })).message, /Other evidence[\s\S]*Note evidence/);
-});
-
-test("DocumentService keeps only the pages ticked in a chosen source", async () => {
-  clearDocumentTextCache();
-  const projectId = "00000000-0000-4000-8000-000000000005";
-  const doc = { id: documentFileId, attachment_id: documentFileId, project_id: projectId, kind: "pdf", page_count: 3, text_ready_at: "2026-07-13T00:00:00Z", word_count: 100, attachments: { file_name: "Slides.pdf" } };
-  const service = new DocumentService({
-    config: { documents: { enabled: true } },
-    db: {
-      async listDocumentChunksForFiles() {
-        return [1, 2, 3].map((page) => ({ document_file_id: documentFileId, chunk_index: page, source_label: `Page ${page}`, text: `Evidence on page ${page}`, metadata: { page } }));
-      }
-    },
-    r2: {}, userId, conversationId, projectId,
-    projectDocumentIds: [documentFileId],
-    projectDocumentPages: { [documentFileId]: [1, 3], "00000000-0000-4000-8000-000000000099": [2] },
-    plan: { id: "pro" }, signal: new AbortController().signal
-  });
-  assert.equal(service.hasPageScope, true);
-  assert.equal(service.inPageScope(documentFileId, 2), false);
-  assert.equal(service.inPageScope(documentFileId, 3), true);
-  const { message } = await service.documentLibrary({ docs: [doc], tokenBudget: 50_000 });
-  assert.match(message, /Slides\.pdf to pages 1, 3/);
-  assert.match(message, /Evidence on page 1[\s\S]*Evidence on page 3/);
-  assert.doesNotMatch(message, /Evidence on page 2/);
-});
-
-test("DocumentService budgets a page-scoped source by its ticked pages", async () => {
-  clearDocumentTextCache();
-  const projectId = "00000000-0000-4000-8000-000000000005";
-  const doc = { id: documentFileId, attachment_id: documentFileId, project_id: projectId, kind: "pdf", page_count: 100, text_ready_at: "2026-07-13T00:00:00Z", word_count: 50_000, attachments: { file_name: "Big.pdf" } };
-  const service = new DocumentService({
-    config: { documents: { enabled: true } },
-    db: {
-      async listDocumentChunksForFiles() {
-        return Array.from({ length: 100 }, (_, i) => ({ document_file_id: documentFileId, chunk_index: i, source_label: `Page ${i + 1}`, text: `Evidence on page ${i + 1} `.repeat(40), metadata: { page: i + 1 } }));
-      }
-    },
-    r2: {}, userId, conversationId, projectId,
-    projectDocumentIds: [documentFileId],
-    projectDocumentPages: { [documentFileId]: [7] },
-    plan: { id: "pro" }, signal: new AbortController().signal
-  });
-  const { message, tokens } = await service.documentLibrary({ docs: [doc], tokenBudget: 2_000 });
-  assert.match(message, /Evidence on page 7/);
-  assert.ok(tokens > 0 && tokens < 400, `charged ${tokens} tokens for one page`);
 });
 
 test("DocumentService rejects document_file_id edits outside the active conversation", async () => {
@@ -1226,38 +853,6 @@ test("buildUntrustedDocumentContext frames excerpts as evidence, not instruction
   assert.match(context, /<document_sources>/);
 });
 
-test("DocumentService read returns an oversized chunk whole so next_offset skips nothing", async () => {
-  const big = `Row\tValue\n${"cell\t1\n".repeat(900)}`;
-  const chunks = [
-    { id: "chunk_1", source_type: "table", source_label: "Table 1", text: big },
-    { id: "chunk_2", source_type: "paragraph", source_label: "Notes", text: "After the table." }
-  ];
-  const service = new DocumentService({
-    config: { documents: { enabled: true } },
-    db: {
-      async getDocumentFileByAttachment() {
-        return { id: documentFileId, attachment_id: attachmentId, conversation_id: conversationId, text_ready_at: "2026-07-16T00:00:00Z", kind: "docx", attachments: { file_name: "Report.docx" } };
-      },
-      async listDocumentChunks(_userId, _documentId, options) {
-        return chunks.slice(options.offset || 0);
-      }
-    },
-    r2: { readUrl: (key) => key },
-    userId,
-    conversationId,
-    plan: { id: "pro" },
-    signal: new AbortController().signal
-  });
-
-  const first = await service.read({ attachmentId, maxChars: 2000 });
-  assert.ok(big.length > 2000);
-  assert.equal(first.results.length, 1);
-  assert.equal(first.results[0].content, big);
-  assert.equal(first.next_offset, 1);
-  const second = await service.read({ attachmentId, maxChars: 2000, offset: first.next_offset });
-  assert.equal(second.results[0].content, "After the table.");
-});
-
 test("converting an existing Office file to PDF exports it instead of re-creating it", () => {
   const readyDocuments = [{ kind: "docx", attachment_id: "word-1", attachments: { file_name: "Essay.docx" } }];
   for (const text of ["convert this word file to pdf", "can you make this a pdf", "docx -> pdf", "turn it into a pdf"]) {
@@ -1269,4 +864,22 @@ test("converting an existing Office file to PDF exports it instead of re-creatin
   assert.ok(summary.toolNames.includes("create_document"));
   const pdfOnly = selectDocumentSkills({ text: "convert this to pdf", readyDocuments: [{ kind: "pdf", attachment_id: "p" }] });
   assert.ok(pdfOnly.toolNames.includes("create_document"));
+});
+
+test("selectDocumentSkills treats reading an existing document as reading, not a file request", () => {
+  const readyDocuments = [{ id: documentFileId, attachment_id: attachmentId, kind: "pdf", version_no: 2, attachments: { file_name: "Receipt.pdf" } }];
+  for (const text of [
+    "Is the attached receipt the same document you created earlier?",
+    "Read it with the document tools and tell me the owner and budget",
+    "Use read_document on the receipt pdf. Do not generate or edit any files.",
+    "what does the pdf say the receipt number is?"
+  ]) {
+    const selection = selectDocumentSkills({ text, readyDocuments });
+    assert.equal(selection.artifactRequested, false, text);
+    assert.ok(!selection.toolNames.includes("create_document"), text);
+    assert.ok(selection.toolNames.includes("read_document"), text);
+  }
+  for (const text of ["create a pdf with the summary", "send me a word doc of this", "update the owner in this document to Niko"]) {
+    assert.equal(selectDocumentSkills({ text, readyDocuments }).artifactRequested, true, text);
+  }
 });

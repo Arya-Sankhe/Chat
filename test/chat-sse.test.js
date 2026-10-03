@@ -278,6 +278,7 @@ function makeDb({ conversation, messages: seedMessages = null } = {}) {
       return { id };
     },
     async listMessageAttachments() { return []; },
+    async listUsableDocumentFiles() { return []; },
     async getAppSetting() { return null; },
     async getResearchRun() { return null; },
     async getModelCache() { return null; },
@@ -1842,6 +1843,88 @@ test("client-keyed send persists one durable turn and fences the first provider 
   assert.equal(calls.at(-2).op, "finishPendingDocumentTurn");
   assert.equal(calls.at(-2).status, "done");
   assert.equal(calls.at(-1).op, "responseEnd");
+});
+
+test("a chosen course source still processing is waited for, not answered without", async (t) => {
+  t.after(restoreFetch);
+  let providerRequest = null;
+  installProviderFetch({
+    streamFor: (body) => {
+      providerRequest = body;
+      return [contentDelta("Page 70 says LOCK-070-54330."), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const storedMessages = [];
+  const projectId = "00000000-0000-4000-8000-000000000201";
+  const sourceId = "00000000-0000-4000-8000-000000000203";
+  const source = {
+    id: sourceId,
+    attachment_id: "00000000-0000-4000-8000-000000000202",
+    project_id: projectId,
+    kind: "pdf",
+    page_count: 100,
+    processing_status: "processing",
+    text_ready_at: null,
+    visual_ready_at: null,
+    created_at: "2026-10-03T00:00:00.000Z",
+    updated_at: "2026-10-03T00:00:00.000Z",
+    attachments: { file_name: "Manual.pdf" },
+    metadata: { stage: "reading_pages", progress: 10 }
+  };
+  let lookups = 0;
+  const current = () => {
+    lookups += 1;
+    if (lookups >= 4) Object.assign(source, { processing_status: "ready", text_ready_at: "2026-10-03T00:01:00.000Z", visual_ready_at: "2026-10-03T00:01:00.000Z", metadata: { pipeline: "pages-v1", text_tokens: 20 } });
+    return [{ ...source }];
+  };
+  let run = null;
+
+  const db = makeDb({ conversation: { ...conversationRow, project_id: projectId } });
+  const calls = db.calls;
+  db.getProject = async () => ({ id: projectId, kind: "course", meta: {} });
+  db.listMessages = async () => storedMessages.map((message) => ({ ...message }));
+  db.listProjectDocumentFilesByIds = async (_userId, project, ids) => {
+    calls.push({ op: "listProjectDocumentFilesByIds", ids });
+    return project === projectId && ids.includes(sourceId) ? current() : [];
+  };
+  db.listDocumentFilesByAttachments = async () => current();
+  db.listUsableProjectDocumentFiles = async () => (source.text_ready_at ? [{ ...source }] : []);
+  db.listDocumentChunksForFiles = async (_userId, ids, { offset = 0 } = {}) => (ids.includes(sourceId) && !offset
+    ? [{ document_file_id: sourceId, chunk_index: 69, source_type: "page", source_label: "Page 70", text: "Lock code LOCK-070-54330", metadata: { page: 70, extractor: "pages-v1" } }]
+    : []);
+  db.submitDocumentTurn = async (payload) => {
+    calls.push({ op: "submitDocumentTurn", payload });
+    const userMessage = { id: "msg-course-user", user_id: "user-1", conversation_id: "conv-1", role: "user", content: payload.userContent, metadata: payload.messageMetadata };
+    storedMessages.push(userMessage);
+    run = { id: "00000000-0000-4000-8000-000000000204", user_id: "user-1", conversation_id: "conv-1", user_message_id: userMessage.id, mode: "single", request_payload: payload.requestPayload, status: "waiting_documents", provider_started_at: null };
+    return { run, user_message: userMessage, created: true };
+  };
+  db.claimPendingDocumentTurn = async ({ claimedBy }) => {
+    run = { ...run, status: "running", claimed_by: claimedBy, claim_token: "00000000-0000-4000-8000-000000000205", lease_until: futureIso(120_000) };
+    return run;
+  };
+  db.heartbeatPendingDocumentTurn = async () => run;
+  db.markPendingTurnProviderStarted = async () => { run = { ...run, provider_started_at: new Date().toISOString() }; return run; };
+  db.finishPendingDocumentTurn = async ({ status }) => { run = { ...run, status }; calls.push({ op: "finishPendingDocumentTurn", status }); return run; };
+  db.upsertTurnOutputMessage = async (row) => {
+    const message = { id: "msg-course-assistant", ...row };
+    storedMessages.push(message);
+    return message;
+  };
+
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "What is the lock code on page 70?", model: TEXT_MODEL, attachments: [], sources: [sourceId], sourcePages: { [sourceId]: [70] } }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(calls.filter((call) => call.op === "submitDocumentTurn").length, 1, "the turn is persisted so it can wait");
+  assert.match(res.body, /"type":"turn:waiting"/);
+  assert.ok(providerRequest, "the model answers once the source is ready");
+  assert.ok(lookups >= 4, "the turn waited until the source was ready");
+  assert.equal(calls.find((call) => call.op === "finishPendingDocumentTurn")?.status, "done");
 });
 
 test("normalizeSourceScope keeps unique source ids and drops junk", () => {

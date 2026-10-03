@@ -101,8 +101,8 @@ function assistantLooksLikeDocumentArtifactHandoff(content, includeRefusal = tru
 
 const TOOL_CAPABILITIES = {
   "documents.read": {
-    description: "search, read, and inspect uploaded documents and tables",
-    tools: ["search_document", "read_document", "extract_tables"]
+    description: "search and read uploaded documents, and compute over spreadsheets",
+    tools: ["search_document", "read_document", "query_spreadsheet"]
   },
   "documents.create": {
     description: "create and write downloadable Markdown, DOCX, XLSX, PPTX, or PDF files",
@@ -471,6 +471,74 @@ export function answerCitations(citations, content) {
  *           current message stack so callers can inspect/observe.
  * @returns {Promise<{ accumulated:object, citations:Array, artifacts:Array, toolCallCount:number }>}
  */
+function imageCount(message) {
+  return Array.isArray(message?.content) ? message.content.filter((part) => part?.type === "image_url").length : 0;
+}
+
+/* Page images from document tools stay in the request for later model calls, so each
+   read would add to the total. Keep at most `limit` of them: the oldest are swapped for
+   a note naming the page, whose text is still in its tool result. */
+function retainToolImages(messages, toolImageMessages, limit) {
+  let total = toolImageMessages.reduce((sum, message) => sum + imageCount(message), 0);
+  for (let i = 0; i < toolImageMessages.length && total > limit; i++) {
+    const message = toolImageMessages[i];
+    const content = [];
+    let label = null;
+    for (const part of message.content) {
+      if (part?.type === "image_url" && total > limit) {
+        total -= 1;
+        if (label) {
+          const title = String(label.text).split(":")[0];
+          content[content.length - 1] = {
+            type: "text",
+            text: `${title}: its image was removed to keep this request small (the page text is in its tool result). Call read_document for this page with include_images true if you need to see it again.`
+          };
+        }
+        label = null;
+        continue;
+      }
+      content.push(part);
+      label = part?.type === "text" ? part : null;
+    }
+    const next = { ...message, content };
+    const at = messages.indexOf(message);
+    if (at >= 0) messages[at] = next;
+    toolImageMessages[i] = next;
+  }
+}
+
+function positiveMs(value) {
+  const ms = Number(value);
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
+
+class AnswerStallError extends Error {}
+
+
+/* Watches one model call from the request until its stream ends. Before the answer starts
+   (headers, reasoning) the call gets `startMs`; once answer text or a tool call arrives,
+   every gap between stream events gets `idleMs`. A miss aborts the call as stalled. */
+function callWatchdog(controller, { startMs, idleMs }) {
+  let answering = false;
+  let timer = null;
+  const watch = { stalled: false };
+  const arm = (ms) => {
+    clearTimeout(timer);
+    timer = ms ? setTimeout(() => {
+      watch.stalled = true;
+      controller.abort(new AnswerStallError("answer stalled"));
+    }, ms) : null;
+  };
+  watch.event = (event) => {
+    const delta = event?.choices?.[0]?.delta;
+    if ((typeof delta?.content === "string" && delta.content) || delta?.tool_calls?.length) answering = true;
+    if (answering) arm(idleMs);
+  };
+  watch.stop = () => clearTimeout(timer);
+  arm(startMs);
+  return watch;
+}
+
 export async function runChatWithToolLoop({
   chatRequest,
   modelClient,
@@ -483,6 +551,9 @@ export async function runChatWithToolLoop({
   study = null,
   deferredTools = [],
   visualDocuments = false,
+  // False when the user's message only reads documents: a reply about a document is then
+  // just an answer, never a missed create/edit/export to correct.
+  artifactRequested = true,
   onUpstreamEvent,
   onToolEvent = () => {},
   onIterationStart = () => {}
@@ -519,6 +590,12 @@ export async function runChatWithToolLoop({
   let forcedToolRetrySent = false;
   let finalInstructionSent = false;
   const inlineImageCache = new Map();
+  const toolImageMessages = [];
+  let stallRetrySent = false;
+  const stallLimits = {
+    startMs: positiveMs(config?.context?.answerStallMs),
+    idleMs: positiveMs(config?.context?.answerIdleMs) || positiveMs(config?.context?.answerStallMs)
+  };
   const originalQuestion = latestUserText(chatRequest.messages);
   const artifactNames = new Set(["create_document", "edit_document", "export_document"]);
 
@@ -526,6 +603,8 @@ export async function runChatWithToolLoop({
     onIterationStart(messages);
 
     let upstream;
+    let callController = null;
+    let watch = null;
     for (;;) {
       const requestMessages = [...messages];
       const request = {
@@ -552,15 +631,23 @@ export async function runChatWithToolLoop({
         body = applyToolFallback(request, toolFallbackLevel);
       }
       try {
+        callController = new AbortController();
+        const abortCall = () => callController.abort(signal?.reason);
+        if (signal?.aborted) abortCall();
+        else signal?.addEventListener("abort", abortCall, { once: true });
+        watch?.stop();
+        watch = callWatchdog(callController, stallLimits);
         upstream = await modelClient.streamChatCompletion({
           apiKey: provider.apiKey,
           baseUrl: provider.baseUrl,
           body,
           providerId: provider?.id,
-          signal
+          signal: callController.signal
         });
         break;
       } catch (error) {
+        if (watch.stalled && !signal?.aborted) break;
+        watch.stop();
         /* The provider rejected the request because this model can't
            honor tools/tool_choice. Degrade one step and retry instead of
            failing the whole turn. (Skipped once we've already tool-called
@@ -597,11 +684,31 @@ export async function runChatWithToolLoop({
         throw error;
       }
     }
-    if (!upstream.body) throw new Error("Empty stream from upstream model.");
-
-    const accumulated = await streamProviderAndAccumulate(upstream, (event) => {
-      onUpstreamEvent(event);
-    });
+    /* A model can keep reasoning without ever starting its answer (seen on hard scans:
+       ten minutes, no reply), and a provider can hang before its headers or mid-stream.
+       The watchdog stops such a call; it is retried once with the same request, and a
+       second stall ends the turn with a clear error. */
+    let accumulated;
+    try {
+      if (watch.stalled) throw new AnswerStallError("answer stalled");
+      if (!upstream.body) throw new Error("Empty stream from upstream model.");
+      accumulated = await streamProviderAndAccumulate(upstream, (event) => {
+        watch.event(event);
+        onUpstreamEvent(event);
+      });
+    } catch (error) {
+      if (!watch.stalled || signal?.aborted) throw error;
+      if (stallRetrySent) {
+        throw new Error("The model stopped responding. Please try again, or ask about fewer pages at a time.");
+      }
+      stallRetrySent = true;
+      onToolEvent({ type: "tool:degraded", reason: "answer-stalled" });
+      onToolEvent({ type: "response:reset" });
+      iteration -= 1;
+      continue;
+    } finally {
+      watch.stop();
+    }
     lastAccumulated = accumulated;
 
     const hasToolCalls = Array.isArray(accumulated.toolCalls) && accumulated.toolCalls.length > 0;
@@ -625,6 +732,7 @@ export async function runChatWithToolLoop({
       const deferredArtifactTools = ["create_document", "edit_document", "export_document"]
         .filter((name) => deferredByName.has(name));
       const missingArtifactHandoff = documents
+        && artifactRequested
         && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool))
         && (hasDocumentArtifactTool({ tools: activeTools }) || deferredArtifactTools.length > 0)
         && assistantLooksLikeDocumentArtifactHandoff(accumulated.content);
@@ -784,7 +892,7 @@ export async function runChatWithToolLoop({
         // Give the slide writer the actual retrieved evidence, not only the chat model's paraphrase.
         if (documents && call.function?.name === "create_document") {
           const readIds = new Set(messages.flatMap((message) => (message.tool_calls || [])
-            .filter((tool) => ["read_url", "web_search", "read_document", "search_document", "extract_tables"].includes(tool.function?.name))
+            .filter((tool) => ["read_url", "web_search", "read_document", "search_document", "query_spreadsheet"].includes(tool.function?.name))
             .map((tool) => tool.id)));
           documents.deckEvidence = messages.filter((message) => message.role === "tool" && readIds.has(message.tool_call_id))
             .map((message) => message.content).join("\n\n").slice(-120_000);
@@ -847,10 +955,14 @@ export async function runChatWithToolLoop({
       ? await prepareVisualPagesForModel(visualPages, { config, signal, inlineCache: inlineImageCache })
       : [];
     const visualMessage = visualDocuments
-      ? visualDocumentMessage(preparedVisualPages, { maxPages: visualImageInputLimit(config) })
+      ? visualDocumentMessage([...preparedVisualPages, ...visualPages.slice(preparedVisualPages.length)], { maxPages: visualImageInputLimit(config) })
       : null;
     const boundedVisualMessage = fitVisualMessageToContext(messages, visualMessage, config);
-    if (boundedVisualMessage) messages.push(boundedVisualMessage);
+    if (boundedVisualMessage) {
+      messages.push(boundedVisualMessage);
+      toolImageMessages.push(boundedVisualMessage);
+      retainToolImages(messages, toolImageMessages, visualImageInputLimit(config));
+    }
 
     if (toolCallCount >= maxToolCalls) {
       forceFinalWithoutTools = true;

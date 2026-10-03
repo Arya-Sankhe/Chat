@@ -36,15 +36,17 @@ in-house feature set:
 - Deep Research: long-running Node worker that plans, searches, fetches,
   extracts, and synthesizes a long-form report with citation validation.
 - Document skills: PDF/DOCX/XLSX/PPTX/CSV/TSV upload, read, search,
-  table extraction, create, edit, export, and visual PDF/Office page images
-  for vision-capable models, with a Python document worker
-  (`worker/worker.py`) doing the heavy lifting.
+  spreadsheet queries, create, edit and export. One worker job stores every
+  document completely as pages (text + image; Word/PowerPoint via PDF) or
+  spreadsheet rows (`worker/ingest.py`); chats include documents whole while
+  they fit, with page images for the pages that need them.
 - Admin dashboard: plan subscription, system prompt, usage, and Ziina
   payment-request approval.
 
 What is explicitly out of scope (per `README.md`): BYOK, local chat
-migration, multi-provider routing, prompt marketplace, OCR, LibreChat
-extras.
+migration, multi-provider routing, prompt marketplace, LibreChat
+extras. (The document worker runs Tesseract OCR on scanned pages at ingest
+so they are searchable; there is no general OCR feature.)
 
 ## 2. Runtime boundaries
 
@@ -141,11 +143,13 @@ extras.
 | `server/saas/images.js` | Image context for text-only models: collects image attachment ids, substitutes images with text descriptions, calls a vision model once to describe every attached image and returns `{descriptions, model}`. | `./model-api/client.js`, `./http/responses.js`, `./messages.js`, `./models.js` |
 | `server/saas/messages.js` | Re-export barrel over `server/saas/messages/{content,stream}.js` (preserves all import paths). `content.js` (~291 lines): title generation, message content normalization, R2 URL hydration, council history filtering, `stripLeakedToolMarkup`. `stream.js` (~191 lines): `applyStreamEvent`, tool-call delta accumulation, SSE serialization, `pipeProviderStreamAndAccumulate`, `streamProviderAndAccumulate`. | `./messages/content.js`, `./messages/stream.js` |
 | `server/saas/council.js` | Three-stage council orchestration. `withCouncilSystemPrompt`, `generateNonce`, `buildReviewerAssignments` (shuffled letter labels with nonces to defeat prompt injection), `parseRanking`, `aggregateBordaCount`, `selectChairman`, `runPeerReview` (Stage 2), `buildChairmanPrompt`, `runChairmanSynthesis` (Stage 3). | `node:crypto`, `./model-api/client.js`, `./http/responses.js`, `./messages.js` |
-| `server/documents/index.js` | The `DocumentService` orchestrator (~656 lines). Loads documents as soon as text or visual pages are usable, embeds queries with Jina (`embedQuery`), runs similarity search via the `klui_search_document_pages` / `klui_search_document_chunks` RPCs, and implements `search` / `read` / `extractTables` / `createDocument` / `editDocument` / `exportDocument`. Pure helpers live in `server/documents/{inferFormat,resolveContent}.js`. | `./http/responses.js`, `./inferFormat.js`, `./resolveContent.js` |
+| `server/documents/index.js` | The `DocumentService` orchestrator. `planContext` / `renderContext` decide each turn's documents: whole (every page's text, plus the image of each visual page) while they fit the context window, otherwise a stored page index plus the pages that match the question (`klui_search_document_chunks`), with a manifest that names every document and how much of it is included. Tools: `search` (keyword), `read` (page ranges, or exact spreadsheet cells), `querySpreadsheet`, and `createDocument` / `editDocument` / `exportDocument`. Pure helpers live in `server/documents/{inferFormat,resolveContent}.js`. | `./library.js`, `./sheets.js`, `./inferFormat.js`, `./resolveContent.js` |
+| `server/documents/library.js` | Documents as units (a page, slide or block of spreadsheet rows; one `document_chunks` row each), loaded completely through PostgREST's row cap and cached per document version; text rendering for pages and spreadsheet rows. | — |
+| `server/documents/sheets.js` | Exact spreadsheet access over stored rows: cell-range parsing, row selection, and `querySheet` (filters, group-by, count/sum/avg/min/max) behind `query_spreadsheet`. | `./library.js` |
 | `server/documents/docWriter.js`, `docReview.js`, `docEditor.js`, `fileEditor.js` | PDF/DOCX creation and editing. The doc writer (Pro model, reference screenshots attached) writes DocMarkdown, reviewed deterministically and revised once; the spec is stored on the job (`getDocSpecForDocument`). The doc editor turns a request (optionally scoped to a viewer selection) into block-id operations; the file editor writes in-place operations for uploaded files from the worker's outline. `POST /api/attachments/:id/ask` (Ask Klui in the viewer) runs these and records the request and the new version in the chat. The editors, the doc and deck writers (draft, fact check, revision) and the markdown editor's revise route all run through `editorModel.js`: with search on they get `web_search`/`read_url` (via the chat tool loop) and decide themselves whether they need it; sources they used are returned as `web_sources` and join the chat turn's Sources panel. |
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
-| `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `extract_tables`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
+| `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `query_spreadsheet`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
 | `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → SearXNG → paid Brave fallback) with per-provider circuit breaker. `readUrl` reads through TinyFetch, then the self-hosted Jina Reader, then hosted `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js`, `./tinyfetch.js`, `./tinyfish.js` |
 | `server/websearch/deny-domains.js` | Shared hostname deny list for web search and Deep Research. Built-in adult domains are always enforced; `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive via `mergeDenyDomains`. | — |
 | `server/websearch/searxng.js` | SearXNG `/search?format=json` caller with a chat-tuned relevance re-ranker (tokenization, stopword filter, host quality bonus, noise blacklist, GitHub-generic filter, "restaurants"-term filter) and a `raw` mode for deep research. | `./jina.js` (for `WebSearchError`) |
@@ -260,13 +264,14 @@ between `localStorage` and `@capacitor/preferences`/`@capacitor/secure-storage`)
 
 | Path | Owns |
 |---|---|
-| `worker/worker.py` | The Python worker entry point. `Processor` polls `klui_claim_document_job`, downloads from R2, and dispatches text extraction, visual enrichment, on-demand page rendering, create, edit, and export jobs. Office visual enrichment converts to a job-local temporary PDF before reusing the PDF renderer; only page JPEGs persist. The `Supabase`/`R2`/`JinaEmbeddings` helper classes live inside this file. |
+| `worker/worker.py` | The Python worker entry point. `Processor` polls `klui_claim_document_job`, downloads from R2, and dispatches ingest (`document.extract.*`), create, edit, export and outline jobs. Ingest stores a document completely: Word and PowerPoint are converted to a job-local PDF, then every page gets its text layer (one `document_chunks` row) and a JPEG (`document_pages`), with pages that need their picture flagged `visual`; spreadsheets keep every row with its row number. Generated and edited documents are ingested the same way before they are marked ready. The `Supabase`/`R2` helper classes live inside this file. |
+| `worker/ingest.py` | Pure ingestion helpers: per-page text (`pdftotext`), drawing statistics (`pypdfium2`), the visual-page rule (images, vector graphics and simple diagrams, maths, ruled tables, broken text layers), Tesseract OCR for pages without a text layer, rendered separately at the scan's own resolution (`needs_ocr`, `page_scan_ppi`, `ocr_pdf_page`), slide mapping, speaker notes and hidden slides (`unhide_slides` converts a copy with every slide shown), and lossless spreadsheet row blocks. |
 | `worker/artifact_generator.mjs` | JS generator for PDF, DOCX and PPTX. Called via `node` from the Python worker when `DOCUMENT_USE_JS_ARTIFACT_GENERATOR=1` (the default). PDF/DOCX go through the document engine; PPTX through `worker/deck/`. |
 | `worker/doc/` | Document engine. `spec.js` (DocSpec + the DocMarkdown parser the doc writer outputs; every block has a stable id), `themes.js` (12 styles: report, briefing, academic, lab, homework, mla, apa, guide, notes, letter, cv, cv_modern, plus overrides for matching a reference look), `html.js` + `pdf.js` (print HTML, Chromium via puppeteer-core), `docx.js` (native Word: styles, lists, tables, OMML equations), `charts.js` (SVG charts; PNG in DOCX). A generated DOCX also stores a PDF preview printed from the same spec. Fonts in `worker/fonts/doc` (OFL). |
 | `worker/docx_edit.py`, `worker/pdf_edit.py` | Format-preserving edits to uploaded files. `outline()` lists addressable paragraphs / lines / form fields; `apply_operations()` edits runs in Word files and text objects in PDFs (PDFium; the document's own fonts are reused when they cover the new text) and fills AcroForms (pypdf). Used by `document.outline.*` and `document.edit.{docx,pdf}` jobs. |
 | `worker/xlsx_generator.py` | Single XLSX writer for structured sheets, formulas, native tables, charts, number formats, and conditional formatting. Uses `XlsxWriter`; `openpyxl` only reopens the finished file for validation. |
 | `worker/Dockerfile` | Multi-stage build: `node:24-bookworm-slim` for the JS deps, `python:3.12-slim` with `libreoffice`, `poppler-utils`, `qpdf`, and the Python deps. Healthcheck runs `python -m worker.healthcheck`. |
-| `worker/requirements.txt` | `boto3`, `charset-normalizer`, `edgeparse`, `openpyxl`, `XlsxWriter`, `pypdf`, `python-pptx`, `python-docx`, `requests`. OCR/Tesseract is intentionally absent. |
+| `worker/requirements.txt` | `boto3`, `charset-normalizer`, `edgeparse`, `openpyxl`, `XlsxWriter`, `pypdf`, `python-pptx`, `python-docx`, `requests`. The worker image adds `tesseract-ocr` for scanned pages (called as a binary, no Python wrapper). |
 | `worker/healthcheck.py` | Verifies EdgeParse plus `soffice`, `pdftotext`, `pdftoppm`, and `qpdf` are present. |
 
 ## 4. Data model and external services
@@ -291,10 +296,10 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `conversation_context` | `conversation_id` (PK), `user_id`, `version`, `summary`, `through_message_id`, `fingerprint`, `summarized_tokens`, `summary_model`, timestamps. | Rolling compaction summary; cascades with the conversation. Written only by the server. |
 | `messages` | `id`, `user_id`, `conversation_id`, `role` (`system`/`user`/`assistant`/`tool`), `content jsonb` (can be string or parts array), `model`, `reasoning`, `tool_calls jsonb`, `finish_reason`, `error`, `metadata jsonb`, `turn_run_id`, `output_slot`, `created_at`. | `metadata` carries council/websearch/documents/research context. `(turn_run_id, output_slot)` makes resumed document-turn outputs idempotent. |
 | `attachments` | `id`, `user_id`, `conversation_id`, `message_id`, `category` (`image`/`document`), `object_key` (unique), `file_name`, `content_type`, `size_bytes`, `etag`, `status` (`pending`/`uploaded`). | Both user uploads and document worker outputs use this table; the R2 object is the actual file. |
-| `document_files` | Existing identity/version fields plus `processing_status`, capability timestamps (`text_ready_at`, `visual_ready_at`, `enriched_at`), `stage_errors`, counts, extraction/preview keys, metadata, and terminal error. | `text_ready_at` or `visual_ready_at` makes a document usable; legacy `ready` means all core jobs are terminal, possibly with warnings. |
-| `document_chunks` | `id`, `document_file_id`, `user_id`, `chunk_index`, `source_type`, `source_label`, `text`, `char_count`, `token_estimate`, `metadata`, generated `tsv` (simple) and `tsv_en` (English, stemmed) tsvectors, `embedding vector(768)` (Jina text embedding, filled by the worker backfill). | Unique on `(document_file_id, chunk_index)`. |
-| `document_pages` | `id`, `document_file_id`, `user_id`, `page_number`, `source_label`, `image_key`, `image_content_type`, `width_px`, `height_px`, `text`, `char_count`, `token_estimate`, `embedding vector(768)` (`extensions.vector_cosine_ops` HNSW index). | Unique on `(document_file_id, page_number)`. |
-| `document_jobs` | `id`, ownership links, `job_type`, status/priority/attempt fields, `worker_id`, `lease_until`, `cancel_requested`, input/output/error, timestamps. | PDF/DOCX/XLSX/PPTX queue independent extract and visual-enrichment jobs; missing requested pages use idempotent priority-100 `document.render_page` jobs. |
+| `document_files` | Identity/version fields plus `processing_status`, `text_ready_at` / `visual_ready_at`, counts, preview keys, metadata, and terminal error. Worker metadata records `pipeline` (`pages-v1` / `sheets-v1`), `text_tokens`, `visual_pages`, a `page_index` (first words of each page) and, for spreadsheets, `sheets` (size, header, first rows). | The single ingest job sets both ready stamps together, only once everything is stored (spreadsheets set `text_ready_at`). |
+| `document_chunks` | `id`, `document_file_id`, `user_id`, `chunk_index`, `source_type`, `source_label`, `text`, `char_count`, `token_estimate`, `metadata`, generated `tsv` (simple) and `tsv_en` (English, stemmed) tsvectors. The `embedding` column is no longer written. | One row per page or slide (`metadata.page`, `visual`, `visual_reason`), or per block of whole spreadsheet rows (`sheet`, `row_numbers`). Never truncated. Unique on `(document_file_id, chunk_index)`. |
+| `document_pages` | `id`, `document_file_id`, `user_id`, `page_number`, `source_label`, `image_key`, `image_content_type`, `width_px`, `height_px`, `metadata` (`visual`, `visual_reason`, `slide`). | Every page of a PDF/Word/PowerPoint document has a rendered JPEG. Unique on `(document_file_id, page_number)`. |
+| `document_jobs` | `id`, ownership links, `job_type`, status/priority/attempt fields, `worker_id`, `lease_until`, `cancel_requested`, input/output/error, timestamps. | Each upload queues one `document.extract.<kind>` ingest job. `document.enrich.pdf` / `document.render_page` jobs from the old pipeline finish as no-ops. |
 | `pending_document_turns` | Durable user turn, normalized request payload, mode, claim token/owner/lease, provider-start fence, cancellation/error/terminal fields. | Reconnect-safe wait and conservative at-most-once provider execution for turns blocked on document capability. |
 | `research_runs` | `id`, `user_id`, `conversation_id`, `user_message_id`, `assistant_message_id`, `query`, `model`, `provider` (`openrouter`), `status` (`queued`/`running`/`succeeded`/`failed`/`cancelled`), `phase`, `progress jsonb`, `title`, `summary`, `report_markdown`, `sources jsonb`, `error`, `cancel_requested`, `worker_id`, `lease_until`, `attempt_count`, `elapsed_ms`, timestamps. | Unique partial index on `(user_id) where status in ('queued','running')` — only one active run per user. |
 | `usage_api_weekly` | `(user_id, period_start date, week_index 1–4)` PK, `period_end`, `week_start`, `week_end`, `plan_id`, `api_credit_limit numeric(18,8)`, `api_credit_used numeric(18,8)`, `updated_at`. | One row per user per week. |
@@ -311,16 +316,14 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | `public.klui_cleanup_storage_and_cache(p_limit, p_grace)` | Batched cleanup of detached terminal `document_jobs`, expired `search_cache`, and stale `model_cache`. R2-backed attachment cleanup runs on the VPS so object keys remain available until storage deletion succeeds. |
 | `public.klui_cleanup_orphan_documents(p_limit, p_grace)` | Wrapper for the above (kept for backward compatibility with existing cron callers). |
 | `public.klui_claim_document_job(p_worker_id, p_lease_seconds)` | Atomic claim of the next queued or lease-expired job. |
-| `public.klui_complete_document_upload(...)` | Atomically completes an upload and queues independent text/visual jobs for PDF and Office formats; CSV/TSV remain text-only. |
+| `public.klui_complete_document_upload(...)` | Atomically completes an upload and queues its single ingest job. |
 | `public.klui_complete_document_job(...)` / `public.klui_fail_document_job(...)` | Lease-fenced, stage-aware worker finalization that preserves any established capability. |
-| `public.klui_publish_document_visual_ready(...)` | Publishes visual capability only after the complete page-image manifest exists, before optional Jina completion. |
-| `public.klui_queue_document_page_render(...)` | Returns an existing page or creates/requeues one idempotent priority-100 render job. |
+| `public.klui_publish_document_visual_ready(...)`, `public.klui_queue_document_page_render(...)` | Old two-stage pipeline; no longer called. |
 | `public.klui_submit_document_turn(...)` and pending-turn claim/heartbeat/start/finish/cancel RPCs | Atomic turn persistence, fenced execution, resume, and cancellation without cascading away uploaded documents. |
 | `public.klui_update_pending_turn_output(...)` | Updates a run-linked assistant output only while its claim token and lease are still active. |
 | `public.klui_claim_research_run(p_worker_id, p_lease_seconds)` | Atomic claim of the next queued research run. |
 | `public.klui_search_document_chunks(p_user_id, p_document_ids, p_query, p_limit)` | Stemmed any-word full-text search over `document_chunks.tsv_en`; chunks matching every word rank first. |
-| `public.klui_search_document_chunks_semantic(p_user_id, p_document_ids, p_query_embedding, p_limit)` | Exact cosine search over `document_chunks.embedding`, filtered to the caller's documents first. |
-| `public.klui_search_document_pages(p_user_id, p_document_ids, p_query_embedding, p_limit)` | Exact cosine search over `document_pages.embedding`, filtered to the caller's documents first (a global HNSW scan would drop their rows). |
+| `public.klui_search_document_chunks_semantic(...)`, `public.klui_search_document_pages(...)` | Embedding search from the old retrieval pipeline; no longer called. |
 
 ### External services
 
@@ -334,8 +337,6 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | TinyFish Search (`api.search.tinyfish.ai`) | `server/websearch/tinyfish.js` `tinyfishSearch`. Free 30 RPM per API key; search only. |
 | TinyFetch (`api.fetch.tinyfish.ai`) | `server/websearch/tinyfetch.js` `tinyfetchRead`. Primary `read_url` / Deep Research page reader. |
 | Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Fallback reader after TinyFetch; works anonymously. |
-| Jina Embeddings (`api.jina.ai/v1/embeddings`) | `server/documents/index.js` `embedQuery` (`retrieval.query`) for chunk and page vector search; the worker embeds page images and chunk text (`retrieval.passage`). |
-| Jina Reranker (`api.jina.ai/v1/rerank`) | `DocumentService.rerankChunks` (`DOCUMENT_RERANK_MODEL`, default `jina-reranker-v3`; `off` disables). |
 | Brave Search LLM Context (`api.search.brave.com/res/v1/llm/context`) | `server/websearch/brave.js`. |
 | Internal SearXNG (`http://searxng:8080/search?format=json` in compose, `http://localhost:8080/…` standalone) | `server/websearch/searxng.js`. Deep Research search goes through `WebSearchOrchestrator`. |
 | Document worker (Python container) | Decoupled through `document_jobs` table. The Node server `enqueueAndWait` inserts a job; the worker `claim`s it; the server polls `GET /api/documents/jobs/:id/status` for the artifact. |
@@ -382,6 +383,9 @@ All migrations are listed in `supabase/migrations/`:
   enrichment for DOCX, XLSX, and PPTX through the existing PDF page path.
 - `20260712222116_move_orphan_storage_cleanup_to_vps.sql` — keeps
   R2-backed orphan metadata intact for the idempotent VPS cleanup task.
+- `20261003120000_single_document_ingest.sql` — an upload queues one
+  ingest job (text and page images stored together) instead of separate
+  text and visual-enrichment jobs.
 
 The current `supabase/schema.sql` is the merged snapshot and
 contains the same tables and RPCs as the migration files. The
@@ -400,9 +404,9 @@ The features and the modules that implement them:
 | Council (panel → peer review → chairman) | `app.js` + `public/js/council.js` `renderCouncilMessage` | `server/chat/council.js` `handleCouncilConversationMessage` + `server/saas/council.js` | `messages.metadata.council` carries session/role/peer-rank metadata |
 | Image upload | `app.js` `addImages` → `uploadImage` in `api.js` | `server/routes/uploads.js` `handlePresignUpload` / `handleUploadContent` / `handleCompleteUpload` | `attachments` (category=`image`), R2 |
 | Image description for text-only models | n/a | `server/saas/images.js` `describeConversationImages` | `messages.content[].image_url.description` |
-| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js`; Send unlocks on text or visual capability while enrichment continues silently | `server/routes/uploads.js` `handleCompleteUpload` → `klui_complete_document_upload` (atomic text + visual jobs for PDF/Office) | `attachments`, capability-aware `document_files`, `document_jobs`, document worker |
+| Document upload | `app.js` `startDocumentUpload` → `uploadFile` in `api.js`; Send unlocks once the document is ready (all pages stored) | `server/routes/uploads.js` `handleCompleteUpload` → `klui_complete_document_upload` (one ingest job) | `attachments`, `document_files`, `document_jobs`, document worker |
 | Document-gated chat turn | `app.js` persists a client turn key, reconciles existing output slots when resuming after reload, and restores the draft on pre-provider cancel | `server/chat/pipeline.js` submits/claims/heartbeats/executes the persisted turn, exposes its run ID before document polling, fences provider calls and output writes, releases pre-provider disconnects, and finalizes the run before closing SSE | `pending_document_turns`, run-linked message output slots |
-| Document read/search/extract/create/edit/export | `app.js` + `public/js/documentViewer.js` (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool/loop.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
+| Document read/search/spreadsheet query/create/edit/export | `app.js` + `public/js/documentViewer.js` (artifact cards, document viewer) | `server/documents/index.js` `DocumentService`, `server/documents/tool.js` `executeDocumentToolCall`, `server/websearch/tool/loop.js` `runChatWithToolLoop` | `document_files`, `document_chunks`, `document_pages`, `document_jobs`, R2 |
 | Web search (auto/on/off) | `app.js` `toggleWebSearchMode`, `renderWebSearchToggle`, `webSearchAvailable` | `server/websearch/index.js` `WebSearchOrchestrator`, `server/websearch/tool/loop.js` `runChatWithToolLoop`, `server/chat/pipeline.js` `runSharedPreSearch` | `search_cache`, `usage_api_events` (via tool loop) |
 | Deep Research | `app.js` + `public/js/research.js` (`startDeepResearch`, polling, `renderResearchCard`, `renderResearchReport`) | `server/routes/research.js` `handleCreateResearch` / `handleResearchStatus` / `handleCancelResearch` / `handleResearchReport`; `server/research/worker.js`; `server/research/engine.js` | `research_runs`, `messages` (assistant message updated by worker) |
 | Temporary chat | `app.js` `setTemporaryChatMode`, `executeSend` `newChat: true` → `streamTemporaryChat` | `server/chat/temporary.js` `handleTemporaryChat` (in-memory only, no persistence, no attachments) | none |
@@ -461,7 +465,7 @@ sequenceDiagram
     API->>API: buildStoredUserContent, normalizeMessageSettings
     API->>API: withResearchReportContext (load past reports into history)
     API->>API: selectDocumentSkills, withAvailableTools
-    API->>API: rewriteDocumentQuery + buildRelevantDocumentContext (hybrid retrieval → excerpts + relevant page images)
+    API->>API: buildDocumentContext (whole documents that fit, page images for visual pages; index + matching pages for the rest)
     API->>SB: insertMessage(user), insertMessage(assistant)
     API->>Tool: runChatWithToolLoop(chatRequest, websearch, documents)
     loop up to maxIterations
@@ -548,7 +552,7 @@ sequenceDiagram
     DS->>SB: listUsableDocumentFiles
     API->>Tool: runChatWithToolLoop(chatRequest, websearch, documents)
     Tool->>DS: documents.search({query, attachmentIds})
-    DS->>SB: klui_search_document_chunks / klui_search_document_pages
+    DS->>SB: klui_search_document_chunks (stemmed keyword search)
     DS-->>Tool: {results, citations}
     Tool-->>Model: tool_result JSON
     opt model calls create_document
@@ -689,33 +693,40 @@ glyphs only (no layout reflow).
 - **Documents fill the context window.** Each turn gets a document
   token budget: `CONTEXT_MAX_TOKENS` minus the reply reserve, the
   (compacted) conversation and tool headroom (`documentTokenBudget` in
-  the pipeline). `DocumentService.documentLibrary` puts every document
-  that fits into context in full (documents attached to this message
-  first, then the chat's, then the project's; study notes follow for
-  unscoped projects). It sits right after the system prompt and summary,
-  oldest document first, so it is a stable prefix providers can cache;
-  assembled text is cached in-process (`server/documents/library.js`).
-- **Hybrid retrieval covers the rest.** `buildRelevantDocumentContext`
-  (pipeline) calls `DocumentService.relevantContext`, which runs
-  `retrieve`: stemmed any-word keyword search over chunks, Jina
-  vector search over chunk text and page images, reciprocal-rank
-  fusion, then a Jina cross-encoder rerank with a relevance floor
-  (`server/documents/retrieval.js` holds the pure helpers). Follow-ups
-  are first rewritten into a standalone query by a cheap model.
-  Documents too large for the library are listed by name and id, and
-  every relevant excerpt from them is added until the budget runs out.
-  Page images are added where the picture carries meaning (pages flagged
-  visual at processing, text-poor pages, tables, slides, best image
-  matches, or figure questions); a document attached to this message is
-  shown whole when its pages fit. Images are bounded only by the budget
-  and the per-request image ceiling (`DOCUMENT_VISUAL_MAX_IMAGE_INPUTS_PER_TURN`).
-  Single-model turns switch to the role's vision model when the chosen
-  evidence includes images; Compare models share one retrieval. Council
-  takes no documents: uploads are refused (client and server) and chat or
-  course documents are left out of Council turns. With
-  tools on, `search_document` returns up to 20 passages and
-  `read_document` reads text documents from an `offset`, continuing via
-  `next_offset`.
+  the pipeline). `DocumentService.planContext` puts every document that
+  fits into context whole (documents attached to this message first, then
+  the chat's, then the project's; study notes follow for unscoped
+  projects): every page's text, plus the image of each page the worker
+  flagged visual (figures, scans, ruled tables, maths, broken text layers),
+  bounded by the budget at `DOCUMENT_PAGE_IMAGE_TOKENS` per image and by
+  `DOCUMENT_MAX_CONTEXT_IMAGES` (default 20: models confuse pages in large
+  image bundles; the rest are named and readable with `read_document`, at
+  most `DOCUMENT_VISUAL_MAX_PAGES_PER_TOOL` = 12 images per read). Documents
+  still processing or failed are named in the manifest, and chosen course
+  sources that are still processing are waited for like attached
+  documents. Sizes recorded at ingest decide what can
+  fit before anything is loaded. The library sits right after the system
+  prompt and summary, oldest document first, with images inlined, so it is
+  a stable prefix providers can cache.
+- **Long documents are described, never silently cut.** A document that
+  doesn't fit is listed in the manifest at the top of the library ("too
+  long to include in full this turn") with its stored page index (or sheet
+  overview); the pages that match the question by stemmed keyword search
+  go in an evidence message just before the user's message, with their
+  images when visual. With tools on (single chats), the model reads any
+  page with `read_document` (page ranges, `next_page_start` to continue),
+  finds passages with `search_document`, and computes over spreadsheets
+  with `query_spreadsheet`; `read_document` reads exact cell ranges with
+  row numbers (`next_cell_range` to continue). Course page selections are
+  enforced in the context and in every tool. If the chat's documents can't
+  be loaded the turn fails with a clear error rather than answering
+  without them.
+- **Vision.** Single-model turns switch to the role's vision model when
+  the context carries page images; models without vision get the text and
+  a note naming the pages they can't see. Compare models get the same
+  documents (images only for vision models). Council takes no documents:
+  uploads are refused, and a chat that has documents can't switch to it
+  (checked on the server, not only in the composer).
 - **Conversation compaction.** When the history reaches
   `CONTEXT_COMPACT_AT_TOKENS` (180k), older turns are summarized into a
   structured summary (goals, facts, documents, outputs, preferences, open
@@ -785,7 +796,7 @@ glyphs only (no layout reflow).
   - `test/reasoning.test.js` — `extractReasoningDelta` for DeepSeek and OpenRouter shapes; reasoning duration metadata.
   - `test/render.test.js` — renderer math/code/math-protection tests; `renderContent` and `modelSupportsVision` and `inferModelBadges`.
   - `test/research.test.js` — research engine budget bounds, source validation, SSRF guard, partial reports, cancel, claim RPC.
-  - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildRelevantDocumentContext`, `normalizeAgentMode`, `runSharedPreSearch`) and tool availability, including model-chosen web search on document requests. It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
+  - `test/routes.test.js` — exported helper functions re-exported from `routes.js` (`withResearchReportContext`, `installStableRequestSignal`, `buildDocumentContext`, `normalizeAgentMode`, `runSharedPreSearch`) and tool availability, including model-chosen web search on document requests. It does **not** exercise `handleApiRequest` or any route dispatch; dispatch coverage lives in `test/routes-dispatch.test.js` and the SSE paths in `test/chat-sse.test.js`.
   - `test/saas.test.js` — entitlements, billing, usage meter (open and closed budget), R2 helpers, image counts.
   - `test/supabase-rest.test.js` — stubbed-`fetch` request-shape tests for one representative `SupabaseRest` method per `server/db/rest/*` domain group.
   - `test/usage.test.js` — `normalizeUsage` and `applyStreamEvent` final usage capture.

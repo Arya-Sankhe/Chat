@@ -133,16 +133,27 @@ function messageSelect(includeReasoning) {
   return `id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot${includeReasoning ? ",reasoning" : ""}`;
 }
 
+// PostgREST returns at most its max-rows per request (1,000 by default), so a long
+// conversation is read in pages; one request would silently drop the newest messages.
+const MESSAGE_LIST_BATCH = 1000;
+
 export async function listMessages(client, userId, conversationId, { signal, includeReasoning = false } = {}) {
-  return client.request("messages", {
-    query: {
-      user_id: `eq.${userId}`,
-      conversation_id: `eq.${conversationId}`,
-      select: messageSelect(includeReasoning),
-      order: "created_at.asc"
-    },
-    signal
-  });
+  const messages = [];
+  for (let offset = 0; ; offset += MESSAGE_LIST_BATCH) {
+    const rows = await client.request("messages", {
+      query: {
+        user_id: `eq.${userId}`,
+        conversation_id: `eq.${conversationId}`,
+        select: messageSelect(includeReasoning),
+        order: "created_at.asc,id.asc",
+        limit: String(MESSAGE_LIST_BATCH),
+        ...(offset ? { offset: String(offset) } : {})
+      },
+      signal
+    }) || [];
+    messages.push(...rows);
+    if (rows.length < MESSAGE_LIST_BATCH) return messages;
+  }
 }
 
 /**

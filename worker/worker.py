@@ -15,7 +15,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import boto3
-import edgeparse
 import requests
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
@@ -24,7 +23,6 @@ from docx import Document
 from docx.shared import Inches as DocxInches
 from openpyxl import load_workbook
 from openpyxl.utils.cell import get_column_letter, range_boundaries
-from pypdf import PdfReader
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE_TYPE, PP_PLACEHOLDER
@@ -33,10 +31,11 @@ from pptx.util import Inches as PptxInches
 from pptx.util import Pt
 
 try:
-    from worker import docx_edit, pdf_edit
+    from worker import docx_edit, ingest, pdf_edit
     from worker.xlsx_generator import create_xlsx_workbook, validate_formula
 except ImportError:  # running as a loose script rather than the worker package
     import docx_edit
+    import ingest
     import pdf_edit
     from xlsx_generator import create_xlsx_workbook, validate_formula
 
@@ -177,8 +176,6 @@ USE_JS_ARTIFACT_GENERATOR = env("DOCUMENT_USE_JS_ARTIFACT_GENERATOR", "1").lower
 HTTP_MAX_ATTEMPTS = env_int("DOCUMENT_HTTP_MAX_ATTEMPTS", 3, minimum=1, maximum=8)
 WORKER_CONCURRENCY_CAP = 8
 PDF_RENDER_WORKERS_CAP = 4
-JINA_BATCH_SIZE_CAP = 16
-JINA_BATCH_CONCURRENCY_CAP = 4
 PAGE_UPLOAD_WORKERS_CAP = 8
 
 
@@ -202,361 +199,6 @@ def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def normalize_edgeparse_result(raw):
-    """Normalize EdgeParse JSON output into a document dict with kids + page count."""
-    if raw is None:
-        return {"number of pages": 0, "kids": []}
-
-    if isinstance(raw, (bytes, bytearray)):
-        raw = raw.decode("utf-8", errors="replace")
-
-    if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return {"number of pages": 0, "kids": []}
-        parsed = json.loads(text)
-        return normalize_edgeparse_result(parsed)
-
-    if not isinstance(raw, dict):
-        for attr in ("json", "data", "document", "result", "output"):
-            if hasattr(raw, attr):
-                value = getattr(raw, attr)
-                if callable(value):
-                    try:
-                        value = value()
-                    except TypeError:
-                        pass
-                if value is not None and value is not raw:
-                    return normalize_edgeparse_result(value)
-        if hasattr(raw, "model_dump") and callable(raw.model_dump):
-            return normalize_edgeparse_result(raw.model_dump())
-        if hasattr(raw, "dict") and callable(raw.dict):
-            return normalize_edgeparse_result(raw.dict())
-        raise TypeError(f"unsupported EdgeParse result type: {type(raw)!r}")
-
-    data = raw
-    if "kids" not in data:
-        for key in ("document", "data", "result", "output"):
-            nested = data.get(key)
-            if isinstance(nested, dict) and ("kids" in nested or "number of pages" in nested):
-                data = nested
-                break
-            if isinstance(nested, str):
-                return normalize_edgeparse_result(nested)
-
-    kids = data.get("kids")
-    if kids is None:
-        kids = []
-    if not isinstance(kids, list):
-        kids = list(kids)
-
-    page_count = data.get("number of pages")
-    if page_count is None:
-        page_count = data.get("number_of_pages") or data.get("page_count") or 0
-    try:
-        page_count = int(page_count or 0)
-    except (TypeError, ValueError):
-        page_count = 0
-
-    if page_count <= 0 and kids:
-        max_page = 0
-        for kid in kids:
-            if not isinstance(kid, dict):
-                continue
-            try:
-                max_page = max(max_page, int(kid.get("page number") or kid.get("page_number") or 0))
-            except (TypeError, ValueError):
-                continue
-        page_count = max_page
-
-    normalized = dict(data)
-    normalized["number of pages"] = page_count
-    normalized["kids"] = kids
-    return normalized
-
-
-def _edgeparse_heading_level(element):
-    level = element.get("heading level")
-    if level is None:
-        level = element.get("heading_level")
-    if level is None:
-        level = element.get("level")
-    if isinstance(level, str):
-        match = re.search(r"(\d+)", level)
-        if match:
-            level = match.group(1)
-        elif level.strip().lower() == "title":
-            level = 1
-        else:
-            level = 1
-    try:
-        level = int(level or 1)
-    except (TypeError, ValueError):
-        level = 1
-    return max(1, min(level, 6))
-
-
-def _edgeparse_cell_text(cell):
-    if cell is None:
-        return ""
-    if isinstance(cell, str):
-        return cell.strip()
-    if not isinstance(cell, dict):
-        return str(cell).strip()
-    parts = []
-    for kid in cell.get("kids") or []:
-        text = _edgeparse_cell_text(kid)
-        if text:
-            parts.append(text)
-    content = cell.get("content")
-    if content is not None and str(content).strip():
-        parts.append(str(content).strip())
-    return " ".join(parts).strip()
-
-
-def _edgeparse_table_markdown(element):
-    rows = element.get("rows") or []
-    table_rows = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        cells = row.get("cells") or []
-        values = [_edgeparse_cell_text(cell) for cell in cells]
-        if any(values):
-            table_rows.append(values)
-    if not table_rows:
-        return ""
-    width = max(len(row) for row in table_rows)
-    normalized = [normalize_table_row_width(row, width) for row in table_rows]
-    header = normalized[0]
-    lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join("---" for _ in header) + " |",
-    ]
-    for row in normalized[1:]:
-        lines.append("| " + " | ".join(row) + " |")
-    return "\n".join(lines)
-
-
-def format_edgeparse_element(element):
-    if not isinstance(element, dict):
-        return ""
-    element_type = str(element.get("type") or "").strip().lower()
-    content = str(element.get("content") or "").strip()
-
-    if element_type == "heading":
-        if not content:
-            return ""
-        return f"{'#' * _edgeparse_heading_level(element)} {content}"
-
-    if element_type in ("paragraph", "caption", "formula", "text"):
-        return content
-
-    if element_type == "list":
-        items = []
-        for item in element.get("list items") or element.get("list_items") or []:
-            if isinstance(item, dict):
-                text = str(item.get("content") or "").strip()
-            else:
-                text = str(item or "").strip()
-            if text:
-                items.append(f"- {text}")
-        return "\n".join(items)
-
-    if element_type == "table":
-        return _edgeparse_table_markdown(element)
-
-    if element_type in ("table cell", "table_cell"):
-        return _edgeparse_cell_text(element)
-
-    if element_type in ("image", "figure"):
-        return ""
-
-    return content
-
-
-def is_usable_extracted_text(text):
-    """Require enough signal that one garbage token cannot unlock text capability."""
-    value = (text or "").strip()
-    if not value:
-        return False
-    words = value.split()
-    alnum = sum(1 for ch in value if ch.isalnum())
-    return len(words) >= 3 or alnum >= 20
-
-
-def edgeparse_figure_count(elements):
-    count = 0
-    for element in elements or []:
-        if not isinstance(element, dict):
-            continue
-        element_type = str(element.get("type") or "").strip().lower()
-        if element_type in ("image", "figure"):
-            count += 1
-    return count
-
-
-def iter_pptx_shapes(shapes):
-    """Yield shapes depth-first, expanding groups so nested content is visible."""
-    for shape in shapes or []:
-        shape_type = getattr(shape, "shape_type", None)
-        if shape_type == MSO_SHAPE_TYPE.GROUP:
-            nested = getattr(shape, "shapes", None)
-            if nested is not None:
-                yield from iter_pptx_shapes(nested)
-            continue
-        yield shape
-
-
-def pptx_shape_plain_text(shape):
-    if getattr(shape, "has_table", False):
-        return ""
-    if not getattr(shape, "has_text_frame", False):
-        return ""
-    frame = getattr(shape, "text_frame", None)
-    if frame is None:
-        return ""
-    return "\n".join(p.text.strip() for p in frame.paragraphs if p.text and p.text.strip()).strip()
-
-
-def pptx_table_text(shape):
-    if not getattr(shape, "has_table", False):
-        return ""
-    rows = []
-    try:
-        for row in shape.table.rows:
-            rows.append("\t".join(cell.text.strip() for cell in row.cells))
-    except Exception:
-        return ""
-    return "\n".join(row for row in rows if row.strip()).strip()
-
-
-def format_pptx_chart_text(shape):
-    """Readable chart summary; never raises for odd/unsupported charts."""
-    try:
-        if not getattr(shape, "has_chart", False):
-            return ""
-        chart = shape.chart
-    except Exception:
-        return ""
-
-    lines = []
-    try:
-        if getattr(chart, "has_title", False):
-            title = ""
-            try:
-                title = (chart.chart_title.text_frame.text or "").strip()
-            except Exception:
-                title = ""
-            if title:
-                lines.append(f"### {title}")
-    except Exception:
-        pass
-
-    categories = []
-    try:
-        plot = chart.plots[0]
-        for category in plot.categories:
-            try:
-                label = getattr(category, "label", None)
-                categories.append(str(label if label is not None else category).strip())
-            except Exception:
-                continue
-        categories = [c for c in categories if c]
-    except Exception:
-        categories = []
-    if categories:
-        lines.append("Categories: " + ", ".join(categories))
-
-    series_list = []
-    try:
-        series_list = list(chart.series)
-    except Exception:
-        try:
-            series_list = list(chart.plots[0].series)
-        except Exception:
-            series_list = []
-
-    for index, series in enumerate(series_list, start=1):
-        try:
-            name = str(getattr(series, "name", None) or f"Series {index}").strip() or f"Series {index}"
-            values = []
-            for value in series.values:
-                values.append("" if value is None else str(value))
-            lines.append(f"{name}: " + ", ".join(values))
-        except Exception:
-            continue
-
-    return "\n".join(lines).strip()
-
-
-_PPTX_PICTURE_PLACEHOLDERS = {
-    PP_PLACEHOLDER.PICTURE,
-    PP_PLACEHOLDER.BITMAP,
-    PP_PLACEHOLDER.SLIDE_IMAGE,
-}
-_PPTX_CHART_PLACEHOLDERS = {
-    PP_PLACEHOLDER.CHART,
-    PP_PLACEHOLDER.ORG_CHART,
-}
-_PPTX_OTHER_VISUAL_PLACEHOLDERS = {
-    PP_PLACEHOLDER.MEDIA_CLIP,
-    PP_PLACEHOLDER.OBJECT,
-}
-_PPTX_VISUAL_SHAPE_TYPES = {
-    MSO_SHAPE_TYPE.PICTURE,
-    MSO_SHAPE_TYPE.LINKED_PICTURE,
-    MSO_SHAPE_TYPE.MEDIA,
-    MSO_SHAPE_TYPE.WEB_VIDEO,
-    MSO_SHAPE_TYPE.EMBEDDED_OLE_OBJECT,
-    MSO_SHAPE_TYPE.LINKED_OLE_OBJECT,
-    MSO_SHAPE_TYPE.INK,
-    MSO_SHAPE_TYPE.INK_COMMENT,
-    MSO_SHAPE_TYPE.CANVAS,
-}
-_PPTX_SMARTART_TYPES = {
-    MSO_SHAPE_TYPE.IGX_GRAPHIC,
-    MSO_SHAPE_TYPE.DIAGRAM,
-}
-
-
-def pptx_shape_visual_kind(shape):
-    """Return 'chart'|'picture'|'smartart'|'visual' or None for non-visual shapes."""
-    try:
-        if getattr(shape, "has_chart", False):
-            return "chart"
-    except Exception:
-        pass
-
-    shape_type = getattr(shape, "shape_type", None)
-    if shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINKED_PICTURE):
-        return "picture"
-    if shape_type in _PPTX_SMARTART_TYPES:
-        return "smartart"
-    if shape_type in _PPTX_VISUAL_SHAPE_TYPES:
-        return "visual"
-    if shape_type is None:
-        # GraphicFrame SmartArt/other DrawingML (not table/chart) reports None.
-        try:
-            if getattr(shape, "has_table", False):
-                return None
-        except Exception:
-            pass
-        return "smartart"
-    if shape_type == MSO_SHAPE_TYPE.PLACEHOLDER:
-        try:
-            ph = shape.placeholder_format.type
-        except Exception:
-            return None
-        if ph in _PPTX_CHART_PLACEHOLDERS:
-            return "chart"
-        if ph in _PPTX_PICTURE_PLACEHOLDERS:
-            return "picture"
-        if ph in _PPTX_OTHER_VISUAL_PLACEHOLDERS:
-            return "visual"
-    return None
-
-
 def pptx_notes_text(slide):
     """Speaker notes body text via notes_text_frame (excludes slide image/number placeholders)."""
     try:
@@ -573,70 +215,11 @@ def pptx_notes_text(slide):
         return ""
 
 
-def group_edgeparse_pages(document, max_page_count=None):
-    """Group EdgeParse kids into page-anchored structured Markdown texts.
-
-    When max_page_count is provided (pypdf page count), it is authoritative:
-    elements with page numbers beyond it are ignored and page_count is not inflated.
-    """
-    doc = normalize_edgeparse_result(document)
-    try:
-        reported_pages = int(doc.get("number of pages") or 0)
-    except (TypeError, ValueError):
-        reported_pages = 0
-    try:
-        max_pages = int(max_page_count) if max_page_count is not None else None
-    except (TypeError, ValueError):
-        max_pages = None
-    if max_pages is not None and max_pages < 0:
-        max_pages = 0
-
-    by_page = {}
-    for kid in doc.get("kids") or []:
-        if not isinstance(kid, dict):
-            continue
-        try:
-            page_number = int(kid.get("page number") or kid.get("page_number") or 0)
-        except (TypeError, ValueError):
-            continue
-        if page_number < 1:
-            continue
-        if max_pages is not None and page_number > max_pages:
-            continue
-        by_page.setdefault(page_number, []).append(kid)
-
-    if max_pages is not None:
-        page_count = max_pages
-    else:
-        page_count = reported_pages
-        if by_page:
-            page_count = max(page_count, max(by_page.keys()))
-
-    pages = []
-    for page_number in range(1, page_count + 1):
-        elements = by_page.get(page_number) or []
-        blocks = []
-        for element in elements:
-            block = format_edgeparse_element(element)
-            if block and block.strip():
-                blocks.append(block.strip())
-        text = "\n\n".join(blocks).strip()
-        figure_count = edgeparse_figure_count(elements)
-        pages.append({
-            "page_number": page_number,
-            "text": text,
-            "elements": elements,
-            "word_count": len(text.split()) if text else 0,
-            "figure_count": figure_count,
-            "has_visual": figure_count > 0,
-        })
-    combined = "\n\n".join(page["text"] for page in pages if page["text"]).strip()
-    return {
-        "page_count": page_count,
-        "pages": pages,
-        "word_count": sum(page["word_count"] for page in pages),
-        "has_usable_text": is_usable_extracted_text(combined),
-    }
+# Metadata keys ingest writes only sometimes: dropped before a re-ingest stores its own.
+INGEST_DERIVED_METADATA = {
+    "ocr_pages", "ocr_failed_pages", "hidden_slides_missing", "visual_pages", "page_index",
+    "sheets", "error", "stage", "progress", "warnings",
+}
 
 
 def build_pdftoppm_command(path, prefix, dpi, first=None, last=None):
@@ -646,7 +229,7 @@ def build_pdftoppm_command(path, prefix, dpi, first=None, last=None):
         "-jpegopt",
         "quality=85",
         "-r",
-        str(max(72, min(int(dpi or 144), 180))),
+        str(max(72, min(int(dpi or 110), 180))),
     ]
     if first is not None and last is not None:
         cmd.extend(["-f", str(int(first)), "-l", str(int(last))])
@@ -662,11 +245,6 @@ def safe_name(value, fallback="document"):
     base = Path(str(value or fallback)).name
     cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in base).strip("-")
     return (cleaned or fallback)[:120]
-
-
-def truncate(text, limit):
-    text = str(text or "")
-    return text if len(text) <= limit else text[: max(0, limit - 20)] + "\n...[truncated]"
 
 
 SUPERSCRIPT_MAP = {
@@ -876,15 +454,6 @@ class Supabase:
             "p_document_patch": document_patch if document_patch is not None else {},
         })
 
-    def publish_document_visual_ready(self, job_id, worker_id, document_file_id, page_count, metadata=None):
-        return self.rpc("klui_publish_document_visual_ready", {
-            "p_job_id": job_id,
-            "p_worker_id": worker_id,
-            "p_document_file_id": document_file_id,
-            "p_page_count": int(page_count),
-            "p_metadata": metadata if metadata is not None else {},
-        })
-
     def fail_document_job(self, job_id, worker_id, error):
         return self.rpc("klui_fail_document_job", {
             "p_job_id": job_id,
@@ -976,6 +545,7 @@ class Supabase:
             self.request(
                 "document_chunks",
                 method="POST",
+                params={"on_conflict": "document_file_id,chunk_index"},
                 body=chunks[i:i + 250],
                 prefer="resolution=merge-duplicates,return=minimal",
                 retryable=True,
@@ -1042,174 +612,6 @@ class Supabase:
             prefer="return=representation",
         )
         return rows[0] if rows else None
-
-
-class JinaRateLimiter:
-    """Sliding one-minute budget shared by every embedding call in the process.
-
-    Jina's free tier allows 100 requests and 100K tokens per minute, so the
-    defaults stay a little under both.
-    """
-
-    def __init__(self, requests_per_minute, tokens_per_minute):
-        self.requests_per_minute = max(1, int(requests_per_minute))
-        self.tokens_per_minute = max(1000, int(tokens_per_minute))
-        self._events = []
-        self._lock = threading.Lock()
-
-    def _prune(self, now):
-        self._events = [event for event in self._events if now - event[0] < 60.0]
-
-    def acquire(self, estimated_tokens):
-        estimate = max(1, int(estimated_tokens))
-        while True:
-            with self._lock:
-                now = time.monotonic()
-                self._prune(now)
-                used_tokens = sum(event[1] for event in self._events)
-                if (
-                    len(self._events) < self.requests_per_minute
-                    and (not self._events or used_tokens + estimate <= self.tokens_per_minute)
-                ):
-                    entry = [now, estimate]
-                    self._events.append(entry)
-                    return entry
-                wait = max(0.05, 60.0 - (now - self._events[0][0]))
-            time.sleep(min(wait, 5.0))
-
-    def settle(self, entry, actual_tokens):
-        if entry is None or actual_tokens is None:
-            return
-        with self._lock:
-            entry[1] = max(1, int(actual_tokens))
-
-
-JINA_RATE_LIMITER = JinaRateLimiter(
-    env_int("DOCUMENT_JINA_REQUESTS_PER_MINUTE", 90, minimum=1),
-    env_int("DOCUMENT_JINA_TOKENS_PER_MINUTE", 90000, minimum=1000),
-)
-
-# Rough per-item token costs used to reserve rate-limit budget before a call.
-JINA_IMAGE_TOKEN_ESTIMATE = 1500
-JINA_TEXT_CHAR_LIMIT = 8000
-
-
-class JinaEmbeddings:
-    def __init__(self):
-        self.api_key = env("JINA_API_KEY")
-        self.model = "jina-embeddings-v5-omni-nano"
-        self.dimensions = 768
-        self.endpoint = env("JINA_EMBEDDINGS_URL", "https://api.jina.ai/v1/embeddings")
-        self.batch_size = env_int("DOCUMENT_JINA_BATCH_SIZE", 8, minimum=1, maximum=JINA_BATCH_SIZE_CAP)
-        self.batch_concurrency = env_int(
-            "DOCUMENT_JINA_BATCH_CONCURRENCY", 1, minimum=1, maximum=JINA_BATCH_CONCURRENCY_CAP
-        )
-        self.max_attempts = HTTP_MAX_ATTEMPTS
-        self.rate_limiter = JINA_RATE_LIMITER
-
-    @property
-    def enabled(self):
-        return bool(self.api_key)
-
-    def _embedding_literal(self, values):
-        if not values:
-            return None
-        floats = [float(value) for value in values]
-        if len(floats) != 768:
-            raise RuntimeError(f"unexpected_embedding_dimensions: got {len(floats)}, expected 768")
-        return "[" + ",".join(f"{value:.8g}" for value in floats) + "]"
-
-    def _embed_inputs(self, inputs, estimated_tokens):
-        """POST one batch; returns embedding literals in input order."""
-        body = {
-            "model": self.model,
-            "task": "retrieval.passage",
-            "normalized": True,
-            "embedding_type": "float",
-            "dimensions": self.dimensions,
-            "input": inputs,
-        }
-        reservation = self.rate_limiter.acquire(estimated_tokens) if self.rate_limiter else None
-        response = request_with_retries(
-            "POST",
-            self.endpoint,
-            max_attempts=self.max_attempts,
-            timeout=120,
-            headers={
-                "authorization": f"Bearer {self.api_key}",
-                "content-type": "application/json",
-            },
-            data=json.dumps(body),
-        )
-        if not response.ok:
-            raise RuntimeError(f"Jina embeddings failed: {response.status_code} {response.text[:500]}")
-
-        payload = response.json()
-        if self.rate_limiter:
-            self.rate_limiter.settle(reservation, (payload.get("usage") or {}).get("total_tokens"))
-        data = payload.get("data") or []
-        by_index = {int(item.get("index", index)): item.get("embedding") for index, item in enumerate(data)}
-        return [self._embedding_literal(by_index.get(index)) for index in range(len(inputs))]
-
-    def _embed_batch(self, batch):
-        # The v5 omni models take {"image": <base64 or URL>}; the legacy
-        # {"bytes": ...} key is rejected with a 422.
-        inputs = []
-        for _, path in batch:
-            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-            inputs.append({"image": encoded})
-        literals = self._embed_inputs(inputs, JINA_IMAGE_TOKEN_ESTIMATE * len(inputs))
-        return [(batch[index][0], literal) for index, literal in enumerate(literals)]
-
-    def embed_texts(self, texts, batch_size=None):
-        if not self.enabled or not texts:
-            return [None for _ in texts]
-        size = max(1, min(int(batch_size or JINA_BATCH_SIZE_CAP), JINA_BATCH_SIZE_CAP))
-        embeddings = [None for _ in texts]
-        indexed = [
-            (index, str(text or "").strip()[:JINA_TEXT_CHAR_LIMIT])
-            for index, text in enumerate(texts)
-            if str(text or "").strip()
-        ]
-        for start in range(0, len(indexed), size):
-            batch = indexed[start:start + size]
-            estimate = sum(max(1, len(text) // 3) for _, text in batch)
-            literals = self._embed_inputs([{"text": text} for _, text in batch], estimate)
-            for (original_index, _), literal in zip(batch, literals):
-                embeddings[original_index] = literal
-        return embeddings
-
-    def embed_images(self, image_paths, batch_size=None, batch_concurrency=None):
-        if not self.enabled or not image_paths:
-            return [None for _ in image_paths]
-
-        size = max(1, min(int(batch_size or self.batch_size), JINA_BATCH_SIZE_CAP))
-        concurrency = max(1, min(int(batch_concurrency or self.batch_concurrency), JINA_BATCH_CONCURRENCY_CAP))
-        embeddings = [None for _ in image_paths]
-        indexed_paths = [
-            (index, Path(path))
-            for index, path in enumerate(image_paths)
-            if Path(path).stat().st_size <= 5 * 1024 * 1024
-        ]
-        batches = [
-            indexed_paths[start:start + size]
-            for start in range(0, len(indexed_paths), size)
-        ]
-        if not batches:
-            return embeddings
-
-        if concurrency <= 1 or len(batches) == 1:
-            for batch in batches:
-                for original_index, literal in self._embed_batch(batch):
-                    embeddings[original_index] = literal
-            return embeddings
-
-        with ThreadPoolExecutor(max_workers=min(concurrency, len(batches))) as pool:
-            futures = [pool.submit(self._embed_batch, batch) for batch in batches]
-            for future in as_completed(futures):
-                for original_index, literal in future.result():
-                    embeddings[original_index] = literal
-        return embeddings
 
 
 def iter_pptx_paragraphs(shapes):
@@ -1297,7 +699,6 @@ class Processor:
     def __init__(self, index=0, concurrency=1):
         self.db = Supabase()
         self.r2 = R2()
-        self.embeddings = JinaEmbeddings()
         self.worker_id = f"document-worker-{uuid.uuid4()}"
         self.artifact_warnings = []
         self.artifact_deck = None
@@ -1318,8 +719,8 @@ class Processor:
         self.heartbeat_seconds = min(self.heartbeat_seconds, max(1.0, self.lease_seconds / 2.0))
         self._lease_lost = None
         self._active_job_id = None
-        self.max_extracted_chars = int(env("DOCUMENT_MAX_EXTRACTED_CHARS", "500000"))
-        self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "144"))
+        self.visual_page_dpi = int(env("DOCUMENT_VISUAL_PAGE_DPI", "110"))
+        self.ocr_dpi = env_int("DOCUMENT_OCR_DPI", ingest.OCR_DPI, minimum=ingest.OCR_MIN_DPI, maximum=400)
         self.pdf_render_workers = env_int(
             "DOCUMENT_PDF_RENDER_WORKERS", 2, minimum=1, maximum=PDF_RENDER_WORKERS_CAP
         )
@@ -1328,21 +729,11 @@ class Processor:
         )
         self.default_limits = {
             "max_pdf_pages": int(env("DOCUMENT_MAX_PDF_PAGES", "150")),
-            "max_docx_words": int(env("DOCUMENT_MAX_DOCX_WORDS", "80000")),
             "max_xlsx_sheets": int(env("DOCUMENT_MAX_XLSX_SHEETS", "25")),
             "max_xlsx_cells": int(env("DOCUMENT_MAX_XLSX_CELLS", "250000")),
             "max_csv_rows": int(env("DOCUMENT_MAX_CSV_ROWS", "100000")),
             "max_csv_columns": int(env("DOCUMENT_MAX_CSV_COLUMNS", "100")),
-            "max_extracted_chars": self.max_extracted_chars,
         }
-        # One loop per process heals missing embeddings; the rest only claim jobs.
-        self.backfill_enabled = index == 0 and env("DOCUMENT_EMBED_BACKFILL", "1") != "0"
-        self.backfill_interval_seconds = env_float(
-            "DOCUMENT_EMBED_BACKFILL_INTERVAL_SECONDS", 60.0, minimum=5.0
-        )
-        self._backfill_next_at = 0.0
-        self._backfill_failures = 0
-        self._embed_skip = set()
 
     def object_key(self, user_id, file_name):
         return f"users/{user_id}/{uuid.uuid4()}/{safe_name(file_name)}"
@@ -1357,8 +748,6 @@ class Processor:
                 consecutive_failures = 0
                 if not job:
                     empty_claims += 1
-                    if self.maybe_backfill_embeddings():
-                        continue
                     time.sleep(
                         idle_sleep_seconds(
                             empty_claims,
@@ -1381,197 +770,6 @@ class Processor:
                     flush=True,
                 )
                 time.sleep(sleep_for)
-
-    def maybe_backfill_embeddings(self):
-        """Run one bounded backfill pass when due. Returns True if it did work."""
-        if not self.backfill_enabled or not self.embeddings.enabled:
-            return False
-        now = time.monotonic()
-        if now < self._backfill_next_at:
-            return False
-        try:
-            pages, chunks = self.backfill_embeddings(max_pages=32, max_chunks=64, queue=self.queue)
-            self._backfill_failures = 0
-        except Exception as exc:
-            self._backfill_failures += 1
-            backoff = min(3600.0, self.backfill_interval_seconds * (2 ** min(self._backfill_failures, 6)))
-            self._backfill_next_at = time.monotonic() + backoff
-            print(
-                f"EMBEDDING BACKFILL FAILED ({type(exc).__name__}); retrying in {backoff:.0f}s: {exc}",
-                flush=True,
-            )
-            return False
-        did_work = bool(pages or chunks)
-        # Drain a backlog quickly; otherwise check again after the interval.
-        self._backfill_next_at = time.monotonic() + (1.0 if did_work else self.backfill_interval_seconds)
-        if did_work:
-            print(f"embedding backfill: pages={pages} chunks={chunks}", flush=True)
-        return did_work
-
-    def _pending_embedding_rows(self, table, select, limit, min_age_seconds, extra=None, document_ids=None, queue=None):
-        params = {
-            "select": f"{select},document_files!inner(queue)" if queue else select,
-            "embedding": "is.null",
-            "order": "created_at.asc",
-            "limit": str(limit + len(self._embed_skip)),
-            **(extra or {}),
-        }
-        if document_ids:
-            params["document_file_id"] = f"in.({','.join(document_ids)})"
-        if queue:
-            params["document_files.queue"] = f"eq.{queue}"
-        if min_age_seconds > 0:
-            cutoff = datetime.now(timezone.utc) - timedelta(seconds=min_age_seconds)
-            params["created_at"] = f"lt.{cutoff.isoformat()}"
-        rows = self.db.request(table, params=params) or []
-        return [row for row in rows if row.get("id") not in self._embed_skip][:limit]
-
-    def _embed_rows(self, rows, embed_many, embed_one):
-        """Embed a batch, isolating rows the API rejects so they can't block the queue."""
-        try:
-            return embed_many(rows)
-        except RuntimeError as exc:
-            # Auth, balance, rate, timeout and server errors are not about this row; let the
-            # caller back off and retry later instead of skipping content that is fine.
-            status = re.search(r"failed: (\d{3})", str(exc))
-            if status and (int(status.group(1)) in (401, 402, 403, 408, 429) or int(status.group(1)) >= 500):
-                raise
-            if len(rows) == 1:
-                self._embed_skip.add(rows[0]["id"])
-                print(f"embedding skipped for {rows[0]['id']}: {str(exc)[:300]}", flush=True)
-                return [None]
-        results = []
-        for row in rows:
-            results.extend(self._embed_rows([row], lambda single: [embed_one(single[0])], embed_one))
-        return results
-
-    def backfill_embeddings(self, max_pages=32, max_chunks=64, min_age_seconds=600, document_ids=None, queue=None):
-        """Embed page images and text chunks that are still missing vectors.
-
-        Uploads embed pages inline, but a provider outage or API change used to
-        leave them empty forever. This pass retries them so retrieval heals.
-        """
-        pages_done = 0
-        chunks_done = 0
-        touched_docs = set()
-
-        if max_pages:
-            pages = self._pending_embedding_rows(
-                "document_pages",
-                "id,document_file_id,page_number,image_key",
-                max_pages,
-                min_age_seconds,
-                {"image_key": "not.is.null"},
-                document_ids,
-                queue,
-            )
-            if pages:
-                tmp = Path(tempfile.mkdtemp(prefix="doc-embed-backfill-"))
-                try:
-                    def fetch(row):
-                        path = tmp / f"{row['id']}.img"
-                        try:
-                            self.r2.download(row["image_key"], path)
-                            return path
-                        except Exception as exc:
-                            self._embed_skip.add(row["id"])
-                            print(f"embedding skipped for page {row['id']}: download failed: {exc}", flush=True)
-                            return None
-
-                    with ThreadPoolExecutor(max_workers=4) as pool:
-                        paths = list(pool.map(fetch, pages))
-                    ready = [(row, path) for row, path in zip(pages, paths) if path is not None]
-                    size = self.embeddings.batch_size
-                    for start in range(0, len(ready), size):
-                        batch = ready[start:start + size]
-                        literals = self._embed_rows(
-                            [row for row, _ in batch],
-                            lambda rows, batch=batch: self.embeddings.embed_images([path for _, path in batch]),
-                            lambda row, batch=batch: self.embeddings.embed_images(
-                                [path for candidate, path in batch if candidate is row]
-                            )[0],
-                        )
-                        for (row, _), literal in zip(batch, literals):
-                            if literal is None:
-                                self._embed_skip.add(row["id"])
-                                continue
-                            self.db.request(
-                                "document_pages",
-                                method="PATCH",
-                                params={"id": f"eq.{row['id']}", "embedding": "is.null"},
-                                body={
-                                    "embedding": literal,
-                                    "embedding_model": self.embeddings.model,
-                                    "embedding_dimensions": 768,
-                                },
-                                prefer="return=minimal",
-                            )
-                            pages_done += 1
-                            touched_docs.add(row["document_file_id"])
-                finally:
-                    shutil.rmtree(tmp, ignore_errors=True)
-
-        if max_chunks:
-            chunks = self._pending_embedding_rows(
-                "document_chunks", "id,text", max_chunks, min_age_seconds, document_ids=document_ids, queue=queue
-            )
-            for start in range(0, len(chunks), JINA_BATCH_SIZE_CAP):
-                batch = chunks[start:start + JINA_BATCH_SIZE_CAP]
-                literals = self._embed_rows(
-                    batch,
-                    lambda rows: self.embeddings.embed_texts([row.get("text") for row in rows]),
-                    lambda row: self.embeddings.embed_texts([row.get("text")])[0],
-                )
-                for row, literal in zip(batch, literals):
-                    if literal is None:
-                        self._embed_skip.add(row["id"])
-                        continue
-                    self.db.request(
-                        "document_chunks",
-                        method="PATCH",
-                        params={"id": f"eq.{row['id']}", "embedding": "is.null"},
-                        body={"embedding": literal, "embedding_model": self.embeddings.model},
-                        prefer="return=minimal",
-                    )
-                    chunks_done += 1
-
-        for document_file_id in touched_docs:
-            self._mark_document_enriched(document_file_id)
-        return pages_done, chunks_done
-
-    def _mark_document_enriched(self, document_file_id):
-        remaining = self.db.request(
-            "document_pages",
-            params={
-                "select": "id",
-                "document_file_id": f"eq.{document_file_id}",
-                "embedding": "is.null",
-                "image_key": "not.is.null",
-                "limit": "1",
-            },
-        ) or []
-        if remaining:
-            return
-        doc = self.db.get_document_file(document_file_id)
-        if not doc:
-            return
-        stage_errors = {
-            key: value for key, value in (doc.get("stage_errors") or {}).items() if key != "enrichment"
-        }
-        metadata = dict(doc.get("metadata") or {})
-        if metadata.get("stage") == "visual_ready_embeddings_degraded":
-            metadata["stage"] = "visual_ready"
-        metadata["warnings"] = [
-            warning for warning in (metadata.get("warnings") or [])
-            if not str((warning or {}).get("code", "")).startswith("embedding_")
-        ]
-        metadata["embedding_model"] = self.embeddings.model
-        metadata["embedding_dimensions"] = 768
-        self.db.update_document_file(document_file_id, {
-            "enriched_at": doc.get("enriched_at") or now_iso(),
-            "stage_errors": stage_errors,
-            "metadata": metadata,
-        })
 
     def _lease_heartbeat_loop(self, job_id, stop_event, lost_event):
         last_renewed = time.monotonic()
@@ -1664,10 +862,8 @@ class Processor:
 
     def dispatch(self, job, tmp):
         job_type = job["job_type"]
-        if job_type == "document.enrich.pdf":
-            return self.enrich_pdf_job(job, tmp)
-        if job_type == "document.render_page":
-            return self.render_page_job(job, tmp)
+        if job_type in ("document.enrich.pdf", "document.render_page"):
+            return self.legacy_noop_job(job, tmp)
         if job_type.startswith("document.extract."):
             return self.extract_job(job, tmp)
         if job_type.startswith("document.create."):
@@ -1694,534 +890,58 @@ class Processor:
         raise RuntimeError("Outlines are available for PDF and Word documents.")
 
     def extract_job(self, job, tmp):
+        """The one job between an upload and a ready document (also used to re-ingest)."""
         doc = self.db.get_document_file(job["document_file_id"])
+        if not doc:
+            raise RuntimeError("document_deleted")
         attachment = self.db.get_attachment(doc["attachment_id"])
-        source = tmp / safe_name(attachment["file_name"])
-        self.r2.download(attachment["object_key"], source)
-        self.assert_job_active(job["id"])
-        limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
-        if doc["kind"] == "pdf":
-            return self.extract_pdf_text_job(job, tmp, doc, attachment, source, limits)
-
-        chunks, meta = self.extract(source, doc["kind"], doc["user_id"], doc["id"], limits)
-        extraction = {
-            "metadata": meta,
-            "chunks": [{k: v for k, v in chunk.items() if k not in ("user_id", "document_file_id")} for chunk in chunks],
-        }
-        extraction_path = tmp / "extraction.json"
-        extraction_path.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
-        extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
-        self.r2.upload(extraction_key, extraction_path, "application/json")
-        self.assert_job_active(job["id"])
-        self.db.delete_chunks(doc["id"])
-        self.db.insert_chunks(chunks)
-        self.assert_job_active(job["id"])
-        ready_at = now_iso()
-        meta_out = {
-            **(doc.get("metadata") or {}),
-            **meta,
-            "progress": 100,
-            "stage": "text_ready",
-            "file_name": attachment["file_name"],
-            "content_type": attachment["content_type"],
-            "size_bytes": attachment["size_bytes"],
-        }
-        return {
-            "document_file_id": doc["id"],
-            "status": "text_ready",
-            **meta,
-            "_document_patch": {
-                "text_ready_at": ready_at,
-                "word_count": meta.get("word_count"),
-                "extraction_key": extraction_key,
-                "metadata": meta_out,
-                "error": None,
-            },
-        }
-
-    def extract_pdf_text_job(self, job, tmp, doc, attachment, source, limits):
-        job_started = time.monotonic()
-        self.db.update_document_file(doc["id"], {
-            "processing_status": "processing",
-            "metadata": {
-                "mode": "edgeparse_text",
-                "progress": 5,
-                "stage": "extracting_text",
-                "file_name": attachment["file_name"],
-                "content_type": attachment["content_type"],
-                "size_bytes": attachment["size_bytes"],
-            },
-        })
-        self.assert_job_active(job["id"])
-
-        reader = PdfReader(str(source))
-        if reader.is_encrypted:
-            raise RuntimeError("password_protected")
-        page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 150)
-        if page_count > max_pages:
-            raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
-
-        extract_started = time.monotonic()
-        chunks, meta = self.extract_pdf(source, doc["user_id"], doc["id"], limits, page_count=page_count)
-        extract_seconds = time.monotonic() - extract_started
-        self.assert_job_active(job["id"])
-
-        extraction = {
-            "metadata": meta,
-            "chunks": [{k: v for k, v in chunk.items() if k not in ("user_id", "document_file_id")} for chunk in chunks],
-        }
-        extraction_path = tmp / "extraction.json"
-        extraction_path.write_text(json.dumps(extraction, ensure_ascii=False), encoding="utf-8")
-        extraction_key = self.object_key(doc["user_id"], f"{Path(attachment['file_name']).stem}.extraction.json")
-        self.r2.upload(extraction_key, extraction_path, "application/json")
-        self.assert_job_active(job["id"])
-
-        # PDF retries upsert chunks in place — never delete-all first (avoids a gap).
-        self.db.insert_chunks(chunks)
-        self.assert_job_active(job["id"])
-
-        has_usable_text = bool(meta.get("has_usable_text"))
-        ready_at = now_iso()
-        stage_errors = {}
-        if meta.get("edgeparse_failed"):
-            stage_errors["text"] = {
-                "code": "edgeparse_failed",
-                "message": meta.get("edgeparse_error") or "EdgeParse conversion failed.",
-            }
-            has_usable_text = False
-        elif not has_usable_text:
-            stage_errors["text"] = {
-                "code": "no_usable_digital_text",
-                "message": "No usable digital text was found in the PDF.",
-            }
-
-        meta_out = {
-            "mode": "edgeparse_text",
-            "progress": 100,
-            "stage": "text_ready" if has_usable_text else "text_incapable",
-            "page_count": meta.get("page_count", page_count),
-            "word_count": meta.get("word_count", 0),
-            "has_usable_text": has_usable_text,
-            "extractor": "edgeparse",
-            "file_name": attachment["file_name"],
-            "content_type": attachment["content_type"],
-            "size_bytes": attachment["size_bytes"],
-            "warnings": list(stage_errors.values()),
-        }
-        document_patch = {
-            "page_count": meta.get("page_count", page_count),
-            "word_count": meta.get("word_count", 0),
-            "extraction_key": extraction_key,
-            "metadata": meta_out,
-            "error": None,
-        }
-        if has_usable_text:
-            document_patch["text_ready_at"] = ready_at
-        if stage_errors:
-            document_patch["stage_errors"] = stage_errors
-
-        print(
-            f"job {job['id']} PDF extract timings pages={page_count} "
-            f"edgeparse={extract_seconds:.2f}s total={time.monotonic() - job_started:.2f}s "
-            f"usable_text={has_usable_text}",
-            flush=True,
-        )
-        return {
-            "document_file_id": doc["id"],
-            "status": "text_ready" if has_usable_text else "text_incapable",
-            "page_count": meta.get("page_count", page_count),
-            "word_count": meta.get("word_count", 0),
-            "has_usable_text": has_usable_text,
-            "_document_patch": document_patch,
-        }
-
-    def enrich_pdf_job(self, job, tmp):
-        job_started = time.monotonic()
-        doc = self.db.get_document_file(job["document_file_id"])
-        attachment = self.db.get_attachment(doc["attachment_id"])
-        source = tmp / safe_name(attachment["file_name"])
-        self.r2.download(attachment["object_key"], source)
-        self.assert_job_active(job["id"])
-        limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
-
-        self.db.update_document_file(doc["id"], {
-            "processing_status": "processing",
-            "metadata": {
-                "mode": "visual_pages",
-                "progress": 2,
-                "stage": "validating",
-                "file_name": attachment["file_name"],
-                "content_type": attachment["content_type"],
-                "size_bytes": attachment["size_bytes"],
-            },
-        })
-
-        source_kind = str(doc.get("kind") or "").lower()
-        visual_source = source
-        if source_kind in ("docx", "xlsx", "pptx"):
-            self.db.update_document_file(doc["id"], {
-                "metadata": {
-                    "mode": "visual_pages",
-                    "progress": 5,
-                    "stage": "converting_to_pdf",
-                    "source_kind": source_kind,
-                },
-            })
-            visual_source = self.libreoffice_convert(source, tmp, "pdf")
-            self.assert_job_active(job["id"])
-        elif source_kind != "pdf":
-            raise RuntimeError(f"unsupported_visual_document_kind: {source_kind}")
-
-        reader = PdfReader(str(visual_source))
-        if reader.is_encrypted:
-            raise RuntimeError("password_protected")
-        page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 150)
-        if page_count > max_pages:
-            raise RuntimeError(f"too_many_pages: PDF has {page_count} pages; limit is {max_pages}")
-
-        render_dir = tmp / "pages"
-        render_dir.mkdir(parents=True, exist_ok=True)
-        render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
-        self.db.update_document_file(doc["id"], {
-            "metadata": {
-                "mode": "visual_pages",
-                "progress": 10,
-                "stage": "rendering_pages",
-                "page_count": page_count,
-                "source_kind": source_kind,
-                "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-            },
-        })
-
-        ranges = split_page_ranges(page_count, self.pdf_render_workers) or [(1, page_count)]
-        page_specs = []
-        rendered_count = 0
-        done_indexes = set()
-        render_seconds = 0.0
-        upload_seconds = 0.0
-
-        def upload_and_publish(spec):
-            self.r2.upload(spec["key"], spec["image_path"], "image/jpeg")
-            page_row = {
-                "user_id": doc["user_id"],
-                "document_file_id": doc["id"],
-                "page_number": spec["index"],
-                "source_label": f"Page {spec['index']}",
-                "image_key": spec["key"],
-                "image_content_type": "image/jpeg",
-                "width_px": spec["width_px"],
-                "height_px": spec["height_px"],
-                "text": "",
-                "char_count": 0,
-                "token_estimate": 0,
-                "embedding": None,
-                "embedding_model": None,
-                "embedding_dimensions": None,
-                "metadata": {
-                    "page": spec["index"],
-                    "source_kind": source_kind,
-                    "source_etag": attachment.get("etag"),
-                },
-            }
-            try:
-                self.db.insert_pages([page_row])
-            except Exception:
-                self.r2.delete(spec["key"])
-                raise
-            return spec["index"]
-
-        def render_range(range_index, first_page, last_page):
-            range_dir = render_dir / f"range-{range_index}"
-            range_dir.mkdir(parents=True, exist_ok=True)
-            started = time.monotonic()
-            paths = self.render_pdf_pages(
-                visual_source,
-                range_dir,
-                render_dpi,
-                page_count=(last_page - first_page) + 1,
-                first_page=first_page,
-                last_page=last_page,
-            )
-            return first_page, last_page, paths, time.monotonic() - started
-
-        with ThreadPoolExecutor(max_workers=min(len(ranges), self.pdf_render_workers)) as render_pool:
-            render_futures = [
-                render_pool.submit(render_range, index, first_page, last_page)
-                for index, (first_page, last_page) in enumerate(ranges, start=1)
-            ]
-            for render_future in as_completed(render_futures):
-                first_page, last_page, image_paths, elapsed = render_future.result()
-                render_seconds = max(render_seconds, elapsed)
-                expected = (last_page - first_page) + 1
-                if len(image_paths) != expected:
-                    raise RuntimeError(
-                        f"pdf_render_failed: pages {first_page}-{last_page} expected {expected}, rendered {len(image_paths)}"
-                    )
-                self.assert_job_active(job["id"])
-
-                rendered_specs = []
-                for offset, image_path in enumerate(image_paths):
-                    page_number = first_page + offset
-                    width_px, height_px = self.estimated_page_pixels(reader.pages[page_number - 1])
-                    rendered_specs.append({
-                        "index": page_number,
-                        "image_path": image_path,
-                        "key": f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{page_number:04d}.jpg",
-                        "width_px": width_px,
-                        "height_px": height_px,
-                    })
-                page_specs.extend(rendered_specs)
-                rendered_count += len(rendered_specs)
-
-                range_upload_started = time.monotonic()
-                with ThreadPoolExecutor(
-                    max_workers=min(self.page_upload_workers, max(1, len(rendered_specs)))
-                ) as upload_pool:
-                    upload_futures = [upload_pool.submit(upload_and_publish, spec) for spec in rendered_specs]
-                    for upload_future in as_completed(upload_futures):
-                        done_indexes.add(upload_future.result())
-                upload_seconds += time.monotonic() - range_upload_started
-
-                completed = len(done_indexes)
-                self.assert_job_active(job["id"])
-                if not self.db.get_document_file(doc["id"]):
-                    raise RuntimeError("document_deleted")
-                progress = 10 + int((completed / max(1, page_count)) * 65)
-                self.db.update_document_file(doc["id"], {
-                    "metadata": {
-                        "mode": "visual_pages",
-                        "progress": min(progress, 75),
-                        "stage": "uploading_pages" if completed < page_count else "publishing_visual_manifest",
-                        "page_count": page_count,
-                        "source_kind": source_kind,
-                        "pages_rendered": rendered_count,
-                        "pages_uploaded": completed,
-                        "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-                    },
-                })
-        if len(done_indexes) < page_count:
-            raise RuntimeError(f"pdf_page_upload_failed: expected {page_count} pages, uploaded {len(done_indexes)}")
-        page_specs.sort(key=lambda spec: spec["index"])
-
-        self.assert_job_active(job["id"])
-        visual_ready_metadata = {
-            "mode": "visual_pages",
-            "progress": 75,
-            "stage": "visual_ready",
-            "page_count": page_count,
-            "source_kind": source_kind,
-            "pages_uploaded": page_count,
-            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-            "file_name": attachment["file_name"],
-            "content_type": attachment["content_type"],
-            "size_bytes": attachment["size_bytes"],
-        }
-        published = self.db.publish_document_visual_ready(
-            job["id"],
-            self.worker_id,
-            doc["id"],
-            page_count,
-            visual_ready_metadata,
-        )
-        if published is None:
-            raise LeaseLostError("job_lease_lost")
-        visual_ready_at = published.get("visual_ready_at") or now_iso()
-
-        warnings = []
-        stage_errors = {}
-        embedding_seconds = 0.0
-        embeddings = [None] * page_count
-        enriched = False
-
-        if self.embeddings.enabled:
-            self.db.update_document_file(doc["id"], {
-                "metadata": {
-                    "mode": "visual_pages",
-                    "progress": 80,
-                    "stage": "embedding",
-                    "page_count": page_count,
-                    "source_kind": source_kind,
-                    "pages_uploaded": page_count,
-                    "embedding_model": self.embeddings.model,
-                },
-            })
-            embedding_started = time.monotonic()
-            try:
-                embedded = self.embeddings.embed_images([spec["image_path"] for spec in page_specs])
-                if not isinstance(embedded, list):
-                    embedded = list(embedded or [])
-                embeddings = list(embedded[:page_count])
-                while len(embeddings) < page_count:
-                    embeddings.append(None)
-                for spec, embedding in zip(page_specs, embeddings):
-                    if embedding is None:
-                        continue
-                    self.db.update_page(doc["id"], spec["index"], {
-                        "embedding": embedding,
-                        "embedding_model": self.embeddings.model,
-                        "embedding_dimensions": 768,
-                    })
-                enriched = all(embeddings[i] is not None for i in range(page_count))
-                if not enriched:
-                    warnings.append({
-                        "code": "embedding_incomplete",
-                        "message": "One or more page embeddings were missing or skipped.",
-                    })
-                    stage_errors["enrichment"] = {
-                        "code": "embedding_incomplete",
-                        "message": "One or more page embeddings were missing or skipped.",
-                    }
-            except Exception as exc:
-                warnings.append({"code": "embedding_failed", "message": str(exc)})
-                stage_errors["enrichment"] = {
-                    "code": "embedding_failed",
-                    "message": str(exc),
-                }
-                enriched = False
-            embedding_seconds = time.monotonic() - embedding_started
-        else:
-            warnings.append({
-                "code": "embedding_unavailable",
-                "message": "Image embeddings are disabled; visual pages are ready without enrichment.",
-            })
-            stage_errors["enrichment"] = {
-                "code": "embedding_unavailable",
-                "message": "Image embeddings are disabled; visual pages are ready without enrichment.",
-            }
-            enriched = False
-
-        self.assert_job_active(job["id"])
-        enriched_at = now_iso() if enriched else None
-        meta = {
-            **(doc.get("metadata") or {}),
-            "mode": "visual_pages",
-            "progress": 100,
-            "stage": "visual_ready" if enriched else "visual_ready_embeddings_degraded",
-            "page_count": page_count,
-            "source_kind": source_kind,
-            "pages_uploaded": page_count,
-            "embedding_model": self.embeddings.model if self.embeddings.enabled else None,
-            "embedding_dimensions": 768 if any(embeddings) else None,
-            "warnings": warnings,
-            "file_name": attachment["file_name"],
-            "content_type": attachment["content_type"],
-            "size_bytes": attachment["size_bytes"],
-        }
-        document_patch = {
-            "visual_ready_at": visual_ready_at,
-            "page_count": page_count,
-            "metadata": meta,
-            "error": None,
-        }
-        if enriched_at:
-            document_patch["enriched_at"] = enriched_at
-        if stage_errors:
-            document_patch["stage_errors"] = stage_errors
-
-        print(
-            f"job {job['id']} visual enrich timings kind={source_kind} pages={page_count} "
-            f"render={render_seconds:.2f}s embeddings={embedding_seconds:.2f}s "
-            f"page_uploads={upload_seconds:.2f}s total={time.monotonic() - job_started:.2f}s "
-            f"enriched={enriched}",
-            flush=True,
-        )
-        return {
-            "document_file_id": doc["id"],
-            "status": "visual_ready",
-            "page_count": page_count,
-            "pages_uploaded": page_count,
-            "enriched": enriched,
-            "_document_patch": document_patch,
-        }
-
-    def render_page_job(self, job, tmp):
-        doc = self.db.get_document_file(job["document_file_id"])
-        attachment_id = doc.get("attachment_id") or (job.get("input") or {}).get("attachment_id")
-        attachment = self.db.get_attachment(attachment_id)
         if not attachment:
             raise RuntimeError("attachment_not_found")
         source = tmp / safe_name(attachment["file_name"])
         self.r2.download(attachment["object_key"], source)
         self.assert_job_active(job["id"])
-
-        source_kind = str(doc.get("kind") or "").lower()
-        if source_kind in ("docx", "xlsx", "pptx"):
-            visual_source = self.libreoffice_convert(source, tmp, "pdf")
-            self.assert_job_active(job["id"])
-        elif source_kind == "pdf":
-            visual_source = source
-        else:
-            raise RuntimeError(f"unsupported_visual_document_kind: {source_kind}")
-
-        input_data = job.get("input") or {}
-        try:
-            page_number = int(input_data.get("page_number"))
-        except (TypeError, ValueError):
-            raise RuntimeError("invalid_page_number")
-        if page_number < 1:
-            raise RuntimeError("invalid_page_number")
-
-        reader = PdfReader(str(visual_source))
-        if reader.is_encrypted:
-            raise RuntimeError("password_protected")
-        page_count = len(reader.pages)
-        if page_number > page_count:
-            raise RuntimeError("page_out_of_range")
-
-        limits = {**self.default_limits, **(input_data.get("limits") or {})}
-        render_dir = tmp / "pages"
-        render_dir.mkdir(parents=True, exist_ok=True)
-        render_dpi = self.limit(limits, "visual_page_dpi", self.visual_page_dpi)
+        limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
+        if doc.get("processing_status") != "ready":
+            self.db.update_document_file(doc["id"], {"processing_status": "processing"})
+        meta = self.ingest_document(doc, attachment, source, tmp, limits, job_id=job["id"], report_progress=True)
         self.assert_job_active(job["id"])
-        image_paths = self.render_pdf_pages(
-            visual_source,
-            render_dir,
-            render_dpi,
-            page_count=1,
-            first_page=page_number,
-            last_page=page_number,
-        )
-        if not image_paths:
-            raise RuntimeError(f"pdf_render_failed: page {page_number} was not rendered")
-        self.assert_job_active(job["id"])
-
-        image_path = image_paths[0]
-        key = f"users/{doc['user_id']}/documents/{doc['id']}/pages/page-{page_number:04d}.jpg"
-        width_px, height_px = self.estimated_page_pixels(reader.pages[page_number - 1])
-        self.r2.upload(key, image_path, "image/jpeg")
-        self.assert_job_active(job["id"])
-        self.db.insert_pages([{
-            "user_id": doc["user_id"],
-            "document_file_id": doc["id"],
-            "page_number": page_number,
-            "source_label": f"Page {page_number}",
-            "image_key": key,
-            "image_content_type": "image/jpeg",
-            "width_px": width_px,
-            "height_px": height_px,
-            "text": "",
-            "char_count": 0,
-            "token_estimate": 0,
-            "embedding": None,
-            "embedding_model": None,
-            "embedding_dimensions": None,
+        ready_at = now_iso()
+        patch = {
+            # Text and pages are stored together, so a document is either fully ready or not.
+            "text_ready_at": ready_at,
+            "page_count": meta.get("page_count"),
+            "word_count": meta.get("word_count"),
             "metadata": {
-                "page": page_number,
-                "source_kind": source_kind,
-                "source_etag": attachment.get("etag"),
-                "on_demand": True,
+                # A re-ingest keeps what other features stored (editable, generated-file and
+                # editor flags) and replaces only what ingest derives from the file.
+                **{
+                    key: value for key, value in (doc.get("metadata") or {}).items()
+                    if key not in INGEST_DERIVED_METADATA
+                },
+                **meta,
+                "progress": 100,
+                "stage": "ready",
+                "warnings": [],
+                "file_name": attachment["file_name"],
+                "content_type": attachment["content_type"],
+                "size_bytes": attachment["size_bytes"],
             },
-        }])
+            "error": None,
+        }
+        if meta.get("pipeline") == ingest.PIPELINE_PAGES:
+            patch["visual_ready_at"] = ready_at
         return {
             "document_file_id": doc["id"],
-            "page_number": page_number,
-            "image_key": key,
-            "width_px": width_px,
-            "height_px": height_px,
-            "status": "rendered",
+            "status": "ready",
+            "page_count": meta.get("page_count"),
+            "visual_pages": len(meta.get("visual_pages") or []),
+            "_document_patch": patch,
         }
+
+    def legacy_noop_job(self, job, tmp):
+        # Uploads are ingested by a single job now. Visual-enrichment and per-page render jobs
+        # queued before the switch finish without doing anything.
+        return {"status": "skipped", "reason": "single_ingest"}
 
     def limit(self, limits, key, fallback):
         try:
@@ -2230,44 +950,8 @@ class Processor:
         except (TypeError, ValueError):
             return fallback
 
-    def cap_chunks(self, chunks, limits):
-        max_chars = self.limit(limits, "max_extracted_chars", self.max_extracted_chars)
-        capped = []
-        total = 0
-        for chunk in chunks:
-            text = chunk.get("text") or ""
-            if total >= max_chars:
-                break
-            remaining = max_chars - total
-            if len(text) > remaining:
-                chunk = {**chunk, "text": truncate(text, remaining)}
-                chunk["char_count"] = len(chunk["text"])
-                chunk["token_estimate"] = max(1, len(chunk["text"]) // 4)
-            capped.append(chunk)
-            total += len(chunk.get("text") or "")
-        return capped
-
-    def extract(self, path, kind, user_id, document_file_id, limits=None):
-        limits = {**self.default_limits, **(limits or {})}
-        if kind == "pdf":
-            chunks, meta = self.extract_pdf(path, user_id, document_file_id, limits)
-            return self.cap_chunks(chunks, limits), meta
-        if kind == "docx":
-            chunks, meta = self.extract_docx(path, user_id, document_file_id, limits)
-            return self.cap_chunks(chunks, limits), meta
-        if kind == "xlsx":
-            chunks, meta = self.extract_xlsx(path, user_id, document_file_id, limits)
-            return self.cap_chunks(chunks, limits), meta
-        if kind == "pptx":
-            chunks, meta = self.extract_pptx(path, user_id, document_file_id, limits)
-            return self.cap_chunks(chunks, limits), meta
-        if kind in ("csv", "tsv"):
-            chunks, meta = self.extract_csv(path, kind, user_id, document_file_id, limits)
-            return self.cap_chunks(chunks, limits), meta
-        raise RuntimeError(f"Unsupported document kind: {kind}")
-
     def chunk(self, user_id, document_file_id, index, source_type, label, text, metadata=None):
-        text = truncate(text, 12000)
+        text = str(text or "")
         return {
             "user_id": user_id,
             "document_file_id": document_file_id,
@@ -2276,9 +960,280 @@ class Processor:
             "source_label": label,
             "text": text,
             "char_count": len(text),
-            "token_estimate": max(1, len(text) // 4),
+            "token_estimate": ingest.estimate_tokens(text),
             "metadata": metadata or {},
         }
+
+    def ingest_document(self, doc, attachment, source, tmp, limits, job_id=None, pdf_override=None, report_progress=False):
+        """Store a document completely as pages or rows. Returns the document metadata."""
+        kind = str(doc.get("kind") or "").lower()
+        base = dict(doc.get("metadata") or {})
+
+        def progress(stage, value, **extra):
+            if not report_progress:
+                return
+            base.update({"stage": stage, "progress": value, **extra})
+            self.db.update_document_file(doc["id"], {"metadata": dict(base)})
+
+        def check():
+            if job_id:
+                self.assert_job_active(job_id)
+
+        work = tmp / f"ingest-{uuid.uuid4().hex[:8]}"
+        work.mkdir(parents=True, exist_ok=True)
+        if kind in ("pdf", "docx", "pptx"):
+            return self.ingest_paged(doc, attachment, source, work, limits, progress, check, pdf_override)
+        if kind in ("xlsx", "csv", "tsv"):
+            return self.ingest_spreadsheet(doc, source, limits, progress, check)
+        raise RuntimeError(f"unsupported_document_kind: {kind}")
+
+    def ingest_paged(self, doc, attachment, source, work, limits, progress, check, pdf_override=None):
+        started = time.monotonic()
+        kind = str(doc.get("kind") or "").lower()
+        user_id, doc_id = doc["user_id"], doc["id"]
+        if kind == "pdf":
+            pdf_path = source
+        elif pdf_override and Path(pdf_override).exists():
+            pdf_path = Path(pdf_override)
+        else:
+            progress("converting", 5)
+            convert_from = source
+            if kind == "pptx":
+                # Hidden slides are part of the document: convert a copy with them shown.
+                shown = work / "slides" / source.name
+                shown.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    if ingest.unhide_slides(source, shown):
+                        convert_from = shown
+                except Exception as exc:
+                    print(f"ingest {doc_id}: could not show hidden slides ({exc})", flush=True)
+            pdf_path = self.libreoffice_convert(convert_from, work, "pdf")
+            check()
+
+        progress("reading_pages", 10)
+        pages = ingest.read_pdf_pages(pdf_path, self.limit(limits, "max_pdf_pages", 150))
+        page_count = len(pages)
+        all_slides = ingest.pptx_slides(source, pptx_notes_text) if kind == "pptx" else []
+        slides = ingest.map_slides_to_pages(all_slides, page_count) if kind == "pptx" else None
+        check()
+
+        progress("rendering_pages", 20, page_count=page_count)
+        dpi = max(72, min(self.limit(limits, "visual_page_dpi", self.visual_page_dpi), 180))
+        render_dir = work / "pages"
+        render_dir.mkdir(parents=True, exist_ok=True)
+        rendered = self.render_pdf_pages(pdf_path, render_dir, dpi, page_count=page_count)
+        if len(rendered) != page_count:
+            raise RuntimeError(f"pdf_render_failed: rendered {len(rendered)} of {page_count} pages")
+        check()
+
+        # Scanned pages have no text layer: read them by OCR so they can be searched and
+        # quoted. Their images stay the source of truth for exact characters.
+        ocr_pages = [index for index, page in enumerate(pages) if ingest.needs_ocr(page)]
+        if ocr_pages and ingest.ocr_available():
+            progress("reading_scans", 20, page_count=page_count)
+            ocr_dir = work / "ocr"
+            ocr_dir.mkdir(parents=True, exist_ok=True)
+            scan_ppi = ingest.page_scan_ppi(pdf_path)
+
+            def read_scan(index):
+                number = pages[index]["number"]
+                return ingest.ocr_pdf_page(pdf_path, number, ocr_dir, ingest.ocr_dpi_for(scan_ppi.get(number), self.ocr_dpi))
+            with ThreadPoolExecutor(max_workers=max(1, min(self.pdf_render_workers, len(ocr_pages)))) as pool:
+                found = list(pool.map(read_scan, ocr_pages))
+            for index, text in zip(ocr_pages, found):
+                if text:
+                    pages[index]["text"] = text
+                    pages[index]["ocr"] = True
+                elif text is None:
+                    pages[index]["ocr_failed"] = True
+            check()
+        elif ocr_pages:
+            print(f"ingest {doc_id}: {len(ocr_pages)} scanned pages left without text (tesseract missing)", flush=True)
+            for index in ocr_pages:
+                pages[index]["ocr_failed"] = True
+
+        scale = dpi / 72
+        etag = attachment.get("etag") or doc.get("source_etag")
+        page_rows = []
+        chunks = []
+        for page, image_path in zip(pages, rendered):
+            number = page["number"]
+            slide = slides[number - 1] if slides else None
+            label = ingest.slide_label(slide, number) if kind == "pptx" else f"Page {number}"
+            text = page["text"]
+            if slide and slide.get("notes"):
+                text = f"{text}\n\nSpeaker notes:\n{slide['notes']}".strip()
+            visual = {
+                "visual": page["visual"],
+                "visual_reason": page["visual_reason"],
+                **({"ocr": True} if page.get("ocr") else {}),
+                **({"ocr_failed": True} if page.get("ocr_failed") else {}),
+            }
+            slide_meta = {"slide": slide["number"], **({"hidden": True} if slide["hidden"] else {})} if slide else {}
+            page_rows.append({
+                "user_id": user_id,
+                "document_file_id": doc_id,
+                "page_number": number,
+                "source_label": label,
+                "image_key": f"users/{user_id}/documents/{doc_id}/pages/page-{number:04d}.jpg",
+                "image_content_type": "image/jpeg",
+                "width_px": max(1, round(page["width_pt"] * scale)),
+                "height_px": max(1, round(page["height_pt"] * scale)),
+                "text": "",
+                "char_count": len(text),
+                "token_estimate": ingest.estimate_tokens(text),
+                "metadata": {"page": number, **slide_meta, **visual, "source_kind": kind, "source_etag": etag},
+                "_image_path": image_path,
+            })
+            chunks.append(self.chunk(
+                user_id, doc_id, number - 1, "slide" if kind == "pptx" else "page", label, text,
+                {
+                    "page": number,
+                    **slide_meta,
+                    **visual,
+                    # Older readers (study tools) look for these two flags.
+                    "has_visual": page["visual"],
+                    **({"visual_only": True} if page["visual"] and not text else {}),
+                    "extractor": ingest.PIPELINE_PAGES,
+                },
+            ))
+
+        uploaded = 0
+
+        def upload(row):
+            self.r2.upload(row["image_key"], row["_image_path"], "image/jpeg")
+            return row["page_number"]
+
+        with ThreadPoolExecutor(max_workers=min(self.page_upload_workers, max(1, page_count))) as pool:
+            for future in as_completed([pool.submit(upload, row) for row in page_rows]):
+                future.result()
+                uploaded += 1
+                if uploaded % 10 == 0 or uploaded == page_count:
+                    check()
+                    progress("saving_pages", 20 + int(70 * uploaded / page_count), page_count=page_count)
+
+        self.db.insert_pages([{key: value for key, value in row.items() if key != "_image_path"} for row in page_rows])
+        self.db.insert_chunks(chunks)
+        self.remove_stale_rows(doc_id, chunk_count=len(chunks), page_count=page_count)
+        check()
+
+        visual_pages = [page["number"] for page in pages if page["visual"]]
+        ocr_page_numbers = [page["number"] for page in pages if page.get("ocr")]
+        text_tokens = sum(chunk["token_estimate"] for chunk in chunks)
+        print(
+            f"ingest {doc_id} kind={kind} pages={page_count} visual={len(visual_pages)} ocr={len(ocr_page_numbers)} "
+            f"ocr_failed={sum(1 for page in pages if page.get('ocr_failed'))} "
+            f"text_tokens={text_tokens} seconds={time.monotonic() - started:.1f}",
+            flush=True,
+        )
+        meta = {
+            "pipeline": ingest.PIPELINE_PAGES,
+            "ingest_version": ingest.INGEST_VERSION,
+            "mode": "pages",
+            "source_kind": kind,
+            "page_count": page_count,
+            "word_count": sum(len(chunk["text"].split()) for chunk in chunks),
+            "text_tokens": text_tokens,
+            "visual_pages": visual_pages,
+            "page_index": [
+                ingest.page_index_entry(chunk["metadata"]["page"], chunk["source_label"], chunk["text"], chunk["metadata"]["visual"])
+                for chunk in chunks
+            ],
+        }
+        if ocr_page_numbers:
+            meta["ocr_pages"] = ocr_page_numbers
+        ocr_failed = [page["number"] for page in pages if page.get("ocr_failed")]
+        if ocr_failed:
+            meta["ocr_failed_pages"] = ocr_failed
+        if slides and any(slide is None for slide in slides):
+            meta["slide_numbers_unmatched"] = True
+        hidden = [slide["number"] for slide in all_slides if slide["hidden"]]
+        if hidden:
+            meta["hidden_slides"] = hidden
+            # Hidden slides normally have their own pages; if conversion still left them out, say so.
+            if not slides or not any(slide and slide["hidden"] for slide in slides):
+                meta["hidden_slides_missing"] = hidden
+        return meta
+
+    def ingest_spreadsheet(self, doc, source, limits, progress, check):
+        kind = str(doc.get("kind") or "").lower()
+        user_id, doc_id = doc["user_id"], doc["id"]
+        progress("reading_rows", 10)
+        if kind == "xlsx":
+            sheets, extra = ingest.read_xlsx_sheets(
+                source,
+                self.limit(limits, "max_xlsx_sheets", 25),
+                self.limit(limits, "max_xlsx_cells", 250000),
+            )
+        else:
+            sheets, extra = ingest.read_delimited_sheet(
+                source,
+                kind,
+                self.limit(limits, "max_csv_rows", 100000),
+                self.limit(limits, "max_csv_columns", 100),
+                detect_encoding=lambda path: getattr(from_path(str(path)).best(), "encoding", None),
+            )
+        chunks = ingest.sheet_chunks(
+            sheets,
+            lambda index, source_type, label, text, metadata: self.chunk(user_id, doc_id, index, source_type, label, text, metadata),
+        )
+        if not chunks:
+            raise RuntimeError("empty_document: the spreadsheet has no data")
+        check()
+        progress("saving_rows", 60)
+        self.db.insert_chunks(chunks)
+        self.remove_stale_rows(doc_id, chunk_count=len(chunks), page_count=0)
+        check()
+        summaries = [sheet.summary() for sheet in sheets]
+        sheet_count = len(sheets)
+        self.db.update_document_file(doc_id, {
+            "sheet_count": sheet_count,
+            "used_cell_count": extra.get("used_cell_count"),
+        })
+        return {
+            "pipeline": ingest.PIPELINE_SHEETS,
+            "ingest_version": ingest.INGEST_VERSION,
+            "mode": "rows",
+            "source_kind": kind,
+            "sheets": summaries,
+            "sheet_count": sheet_count,
+            "row_count": sum(summary["rows"] for summary in summaries),
+            "used_cell_count": extra.get("used_cell_count"),
+            "word_count": sum(len(chunk["text"].split()) for chunk in chunks),
+            "text_tokens": sum(chunk["token_estimate"] for chunk in chunks),
+            **({"formula_cache_trusted": extra["formula_cache_trusted"]} if "formula_cache_trusted" in extra else {}),
+        }
+
+    def remove_stale_rows(self, document_file_id, chunk_count, page_count):
+        """A re-ingested document can come out shorter: drop rows (and page images) past its end."""
+        self.db.request(
+            "document_chunks",
+            method="DELETE",
+            params={"document_file_id": f"eq.{document_file_id}", "chunk_index": f"gte.{int(chunk_count)}"},
+            prefer="return=minimal",
+        )
+        stale = self.db.request(
+            "document_pages",
+            params={
+                "document_file_id": f"eq.{document_file_id}",
+                "page_number": f"gt.{int(page_count)}",
+                "select": "id,image_key",
+            },
+        ) or []
+        if not stale:
+            return
+        self.db.request(
+            "document_pages",
+            method="DELETE",
+            params={"document_file_id": f"eq.{document_file_id}", "page_number": f"gt.{int(page_count)}"},
+            prefer="return=minimal",
+        )
+        for row in stale:
+            if row.get("image_key"):
+                try:
+                    self.r2.delete(row["image_key"])
+                except Exception as exc:
+                    print(f"stale page image delete failed ({row['image_key']}): {exc}", flush=True)
 
     def render_pdf_pages(self, path, output_dir, dpi=None, page_count=None, first_page=None, last_page=None):
         prefix = output_dir / "page"
@@ -2313,364 +1268,6 @@ class Processor:
             return int(match.group(1)) if match else 0
 
         return sorted(output_dir.glob("page-*.jpg"), key=page_number)
-
-    def estimated_page_pixels(self, page):
-        try:
-            width_pt = float(page.mediabox.width)
-            height_pt = float(page.mediabox.height)
-            scale = max(72, min(self.visual_page_dpi, 180)) / 72
-            return max(1, round(width_pt * scale)), max(1, round(height_pt * scale))
-        except Exception:
-            return None, None
-
-    def extract_pdf(self, path, user_id, document_file_id, limits, page_count=None):
-        reader = PdfReader(str(path))
-        if reader.is_encrypted:
-            raise RuntimeError("password_protected")
-        pdf_page_count = len(reader.pages)
-        max_pages = self.limit(limits, "max_pdf_pages", 150)
-        if pdf_page_count > max_pages:
-            raise RuntimeError(f"too_many_pages: PDF has {pdf_page_count} pages; limit is {max_pages}")
-
-        # pypdf page count is authoritative for the manifest.
-        resolved_page_count = int(page_count if page_count is not None else pdf_page_count)
-        if resolved_page_count < 0:
-            resolved_page_count = 0
-
-        try:
-            raw = edgeparse.convert(str(path), format="json")
-            grouped = group_edgeparse_pages(raw, max_page_count=resolved_page_count)
-        except Exception as exc:
-            # Soft text-incapable outcome: visual enrich can still succeed independently.
-            return [], {
-                "page_count": resolved_page_count or pdf_page_count,
-                "word_count": 0,
-                "has_usable_text": False,
-                "extractor": "edgeparse",
-                "edgeparse_failed": True,
-                "edgeparse_error": str(exc),
-            }
-
-        chunks = []
-        for page in grouped["pages"]:
-            text = (page.get("text") or "").strip()
-            try:
-                figure_count = int(page.get("figure_count") or 0)
-            except (TypeError, ValueError):
-                figure_count = 0
-            has_visual = bool(page.get("has_visual")) or figure_count > 0
-            # Empty text is insertable (NOT NULL allows '') and skipped by study
-            # loaders; metadata stays queryable for visual-candidate selection.
-            if not text and not has_visual:
-                continue
-            metadata = {
-                "page": page["page_number"],
-                "extractor": "edgeparse",
-                "figure_count": figure_count,
-                "has_visual": has_visual,
-            }
-            if not text and has_visual:
-                metadata["visual_only"] = True
-            chunks.append(self.chunk(
-                user_id,
-                document_file_id,
-                len(chunks),
-                "page",
-                f"Page {page['page_number']}",
-                text,
-                metadata,
-            ))
-            if len(chunks) >= 1000:
-                break
-
-        capped = self.cap_chunks(chunks, limits)
-        combined = "\n\n".join((chunk.get("text") or "").strip() for chunk in capped).strip()
-        total_words = sum(len((chunk.get("text") or "").split()) for chunk in capped)
-        has_usable_text = is_usable_extracted_text(combined)
-        meta = {
-            "page_count": resolved_page_count or pdf_page_count,
-            "word_count": total_words,
-            "has_usable_text": has_usable_text,
-            "extractor": "edgeparse",
-        }
-        return capped, meta
-
-    def extract_docx(self, path, user_id, document_file_id, limits):
-        doc = Document(str(path))
-        chunks = []
-        buffer = []
-        words = 0
-        section = "Document"
-        max_words = self.limit(limits, "max_docx_words", 80000)
-        for paragraph in doc.paragraphs:
-            text = paragraph.text.strip()
-            if not text:
-                continue
-            words += len(text.split())
-            if words > max_words:
-                raise RuntimeError(f"too_many_words: DOCX exceeds {max_words} extracted words")
-            style = paragraph.style.name if paragraph.style else ""
-            if style.lower().startswith("heading"):
-                if buffer:
-                    chunks.append(self.chunk(user_id, document_file_id, len(chunks), "paragraph", section, "\n".join(buffer)))
-                    buffer = []
-                section = text[:120]
-            else:
-                buffer.append(text)
-                if sum(len(x) for x in buffer) > 6000:
-                    chunks.append(self.chunk(user_id, document_file_id, len(chunks), "paragraph", section, "\n".join(buffer)))
-                    buffer = []
-        if buffer:
-            chunks.append(self.chunk(user_id, document_file_id, len(chunks), "paragraph", section, "\n".join(buffer)))
-        for table_index, table in enumerate(doc.tables, start=1):
-            rows = []
-            for row in table.rows[:80]:
-                rows.append("\t".join(cell.text.strip() for cell in row.cells))
-            if rows:
-                chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Table {table_index}", "\n".join(rows), {"table": table_index}))
-        return chunks[:1000], {"word_count": words}
-
-    def extract_xlsx(self, path, user_id, document_file_id, limits):
-        wb = load_workbook(str(path), read_only=True, data_only=False)
-        values_wb = load_workbook(str(path), read_only=True, data_only=True)
-        max_sheets = self.limit(limits, "max_xlsx_sheets", 25)
-        max_cells = self.limit(limits, "max_xlsx_cells", 250000)
-        try:
-            if len(wb.worksheets) > max_sheets:
-                raise RuntimeError(f"too_many_sheets: workbook has {len(wb.worksheets)} sheets; limit is {max_sheets}")
-
-            chunks = []
-            used_cells = 0
-            word_count = 0
-            calculation = getattr(wb, "calculation", None)
-            full_recalc = bool(
-                getattr(calculation, "fullCalcOnLoad", False)
-                or getattr(calculation, "forceFullCalc", False)
-            )
-            column_block_size = 25
-            chunk_chars = 5500
-
-            for sheet in wb.worksheets:
-                values_sheet = values_wb[sheet.title]
-                max_row = max(0, int(sheet.max_row or 0))
-                max_column = max(0, int(sheet.max_column or 0))
-                if not max_row or not max_column:
-                    continue
-                if max_row * max_column > max_cells * 20:
-                    raise RuntimeError(
-                        f"too_large_used_range: sheet {sheet.title!r} declares {max_row}x{max_column} cells"
-                    )
-
-                header_row = 1
-                for row_index, row in enumerate(
-                    sheet.iter_rows(min_row=1, max_row=min(max_row, 20), min_col=1, max_col=max_column),
-                    start=1,
-                ):
-                    if sum(cell.value is not None for cell in row) >= 2:
-                        header_row = row_index
-                        break
-
-                for column_start in range(1, max_column + 1, column_block_size):
-                    column_end = min(max_column, column_start + column_block_size - 1)
-                    formula_rows = sheet.iter_rows(min_row=1, max_row=max_row, min_col=column_start, max_col=column_end)
-                    cached_rows = values_sheet.iter_rows(min_row=1, max_row=max_row, min_col=column_start, max_col=column_end)
-                    header_line = ""
-                    buffered_lines = []
-                    buffered_rows = []
-                    buffered_chars = 0
-
-                    def flush_range():
-                        nonlocal buffered_lines, buffered_rows, buffered_chars
-                        if not buffered_rows:
-                            return
-                        repeat_header = bool(header_line and header_row not in buffered_rows)
-                        text_lines = ([header_line] if repeat_header else []) + buffered_lines
-                        row_start = min(buffered_rows)
-                        row_end = max(buffered_rows)
-                        cell_range = (
-                            f"{get_column_letter(column_start)}{row_start}:"
-                            f"{get_column_letter(column_end)}{row_end}"
-                        )
-                        chunks.append(self.chunk(
-                            user_id,
-                            document_file_id,
-                            len(chunks),
-                            "sheet_range",
-                            f"{sheet.title} — {cell_range}",
-                            "\n".join(text_lines),
-                            {
-                                "sheet": sheet.title,
-                                "range": cell_range,
-                                "row_start": row_start,
-                                "row_end": row_end,
-                                "row_numbers": list(buffered_rows),
-                                "column_start": column_start,
-                                "column_end": column_end,
-                                "header_row": header_row,
-                                "header_repeated": repeat_header,
-                                "sheet_state": sheet.sheet_state,
-                                "extractor": "openpyxl_ranges_v2",
-                            },
-                        ))
-                        buffered_lines = []
-                        buffered_rows = []
-                        buffered_chars = 0
-
-                    for row_index, (formula_row, cached_row) in enumerate(zip(formula_rows, cached_rows), start=1):
-                        rendered = []
-                        nonempty = False
-                        for formula_cell, cached_cell in zip(formula_row, cached_row):
-                            raw = formula_cell.value
-                            if raw is not None:
-                                nonempty = True
-                                used_cells += 1
-                                if used_cells > max_cells:
-                                    raise RuntimeError(f"too_many_cells: workbook exceeds {max_cells} non-empty cells")
-                            if isinstance(raw, str) and raw.startswith("="):
-                                cached = cached_cell.value
-                                value = raw if full_recalc or cached is None else f"{raw} => {cached}"
-                            else:
-                                value = "" if raw is None else str(raw)
-                            value = truncate(value, 2000)
-                            if value:
-                                word_count += len(value.split())
-                            rendered.append(value)
-                        line = "\t".join(rendered).rstrip()
-                        if row_index == header_row:
-                            header_line = line
-                        if not nonempty:
-                            continue
-                        added_chars = len(line) + 1
-                        if buffered_rows and buffered_chars + added_chars > chunk_chars:
-                            flush_range()
-                        buffered_lines.append(line)
-                        buffered_rows.append(row_index)
-                        buffered_chars += added_chars
-                    flush_range()
-
-            return chunks, {
-                "sheet_count": len(wb.worksheets),
-                "used_cell_count": used_cells,
-                "word_count": word_count,
-                "range_count": len(chunks),
-                "extractor": "openpyxl_ranges_v2",
-                "formula_cache_trusted": not full_recalc,
-            }
-        finally:
-            wb.close()
-            values_wb.close()
-
-    def extract_pptx(self, path, user_id, document_file_id, limits):
-        prs = Presentation(str(path))
-        chunks = []
-        words = 0
-        for slide_index, slide in enumerate(prs.slides, start=1):
-            texts = []
-            visual_count = 0
-            chart_count = 0
-            for shape in iter_pptx_shapes(slide.shapes):
-                kind = pptx_shape_visual_kind(shape)
-                if kind:
-                    visual_count += 1
-                    if kind == "chart":
-                        chart_count += 1
-
-                table_text = pptx_table_text(shape)
-                if table_text:
-                    chunks.append(self.chunk(
-                        user_id,
-                        document_file_id,
-                        len(chunks),
-                        "table",
-                        f"Slide {slide_index} table",
-                        table_text,
-                        {"slide": slide_index},
-                    ))
-                    continue
-
-                chart_text = format_pptx_chart_text(shape)
-                if chart_text:
-                    chunks.append(self.chunk(
-                        user_id,
-                        document_file_id,
-                        len(chunks),
-                        "chart",
-                        f"Slide {slide_index} chart",
-                        chart_text,
-                        {"slide": slide_index, "has_visual": True, "chart_count": 1},
-                    ))
-                    continue
-
-                plain = pptx_shape_plain_text(shape)
-                if plain:
-                    texts.append(plain)
-
-            notes = pptx_notes_text(slide)
-            if notes:
-                texts.append("Notes:\n" + notes)
-
-            slide_text = "\n".join(texts).strip()
-            has_visual = visual_count > 0
-            metadata = {
-                "slide": slide_index,
-                "has_visual": has_visual,
-                "visual_count": visual_count,
-                "chart_count": chart_count,
-            }
-            if slide_text:
-                words += len(slide_text.split())
-                chunks.append(self.chunk(
-                    user_id,
-                    document_file_id,
-                    len(chunks),
-                    "slide",
-                    f"Slide {slide_index}",
-                    slide_text,
-                    metadata,
-                ))
-            elif has_visual:
-                # Empty text persists metadata for Node visual candidates without
-                # inventing study prose (consumers already skip blank chunk text).
-                metadata["visual_only"] = True
-                chunks.append(self.chunk(
-                    user_id,
-                    document_file_id,
-                    len(chunks),
-                    "slide",
-                    f"Slide {slide_index}",
-                    "",
-                    metadata,
-                ))
-        return chunks[:500], {
-            "page_count": len(prs.slides),
-            "word_count": words,
-            "slide_count": len(prs.slides),
-        }
-
-    def extract_csv(self, path, kind, user_id, document_file_id, limits):
-        detected = from_path(str(path)).best()
-        encoding = detected.encoding if detected else "utf-8"
-        delimiter = "\t" if kind == "tsv" else ","
-        max_rows = self.limit(limits, "max_csv_rows", 100000)
-        max_columns = self.limit(limits, "max_csv_columns", 100)
-        chunks = []
-        rows = []
-        row_count = 0
-        with open(path, "r", encoding=encoding, errors="replace", newline="") as handle:
-            reader = csv.reader(handle, delimiter=delimiter)
-            for row in reader:
-                row_count += 1
-                if row_count > max_rows:
-                    raise RuntimeError(f"too_many_rows: file exceeds {max_rows} rows")
-                if len(row) > max_columns:
-                    raise RuntimeError(f"too_many_columns: file has {len(row)} columns; limit is {max_columns}")
-                rows.append("\t".join(row))
-                if len(rows) >= 200:
-                    chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Rows {row_count - len(rows) + 1}-{row_count}", "\n".join(rows), {"rows": [row_count - len(rows) + 1, row_count]}))
-                    rows = []
-        if rows:
-            chunks.append(self.chunk(user_id, document_file_id, len(chunks), "table", f"Rows {row_count - len(rows) + 1}-{row_count}", "\n".join(rows), {"rows": [row_count - len(rows) + 1, row_count]}))
-        return chunks[:1000], {"row_count": row_count}
 
     def create_job(self, job, tmp):
         self.artifact_warnings = []
@@ -3428,14 +2025,25 @@ class Processor:
                 "processing_status": "processing",
                 "metadata": {"generated_by_job": job["id"], **editor_metadata, **({"preview": True} if preview else {})},
             })
-            chunks, meta = self.extract(path, kind, user_id, document_file["id"])
-            self.db.insert_chunks(chunks)
+            if preview:
+                # A viewer preview of another document; chats never read it, so it is not ingested.
+                meta = {}
+            else:
+                meta = self.ingest_document(
+                    document_file,
+                    {**attachment, "file_name": attachment.get("file_name") or path.name},
+                    path,
+                    tmp,
+                    self.default_limits,
+                    job_id=job.get("id"),
+                    # The document engine prints the PDF of a Word file from the same spec.
+                    pdf_override=self.artifact_preview if kind == "docx" else None,
+                )
             ready_at = now_iso()
-            # Generated artifacts are created outside the upload extract/enrich pair, so the
-            # worker still marks text readiness (and legacy ready) on the new document row.
             self.db.update_document_file(document_file["id"], {
                 "processing_status": "ready",
                 "text_ready_at": ready_at,
+                **({"visual_ready_at": ready_at} if meta.get("pipeline") == ingest.PIPELINE_PAGES else {}),
                 "page_count": meta.get("page_count"),
                 "word_count": meta.get("word_count"),
                 "sheet_count": meta.get("sheet_count"),
@@ -3471,48 +2079,7 @@ def worker_concurrency():
     return env_int("DOCUMENT_WORKER_CONCURRENCY", 1, minimum=1, maximum=WORKER_CONCURRENCY_CAP)
 
 
-def backfill_embeddings_cli(document_ids=None):
-    """One-shot re-index: embed every page and chunk still missing a vector.
-
-    Pass document_file ids to limit it to those documents.
-    """
-    processor = Processor()
-    processor.backfill_enabled = False
-    if not processor.embeddings.enabled:
-        raise SystemExit("JINA_API_KEY is required")
-    total_pages = 0
-    total_chunks = 0
-    failures = 0
-    started = time.monotonic()
-    while True:
-        try:
-            pages, chunks = processor.backfill_embeddings(
-                max_pages=48, max_chunks=128, min_age_seconds=0, document_ids=document_ids
-            )
-            failures = 0
-        except Exception as exc:
-            failures += 1
-            if failures > 5:
-                raise
-            print(f"backfill pass failed ({exc}); waiting 60s before retrying", flush=True)
-            time.sleep(60)
-            continue
-        total_pages += pages
-        total_chunks += chunks
-        print(
-            f"backfill progress: pages={total_pages} chunks={total_chunks} "
-            f"skipped={len(processor._embed_skip)} elapsed={time.monotonic() - started:.0f}s",
-            flush=True,
-        )
-        if not pages and not chunks:
-            break
-    print("backfill complete", flush=True)
-
-
 def main():
-    if sys.argv[1:2] == ["backfill-embeddings"]:
-        backfill_embeddings_cli(sys.argv[2:] or None)
-        return
     concurrency = worker_concurrency()
     if concurrency <= 1:
         Processor().run()

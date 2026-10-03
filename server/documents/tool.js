@@ -38,6 +38,7 @@ function capJson(payload, maxChars = 80_000) {
     truncated: true,
     notice: payload.notice,
     error: payload.error,
+    images_omitted: payload.images_omitted,
     message: "Tool result exceeded the per-message payload cap. Ask for a narrower document range or query."
   });
 }
@@ -49,15 +50,15 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "search_document",
-        description: "Search the user's ready uploaded documents in this chat. XLSX results are structured worksheet ranges. For visually enriched PDF, DOCX, and PPTX files, follow relevant hits with read_document to inspect page or slide images.",
+        description: "Keyword search across the user's ready documents in this chat (stemmed; pages containing every word rank first). Returns whole matching pages, slides or spreadsheet row blocks, with page images for pages that hold figures. Use it to find where something is in documents too long to be in your context.",
         parameters: {
           type: "object",
           properties: {
-            query: { type: "string", description: "Specific search query for the uploaded document text." },
+            query: { type: "string", description: "The words to look for." },
             attachment_ids: {
               type: "array",
               items: { type: "string" },
-              description: "Optional list of document attachment ids. Omit to search all ready documents in this chat."
+              description: "Optional document attachment ids. Omit to search every ready document in this chat."
             },
             max_results: { type: "integer", minimum: 1, maximum: 20, default: 8 }
           },
@@ -69,18 +70,17 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "read_document",
-        description: "Directly inspect a specific ready uploaded document. XLSX defaults to structured worksheet ranges; pass sheet and cell_range for exact data, or page_start/page_end to inspect rendered spreadsheet pages for charts and layout. Visually enriched PDF, DOCX, and PPTX files return page or slide images. Text documents return as much text as fits from `offset`; when the result has next_offset, call again with it to keep reading.",
+        description: "Read a ready document exactly. PDF, Word and PowerPoint: pass page_start/page_end (slides count as pages); you get each page's full text, plus the page image for pages with figures, charts, scans, tables or maths (set include_images to see every returned page as an image). A long range returns as much as fits and next_page_start to continue. Excel/CSV: pass sheet and cell_range (A1:D20, 5:120 for rows, A:D for columns) to get exact cells with their row numbers; a long range returns next_cell_range to continue.",
         parameters: {
           type: "object",
           properties: {
             attachment_id: { type: "string", description: "Document attachment id." },
-            query: { type: "string", description: "Optional query to focus the read." },
-            sheet: { type: "string", description: "Optional XLSX worksheet name." },
-            cell_range: { type: "string", description: "Optional XLSX range such as A1:D20. Use with sheet." },
-            page_start: { type: "integer", minimum: 1, description: "Optional first document page or slide to read." },
-            page_end: { type: "integer", minimum: 1, description: "Optional last document page or slide to read." },
-            offset: { type: "integer", minimum: 0, description: "Optional position to continue a text read from (the next_offset of the previous read)." },
-            max_chars: { type: "integer", minimum: 500, description: "Optional cap on characters returned." }
+            page_start: { type: "integer", minimum: 1, description: "First page or slide to read (default 1)." },
+            page_end: { type: "integer", minimum: 1, description: "Last page or slide to read (default: the last page)." },
+            include_images: { type: "boolean", description: "Also return the image of every returned page, not only pages with figures." },
+            sheet: { type: "string", description: "Spreadsheet sheet name (optional when there is one sheet)." },
+            cell_range: { type: "string", description: "Spreadsheet range such as A1:D20, 5:120 or A:D." },
+            max_chars: { type: "integer", minimum: 2000, description: "Optional cap on characters returned." }
           },
           required: ["attachment_id"]
         }
@@ -89,13 +89,43 @@ export function buildDocumentTools({ toolNames = null } = {}) {
     {
       type: "function",
       function: {
-        name: "extract_tables",
-        description: "Extract table-like data from a ready uploaded document. XLSX uses structured worksheet ranges; PDF, DOCX, and PPTX use visual pages when available.",
+        name: "query_spreadsheet",
+        description: "Compute over every row of one Excel/CSV sheet instead of adding numbers up yourself: filter rows, group them, and count, sum, average, min or max columns. Columns are named by their header text or column letter. Without aggregates it returns the matching rows with their row numbers.",
         parameters: {
           type: "object",
           properties: {
-            attachment_id: { type: "string", description: "Document attachment id." },
-            max_results: { type: "integer", minimum: 1, maximum: 20, default: 8 }
+            attachment_id: { type: "string", description: "Spreadsheet attachment id." },
+            sheet: { type: "string", description: "Sheet name (optional when there is one sheet)." },
+            header_row: { type: "integer", minimum: 1, description: "Row holding the column names, when it is not the detected header row." },
+            filters: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  column: { type: "string" },
+                  op: { type: "string", enum: ["=", "!=", ">", ">=", "<", "<=", "contains", "starts_with", "in", "is_empty", "not_empty"] },
+                  value: {}
+                },
+                required: ["column", "op"]
+              }
+            },
+            group_by: { type: "array", items: { type: "string" } },
+            aggregates: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  fn: { type: "string", enum: ["count", "count_rows", "count_distinct", "sum", "avg", "min", "max"] },
+                  column: { type: "string" }
+                },
+                required: ["fn"]
+              }
+            },
+            order_by: {
+              type: "object",
+              properties: { column: { type: "string", description: "A column, or an aggregate name such as sum(Revenue)." }, desc: { type: "boolean" } }
+            },
+            limit: { type: "integer", minimum: 1, maximum: 500, default: 50 }
           },
           required: ["attachment_id"]
         }
@@ -189,7 +219,7 @@ export function isDocumentToolName(name) {
   return new Set([
     "search_document",
     "read_document",
-    "extract_tables",
+    "query_spreadsheet",
     "create_document",
     "edit_document",
     "export_document"
@@ -265,18 +295,23 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
     } else if (name === "read_document") {
       result = await documents.read({
         attachmentId: args.attachment_id,
-        query: clean(args.query),
         pageStart: args.page_start,
         pageEnd: args.page_end,
+        includeImages: args.include_images === true,
         sheet: args.sheet,
         cellRange: args.cell_range,
-        offset: args.offset,
         maxChars: args.max_chars
       });
-    } else if (name === "extract_tables") {
-      result = await documents.extractTables({
+    } else if (name === "query_spreadsheet") {
+      result = await documents.querySpreadsheet({
         attachmentId: args.attachment_id,
-        maxResults: args.max_results
+        sheet: args.sheet,
+        headerRow: args.header_row,
+        filters: args.filters,
+        groupBy: args.group_by,
+        aggregates: args.aggregates,
+        orderBy: args.order_by,
+        limit: args.limit
       });
     } else if (name === "create_document") {
       result = await documents.createDocument({
@@ -357,11 +392,15 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
               title: page.title,
               page_number: page.page_number,
               image_url: page.url,
-              note: "The next model turn receives this PDF page as an image_url part when the selected model supports vision. Inspect that image directly; do not rely only on extracted text."
+              note: "This page's image follows as an image input when the model supports vision."
             }))
           : undefined,
         results: result.results,
-        next_offset: result.next_offset,
+        ...(result.images_omitted ? { images_omitted: result.images_omitted } : {}),
+        ...(result.message ? { message: result.message } : {}),
+        ...(result.sheets ? { sheets: result.sheets } : {}),
+        ...(result.next_page_start ? { next_page_start: result.next_page_start } : {}),
+        ...(result.next_cell_range ? { next_sheet: result.next_sheet, next_cell_range: result.next_cell_range } : {}),
         more: result.notice_more
       }, maxToolResultChars)
     };

@@ -1986,6 +1986,56 @@ body[data-mode="dark"] .artifact-card[data-kind="text"] { --artifact-ink: #a1a1a
 
 .artifact-card.pending .artifact-icon { opacity: 0.6; }
 
+/* Uploaded documents (composer chip and sent message): the generated-file icon, smaller. */
+.file-type-icon {
+  --file-icon-size: 24px;
+  --file-ink: #71717a;
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--file-icon-size) + 4px);
+  height: calc(var(--file-icon-size) + 4px);
+  color: var(--file-ink);
+}
+
+.file-type-icon svg {
+  display: block;
+  width: var(--file-icon-size);
+  height: var(--file-icon-size);
+  margin-bottom: calc(var(--file-icon-size) * -0.43);
+}
+
+.file-type-icon .file-type-icon-tag,
+.preview-file .file-type-icon .file-type-icon-tag {
+  overflow: visible;
+  color: var(--file-ink);
+  font-size: calc(var(--file-icon-size) * 0.34);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+/* Beats `.preview-file span`, which would grey the page outline (the icon is a span). */
+.preview-file .file-type-icon {
+  overflow: visible;
+  color: var(--file-ink);
+}
+
+.file-type-icon[data-kind="pdf"] { --file-ink: #e5484d; }
+.file-type-icon[data-kind="word"] { --file-ink: #2b7cd3; }
+.file-type-icon[data-kind="excel"] { --file-ink: #1d9a5b; }
+.file-type-icon[data-kind="slides"] { --file-ink: #e8642c; }
+
+body[data-mode="dark"] .file-type-icon[data-kind="pdf"] { --file-ink: #ff6369; }
+body[data-mode="dark"] .file-type-icon[data-kind="word"] { --file-ink: #4c9bf0; }
+body[data-mode="dark"] .file-type-icon[data-kind="excel"] { --file-ink: #3dd68c; }
+body[data-mode="dark"] .file-type-icon[data-kind="slides"] { --file-ink: #ff8a4c; }
+body[data-mode="dark"] .file-type-icon[data-kind="file"],
+body[data-mode="dark"] .file-type-icon[data-kind="text"] { --file-ink: #a1a1aa; }
+
 .artifact-card.pending.failed {
   --artifact-ink: #d14343;
   border-color: color-mix(in srgb, #d14343 35%, var(--artifact-border, #e3e3e3));

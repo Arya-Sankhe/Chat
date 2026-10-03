@@ -122,7 +122,7 @@ export function createApiHandler(config, overrides = {}) {
 
 export {
   applyEditedUserText,
-  buildRelevantDocumentContext,
+  buildDocumentContext,
   normalizeAgentMode,
   runSharedPreSearch,
   withResearchReportContext

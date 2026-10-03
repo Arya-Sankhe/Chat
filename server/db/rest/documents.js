@@ -107,6 +107,42 @@ export async function listUsableProjectDocumentFiles(client, userId, projectId, 
   });
 }
 
+/** Documents of a chat or project that are still processing or failed, so a turn can name them. */
+export async function listUnreadyDocumentFiles(client, userId, { conversationId = null, projectId = null } = {}, { signal } = {}) {
+  const owners = [
+    conversationId ? `conversation_id.eq.${conversationId}` : "",
+    projectId ? `project_id.eq.${projectId}` : ""
+  ].filter(Boolean);
+  if (!owners.length) return [];
+  return client.request("document_files", {
+    query: {
+      user_id: `eq.${userId}`,
+      or: `(${owners.join(",")})`,
+      text_ready_at: "is.null",
+      visual_ready_at: "is.null",
+      select: "id,attachment_id,conversation_id,project_id,kind,processing_status,error,metadata,created_at,attachments(file_name)",
+      order: "created_at.asc",
+      limit: "40"
+    },
+    signal
+  });
+}
+
+/** Chosen project documents by id, in any processing state, so a turn can wait for pending ones. */
+export async function listProjectDocumentFilesByIds(client, userId, projectId, documentFileIds = [], { signal } = {}) {
+  const ids = [...new Set(documentFileIds.filter(Boolean))];
+  if (!projectId || !ids.length) return [];
+  return client.request("document_files", {
+    query: {
+      user_id: `eq.${userId}`,
+      project_id: `eq.${projectId}`,
+      id: `in.(${ids.join(",")})`,
+      select: "id,attachment_id,processing_status,text_ready_at,visual_ready_at,error,metadata"
+    },
+    signal
+  });
+}
+
 export async function listDocumentChunksForFiles(client, userId, documentFileIds = [], { limit = 5000, offset = 0, signal } = {}) {
   const ids = [...new Set(documentFileIds.filter(Boolean))];
   if (!ids.length) return [];
@@ -313,29 +349,6 @@ export async function deleteDocumentPages(client, userId, documentFileId, { sign
   });
 }
 
-export async function queueDocumentPageRender(client, {
-  userId,
-  documentFileId,
-  pageNumber,
-  queue = "local"
-}, { signal } = {}) {
-  return client.rpc("klui_queue_document_page_render", {
-    p_user_id: userId,
-    p_document_file_id: documentFileId,
-    p_page_number: pageNumber,
-    p_queue: queue
-  }, { signal });
-}
-
-export async function searchDocumentPages(client, { userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
-  return client.rpc("klui_search_document_pages", {
-    p_user_id: userId,
-    p_document_ids: documentFileIds,
-    p_query_embedding: queryEmbedding,
-    p_limit: limit
-  }, { signal });
-}
-
 export async function searchDocumentChunks(client, { userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
   return client.rpc("klui_search_document_chunks", {
     p_user_id: userId,
@@ -345,11 +358,32 @@ export async function searchDocumentChunks(client, { userId, documentFileIds = [
   }, { signal });
 }
 
-export async function searchDocumentChunksSemantic(client, { userId, documentFileIds = [], queryEmbedding = "", limit = 8 }, { signal } = {}) {
-  return client.rpc("klui_search_document_chunks_semantic", {
-    p_user_id: userId,
-    p_document_ids: documentFileIds,
-    p_query_embedding: queryEmbedding,
-    p_limit: limit
-  }, { signal });
+/** Replace a document's text with new units (the editor saved new content). */
+export async function replaceDocumentChunks(client, userId, documentFileId, chunks = [], { signal } = {}) {
+  const rows = chunks.map((chunk, index) => ({
+    user_id: userId,
+    document_file_id: documentFileId,
+    chunk_index: index,
+    source_type: chunk.source_type || "section",
+    source_label: chunk.source_label || `Part ${index + 1}`,
+    text: String(chunk.text || ""),
+    char_count: String(chunk.text || "").length,
+    token_estimate: Math.ceil(String(chunk.text || "").length / 4),
+    metadata: chunk.metadata || {}
+  }));
+  if (rows.length) {
+    await client.request("document_chunks", {
+      method: "POST",
+      query: { on_conflict: "document_file_id,chunk_index" },
+      body: rows,
+      prefer: "resolution=merge-duplicates,return=minimal",
+      signal
+    });
+  }
+  await client.request("document_chunks", {
+    method: "DELETE",
+    query: { user_id: `eq.${userId}`, document_file_id: `eq.${documentFileId}`, chunk_index: `gte.${rows.length}` },
+    prefer: "return=minimal",
+    signal
+  });
 }

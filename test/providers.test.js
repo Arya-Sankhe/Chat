@@ -70,8 +70,8 @@ test("environment settings cannot introduce custom models", () => {
   assert.equal(config.context.summaryModel, OPENROUTER_TEXT_MODEL);
   assert.equal(config.research.cheapModel, OPENROUTER_TEXT_MODEL);
   assert.equal(config.study.visionModel, OPENROUTER_VISION_MODEL);
-  assert.equal(config.documents.visualEmbedModel, "jina-embeddings-v5-omni-nano");
-  assert.equal(config.documents.rerankModel, "jina-reranker-v3");
+  assert.equal(config.documents.visualEmbedModel, undefined);
+  assert.equal(config.documents.rerankModel, undefined);
   assert.equal(config.documents.deckModel, undefined);
   assert.equal(config.documents.deckAuditModel, undefined);
   assert.equal(config.visionDescribeModel, undefined);

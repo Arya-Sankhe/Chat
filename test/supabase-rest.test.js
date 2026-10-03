@@ -228,7 +228,8 @@ test("listMessages scopes messages to the user and conversation", async () => {
       parsed.searchParams.get("select"),
       "id,user_id,conversation_id,role,content,model,tool_calls,finish_reason,error,created_at,metadata,turn_run_id,output_slot"
     );
-    assert.equal(parsed.searchParams.get("order"), "created_at.asc");
+    assert.equal(parsed.searchParams.get("order"), "created_at.asc,id.asc");
+    assert.equal(parsed.searchParams.get("limit"), "1000");
     expectServiceHeaders(options.headers);
 
     return new Response(JSON.stringify([{ id: "msg_1", role: "user" }]), {
@@ -693,26 +694,58 @@ test("releasePendingDocumentTurn uses the fenced release RPC", async () => {
   });
 });
 
-test("queueDocumentPageRender uses the high-priority render RPC", async () => {
-  await withStubbedFetch(async (url, options = {}) => {
-    assert.equal(options.method, "POST");
-    assert.equal(url, "https://example.supabase.co/rest/v1/rpc/klui_queue_document_page_render");
-    assert.deepEqual(JSON.parse(options.body), {
-      p_user_id: "user_1",
-      p_document_file_id: "doc_1",
-      p_page_number: 7,
-      p_queue: "local"
-    });
-    return jsonResponse({ page: null, job: { id: "job_7", priority: 100 } });
+test("listMessages pages past the row cap so the newest messages are never dropped", async () => {
+  const offsets = [];
+  await withStubbedFetch(async (url) => {
+    const parsed = new URL(url);
+    const offset = Number(parsed.searchParams.get("offset") || 0);
+    offsets.push(offset);
+    const count = offset === 0 ? 1000 : 3;
+    return jsonResponse(Array.from({ length: count }, (_, index) => ({ id: `msg_${offset + index}` })));
   }, async () => {
     const db = new SupabaseRest(FAKE_CONFIG);
-    const result = await db.queueDocumentPageRender({
-      userId: "user_1",
-      documentFileId: "doc_1",
-      pageNumber: 7
-    });
-    assert.equal(result.job.priority, 100);
+    const rows = await db.listMessages("user_1", "conv_1");
+    assert.equal(rows.length, 1003);
+    assert.equal(rows.at(-1).id, "msg_1002");
   });
+  assert.deepEqual(offsets, [0, 1000]);
+});
+
+test("replaceDocumentChunks upserts the new units and deletes the old tail", async () => {
+  const calls = [];
+  await withStubbedFetch(async (url, options = {}) => {
+    calls.push({ url: new URL(url), options });
+    return new Response(null, { status: 204 });
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.replaceDocumentChunks("user_1", "doc_1", [{ source_label: "Intro", text: "Hello" }, { text: "World" }]);
+  });
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].url.searchParams.get("on_conflict"), "document_file_id,chunk_index");
+  const rows = JSON.parse(calls[0].options.body);
+  assert.deepEqual(rows.map((row) => [row.chunk_index, row.source_label, row.text]), [[0, "Intro", "Hello"], [1, "Part 2", "World"]]);
+  assert.equal(calls[1].options.method, "DELETE");
+  assert.equal(calls[1].url.searchParams.get("chunk_index"), "gte.2");
+  assert.equal(calls[1].url.searchParams.get("document_file_id"), "eq.doc_1");
+});
+
+test("unready and chosen-source document lookups filter by owner and readiness", async () => {
+  const urls = [];
+  await withStubbedFetch(async (url) => {
+    urls.push(new URL(url));
+    return jsonResponse([]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    await db.listUnreadyDocumentFiles("user_1", { conversationId: "conv_1", projectId: "proj_1" });
+    await db.listProjectDocumentFilesByIds("user_1", "proj_1", ["doc_1", "doc_2"]);
+    assert.deepEqual(await db.listProjectDocumentFilesByIds("user_1", null, ["doc_1"]), []);
+  });
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0].searchParams.get("or"), "(conversation_id.eq.conv_1,project_id.eq.proj_1)");
+  assert.equal(urls[0].searchParams.get("text_ready_at"), "is.null");
+  assert.equal(urls[0].searchParams.get("visual_ready_at"), "is.null");
+  assert.equal(urls[1].searchParams.get("project_id"), "eq.proj_1");
+  assert.equal(urls[1].searchParams.get("id"), "in.(doc_1,doc_2)");
 });
 
 test("createResearchRun POSTs research_runs rows with return=representation", async () => {

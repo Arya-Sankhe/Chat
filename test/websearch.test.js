@@ -1412,6 +1412,35 @@ describe("tool", () => {
     assert.equal(result.artifacts[0].download_url, "/api/attachments/att-pptx/download");
   });
 
+  test("runChatWithToolLoop leaves a reading answer about a document alone", async () => {
+    const bodies = [];
+    const modelClient = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        return streamResponse([contentDelta("The receipt document you created was updated: owner Niko Vale, budget USD 934.80.")]);
+      }
+    };
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "read the receipt and tell me the owner" }],
+        tools: buildDocumentTools({ toolNames: ["read_document"] }),
+        tool_choice: "auto"
+      },
+      modelClient,
+      config: { websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 2, maxToolResultChars: 5000 } },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      documents: { async createDocument() { throw new Error("a reading turn must not create a file"); } },
+      deferredTools: buildDocumentTools({ toolNames: ["create_document", "edit_document", "export_document"] }),
+      artifactRequested: false,
+      onUpstreamEvent: () => {}
+    });
+    assert.equal(bodies.length, 1);
+    assert.match(result.accumulated.content, /Niko Vale/);
+    assert.equal(result.artifacts.length, 0);
+  });
+
   test("a turn makes at most one new file", async () => {
     let call = 0;
     const exports = [];
@@ -2688,4 +2717,187 @@ describe("Phase 5 relevance and reader regression", () => {
       restoreFetch();
     }
   });
+});
+
+test("tool page images stay within one total cap across reads, oldest swapped for a note", async () => {
+  let calls = 0;
+  const bodies = [];
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      calls += 1;
+      bodies.push(body);
+      if (calls <= 3) {
+        return streamResponse([toolCallDelta({
+          id: `call_${calls}`,
+          name: "read_document",
+          args: { attachment_id: "00000000-0000-4000-8000-000000000009", page_start: calls * 3 - 2, page_end: calls * 3 }
+        })]);
+      }
+      return streamResponse([contentDelta("done.")]);
+    }
+  };
+  let read = 0;
+  const documents = {
+    async read() {
+      read += 1;
+      const pages = [1, 2, 3].map((offset) => (read - 1) * 3 + offset);
+      return {
+        ok: true,
+        provider: "documents",
+        results: [],
+        citations: [],
+        visualPages: pages.map((page, i) => ({ index: i + 1, page_id: `p${page}`, page_number: page, title: `Page ${page}`, url: `https://signed.example/page-${page}.jpg` }))
+      };
+    }
+  };
+  await runChatWithToolLoop({
+    chatRequest: { model: "gpt-5-vision", messages: [{ role: "user", content: "read it" }], tools: [], tool_choice: "auto" },
+    modelClient,
+    config: { websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 5, maxToolResultChars: 5000, visualMaxImageInputsPerTurn: 4 } },
+    signal: new AbortController().signal,
+    websearch: {},
+    documents,
+    visualDocuments: true,
+    onUpstreamEvent: () => {}
+  });
+  const images = (body) => body.messages.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .filter((part) => part?.type === "image_url").map((part) => part.image_url.url);
+  // 3 → 4 → 4 images, never 3 → 6 → 9; the newest pages are the ones kept.
+  assert.deepEqual(bodies.slice(1).map((body) => images(body).length), [3, 4, 4]);
+  assert.deepEqual(images(bodies[3]).map((url) => url.match(/page-(\d+)/)[1]), ["6", "7", "8", "9"]);
+  const notes = JSON.stringify(bodies[3].messages);
+  assert.match(notes, /Page 1: its image was removed to keep this request small/);
+  assert.match(notes, /Page 5: its image was removed/);
+});
+
+test("a model call that reasons without answering is retried once with the same request", async () => {
+  const bodies = [];
+  const events = [];
+  const modelClient = {
+    async streamChatCompletion({ body, signal }) {
+      bodies.push(body);
+      if (bodies.length === 1) {
+        // Streams reasoning and never starts the answer until aborted.
+        return {
+          body: new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning: "thinking…" } }] })}\n\n`));
+              signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+            }
+          })
+        };
+      }
+      return streamResponse([contentDelta("SCAN-0O1I-719")]);
+    }
+  };
+  const result = await runChatWithToolLoop({
+    chatRequest: { model: "mimo", messages: [{ role: "user", content: "codes?" }], tools: [], reasoning_effort: "high" },
+    modelClient,
+    config: { context: { answerStallMs: 30 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
+    signal: new AbortController().signal,
+    websearch: {},
+    onUpstreamEvent: () => {},
+    onToolEvent: (event) => events.push(event)
+  });
+  assert.equal(result.accumulated.content, "SCAN-0O1I-719");
+  assert.equal(bodies.length, 2);
+  // Same reasoning and no output cap: the retry is the same request again.
+  assert.deepEqual(bodies[1], bodies[0]);
+  assert.ok(events.some((event) => event.reason === "answer-stalled"));
+});
+
+test("a second stalled call ends the turn with a clear error, and a user cancel is not retried", async () => {
+  const stalling = (counter) => ({
+    async streamChatCompletion({ signal }) {
+      counter.calls += 1;
+      return {
+        body: new ReadableStream({
+          start(controller) { signal.addEventListener("abort", () => controller.error(signal.reason), { once: true }); }
+        })
+      };
+    }
+  });
+  const base = {
+    chatRequest: { model: "mimo", messages: [{ role: "user", content: "codes?" }], tools: [] },
+    config: { context: { answerStallMs: 20 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
+    websearch: {},
+    onUpstreamEvent: () => {}
+  };
+  const twice = { calls: 0 };
+  await assert.rejects(
+    runChatWithToolLoop({ ...base, modelClient: stalling(twice), signal: new AbortController().signal }),
+    /stopped responding/
+  );
+  assert.equal(twice.calls, 2);
+
+  const cancelled = { calls: 0 };
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 5);
+  await assert.rejects(runChatWithToolLoop({
+    ...base,
+    config: { ...base.config, context: { answerStallMs: 60_000 } },
+    modelClient: stalling(cancelled),
+    signal: controller.signal
+  }));
+  assert.equal(cancelled.calls, 1);
+});
+
+test("a call that hangs before its headers or mid-answer is stopped and retried", async () => {
+  const run = async (firstCall) => {
+    const bodies = [];
+    const modelClient = {
+      async streamChatCompletion({ body, signal }) {
+        bodies.push(body);
+        if (bodies.length === 1) return firstCall(signal);
+        return streamResponse([contentDelta("done")]);
+      }
+    };
+    const result = await runChatWithToolLoop({
+      chatRequest: { model: "mimo", messages: [{ role: "user", content: "codes?" }], tools: [] },
+      modelClient,
+      config: { context: { answerStallMs: 60_000, answerIdleMs: 30 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
+      signal: new AbortController().signal,
+      websearch: {},
+      onUpstreamEvent: () => {}
+    });
+    return { result, bodies };
+  };
+  const hangAfter = (delta) => (signal) => ({
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`));
+        signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+      }
+    })
+  });
+
+  // Some answer text, then silence.
+  const text = await run(hangAfter({ content: "The first code is" }));
+  assert.equal(text.result.accumulated.content, "done");
+  assert.deepEqual(text.bodies[1], text.bodies[0]);
+  // A tool-call fragment, then silence.
+  const tool = await run(hangAfter({ tool_calls: [{ index: 0, id: "c1", function: { name: "read_document", arguments: "{\"attach" } }] }));
+  assert.equal(tool.result.accumulated.content, "done");
+
+  // No response headers at all: the start limit covers the wait for them.
+  const bodies = [];
+  const result = await runChatWithToolLoop({
+    chatRequest: { model: "mimo", messages: [{ role: "user", content: "codes?" }], tools: [] },
+    modelClient: {
+      async streamChatCompletion({ body, signal }) {
+        bodies.push(body);
+        if (bodies.length === 1) {
+          return new Promise((resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+        }
+        return streamResponse([contentDelta("done")]);
+      }
+    },
+    config: { context: { answerStallMs: 30 }, websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 1 } },
+    signal: new AbortController().signal,
+    websearch: {},
+    onUpstreamEvent: () => {}
+  });
+  assert.equal(result.accumulated.content, "done");
+  assert.equal(bodies.length, 2);
 });

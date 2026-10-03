@@ -44,12 +44,10 @@ function documentExtractionLimits(config, plan) {
   return {
     max_file_bytes: config.documents.maxFileBytes,
     max_pdf_pages: maxPdfPages,
-    max_docx_words: config.documents.maxDocxWords,
     max_xlsx_sheets: config.documents.maxXlsxSheets,
     max_xlsx_cells: config.documents.maxXlsxCells,
     max_csv_rows: config.documents.maxCsvRows,
     max_csv_columns: config.documents.maxCsvColumns,
-    max_extracted_chars: config.documents.maxExtractedChars,
     visual_page_dpi: config.documents.visualPageDpi
   };
 }
@@ -692,10 +690,54 @@ export async function handleDocumentEditor(req, res, config, attachmentId) {
     throw new HttpError(409, "This document was changed elsewhere. Reopen it before saving.");
   }
   const revision = currentRevision + 1;
+  // What the chat reads follows the saved text: its units are replaced, and the page images
+  // of the old render (which no longer match) are removed.
+  const units = editorMarkdownUnits(markdown);
+  await context.db.replaceDocumentChunks(context.user.id, doc.id, units, { signal: req.signal });
+  const pages = await context.db.listDocumentPages(context.user.id, doc.id, { limit: 1000, signal: req.signal });
+  if (pages?.length) {
+    await context.db.deleteDocumentPages(context.user.id, doc.id, { signal: req.signal });
+    await context.r2.deleteObjects(pages.map((page) => page.image_key).filter(Boolean), { signal: req.signal }).catch((error) => {
+      console.warn(`Editor save left old page images behind: ${error?.message || error}`);
+    });
+  }
   await context.db.updateDocumentFile(context.user.id, doc.id, {
-    metadata: { ...doc.metadata, editor_markdown: markdown, editor_revision: revision }
+    page_count: null,
+    word_count: markdown.split(/\s+/).filter(Boolean).length,
+    metadata: {
+      ...doc.metadata,
+      editor_markdown: markdown,
+      editor_revision: revision,
+      text_tokens: units.reduce((sum, unit) => sum + Math.ceil(unit.text.length / 4), 0),
+      visual_pages: [],
+      // The index a too-long document is described by follows the saved sections, not the old pages.
+      page_index: units.map((unit, index) => ({
+        page: index + 1,
+        label: unit.source_label,
+        start: unit.text.replace(/\s+/g, " ").trim().slice(0, 90),
+        visual: false
+      }))
+    }
   }, { signal: req.signal });
   sendJson(res, 200, { saved: true, revision });
+}
+
+/** Saved editor Markdown as readable units, one per top-level section. */
+export function editorMarkdownUnits(markdown) {
+  const sections = [];
+  for (const line of String(markdown || "").split("\n")) {
+    const heading = line.match(/^#{1,2}\s+(.+)$/);
+    if (heading || !sections.length) sections.push({ title: heading ? heading[1].trim() : "", lines: [] });
+    sections.at(-1).lines.push(line);
+  }
+  return sections
+    .map((section, index) => ({
+      source_type: "section",
+      source_label: section.title ? section.title.slice(0, 120) : `Section ${index + 1}`,
+      text: section.lines.join("\n").trim(),
+      metadata: { section: index + 1, extractor: "editor" }
+    }))
+    .filter((unit) => unit.text);
 }
 
 export async function handleDocumentEditorExport(req, res, config, attachmentId) {

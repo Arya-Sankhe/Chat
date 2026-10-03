@@ -25,6 +25,8 @@ RUN apt-get update \
     libreoffice \
     python3-uno \
     poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     qpdf \
     fonts-dejavu \
     fonts-liberation \

@@ -54,9 +54,12 @@ function cleanImageReference(value, label) {
   return url;
 }
 
+// Message text has no length cap here: the server assembles these requests (document
+// context, history, tool results) and plans them against the model's context window.
+// What users type is capped where their message is accepted (saas/messages/content.js).
 function normalizeContent(content) {
   if (typeof content === "string") {
-    return cleanString(content, "message content", { required: false, max: 100000 }) || "";
+    return cleanString(content, "message content", { required: false, max: Infinity }) || "";
   }
 
   if (!Array.isArray(content)) {
@@ -69,7 +72,7 @@ function normalizeContent(content) {
     if (part.type === "text") {
       return {
         type: "text",
-        text: cleanString(part.text, `message content part ${index + 1} text`, { max: 100000 })
+        text: cleanString(part.text, `message content part ${index + 1} text`, { max: Infinity })
       };
     }
 

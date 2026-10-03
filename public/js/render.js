@@ -554,6 +554,29 @@ function safeImageUrl(url) {
   }
 }
 
+/* File-type icon for an uploaded document: the same folded page and type tag as the
+   generated-file cards, tinted per kind in CSS. */
+const FILE_TYPE_KINDS = {
+  pdf: ["pdf", "PDF"],
+  docx: ["word", "DOC"],
+  doc: ["word", "DOC"],
+  xlsx: ["excel", "XLS"],
+  xls: ["excel", "XLS"],
+  csv: ["excel", "CSV"],
+  tsv: ["excel", "TSV"],
+  pptx: ["slides", "PPT"],
+  ppt: ["slides", "PPT"],
+  md: ["text", "MD"],
+  txt: ["text", "TXT"]
+};
+
+export function fileTypeIcon(fileName = "") {
+  const name = String(fileName || "");
+  const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+  const [kind, tag] = FILE_TYPE_KINDS[ext] || ["file", ext.slice(0, 4).toUpperCase() || "FILE"];
+  return `<span class="file-type-icon" data-kind="${kind}" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13V7a3 3 0 0 1 3-3h11l6 6v3"/><path d="M20 4v4a2 2 0 0 0 2 2h4"/></svg><span class="file-type-icon-tag">${escapeHtml(tag)}</span></span>`;
+}
+
 /* Public content renderer */
 
 export function renderContent(content, { holdVisualize = false, emailCards = false, visualizeLabel = "" } = {}) {
@@ -570,9 +593,7 @@ export function renderContent(content, { holdVisualize = false, emailCards = fal
           const href = sanitizeUrl(file.url || "");
           const name = file.file_name || "Document";
           const label = `
-            <span class="message-file-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
-            </span>
+            ${fileTypeIcon(name)}
             <span class="message-file-text">
               <span class="message-file-name">${escapeHtml(name)}</span>
             </span>

@@ -513,6 +513,14 @@ export class SupabaseRest {
     return documents.listDocumentChunksForFiles(this, userId, documentFileIds, options);
   }
 
+  async listUnreadyDocumentFiles(userId, owners, options) {
+    return documents.listUnreadyDocumentFiles(this, userId, owners, options);
+  }
+
+  async listProjectDocumentFilesByIds(userId, projectId, documentFileIds, options) {
+    return documents.listProjectDocumentFilesByIds(this, userId, projectId, documentFileIds, options);
+  }
+
   async listDocumentFilesByAttachments(userId, attachmentIds, options) {
     return documents.listDocumentFilesByAttachments(this, userId, attachmentIds, options);
   }
@@ -589,25 +597,20 @@ export class SupabaseRest {
     return documents.deleteDocumentPages(this, userId, documentFileId, options);
   }
 
-  async queueDocumentPageRender(params, options) {
-    return documents.queueDocumentPageRender(this, params, options);
-  }
 
-  async searchDocumentPages(params, options) {
-    return documents.searchDocumentPages(this, params, options);
-  }
 
   async deleteAttachment(userId, attachmentId, options) {
     return attachments.deleteAttachment(this, userId, attachmentId, options);
+  }
+
+  async replaceDocumentChunks(userId, documentFileId, chunks, options) {
+    return documents.replaceDocumentChunks(this, userId, documentFileId, chunks, options);
   }
 
   async searchDocumentChunks(params, options) {
     return documents.searchDocumentChunks(this, params, options);
   }
 
-  async searchDocumentChunksSemantic(params, options) {
-    return documents.searchDocumentChunksSemantic(this, params, options);
-  }
 
   async checkApiBudget(params, options) {
     return billing.checkApiBudget(this, params, options);

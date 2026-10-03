@@ -34,7 +34,18 @@ function latestFunctionBlock(sql, name) {
   return sql.slice(start, end);
 }
 
-for (const [label, path] of [["office visual migration", officeVisualMigrationPath], ["schema", schemaPath]]) {
+const singleIngestMigrationPath = new URL("../supabase/migrations/20261003120000_single_document_ingest.sql", import.meta.url);
+
+for (const [label, path] of [["single ingest migration", singleIngestMigrationPath], ["schema", schemaPath]]) {
+  test(`${label} queues exactly one ingest job per upload`, () => {
+    const upload = latestFunctionBlock(readFileSync(path, "utf8"), "klui_complete_document_upload");
+    assert.match(upload, /'document\.extract\.' \|\| p_kind/);
+    assert.doesNotMatch(upload, /'document\.enrich\.pdf'/);
+    assert.match(upload, /p_kind not in \('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv'\)/);
+  });
+}
+
+for (const [label, path] of [["office visual migration", officeVisualMigrationPath]]) {
   test(`${label} queues and repairs visual pages for Office documents`, () => {
     const sql = readFileSync(path, "utf8");
     const upload = latestFunctionBlock(sql, "klui_complete_document_upload");

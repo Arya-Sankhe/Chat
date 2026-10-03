@@ -119,6 +119,7 @@ import {
   compactModelDisplayName,
   emailCardFields,
   escapeHtml,
+  fileTypeIcon,
   getCodeSource,
   gmailComposeUrl,
   hasEmailCardBlock,
@@ -4326,6 +4327,7 @@ function toolStatusLabel(tool = {}) {
   if (name === "search_document") return "Searching documents";
   if (name === "read_document") return "Reading document";
   if (name === "extract_tables") return "Reading tables";
+  if (name === "query_spreadsheet") return "Calculating from spreadsheet";
   if (name === "create_document") return "Creating document";
   if (name === "edit_document") return "Editing document";
   if (name === "export_document") return "Exporting document";
@@ -4348,6 +4350,7 @@ function toolTaskLabel(tool = {}) {
   if (name === "get_weather") return "Checking the forecast";
   if (name === "search_document") return detail ? `Searching documents for ${detail}` : "Searching documents";
   if (["read_document", "extract_tables"].includes(name)) return "Reading your document";
+  if (name === "query_spreadsheet") return "Calculating from your spreadsheet";
   if (name === "load_tools") return "Preparing tools";
   if (["create_document", "edit_document", "export_document"].includes(name)) return toolStatusLabel(tool);
   return "Working on your request";
@@ -6557,7 +6560,7 @@ function renderImages() {
     <div class="preview-thumb ${img.category === "document" ? `preview-file preview-${escapeHtml(img.status || "ready")}` : ""}" ${img.previewUrl ? `data-preview-src="${escapeHtml(img.previewUrl)}"` : ""}>
       ${img.category === "image"
         ? `<img src="${escapeHtml(img.previewUrl)}" alt="${escapeHtml(img.file.name)}">`
-        : `<div class="preview-file-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div><span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
+        : `${fileTypeIcon(img.file.name)}<span>${escapeHtml(img.file.name)}</span>${img.status !== "ready" ? `<span class="preview-progress" style="--progress:${Math.max(0, Math.min(100, Number(img.progress || 0)))}" title="${escapeHtml(pendingDocumentLabel(img))}"></span>` : ""}` }
       <button class="preview-remove" type="button" data-remove-index="${i}" aria-label="Remove">×</button>
     </div>
   `).join("");

@@ -184,7 +184,8 @@ regex substitutions) are deliberately not listed.
     `getDocumentFileByAttachment`, `getReadyPdfPreviewForDocument`,
     `getActivePdfPreviewJob`, `listReadyDocumentFiles` (legacy terminal-ready
     lookup), `listUsableDocumentFiles` (runtime capability lookup),
-    `listDocumentFilesByAttachments`, `updateDocumentFile`,
+    `listDocumentFilesByAttachments`, `listUnreadyDocumentFiles`,
+    `listProjectDocumentFilesByIds`, `updateDocumentFile`,
     `updateDocumentFileByAttachment`, `createDocumentJob`,
     `getDocumentJob`, `listDocumentChunks`, `listDocumentPages`,
     `searchDocumentPages` (RPC), `searchDocumentChunks` (RPC).
@@ -418,24 +419,24 @@ regex substitutions) are deliberately not listed.
 ### `class DocumentService` ← mixed, `buildUntrustedDocumentContext`
 - **Path**: `server/documents/index.js`
 - **Responsibility**: The orchestrator. Methods:
-  `consume`, `readyDocuments`, `documentLibrary` (full text of every
-  document that fits the turn's token budget), `hasReadyDocuments`,
-  `pageLimit`, `embedQuery` (Jina embedding), `rerankChunks`, `retrieve`,
-  `relevantContext` (budget-sized images and excerpts), `readBudgetChars`,
-  `signedPageUrl`,
-  `pageResultsForDocs`, `resolveDocuments`,
-  `requireDocumentByAttachment`, `requireDocumentById`, `search`,
-  `read`, `extractTables`, `enqueueAndWait`,
-  `latestAssistantText`, `resolveCreateContent`,
+  `consume`, `readyDocuments`, `planContext` (which documents go in whole,
+  which page images, and the matching pages of documents too long to
+  include) and `renderContext` (the library message, with a manifest of
+  every document, and the evidence message; with or without images),
+  `loadUnits`, `pageImageRows`, `ensureDocumentPages` (stored page rows by
+  number), `scopedUnits`, `search` (keyword), `read` (page ranges with
+  `next_page_start`, or `readSheet` for exact cells with
+  `next_cell_range`), `querySpreadsheet`, `resolveDocuments`,
+  `requireDocumentByAttachment`, `requireDocumentById`, `readBudgetChars`,
+  `enqueueAndWait`, `latestAssistantText`, `resolveCreateContent`,
   `createDocument`, `editDocument`, `exportDocument`.
-  `buildUntrustedDocumentContext` is a pure helper for the
-  Council/Compare shared pre-document-search path.
-- **Callers**: `server/chat/pipeline.js` (single chat and shared
-  pre-document-search for Compare/Council),
-  `server/websearch/tool/loop.js` (tool loop).
+  `buildUntrustedDocumentContext` frames text excerpts as evidence.
+- **Callers**: `server/chat/pipeline.js` (`buildDocumentContext` /
+  `withDocumentContext` for single, Compare and illustration turns),
+  `server/websearch/tool/loop.js` (tool loop), `server/study/generate.js`.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/http/responses.js`,
-  `./retrieval.js`, `./library.js` (chunk paging, in-process text cache,
-  visual-page flags from processing).
+  `./library.js` (units, paged loading, in-process cache, rendering),
+  `./sheets.js` (cell ranges and spreadsheet queries).
 
 ---
 
@@ -976,13 +977,12 @@ through the database.
 ### `class Processor` ← mixed
 - **Path**: `worker/worker.py`
 - **Responsibility**: The work loop and dispatch. Methods:
-  - `__init__(index, concurrency)` — builds `db` (`Supabase`), `r2` (`R2`),
-    `embeddings` (`JinaEmbeddings`); reads `DOCUMENT_JOB_TIMEOUT_MS` (divided by
-    1000 to set `lease_seconds`), `DOCUMENT_WORKER_MAX_IDLE_SECONDS`,
-    `DOCUMENT_WORKER_ERROR_BACKOFF_SECONDS`,
-    `DOCUMENT_WORKER_MAX_BACKOFF_SECONDS`, `DOCUMENT_MAX_EXTRACTED_CHARS`,
-    `DOCUMENT_VISUAL_PAGE_DPI`, heartbeat, render, Jina batch, and page-upload
-    concurrency knobs, plus the per-kind `DOCUMENT_MAX_*` limits. `index` and
+  - `__init__(index, concurrency)` — builds `db` (`Supabase`) and `r2` (`R2`);
+    reads `DOCUMENT_JOB_TIMEOUT_MS` (divided by 1000 to set `lease_seconds`),
+    `DOCUMENT_WORKER_MAX_IDLE_SECONDS`, `DOCUMENT_WORKER_ERROR_BACKOFF_SECONDS`,
+    `DOCUMENT_WORKER_MAX_BACKOFF_SECONDS`, `DOCUMENT_VISUAL_PAGE_DPI`, heartbeat,
+    render and page-upload concurrency knobs, plus the per-kind `DOCUMENT_MAX_*`
+    limits. `index` and
     `concurrency` set this loop's idle clock slot via
     `worker_idle_offset_seconds`.
   - `object_key(user_id, file_name)` — `users/{user_id}/{uuid}/{safe_name}`.
@@ -994,32 +994,28 @@ through the database.
   - `handle_job(job)` — creates a temp dir, renews the owned lease in a
     heartbeat thread, dispatches, then completes or fails through the
     lease-fenced stage-aware RPCs. Cleans up in `finally`.
-  - `dispatch(job, tmp)` — routes extraction, `document.enrich.pdf`,
-    `document.render_page`, create, edit, and export jobs.
-  - `extract_job` / `extract_pdf_text_job` — non-PDF extraction plus the
-    uploaded-PDF EdgeParse path. EdgeParse reads existing digital text and
-    structure only; no OCR or OCR fallback exists. A usable result sets
-    `text_ready_at`; an empty/failed parse records a soft text-stage outcome
-    so visual enrichment can continue independently.
-  - `enrich_pdf_job` — converts DOCX/XLSX/PPTX to a job-local temporary PDF
-    when needed, validates with `pypdf`, renders bounded Poppler ranges
-    concurrently, and uploads/upserts each completed range immediately. The
-    temporary PDF is never uploaded or stored.
-    It publishes `visual_ready_at` once the full image manifest exists, then
-    attempts Jina embeddings and sets `enriched_at` only when every page embeds.
-  - `render_page_job` — renders one specifically requested missing page into
-    the same deterministic key without overwriting an existing richer page row.
-  - `limit(limits, key, fallback)` / `cap_chunks(chunks, limits)` —
-    apply the per-job limits object (set from
+  - `dispatch(job, tmp)` — routes ingest (`document.extract.*`), create, edit,
+    export and outline jobs; `document.enrich.pdf` / `document.render_page` jobs
+    from the old pipeline finish as no-ops (`legacy_noop_job`).
+  - `extract_job` — the one job between an upload and a ready document (also
+    used to re-ingest). Calls `ingest_document`, then completes with a patch
+    that sets `text_ready_at` and, for paged documents, `visual_ready_at`
+    together.
+  - `ingest_document` / `ingest_paged` / `ingest_spreadsheet` — store a document
+    completely. Paged: PDF as is, Word/PowerPoint via a job-local PDF (or the
+    document engine's own PDF for generated Word files); every page gets one
+    `document_chunks` row with its full text (PowerPoint speaker notes appended)
+    and one JPEG in `document_pages`, flagged `visual` by `ingest.visual_reason`.
+    Metadata records `text_tokens`, `visual_pages` and a `page_index`.
+    Spreadsheets: every non-empty row, in blocks of whole rows with their row
+    numbers; formulas as `=FORMULA => cached value`; sheet summaries with header
+    and first rows. Limits (pages, sheets, cells, rows, columns) fail the job;
+    nothing is truncated.
+  - `remove_stale_rows` — drops chunks/pages (and page images) past a
+    re-ingested document's new end.
+  - `limit(limits, key, fallback)` — reads the per-job limits object (set from
     `job.input.limits` plus `default_limits`).
-  - `extract(path, kind, user_id, document_file_id, limits)` /
-    `extract_pdf`, `extract_docx`, `extract_xlsx`, `extract_pptx`,
-    `extract_csv` — kind-specific extraction. Returns `(chunks,
-    meta)` where chunks are per-document record rows and `meta`
-    is the document manifest.
   - `render_pdf_pages` — page images via bounded `pdftoppm` subprocesses.
-  - `estimated_page_pixels(page)` — derives `width_px` /
-    `height_px` for the page image.
   - `chunk(user_id, document_file_id, index, source_type, label, text, metadata)` —
     builds a `document_chunks` row with `char_count` and
     `token_estimate`.
@@ -1043,39 +1039,18 @@ through the database.
     `"edited"` / `"exported"` and `parent_document_id` set to the
     version chain.
 - **Callers**: `if __name__ == "__main__":` entry.
-- **Major dependencies**: `boto3`, `edgeparse`, `pypdf`, `python-docx`,
-  `openpyxl`, `XlsxWriter`, `python-pptx`, `requests`,
-  `charset_normalizer`, `poppler-utils` (via `pdftoppm` /
-  `pdfinfo`).
+- **Major dependencies**: `worker/ingest.py`, `boto3`, `pypdfium2`, `pypdf`,
+  `python-docx`, `openpyxl`, `XlsxWriter`, `python-pptx`, `requests`,
+  `charset_normalizer`, `poppler-utils` (`pdftotext`, `pdftoppm`), LibreOffice.
 
 ### `class Supabase`
 - **Path**: `worker/worker.py`
 - **Responsibility**: Service-role PostgREST client for the worker.
   Methods: `request`, `rpc`, `claim_job` (calls
   `klui_claim_document_job`), `get_attachment`, `get_document_file`,
-  `complete_document_job`, `publish_document_visual_ready`,
-  `fail_document_job`, document/attachment lookup and persistence,
+  `complete_document_job`, `fail_document_job`, document/attachment lookup and persistence,
   conflict-keyed chunk/page upserts, `update_page`, and lease renewal.
 - **Callers**: `Processor`.
-- **Major dependencies**: `requests`.
-
-### `class JinaEmbeddings`
-- **Path**: `worker/worker.py`
-- **Responsibility**: Embeds visual PDF and Office page images via
-  `https://api.jina.ai/v1/embeddings` (model
-  `jina-embeddings-v5-omni-nano`, 768 dimensions, normalised,
-  `embedding_type: "float"`). `enabled` is false when
-  `JINA_API_KEY` is not set, in which case the worker still
-  produces the page rows but with `embedding = NULL`. Images are sent as
-  `{"image": <base64>}` and text as `{"text": ...}` with task
-  `retrieval.passage`. Inputs are grouped into configurable bounded batches
-  while preserving page order, and every call goes through the shared
-  `JinaRateLimiter` (defaults 90 requests / 90K tokens per minute, under the
-  free tier's 100 / 100K).
-- **Callers**: `Processor.enrich_pdf_job`, `Processor.backfill_embeddings`
-  (runs from the idle worker loop and from
-  `python -m worker.worker backfill-embeddings [document_file_id ...]`,
-  retrying pages and chunks that still have no vector).
 - **Major dependencies**: `requests`.
 
 ### `class R2`
@@ -1094,8 +1069,6 @@ through the database.
 - `safe_name(value, fallback="document")` — filesystem-safe
   filename. Strips path separators, replaces unsafe characters
   with `-`, truncates to 120 chars.
-- `truncate(text, limit)` — adds a `...[truncated]` suffix when
-  the text exceeds `limit`.
 - `normalize_math_symbols(text)` — replaces superscript/subscript
   Unicode with ASCII.
 - `clean_markdown(text)` — strips a few chat-only phrases from

@@ -78,3 +78,17 @@ test("normalizeChatRequest rejects empty messages", () => {
     (error) => error.status === 400 && /non-empty array/.test(error.message)
   );
 });
+
+test("normalizeChatRequest passes server-built context of any length", () => {
+  const library = "row | cells\n".repeat(20_000);
+  const payload = normalizeChatRequest({
+    model: "mimo",
+    messages: [
+      { role: "system", content: "s" },
+      { role: "user", content: library },
+      { role: "user", content: [{ type: "text", text: library }] }
+    ]
+  });
+  assert.equal(payload.messages[1].content.length, library.length);
+  assert.equal(payload.messages[2].content[0].text.length, library.length);
+});

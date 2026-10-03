@@ -1,7 +1,6 @@
 XlsxWriter==3.2.9
 boto3==1.41.3
 charset-normalizer==3.4.4
-edgeparse==0.2.5
 openpyxl==3.1.5
 pypdf==6.3.0
 pypdfium2==5.13.0
