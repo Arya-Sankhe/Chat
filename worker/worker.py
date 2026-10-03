@@ -901,8 +901,14 @@ class Processor:
         self.r2.download(attachment["object_key"], source)
         self.assert_job_active(job["id"])
         limits = {**self.default_limits, **((job.get("input") or {}).get("limits") or {})}
-        if doc.get("processing_status") != "ready":
-            self.db.update_document_file(doc["id"], {"processing_status": "processing"})
+        # Hide old content before any rows or images are replaced. Failed/cancelled
+        # ingests stay unreadable; only successful completion publishes new ready stamps.
+        self.db.update_document_file(doc["id"], {
+            "processing_status": "processing",
+            "text_ready_at": None,
+            "visual_ready_at": None,
+            "enriched_at": None,
+        })
         meta = self.ingest_document(doc, attachment, source, tmp, limits, job_id=job["id"], report_progress=True)
         self.assert_job_active(job["id"])
         ready_at = now_iso()
@@ -979,7 +985,7 @@ class Processor:
             if job_id:
                 self.assert_job_active(job_id)
 
-        work = tmp / f"ingest-{uuid.uuid4().hex[:8]}"
+        work = tmp / f"ingest-{uuid.uuid4().hex}"
         work.mkdir(parents=True, exist_ok=True)
         if kind in ("pdf", "docx", "pptx"):
             return self.ingest_paged(doc, attachment, source, work, limits, progress, check, pdf_override)
@@ -1075,7 +1081,8 @@ class Processor:
                 "document_file_id": doc_id,
                 "page_number": number,
                 "source_label": label,
-                "image_key": f"users/{user_id}/documents/{doc_id}/pages/page-{number:04d}.jpg",
+                # Previously-issued image URLs must keep pointing to the old page.
+                "image_key": f"users/{user_id}/documents/{doc_id}/pages/{work.name}/page-{number:04d}.jpg",
                 "image_content_type": "image/jpeg",
                 "width_px": max(1, round(page["width_pt"] * scale)),
                 "height_px": max(1, round(page["height_pt"] * scale)),
@@ -1212,28 +1219,14 @@ class Processor:
             params={"document_file_id": f"eq.{document_file_id}", "chunk_index": f"gte.{int(chunk_count)}"},
             prefer="return=minimal",
         )
-        stale = self.db.request(
-            "document_pages",
-            params={
-                "document_file_id": f"eq.{document_file_id}",
-                "page_number": f"gt.{int(page_count)}",
-                "select": "id,image_key",
-            },
-        ) or []
-        if not stale:
-            return
         self.db.request(
             "document_pages",
             method="DELETE",
             params={"document_file_id": f"eq.{document_file_id}", "page_number": f"gt.{int(page_count)}"},
             prefer="return=minimal",
         )
-        for row in stale:
-            if row.get("image_key"):
-                try:
-                    self.r2.delete(row["image_key"])
-                except Exception as exc:
-                    print(f"stale page image delete failed ({row['image_key']}): {exc}", flush=True)
+        # Keep images for already-issued URLs. Unreferenced ingest generations are
+        # swept after the storage grace period instead of breaking an in-flight read.
 
     def render_pdf_pages(self, path, output_dir, dpi=None, page_count=None, first_page=None, last_page=None):
         prefix = output_dir / "page"

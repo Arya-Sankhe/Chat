@@ -88,8 +88,22 @@ export function sheetRows(units, { sheet = "", range = null } = {}) {
 export function cellValue(cell) {
   const text = String(cell ?? "");
   if (text.startsWith("=")) {
-    const marker = text.lastIndexOf(" => ");
-    return marker >= 0 ? text.slice(marker + 4) : "";
+    // A formula can contain the separator inside a string or quoted sheet name.
+    // Only the first separator outside those quotes introduces a cached value.
+    let quote = "";
+    for (let i = 1; i < text.length; i++) {
+      if (quote) {
+        if (text[i] === quote) {
+          if (text[i + 1] === quote) i++;
+          else quote = "";
+        }
+      } else if (text[i] === '"' || text[i] === "'") {
+        quote = text[i];
+      } else if (text.startsWith(" => ", i)) {
+        return text.slice(i + 4);
+      }
+    }
+    return "";
   }
   return text;
 }
@@ -167,6 +181,18 @@ function round(value) {
   return typeof value === "number" && Number.isFinite(value) ? Number(value.toPrecision(15)) : value;
 }
 
+function requireFormulaValues(rows, columns) {
+  const indices = [...new Set(columns.filter((value) => value !== null))];
+  for (const entry of rows) {
+    for (const index of indices) {
+      const cell = String(entry.cells[index] ?? "");
+      if (cell.startsWith("=") && !clean(cellValue(cell))) {
+        throw new HttpError(409, `Cannot query ${columnLetter(index + 1)}${entry.row}: its formula has no trusted calculated value. Recalculate and save the workbook, then upload it again.`);
+      }
+    }
+  }
+}
+
 /**
  * Filter, group and aggregate one sheet's data rows. `headerRow` names the columns;
  * rows after it are data. Returns plain JSON for the tool result.
@@ -182,6 +208,7 @@ export function querySheet(rows, { headerRow = null, filters = [], groupBy = [],
     op: clean(filter?.op || "=").toLowerCase(),
     value: filter?.value
   }));
+  requireFormulaValues(data, conditions.map(({ index }) => index));
   const matched = data.filter((entry) => conditions.every(({ index, op, value }) => compare(op, entry.cells[index], value)));
   const columnName = (index) => clean(cellValue(header[index])) || columnLetter(index + 1);
 
@@ -191,11 +218,13 @@ export function querySheet(rows, { headerRow = null, filters = [], groupBy = [],
     const index = fn === "count_rows" && !entry?.column ? null : columnIndex(header, entry?.column);
     return { fn, index, name: `${fn}(${index === null ? "*" : columnName(index)})` };
   });
+  requireFormulaValues(matched, [...groups, ...metrics.map(({ index }) => index)]);
 
   if (!metrics.length && !groups.length) {
     let list = matched;
     if (orderBy?.column) {
       const index = columnIndex(header, orderBy.column);
+      requireFormulaValues(matched, [index]);
       list = [...list].sort((a, b) => sortValue(a.cells[index], b.cells[index]) * (orderBy.desc ? -1 : 1));
     }
     return {

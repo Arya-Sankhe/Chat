@@ -1161,6 +1161,7 @@ export async function attachmentStorageKeys(context, attachment, config, signal)
   if (doc.preview_key) keys.push(doc.preview_key);
   const pages = await context.db.listDocumentPages(context.user.id, doc.id, {
     limit: config.documents.maxPdfPages,
+    allowUnready: true,
     signal
   });
   keys.push(...pages.map((page) => page.image_key));

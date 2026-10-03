@@ -4,7 +4,7 @@ import test from "node:test";
 import { DocumentService } from "../server/documents/index.js";
 import { executeDocumentToolCall } from "../server/documents/tool.js";
 import { clearDocumentTextCache, loadDocumentUnits } from "../server/documents/library.js";
-import { cellNumber, parseCellRange, querySheet } from "../server/documents/sheets.js";
+import { cellNumber, cellValue, parseCellRange, querySheet } from "../server/documents/sheets.js";
 import { buildDocumentContext, withDocumentContext } from "../server/chat/pipeline.js";
 
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -369,6 +369,82 @@ test("cell ranges, numbers and sheet queries are parsed exactly", () => {
     { team: "blue", "sum(score)": 7, "avg(score)": 7 }
   ]);
   assert.throws(() => querySheet(rows, { filters: [{ column: "missing", op: "=" }] }), /Column "missing" was not found/);
+});
+
+test("spreadsheet queries refuse unknown formula values in metrics, filters, groups and ordering", () => {
+  const rows = [
+    { row: 1, cells: ["team", "cost"] },
+    { row: 2, cells: ["red", "10"] },
+    { row: 3, cells: ["blue", "=SUM(C3:D3)"] }
+  ];
+  for (const fn of ["sum", "avg", "min", "max", "count", "count_distinct"]) {
+    assert.throws(() => querySheet(rows, { aggregates: [{ fn, column: "cost" }] }), /B3.*no trusted calculated value/);
+  }
+  assert.throws(() => querySheet(rows, { filters: [{ column: "cost", op: "is_empty" }] }), /B3.*Recalculate/);
+  assert.throws(() => querySheet(rows, { groupBy: ["cost"] }), /B3/);
+  assert.throws(() => querySheet(rows, { orderBy: { column: "cost" } }), /B3/);
+  // Unrelated formulas and rows excluded using known values don't invalidate a query.
+  assert.equal(querySheet(rows, { aggregates: [{ fn: "count_rows" }] }).results[0]["count_rows(*)"], 2);
+  assert.equal(querySheet(rows, {
+    filters: [{ column: "team", value: "red" }],
+    aggregates: [{ fn: "sum", column: "cost" }]
+  }).results[0]["sum(cost)"], 10);
+  rows[2].cells[1] = "=SUM(C3:D3) => 0";
+  assert.equal(querySheet(rows, { aggregates: [{ fn: "sum", column: "cost" }] }).results[0]["sum(cost)"], 10);
+  rows[2].cells[1] = "=SUM(C3:D3) => ";
+  assert.throws(() => querySheet(rows, { aggregates: [{ fn: "sum", column: "cost" }] }), /B3/);
+  for (const formula of ['=IF(A1," => ",0)', '=IF(A1,"a "" => "" b",0)', "='Gross => Net'!B2"]) {
+    rows[2].cells[1] = formula;
+    assert.throws(() => querySheet(rows, { aggregates: [{ fn: "sum", column: "cost" }] }), /B3/);
+    assert.equal(cellNumber(`${formula} => 0`), 0);
+  }
+  assert.equal(cellValue('=IF(A1," => ","b") => text => value'), "text => value");
+});
+
+test("an unavailable formula produces a model-facing error instead of an incomplete spreadsheet total", async () => {
+  clearDocumentTextCache();
+  const doc = pagedDoc(1, { kind: "xlsx", metadata: { pipeline: "sheets-v1", sheets: [{ name: "Budget", header_row: 1 }] } });
+  const chunks = [{
+    document_file_id: doc.id, chunk_index: 0, source_type: "sheet_range",
+    text: "item\tcost\nrent\t=SUM(C2:D2)",
+    metadata: { extractor: "sheets-v1", sheet: "Budget", row_numbers: [1, 2], row_start: 1, row_end: 2 }
+  }];
+  const { service } = serviceWith({ docs: [doc], chunks });
+  const result = await executeDocumentToolCall({
+    documents: service,
+    toolCall: { function: { name: "query_spreadsheet", arguments: JSON.stringify({ attachment_id: doc.attachment_id, sheet: "Budget", aggregates: [{ fn: "sum", column: "cost" }] }) } }
+  });
+  assert.equal(result.ok, false);
+  assert.match(JSON.parse(result.toolResultJson).error, /B2.*no trusted calculated value/);
+});
+
+test("cached text and page-image reads reject documents being re-ingested or a changed version", async () => {
+  clearDocumentTextCache();
+  const doc = pagedDoc(1);
+  const { service } = serviceWith({ docs: [doc], chunks: pageChunks(doc, ["old text"]) });
+  await service.loadUnits([doc]);
+  let fresh = { ...doc, text_ready_at: null, visual_ready_at: null };
+  service.db.listDocumentFilesByAttachments = async () => [fresh];
+  await assert.rejects(service.loadUnits([doc]), /being processed/);
+  await assert.rejects(service.pageImageRows(doc, [1]), /being processed/);
+  fresh = { ...doc, text_ready_at: "2026-10-04T00:00:00Z", visual_ready_at: "2026-10-04T00:00:00Z" };
+  await assert.rejects(service.loadUnits([doc]), /content changed/);
+  service.db.getDocumentFileByAttachment = async () => fresh;
+  await assert.rejects(service.read({ attachmentId: doc.attachment_id }), /content changed/);
+});
+
+test("a document version changing between chunk batches never reaches the context", async () => {
+  clearDocumentTextCache();
+  const doc = pagedDoc(1, { pages: 1001 });
+  const { service } = serviceWith({ docs: [doc] });
+  let version = doc;
+  service.db.listDocumentFilesByAttachments = async () => [version];
+  service.db.listDocumentChunksForFiles = async (_user, _ids, { offset }) => {
+    if (!offset) return pageChunks(doc, Array(1000).fill("old text"));
+    version = { ...doc, text_ready_at: "new stamp", visual_ready_at: "new stamp" };
+    return [{ ...pageChunks(doc, ["new text"])[0], chunk_index: 1000 }];
+  };
+  await assert.rejects(service.planContext({ docs: [doc], tokenBudget: 1_000_000 }), /content changed/);
 });
 
 test("documents still processing or failed are named instead of disappearing", async () => {

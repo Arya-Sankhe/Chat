@@ -1,4 +1,24 @@
 import { single } from "./helpers.js";
+import { assertDocumentVersions } from "../../documents/library.js";
+
+// Shared by chat, Study Hub and editor reads. A re-ingest clears readiness before
+// writing and publishes a new stamp after writing, so both sides must match.
+async function readDocumentContent(client, userId, ids, read, signal) {
+  if (!ids.length) return [];
+  const versions = () => client.request("document_files", {
+    query: {
+      user_id: `eq.${userId}`,
+      id: `in.(${ids.join(",")})`,
+      select: "id,text_ready_at,visual_ready_at"
+    },
+    signal
+  });
+  const before = await versions();
+  assertDocumentVersions(ids.map((id) => before.find((doc) => doc.id === id) || { id }), before);
+  const result = await read();
+  assertDocumentVersions(before, await versions());
+  return result;
+}
 
 export async function createDocumentFile(client, documentFile, { signal } = {}) {
   const rows = await client.request("document_files", {
@@ -146,7 +166,7 @@ export async function listProjectDocumentFilesByIds(client, userId, projectId, d
 export async function listDocumentChunksForFiles(client, userId, documentFileIds = [], { limit = 5000, offset = 0, signal } = {}) {
   const ids = [...new Set(documentFileIds.filter(Boolean))];
   if (!ids.length) return [];
-  return client.request("document_chunks", {
+  return readDocumentContent(client, userId, ids, () => client.request("document_chunks", {
     query: {
       user_id: `eq.${userId}`,
       document_file_id: `in.(${ids.join(",")})`,
@@ -156,7 +176,7 @@ export async function listDocumentChunksForFiles(client, userId, documentFileIds
       ...(offset ? { offset: String(offset) } : {})
     },
     signal
-  });
+  }), signal);
 }
 
 export async function listDocumentFilesByAttachments(client, userId, attachmentIds = [], { signal } = {}) {
@@ -280,7 +300,7 @@ export async function getDocSpecForDocument(client, userId, documentFileId, { si
 }
 
 export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, offset = 0, sourceType = "", sheet = "", signal } = {}) {
-  return client.request("document_chunks", {
+  return readDocumentContent(client, userId, [documentFileId], () => client.request("document_chunks", {
     query: {
       user_id: `eq.${userId}`,
       document_file_id: `eq.${documentFileId}`,
@@ -292,11 +312,11 @@ export async function listDocumentChunks(client, userId, documentFileId, { limit
       ...(offset ? { offset: String(offset) } : {})
     },
     signal
-  });
+  }), signal);
 }
 
-export async function listDocumentPages(client, userId, documentFileId, { limit = 40, pageStart = null, pageEnd = null, signal } = {}) {
-  return client.request("document_pages", {
+export async function listDocumentPages(client, userId, documentFileId, { limit = 40, pageStart = null, pageEnd = null, allowUnready = false, signal } = {}) {
+  const read = () => client.request("document_pages", {
     query: {
       user_id: `eq.${userId}`,
       document_file_id: `eq.${documentFileId}`,
@@ -308,12 +328,14 @@ export async function listDocumentPages(client, userId, documentFileId, { limit 
     },
     signal
   });
+  // Storage cleanup must also be able to remove failed or partially-ingested uploads.
+  return allowUnready ? read() : readDocumentContent(client, userId, [documentFileId], read, signal);
 }
 
 export async function listDocumentPagesByNumbers(client, userId, documentFileId, pageNumbers = [], { signal } = {}) {
   const numbers = [...new Set(pageNumbers.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
   if (!numbers.length) return [];
-  return client.request("document_pages", {
+  return readDocumentContent(client, userId, [documentFileId], () => client.request("document_pages", {
     query: {
       user_id: `eq.${userId}`,
       document_file_id: `eq.${documentFileId}`,
@@ -322,7 +344,7 @@ export async function listDocumentPagesByNumbers(client, userId, documentFileId,
       order: "page_number.asc"
     },
     signal
-  });
+  }), signal);
 }
 
 export async function updateDocumentPage(client, userId, documentFileId, pageNumber, patch, { signal } = {}) {
@@ -350,12 +372,12 @@ export async function deleteDocumentPages(client, userId, documentFileId, { sign
 }
 
 export async function searchDocumentChunks(client, { userId, documentFileIds = [], query = "", limit = 5 }, { signal } = {}) {
-  return client.rpc("klui_search_document_chunks", {
+  return readDocumentContent(client, userId, documentFileIds, () => client.rpc("klui_search_document_chunks", {
     p_user_id: userId,
     p_document_ids: documentFileIds,
     p_query: query,
     p_limit: limit
-  }, { signal });
+  }, { signal }), signal);
 }
 
 /** Replace a document's text with new units (the editor saved new content). */

@@ -15,6 +15,7 @@ import { editUploadedFile, validFileOperations } from "./fileEditor.js";
 import { STYLES, styleName } from "../../worker/doc/themes.js";
 import { alignDeck } from "../../worker/deck/spec.js";
 import {
+  assertDocumentVersions,
   documentCostEstimate,
   documentKind,
   documentName,
@@ -250,6 +251,7 @@ export class DocumentService {
     this.userRequest = userRequest;
     this.documentsConfig = config.documents || {};
     this.db = db;
+    this.documentVersions = new Map();
     this.r2 = r2;
     this.userId = userId;
     this.conversationId = conversationId;
@@ -293,9 +295,11 @@ export class DocumentService {
         ? this.db.listUsableProjectDocumentFiles(this.userId, this.projectId, { signal: this.signal })
         : []
     ]);
-    return [...new Map([...chatDocs, ...projectDocs.filter((doc) => this.inProjectScope(doc))]
+    const docs = [...new Map([...chatDocs, ...projectDocs.filter((doc) => this.inProjectScope(doc))]
       .filter((doc) => doc?.metadata?.preview !== true)
       .map((doc) => [doc.id, doc])).values()];
+    this.pinVersions(docs);
+    return docs;
   }
 
   /**
@@ -357,7 +361,23 @@ export class DocumentService {
   }
 
   async loadUnits(docs) {
-    return loadDocumentUnits({ db: this.db, userId: this.userId, docs, signal: this.signal });
+    const units = await loadDocumentUnits({ db: this.db, userId: this.userId, docs, signal: this.signal });
+    await this.assertVersions(docs);
+    return units;
+  }
+
+  async assertVersions(docs) {
+    if (!docs.length) return;
+    this.pinVersions(docs);
+    const current = await this.db.listDocumentFilesByAttachments(this.userId, docs.map((doc) => doc.attachment_id), { signal: this.signal });
+    assertDocumentVersions(docs, current);
+  }
+
+  pinVersions(docs) {
+    assertDocumentVersions(docs.map((doc) => this.documentVersions.get(doc.id) || doc), docs);
+    for (const doc of docs) this.documentVersions.set(doc.id, {
+      id: doc.id, text_ready_at: doc.text_ready_at, visual_ready_at: doc.visual_ready_at
+    });
   }
 
   /** Stored page images by page number. Every page of a document is rendered when it is ingested. */
@@ -370,6 +390,7 @@ export class DocumentService {
         if (clean(row?.image_key)) rows.set(Number(row.page_number), row);
       }
     }
+    await this.assertVersions([doc]);
     return rows;
   }
 
@@ -409,6 +430,7 @@ export class DocumentService {
    */
   async planContext({ docs = null, unready = [], attachedDocumentIds = [], tokenBudget = 0, query = "" } = {}) {
     const available = (docs || await this.readyDocuments()).filter(documentReady);
+    this.pinVersions(available);
     const budget = Math.max(0, Math.floor(Number(tokenBudget) || 0));
     const plan = { entries: [], notes: [], evidence: [], unready: this.enabled ? (unready || []) : [], budget, tokens: 0, images: 0 };
     if (!this.enabled || !available.length) return plan;
@@ -494,6 +516,7 @@ export class DocumentService {
         return [];
       });
       const docById = new Map(partial.map((entry) => [entry.doc.id, entry.doc]));
+      await this.assertVersions(partial.map((entry) => entry.doc));
       const seen = new Set();
       for (const hit of hits || []) {
         if (plan.evidence.length >= 16) break;
@@ -662,6 +685,7 @@ export class DocumentService {
     const statuses = new Set(plan.entries.map((entry) => entry.status));
     result.mode = statuses.has("partial") ? (statuses.has("full") ? "mixed" : "partial") : "full";
     result.visual = visualTarget;
+    await this.assertVersions(plan.entries.map((entry) => entry.doc));
     return result;
   }
 
@@ -715,6 +739,7 @@ export class DocumentService {
     if (ready && !documentReady(doc)) {
       throw new HttpError(409, "Document is still processing.");
     }
+    if (ready) this.pinVersions([doc]);
     return doc;
   }
 
@@ -731,6 +756,7 @@ export class DocumentService {
     if (ready && !documentReady(doc)) {
       throw new HttpError(409, "Document is still processing.");
     }
+    if (ready) this.pinVersions([doc]);
     return doc;
   }
 
@@ -767,6 +793,7 @@ export class DocumentService {
       query: text,
       limit: 40
     }, { signal: this.signal });
+    await this.assertVersions(docs);
     const docById = new Map(docs.map((doc) => [doc.id, doc]));
     const budget = this.readBudgetChars();
     const results = [];

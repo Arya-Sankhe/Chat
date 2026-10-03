@@ -234,3 +234,17 @@ test("storage sweep refuses when most of the bucket looks unreferenced", async (
   assert.equal(result.failed, 1);
   assert.match(result.error, /refusing to delete 100 of 100/);
 });
+
+test("storage sweep retires replaced image generations after grace, keeping current and recent pages", async () => {
+  const prefix = "users/u/documents/live/pages/";
+  const oldKey = `${prefix}ingest-${"a".repeat(32)}/page-0001.jpg`;
+  const currentKey = `${prefix}ingest-${"b".repeat(32)}/page-0001.jpg`;
+  const recentKey = `${prefix}ingest-${"c".repeat(32)}/page-0001.jpg`;
+  const { db, r2, deleted } = sweepFixture([
+    { key: oldKey, lastModified: "2026-07-01T00:00:00Z" },
+    { key: currentKey, lastModified: "2026-07-01T00:00:00Z" },
+    { key: recentKey, lastModified: "2026-07-12T00:00:00Z" }
+  ], { keys: new Set([currentKey]), documentIds: new Set(["live"]) });
+  await sweepUnreferencedObjects({ config: CONFIG, db, r2, now: new Date("2026-07-13T00:00:00Z"), logger: { log() {} } });
+  assert.deepEqual(deleted, [oldKey]);
+});

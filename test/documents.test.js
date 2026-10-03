@@ -368,6 +368,7 @@ test("buildDocumentSystemHint injects visual-reading guidance for ready PDFs", (
 
 test("DocumentService searches ready document chunks and returns document citations", async () => {
   const db = {
+    async listDocumentFilesByAttachments() { return this.listUsableDocumentFiles(); },
     async listUsableDocumentFiles() {
       return [{
         id: documentFileId,

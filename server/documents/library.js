@@ -8,6 +8,8 @@
    A unit list never changes after processing (a re-ingest bumps `updated_at`), so the
    assembled lists are cached in-process: chats re-read their documents every turn. */
 
+import { HttpError } from "../http/responses.js";
+
 const CHARS_PER_TOKEN = 4;
 const CHUNK_PAGE_SIZE = 1000;
 const CACHE_MAX_ENTRIES = 64;
@@ -42,6 +44,19 @@ export function isPaged(doc) {
 /** A document is ready once the worker has stored all of it (one job sets both stamps). */
 export function documentReady(doc) {
   return Boolean(doc?.text_ready_at || doc?.visual_ready_at);
+}
+
+/** Refuse reads that crossed a re-ingest, including cached text with newer page rows. */
+export function assertDocumentVersions(expected, current) {
+  const byId = new Map(current.map((doc) => [doc.id, doc]));
+  for (const doc of expected) {
+    const fresh = byId.get(doc.id);
+    if (!documentReady(fresh)
+      || (fresh.text_ready_at || null) !== (doc.text_ready_at || null)
+      || (fresh.visual_ready_at || null) !== (doc.visual_ready_at || null)) {
+      throw new HttpError(409, "Document content changed or is being processed. Try again once processing finishes.");
+    }
+  }
 }
 
 export function documentName(doc) {

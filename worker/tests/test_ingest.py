@@ -211,6 +211,47 @@ def fake_processor():
     return processor
 
 
+class ExtractReadinessTest(unittest.TestCase):
+    def test_stale_page_rows_are_removed_without_breaking_previously_issued_image_urls(self):
+        processor = fake_processor()
+        processor.remove_stale_rows("doc-1", chunk_count=1, page_count=1)
+        processor.db.request.assert_any_call("document_pages", method="DELETE", params={
+            "document_file_id": "eq.doc-1", "page_number": "gt.1",
+        }, prefer="return=minimal")
+        processor.r2.delete.assert_not_called()
+
+    def test_reingest_hides_old_content_before_writes_and_publishes_only_on_success(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as tmp:
+                processor = fake_processor()
+                processor.db.get_document_file.return_value = {
+                    "id": "doc-1", "attachment_id": "att-1", "kind": "pdf",
+                    "processing_status": "ready", "text_ready_at": "old", "visual_ready_at": "old",
+                }
+                processor.db.get_attachment.return_value = {
+                    "file_name": "test.pdf", "object_key": "original", "content_type": "pdf", "size_bytes": 1,
+                }
+
+                def ingest_document(*args, **kwargs):
+                    processor.db.update_document_file.assert_called_once_with("doc-1", {
+                        "processing_status": "processing", "text_ready_at": None,
+                        "visual_ready_at": None, "enriched_at": None,
+                    })
+                    if fail:
+                        raise RuntimeError("upload failed halfway")
+                    return {"pipeline": ingest.PIPELINE_PAGES, "page_count": 1}
+
+                processor.ingest_document = mock.Mock(side_effect=ingest_document)
+                job = {"id": "job-1", "document_file_id": "doc-1"}
+                if fail:
+                    with self.assertRaisesRegex(RuntimeError, "halfway"):
+                        processor.extract_job(job, Path(tmp))
+                else:
+                    patch = processor.extract_job(job, Path(tmp))["_document_patch"]
+                    self.assertNotEqual(patch["text_ready_at"], "old")
+                    self.assertEqual(patch["text_ready_at"], patch["visual_ready_at"])
+
+
 @unittest.skipIf(shutil.which("soffice") is None or shutil.which("pdftoppm") is None, "needs LibreOffice and poppler (the worker image)")
 class PagedIngestTest(unittest.TestCase):
     def test_extract_job_stores_every_page_with_text_and_image_and_one_ready_stamp(self):
@@ -252,6 +293,7 @@ class PagedIngestTest(unittest.TestCase):
         self.assertEqual([row["page_number"] for row in pages], list(range(1, page_count + 1)))
         self.assertEqual([chunk["chunk_index"] for chunk in chunks], list(range(page_count)))
         self.assertTrue(all(row["image_key"].endswith(f"page-{row['page_number']:04d}.jpg") for row in pages))
+        self.assertTrue(all("/pages/ingest-" in row["image_key"] for row in pages))
         self.assertEqual(processor.r2.upload.call_count, page_count)
         self.assertIn("Quarterly report", chunks[0]["text"])
         self.assertIn("Paragraph 44", "\n".join(chunk["text"] for chunk in chunks))

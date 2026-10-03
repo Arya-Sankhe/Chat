@@ -20,6 +20,7 @@ export function needsIngest(file, { all = false } = {}) {
   const metadata = file.metadata || {};
   if (metadata.preview === true) return "skip";
   if (metadata.editable === true && Number(metadata.editor_revision || 1) > 1) return "skip";
+  if (file.processing_status === "failed") return "ingest";
   const current = CURRENT_VERSION[metadata.pipeline];
   if (!all && current && Number(metadata.ingest_version || 1) >= current) return "current";
   return "ingest";
@@ -39,8 +40,9 @@ export async function reingestDocuments({ db, queue = "local", apply = false, al
       query: {
         kind: `in.(${KINDS.join(",")})`,
         queue: `eq.${queue}`,
-        or: "(text_ready_at.not.is.null,visual_ready_at.not.is.null)",
-        select: "id,user_id,kind,conversation_id,message_id,metadata",
+        // A failed re-ingest has no ready stamps; allow it to be queued again.
+        or: "(text_ready_at.not.is.null,visual_ready_at.not.is.null,processing_status.eq.failed)",
+        select: "id,user_id,kind,conversation_id,message_id,processing_status,metadata",
         order: "created_at.asc",
         limit: String(batchSize),
         offset: String(offset)

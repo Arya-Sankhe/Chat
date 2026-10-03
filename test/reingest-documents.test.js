@@ -80,6 +80,23 @@ test("re-ingest leaves the other machine's jobs alone", async () => {
   assert.deepEqual(writes, []);
 });
 
+test("a failed re-ingest can be queued again even when its metadata has the current ingest version", async () => {
+  const writes = [];
+  const db = { async request(path, options) {
+    if (path === "document_files") {
+      assert.match(options.query.or, /processing_status\.eq\.failed/);
+      assert.match(options.query.select, /processing_status/);
+      return [{ id: "failed", kind: "pdf", processing_status: "failed", metadata: { pipeline: "pages-v1", ingest_version: 2 } }];
+    }
+    if (!options.method) return [{ id: "job", document_file_id: "failed", job_type: "document.extract.pdf", status: "failed", queue: "local" }];
+    writes.push(options);
+    return [];
+  } };
+  const result = await reingestDocuments({ db, apply: true, logger: { log() {} } });
+  assert.equal(result.queued, 1);
+  assert.equal(writes[0].body.status, "queued");
+});
+
 test("re-ingest picks up paged documents stored before hidden slides and OCR", () => {
   // An old deck: same pipeline name, no version, missing its hidden slide.
   assert.equal(needsIngest({ metadata: { pipeline: "pages-v1" } }), "ingest");
@@ -90,4 +107,5 @@ test("re-ingest picks up paged documents stored before hidden slides and OCR", (
   assert.equal(needsIngest({ metadata: { pipeline: "pages-v1", ingest_version: 2 } }, { all: true }), "ingest");
   assert.equal(needsIngest({ metadata: { pipeline: "pages-v1", editable: true, editor_revision: 2 } }, { all: true }), "skip");
   assert.equal(needsIngest({ metadata: { preview: true } }, { all: true }), "skip");
+  assert.equal(needsIngest({ processing_status: "failed", metadata: { pipeline: "pages-v1", ingest_version: 2 } }), "ingest");
 });

@@ -88,6 +88,9 @@ export async function sweepUnreferencedObjects({
     if (!Number.isFinite(modified) || modified >= cutoff) return false;
     if (keys.has(key)) return false;
     const parts = key.split("/");
+    // Versioned page images are immutable. Replaced generations can be swept after
+    // the normal grace period; legacy document objects still keep their protection.
+    if (parts[2] === "documents" && parts[4] === "pages" && /^ingest-[a-f0-9]{32}$/.test(parts[5] || "")) return true;
     return !(parts[2] === "documents" && documentIds.has(parts[3]));
   });
   const result = {
