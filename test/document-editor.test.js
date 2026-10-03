@@ -76,12 +76,13 @@ test("preview refresh cannot detach an editable document or its pending edits", 
   }
   let toolbar, onChange, mounts = 0, destroys = 0, fetches = 0;
   const source = await readFile(new URL("../public/js/documentViewer.js", import.meta.url), "utf8");
-  const factory = runInNewContext(source.replace(/^import .*\n/, "").replace("export function", "function") + "\ncreateDocumentViewer", {
+  const factory = runInNewContext(source.replace(/^import .*\n/gm, "").replace("export function", "function") + "\ncreateDocumentViewer", {
     document: {
       createElement: () => (toolbar = new Element()), createComment: () => new Element(),
       body: new Element(), addEventListener() {}
     },
     setTimeout: () => 0, clearTimeout() {},
+    selectionPlainText: (value) => String(value || "").replace(/\s+/g, " "),
     mountDocumentEditor: async options => {
       mounts++;
       onChange = options.onChange;

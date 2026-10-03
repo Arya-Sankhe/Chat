@@ -563,6 +563,21 @@ async function requireEditableDocument(context, attachmentId, signal) {
   return doc;
 }
 
+// What the viewer may offer for a document: Ask Klui edits (PDF, Word, PowerPoint in a chat)
+// and the formats it downloads as (a Klui document renders to both PDF and Word).
+async function viewerActions(context, attachment, doc, signal) {
+  if (!doc || !["pdf", "docx", "pptx"].includes(doc.kind)) return {};
+  const spec = ["pdf", "docx"].includes(doc.kind) && typeof context.db.getDocSpecForDocument === "function"
+    ? await context.db.getDocSpecForDocument(context.user.id, doc.id, { signal }).catch(() => null)
+    : null;
+  return {
+    editAttachmentId: attachment.id,
+    canAsk: Boolean(doc.conversation_id),
+    designed: Boolean(spec),
+    exportFormats: spec ? ["pdf", "docx"] : doc.kind === "pdf" ? ["pdf"] : [doc.kind, "pdf"]
+  };
+}
+
 export async function handleAttachmentView(req, res, config, attachmentId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
@@ -593,7 +608,7 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
   }
 
   if (kind === "pdf") {
-    sendJson(res, 200, inlineViewPayload(context, attachment, { sourceKind: "pdf" }));
+    sendJson(res, 200, { ...inlineViewPayload(context, attachment, { sourceKind: "pdf" }), ...await viewerActions(context, attachment, doc, req.signal) });
     return;
   }
 
@@ -625,7 +640,7 @@ export async function handleAttachmentView(req, res, config, attachmentId) {
 
   const cached = await context.db.getReadyPdfPreviewForDocument(context.user.id, documentFile.id, { signal: req.signal });
   if (cached?.attachments?.status === "uploaded" && cached.attachments.object_key) {
-    sendJson(res, 200, inlineViewPayload(context, cached.attachments, { sourceKind: kind }));
+    sendJson(res, 200, { ...inlineViewPayload(context, cached.attachments, { sourceKind: kind }), ...await viewerActions(context, attachment, documentFile, req.signal) });
     return;
   }
 
@@ -682,6 +697,28 @@ export async function handleDocumentEditorExport(req, res, config, attachmentId)
   const context = await requireChatContext(req, config);
   const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
   if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
+  const source = await context.db.getDocumentFileByAttachment(context.user.id, attachmentId, { signal: req.signal });
+  const editable = source?.metadata?.editable === true && String(source.metadata?.editor_markdown || "").trim();
+  if (!editable) {
+    // A document file (Klui-designed or uploaded) exports through the worker.
+    if (!source || !["pdf", "docx", "pptx", "xlsx"].includes(source.kind)) throw new HttpError(404, "Document not found.");
+    const body = await parseJsonBody(req, 16 * 1024);
+    const format = String(body.format || "").toLowerCase();
+    if (!["docx", "pdf"].includes(format)) throw new HttpError(400, "Export format must be docx or pdf.");
+    const documents = new DocumentService({
+      config, db: context.db, r2: context.r2, userId: context.user.id, conversationId: source.conversation_id,
+      projectId: source.project_id || attachment.project_id || null, plan: context.plan, signal: req.signal
+    });
+    const result = await documents.exportDocument({ attachmentId, targetFormat: format });
+    const output = result.output || {};
+    if (result.pending) {
+      sendJson(res, 202, { status: "processing", jobId: result.job?.id || output.job_id });
+      return;
+    }
+    if (!result.ok || !output.attachment_id) throw new HttpError(502, result.error?.message || "Document export failed.");
+    sendJson(res, 200, { status: "ready", artifact: { attachment_id: output.attachment_id, file_name: output.file_name, format: output.kind } });
+    return;
+  }
   const doc = await requireEditableDocument(context, attachmentId, req.signal);
   const body = await parseJsonBody(req, 256 * 1024);
   const format = String(body.format || "").toLowerCase();
@@ -817,6 +854,156 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
   const replacement = stripReviseFences(content);
   if (!replacement) throw new HttpError(502, "The model returned an empty revision.");
   sendJson(res, 200, { replacement });
+}
+
+const ASK_INSTRUCTION_MAX = 4_000;
+const ASK_SELECTION_MAX = 12_000;
+const ASK_TIMEOUT_MS = 300_000;
+
+function askArtifact(output, fallbackName) {
+  const attachmentId = String(output?.attachment_id || "");
+  if (!attachmentId) return null;
+  return {
+    id: attachmentId,
+    attachment_id: attachmentId,
+    document_file_id: output.document_file_id || "",
+    file_name: output.file_name || fallbackName,
+    format: output.kind || "",
+    status: output.status || "ready",
+    download_url: `/api/attachments/${encodeURIComponent(attachmentId)}/download`,
+    source_tool: "edit_document"
+  };
+}
+
+// "Ask Klui" in the document viewer: a precise edit of this exact document (only the selection,
+// when there is one). The edit is a new version; the request and the new version are recorded
+// in the chat so the conversation and later edits continue from it.
+export async function handleDocumentAsk(req, res, config, attachmentId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  if (!configuredServices(config).documents) throw new HttpError(503, "Document editing is not configured.");
+  const context = await requireChatContext(req, config);
+  const attachment = await context.db.getAttachment(context.user.id, attachmentId, { signal: req.signal });
+  if (!attachment || attachment.status !== "uploaded") throw new HttpError(404, "Attachment not found.");
+  const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
+  if (!doc || !["pdf", "docx", "pptx"].includes(doc.kind)) throw new HttpError(400, "Ask Klui edits PDF, Word and PowerPoint documents.");
+  if (!doc.conversation_id) throw new HttpError(403, "Project knowledge is read-only. Create a copy before editing it.");
+  const body = await parseJsonBody(req, 64 * 1024);
+  const instruction = String(body.instruction || "").trim();
+  if (!instruction) throw new HttpError(400, "Describe the change you want.");
+  if (instruction.length > ASK_INSTRUCTION_MAX) throw new HttpError(413, "Change request is too long.");
+  const raw = body.selection && typeof body.selection === "object" ? body.selection : null;
+  const selection = raw && String(raw.text || "").trim()
+    ? {
+        text: String(raw.text).trim().slice(0, ASK_SELECTION_MAX),
+        before: String(raw.before || "").slice(-200),
+        after: String(raw.after || "").slice(0, 200),
+        page: Number.isInteger(Number(raw.page)) && Number(raw.page) > 0 ? Number(raw.page) : null,
+        blocks: Array.isArray(raw.blocks) ? raw.blocks.map(String).slice(0, 40) : []
+      }
+    : null;
+  enforceRateLimit(req, "document-ask", 20, 60_000, context.user.id);
+
+  const meter = createModelUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    signal: req.signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: config.desktop.chatReservationCredits
+  });
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(ASK_TIMEOUT_MS)]);
+  const documents = new DocumentService({
+    config,
+    db: context.db,
+    r2: context.r2,
+    userId: context.user.id,
+    conversationId: doc.conversation_id,
+    projectId: doc.project_id || attachment.project_id || null,
+    plan: context.plan,
+    signal,
+    modelClient: meter,
+    userRequest: instruction
+  });
+  let result;
+  try {
+    result = await documents.editDocument({ attachmentId: attachment.id, instructions: instruction, selection });
+  } catch (error) {
+    if (signal.aborted && !req.signal.aborted) throw new HttpError(504, "The edit took too long. Try again.");
+    throw error;
+  }
+  const output = result?.output || {};
+  if (!result?.ok) throw new HttpError(502, result?.error?.message || "The edit failed.");
+  if (output.status === "unchanged") {
+    sendJson(res, 200, { status: "unchanged", summary: output.doc_edit_summary || "Nothing was changed." });
+    return;
+  }
+  const summaryText = String(output.doc_edit_summary || output.deck_edit_summary || "").trim();
+  let artifact;
+  if (result.pending) {
+    const jobId = result.job?.id || output.job_id || "";
+    if (!jobId) throw new HttpError(502, "The edit could not be queued.");
+    // Still rendering: the chat records a pending card for the job, which the chat resolves to the
+    // new version when the job finishes (the same way a pending create_document card does).
+    artifact = {
+      pending: true,
+      job_id: jobId,
+      file_name: attachment.file_name,
+      format: doc.kind,
+      status: "processing",
+      source_tool: "edit_document"
+    };
+  } else {
+    artifact = askArtifact(output, attachment.file_name);
+    if (!artifact) throw new HttpError(502, "The edited document was not saved.");
+  }
+  const summary = summaryText || "Updated the document.";
+  // Record the edit in the chat: the request (with what was selected) and the new version.
+  let messages = [];
+  try {
+    const quoted = selection ? ` (selected: "${selection.text.slice(0, 160)}${selection.text.length > 160 ? "…" : ""}")` : "";
+    const userMessage = await context.db.insertMessage({
+      user_id: context.user.id,
+      conversation_id: doc.conversation_id,
+      role: "user",
+      model: null,
+      content: `${instruction}${quoted}`,
+      reasoning: "",
+      tool_calls: [],
+      metadata: { documentAsk: { attachmentId: attachment.id, fileName: attachment.file_name, ...(selection ? { selection: selection.text.slice(0, 500) } : {}) } }
+    }, { signal: req.signal });
+    const assistantMessage = await context.db.insertMessage({
+      user_id: context.user.id,
+      conversation_id: doc.conversation_id,
+      role: "assistant",
+      model: "klui-docs",
+      content: summary,
+      reasoning: "",
+      tool_calls: [],
+      metadata: { documents: { artifacts: [artifact], toolCallCount: 1 }, documentAsk: { sourceAttachmentId: attachment.id } }
+    }, { signal: req.signal });
+    messages = [userMessage, assistantMessage].filter(Boolean);
+  } catch (error) {
+    console.warn(`document ask: chat record failed: ${error?.message || error}`);
+  }
+  if (result.pending) {
+    sendJson(res, 202, {
+      status: "processing",
+      jobId: artifact.job_id,
+      summary: summaryText,
+      conversationId: doc.conversation_id,
+      messageIds: messages.map((message) => message.id)
+    });
+    return;
+  }
+  sendJson(res, 200, {
+    status: "ready",
+    summary,
+    artifact,
+    previewAttachmentId: output.preview_attachment_id || null,
+    conversationId: doc.conversation_id,
+    messageIds: messages.map((message) => message.id)
+  });
 }
 
 export async function handleAttachmentDelete(req, res, config, attachmentId) {

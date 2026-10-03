@@ -368,7 +368,8 @@ test("document artifact cards open the viewer without a separate download action
   const appJs = readPublic("js/app.js");
   const renderer = appJs.match(/function renderArtifacts\(message[\s\S]*?\n\}/);
   assert.ok(renderer, "renderArtifacts not found");
-  assert.match(renderer[0], />Open<\/button>/);
+  // The whole card is the button that opens the viewer.
+  assert.match(renderer[0], /<button class="artifact-card" type="button"[^`]*data-view-attachment-id=/);
   assert.doesNotMatch(renderer[0], />View<\/button>|>Download<\/a>/);
 });
 

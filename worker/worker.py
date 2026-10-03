@@ -33,8 +33,11 @@ from pptx.util import Inches as PptxInches
 from pptx.util import Pt
 
 try:
+    from worker import docx_edit, pdf_edit
     from worker.xlsx_generator import create_xlsx_workbook, validate_formula
 except ImportError:  # running as a loose script rather than the worker package
+    import docx_edit
+    import pdf_edit
     from xlsx_generator import create_xlsx_workbook, validate_formula
 
 
@@ -1673,7 +1676,22 @@ class Processor:
             return self.edit_job(job, tmp)
         if job_type.startswith("document.export."):
             return self.export_job(job, tmp)
+        if job_type.startswith("document.outline."):
+            return self.outline_job(job, tmp)
         raise RuntimeError(f"Unsupported job type: {job_type}")
+
+    def outline_job(self, job, tmp):
+        # The addressable structure of an uploaded file (paragraph / line ids, form fields) that
+        # precise edits are written against. Nothing is stored; the outline is the job output.
+        source_doc = self.db.get_document_file(job["document_file_id"])
+        attachment = self.db.get_attachment(source_doc["attachment_id"])
+        source = tmp / safe_name(attachment["file_name"])
+        self.r2.download(attachment["object_key"], source)
+        if source_doc["kind"] == "docx":
+            return {"outline": docx_edit.outline(source)}
+        if source_doc["kind"] == "pdf":
+            return {"outline": pdf_edit.outline(source)}
+        raise RuntimeError("Outlines are available for PDF and Word documents.")
 
     def extract_job(self, job, tmp):
         doc = self.db.get_document_file(job["document_file_id"])
@@ -2657,12 +2675,18 @@ class Processor:
     def create_job(self, job, tmp):
         self.artifact_warnings = []
         self.artifact_deck = None
+        self.artifact_doc = None
+        self.artifact_preview = None
         input_data = job.get("input") or {}
         fmt = input_data.get("format") or job["job_type"].split(".")[-1]
         title = input_data.get("title") or "Generated document"
         if fmt in ("docx", "pdf"):
-            docx = self.create_js_artifact(tmp, title, input_data, "docx") or self.create_docx(tmp, title, input_data)
-            path = docx if fmt == "docx" else self.libreoffice_convert(docx, tmp, "pdf")
+            # The document engine renders the DocSpec straight to the requested format.
+            path = self.create_js_artifact(tmp, title, input_data, fmt)
+            if path is None:
+                docx = self.create_docx(tmp, title, input_data)
+                path = docx if fmt == "docx" else self.libreoffice_convert(docx, tmp, "pdf")
+                self.artifact_warnings = ["document renderer failed; used the basic fallback layout"]
             content_type = (
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 if fmt == "docx"
@@ -2680,11 +2704,29 @@ class Processor:
         else:
             raise RuntimeError(f"Unsupported create format: {fmt}")
         output = self.store_generated(job, tmp, path, fmt, content_type, "generated", None)
+        self.store_doc_preview(job, tmp, output)
         if self.artifact_warnings:
             output["quality_warnings"] = list(self.artifact_warnings)
         if fmt == "pptx" and self.artifact_deck:
             output["deck"] = self.artifact_deck
+        if fmt in ("docx", "pdf") and self.artifact_doc:
+            output["doc"] = self.artifact_doc
         return output
+
+    def store_doc_preview(self, job, tmp, output):
+        # A DOCX from the document engine ships with the PDF printed from the same spec, stored
+        # as its preview so the viewer never falls back to a LibreOffice conversion.
+        preview = self.artifact_preview
+        self.artifact_preview = None
+        if not preview or output.get("kind") != "docx" or not Path(preview).exists():
+            return
+        try:
+            parent = self.db.get_document_file(output["document_file_id"])
+            preview_job = {**job, "input": {**(job.get("input") or {}), "preview": True}}
+            stored = self.store_generated(preview_job, tmp, Path(preview), "pdf", "application/pdf", "exported", parent)
+            output["preview_attachment_id"] = stored.get("attachment_id")
+        except Exception as exc:
+            print(f"document preview store failed: {exc}", flush=True)
 
     def create_js_artifact(self, tmp, title, input_data, fmt):
         if not USE_JS_ARTIFACT_GENERATOR:
@@ -2702,7 +2744,7 @@ class Processor:
         input_path.write_text(json.dumps(payload), encoding="utf-8")
         cmd = [NODE_BIN, str(generator), str(input_path), str(outdir)]
         try:
-            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
+            result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
             data = json.loads(result.stdout or "{}")
             output = Path(data.get("path") or "")
             if not output.exists():
@@ -2720,6 +2762,11 @@ class Processor:
             # The DeckSpec as rendered; stored on the job so edits start from what is on the slides.
             deck = data.get("deck")
             self.artifact_deck = deck if isinstance(deck, dict) and isinstance(deck.get("slides"), list) else None
+            # The DocSpec likewise: precise document edits address its block ids.
+            doc = data.get("doc")
+            self.artifact_doc = doc if isinstance(doc, dict) and isinstance(doc.get("blocks"), list) else None
+            preview = Path(data.get("preview_path") or "")
+            self.artifact_preview = preview if preview.name and preview.exists() and resolved_outdir in preview.resolve().parents else None
             return output
         except Exception as exc:
             print(f"JS artifact generator failed for {fmt}; using Python fallback: {exc}", flush=True)
@@ -3020,11 +3067,37 @@ class Processor:
     def edit_job(self, job, tmp):
         self.artifact_warnings = []
         self.artifact_deck = None
+        self.artifact_doc = None
+        self.artifact_preview = None
         source_doc = self.db.get_document_file(job["document_file_id"])
         attachment = self.db.get_attachment(source_doc["attachment_id"])
         source = tmp / safe_name(attachment["file_name"])
-        self.r2.download(attachment["object_key"], source)
         kind = source_doc["kind"]
+        input_data = job.get("input") or {}
+        spec = (input_data.get("data") or {}).get("doc")
+        if kind in ("docx", "pdf") and isinstance(spec, dict) and isinstance(spec.get("blocks"), list):
+            # Klui documents re-render from the edited DocSpec: only the addressed blocks change.
+            title = str(input_data.get("title") or spec.get("title") or Path(attachment["file_name"]).stem)
+            rendered = self.create_js_artifact(tmp, title, {"data": {"doc": spec}, "title": title}, kind)
+            if rendered is None:
+                raise RuntimeError("doc_render_failed: the edited document could not be rendered")
+            output = tmp / f"{Path(attachment['file_name']).stem}.{kind}"
+            shutil.move(str(rendered), output)
+            content_type = "application/pdf" if kind == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            stored = self.store_generated(job, tmp, output, kind, content_type, "edited", source_doc)
+            self.store_doc_preview(job, tmp, stored)
+            if self.artifact_doc:
+                stored["doc"] = self.artifact_doc
+            if self.artifact_warnings:
+                stored["quality_warnings"] = list(self.artifact_warnings)
+            return stored
+        self.r2.download(attachment["object_key"], source)
+        if kind == "pdf":
+            output = self.edit_pdf(source, tmp, input_data)
+            stored = self.store_generated(job, tmp, output, kind, "application/pdf", "edited", source_doc)
+            if self.artifact_warnings:
+                stored["quality_warnings"] = list(self.artifact_warnings)
+            return stored
         if kind == "docx":
             output = self.edit_docx(source, tmp, job.get("input") or {})
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -3086,26 +3159,35 @@ class Processor:
         return output
 
     def edit_docx(self, source, tmp, input_data):
-        doc = Document(str(source))
-        operations = input_data.get("operations") or []
-        changed = False
-        for op in operations:
-            find = str(op.get("find") or op.get("old_text") or "")
-            replace = str(op.get("replace") or op.get("new_text") or "")
-            if not find:
+        # Run-level edits that keep every style, numbering and table layout of the original.
+        operations = []
+        for op in input_data.get("operations") or []:
+            if not isinstance(op, dict):
                 continue
-            for paragraph in doc.paragraphs:
-                if find in paragraph.text:
-                    paragraph.text = paragraph.text.replace(find, replace)
-                    changed = True
-        instructions = input_data.get("instructions") or ""
-        if instructions and not changed:
-            doc.add_page_break()
-            doc.add_heading("Requested edits", level=1)
-            doc.add_paragraph(instructions)
-        output = tmp / f"edited-{source.name}"
-        doc.save(output)
+            if not op.get("type") and (op.get("find") or op.get("old_text")):
+                op = {"type": "replace_text", "find": op.get("find") or op.get("old_text"), "replace": op.get("replace") or op.get("new_text") or ""}
+            operations.append(op)
+        if not operations:
+            raise RuntimeError("docx_edit_requires_operations")
+        output = tmp / f"{re.sub(r'^(edited-)+', '', source.stem)}.docx"
+        if output == source:
+            output = tmp / f"edited-{source.name}"
+        _applied, warnings = docx_edit.apply_operations(source, output, operations)
+        self.artifact_warnings = warnings[:10]
         return output
+
+    def edit_pdf(self, source, tmp, input_data):
+        operations = [op for op in (input_data.get("operations") or []) if isinstance(op, dict)]
+        if not operations:
+            raise RuntimeError("pdf_edit_requires_operations")
+        output = tmp / f"{re.sub(r'^(edited-)+', '', source.stem)}-edited.pdf"
+        _applied, warnings = pdf_edit.apply_operations(source, output, operations)
+        self.artifact_warnings = warnings[:10]
+        final = tmp / "out-final"
+        final.mkdir(exist_ok=True)
+        target = final / source.name
+        shutil.move(str(output), target)
+        return target
 
     def edit_xlsx(self, source, tmp, input_data):
         wb = load_workbook(str(source))
@@ -3245,11 +3327,23 @@ class Processor:
         return output
 
     def export_job(self, job, tmp):
+        self.artifact_doc = None
+        self.artifact_preview = None
         source_doc = self.db.get_document_file(job["document_file_id"])
         attachment = self.db.get_attachment(source_doc["attachment_id"])
         source = tmp / safe_name(attachment["file_name"])
+        input_data = job.get("input") or {}
+        target = input_data.get("target_format") or "pdf"
+        spec = (input_data.get("data") or {}).get("doc")
+        if target in ("docx", "pdf") and isinstance(spec, dict) and isinstance(spec.get("blocks"), list):
+            # A Klui document exports by rendering its DocSpec, never through a converter.
+            title = Path(input_data.get("output_file_name") or attachment["file_name"]).stem
+            rendered = self.create_js_artifact(tmp, title, {"data": {"doc": spec}, "title": title, "preview_pdf": False}, target)
+            if rendered is None:
+                raise RuntimeError("doc_render_failed: the document could not be exported")
+            content_type = "application/pdf" if target == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            return self.store_generated(job, tmp, rendered, target, content_type, "exported", source_doc)
         self.r2.download(attachment["object_key"], source)
-        target = (job.get("input") or {}).get("target_format") or "pdf"
         if source_doc["kind"] == target:
             output = tmp / source.name
             shutil.copyfile(source, output)

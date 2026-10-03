@@ -286,9 +286,10 @@ export async function download(url, fileName = "download") {
   if (!isNative()) {
     const anchor = document.createElement("a");
     anchor.href = url;
+    // No target="_blank": the signed URL already answers with Content-Disposition: attachment, so
+    // the browser saves it in place instead of flashing open (and closing) a blank tab.
     anchor.download = fileName;
     anchor.rel = "noopener";
-    anchor.target = "_blank";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

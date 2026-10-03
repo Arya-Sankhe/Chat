@@ -782,6 +782,12 @@ export async function runChatWithToolLoop({
             error: { message }
           };
         }
+      } else if (documents && ["create_document", "export_document"].includes(call.function?.name)
+        && artifacts.some((artifact) => ["create_document", "export_document"].includes(artifact.source_tool))) {
+        // One new file per turn: a second create/export would hand the user two files for one ask.
+        const made = artifacts.find((artifact) => ["create_document", "export_document"].includes(artifact.source_tool));
+        const message = `This turn already produced ${made.file_name || "a file"}. Only one file is made per turn: describe that file to the user and offer the other format as a follow-up instead.`;
+        result = { ok: false, name: call.function.name, citations: [], toolResultJson: JSON.stringify({ error: message }), error: { message } };
       } else {
         // Give the slide writer the actual retrieved evidence, not only the chat model's paraphrase.
         if (documents && call.function?.name === "create_document") {

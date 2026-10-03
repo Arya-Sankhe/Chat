@@ -262,8 +262,8 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   assert.match(hint, /Professional PDF creation skill/);
   assert.match(hint, /Artifact planner/);
   assert.match(hint, /Tool availability is not an instruction to create a file/);
-  assert.match(hint, /publication-ready document/);
-  assert.match(hint, /complete final PDF body/);
+  assert.match(hint, /document designer writes and lays out the file/);
+  assert.match(hint, /Put everything the document must contain into `content`/);
   assert.match(hint, /Available document tools this turn: create_document/);
   assert.match(hint, /without including a URL or markdown link/);
   assert.match(hint, /artifact card that opens the document viewer/);
@@ -278,10 +278,10 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   const wordHint = buildDocumentSystemHint({ readyDocuments: [], selection: wordSelection });
 
   assert.match(wordHint, /Professional Word document creation skill/);
-  assert.match(wordHint, /infer the document's audience, purpose, formality level, and likely use case/);
-  assert.match(wordHint, /polished, human-quality document/);
-  assert.match(wordHint, /Title, Subtitle, Heading 1, Heading 2, Normal/);
-  assert.match(wordHint, /placeholder text, broken structure, inconsistent formatting/);
+  assert.match(wordHint, /A document without a named format is DOCX/);
+  assert.match(wordHint, /cv \/ cv_modern \(ATS-safe resumes\)/);
+  assert.match(wordHint, /Never invent facts, citations or personal details/);
+  assert.match(wordHint, /select any part of it in the viewer and use Ask Klui/);
   assert.doesNotMatch(wordHint, /Professional PDF creation skill/);
   assert.doesNotMatch(wordHint, /Professional XLSX workbook creation skill/);
 
@@ -1256,4 +1256,17 @@ test("DocumentService read returns an oversized chunk whole so next_offset skips
   assert.equal(first.next_offset, 1);
   const second = await service.read({ attachmentId, maxChars: 2000, offset: first.next_offset });
   assert.equal(second.results[0].content, "After the table.");
+});
+
+test("converting an existing Office file to PDF exports it instead of re-creating it", () => {
+  const readyDocuments = [{ kind: "docx", attachment_id: "word-1", attachments: { file_name: "Essay.docx" } }];
+  for (const text of ["convert this word file to pdf", "can you make this a pdf", "docx -> pdf", "turn it into a pdf"]) {
+    const selection = selectDocumentSkills({ text, readyDocuments });
+    assert.ok(selection.toolNames.includes("export_document"), text);
+    assert.ok(!selection.toolNames.includes("create_document"), text);
+  }
+  const summary = selectDocumentSkills({ text: "create a pdf with the summary of this", readyDocuments });
+  assert.ok(summary.toolNames.includes("create_document"));
+  const pdfOnly = selectDocumentSkills({ text: "convert this to pdf", readyDocuments: [{ kind: "pdf", attachment_id: "p" }] });
+  assert.ok(pdfOnly.toolNames.includes("create_document"));
 });

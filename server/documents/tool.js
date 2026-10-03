@@ -1,5 +1,6 @@
 /* Document tool schemas and executor. */
 import { THEME_NAMES } from "../../worker/deck/themes.js";
+import { STYLE_NAMES } from "../../worker/doc/themes.js";
 
 function clean(value) {
   return String(value || "").trim();
@@ -104,13 +105,13 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "create_document",
-        description: "Create a new editable text document, DOCX, XLSX, PPTX, or PDF artifact for the user. Use md for Markdown requests; prose documents can be edited in the viewer and downloaded as Markdown, Word, or PDF. Include the complete content; do not only say \"use the above summary\". PDF/DOCX/PPTX content supports markdown headings, lists, fenced code blocks, and pipe tables. For complex or wide tables, prefer the structured `tables` array. For PPTX, a presentation designer writes the slides from your call: put every fact, number, table, comparison and conclusion the deck should use into `content` (and `tables`), state the audience, purpose and any slide count in `instructions`, and do not pre-split the material into slides.",
+        description: "Create a new DOCX, PDF, XLSX, PPTX or Markdown artifact for the user. For PDF and DOCX a document designer writes and lays out the file (style, structure, tables, charts, callouts, math, CV entries) from your call: put the full draft or every fact, number, quote, source and personal detail it needs into `content` (and `tables`), and the purpose, audience, length and required format into `instructions`. For PPTX, a presentation designer writes the slides: put every fact, number, table, comparison and conclusion into `content` (and `tables`), state the audience, purpose and any slide count in `instructions`, and do not pre-split the material into slides. Use md only for Markdown requests. Include the complete content; never only say \"use the above summary\".",
         parameters: {
           type: "object",
           properties: {
             format: { type: "string", enum: ["md", "docx", "xlsx", "pptx", "pdf"] },
             title: { type: "string" },
-            theme: { type: "string", enum: ["clean", "business", "academic", ...THEME_NAMES], description: "Optional visual theme. DOCX/XLSX: academic, business or clean. PPTX: leave empty to let the deck designer choose (a preset the user picked in the Slides gallery is applied automatically), or pass a preset id the user named, e.g. ledger (finance memo), boardroom (consulting), midnight (dark tech), academy (lectures), atlas, chalk, defense, sage, sunny, minimal, launch, crimson, goldleaf." },
+            theme: { type: "string", enum: [...new Set(["clean", "business", "academic", ...STYLE_NAMES, ...THEME_NAMES])], description: "Optional visual style. PDF/DOCX: leave empty to let the document designer choose, or pass the format the user named: mla, apa (essays), cv / cv_modern (resume), lab, homework, academic, briefing, report, guide, notes, letter. XLSX: academic, business or clean. PPTX: leave empty to let the deck designer choose (a Slides gallery pick is applied automatically), or a preset id the user named, e.g. ledger, boardroom, midnight, academy, atlas, chalk, defense, sage, sunny, minimal, launch, crimson, goldleaf." },
             instructions: { type: "string", description: "Formatting or construction instructions for the worker." },
             content: { type: "string", description: "Complete text that must be written into the generated document or presentation. Required for PDF/DOCX/PPTX prose documents." },
             sections: { type: "array", items: { type: "object" } },
@@ -125,7 +126,7 @@ export function buildDocumentTools({ toolNames = null } = {}) {
       type: "function",
       function: {
         name: "edit_document",
-        description: "Create a new edited version of an uploaded or generated document. The original file is never overwritten. XLSX: explicit operations. PPTX decks Klui generated: precise `instructions` naming the page, the element and the new text/colour/visibility; any text, colour, font, footer, page number or slide can change and the rest stays identical. Other PPTX: replace_text operations.",
+        description: "Create a new edited version of an uploaded or generated document. The original file is never overwritten. PDF/DOCX (generated or uploaded, including filling in forms): precise `instructions` saying what to change and the exact new text; the formatting is kept and everything else stays identical. XLSX: explicit operations. PPTX decks Klui generated: precise `instructions` naming the page, the element and the new text/colour/visibility. Other PPTX: replace_text operations.",
         parameters: {
           type: "object",
           properties: {

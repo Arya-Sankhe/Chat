@@ -14,6 +14,7 @@ COPY scripts ./scripts
 COPY skills ./skills
 # The deck writer and editor validate DeckSpecs with the worker's deck modules.
 COPY worker/deck ./worker/deck
+COPY worker/doc/spec.js worker/doc/themes.js ./worker/doc/
 
 # Fingerprint shipped app contents so every code/content change produces a
 # new client-visible build.

@@ -1585,3 +1585,51 @@ body[data-mode="dark"] .sheet-grid tbody th {
   .document-preview-toolbar button { transition: none; }
   .document-preview-toolbar button:active { transform: none; }
 }
+
+/* Selectable text over rendered pages (pdf.js text layer). */
+.document-viewer .pdf-page { position: relative; }
+.document-viewer .textLayer { --scale-round-x: 1px; --scale-round-y: 1px; position: absolute; inset: 0; overflow: clip; line-height: 1; text-align: initial; opacity: 1; text-size-adjust: none; -webkit-text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 1; }
+.document-viewer .textLayer :is(span, br) { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.document-viewer .textLayer > :not(.markedContent), .document-viewer .textLayer .markedContent span:not(.markedContent) { z-index: 1; }
+.document-viewer .textLayer span.markedContent { top: 0; height: 0; }
+.document-viewer .textLayer span[role="img"] { user-select: none; cursor: default; }
+.document-viewer .textLayer ::selection { background: rgba(37, 99, 235, 0.28); }
+.document-viewer .textLayer br::selection { background: transparent; }
+.document-viewer .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.document-viewer .textLayer.selecting .endOfContent { top: 0; }
+
+/* Ask Klui: a bar at the bottom for the whole document, a pill at a selection. */
+.document-viewer .pdf-pages { padding-bottom: 88px; }
+.doc-ask { position: absolute; left: 50%; bottom: 20px; z-index: 6; display: flex; justify-content: center; width: min(560px, calc(100% - 32px)); transform: translateX(-50%); pointer-events: none; }
+.doc-ask > * { pointer-events: auto; }
+.doc-ask.hidden, .doc-ask-pill.hidden, .doc-ask [hidden] { display: none !important; }
+.doc-ask { transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s; }
+.doc-ask.is-behind-pill:not(.is-busy) { opacity: 0; visibility: hidden; transform: translateX(-50%) translateY(8px) scale(0.96); transition: opacity 140ms ease-in, transform 140ms ease-in, visibility 0s 140ms; }
+/* Each part pops in when it appears and fades out before it is hidden (setAskShown). A part on its way
+   out leaves the layout so the one replacing it takes its place at once. */
+.doc-ask-open, .doc-ask-form, .doc-ask-status { transform-origin: 50% 100%; animation: doc-ask-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.doc-ask-pill { transform-origin: 50% 0; animation: doc-ask-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.doc-ask > .is-leaving { position: absolute; bottom: 0; }
+.doc-ask .is-leaving, .doc-ask-pill.is-leaving { pointer-events: none !important; animation: doc-ask-out 150ms ease-in forwards; }
+@keyframes doc-ask-in { from { opacity: 0; transform: translateY(6px) scale(0.94); } }
+@keyframes doc-ask-out { to { opacity: 0; transform: translateY(4px) scale(0.96); } }
+.hiddenCanvasElement { position: absolute; top: 0; left: 0; width: 0; height: 0; display: none; }
+.doc-ask-open, .doc-ask-status { display: inline-flex; align-items: center; gap: 9px; height: 46px; padding: 0 22px; border: 0; border-radius: 999px; background: #1d1d1f; color: #f5f5f7; font: 500 15px/1 var(--font-sans); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.06); cursor: pointer; transition: transform 160ms ease, background 160ms ease; }
+.doc-ask-open:hover { background: #2a2a2d; transform: translateY(-1px); }
+.doc-ask-status { cursor: default; font-weight: 400; }
+.doc-ask-status .artifact-spinner { width: 15px; height: 15px; }
+.doc-ask-form, .doc-ask-pill { display: flex; align-items: flex-end; gap: 8px; width: 100%; padding: 7px 7px 7px 18px; border-radius: 24px; background: #1d1d1f; box-shadow: 0 10px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.doc-ask-pill { position: absolute; z-index: 7; }
+.doc-ask-form textarea, .doc-ask-pill textarea { flex: 1; min-width: 0; max-height: 120px; padding: 7px 0; border: 0; outline: 0; resize: none; background: transparent; color: #f5f5f7; font: 400 15px/22px var(--font-sans); }
+.doc-ask-form textarea::placeholder, .doc-ask-pill textarea::placeholder { color: #9a9aa0; }
+.doc-ask-send { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #f5f5f7; color: #1d1d1f; cursor: pointer; }
+.doc-ask-send:hover { background: #fff; }
+.doc-ask-form { width: min(336px, 100%); gap: 6px; padding: 5px 5px 5px 14px; border-radius: 20px; }
+.doc-ask-form textarea { padding: 5px 0; font-size: 14px; line-height: 20px; }
+.doc-ask-form .doc-ask-send { width: 30px; height: 30px; }
+.doc-ask-klui { flex: 0 0 auto; width: 22px; height: 14px; }
+.doc-ask-mark { position: absolute; z-index: 2; border-radius: 2px; background: rgba(37, 99, 235, 0.26); pointer-events: none; }
+.document-viewer-body.is-asking .doc-ask-mark { animation: doc-ask-pulse 1.3s ease-in-out infinite; }
+@keyframes doc-ask-pulse { 50% { background: rgba(37, 99, 235, 0.12); } }
+@media (prefers-reduced-motion: reduce) { .document-viewer-body.is-asking .doc-ask-mark { animation: none; } .doc-ask-open { transition: none; } .doc-ask, .doc-ask-open, .doc-ask-form, .doc-ask-status, .doc-ask-pill { animation: none !important; transition: none !important; } }
+.document-download-menu button[hidden] { display: none; }

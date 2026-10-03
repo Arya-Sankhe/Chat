@@ -20,6 +20,7 @@ import {
   updateProject,
   downloadAttachment,
   exportEditableDocument,
+  askDocument,
   reviseEditableDocument,
   reviseEmailDraft,
   fetchAttachmentView,
@@ -1869,6 +1870,8 @@ function composerPlaceholder() {
   if (state.session && !hasChatAccess()) {
     return isNative() ? "Subscribe on the website to start chatting" : "Choose a plan to start chatting";
   }
+  // A message sent while a reply is still coming waits in the queue.
+  if (state.running) return "Queue message";
   return "Ask Klui";
 }
 
@@ -4658,7 +4661,18 @@ const {
   queueRenderMessages,
   escapeHtml,
   artifactListFromMessage,
-  replacePendingArtifact
+  replacePendingArtifact,
+  askDocument,
+  // An Ask Klui edit adds the request and the new version to the chat it belongs to.
+  onDocumentEdited: async (result) => {
+    if (!result?.conversationId || result.conversationId !== state.activeConversationId) return;
+    conversationCache.delete?.(result.conversationId);
+    try {
+      if (await loadActiveConversation() === "applied" && state.activeConversationId === result.conversationId) renderShell();
+    } catch {
+      /* The chat refreshes on its next load. */
+    }
+  }
 });
 
 function citationHost(url) {
@@ -5396,6 +5410,35 @@ function artifactFormat(artifact) {
   return ext ? ext.toUpperCase() : "FILE";
 }
 
+const ARTIFACT_KINDS = {
+  pdf: { kind: "pdf", tag: "PDF", label: "PDF" },
+  docx: { kind: "word", tag: "DOC", label: "Word document" },
+  doc: { kind: "word", tag: "DOC", label: "Word document" },
+  xlsx: { kind: "excel", tag: "XLS", label: "Excel spreadsheet" },
+  csv: { kind: "excel", tag: "CSV", label: "Spreadsheet" },
+  pptx: { kind: "slides", tag: "PPT", label: "PowerPoint" },
+  md: { kind: "text", tag: "MD", label: "Markdown" }
+};
+
+function artifactKindInfo(artifact) {
+  const format = artifactFormat(artifact).toLowerCase();
+  return ARTIFACT_KINDS[format] || { kind: "file", tag: format.slice(0, 4).toUpperCase() || "FILE", label: "File" };
+}
+
+function artifactKind(artifact) {
+  return artifactKindInfo(artifact).kind;
+}
+
+function artifactKindLabel(artifact) {
+  return artifactKindInfo(artifact).label;
+}
+
+// A page outline with a folded corner and the file type under the fold, tinted per kind in CSS.
+function artifactFileIcon(artifact) {
+  const { tag } = artifactKindInfo(artifact);
+  return `<span class="artifact-icon" aria-hidden="true"><svg viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 13V7a3 3 0 0 1 3-3h11l6 6v3"/><path d="M20 4v4a2 2 0 0 0 2 2h4"/></svg><span class="artifact-icon-tag">${escapeHtml(tag)}</span></span>`;
+}
+
 function artifactAttachmentId(artifact) {
   return String(artifact?.attachment_id || artifact?.id || "").trim();
 }
@@ -5578,43 +5621,36 @@ function renderArtifacts(message, predicate = null) {
     if (artifact?.type === "weather") return renderWeatherArtifact(artifact);
     if (artifact?.type === "study_preview") return renderStudyPreview(artifact);
     const fileName = artifactLabel(artifact);
-    const badge = escapeHtml(artifactFormat(artifact));
 
     if (artifact.pending) {
       const failed = ["failed", "expired"].includes(String(artifact.status || "").toLowerCase());
       const statusLabel = pendingArtifactStatusLabel(artifact);
       const cardClass = `artifact-card pending${failed ? " failed" : ""}`;
-      const action = failed
-        ? `<span class="artifact-download is-disabled" aria-disabled="true">Failed</span>`
-        : `<span class="artifact-download is-disabled" aria-disabled="true"><span class="artifact-spinner" aria-hidden="true"></span>Generating…</span>`;
       return `
-        <div class="${cardClass}" data-job-id="${escapeHtml(artifact.job_id || "")}">
-          <div class="artifact-badge" aria-hidden="true">${badge}</div>
+        <div class="${cardClass}" data-job-id="${escapeHtml(artifact.job_id || "")}" data-kind="${artifactKind(artifact)}">
+          ${artifactFileIcon(artifact)}
           <div class="artifact-info">
             <div class="artifact-title">${escapeHtml(fileName)}</div>
-            <div class="artifact-status">${escapeHtml(statusLabel)}</div>
+            <div class="artifact-status">${failed ? "" : `<span class="artifact-spinner" aria-hidden="true"></span>`}${escapeHtml(statusLabel)}</div>
           </div>
-          ${action}
         </div>
       `;
     }
 
     const attachmentId = artifactAttachmentId(artifact);
-    const status = String(artifact.status || "ready").trim();
     const canView = artifactCanView(artifact);
     const format = artifactFormat(artifact).toLowerCase();
-    return `
-      <div class="artifact-card">
-        <div class="artifact-badge" aria-hidden="true">${badge}</div>
-        <div class="artifact-info">
-          <div class="artifact-title">${escapeHtml(fileName)}</div>
-          ${status ? `<div class="artifact-status">${escapeHtml(status)}</div>` : ""}
-        </div>
-        <div class="artifact-actions">
-          ${canView ? `<button class="artifact-download" type="button" data-view-attachment-id="${escapeHtml(attachmentId)}" data-file-name="${escapeHtml(fileName)}" data-format="${escapeHtml(format)}">Open</button>` : ""}
-        </div>
-      </div>
+    const body = `
+      ${artifactFileIcon(artifact)}
+      <span class="artifact-info">
+        <span class="artifact-title">${escapeHtml(fileName)}</span>
+        <span class="artifact-status">${escapeHtml(artifactKindLabel(artifact))}</span>
+      </span>
     `;
+    // The whole card opens the file in the viewer.
+    return canView
+      ? `<button class="artifact-card" type="button" data-kind="${artifactKind(artifact)}" data-view-attachment-id="${escapeHtml(attachmentId)}" data-file-name="${escapeHtml(fileName)}" data-format="${escapeHtml(format)}" aria-label="Open ${escapeHtml(fileName)}">${body}</button>`
+      : `<div class="artifact-card" data-kind="${artifactKind(artifact)}">${body}</div>`;
   }).join("");
   return `<div class="artifact-list">${rows}</div>`;
 }

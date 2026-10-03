@@ -31,6 +31,21 @@ function readyDocumentList(readyDocuments) {
     .join("\n");
 }
 
+const OFFICE_KINDS = new Set(["docx", "pptx", "xlsx"]);
+
+function convertsExistingToPdf(prompt, readyDocuments) {
+  if (!(readyDocuments || []).some((doc) => OFFICE_KINDS.has(doc?.kind))) return false;
+  const toPdf = /\b(?:to|into|as)\s+(?:an?\s+)?pdf\b/i.test(prompt)
+    || /\b(?:word|docx?|pptx?|powerpoint|slides?|deck|excel|xlsx|spreadsheet)\s*(?:->|→|2)\s*pdf\b/i.test(prompt)
+    || /\bpdf\s+(?:version|copy)\b/i.test(prompt)
+    || /\b(?:make|save|get|have)\s+(?:it|this|that|the\s+\w+)\s+(?:as\s+)?(?:an?\s+)?pdf\b/i.test(prompt);
+  const action = /\b(convert|turn|change|export|save|make|download|get|want|need|give|send)\b/i.test(prompt)
+    || /(?:->|→)/.test(prompt);
+  // Asking for new content ("a summary as a pdf") is a create task, not a conversion.
+  const newContent = /\b(summar\w*|notes|outline|report\s+on|study\s+guide|essay|translat\w*|rewrite|redesign|restyle|shorter|longer|cheat\s*sheet|flash\s*cards?|quiz)\b/i.test(prompt);
+  return toPdf && action && !newContent;
+}
+
 // createFormat: "pptx" or "docx" when the user chose the Slides or Docs composer mode, so the
 // create tool is offered even when the prompt is only a topic ("photosynthesis for grade 10").
 export function selectDocumentSkills({ text = "", readyDocuments = [], messageHasDocuments = false, createFormat = "" } = {}) {
@@ -141,6 +156,15 @@ export function selectDocumentSkills({ text = "", readyDocuments = [], messageHa
   }
 
   if (readyCount > 0 && exportAction && (mentionsDocument || mentionsExisting || asksPdf || asksWord || asksExcel)) {
+    skills.add("document-export");
+    tools.add("export_document");
+  }
+
+  // "Convert my Word file to PDF", "turn this deck into a pdf", "docx -> pdf": the existing file is
+  // converted as is (LibreOffice keeps its exact layout), never re-written with create_document.
+  if (convertsExistingToPdf(prompt, readyDocuments)) {
+    for (const skill of ["artifact-planner", "pdf-create", "word-create", "excel-create", "presentation-create"]) skills.delete(skill);
+    tools.delete("create_document");
     skills.add("document-export");
     tools.add("export_document");
   }

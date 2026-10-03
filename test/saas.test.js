@@ -428,8 +428,12 @@ test("dependency policy pins npm supply-chain guardrails", () => {
   });
   assert.deepEqual(workerLock.packages[""].dependencies, {
     docx: "9.7.1",
-    pptxgenjs: "4.0.1"
+    katex: "0.19.0",
+    mathml2omml: "0.5.0",
+    pptxgenjs: "4.0.1",
+    "puppeteer-core": "25.12.0"
   });
+  assert.match(workerRequirements, /^pypdfium2==5\.13\.0$/m);
   assert.match(workerDockerfile, /rm -rf node_modules\/pptxgenjs\/node_modules\/image-size/);
   assert.match(workerDockerfile, /pptxgen-smoke\.pptx/);
   assert.match(workerRequirements, /^XlsxWriter==3\.2\.9$/m);

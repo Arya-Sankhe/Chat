@@ -1419,6 +1419,42 @@ describe("tool", () => {
     assert.equal(result.artifacts[0].download_url, "/api/attachments/att-pptx/download");
   });
 
+  test("a turn makes at most one new file", async () => {
+    let call = 0;
+    const exports = [];
+    const result = await runChatWithToolLoop({
+      chatRequest: {
+        model: "test",
+        messages: [{ role: "user", content: "create a pdf out of the above info" }],
+        tools: buildDocumentTools({ toolNames: ["create_document", "export_document"] }),
+        tool_choice: "auto"
+      },
+      modelClient: {
+        async streamChatCompletion() {
+          call += 1;
+          if (call === 1) return streamResponse([toolCallDelta({ name: "create_document", args: { format: "pdf", title: "Pricing", content: "x" } })]);
+          if (call === 2) return streamResponse([toolCallDelta({ name: "export_document", args: { attachment_id: "att-1", target_format: "docx" } })]);
+          return streamResponse([contentDelta("Done.")]);
+        }
+      },
+      config: { websearch: { maxToolCallsPerTurn: 0 }, documents: { maxToolCallsPerTurn: 4, maxToolResultChars: 5000 } },
+      signal: new AbortController().signal,
+      websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
+      documents: {
+        async createDocument() {
+          return { ok: true, output: { attachment_id: "att-1", file_name: "Pricing.pdf", kind: "pdf", status: "ready" } };
+        },
+        async exportDocument(args) {
+          exports.push(args);
+          return { ok: true, output: { attachment_id: "att-2", file_name: "Pricing.docx", kind: "docx", status: "ready" } };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+    assert.equal(exports.length, 0);
+    assert.deepEqual(result.artifacts.map((artifact) => artifact.file_name), ["Pricing.pdf"]);
+  });
+
   test("document promises execute the artifact tool instead of ending the turn", async () => {
     for (const [promise, deferred] of [["I'll create the deck now.", false], ["I’m creating the PowerPoint now.", true], ["Let me prepare the document.", false]]) {
       const tools = buildDocumentTools({ toolNames: ["create_document"] });

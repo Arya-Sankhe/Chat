@@ -1,10 +1,14 @@
 import { mountDocumentEditor } from "./documentEditor.js";
+import { selectionPlainText } from "./documentSelection.js";
 
 const viewerSvg = (content) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${content}</svg>`;
 const DOWNLOAD_ICON = viewerSvg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>');
 const CHEVRON_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const EXPAND_ICON = viewerSvg('<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>');
 const COLLAPSE_ICON = viewerSvg('<path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5"/>');
+// The Klui mascot, front-facing and still (the composer's sprite without its laptop).
+const KLUI_ICON = '<svg class="doc-ask-klui" viewBox="1 3.5 14 8.5" shape-rendering="crispEdges" aria-hidden="true"><g fill="#8fd3fb"><rect x="5" y="9.5" width="1" height="2.5"/><rect x="10" y="9.5" width="1" height="2.5"/><rect x="3" y="3.5" width="10" height="6"/><rect x="1" y="5.5" width="2" height="2"/><rect x="13" y="5.5" width="2" height="2"/></g><g fill="#16202e"><rect x="5" y="5" width="1" height="1.5"/><rect x="10" y="5" width="1" height="1.5"/></g></svg>';
+const SEND_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 
 export function createDocumentViewer({
   elements,
@@ -19,7 +23,9 @@ export function createDocumentViewer({
   queueRenderMessages,
   escapeHtml,
   artifactListFromMessage,
-  replacePendingArtifact
+  replacePendingArtifact,
+  askDocument = null,
+  onDocumentEdited = null
 }) {
   const pendingArtifactPolls = new Map();
   const PENDING_ARTIFACT_POLL_INTERVAL_MS = 2000;
@@ -42,6 +48,9 @@ export function createDocumentViewer({
   let fullscreenAnimation = null;
   let viewerAnimation = null;
   let viewerTransitionToken = 0;
+  // Bumped whenever the viewer opens another document or closes: work started for one document
+  // (an Ask edit still rendering) checks it before touching the viewer.
+  let viewerSession = 0;
   let inlineViewer = false;
   let onViewerClose = null;
   const viewerHome = document.createComment("document-viewer-home");
@@ -482,13 +491,19 @@ export function createDocumentViewer({
     const downloadAttachmentId = viewer.downloadAttachmentId || viewer.attachmentId;
     const downloadHref = downloadAttachmentId ? attachmentDownloadHref(downloadAttachmentId) : "";
     const editable = viewer.kind === "editable";
+    const formatMenu = !editable && (viewer.exportFormats || []).length > 1;
     toolbar.querySelector("[data-preview-refresh]").hidden = editable;
+    syncAskUi();
     elements.documentViewerBody.classList.toggle("is-editable", editable);
     elements.documentViewerDownload.classList.toggle("hidden", !downloadHref || inlineViewer);
     elements.documentViewerDownload.toggleAttribute("hidden", !downloadHref || inlineViewer);
-    elements.documentViewerDownload.innerHTML = `${DOWNLOAD_ICON}<span>Download</span>${editable ? `<span class="document-download-chevron">${CHEVRON_ICON}</span>` : ""}`;
-    elements.documentViewerDownload.setAttribute("aria-expanded", String(editable && !elements.documentViewerDownloadMenu?.classList.contains("hidden")));
-    if (!editable) elements.documentViewerDownloadMenu?.classList.add("hidden");
+    elements.documentViewerDownload.innerHTML = `${DOWNLOAD_ICON}<span>Download</span>${editable || formatMenu ? `<span class="document-download-chevron">${CHEVRON_ICON}</span>` : ""}`;
+    elements.documentViewerDownload.setAttribute("aria-expanded", String((editable || formatMenu) && !elements.documentViewerDownloadMenu?.classList.contains("hidden")));
+    if (!editable && !formatMenu) elements.documentViewerDownloadMenu?.classList.add("hidden");
+    elements.documentViewerDownloadMenu?.querySelectorAll?.("[data-document-export]").forEach((button) => {
+      const format = button.dataset.documentExport;
+      button.hidden = editable ? false : !(viewer.exportFormats || []).includes(format);
+    });
     if (downloadHref) {
       // Anchor attrs no longer apply (the element is now a <button> so the
       // WebView does not open the Android share sheet). Click handler reads
@@ -638,6 +653,76 @@ export function createDocumentViewer({
     }
   }
 
+  // What pdf.js's own viewer adds on top of its TextLayer so a drag selects precisely. Each layer
+  // ends with an .endOfContent block; while a selection is being made it is moved next to the
+  // span under the moving end, so dragging over empty space (table gaps, margins) extends the
+  // selection by at most that span instead of jumping to the end of the page.
+  const pdfTextLayers = new Map();
+  let pdfSelectionBound = false;
+  function trackPdfTextLayer(layer) {
+    const end = document.createElement("div");
+    end.className = "endOfContent";
+    layer.append(end);
+    layer.addEventListener("mousedown", () => layer.classList.add("selecting"));
+    for (const known of pdfTextLayers.keys()) if (!known.isConnected) pdfTextLayers.delete(known);
+    pdfTextLayers.set(layer, end);
+    if (pdfSelectionBound) return;
+    pdfSelectionBound = true;
+    const reset = (endDiv, textLayer) => {
+      textLayer.append(endDiv);
+      endDiv.style.width = "";
+      endDiv.style.height = "";
+      textLayer.classList.remove("selecting");
+    };
+    let pointerDown = false;
+    let prevRange = null;
+    document.addEventListener("pointerdown", () => { pointerDown = true; });
+    document.addEventListener("pointerup", () => {
+      pointerDown = false;
+      pdfTextLayers.forEach(reset);
+    });
+    window.addEventListener("blur", () => {
+      pointerDown = false;
+      pdfTextLayers.forEach(reset);
+    });
+    document.addEventListener("keyup", () => {
+      if (!pointerDown) pdfTextLayers.forEach(reset);
+    });
+    document.addEventListener("selectionchange", () => {
+      if (!pdfTextLayers.size) return;
+      const selection = document.getSelection();
+      if (!selection.rangeCount) {
+        pdfTextLayers.forEach(reset);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      for (const [textLayer, endDiv] of pdfTextLayers) {
+        if (!textLayer.isConnected) pdfTextLayers.delete(textLayer);
+        else if (range.intersectsNode(textLayer)) textLayer.classList.add("selecting");
+        else reset(endDiv, textLayer);
+      }
+      // Firefox keeps a selection in place over empty space by itself.
+      if (CSS.supports("-moz-user-select", "none")) return;
+      const modifyStart = prevRange && (range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 || range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0);
+      let anchor = modifyStart ? range.startContainer : range.endContainer;
+      if (anchor.nodeType === Node.TEXT_NODE) anchor = anchor.parentNode;
+      if (!modifyStart && range.endOffset === 0) {
+        do {
+          while (!anchor.previousSibling) anchor = anchor.parentNode;
+          anchor = anchor.previousSibling;
+        } while (!anchor.childNodes.length);
+      }
+      const textLayer = anchor.parentElement?.closest(".textLayer");
+      const endDiv = pdfTextLayers.get(textLayer);
+      if (endDiv) {
+        endDiv.style.width = textLayer.style.width;
+        endDiv.style.height = textLayer.style.height;
+        anchor.parentElement.insertBefore(endDiv, modifyStart ? anchor : anchor.nextSibling);
+      }
+      prevRange = range.cloneRange();
+    });
+  }
+
   async function loadPdfJs() {
     if (!pdfJsPromise) {
       pdfJsPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.394/build/pdf.mjs").then((pdfjs) => {
@@ -745,6 +830,22 @@ export function createDocumentViewer({
       pageEl.style.minHeight = "";
       pageEl.replaceChildren(canvas);
       if (pagePicker?.isOn(pageNumber)) pagePicker.thumb?.(pageNumber, pageThumb(pageNumber));
+      // Selectable text over the page, so a selection can be sent to Ask Klui.
+      try {
+        const pdfjsLib = await loadPdfJs();
+        if (pdfjsLib.TextLayer && token === pdfRenderToken) {
+          const layer = document.createElement("div");
+          layer.className = "textLayer";
+          layer.style.setProperty("--total-scale-factor", String(viewport.scale));
+          layer.style.setProperty("--scale-factor", String(viewport.scale));
+          pageEl.append(layer);
+          const textLayer = new pdfjsLib.TextLayer({ textContentSource: page.streamTextContent(), container: layer, viewport });
+          await textLayer.render();
+          if (token === pdfRenderToken) trackPdfTextLayer(layer);
+        }
+      } catch {
+        /* Text selection is optional; the page itself has rendered. */
+      }
     };
 
     if ("IntersectionObserver" in window) {
@@ -779,10 +880,13 @@ export function createDocumentViewer({
         const payload = await fetchDocumentJobStatus(state.session, jobId);
         if (!state.viewer.open || state.viewer.jobId !== jobId) return;
         if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) {
-          await loadDocumentViewerUrl(payload.artifact.attachment_id, {
+          // Reopen the original file, not the PDF preview: the server now serves the cached preview
+          // with the original's actions, so Ask and downloads keep targeting the Word/PowerPoint file.
+          await loadDocumentViewerUrl(state.viewer.attachmentId, {
             downloadAttachmentId: state.viewer.downloadAttachmentId || state.viewer.attachmentId,
-            fileName: state.viewer.fileName || payload.artifact.file_name,
-            sourceKind: state.viewer.sourceKind
+            fileName: state.viewer.fileName,
+            sourceKind: state.viewer.sourceKind,
+            previewReady: payload.artifact.attachment_id
           });
           return;
         }
@@ -828,7 +932,8 @@ export function createDocumentViewer({
     fileName = "",
     sourceKind = "",
     sheetFallback = false,
-    retryOf = ""
+    retryOf = "",
+    previewReady = ""
   } = {}) {
     if (!state.session?.access_token) {
       setDocumentViewerState({ loading: false, error: "Sign in to view files." });
@@ -837,6 +942,15 @@ export function createDocumentViewer({
     const requestToken = viewerTransitionToken;
     const payload = await fetchAttachmentView(state.session, attachmentId, { sheetFallback });
     if (!state.viewer.open || requestToken !== viewerTransitionToken) return;
+    if (payload.status === "processing" && payload.jobId && previewReady) {
+      // The finished preview is not linked to the file yet: show it, still editing the original.
+      const original = state.viewer.downloadAttachmentId || attachmentId;
+      await loadDocumentViewerUrl(previewReady, { downloadAttachmentId: original, fileName, sourceKind });
+      if (state.viewer.open && requestToken === viewerTransitionToken) {
+        setDocumentViewerState({ attachmentId: original, editAttachmentId: "", previewAttachmentId: previewReady, canAsk: false, designed: false, exportFormats: [] });
+      }
+      return;
+    }
     if (payload.status === "processing" && payload.jobId) {
       setDocumentViewerState({
         open: true,
@@ -873,6 +987,11 @@ export function createDocumentViewer({
       markdown: String(payload.markdown || ""),
       sourceUrl: String(payload.sourceUrl || ""),
       revision: Number(payload.revision || 0),
+      editAttachmentId: String(payload.editAttachmentId || ""),
+      previewAttachmentId: payload.editAttachmentId && payload.attachmentId !== payload.editAttachmentId ? String(payload.attachmentId || "") : "",
+      canAsk: Boolean(payload.canAsk),
+      designed: Boolean(payload.designed),
+      exportFormats: Array.isArray(payload.exportFormats) ? payload.exportFormats : [],
       loading: false,
       error: ""
     });
@@ -895,6 +1014,7 @@ export function createDocumentViewer({
     initialPdfPage = Math.max(1, Math.trunc(Number(page)) || 1);
     toolbar.querySelector("select").value = "1";
     viewerTransitionToken += 1;
+    viewerSession += 1;
     stopDocumentPreviewPoll();
     setDocumentViewerState({
       open: true,
@@ -911,9 +1031,15 @@ export function createDocumentViewer({
       activeSheet: 0,
       markdown: "",
       revision: 0,
+      editAttachmentId: "",
+      previewAttachmentId: "",
+      canAsk: false,
+      designed: false,
+      exportFormats: [],
       loading: true,
       error: ""
     });
+    resetAsk();
     animateViewer(true);
     const requestToken = viewerTransitionToken;
     try {
@@ -926,6 +1052,8 @@ export function createDocumentViewer({
   async function closeDocumentViewer(event) {
     if (!state.viewer.open) return;
     const transitionToken = ++viewerTransitionToken;
+    viewerSession += 1;
+    askController?.abort();
     const exitAnimation = animateViewer(false);
     if (editorController) {
       pendingMarkdown = editorController.getMarkdown();
@@ -954,9 +1082,15 @@ export function createDocumentViewer({
       activeSheet: 0,
       markdown: "",
       revision: 0,
+      editAttachmentId: "",
+      previewAttachmentId: "",
+      canAsk: false,
+      designed: false,
+      exportFormats: [],
       loading: false,
       error: ""
     });
+    resetAsk();
     inlineViewer = false;
     elements.documentViewer.classList.remove("is-inline-source");
     viewerHome.after(elements.documentViewer);
@@ -986,10 +1120,30 @@ export function createDocumentViewer({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function waitForExport(jobId) {
+  function abortError() {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+
+  function pause(ms, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(abortError());
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(abortError());
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  async function waitForExport(jobId, signal = null) {
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await pause(1000, signal);
       const payload = await fetchDocumentJobStatus(state.session, jobId);
+      if (signal?.aborted) throw abortError();
       if (payload?.job?.status === "succeeded" && payload.artifact?.attachment_id) return payload.artifact;
       if (["failed", "expired"].includes(payload?.job?.status)) throw new Error(payload.job.error?.message || "Export failed.");
     }
@@ -1012,7 +1166,7 @@ export function createDocumentViewer({
 
   elements.documentViewerDownload?.addEventListener("click", async (event) => {
     event.preventDefault();
-    if (state.viewer.kind === "editable") {
+    if (state.viewer.kind === "editable" || (state.viewer.exportFormats || []).length > 1) {
       elements.documentViewerDownloadMenu?.classList.toggle("hidden");
       elements.documentViewerDownload.setAttribute("aria-expanded", String(!elements.documentViewerDownloadMenu?.classList.contains("hidden")));
       return;
@@ -1028,6 +1182,330 @@ export function createDocumentViewer({
       elements.documentViewerDownload.disabled = false;
     }
   });
+
+  // A document in either format: the file itself, its PDF preview, or a render of its spec.
+  async function downloadFormat(format) {
+    const viewer = state.viewer;
+    const source = viewer.editAttachmentId || viewer.downloadAttachmentId || viewer.attachmentId;
+    const base = String(viewer.fileName || "document").replace(/\.(docx|pdf|pptx)$/i, "");
+    if (format === viewer.sourceKind) return downloadAttachment(state.session, viewer.downloadAttachmentId || source, viewer.fileName || `${base}.${format}`);
+    if (format === "pdf" && viewer.previewAttachmentId) return downloadAttachment(state.session, viewer.previewAttachmentId, `${base}.pdf`);
+    const result = await exportEditableDocument(state.session, source, format);
+    const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
+    if (!artifact?.attachment_id) throw new Error("Export did not return a file.");
+    await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `${base}.${format}`);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Ask Klui: a bar at the bottom edits the whole document; a pill at a text selection edits only
+  // what is selected. Every edit makes a new version, which replaces the one on screen.
+
+  // Built on first use, so a viewer without Ask Klui never creates it.
+  let ask = null;
+  let pill = null;
+  function ensureAskUi() {
+    if (ask || !elements.documentViewer) return Boolean(ask);
+    ask = document.createElement("div");
+    ask.className = "doc-ask hidden";
+    ask.innerHTML = `<button type="button" class="doc-ask-open" data-ask-open>${KLUI_ICON}<span>Ask Klui</span></button>
+    <form class="doc-ask-form" data-ask-form="document" hidden>
+      <textarea rows="1" maxlength="4000" placeholder="Ask Klui to change this document…" aria-label="Describe the change"></textarea>
+      <button type="submit" class="doc-ask-send" aria-label="Apply change" title="Apply change">${SEND_ICON}</button>
+    </form>
+    <div class="doc-ask-status" hidden role="status"><span class="artifact-spinner" aria-hidden="true"></span><span data-ask-status-text>Editing…</span></div>`;
+    pill = document.createElement("form");
+    pill.className = "doc-ask-pill hidden";
+    pill.dataset.askForm = "selection";
+    pill.innerHTML = `<textarea rows="1" maxlength="4000" placeholder="Ask Klui to change the selection…" aria-label="Describe the change to the selected text"></textarea><button type="submit" class="doc-ask-send" aria-label="Apply change" title="Apply change">${SEND_ICON}</button>`;
+    elements.documentViewer.append(ask, pill);
+    ask.addEventListener("click", (event) => {
+      if (event.target.closest("[data-ask-open]")) setAskOpen(true);
+    });
+    bindAskForm(ask.querySelector("[data-ask-form]"), () => null);
+    bindAskForm(pill, () => pendingSelection);
+    return true;
+  }
+  let askBusy = false;
+  let askController = null;
+  let pendingSelection = null;
+
+  function askAvailable() {
+    const viewer = state.viewer;
+    return Boolean(askDocument && viewer.open && viewer.canAsk && !viewer.loading && !viewer.error && viewer.kind === "pdf" && !inlineViewer);
+  }
+
+  function syncAskUi() {
+    const available = askAvailable();
+    if (!available && !ask) return;
+    if (!ensureAskUi()) return;
+    ask.classList.toggle("hidden", !available && !askBusy);
+    if (!available && !askBusy) hidePill();
+  }
+
+  // Shows or hides an Ask Klui element: it pops in (CSS) and fades out before it is hidden.
+  // Showing it again cancels a hide still in progress.
+  const askLeaving = new WeakMap();
+  function setAskShown(el, shown, setHidden = (hidden) => { el.hidden = hidden; }) {
+    if (!el || (!shown && askLeaving.has(el))) return;
+    clearTimeout(askLeaving.get(el));
+    askLeaving.delete(el);
+    el.classList.remove("is-leaving");
+    if (shown || !el.getClientRects().length || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setHidden(!shown);
+      return;
+    }
+    el.classList.add("is-leaving");
+    askLeaving.set(el, setTimeout(() => {
+      askLeaving.delete(el);
+      el.classList.remove("is-leaving");
+      setHidden(true);
+    }, 150));
+  }
+  const setPillShown = (shown) => setAskShown(pill, shown, (hidden) => pill.classList.toggle("hidden", hidden));
+
+  function setAskOpen(open) {
+    const form = ask.querySelector("[data-ask-form]");
+    setAskShown(form, open);
+    setAskShown(ask.querySelector("[data-ask-open]"), !open && !askBusy);
+    ask.classList.toggle("is-open", open);
+    if (open) form.querySelector("textarea").focus();
+  }
+
+  function setAskBusy(busy, label = "Editing…") {
+    askBusy = busy;
+    ask.classList.toggle("is-busy", busy);
+    const status = ask.querySelector(".doc-ask-status");
+    setAskShown(status, busy);
+    status.querySelector("[data-ask-status-text]").textContent = label;
+    if (busy) {
+      setAskShown(ask.querySelector("[data-ask-form]"), false);
+      setAskShown(ask.querySelector("[data-ask-open]"), false);
+      ask.classList.remove("hidden");
+    } else {
+      setAskShown(ask.querySelector("[data-ask-open]"), true);
+    }
+    elements.documentViewerBody?.classList.toggle("is-asking", busy);
+    syncAskUi();
+  }
+
+  function clearMarks() {
+    elements.documentViewerBody?.querySelectorAll(".doc-ask-mark").forEach((mark) => mark.remove());
+  }
+
+  // The selection pill replaces the Ask Klui button (and the bar) while it is up.
+  function hidePill() {
+    if (pill) setPillShown(false);
+    ask?.classList.remove("is-behind-pill");
+    pendingSelection = null;
+    if (!askBusy) clearMarks();
+  }
+
+  function resetAsk() {
+    askController?.abort();
+    askController = null;
+    askBusy = false;
+    if (!ask) return;
+    ask.classList.remove("is-busy", "is-open");
+    setAskShown(ask.querySelector(".doc-ask-status"), false);
+    setAskShown(ask.querySelector("[data-ask-form]"), false);
+    setAskShown(ask.querySelector("[data-ask-open]"), true);
+    ask.querySelectorAll("textarea").forEach((area) => { area.value = ""; });
+    pill.querySelector("textarea").value = "";
+    elements.documentViewerBody?.classList.remove("is-asking");
+    hidePill();
+  }
+
+  // The selection as text plus a little context and its page, and marks that keep it visible
+  // while the user types (focusing the input clears the browser's own highlight).
+  function captureSelection() {
+    const selection = window.getSelection?.();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    const layer = (range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.(".textLayer, .pdf-pages");
+    if (!layer || !elements.documentViewerBody?.contains(layer)) return null;
+    const text = selectionPlainText(selection.toString()).trim();
+    if (text.length < 2) return null;
+    const startPage = (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement)?.closest?.("[data-page]");
+    const pageNumber = Number(startPage?.dataset.page || 0) || null;
+    let before = "";
+    let after = "";
+    const pageLayer = startPage?.querySelector(".textLayer");
+    if (pageLayer) {
+      try {
+        const head = document.createRange();
+        head.setStart(pageLayer, 0);
+        head.setEnd(range.startContainer, range.startOffset);
+        before = selectionPlainText(head.toString()).slice(-200);
+        const endPage = (range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement)?.closest?.("[data-page]");
+        const endLayer = endPage?.querySelector(".textLayer") || pageLayer;
+        const tail = document.createRange();
+        tail.setStart(range.endContainer, range.endOffset);
+        tail.setEnd(endLayer, endLayer.childNodes.length);
+        after = selectionPlainText(tail.toString()).slice(0, 200);
+      } catch {
+        /* Context is a hint for matching; the selected text alone still works. */
+      }
+    }
+    const rects = [...range.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1);
+    return { text: text.slice(0, 12000), before, after, page: pageNumber, rects };
+  }
+
+  function markSelection(rects) {
+    clearMarks();
+    const pages = [...(elements.documentViewerBody?.querySelectorAll("[data-page]") || [])];
+    for (const rect of rects.slice(0, 400)) {
+      const page = pages.find((entry) => {
+        const box = entry.getBoundingClientRect();
+        return rect.top >= box.top - 2 && rect.bottom <= box.bottom + 2;
+      });
+      if (!page) continue;
+      const box = page.getBoundingClientRect();
+      const mark = document.createElement("span");
+      mark.className = "doc-ask-mark";
+      mark.style.left = `${rect.left - box.left}px`;
+      mark.style.top = `${rect.top - box.top}px`;
+      mark.style.width = `${rect.width}px`;
+      mark.style.height = `${rect.height}px`;
+      page.append(mark);
+    }
+  }
+
+  function showPill(captured) {
+    pendingSelection = captured;
+    markSelection(captured.rects);
+    const host = elements.documentViewer.getBoundingClientRect();
+    const last = captured.rects[captured.rects.length - 1];
+    const first = captured.rects[0];
+    const width = Math.min(380, host.width - 24);
+    let left = Math.min(Math.max(12, (first.left + last.right) / 2 - host.left - width / 2), host.width - width - 12);
+    let top = last.bottom - host.top + 10;
+    if (top > host.height - 70) top = Math.max(60, first.top - host.top - 58);
+    pill.style.width = `${width}px`;
+    pill.style.left = `${left}px`;
+    pill.style.top = `${top}px`;
+    setPillShown(true);
+    ask.classList.add("is-behind-pill");
+  }
+
+  async function runAsk(instruction, selection) {
+    const viewer = state.viewer;
+    const target = viewer.editAttachmentId || viewer.downloadAttachmentId || viewer.attachmentId;
+    if (!instruction || !target || askBusy) return;
+    const page = currentPdfPage;
+    const session = viewerSession;
+    const controller = new AbortController();
+    askController = controller;
+    setAskBusy(true, selection ? "Editing the selection…" : "Editing the document…");
+    setPillShown(false);
+    try {
+      let result = await askDocument(state.session, target, {
+        instruction,
+        selection: selection ? { text: selection.text, before: selection.before, after: selection.after, page: selection.page } : null,
+        signal: controller.signal
+      });
+      if (result.status === "processing" && result.jobId) {
+        // The chat already holds the request and a pending card for this job; show them now.
+        onDocumentEdited?.(result);
+        const artifact = await waitForExport(result.jobId, controller.signal);
+        result = { ...result, status: "ready", artifact, recorded: true };
+      }
+      // The viewer moved on to another document (or closed) while this edit ran.
+      if (controller.signal.aborted || session !== viewerSession || !state.viewer.open) return;
+      if (result.status === "unchanged") {
+        showToast?.(result.summary || "Nothing was changed.");
+        return;
+      }
+      const artifact = result.artifact;
+      if (!artifact?.attachment_id) throw new Error("The edited document was not returned.");
+      ask.querySelectorAll("textarea").forEach((area) => { area.value = ""; });
+      pill.querySelector("textarea").value = "";
+      await showVersion(artifact, page);
+      showToast?.(result.summary || "Updated.");
+      if (!result.recorded) onDocumentEdited?.(result);
+    } catch (error) {
+      if (error?.name !== "AbortError" && session === viewerSession) showToast?.(error.message || "The edit failed.");
+    } finally {
+      // A newer viewer session owns the Ask controls now: leave them alone.
+      if (askController === controller) {
+        askController = null;
+        setAskBusy(false);
+        clearMarks();
+        pendingSelection = null;
+      }
+    }
+  }
+
+  async function showVersion(artifact, page) {
+    const format = String(artifact.format || state.viewer.sourceKind || "pdf").toLowerCase();
+    initialPdfPage = Math.max(1, page || 1);
+    resetPdf();
+    if (elements.documentViewerBody) delete elements.documentViewerBody.dataset.pdfUrl;
+    const requestToken = ++viewerTransitionToken;
+    setDocumentViewerState({
+      attachmentId: artifact.attachment_id,
+      downloadAttachmentId: artifact.attachment_id,
+      editAttachmentId: artifact.attachment_id,
+      fileName: artifact.file_name || state.viewer.fileName,
+      sourceKind: format,
+      loading: true,
+      error: ""
+    });
+    try {
+      await loadDocumentViewerUrl(artifact.attachment_id, { downloadAttachmentId: artifact.attachment_id, fileName: artifact.file_name, sourceKind: format });
+    } catch (error) {
+      if (requestToken === viewerTransitionToken) setDocumentViewerState({ loading: false, error: error.message || "Preview failed." });
+    }
+  }
+
+  function bindAskForm(form, getSelection) {
+    const area = form.querySelector("textarea");
+    const submit = () => {
+      const instruction = area.value.trim();
+      if (!instruction) return;
+      const selection = getSelection();
+      if (form === pill) hidePill();
+      else setAskOpen(false);
+      void runAsk(instruction, selection);
+    };
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submit();
+    });
+    area.addEventListener("input", () => {
+      area.style.height = "auto";
+      area.style.height = `${Math.min(120, area.scrollHeight)}px`;
+    });
+    area.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        submit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        if (form === pill) hidePill();
+        else setAskOpen(false);
+      }
+    });
+  }
+  elements.documentViewerBody?.addEventListener("pointerup", () => {
+    if (!askAvailable() || askBusy) return;
+    // Let the browser finish updating the selection first.
+    setTimeout(() => {
+      const captured = captureSelection();
+      if (captured && ensureAskUi()) showPill(captured);
+    }, 0);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!pill || pill.classList.contains("hidden") || pill.contains(event.target)) return;
+    if (elements.documentViewerBody?.contains(event.target) || !elements.documentViewer?.contains(event.target)) hidePill();
+  });
+  // Clicking away closes an empty Ask bar; a typed request stays until it is sent or cleared.
+  document.addEventListener("pointerdown", (event) => {
+    if (!ask?.classList.contains("is-open") || ask.contains(event.target)) return;
+    if (!ask.querySelector("[data-ask-form] textarea").value.trim()) setAskOpen(false);
+  });
+  elements.documentViewerBody?.addEventListener("scroll", () => {
+    if (pill && !pill.classList.contains("hidden") && document.activeElement !== pill.querySelector("textarea")) hidePill();
+  }, { passive: true });
 
   elements.documentViewerFullscreen?.addEventListener("click", (event) => {
     if (state.viewer.open) setFullscreen(!isFullscreen, { animate: Boolean(event.detail) });
@@ -1056,7 +1534,8 @@ export function createDocumentViewer({
     elements.documentViewerDownloadMenu.classList.add("hidden");
     try {
       elements.documentViewerDownload.disabled = true;
-      await exportEditable(button.dataset.documentExport);
+      if (state.viewer.kind === "editable") await exportEditable(button.dataset.documentExport);
+      else await downloadFormat(button.dataset.documentExport);
     } catch (error) {
       showToast?.(error.message || "Export failed.");
     } finally {

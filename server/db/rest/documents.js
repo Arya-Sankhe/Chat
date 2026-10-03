@@ -223,6 +223,26 @@ export async function getDeckSpecForDocument(client, userId, documentFileId, { s
   return usable(row?.rendered) ? row.rendered : usable(row?.sent) ? row.sent : null;
 }
 
+// The DocSpec a Klui PDF or Word document was rendered from, stored on the job that made it
+// (create, edit or export). Uploaded files have none and are edited in place instead.
+export async function getDocSpecForDocument(client, userId, documentFileId, { signal } = {}) {
+  const rows = await client.request("document_jobs", {
+    query: {
+      user_id: `eq.${userId}`,
+      "output->>document_file_id": `eq.${documentFileId}`,
+      status: "eq.succeeded",
+      job_type: "in.(document.create.docx,document.create.pdf,document.edit.docx,document.edit.pdf,document.export.docx_to_pdf,document.export.pdf_to_docx,document.export.docx_to_docx,document.export.pdf_to_pdf)",
+      select: "id,rendered:output->doc,sent:input->data->doc",
+      order: "created_at.desc",
+      limit: "1"
+    },
+    signal
+  });
+  const row = single(rows);
+  const usable = (doc) => doc && typeof doc === "object" && Array.isArray(doc.blocks);
+  return usable(row?.rendered) ? row.rendered : usable(row?.sent) ? row.sent : null;
+}
+
 export async function listDocumentChunks(client, userId, documentFileId, { limit = 20, offset = 0, sourceType = "", sheet = "", signal } = {}) {
   return client.request("document_chunks", {
     query: {

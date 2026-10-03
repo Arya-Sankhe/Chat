@@ -7,7 +7,7 @@ COPY worker/package.json worker/package-lock.json ./
 # PptxGenJS 4.0.1 declares image-size but does not call it. All published
 # image-size versions currently have parser DoS advisories, so exclude the
 # unreachable package from the production image until upstream ships a fix.
-RUN npm ci --omit=dev \
+RUN PUPPETEER_SKIP_DOWNLOAD=1 npm ci --omit=dev \
   && rm -rf node_modules/pptxgenjs/node_modules/image-size \
   && node --input-type=module -e "import pptxgen from 'pptxgenjs'; const deck = new pptxgen(); deck.addSlide().addText('ok'); await deck.writeFile({ fileName: '/tmp/pptxgen-smoke.pptx' })" \
   && rm -f /tmp/pptxgen-smoke.pptx
@@ -33,7 +33,11 @@ RUN apt-get update \
     fonts-crosextra-caladea \
     libstdc++6 \
     libgcc-s1 \
+    chromium \
   && rm -rf /var/lib/apt/lists/*
+
+# The document engine prints PDFs with headless Chromium (puppeteer-core drives it).
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 COPY worker/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt

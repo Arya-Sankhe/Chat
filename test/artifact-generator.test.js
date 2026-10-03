@@ -41,6 +41,7 @@ async function runArtifact(input, tmpPrefix) {
 test("DOCX generator promotes plain section labels into real document structure", async () => {
   const { result } = await runArtifact({
     format: "docx",
+    preview_pdf: false,
     title: "Pricing Comparison",
     content: [
       "Executive Summary:",
@@ -54,7 +55,7 @@ test("DOCX generator promotes plain section labels into real document structure"
   const xml = await zip.file("word/document.xml").async("string");
   const text = docxTexts(xml);
 
-  assert.match(xml, /Heading2/);
+  assert.match(xml, /Heading1/);
   assert.match(text, /Executive Summary/);
   assert.match(text, /Recommendation/);
   assert.match(text, /MiMo is cheaper/);

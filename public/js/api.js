@@ -832,6 +832,20 @@ export async function reviseEmailDraft(session, { draft, instruction, messageId,
   return response.json();
 }
 
+// Ask Klui in the document viewer: a precise edit of this document, limited to the selection
+// when there is one. Returns the new version ({status, artifact, summary}).
+export async function askDocument(session, attachmentId, { instruction, selection = null, signal }) {
+  const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/ask`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instruction, ...(selection ? { selection } : {}) }),
+    signal
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 export async function exportEditableDocument(session, attachmentId, format, markdown) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/export`, {
     session,

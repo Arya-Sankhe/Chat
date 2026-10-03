@@ -45,6 +45,7 @@ import {
   withWritingStyleSystemPrompt
 } from "../saas/writingStyles.js";
 import { DocumentService, buildUntrustedDocumentContext, normalizeDeckTheme } from "../documents/index.js";
+import { styleName } from "../../worker/doc/themes.js";
 import { retrievalWorthwhile, rewriteDocumentQuery } from "../documents/retrieval.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
 import { buildDocumentTools, isDocumentToolName } from "../documents/tool.js";
@@ -736,6 +737,22 @@ export async function buildRelevantDocumentContext({
   };
 }
 
+/** Images the user attached this turn, signed for the document writer (a screenshot of a
+    document it should match). */
+export function documentReferenceImages(content, r2) {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((part) => part?.type === "image_url")
+    .slice(0, 4)
+    .map((part) => {
+      const image = part.image_url || {};
+      const key = image.object_key || String(image.url || "").replace(/^r2:\/\//, "");
+      const url = key && !/^https?:|^data:/.test(key) && r2?.readUrl ? r2.readUrl(key) : image.url;
+      return url ? { type: "image_url", image_url: { url, detail: "high" } } : null;
+    })
+    .filter(Boolean);
+}
+
 /** Image parts of the user's latest message, as the provider will receive them. */
 export function latestUserImages(messages = []) {
   const latest = [...messages].reverse().find((message) => message?.role === "user");
@@ -926,6 +943,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const deckTheme = skillIds.includes("slides")
     ? normalizeDeckTheme(isRetry || isEdit ? userMessage?.metadata?.deckTheme : body.deckTheme)
     : "";
+  // The document style picked in the composer's Docs menu; only meaningful with that skill.
+  const docStyle = skillIds.includes("docs")
+    ? styleName(isRetry || isEdit ? userMessage?.metadata?.docStyle : body.docStyle)
+    : "";
   const visualizing = skillIds.includes("visualize");
   const illustrationSkill = illustrationSkillFromIds(skillIds);
   if (illustrationSkill) {
@@ -1080,7 +1101,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
         signal: req.turnController?.signal || req.signal,
         modelClient,
         userRequest: contentText(userContent),
-        deckTheme
+        deckTheme,
+        docStyle,
+        referenceImages: documentReferenceImages(userContent, context.r2)
       })
     : null;
   // Council answers without documents, even ones uploaded earlier in the chat or course.
@@ -1221,6 +1244,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
       ...(skillIds.length ? { skillIds } : {}),
       ...(skillMarks.length ? { skillMarks } : {}),
       ...(deckTheme ? { deckTheme } : {}),
+      ...(docStyle ? { docStyle } : {}),
       ...(sourceScope.length ? { sources: sourceScope } : {}),
       ...(Object.keys(sourcePages).length ? { sourcePages } : {})
     };
@@ -1699,6 +1723,7 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       writingStyle: normalizeWritingStyle(body.writingStyle),
       skillIds: normalizeComposerSkillIds(body.skillIds),
       ...(normalizeDeckTheme(body.deckTheme) ? { deckTheme: normalizeDeckTheme(body.deckTheme) } : {}),
+      ...(styleName(body.docStyle) ? { docStyle: styleName(body.docStyle) } : {}),
       agentMode: normalizeAgentMode(body.agentMode),
       webSearch: String(body.webSearch || "auto"),
       ...(sources.length ? { sources } : {}),

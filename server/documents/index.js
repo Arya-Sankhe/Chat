@@ -16,6 +16,10 @@ import {
 import { THEMES, THEME_NAMES } from "../../worker/deck/themes.js";
 import { editDeck } from "./deckEditor.js";
 import { writeDeck } from "./deckWriter.js";
+import { editDoc } from "./docEditor.js";
+import { writeDoc } from "./docWriter.js";
+import { editUploadedFile, validFileOperations } from "./fileEditor.js";
+import { STYLES, styleName } from "../../worker/doc/themes.js";
 import { alignDeck } from "../../worker/deck/spec.js";
 import { estimateDocumentTokens, estimateTextTokens, loadDocumentTexts } from "./library.js";
 
@@ -268,8 +272,12 @@ export function normalizeDeckTheme(value) {
 }
 
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal, modelClient = null, userRequest = "", deckTheme = "" }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal, modelClient = null, userRequest = "", deckTheme = "", docStyle = "", referenceImages = [] }) {
     this.config = config;
+    // The document style the user picked (Docs style menu); it wins over the writer's choice.
+    this.docStyle = styleName(docStyle);
+    // Images the user attached this turn: a screenshot of a document sets the look to match.
+    this.referenceImages = Array.isArray(referenceImages) ? referenceImages.slice(0, 4) : [];
     // The preset the user picked for this turn's slides; it wins over any theme the model names.
     this.deckTheme = normalizeDeckTheme(deckTheme);
     // Metered model client for the turn and the user's message; the PPTX deck writer uses both.
@@ -1246,7 +1254,7 @@ export class DocumentService {
     return { ok: true, provider: "documents", results, citations, notice: buildUntrustedNotice() };
   }
 
-  async enqueueAndWait({ jobType, input, documentFileId = null, generatedCount = 0 }) {
+  async enqueueAndWait({ jobType, input, documentFileId = null, generatedCount = 0, waitMs = null }) {
     await this.consume({ toolCount: 1, generatedCount });
     const job = await this.db.createDocumentJob({
       user_id: this.userId,
@@ -1261,7 +1269,7 @@ export class DocumentService {
       }
     }, { signal: this.signal });
 
-    const deadline = Date.now() + Math.max(1000, Number(this.documentsConfig.jobWaitMs || 20_000));
+    const deadline = Date.now() + Math.max(1000, Number(waitMs || this.documentsConfig.jobWaitMs || 20_000));
     let current = job;
     while (Date.now() < deadline) {
       await sleep(750, this.signal);
@@ -1372,6 +1380,47 @@ export class DocumentService {
     return { ...base, deck, deck_model: written.model, deck_review: written.review, deck_unresolved: written.unresolved || [] };
   }
 
+  // PDF / DOCX: a doc writer turns the brief and material into a DocSpec with a fitting style.
+  // Without a usable spec the worker renders the markdown content with the same design system.
+  async writeDocData({ title, instructions, content, sections, tables, data, theme, format }) {
+    const base = data && typeof data === "object" ? data : {};
+    if (base.doc && typeof base.doc === "object" && Array.isArray(base.doc.blocks)) return base;
+    const style = this.requestedDocStyle(theme || base.style || base.theme);
+    const suggested = !style && styleName(theme) ? `The assistant suggested the "${styleName(theme)}" style; use it only if it fits the document type.` : "";
+    const written = await writeDoc({
+      config: this.config,
+      modelClient: this.modelClient,
+      signal: this.signal,
+      images: this.referenceImages || [],
+      brief: {
+        userRequest: this.userRequest,
+        evidence: this.deckEvidence || "",
+        title,
+        instructions: [instructions, suggested].filter(Boolean).join("\n"),
+        content,
+        sections,
+        tables,
+        style,
+        format
+      }
+    });
+    if (!written) return base;
+    const doc = style ? { ...written.doc, style } : written.doc;
+    return { ...base, doc, doc_model: written.model, doc_review: written.review };
+  }
+
+  // A document style is binding only when the user named it (Docs style picker or their words);
+  // the chat model's own pick is a suggestion the doc writer may overrule.
+  requestedDocStyle(theme) {
+    if (this.docStyle) return this.docStyle;
+    const name = styleName(theme);
+    if (!name) return "";
+    const words = clean(this.userRequest).toLowerCase();
+    const label = clean(STYLES[name]?.label).toLowerCase();
+    const named = [name, label, ...(name === "cv" || name === "cv_modern" ? ["resume", "résumé", "cv", "curriculum vitae"] : []), ...(name === "mla" ? ["mla"] : []), ...(name === "apa" ? ["apa"] : [])];
+    return named.some((value) => value && new RegExp(`\\b${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(words)) ? name : "";
+  }
+
   // The deck theme the user chose: a Slides gallery pick, or a theme the chat model passed that
   // the user named in their own words. On Auto the chat model's own pick is ignored ("academy"
   // for every school topic) and the deck designer chooses from the full catalog.
@@ -1390,7 +1439,7 @@ export class DocumentService {
   }
 
   async createDocument({ format, title, instructions, content, sections, tables, data, theme } = {}) {
-    const requestedFormat = inferCreateFormat(format, title, instructions);
+    const requestedFormat = inferCreateFormat(format, { userRequest: this.userRequest, hints: [title, instructions] });
     const normalizedFormat = requestedFormat === "md" ? "docx" : requestedFormat;
     if (!["docx", "xlsx", "pptx", "pdf"].includes(normalizedFormat)) {
       throw new HttpError(400, "create_document format must be md, docx, xlsx, pptx, or pdf.");
@@ -1407,7 +1456,9 @@ export class DocumentService {
       }
     }
     const resolvedContent = await this.resolveCreateContent({ content, instructions, sections, data });
-    const editorMarkdown = ["docx", "pdf"].includes(normalizedFormat)
+    // Markdown requests open in the markdown editor; PDF and Word documents are designed from a
+    // DocSpec and edited through it.
+    const editorMarkdown = requestedFormat === "md"
       ? buildEditableMarkdown({ title, content: resolvedContent.content, sections, tables })
       : "";
     // Decks carry only a theme the user chose; on Auto the designer's pick must not be overridden
@@ -1415,7 +1466,9 @@ export class DocumentService {
     const deckTheme = normalizedFormat === "pptx" ? this.requestedDeckTheme(theme) : theme;
     const jobData = normalizedFormat === "pptx"
       ? await this.writeDeckData({ title, instructions, content: resolvedContent.content, sections, tables, data: this.deckTheme && data?.deck ? { ...data, deck: { ...data.deck, theme: this.deckTheme } } : data, theme: deckTheme })
-      : data;
+      : ["docx", "pdf"].includes(normalizedFormat) && requestedFormat !== "md"
+        ? await this.writeDocData({ title, instructions, content: resolvedContent.content, sections, tables, data, theme, format: normalizedFormat })
+        : data;
     const result = await this.enqueueAndWait({
       jobType: `document.create.${normalizedFormat}`,
       generatedCount: 1,
@@ -1433,6 +1486,22 @@ export class DocumentService {
         editor_markdown: editorMarkdown
       }
     });
+    // The doc writer decided the structure; report it so the reply matches the file.
+    const writtenDoc = result.output?.doc || jobData?.doc;
+    if (result.ok && writtenDoc && Array.isArray(writtenDoc.blocks)) {
+      const headings = writtenDoc.blocks.filter((block) => block.type === "heading" && block.level === 1).map((block) => clean(block.text).replace(/\*\*/g, "").slice(0, 120));
+      const counts = {};
+      for (const block of writtenDoc.blocks) if (["table", "chart", "problem", "entry"].includes(block.type)) counts[block.type] = (counts[block.type] || 0) + 1;
+      result.output = {
+        ...(result.output || {}),
+        doc: undefined,
+        doc_style: STYLES[writtenDoc.style]?.label || writtenDoc.style || "",
+        doc_title: writtenDoc.title || title || "",
+        doc_outline: headings.slice(0, 30),
+        doc_elements: counts,
+        doc_note: "Describe the document from doc_outline in one or two sentences; the document designer wrote it. Mention that any part can be changed by selecting it in the viewer and asking Klui, or by asking here."
+      };
+    }
     // The designer, not the chat model, decided the slides; report them so the reply matches.
     const slides = Array.isArray(jobData?.deck?.slides) ? jobData.deck.slides : [];
     if (result.ok && slides.length) {
@@ -1500,7 +1569,7 @@ export class DocumentService {
     return result;
   }
 
-  async editDocument({ attachmentId, documentFileId, sourceEtag, versionNo, operations, instructions } = {}) {
+  async editDocument({ attachmentId, documentFileId, sourceEtag, versionNo, operations, instructions, selection = null } = {}) {
     const doc = attachmentId
       ? await this.requireDocumentByAttachment(attachmentId)
       : await this.requireDocumentById(documentFileId);
@@ -1520,6 +1589,7 @@ export class DocumentService {
       throw new HttpError(400, "Excel edits are limited to 100 operations at a time.");
     }
     if (doc.kind === "pptx") return this.editPresentation(doc, { operations, instructions });
+    if (doc.kind === "docx" || doc.kind === "pdf") return this.editTextDocument(doc, { operations, instructions, selection });
     return this.enqueueAndWait({
       jobType: `document.edit.${doc.kind}`,
       documentFileId: doc.id,
@@ -1535,6 +1605,90 @@ export class DocumentService {
     });
   }
 
+  // PDF and Word files. Documents Klui designed are edited through their DocSpec (any text,
+  // block, table cell, chart value, colour or font can change; untouched blocks stay identical).
+  // Other files are edited in place, keeping their exact formatting: the worker reads the file's
+  // structure, the file editor writes operations against it, and the worker applies them.
+  async editTextDocument(doc, { operations, instructions, selection = null }) {
+    const input = {
+      attachment_id: doc.attachment_id,
+      document_file_id: doc.id,
+      source_etag: doc.source_etag,
+      version_no: doc.version_no,
+      instructions: clean(instructions).slice(0, 30_000)
+    };
+    const spec = await this.db.getDocSpecForDocument?.(this.userId, doc.id, { signal: this.signal });
+    if (spec) {
+      const edit = await editDoc({
+        config: this.config,
+        modelClient: this.modelClient,
+        signal: this.signal,
+        doc: spec,
+        instructions,
+        operations,
+        userRequest: this.userRequest,
+        selection
+      });
+      if (edit.question || !edit.applied.length) {
+        return { ok: true, provider: "documents", output: { status: "unchanged", doc_edit_summary: edit.summary, doc_edit_note: "Nothing was changed. Ask the user the question in doc_edit_summary." } };
+      }
+      const result = await this.enqueueAndWait({
+        jobType: `document.edit.${doc.kind}`,
+        documentFileId: doc.id,
+        generatedCount: 1,
+        input: { ...input, title: edit.doc.title || doc.file_name, data: { doc: edit.doc } }
+      });
+      if (result?.output && typeof result.output === "object") {
+        result.output = {
+          ...result.output,
+          doc: undefined,
+          doc_edit_summary: edit.summary,
+          doc_operations_applied: edit.applied.length,
+          ...(edit.skipped.length ? { doc_operations_skipped: edit.skipped.slice(0, 5).map((entry) => entry.reason) } : {})
+        };
+      }
+      return result;
+    }
+    let fileOps = validFileOperations(doc.kind, operations);
+    let summary = "";
+    if (!fileOps.length) {
+      const outline = await this.enqueueAndWait({
+        jobType: `document.outline.${doc.kind}`,
+        documentFileId: doc.id,
+        input: { attachment_id: doc.attachment_id, document_file_id: doc.id },
+        waitMs: 90_000
+      });
+      if (!outline.ok || outline.pending || !outline.output?.outline) {
+        throw new HttpError(502, outline.error?.message || "The document's structure could not be read for editing.");
+      }
+      const plan = await editUploadedFile({
+        config: this.config,
+        modelClient: this.modelClient,
+        signal: this.signal,
+        kind: doc.kind,
+        outline: outline.output.outline,
+        instructions,
+        userRequest: this.userRequest,
+        selection
+      });
+      fileOps = plan.operations;
+      summary = plan.summary;
+      if (!fileOps.length) {
+        return { ok: true, provider: "documents", output: { status: "unchanged", doc_edit_summary: summary, doc_edit_note: "Nothing was changed. Tell the user why (doc_edit_summary)." } };
+      }
+    }
+    const result = await this.enqueueAndWait({
+      jobType: `document.edit.${doc.kind}`,
+      documentFileId: doc.id,
+      generatedCount: 1,
+      input: { ...input, operations: fileOps }
+    });
+    if (result?.output && typeof result.output === "object") {
+      result.output = { ...result.output, doc_edit_summary: summary, doc_operations_applied: fileOps.length };
+    }
+    return result;
+  }
+
   async exportDocument({ attachmentId, documentFileId, targetFormat, sourceEtag, versionNo } = {}) {
     const doc = attachmentId
       ? await this.requireDocumentByAttachment(attachmentId)
@@ -1547,6 +1701,10 @@ export class DocumentService {
     }
     const target = clean(targetFormat).toLowerCase();
     if (!["pdf", "docx", "xlsx"].includes(target)) throw new HttpError(400, "Unsupported export format.");
+    // A document Klui designed exports by rendering its DocSpec to the other format.
+    const spec = ["docx", "pdf"].includes(doc.kind) && ["docx", "pdf"].includes(target)
+      ? await this.db.getDocSpecForDocument?.(this.userId, doc.id, { signal: this.signal })
+      : null;
     return this.enqueueAndWait({
       jobType: `document.export.${doc.kind}_to_${target}`,
       documentFileId: doc.id,
@@ -1556,7 +1714,8 @@ export class DocumentService {
         document_file_id: doc.id,
         target_format: target,
         source_etag: doc.source_etag,
-        version_no: doc.version_no
+        version_no: doc.version_no,
+        ...(spec ? { data: { doc: spec } } : {})
       }
     });
   }

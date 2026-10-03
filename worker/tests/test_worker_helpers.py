@@ -1099,7 +1099,7 @@ class PdftoppmCommandTest(unittest.TestCase):
 
 
 class DispatchRoutingTest(unittest.TestCase):
-    def test_pdf_creation_uses_docx_renderer_then_libreoffice(self):
+    def test_pdf_creation_prints_the_document_engine_pdf_directly(self):
         processor = w.Processor.__new__(w.Processor)
         processor.create_js_artifact = mock.Mock()
         processor.create_docx = mock.Mock()
@@ -1119,19 +1119,17 @@ class DispatchRoutingTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            docx_path = tmp_path / "Report.docx"
             pdf_path = tmp_path / "out" / "Report.pdf"
-            processor.create_js_artifact.return_value = docx_path
-            processor.libreoffice_convert.return_value = pdf_path
+            processor.create_js_artifact.return_value = pdf_path
 
             result = processor.create_job(job, tmp_path)
 
         self.assertEqual(result, {"document_file_id": "doc-1"})
         processor.create_js_artifact.assert_called_once_with(
-            tmp_path, "Report", job["input"], "docx"
+            tmp_path, "Report", job["input"], "pdf"
         )
         processor.create_docx.assert_not_called()
-        processor.libreoffice_convert.assert_called_once_with(docx_path, tmp_path, "pdf")
+        processor.libreoffice_convert.assert_not_called()
         processor.store_generated.assert_called_once_with(
             job, tmp_path, pdf_path, "pdf", "application/pdf", "generated", None
         )
