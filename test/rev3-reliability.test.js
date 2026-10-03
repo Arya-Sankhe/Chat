@@ -42,6 +42,8 @@ for (const [label, path] of [["single ingest migration", singleIngestMigrationPa
     assert.match(upload, /'document\.extract\.' \|\| p_kind/);
     assert.doesNotMatch(upload, /'document\.enrich\.pdf'/);
     assert.match(upload, /p_kind not in \('pdf', 'docx', 'xlsx', 'pptx', 'csv', 'tsv'\)/);
+    assert.match(upload, /source_etag, processing_status, metadata, queue/);
+    assert.match(upload, /'size_bytes', v_attachment\.size_bytes\s*\), p_queue/);
   });
 }
 

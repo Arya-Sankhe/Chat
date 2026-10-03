@@ -89,7 +89,7 @@ begin
 
   insert into public.document_files (
     attachment_id, user_id, conversation_id, message_id, project_id, kind, source,
-    source_etag, processing_status, metadata
+    source_etag, processing_status, metadata, queue
   ) values (
     v_attachment.id, v_attachment.user_id, v_attachment.conversation_id,
     v_attachment.message_id, v_attachment.project_id, p_kind, 'upload', v_attachment.etag, 'pending',
@@ -97,7 +97,7 @@ begin
       'file_name', v_attachment.file_name,
       'content_type', v_attachment.content_type,
       'size_bytes', v_attachment.size_bytes
-    )
+    ), p_queue
   )
   on conflict (attachment_id) do update
     set source_etag = coalesce(excluded.source_etag, public.document_files.source_etag),
