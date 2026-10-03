@@ -194,6 +194,55 @@ test("deck writer always uses Pro and falls back to DeepSeek only when Pro fails
   assert.equal(await writeDeck({ config: {}, modelClient, brief: {} }), null);
 });
 
+test("prices the deck writer looked up reach its review, fact check and revision", async () => {
+  const PRICED = JSON.stringify({
+    theme: "boardroom",
+    title: "Plan pricing",
+    slides: [
+      { type: "cover", title: "Plan pricing" },
+      { type: "summary", title: "Three plans from **$17** a month", findings: [
+        { title: "Starter costs $17", body: "The Starter plan is **$17** a month for one seat, billed monthly." },
+        { title: "Team costs $29", body: "The Team plan is **$29** a month per seat with shared projects." },
+        { title: "Business costs $41", body: "The Business plan is **$41** a month per seat with admin controls." }
+      ] },
+      { type: "bullets", title: "Which plan fits", points: [{ body: "Solo users start on Starter at **$17**; teams pick Team at **$29** or Business at **$41**." }] }
+    ]
+  });
+  const seen = { audit: [], revision: [] };
+  let writes = 0;
+  const sse = (chunk) => new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      const last = body.messages.at(-1);
+      if (last.role === "tool") return sseResponse(body.messages[0].content.startsWith(DECK_AUDIT_SYSTEM) ? '{"issues":[{"severity":"warning","note":"Slide 3: tighten the wording."}]}' : PRICED);
+      if (body.messages[0].content.startsWith(DECK_AUDIT_SYSTEM)) {
+        seen.audit.push(last.content);
+        return sseResponse('{"issues":[{"severity":"warning","note":"Slide 3: tighten the wording."}]}');
+      }
+      writes += 1;
+      if (writes === 1) {
+        return sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "official plan prices" }) } }] }, finish_reason: "tool_calls" }] });
+      }
+      seen.revision.push(body.messages[1].content);
+      return sseResponse(PRICED);
+    }
+  };
+  const websearch = {
+    async search({ query }) {
+      return { ok: true, provider: "test", query, results: [{ index: 1, title: "Official pricing", url: "https://example.com/pricing", snippet: "Starter $17, Team $29, Business $41 per month.", content: "Starter $17, Team $29, Business $41 per month.", publishedAt: null }] };
+    }
+  };
+  const config = { providers: { openrouter: { apiKey: "test" } }, websearch: { maxToolCallsPerTurn: 4 } };
+  const result = await writeDeck({ config, modelClient, websearch, signal: new AbortController().signal, brief: { userRequest: "a deck on the official plan prices" } });
+  assert.ok(seen.audit.length >= 1);
+  assert.match(seen.audit[0], /<evidence>[\s\S]*Starter \$17, Team \$29, Business \$41/);
+  assert.equal(seen.revision.length, 1);
+  assert.match(seen.revision[0], /<evidence>[\s\S]*Starter \$17, Team \$29, Business \$41/);
+  // The deterministic review sees the looked-up prices as supported material.
+  assert.ok(!result.review.some((note) => /\$?(17|29|41)\b/.test(note) && /unsupported|not in the material|absent/i.test(note)), result.review.join(" | "));
+  assert.equal(result.citations[0].url, "https://example.com/pricing");
+});
+
 test("DocumentService writes a deck spec before queuing a PPTX job", async () => {
   let job;
   const service = new DocumentService({
@@ -323,6 +372,90 @@ test("deck editor plans operations with the model and applies them", async () =>
 
   const refusing = { async streamChatCompletion() { return sseResponse(JSON.stringify({ summary: "Which chart do you mean?", operations: [] })); } };
   await assert.rejects(editDeck({ config, modelClient: refusing, deck: JSON.parse(DECK_JSON), instructions: "fix the chart" }), /Which chart/);
+});
+
+test("an Ask Klui selection on a slide keeps the deck edit on that slide", async () => {
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: {} };
+  const replies = [];
+  const prompts = [];
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      prompts.push(body.messages[1].content);
+      return sseResponse(JSON.stringify(replies.shift()));
+    }
+  };
+  const selection = { text: "Churn rose to 8%", page: 2 };
+
+  // The selected slide and text reach the editor; an edit inside the slide is applied.
+  replies.push({ summary: "Retitled page 2.", operations: [{ op: "set", path: "slides.2.title", value: "Churn rose to **9%**" }] });
+  const inside = await editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "make it 9%", selection });
+  assert.match(prompts[0], /SELECTION: the user selected this text on page 2/);
+  assert.match(prompts[0], /Churn rose to 8%/);
+  assert.equal(inside.deck.slides[1].title, "Churn rose to **9%**");
+  assert.equal(inside.deck.slides[2].title, "Next steps");
+
+  // An edit that reaches another slide or the whole deck is sent back once, then refused whole.
+  prompts.length = 0;
+  replies.push(
+    { summary: "", operations: [{ op: "set", path: "slides.2.title", value: "Churn hit **9%**" }, { op: "set", path: "slides.3.title", value: "Changed" }] },
+    { summary: "", operations: [{ op: "set", path: "style.hide", value: ["footer"] }] }
+  );
+  await assert.rejects(
+    editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "make it 9%", selection }),
+    (error) => error.status === 422 && /outside the selection/.test(error.message)
+  );
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /outside the selection: only fields of page 2/);
+  // A whole slide is not a field of it: removing or moving page 2 is outside too.
+  for (const op of [{ op: "remove", path: "slides.2" }, { op: "move", from: "slides.2", to: "slides.3" }]) {
+    await assert.rejects(editDeck({ config, deck: JSON.parse(DECK_JSON), operations: [op], selection }), /outside the selection/);
+  }
+  // Explicit operations inside the slide (including its style) are allowed.
+  const styled = await editDeck({ config, deck: JSON.parse(DECK_JSON), operations: [{ op: "set", path: "slides.2.style.title_color", value: "0A1F44" }], selection });
+  assert.equal(styled.deck.slides[1].style.title_color, "0A1F44");
+
+  // A selection that cannot be placed is refused before the model is asked.
+  prompts.length = 0;
+  for (const bad of [{ text: "☐ ☐", page: 2 }, { text: "Shorten onboarding", page: 2 }, { text: "Churn rose", page: 9 }, { text: "Churn rose", page: null }]) {
+    await assert.rejects(
+      editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "change it", selection: bad }),
+      (error) => error.status === 409,
+      JSON.stringify(bad)
+    );
+  }
+  assert.equal(prompts.length, 0);
+  // Text cut mid-word at the ends of the selection, and deck furniture on the slide, still place.
+  replies.push({ summary: "", operations: [{ op: "set", path: "slides.3.points.1.body", value: "Shorten onboarding to 5 days" }] });
+  const partial = await editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "add 5 days", selection: { text: "xt steps Shorten onboard", page: 3 } });
+  assert.equal(partial.deck.slides[2].points[0].body, "Shorten onboarding to 5 days");
+});
+
+test("a selection edit is refused when the renderer repeats that field on other slides", async () => {
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: {} };
+  // Twelve-plus slides with sections: defense draws the section navigation on every slide, and
+  // its cover lists the agenda.
+  const sections = ["Market", "Pricing", "Risks"];
+  const deck = {
+    title: "Fleet review", theme: "defense",
+    slides: [
+      { type: "cover", title: "Fleet review", subtitle: "Q3" },
+      { type: "agenda", title: "Agenda", items: sections.map((title) => ({ title, body: `${title} detail` })) },
+      ...Array.from({ length: 11 }, (_, index) => ({ type: "bullets", title: `Point ${index + 1}`, section: sections[index % 3], points: [{ title: "Detail", body: `Body ${index + 1}` }] }))
+    ]
+  };
+  const edit = (page, operations) => editDeck({ config, deck: structuredClone(deck), operations, selection: { text: page === 2 ? "Market" : `Point ${page - 2}`, page } });
+  // The cover repeats the agenda: renaming an item there would redraw page 1.
+  await assert.rejects(edit(2, [{ op: "set", path: "slides.2.items.1.title", value: "Demand" }]),
+    (error) => error.status === 422 && /also changes page 1\b/.test(error.message));
+  // The navigation lists every section: renaming one redraws every slide.
+  await assert.rejects(edit(3, [{ op: "set", path: "slides.3.section", value: "Demand" }]),
+    (error) => error.status === 422 && /also changes pages 2, 4, 5, 6, 7, 8 and 5 more/.test(error.message));
+  // Text only page 3 draws is fine.
+  const ok = await edit(3, [{ op: "set", path: "slides.3.points.1.body", value: "Body one, revised" }]);
+  assert.equal(ok.deck.slides[2].points[0].body, "Body one, revised");
+  // Without a selection the same section rename is allowed.
+  const whole = await editDeck({ config, deck: structuredClone(deck), operations: [{ op: "set", path: "slides.3.section", value: "Demand" }] });
+  assert.equal(whole.deck.slides[2].section, "Demand");
 });
 
 test("deck edits are all-or-nothing and never silently drop a slide", async () => {

@@ -33,3 +33,25 @@ export function inspectDeck(raw, fallback = {}) {
   });
   return { deck, problems };
 }
+
+// What each slide draws, as one string per slide: every shape, text, chart, table and image call
+// with its options, plus the background. Two decks whose strings match for a slide render that
+// slide the same, so an edit can be checked against every place the renderer repeats a field
+// (the cover's agenda, the section navigation, figure numbers, the deck footer and theme).
+export function slideDrawings(raw, fallback = {}) {
+  const deck = prepareDeck(raw, fallback);
+  const theme = THEMES[deck.theme];
+  const pptx = { ShapeType: names, ChartType: names, shapes: names, charts: names };
+  const ctx = { exhibit: 0 };
+  return deck.slides.map((spec, index) => {
+    const calls = [];
+    const record = (kind) => (...args) => { calls.push([kind, ...args]); };
+    const slide = { background: null, _slideObjects: [], addText: record("text"), addShape: record("shape"), addChart: record("chart"), addTable: record("table"), addImage: record("image"), addNotes() {} };
+    try {
+      renderSlide(new Painter(pptx, slide, styledTheme(theme, deck.style, spec.style), deck), deck, spec, index, deck.slides.length, ctx);
+    } catch (error) {
+      calls.push(["failed", String(error?.message || error)]);
+    }
+    return JSON.stringify([slide.background, calls]);
+  });
+}

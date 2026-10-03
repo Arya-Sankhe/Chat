@@ -8,6 +8,8 @@ import { mapStorageRpcError, STORAGE_LIST_LIMIT, storageUsage, deleteReservedUpl
 import { assertUpload, documentKindFromFileName } from "../storage/r2.js";
 import { stripImageMetadata } from "../storage/stripImageMetadata.js";
 import { DocumentService } from "../documents/index.js";
+import { buildMeteredWebsearch, resolveWebSearchMode } from "../chat/pipeline.js";
+import { runEditorModel } from "../documents/editorModel.js";
 import { transcribeCourseImage } from "../study/generate.js";
 import { isAudioUpload } from "../study/audio.js";
 import { requireChatContext } from "./context.js";
@@ -570,9 +572,13 @@ async function viewerActions(context, attachment, doc, signal) {
   const spec = ["pdf", "docx"].includes(doc.kind) && typeof context.db.getDocSpecForDocument === "function"
     ? await context.db.getDocSpecForDocument(context.user.id, doc.id, { signal }).catch(() => null)
     : null;
+  // Ask Klui edits a deck through the slide spec Klui generated it from; an uploaded PPTX has none.
+  const deckSpec = doc.kind === "pptx" && doc.conversation_id && typeof context.db.getDeckSpecForDocument === "function"
+    ? await context.db.getDeckSpecForDocument(context.user.id, doc.id, { signal }).catch(() => null)
+    : null;
   return {
     editAttachmentId: attachment.id,
-    canAsk: Boolean(doc.conversation_id),
+    canAsk: Boolean(doc.conversation_id) && (doc.kind !== "pptx" || Boolean(deckSpec)),
     designed: Boolean(spec),
     exportFormats: spec ? ["pdf", "docx"] : doc.kind === "pdf" ? ["pdf"] : [doc.kind, "pdf"]
   };
@@ -805,13 +811,18 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
   });
 
   const signal = AbortSignal.any([req.signal, AbortSignal.timeout(REVISE_TIMEOUT_MS)]);
+  // Web search like a chat turn, unless the user turned search off; the model decides whether
+  // the change needs it ("update this price to the latest official figure").
+  const websearch = buildMeteredWebsearch({ config });
   let content;
   try {
-    content = await meter.chatCompletion({
-      apiKey: provider.apiKey,
-      baseUrl: provider.baseUrl,
-      providerId: provider.id,
+    ({ content } = await runEditorModel({
+      config,
+      modelClient: meter,
+      provider,
+      websearch: resolveWebSearchMode({ body, config, websearch }) !== "off" ? websearch : null,
       signal,
+      note: "You can call web_search and read_url when the change needs current or missing facts. Your final reply must still be only the replacement markdown.",
       body: {
         model: OPENROUTER_TEXT_MODEL,
         temperature: 0.2,
@@ -845,7 +856,7 @@ export async function handleDocumentEditorRevise(req, res, config, attachmentId)
           }
         ]
       }
-    });
+    }));
   } catch (error) {
     if (signal.aborted && !req.signal.aborted) throw new HttpError(504, "Document revision timed out. Try again.");
     throw error;
@@ -887,6 +898,9 @@ export async function handleDocumentAsk(req, res, config, attachmentId) {
   const doc = await context.db.getDocumentFileByAttachment(context.user.id, attachment.id, { signal: req.signal });
   if (!doc || !["pdf", "docx", "pptx"].includes(doc.kind)) throw new HttpError(400, "Ask Klui edits PDF, Word and PowerPoint documents.");
   if (!doc.conversation_id) throw new HttpError(403, "Project knowledge is read-only. Create a copy before editing it.");
+  if (doc.kind === "pptx" && !(await context.db.getDeckSpecForDocument?.(context.user.id, doc.id, { signal: req.signal }))) {
+    throw new HttpError(400, "Ask Klui edits decks Klui made. To change text in this presentation, ask in the chat.");
+  }
   const body = await parseJsonBody(req, 64 * 1024);
   const instruction = String(body.instruction || "").trim();
   if (!instruction) throw new HttpError(400, "Describe the change you want.");
@@ -913,6 +927,9 @@ export async function handleDocumentAsk(req, res, config, attachmentId) {
     reservationCredits: config.desktop.chatReservationCredits
   });
   const signal = AbortSignal.any([req.signal, AbortSignal.timeout(ASK_TIMEOUT_MS)]);
+  // The editor gets web search like a chat turn (unless the user turned search off) and decides
+  // itself whether the change needs it ("update these prices to today's").
+  const websearch = buildMeteredWebsearch({ config });
   const documents = new DocumentService({
     config,
     db: context.db,
@@ -923,6 +940,7 @@ export async function handleDocumentAsk(req, res, config, attachmentId) {
     plan: context.plan,
     signal,
     modelClient: meter,
+    websearch: resolveWebSearchMode({ body, config, websearch }) !== "off" ? websearch : null,
     userRequest: instruction
   });
   let result;
@@ -980,7 +998,11 @@ export async function handleDocumentAsk(req, res, config, attachmentId) {
       content: summary,
       reasoning: "",
       tool_calls: [],
-      metadata: { documents: { artifacts: [artifact], toolCallCount: 1 }, documentAsk: { sourceAttachmentId: attachment.id } }
+      metadata: {
+        documents: { artifacts: [artifact], toolCallCount: 1 },
+        ...(Array.isArray(output.web_sources) && output.web_sources.length ? { websearch: { mode: "auto", citations: output.web_sources } } : {}),
+        documentAsk: { sourceAttachmentId: attachment.id }
+      }
     }, { signal: req.signal });
     messages = [userMessage, assistantMessage].filter(Boolean);
   } catch (error) {

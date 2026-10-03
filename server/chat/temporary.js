@@ -12,7 +12,6 @@ import { VOICE_SYSTEM_PROMPT, loadGlobalSystemPrompt, needsEmailPrompt, withEmai
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { illustrationSkillFromIds, withComposerSkillsSystemPrompt } from "../saas/composerSkills.js";
 import { withWritingStyleSystemPrompt } from "../saas/writingStyles.js";
-import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
 import { runChatWithToolLoop } from "../websearch/tool.js";
 import { resolveChatRole } from "../models.js";
 import {
@@ -110,7 +109,6 @@ export async function handleTemporaryChat(req, res, config) {
       emailMode: needsEmailPrompt(contentText(userContent), priorMessages)
     });
   }
-  const promptText = contentText(userContent);
   const historyMessages = [
     ...priorMessages,
     { role: "user", content: userContent }
@@ -150,18 +148,12 @@ export async function handleTemporaryChat(req, res, config) {
   const visualizing = Array.isArray(body.skillIds) && body.skillIds.includes("visualize");
   const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
   const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
-  const detection = webSearchMode !== "off"
-    ? detectSearchNeed(promptText)
-    : { score: 0, reasons: [], hasUrls: false, urls: [] };
-  const hint = webSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
-  const toolSetup = agentMode && !visualizing
+  const toolSetup = agentMode
     ? withAvailableTools(baseChatRequest, {
         config,
         webMode: webSearchMode,
-        webHint: hint,
         readyDocuments: [],
-        documentSkills: null,
-        userText: promptText
+        documentSkills: null
       })
     : { request: baseChatRequest, augmented: false };
   const chatRequest = body.voice === true ? withVoiceReasoning(toolSetup.request) : toolSetup.request;

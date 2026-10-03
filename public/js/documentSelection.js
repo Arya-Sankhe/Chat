@@ -4,3 +4,11 @@
 export function selectionPlainText(value) {
   return String(value || "").replace(/\s+/g, " ");
 }
+
+// A range's text with a space wherever the text layer breaks a line. PDF.js ends each line with a
+// <br>, which Range.toString() skips, so "1. Call Alice." and "2. Email Bob." would run together.
+export function rangePlainText(range) {
+  const fragment = range.cloneContents();
+  fragment.querySelectorAll?.("br").forEach((br) => br.replaceWith(" "));
+  return selectionPlainText(fragment.textContent);
+}

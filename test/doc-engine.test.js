@@ -411,6 +411,9 @@ test("the viewer's collapsed selection of a numbered Word list still matches", (
   assert.deepEqual([...resolveSelection(outline, selection).ids], ["p2", "p3"]);
   assert.deepEqual([...resolveSelection(outline, { text: sent("Ask about item 2. Email Bob") }).ids], ["p4"]);
   assert.deepEqual([...resolveSelection(outline, { text: sent("Tasks: 1. Call Al") }).ids], ["p1", "p2"]);
+  // What Chromium sends from PDF.js's text layer when its <br> adds no space between the lines.
+  assert.deepEqual([...resolveSelection(outline, { text: "1. Call Alice.2. Email Bob.", before: "Tasks:", after: "Ask about" }).ids], ["p2", "p3"]);
+  assert.deepEqual([...resolveSelection(outline, { text: "Tasks:1. Call Alice." }).ids], ["p1", "p2"]);
 });
 
 test("on a rotated PDF the field beside the selected line is the one allowed", () => {
@@ -487,6 +490,84 @@ test("editDoc applies model operations within the selection", async () => {
   assert.match(result.doc.blocks.find((block) => block.id === "b4").text, /Nothing funded the losses/);
 });
 
+test("an editor with web search looks a fact up when the edit needs it and reports the source", async () => {
+  const doc = parseDocMarkdown(SAMPLE);
+  const bodies = [];
+  const sse = (chunks) => new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      bodies.push(body);
+      if (bodies.length === 1) {
+        return sse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "Pets.com losses" }) } }] }, finish_reason: "tool_calls" }] }]);
+      }
+      const reply = JSON.stringify({ summary: "Added the figure.", operations: [{ op: "replace", block: "b4", find: "Losses had nothing to fund them.", replace: "Losses of $147M had nothing to fund them." }] });
+      return sse([{ choices: [{ delta: { content: reply }, finish_reason: "stop" }] }]);
+    }
+  };
+  const searches = [];
+  const websearch = {
+    async search({ query }) {
+      searches.push(query);
+      return { ok: true, provider: "test", query, results: [{ index: 1, title: "Pets.com collapse", url: "https://example.com/pets", snippet: "$147M lost", content: "", publishedAt: null }] };
+    }
+  };
+  const config = { providers: { openrouter: { apiKey: "test" } }, websearch: { maxToolCallsPerTurn: 4 } };
+  const result = await editDoc({ config, modelClient, websearch, doc, instructions: "add the real loss figure", selection: { text: "Losses had nothing to fund them." } });
+  assert.deepEqual(bodies[0].tools.map((tool) => tool.function.name), ["web_search", "read_url"]);
+  assert.equal(bodies[0].tool_choice, "auto");
+  assert.match(bodies[0].messages[0].content, /final reply must still be only the edit JSON/);
+  assert.deepEqual(searches, ["Pets.com losses"]);
+  assert.match(result.doc.blocks.find((block) => block.id === "b4").text, /\$147M/);
+  assert.equal(result.citations[0].url, "https://example.com/pets");
+});
+
+test("an editor without web search makes one plain call", async () => {
+  const doc = parseDocMarkdown(SAMPLE);
+  let body = null;
+  const modelClient = {
+    async streamChatCompletion(request) {
+      body = request.body;
+      const reply = JSON.stringify({ summary: "Shortened it.", operations: [{ op: "replace", block: "b4", find: "Losses had nothing to fund them.", replace: "Nothing funded the losses." }] });
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  const result = await editDoc({ config: { providers: { openrouter: { apiKey: "test" } } }, modelClient, doc, instructions: "shorter" });
+  assert.equal("tools" in body, false);
+  assert.deepEqual(result.citations, []);
+});
+
+test("the doc writer can search mid-task and returns the pages it used", async () => {
+  const bodies = [];
+  const sse = (chunks) => new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  const written = "---\ntitle: Pets.com\nstyle: report\n---\n## What happened\n\nPets.com lost $147M in 2000 after spending heavily on advertising and shipping heavy goods below cost, and closed nine months after its public offering.\n\n## Why it matters\n\nThe collapse became the standard example of growth without unit economics, and investors still cite it when a company sells each order at a loss.";
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      bodies.push(body);
+      if (bodies.length === 1) {
+        return sse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "Pets.com 2000 losses" }) } }] }, finish_reason: "tool_calls" }] }]);
+      }
+      return sse([{ choices: [{ delta: { content: written }, finish_reason: "stop" }] }]);
+    }
+  };
+  const websearch = {
+    async search({ query }) {
+      return { ok: true, provider: "test", query, results: [{ index: 1, title: "Pets.com collapse", url: "https://example.com/pets", snippet: "$147M lost", content: "", publishedAt: null }] };
+    }
+  };
+  const config = { providers: { openrouter: { apiKey: "test" } }, websearch: { maxToolCallsPerTurn: 4 } };
+  const result = await writeDoc({ config, modelClient, websearch, brief: { userRequest: "a short report on Pets.com", title: "Pets.com", format: "pdf" } });
+  assert.ok(bodies.every((body) => body.tools.map((tool) => tool.function.name).join() === "web_search,read_url"));
+  assert.match(bodies[0].messages[0].content, /final reply must still be only the document format/);
+  assert.equal(result.doc.title, "Pets.com");
+  assert.equal(result.citations[0].url, "https://example.com/pets");
+
+  // Without search the writer makes plain calls and reports no sources.
+  bodies.length = 0;
+  const plain = await writeDoc({ config, modelClient: { async streamChatCompletion({ body }) { bodies.push(body); return sse([{ choices: [{ delta: { content: written }, finish_reason: "stop" }] }]); } }, brief: { userRequest: "a short report", title: "Pets.com", format: "pdf" } });
+  assert.ok(bodies.every((body) => !("tools" in body)));
+  assert.deepEqual(plain.citations, []);
+});
+
 test("doc review flags placeholders, empty sections and format violations", () => {
   const cv = parseDocMarkdown("---\nstyle: cv\ntitle: Jane\n---\n## Experience\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n## Skills\n## Education\n[Your Name] studied.");
   const { notes } = reviewDoc(cv, { userRequest: "resume" });
@@ -532,8 +613,44 @@ test("PDF HTML avoids glyph-swapping features that print digits without Unicode"
     ] }));
     assert.doesNotMatch(html, /tabular-nums/, style);
     assert.match(html, /font-feature-settings:"calt" 0/, style);
-    assert.match(html, /li::marker\{font-variant-numeric:normal;\}/, style);
+    assert.match(html, /li::marker\{font-variant-numeric:normal;/, style);
   }
+});
+
+test("list and heading numbers take the colour of their own text in PDF and Word", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "klui-doc-"));
+  let numberedHeadings = 0;
+  for (const style of STYLE_NAMES) {
+    const doc = normalizeDoc({ title: "Prices", style, blocks: [
+      { type: "heading", level: 1, text: "Purpose" },
+      { type: "heading", level: 1, text: "Methodology" },
+      { type: "list", style: "number", items: ["**Collect pricing.** Record prices", "Collect scores"] },
+      { type: "list", style: "bullet", items: ["Sol 6.1", "Luna 6"] }
+    ] });
+    const html = renderHtml(doc);
+    assert.doesNotMatch(html, /li::marker\{color:var\(--accent\)/, style);
+    assert.match(html, /\.h \.num\{color:inherit;font-weight:inherit;\}/, style);
+    const file = path.join(dir, `${style}.docx`);
+    await renderDocx(doc, file, { charts: [] });
+    const zip = await JSZip.loadAsync(await fs.readFile(file));
+    const text = resolveStyle(doc).colors.text;
+    const numbering = await zip.file("word/numbering.xml").async("string");
+    // The library's own default list has no run properties; check the lists Klui defines.
+    const levels = (numbering.match(/<w:lvl [\s\S]*?<\/w:lvl>/g) || []).filter((level) => /<w:rPr>/.test(level));
+    assert.ok(levels.length, style);
+    for (const level of levels) {
+      const color = level.match(/<w:color w:val="([0-9A-Fa-f]{6})"/)?.[1];
+      assert.equal(color?.toUpperCase(), text.toUpperCase(), `${style}: ${level.slice(0, 80)}`);
+      assert.doesNotMatch(level, /<w:b\/>|<w:b w:val="true"\/>/, style);
+    }
+    const xml = await zip.file("word/document.xml").async("string");
+    const numberRun = xml.match(/<w:r>(?:(?!<\/w:r>)[\s\S])*?<w:t[^>]*>1\.  <\/w:t>/)?.[0];
+    if (numberRun) {
+      numberedHeadings += 1;
+      assert.doesNotMatch(numberRun, /<w:color /, `${style}: heading number keeps the heading colour`);
+    }
+  }
+  assert.ok(numberedHeadings > 0, "some styles number their headings");
 });
 
 test("a selection of only symbols is refused, not treated as no selection", async () => {

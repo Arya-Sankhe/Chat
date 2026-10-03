@@ -271,8 +271,18 @@ export function normalizeDeckTheme(value) {
   return THEME_NAMES.includes(name) ? name : "";
 }
 
+// The web pages an editor or writer looked up, so the chat can show them as sources.
+function webSources(citations) {
+  const seen = new Set();
+  const sources = (Array.isArray(citations) ? citations : [])
+    .filter((citation) => citation?.url && !seen.has(citation.url) && seen.add(citation.url))
+    .slice(0, 8)
+    .map((citation, index) => ({ ...citation, index: index + 1 }));
+  return sources.length ? { web_sources: sources } : {};
+}
+
 export class DocumentService {
-  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal, modelClient = null, userRequest = "", deckTheme = "", docStyle = "", referenceImages = [] }) {
+  constructor({ config, db, r2, userId, conversationId, projectId = null, projectDocumentIds = null, projectDocumentPages = null, hiddenProjectDocumentIds = null, plan, signal, modelClient = null, websearch = null, userRequest = "", deckTheme = "", docStyle = "", referenceImages = [] }) {
     this.config = config;
     // The document style the user picked (Docs style menu); it wins over the writer's choice.
     this.docStyle = styleName(docStyle);
@@ -282,6 +292,8 @@ export class DocumentService {
     this.deckTheme = normalizeDeckTheme(deckTheme);
     // Metered model client for the turn and the user's message; the PPTX deck writer uses both.
     this.modelClient = modelClient;
+    // Web search for the editors and writers, when the user has it on: they decide whether they need it.
+    this.websearch = websearch;
     this.userRequest = userRequest;
     this.documentsConfig = config.documents || {};
     this.db = db;
@@ -1352,7 +1364,7 @@ export class DocumentService {
 
   // PPTX: a deck writer turns the brief and material into a slide-by-slide DeckSpec. Without a
   // usable spec the worker still renders the markdown content with the same design system.
-  async writeDeckData({ title, instructions, content, sections, tables, data, theme }) {
+  async writeDeckData({ title, instructions, content, sections, tables, data, theme, sources = [] }) {
     const base = data && typeof data === "object" ? data : {};
     if (base.deck && typeof base.deck === "object" && Array.isArray(base.deck.slides)) return base;
     const legacySlides = Array.isArray(base.slides) ? JSON.stringify(base.slides).slice(0, 12_000) : "";
@@ -1360,6 +1372,7 @@ export class DocumentService {
     const written = await writeDeck({
       config: this.config,
       modelClient: this.modelClient,
+      websearch: this.websearch,
       signal: this.signal,
       brief: {
         userRequest: this.userRequest,
@@ -1373,6 +1386,7 @@ export class DocumentService {
       }
     });
     if (!written) return base;
+    sources.push(...(written.citations || []));
     // Stored aligned to pages so later edits can address "page 4" exactly.
     const aligned = alignDeck(written.deck, { title });
     // A theme the user chose is a requirement, not a hint the writer may override.
@@ -1382,7 +1396,7 @@ export class DocumentService {
 
   // PDF / DOCX: a doc writer turns the brief and material into a DocSpec with a fitting style.
   // Without a usable spec the worker renders the markdown content with the same design system.
-  async writeDocData({ title, instructions, content, sections, tables, data, theme, format }) {
+  async writeDocData({ title, instructions, content, sections, tables, data, theme, format, sources = [] }) {
     const base = data && typeof data === "object" ? data : {};
     if (base.doc && typeof base.doc === "object" && Array.isArray(base.doc.blocks)) return base;
     const style = this.requestedDocStyle(theme || base.style || base.theme);
@@ -1390,6 +1404,7 @@ export class DocumentService {
     const written = await writeDoc({
       config: this.config,
       modelClient: this.modelClient,
+      websearch: this.websearch,
       signal: this.signal,
       images: this.referenceImages || [],
       brief: {
@@ -1405,6 +1420,7 @@ export class DocumentService {
       }
     });
     if (!written) return base;
+    sources.push(...(written.citations || []));
     const doc = style ? { ...written.doc, style } : written.doc;
     return { ...base, doc, doc_model: written.model, doc_review: written.review };
   }
@@ -1464,10 +1480,12 @@ export class DocumentService {
     // Decks carry only a theme the user chose; on Auto the designer's pick must not be overridden
     // at render time by the chat model's "academic"/"business" style.
     const deckTheme = normalizedFormat === "pptx" ? this.requestedDeckTheme(theme) : theme;
+    // Pages the writer looked up while writing, shown as the turn's sources.
+    const writerSources = [];
     const jobData = normalizedFormat === "pptx"
-      ? await this.writeDeckData({ title, instructions, content: resolvedContent.content, sections, tables, data: this.deckTheme && data?.deck ? { ...data, deck: { ...data.deck, theme: this.deckTheme } } : data, theme: deckTheme })
+      ? await this.writeDeckData({ title, instructions, content: resolvedContent.content, sections, tables, data: this.deckTheme && data?.deck ? { ...data, deck: { ...data.deck, theme: this.deckTheme } } : data, theme: deckTheme, sources: writerSources })
       : ["docx", "pdf"].includes(normalizedFormat) && requestedFormat !== "md"
-        ? await this.writeDocData({ title, instructions, content: resolvedContent.content, sections, tables, data, theme, format: normalizedFormat })
+        ? await this.writeDocData({ title, instructions, content: resolvedContent.content, sections, tables, data, theme, format: normalizedFormat, sources: writerSources })
         : data;
     const result = await this.enqueueAndWait({
       jobType: `document.create.${normalizedFormat}`,
@@ -1517,12 +1535,13 @@ export class DocumentService {
         ...deckQualityOutput(result.output?.quality_warnings)
       };
     }
+    if (result.ok && writerSources.length) result.output = { ...(result.output || {}), ...webSources(writerSources) };
     return result;
   }
 
   // Decks Klui generated are edited through their DeckSpec and re-rendered, so any text, colour
   // or piece of slide furniture can change precisely. Other PPTX files get text replacement.
-  async editPresentation(doc, { operations, instructions }) {
+  async editPresentation(doc, { operations, instructions, selection = null }) {
     const spec = await this.db.getDeckSpecForDocument?.(this.userId, doc.id, { signal: this.signal });
     const input = {
       attachment_id: doc.attachment_id,
@@ -1546,11 +1565,13 @@ export class DocumentService {
     const edit = await editDeck({
       config: this.config,
       modelClient: this.modelClient,
+      websearch: this.websearch,
       signal: this.signal,
       deck: spec,
       instructions,
       operations,
-      userRequest: this.userRequest
+      userRequest: this.userRequest,
+      selection
     });
     const result = await this.enqueueAndWait({
       jobType: "document.edit.pptx",
@@ -1563,6 +1584,7 @@ export class DocumentService {
         ...result.output,
         deck_edit_summary: edit.summary,
         deck_operations_applied: edit.applied,
+        ...webSources(edit.citations),
         ...deckQualityOutput(result.output?.quality_warnings)
       };
     }
@@ -1588,7 +1610,7 @@ export class DocumentService {
     if (doc.kind === "xlsx" && operations.length > 100) {
       throw new HttpError(400, "Excel edits are limited to 100 operations at a time.");
     }
-    if (doc.kind === "pptx") return this.editPresentation(doc, { operations, instructions });
+    if (doc.kind === "pptx") return this.editPresentation(doc, { operations, instructions, selection });
     if (doc.kind === "docx" || doc.kind === "pdf") return this.editTextDocument(doc, { operations, instructions, selection });
     return this.enqueueAndWait({
       jobType: `document.edit.${doc.kind}`,
@@ -1622,6 +1644,7 @@ export class DocumentService {
       const edit = await editDoc({
         config: this.config,
         modelClient: this.modelClient,
+        websearch: this.websearch,
         signal: this.signal,
         doc: spec,
         instructions,
@@ -1644,6 +1667,7 @@ export class DocumentService {
           doc: undefined,
           doc_edit_summary: edit.summary,
           doc_operations_applied: edit.applied.length,
+          ...webSources(edit.citations),
           ...(edit.skipped.length ? { doc_operations_skipped: edit.skipped.slice(0, 5).map((entry) => entry.reason) } : {})
         };
       }
@@ -1651,6 +1675,7 @@ export class DocumentService {
     }
     let fileOps = validFileOperations(doc.kind, operations);
     let summary = "";
+    let citations = [];
     if (!fileOps.length) {
       const outline = await this.enqueueAndWait({
         jobType: `document.outline.${doc.kind}`,
@@ -1664,6 +1689,7 @@ export class DocumentService {
       const plan = await editUploadedFile({
         config: this.config,
         modelClient: this.modelClient,
+        websearch: this.websearch,
         signal: this.signal,
         kind: doc.kind,
         outline: outline.output.outline,
@@ -1673,6 +1699,7 @@ export class DocumentService {
       });
       fileOps = plan.operations;
       summary = plan.summary;
+      citations = plan.citations;
       if (!fileOps.length) {
         return { ok: true, provider: "documents", output: { status: "unchanged", doc_edit_summary: summary, doc_edit_note: "Nothing was changed. Tell the user why (doc_edit_summary)." } };
       }
@@ -1684,7 +1711,7 @@ export class DocumentService {
       input: { ...input, operations: fileOps }
     });
     if (result?.output && typeof result.output === "object") {
-      result.output = { ...result.output, doc_edit_summary: summary, doc_operations_applied: fileOps.length };
+      result.output = { ...result.output, doc_edit_summary: summary, doc_operations_applied: fileOps.length, ...webSources(citations) };
     }
     return result;
   }

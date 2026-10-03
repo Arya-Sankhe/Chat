@@ -5,7 +5,7 @@
 // fonts, layout and everything not addressed stay exactly as they were.
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_PRO_MODEL, resolveProvider } from "../providers.js";
-import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
+import { runEditorModel } from "./editorModel.js";
 import { salvageJsonObjects } from "../study/jsonSalvage.js";
 import { DOC_MODELS } from "./docWriter.js";
 
@@ -116,7 +116,9 @@ function bestOccurrence(text, found, length, before, after) {
   return best.length === 1 ? best[0].at : null;
 }
 
-const LIST_MARKER = /(^|\s)\(?(?:\d{1,3}(?:\.\d{1,3})*|[a-z]|[ivxlcdm]{1,6})[.)]\s+|(^|\s)[•◦▪‣·●○■□–-]\s+/gi;
+// A marker starts the text, follows a space, or follows the end of the item before it with no
+// space at all: a PDF text layer's line break (<br>) adds none ("1. Call Alice.2. Email Bob.").
+const LIST_MARKER = /(^|\s|[.!?;:,)\]"'”’])\(?(?:\d{1,3}(?:\.\d{1,3})*|[a-z]|[ivxlcdm]{1,6})[.)]\s+|(^|\s|[.!?;:,)\]"'”’])[•◦▪‣·●○■□–-]\s+/gi;
 
 // The selection with the list numbers Word drew ("1.", "a)", "iv.") taken out. The viewer sends
 // the selection with all whitespace collapsed (public/js/documentSelection.js), so a marker can sit
@@ -314,7 +316,7 @@ function compactOutline(outline, selection) {
   return JSON.stringify(outline).slice(0, 140_000);
 }
 
-export async function editUploadedFile({ config, modelClient, signal, kind, outline, instructions = "", userRequest = "", selection = null }) {
+export async function editUploadedFile({ config, modelClient, websearch = null, signal, kind, outline, instructions = "", userRequest = "", selection = null }) {
   if (!outline?.has_text && !(outline?.fields || []).length && !(outline?.controls || []).length) {
     throw new HttpError(422, "This file has no editable text (it may be a scanned image). Ask Klui to recreate it as a new document instead.");
   }
@@ -331,10 +333,11 @@ export async function editUploadedFile({ config, modelClient, signal, kind, outl
   let lastError = null;
   for (const model of DOC_MODELS) {
     try {
-      const upstream = await modelClient.streamChatCompletion({
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl,
-        providerId: provider.id,
+      const result = await runEditorModel({
+        config,
+        modelClient,
+        provider,
+        websearch,
         signal,
         body: {
           model,
@@ -344,7 +347,6 @@ export async function editUploadedFile({ config, modelClient, signal, kind, outl
           ...(model === OPENROUTER_PRO_MODEL ? { reasoning: { effort: "low", exclude: true } } : { reasoning: { enabled: false } })
         }
       });
-      const result = await streamProviderAndAccumulate(upstream, () => {});
       const parsed = parseReply(result?.content);
       if (!parsed) throw new Error("editor reply was not JSON");
       let operations = validFileOperations(kind, parsed.operations);
@@ -355,7 +357,7 @@ export async function editUploadedFile({ config, modelClient, signal, kind, outl
         }
         operations = scoped.operations;
       }
-      return { operations, summary: String(parsed.summary || "").slice(0, 400), model };
+      return { operations, summary: String(parsed.summary || "").slice(0, 400), model, citations: result.citations };
     } catch (error) {
       if (signal?.aborted || error instanceof HttpError) throw error;
       lastError = error;

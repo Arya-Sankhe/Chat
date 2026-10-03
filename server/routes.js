@@ -125,7 +125,6 @@ export {
   buildRelevantDocumentContext,
   normalizeAgentMode,
   runSharedPreSearch,
-  shouldSuppressWebSearchForDocumentTurn,
   withResearchReportContext
 } from "./chat/pipeline.js";
 

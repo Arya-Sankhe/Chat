@@ -46,7 +46,16 @@ const BASE_SKILLS = {
   ].join("\n")
 };
 
+// Gathering facts before writing, the same for every created file (deck, Word, PDF): search in
+// the same turn, then build the file from what was found, never a template of placeholders.
+const RESEARCH_FIRST = [
+  "- Gather the material in this same turn, before calling create_document: reuse information already in the chat and read the user's documents. Simply converting or reformatting supplied material does not need web search. When the request needs missing or updated facts about products, models, companies, versions, prices or benchmarks, search the web (official pricing and product pages first, then reputable benchmarks or reviews). Respect requests to use only supplied material. When researching several items, collect the same attributes for each so they can be compared side by side. Note each figure's source. Do not ask the user for data you can look up, and do not finish the turn with a promise to research later.",
+  "- Never build a template full of placeholders (\"[Enter]\", \"TBD\", \"to populate\", empty cells for numbers). If you still cannot identify the subject or find the core facts, tell the user what you could not find and ask for the data or a pointer to it. If only part is missing, build the file from what you found and say what is missing in `content`.",
+  "- Keep every researched fact as a tuple in `content`: exact entity/version, the metric as the source names it, value, unit, conditions (setting, period, sample) and the full source URL. Do not mix figures measured under different conditions, carry one version's result over to another, or relabel one metric as another. Prefer primary sources (official pages, filings, papers, textbooks) over summaries, and keep the user's names; if a name is ambiguous, say which interpretation you used."
+].join("\n");
+
 const DOC_CREATE_SHARED = [
+  RESEARCH_FIRST,
   "- A document designer writes and lays out the file from your call (title block, sections, tables, charts, callouts, worked problems, CV entries) in a style that fits: report, briefing (case study, analysis), academic, lab (lab report), homework (problem set), mla / apa (essays), guide (how-to, recipes), notes (study notes), letter (cover letters), cv / cv_modern (ATS-safe resumes). Pass `theme` only when the user named a format or style (\"MLA\", \"APA\", \"resume\", \"lab report\"); otherwise leave it empty.",
   "- Put everything the document must contain into `content`: the full draft or the facts, numbers, quotes, sources, the user's personal details (for CVs, letters, essay headers) and any data for tables or charts. Do not leave out material you gathered; the designer cannot see the chat. Add the purpose, audience, length and any required format in `instructions`.",
   "- If the user attached a screenshot or file showing a format to copy, say so in `instructions` and describe it (layout, colours, fonts, sections); the designer also sees attached images.",
@@ -88,14 +97,12 @@ const SPECIALIZED_SKILLS = {
     "Professional PPTX presentation skill:",
     "- Use create_document with format \"pptx\" when the user asks for PowerPoint, PPTX, slides, a deck, or a presentation.",
     "- A dedicated presentation designer writes the slides from your call: storyline, claim-style titles, one exhibit per slide (charts, tables, timelines, process flows, KPI panels), takeaways and the visual theme. Your job is to hand it the best possible material.",
-    "- Gather the material first: read the user's documents, search the web when the topic needs current facts, and collect concrete numbers, names, dates, comparisons, causes and recommendations.",
+    RESEARCH_FIRST,
+    "- Collect concrete numbers, names, dates, comparisons, causes and recommendations; for model or product comparisons that means input/output price, context, benchmark scores and release date for each.",
     "- Put all of that material into `content` as dense markdown notes (headings, bullets, pipe tables). Include every figure you want charted with its unit, period and source. Put wide data into `tables`.",
     "- In `instructions`, state the audience, purpose, desired outcome, tone and any slide count or theme the user asked for. Do not pre-split the material into slides and do not write slide layouts.",
     "- Never invent statistics or sources to make slides look richer; if the topic is conceptual, give definitions, mechanisms, steps, examples and comparisons instead.",
-    "- The deck is only as good as the facts you hand over. For named products, models, companies, versions or prices, search the web (official pricing and product pages first, then reputable benchmarks or reviews) and read the user's documents before calling create_document. Run several searches when the request names several items, and collect the same attributes for each (e.g. input/output price, context, benchmark scores, release date) so they can be compared side by side. Note each figure's source.",
-    "- If you still cannot identify the subject or find the core facts (for example prices for products you cannot find), do not build a template deck full of \"to populate\" placeholders: tell the user what you could not find and ask for the data or a pointer to it. If only part is missing, build the deck from what you found and say what is missing in `content`.",
     "- In `instructions`, also say what the deck must answer (e.g. \"which model gives the most intelligence per dollar, and when to pick each\").",
-    "- Keep every researched fact as a tuple in `content`: exact entity/version, the metric as the source names it, value, unit, conditions (setting, period, sample) and the full source URL. Do not mix figures measured under different conditions, carry one version's result over to another, or relabel one metric as another. Prefer primary sources (official pages, filings, papers, textbooks) over summaries, and keep the user's names; if a name is ambiguous, say which interpretation you used.",
     "- Research to the deck's needs: for products, companies or prices read the official page for each named item; for science, history or technical mechanisms read an authoritative reference before writing, even for familiar topics; for data the user supplied, use it as given. Include the relationships the designer can draw (inputs and outputs, causes and effects, stages, contrasts), not just separate definitions.",
     "- A requested N-slide deck means N slides total including the cover.",
     "- Do not add process filler to `content` that nobody asked for (refresh cadences, owners, workplans, data-system lists); give the designer facts, not a methodology you made up.",

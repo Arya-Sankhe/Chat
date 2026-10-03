@@ -814,13 +814,13 @@ test("temporary chat: transcript ends with usage and done(temporary), and nothin
   );
 });
 
-test("temporary chat runs Visualize without enabling generic tools", async (t) => {
+test("temporary chat runs Visualize with web search and no other tools", async (t) => {
   t.after(restoreFetch);
   const visual = "```visualize\n<!doctype html><html><body><button>Run demo</button></body></html>\n```";
   installProviderFetch({
     streamFor: (body) => {
       assert.match(body.messages.find((message) => message.role === "system")?.content || "", /<klui_composer_skill id="visualize">/);
-      assert.equal(body.tools, undefined);
+      assert.deepEqual(body.tools.map((tool) => tool.function.name), ["web_search", "read_url"]);
       return [contentDelta(visual), usageChunk()];
     }
   });
@@ -1375,7 +1375,7 @@ test("retry: deletes failed assistant, reuses user message, streams fresh assist
   assert.equal("skillIds" in providerRequest, false);
 });
 
-test("visualize retry restores the skill without exposing document tools", async (t) => {
+test("visualize retry restores the skill with web search but no document tools", async (t) => {
   t.after(restoreFetch);
   const requests = [];
   const visual = "```visualize\n<!doctype html><html><body><button>Run demo</button></body></html>\n```";
@@ -1400,8 +1400,8 @@ test("visualize retry restores the skill without exposing document tools", async
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(requests.length, 1);
   assert.match(requests[0].messages[0].content, /<klui_composer_skill id="visualize">/);
-  assert.equal("tools" in requests[0], false);
-  assert.equal("tool_choice" in requests[0], false);
+  assert.deepEqual(requests[0].tools.map((tool) => tool.function.name), ["web_search", "read_url"]);
+  assert.equal(requests[0].tool_choice, "auto");
   const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
   assert.equal(finalUpdate.patch.content, visual);
 });

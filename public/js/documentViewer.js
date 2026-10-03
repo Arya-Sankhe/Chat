@@ -1,5 +1,5 @@
 import { mountDocumentEditor } from "./documentEditor.js";
-import { selectionPlainText } from "./documentSelection.js";
+import { rangePlainText } from "./documentSelection.js";
 
 const viewerSvg = (content) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${content}</svg>`;
 const DOWNLOAD_ICON = viewerSvg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>');
@@ -630,6 +630,7 @@ export function createDocumentViewer({
               markdown,
               selection,
               instruction,
+              webSearch: state.settings?.webSearchMode === "off" ? "off" : "auto",
               signal
             });
             return result.replacement;
@@ -1323,7 +1324,7 @@ export function createDocumentViewer({
     const range = selection.getRangeAt(0);
     const layer = (range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement)?.closest?.(".textLayer, .pdf-pages");
     if (!layer || !elements.documentViewerBody?.contains(layer)) return null;
-    const text = selectionPlainText(selection.toString()).trim();
+    const text = rangePlainText(range).trim();
     if (text.length < 2) return null;
     const startPage = (range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement)?.closest?.("[data-page]");
     const pageNumber = Number(startPage?.dataset.page || 0) || null;
@@ -1335,13 +1336,13 @@ export function createDocumentViewer({
         const head = document.createRange();
         head.setStart(pageLayer, 0);
         head.setEnd(range.startContainer, range.startOffset);
-        before = selectionPlainText(head.toString()).slice(-200);
+        before = rangePlainText(head).slice(-200);
         const endPage = (range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement)?.closest?.("[data-page]");
         const endLayer = endPage?.querySelector(".textLayer") || pageLayer;
         const tail = document.createRange();
         tail.setStart(range.endContainer, range.endOffset);
         tail.setEnd(endLayer, endLayer.childNodes.length);
-        after = selectionPlainText(tail.toString()).slice(0, 200);
+        after = rangePlainText(tail).slice(0, 200);
       } catch {
         /* Context is a hint for matching; the selected text alone still works. */
       }
@@ -1401,6 +1402,7 @@ export function createDocumentViewer({
       let result = await askDocument(state.session, target, {
         instruction,
         selection: selection ? { text: selection.text, before: selection.before, after: selection.after, page: selection.page } : null,
+        webSearch: state.settings?.webSearchMode === "off" ? "off" : "auto",
         signal: controller.signal
       });
       if (result.status === "processing" && result.jobId) {

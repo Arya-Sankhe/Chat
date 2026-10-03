@@ -5,7 +5,8 @@
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_PRO_MODEL, resolveProvider } from "../providers.js";
 import { DECK_MODELS } from "./deckWriter.js";
-import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
+import { runEditorModel } from "./editorModel.js";
+import { slideDrawings } from "../../worker/deck/inspect.js";
 import { alignDeck, emptySlides, normalizeDeck } from "../../worker/deck/spec.js";
 import { FONT_CHOICES, HIDEABLE } from "../../worker/deck/style.js";
 import { THEMES, THEME_NAMES } from "../../worker/deck/themes.js";
@@ -205,13 +206,58 @@ function parseEditorJson(text) {
   }
 }
 
-async function requestOperations({ config, modelClient, signal, deck, instructions, userRequest, timeoutMs, previous = null }) {
+const plain = (value) => String(value || "").toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, "");
+
+function textOf(value, out = []) {
+  if (typeof value === "string" || typeof value === "number") out.push(String(value).replace(/\*\*/g, ""));
+  else if (Array.isArray(value)) value.forEach((entry) => textOf(entry, out));
+  else if (value && typeof value === "object") Object.values(value).forEach((entry) => textOf(entry, out));
+  return out;
+}
+
+// The slide a viewer selection is on: its page, checked against that slide's own text and the
+// deck furniture drawn on every slide (footer, source, date). The slide's fields are not in the
+// order they are drawn, so most of the selected words must appear there (the first and last may
+// be cut mid-word). Throws 409 when the selection has no words or is not on that slide.
+export function deckSelectionPage(deck, selection) {
+  if (!String(selection?.text || "").trim()) return null;
+  const words = String(selection.text).split(/\s+/).map(plain).filter(Boolean);
+  if (!words.length) throw new HttpError(409, "The selection has no words Klui can place. Select the text around it too and retry.");
+  const page = Number(selection.page);
+  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
+  const notFound = new HttpError(409, "The selected text could not be found on that slide. Select it again and retry.");
+  if (!Number.isInteger(page) || page < 1 || page > slides.length) throw notFound;
+  const haystack = plain(textOf([slides[page - 1], deck.title, deck.subtitle, deck.kicker, deck.footer, deck.source, deck.date, deck.author]).join(" "));
+  const found = words.filter((word) => haystack.includes(word)).length;
+  if (found < Math.max(1, Math.ceil(words.length * 0.7))) throw notFound;
+  return page;
+}
+
+// Operations that reach outside the selected slide: each path must be a field of slides.N (its
+// text, lists, charts or style), not the slide itself, another slide or the whole deck.
+function outsideSelection(operations, page) {
+  const inside = (path) => {
+    try {
+      const parts = parsePath(path);
+      return parts.length >= 3 && parts[0].key === "slides" && parts[1].index === page - 1;
+    } catch {
+      return false;
+    }
+  };
+  return operations.flatMap((op, index) => {
+    const paths = String(op?.op || "").toLowerCase() === "move" ? [op.from, op.to] : [op?.path];
+    return paths.every(inside) ? [] : [`operation ${index + 1} (${op?.op || "?"} ${op?.path || op?.from || ""}) is outside the selection: only fields of page ${page} (paths starting "slides.${page}.") may change`];
+  });
+}
+
+async function requestOperations({ config, modelClient, websearch = null, signal, deck, instructions, userRequest, timeoutMs, selection = null, previous = null }) {
   if (!modelClient?.streamChatCompletion) throw new HttpError(503, "Deck editing is not available right now.");
   const provider = resolveProvider("openrouter", config);
   const models = DECK_MODELS;
   const user = [
     userRequest ? `USER REQUEST (their words):\n${String(userRequest).slice(0, 4000)}` : "",
     instructions ? `EDIT INSTRUCTIONS FROM THE ASSISTANT:\n${String(instructions).slice(0, 8000)}` : "",
+    selection ? `SELECTION: the user selected this text on page ${selection.page} and asked for the change there:\n"""${String(selection.text).slice(0, 4000)}"""\nChange only page ${selection.page}: every path must be inside "slides.${selection.page}." (its text, lists, charts, or "slides.${selection.page}.style"). If the request needs changes on other pages or to the whole deck, return "operations": [] and say in "summary" that it can be asked without a selection.` : "",
     themeColorsNote(deck),
     `CURRENT DECK:\n${JSON.stringify(deckForEditor(deck))}`,
     previous ? `YOUR PREVIOUS OPERATIONS WERE REJECTED AND NOTHING WAS CHANGED:\n${JSON.stringify(previous.operations).slice(0, 6000)}\nProblems:\n- ${previous.problems.join("\n- ")}\nReturn a corrected, complete set of operations for the whole request.` : "",
@@ -226,10 +272,11 @@ async function requestOperations({ config, modelClient, signal, deck, instructio
     signal?.addEventListener?.("abort", onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(new Error("deck editor timeout")), Math.max(20_000, Number(timeoutMs || config?.documents?.deckWriterTimeoutMs || 150_000)));
     try {
-      const upstream = await modelClient.streamChatCompletion({
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl,
-        providerId: provider.id,
+      const result = await runEditorModel({
+        config,
+        modelClient,
+        provider,
+        websearch,
         signal: controller.signal,
         body: {
           model,
@@ -242,9 +289,8 @@ async function requestOperations({ config, modelClient, signal, deck, instructio
           ...(model === OPENROUTER_PRO_MODEL ? { reasoning: { effort: "low", exclude: true } } : { reasoning: { enabled: false } })
         }
       });
-      const result = await streamProviderAndAccumulate(upstream, () => {});
-      const parsed = parseEditorJson(result?.content);
-      if (parsed && Array.isArray(parsed.operations)) return { ...parsed, model };
+      const parsed = parseEditorJson(result.content);
+      if (parsed && Array.isArray(parsed.operations)) return { ...parsed, model, citations: result.citations };
       lastError = new Error(`${model} returned no operations`);
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -288,8 +334,26 @@ function editProblems(result, before) {
  * would empty a slide, nothing is changed (a planned edit gets one corrected attempt first).
  * Returns { deck, summary, applied, model }.
  */
-export async function editDeck({ config, modelClient, signal, deck, instructions = "", operations = [], userRequest = "", timeoutMs } = {}) {
+// Pages other than the selected one that the edit would redraw. A field on the selected slide can
+// show up elsewhere: the cover repeats the agenda, the navigation lists every slide's section,
+// figure numbers run across slides, and the deck title, footer and theme come from slide text.
+function redrawnElsewhere(before, after, page) {
+  const was = slideDrawings(before);
+  const now = slideDrawings(alignDeck(after));
+  const pages = [];
+  for (let index = 0; index < Math.max(was.length, now.length); index += 1) {
+    if (index !== page - 1 && was[index] !== now[index]) pages.push(index + 1);
+  }
+  if (!pages.length) return [];
+  const list = pages.length > 6 ? `${pages.slice(0, 6).join(", ")} and ${pages.length - 6} more` : pages.join(", ");
+  return [`the edit also changes page${pages.length > 1 ? "s" : ""} ${list}, which repeat${pages.length > 1 ? "" : "s"} content from page ${page} (the cover's agenda, section navigation, figure numbers or the deck title); with a selection only page ${page} may change, so keep its section names and agenda items as they are, or ask again without a selection`];
+}
+
+export async function editDeck({ config, modelClient, websearch = null, signal, deck, instructions = "", operations = [], userRequest = "", timeoutMs, selection = null } = {}) {
   const current = alignDeck(deck);
+  // A selection made in the viewer keeps the edit on that slide.
+  const page = deckSelectionPage(current, selection);
+  const selected = page ? { text: String(selection.text), page } : null;
   const given = Array.isArray(operations) ? operations : [];
   const explicit = given.filter(isDeckOperation);
   const unsupported = given.filter((op) => !isDeckOperation(op));
@@ -303,17 +367,24 @@ export async function editDeck({ config, modelClient, signal, deck, instructions
   }
   const plan = (previous) => explicit.length
     ? { operations: explicit, summary: "", model: "" }
-    : requestOperations({ config, modelClient, signal, deck: current, instructions, userRequest, timeoutMs, previous });
+    : requestOperations({ config, modelClient, websearch, signal, deck: current, instructions, userRequest, timeoutMs, selection: selected, previous });
   let planned = await plan(null);
+  // Web sources from every attempt: a retry may reuse facts the first attempt looked up.
+  const citations = [...(planned.citations || [])];
   let result = null;
   let problems = [];
   for (let attempt = 0; attempt < (explicit.length ? 1 : 2); attempt += 1) {
-    if (attempt) planned = await plan({ operations: planned.operations, problems });
+    if (attempt) {
+      planned = await plan({ operations: planned.operations, problems });
+      citations.push(...(planned.citations || []));
+    }
     if (!planned.operations.length) {
       throw new HttpError(422, String(planned.summary || "No change was identified for that request.").slice(0, 400));
     }
     result = applyDeckOperations(current, planned.operations);
-    problems = editProblems(result, current);
+    problems = page ? outsideSelection(planned.operations, page) : [];
+    if (!problems.length) problems = editProblems(result, current);
+    if (!problems.length && page) problems = redrawnElsewhere(current, result.deck, page);
     if (!problems.length) break;
   }
   if (problems.length) {
@@ -323,5 +394,5 @@ export async function editDeck({ config, modelClient, signal, deck, instructions
   if (normalizeDeck(edited).slides.length < 1) {
     throw new HttpError(422, "That edit would leave the deck empty.");
   }
-  return { deck: edited, summary: String(planned.summary || "").slice(0, 400), applied: result.applied, model: planned.model };
+  return { deck: edited, summary: String(planned.summary || "").slice(0, 400), applied: result.applied, model: planned.model, citations };
 }

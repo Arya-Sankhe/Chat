@@ -258,7 +258,8 @@ class Builder {
     const { c, t, l } = this;
     const level = block.level;
     const children = [];
-    if (number) children.push(new TextRun({ text: `${number}  `, color: l.plain ? undefined : c.faint }));
+    // The number takes the heading's own colour and weight (the style's run).
+    if (number) children.push(new TextRun({ text: `${number}  ` }));
     children.push(...this.runs(block.text));
     const tag = block.tag && level === 1 && !l.plain;
     if (tag) {
@@ -721,8 +722,8 @@ class Builder {
   numbering() {
     const { c, t } = this;
     const indent = (level) => ({ left: 360 + level * 360, hanging: 270 });
-    const bulletLevels = ["•", "–", "▪"].map((text, level) => ({ level, format: LevelFormat.BULLET, text, alignment: AlignmentType.LEFT, style: { paragraph: { indent: indent(level) }, run: { color: this.l.plain ? c.text : c.accent } } }));
-    const numberLevels = [[LevelFormat.DECIMAL, "%1."], [LevelFormat.LOWER_LETTER, "%2."], [LevelFormat.LOWER_ROMAN, "%3."]].map(([format, text], level) => ({ level, format, text, alignment: AlignmentType.LEFT, style: { paragraph: { indent: indent(level) }, run: { color: this.l.plain ? c.text : c.accent, bold: !this.l.plain } } }));
+    const bulletLevels = ["•", "–", "▪"].map((text, level) => ({ level, format: LevelFormat.BULLET, text, alignment: AlignmentType.LEFT, style: { paragraph: { indent: indent(level) }, run: { color: c.text } } }));
+    const numberLevels = [[LevelFormat.DECIMAL, "%1."], [LevelFormat.LOWER_LETTER, "%2."], [LevelFormat.LOWER_ROMAN, "%3."]].map(([format, text], level) => ({ level, format, text, alignment: AlignmentType.LEFT, style: { paragraph: { indent: indent(level) }, run: { color: c.text } } }));
     return {
       config: [
         { reference: "bullets", levels: bulletLevels },

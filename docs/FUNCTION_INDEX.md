@@ -513,11 +513,12 @@ regex substitutions) are deliberately not listed.
 - **Callers**: `server/websearch/index.js`.
 - **Major dependencies**: `node:crypto`.
 
-### `extractUrls`, `detectSearchNeed`, `buildSearchSystemHint`
+### `extractUrls`, `detectSearchNeed`
 - **Path**: `server/websearch/detect.js`
-- **Responsibility**: Cheap heuristic detector that decides whether
-  to nudge the model toward `web_search` or `read_url`. The model
-  still makes the final decision via tool-calling.
+- **Responsibility**: URL extraction and a cheap heuristic used only by
+  the Compare/Council shared pre-search (which cannot tool-call) to read
+  linked pages. Single chats always get `web_search`/`read_url` when
+  search is on and decide for themselves.
 - **Callers**: `server/chat/pipeline.js` (`runSharedPreSearch`).
 - **Major dependencies**: none.
 
@@ -693,7 +694,7 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/db/supabaseRest.js`, `server/storage/r2.js`,
   `server/saas/messages.js`.
 
-### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildRelevantDocumentContext`, `documentTokenBudget`, `normalizeAgentMode`, `shouldSuppressWebSearchForDocumentTurn`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
+### `withResearchReportContext`, `applyEditedUserText`, `runSharedPreSearch`, `buildRelevantDocumentContext`, `documentTokenBudget`, `normalizeAgentMode`, `withAvailableTools`, `buildMeteredWebsearch`, `resolveWebSearchMode`, `filterCurrentTurnMessages`, `handleConversationMessage` ← mixed
 - **Path**: `server/chat/pipeline.js` (several helpers re-exported from
   `server/routes.js` for tests)
 - **Responsibility**: Chat dispatcher (single vs compare vs council,

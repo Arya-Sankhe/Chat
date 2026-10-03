@@ -241,7 +241,7 @@ function artifactFromDocumentResult(name, result, args = {}) {
   }];
 }
 
-export async function executeDocumentToolCall({ toolCall, documents, maxToolResultChars }) {
+export async function executeDocumentToolCall({ toolCall, documents, maxToolResultChars, citationOffset = 0 }) {
   const name = toolCall?.function?.name || "";
   const args = safeParseArgs(toolCall?.function?.arguments);
   if (args === null) {
@@ -327,12 +327,20 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
       };
     }
 
+    // Pages an editor or writer looked up join the turn's sources after the document citations,
+    // numbered the way the chat will show them so the reply can cite them.
+    const documentCitations = result.citations || [];
+    const webCitations = (Array.isArray(result.output?.web_sources) ? result.output.web_sources : [])
+      .map((citation, index) => ({ ...citation, index: documentCitations.length + index + 1 }));
+    const output = webCitations.length
+      ? { ...result.output, web_sources: webCitations.map((citation) => ({ marker: `[${citationOffset + citation.index}]`, title: citation.title, url: citation.url })) }
+      : result.output;
     return {
       ok: true,
       name,
       provider: "documents",
       query: clean(args.query || args.instructions || args.attachment_id || args.format || args.target_format).slice(0, 200),
-      citations: result.citations || [],
+      citations: [...documentCitations, ...webCitations],
       artifacts: artifactFromDocumentResult(name, result, args),
       visualPages: result.visualPages || [],
       toolResultJson: capJson({
@@ -340,9 +348,9 @@ export async function executeDocumentToolCall({ toolCall, documents, maxToolResu
         pending: Boolean(result.pending),
         job: result.job ? { id: result.job.id, status: result.job.status, job_type: result.job.job_type } : undefined,
         // The stored DeckSpec is for later edits; deck_outline already describes the slides.
-        output: result.output && typeof result.output === "object" && "deck" in result.output
-          ? Object.fromEntries(Object.entries(result.output).filter(([key]) => key !== "deck"))
-          : result.output,
+        output: output && typeof output === "object" && "deck" in output
+          ? Object.fromEntries(Object.entries(output).filter(([key]) => key !== "deck"))
+          : output,
         visual_pages: Array.isArray(result.visualPages)
           ? result.visualPages.map((page) => ({
               index: page.index,

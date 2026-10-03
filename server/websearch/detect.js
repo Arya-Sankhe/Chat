@@ -76,8 +76,9 @@ export function extractUrls(text) {
 
 /**
  * Returns { score, reasons } describing how likely the prompt benefits
- * from fresh web context. Anything > 0 is a positive signal. The model
- * still decides — we just nudge the system prompt when score is high.
+ * from fresh web context. Only Compare and Council (which cannot call
+ * tools) use it, to read linked pages in their shared pre-search; single
+ * chats always get web_search and read_url and decide for themselves.
  */
 export function detectSearchNeed(text) {
   const reasons = [];
@@ -121,18 +122,4 @@ export function detectSearchNeed(text) {
     hasUrls: urls.length > 0,
     urls
   };
-}
-
-/**
- * One-line hint appended to the system prompt when score >= 1. Keeps
- * it short so it doesn't dominate the user's own system prompt. The
- * heuristic NEVER forces a search — the model can still ignore the
- * hint if it knows the answer.
- */
-export function buildSearchSystemHint(detection) {
-  if (!detection || detection.score < 1) return "";
-  if (detection.hasUrls) {
-    return "The user's message contains one or more URLs. If their question depends on the content of those URLs, call the `read_url` tool to fetch the page contents before answering.";
-  }
-  return "The user's question appears to involve current events, live data, or external facts. If the answer depends on information you may not have, call the `web_search` tool with a concise query.";
 }

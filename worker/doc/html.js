@@ -278,7 +278,7 @@ h1,h2,h3,h4{font-family:${stack(f.heading)};color:var(--ink);font-weight:${t.hea
 
 /* Headings */
 .h{display:flex;align-items:baseline;gap:0.8em;}
-.h .num{color:var(--faint);font-weight:600;}
+.h .num{color:inherit;font-weight:inherit;}
 .h .tag{margin-left:auto;font-family:${stack(f.label)};font-size:${t.base * 0.74}pt;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
 h2.h{font-size:${t.h1}pt;margin:${l.plain ? "0.6em 0 0.3em" : "1.55em 0 0.6em"};text-transform:${headingCase};font-variant:${smallCaps};letter-spacing:${t.tracking}em;${l.headingRule === "below" ? "padding-bottom:0.35em;border-bottom:0.8pt solid var(--rule);" : ""}${l.headingRule === "above" ? "padding-top:0.5em;border-top:1pt solid var(--ink);" : ""}}
 h3.h{font-size:${t.h2}pt;margin:1.15em 0 0.4em;${theme.name === "briefing" ? "color:var(--ink);" : ""}}
@@ -294,10 +294,8 @@ main > .h:first-child, .title-block + .h{margin-top:0.2em;}
 ul,ol{margin:0 0 0.75em;padding-left:1.35em;}
 li{margin:0 0 0.28em;padding-left:0.15em;}
 li > ul, li > ol{margin:0.28em 0 0.2em;}
-ul li::marker,ol li::marker{font-variant-numeric:normal;}
-ul li::marker{color:var(--accent);}
-ol li::marker{color:var(--accent);font-weight:600;}
-.plain ul li::marker,.plain ol li::marker{color:inherit;font-weight:inherit;}
+/* List numbers and bullets take the item text's colour, as heading numbers take the heading's. */
+ul li::marker,ol li::marker{font-variant-numeric:normal;color:inherit;font-weight:inherit;}
 ul.checklist{list-style:none;padding-left:0.2em;}
 ul.checklist > li{display:flex;gap:0.55em;align-items:baseline;}
 .box{flex:0 0 auto;width:0.8em;height:0.8em;border:1pt solid var(--muted);border-radius:2px;transform:translateY(0.1em);display:inline-block;}
@@ -441,7 +439,7 @@ tr.total td{font-weight:700;color:var(--ink);border-top:1pt solid var(--ink);bac
 .refs li{break-inside:avoid;padding-left:0.5in;text-indent:-0.5in;margin:0 0 ${theme.layout.plain ? "0" : "0.5em"};font-size:${theme.layout.plain ? t.base : t.base * 0.9}pt;line-height:${theme.layout.plain ? t.line : 1.45};}
 .refs.numbered{counter-reset:ref;}
 .refs.numbered li{padding-left:2em;text-indent:-2em;}
-.refs.numbered li::before{counter-increment:ref;content:"[" counter(ref) "]";display:inline-block;width:2em;text-indent:0;color:var(--muted);}
+.refs.numbered li::before{counter-increment:ref;content:"[" counter(ref) "]";display:inline-block;width:2em;text-indent:0;}
 .mla .refs-title{break-before:page;}
 .refs-title{${theme.layout.plain ? "text-align:center;font-weight:400;font-size:inherit;margin:0 0 0;" : ""}}
 img.fig{max-width:100%;display:block;margin:0 auto;border-radius:3px;}

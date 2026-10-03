@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe, before, after } from "node:test";
 
-import { buildSearchSystemHint, detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
+import { detectSearchNeed, extractUrls } from "../server/websearch/detect.js";
 import {
   BUILTIN_ADULT_DENY_DOMAINS,
   filterDeniedDomains,
@@ -139,13 +139,6 @@ describe("detect", () => {
     const detection = detectSearchNeed("What is the capital of France?");
     assert.equal(detection.score, 0);
     assert.equal(detection.hasUrls, false);
-  });
-
-  test("buildSearchSystemHint emits the URL-specific hint", () => {
-    const detection = detectSearchNeed("Read https://example.com/article please");
-    const hint = buildSearchSystemHint(detection);
-    assert.match(hint, /URLs/);
-    assert.match(hint, /read_url/);
   });
 });
 
@@ -1850,7 +1843,7 @@ describe("tool", () => {
     assert.equal(toolEvents.some((event) => event.type === "tool:limit"), true);
   });
 
-  test("artifact turns reserve creation calls and pass retrieved evidence to the slide writer", async () => {
+  test("artifact turns keep web search available and pass retrieved evidence to the slide writer", async () => {
     let rounds = 0;
     const documents = { async createDocument() {
       assert.match(this.deckEvidence, /source text/);
@@ -1860,19 +1853,44 @@ describe("tool", () => {
       rounds += 1;
       if (rounds === 1) return streamResponse([toolCallDelta()]);
       if (rounds === 2) {
-        assert.deepEqual(body.tools.map((tool) => tool.function.name), ["create_document"]);
-        assert.match(body.messages.at(-1).content, /reserved for creating/);
+        assert.deepEqual(body.tools.map((tool) => tool.function.name), ["web_search", "read_url", "create_document"]);
         return streamResponse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: "create", type: "function", function: { name: "create_document", arguments: '{"format":"pptx","title":"Report","content":"source text"}' } }] }, finish_reason: "tool_calls" }] }]);
       }
+      // Search is still offered after the file exists, with budget left.
+      assert.deepEqual(body.tools.map((tool) => tool.function.name), ["web_search", "read_url", "create_document"]);
       return streamResponse([contentDelta("Created")]);
     } };
     const result = await runChatWithToolLoop({ chatRequest: { model: "test", messages: [{ role: "user", content: "Create a PPT" }],
       tools: [...buildWebSearchTools(), ...buildDocumentTools({ toolNames: ["create_document"] })] },
-      modelClient: client, config: { websearch: { maxToolCallsPerTurn: 3 } }, documents,
+      modelClient: client, config: { websearch: { maxToolCallsPerTurn: 4 } }, documents,
       websearch: { search: async () => ({ ok: true, provider: "jina", results: [{ index: 1, title: "Reference", url: "https://example.org", snippet: "source text", content: "source text" }] }) },
       onUpstreamEvent: () => {}, onToolEvent: (event) => { if (event.type === "tool:error") throw new Error(event.error?.message); } });
     assert.equal(result.toolCallCount, 2);
     assert.equal(result.artifacts.length, 1);
+  });
+
+  test("pages a document editor looked up reach the chat's sources with matching numbers", async () => {
+    let rounds = 0;
+    let toolResult = null;
+    const documents = { async editDocument() {
+      return { ok: true, output: { attachment_id: "file", file_name: "report.pdf", kind: "pdf", web_sources: [{ index: 1, title: "Official prices", url: "https://example.org/prices", snippet: "s" }] } };
+    } };
+    const client = { async streamChatCompletion({ body }) {
+      rounds += 1;
+      if (rounds === 1) return streamResponse([toolCallDelta()]);
+      if (rounds === 2) return streamResponse([{ choices: [{ delta: { tool_calls: [{ index: 0, id: "edit", type: "function", function: { name: "edit_document", arguments: '{"attachment_id":"file","instructions":"update the prices"}' } }] }, finish_reason: "tool_calls" }] }]);
+      toolResult = JSON.parse(body.messages.at(-1).content);
+      return streamResponse([contentDelta("Updated the prices [2].")]);
+    } };
+    const result = await runChatWithToolLoop({ chatRequest: { model: "test", messages: [{ role: "user", content: "Update the prices" }],
+      tools: [...buildWebSearchTools(), ...buildDocumentTools({ toolNames: ["edit_document"] })] },
+      modelClient: client, config: { websearch: { maxToolCallsPerTurn: 4 } }, documents,
+      websearch: { search: async () => ({ ok: true, provider: "jina", results: [{ index: 1, title: "Reference", url: "https://example.com/ref", snippet: "s", content: "s" }] }) },
+      onUpstreamEvent: () => {} });
+    assert.deepEqual(toolResult.output.web_sources, [{ marker: "[2]", title: "Official prices", url: "https://example.org/prices" }]);
+    const cited = result.citations.find((citation) => citation.url === "https://example.org/prices");
+    assert.equal(cited.index, 2);
+    assert.equal(cited.marker, "[2]");
   });
 
   test("runChatWithToolLoop retries once then errors if force-final still returns tool calls", async () => {

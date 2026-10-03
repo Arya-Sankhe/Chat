@@ -5,7 +5,7 @@
 // With a selection, only the selected blocks may change.
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_PRO_MODEL, resolveProvider } from "../providers.js";
-import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
+import { runEditorModel } from "./editorModel.js";
 import { salvageJsonObjects } from "../study/jsonSalvage.js";
 import { blockText, normalizeBlock, normalizeDoc, parseDocMarkdown, plain } from "../../worker/doc/spec.js";
 import { STYLE_NAMES } from "../../worker/doc/themes.js";
@@ -301,7 +301,7 @@ export function selectionScope(doc, selection) {
   return { scope: new Set(ids), docFields: new Set(fields) };
 }
 
-export async function editDoc({ config, modelClient, signal, doc, instructions = "", operations = null, userRequest = "", selection = null }) {
+export async function editDoc({ config, modelClient, websearch = null, signal, doc, instructions = "", operations = null, userRequest = "", selection = null }) {
   const { scope, docFields } = selectionScope(doc, selection);
   if (Array.isArray(operations) && operations.length && operations.every((op) => op && typeof op.op === "string")) {
     const result = applyDocOperations(doc, operations, { scope, docFields });
@@ -322,10 +322,11 @@ export async function editDoc({ config, modelClient, signal, doc, instructions =
   let lastError = null;
   for (const model of DOC_MODELS) {
     try {
-      const upstream = await modelClient.streamChatCompletion({
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl,
-        providerId: provider.id,
+      const result = await runEditorModel({
+        config,
+        modelClient,
+        provider,
+        websearch,
         signal,
         body: {
           model,
@@ -335,16 +336,15 @@ export async function editDoc({ config, modelClient, signal, doc, instructions =
           ...(model === OPENROUTER_PRO_MODEL ? { reasoning: { effort: "low", exclude: true } } : { reasoning: { enabled: false } })
         }
       });
-      const result = await streamProviderAndAccumulate(upstream, () => {});
       const parsed = parseEditorJson(result?.content);
       if (!parsed) throw new Error("editor reply was not JSON");
       const ops = Array.isArray(parsed.operations) ? parsed.operations : [];
       if (!ops.length) {
-        return { doc, applied: [], skipped: [], summary: String(parsed.summary || "Nothing was changed.").slice(0, 400), question: true };
+        return { doc, applied: [], skipped: [], summary: String(parsed.summary || "Nothing was changed.").slice(0, 400), question: true, citations: result.citations };
       }
       const applied = applyDocOperations(doc, ops, { scope, docFields });
       if (!applied.applied.length) throw new Error(`no operation applied: ${applied.skipped.map((entry) => entry.reason).join("; ").slice(0, 300)}`);
-      return { ...applied, summary: String(parsed.summary || "").slice(0, 400), model };
+      return { ...applied, summary: String(parsed.summary || "").slice(0, 400), model, citations: result.citations };
     } catch (error) {
       if (signal?.aborted) throw error;
       lastError = error;

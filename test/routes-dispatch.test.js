@@ -1006,31 +1006,31 @@ test("generated prose document view returns its editable source", async () => {
 
 test("editable document revise returns replacement markdown without a chat message", async () => {
   const originalFetch = globalThis.fetch;
-  let chatCalls = 0;
+  const bodies = [];
   globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/generation")) {
+      return new Response(JSON.stringify({ data: { total_cost: 0.0001 } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
     if (String(url).includes("/chat/completions")) {
-      chatCalls += 1;
       const body = JSON.parse(String(init.body || "{}"));
+      bodies.push(body);
       assert.equal(body.model, "deepseek/deepseek-v4-flash-0731");
       assert.equal(body.max_tokens, 32_000);
       assert.deepEqual(body.reasoning, { effort: "medium", exclude: false });
       assert.match(body.messages?.[1]?.content || "", /Selected portion to revise/);
       assert.match(body.messages?.[1]?.content || "", /Make it warmer/);
-      return {
-        ok: true,
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        async json() {
-          return {
+      const encoder = new TextEncoder();
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
             id: "gen-1",
-            choices: [{ message: { content: "```markdown\nWarmer world\n```" } }],
-            usage: { cost: 0.0001 }
-          };
-        },
-        async text() {
-          return "";
+            choices: [{ delta: { content: "```markdown\nWarmer world\n```" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.0001 }
+          })}\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
         }
-      };
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
     }
     throw new Error(`Unexpected fetch: ${url}`);
   };
@@ -1075,7 +1075,22 @@ test("editable document revise returns replacement markdown without a chat messa
 
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().replacement, "Warmer world");
-    assert.equal(chatCalls, 1);
+    assert.equal(bodies.length, 1);
+    // The model is offered web search and decides itself whether the change needs it.
+    assert.deepEqual(bodies[0].tools.map((tool) => tool.function.name), ["web_search", "read_url"]);
+    assert.equal(bodies[0].tool_choice, "auto");
+
+    // The user's search-off setting is respected: one plain call with no tools.
+    const off = await dispatch(config, {
+      method: "POST",
+      path: "/api/attachments/doc-attachment/editor/revise",
+      body: { markdown: "# Hello\n\nWorld", selection: "World", instruction: "Make it warmer", webSearch: "off" },
+      overrides
+    });
+    assert.equal(off.statusCode, 200);
+    assert.equal(off.json().replacement, "Warmer world");
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1].tools, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

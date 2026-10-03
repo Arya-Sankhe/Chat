@@ -5,13 +5,13 @@ import test from "node:test";
 import { loadConfig } from "../server/config.js";
 import { withAvailableTools } from "../server/chat/pipeline.js";
 import { buildDocumentTools } from "../server/documents/tool.js";
+import { selectDocumentSkills } from "../server/documents/skills.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
 import {
   buildRelevantDocumentContext,
   installStableRequestSignal,
   normalizeAgentMode,
   runSharedPreSearch,
-  shouldSuppressWebSearchForDocumentTurn,
   withResearchReportContext
 } from "../server/routes.js";
 
@@ -135,11 +135,11 @@ test("withAvailableTools gives GPT-6 Luna strict native tool-call instructions",
   }, {
     config,
     webMode: "auto",
-    webHint: "",
     readyDocuments: []
   });
 
   assert.equal(result.augmented, true);
+  assert.match(result.request.messages[0].content, /Use web_search when the answer depends on current/);
   assert.match(result.request.messages[0].content, /native tool calls only/);
   assert.match(result.request.messages[0].content, /valid JSON object/);
   assert.match(result.request.messages[0].content, /complete final answer/);
@@ -152,7 +152,6 @@ test("withAvailableTools advertises deferred document capabilities through load_
   }, {
     config: loadConfig({}),
     webMode: "off",
-    webHint: "",
     readyDocuments: [],
     deferredTools: buildDocumentTools()
   });
@@ -179,61 +178,43 @@ test("course chat exposes an exact-source study preview tool", () => {
   assert.match(result.request.messages[0].content, /exact requested page number/);
 });
 
-test("weather prompts expose weather without web search", () => {
+test("weather prompts keep web search next to the weather tool", () => {
   const result = withAvailableTools({
     model: "deepseek/deepseek-v4-flash-0731",
-    messages: [{ role: "user", content: "what's the temp in Dubai" }]
+    messages: [{ role: "user", content: "what's the temp in Dubai and will the match be rained off" }]
   }, {
     config: loadConfig({ OPENWEATHER_API_KEY: "weather-key" }),
     webMode: "auto",
-    webHint: "Use web search.",
-    readyDocuments: [],
-    userText: "what's the temp in Dubai"
+    readyDocuments: []
   });
 
-  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["get_weather"]);
-  assert.deepEqual(result.enabled, { websearch: false, weather: true, documents: false });
+  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["web_search", "read_url", "get_weather"]);
+  assert.deepEqual(result.enabled, { websearch: true, weather: true, documents: false });
 });
 
-test("shouldSuppressWebSearchForDocumentTurn keeps artifact-only follow-ups cheap", () => {
-  const documentSkills = { toolNames: ["create_document"] };
-
-  assert.equal(shouldSuppressWebSearchForDocumentTurn({
-    webMode: "auto",
-    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
-    documentSkills,
-    text: "turn this into a deck"
-  }), true);
-
-  // Pronouns describe subject matter too: "where it happens" is not a conversion request.
-  for (const text of ["Create a 6-slide PPT explaining photosynthesis and where it happens", "Create a PPT about this year's history", "Create a PPT explaining why those reactions release oxygen"])
-    assert.equal(shouldSuppressWebSearchForDocumentTurn({ webMode: "auto", detection: { score: 0, reasons: [], hasUrls: false }, documentSkills: { toolNames: ["create_document"] }, text }), false);
-
-  // A deck on a fresh subject keeps search: the model may not know the products or prices.
-  assert.equal(shouldSuppressWebSearchForDocumentTurn({
-    webMode: "auto",
-    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
-    documentSkills,
-    text: "create me a pricing to intelligence for sol 6.1, sol 6 and sol 5.5, luna 6 and luna 5.6"
-  }), false);
-
-  assert.equal(shouldSuppressWebSearchForDocumentTurn({
-    webMode: "auto",
-    detection: { score: 1, reasons: ["time-sensitive"], hasUrls: false, urls: [] },
-    documentSkills
-  }), false);
-
-  assert.equal(shouldSuppressWebSearchForDocumentTurn({
-    webMode: "auto",
-    detection: { score: 1, reasons: ["explicit-search-command"], hasUrls: false, urls: [] },
-    documentSkills
-  }), false);
-
-  assert.equal(shouldSuppressWebSearchForDocumentTurn({
-    webMode: "on",
-    detection: { score: 0, reasons: [], hasUrls: false, urls: [] },
-    documentSkills
-  }), false);
+test("document requests offer web tools for the model to choose unless search is off", () => {
+  const config = loadConfig({});
+  for (const text of [
+    "turn this info into a Word doc",
+    "put the above into a table in a Word document",
+    "make a nice PPT out of this conversation",
+    "convert this to a PDF",
+    "create an Excel spreadsheet from these notes",
+    "I want a pricing comparison of Sol 6.1 and Luna 6; turn this info into a Word doc",
+    "Create a Word document comparing the pricing of Sol 6.1 and Luna 6 and turn this info into a table"
+  ]) {
+    const documentSkills = selectDocumentSkills({ text, readyDocuments: [] });
+    for (const webMode of ["auto", "on", "off"]) {
+      const result = withAvailableTools({ model: "test", messages: [{ role: "user", content: text }] }, {
+        config, webMode, readyDocuments: [], documentSkills
+      });
+      const names = result.request.tools.map((tool) => tool.function.name);
+      assert.ok(names.includes("create_document"), text);
+      assert.equal(names.includes("web_search"), webMode !== "off", `${webMode}: ${text}`);
+      assert.equal(names.includes("read_url"), webMode !== "off", `${webMode}: ${text}`);
+      assert.equal(result.request.tool_choice, "auto");
+    }
+  }
 });
 
 test("runSharedPreSearch searches in auto mode even when heuristic score is zero", async () => {

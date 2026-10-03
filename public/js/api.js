@@ -808,12 +808,12 @@ export async function saveEditableDocument(session, attachmentId, markdown, revi
   return response.json();
 }
 
-export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, signal }) {
+export async function reviseEditableDocument(session, attachmentId, { markdown, selection, instruction, webSearch = "auto", signal }) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/editor/revise`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ markdown, selection, instruction }),
+    body: JSON.stringify({ markdown, selection, instruction, webSearch }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
@@ -834,12 +834,12 @@ export async function reviseEmailDraft(session, { draft, instruction, messageId,
 
 // Ask Klui in the document viewer: a precise edit of this document, limited to the selection
 // when there is one. Returns the new version ({status, artifact, summary}).
-export async function askDocument(session, attachmentId, { instruction, selection = null, signal }) {
+export async function askDocument(session, attachmentId, { instruction, selection = null, webSearch = "auto", signal }) {
   const response = await apiFetch(`/api/attachments/${encodeURIComponent(attachmentId)}/ask`, {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ instruction, ...(selection ? { selection } : {}) }),
+    body: JSON.stringify({ instruction, webSearch, ...(selection ? { selection } : {}) }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));

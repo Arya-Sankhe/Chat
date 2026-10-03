@@ -189,7 +189,7 @@ Do not add a shared search cache back. A per-user in-memory cache would still be
 
 Dropped `WEBSEARCH_DAILY_LIMIT_*`, `config.websearch.dailyLimits`, and the unused `beforeNetwork` quota hook. The `klui_consume_search` RPC and `usage_daily.search_count` were already removed in `2026_06_08_drop_legacy_usage_counters.sql`. No new migration.
 
-Do not add search-count quotas back. Per-turn `maxToolCallsPerTurn` is a loop bound, not a user quota — leave it. API-credit metering is unrelated.
+Do not add search-count quotas back. Per-turn `maxToolCallsPerTurn` is a loop bound, not a user quota — leave it. It is a runaway stop, not a budget: do not add a shared per-turn tool budget across the chat and its writers/editors, and do not prompt models to economise on searches. API-credit metering is unrelated.
 
 ---
 

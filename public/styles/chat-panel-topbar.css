@@ -1600,7 +1600,7 @@ body[data-mode="dark"] .sheet-grid tbody th {
 
 /* Ask Klui: a bar at the bottom for the whole document, a pill at a selection. */
 .document-viewer .pdf-pages { padding-bottom: 88px; }
-.doc-ask { position: absolute; left: 50%; bottom: 20px; z-index: 6; display: flex; justify-content: center; width: min(560px, calc(100% - 32px)); transform: translateX(-50%); pointer-events: none; }
+.doc-ask { position: absolute; left: 50%; bottom: 20px; z-index: 6; display: flex; justify-content: center; width: min(560px, calc(100% - 24px)); transform: translateX(-50%); pointer-events: none; }
 .doc-ask > * { pointer-events: auto; }
 .doc-ask.hidden, .doc-ask-pill.hidden, .doc-ask [hidden] { display: none !important; }
 .doc-ask { transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s; }
@@ -1624,9 +1624,8 @@ body[data-mode="dark"] .sheet-grid tbody th {
 .doc-ask-form textarea::placeholder, .doc-ask-pill textarea::placeholder { color: #9a9aa0; }
 .doc-ask-send { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: #f5f5f7; color: #1d1d1f; cursor: pointer; }
 .doc-ask-send:hover { background: #fff; }
-.doc-ask-form { width: min(336px, 100%); gap: 6px; padding: 5px 5px 5px 14px; border-radius: 20px; }
-.doc-ask-form textarea { padding: 5px 0; font-size: 14px; line-height: 20px; }
-.doc-ask-form .doc-ask-send { width: 30px; height: 30px; }
+/* The same shape and size as the selection pill (380px wide, see showPill). */
+.doc-ask-form { width: min(380px, 100%); }
 .doc-ask-klui { flex: 0 0 auto; width: 22px; height: 14px; }
 .doc-ask-mark { position: absolute; z-index: 2; border-radius: 2px; background: rgba(37, 99, 235, 0.26); pointer-events: none; }
 .document-viewer-body.is-asking .doc-ask-mark { animation: doc-ask-pulse 1.3s ease-in-out infinite; }

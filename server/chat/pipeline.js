@@ -59,8 +59,8 @@ import {
   visualDocumentMessage,
   visualImageInputLimit
 } from "../websearch/tool.js";
-import { buildWeatherTool, isWeatherQuery } from "../weather.js";
-import { buildSearchSystemHint, detectSearchNeed } from "../websearch/detect.js";
+import { buildWeatherTool } from "../weather.js";
+import { detectSearchNeed } from "../websearch/detect.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
 import { modelsForRole, resolveChatRole } from "../models.js";
 import {
@@ -417,29 +417,17 @@ export function normalizeSourcePages(value, sources = []) {
   return out;
 }
 
-// A document built from what is already here (this chat, an upload, the last answer) needs no
-// search; one on a fresh subject ("a pricing deck for Sol 6.1 and Luna 6") needs facts the
-// model may not have, so search stays available and the model decides.
-const WORKS_FROM_EXISTING = /\b(attached|uploaded|attachment)\b|\b(this|that|previous|last|earlier)\s+(answer|response|conversation|chat|document|file|deck)\b|\b(turn|convert|export|reformat|save)\s+(this|that|it|these|those)\b|\b(from|using|based on)\s+(the\s+)?(above|previous|supplied|provided)\b|\buse only\s+(these\s+)?(supplied|provided)\b/i;
+// The model always gets web search when the user has it on; it decides when a turn needs it.
+const WEB_SEARCH_HINT = "Use web_search when the answer depends on current, niche, or uncertain facts, and read_url to open links the user shares or pages found by search. Skip them when the conversation already has what you need.";
 
-export function shouldSuppressWebSearchForDocumentTurn({ webMode, detection, documentSkills, text = "" } = {}) {
-  if (webMode === "on") return false;
-  if (!documentSkills?.toolNames?.includes("create_document")) return false;
-  if (detection?.hasUrls) return false;
-  if ((detection?.reasons || []).includes("explicit-search-command")) return false;
-  if (Number(detection?.score || 0) > 0) return false;
-  return WORKS_FROM_EXISTING.test(String(text || ""));
-}
-
-export function withAvailableTools(chatRequest, { config, webMode, webHint, readyDocuments, documentSkills = null, deferredTools = [], userText = "", study = null }) {
+export function withAvailableTools(chatRequest, { config, webMode, readyDocuments, documentSkills = null, deferredTools = [], study = null }) {
   const tools = [];
   const hints = [];
   const enabled = { websearch: false, weather: false, documents: false };
   const studyDocuments = study ? (readyDocuments || []).filter((doc) => doc.project_id === study.course.id) : [];
-  const weatherRequest = Boolean(config.weather?.apiKey && isWeatherQuery(userText));
-  if (webMode !== "off" && !weatherRequest) {
+  if (webMode !== "off") {
     tools.push(...buildWebSearchTools({ maxResults: config.websearch.maxResults }));
-    if (webHint) hints.push(webHint);
+    hints.push(WEB_SEARCH_HINT);
     enabled.websearch = true;
   }
   if (config.weather?.apiKey) {
@@ -1086,6 +1074,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     ? withCouncilSystemPrompt(settings.systemPrompt || "")
     : (settings.systemPrompt || "");
 
+  const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
+  const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
   const documents = configuredServices(config).documents
     ? new DocumentService({
         config,
@@ -1100,6 +1090,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         plan: context.plan,
         signal: req.turnController?.signal || req.signal,
         modelClient,
+        websearch: webSearchMode !== "off" ? websearch : null,
         userRequest: contentText(userContent),
         deckTheme,
         docStyle,
@@ -1288,8 +1279,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
     });
   }
 
-  const websearch = buildMeteredWebsearch({ config, context, signal: req.signal });
-  const webSearchMode = agentMode ? resolveWebSearchMode({ body, config, websearch }) : "off";
   const promptText = contentText(userContent);
 
   if (councilEnabled || compareModels.length) {
@@ -1457,26 +1446,15 @@ async function executeConversationMessage(req, res, config, conversationId, {
     createFormat: skillIds.includes("slides") ? "pptx" : skillIds.includes("docs") ? "docx" : ""
   }) : null;
   const deferredTools = documents && !visualizing ? buildDocumentTools() : [];
-  const detection = webSearchMode !== "off"
-    ? detectSearchNeed(promptText)
-    : { score: 0, reasons: [], hasUrls: false, urls: [] };
-  const effectiveWebSearchMode = shouldSuppressWebSearchForDocumentTurn({
-    webMode: webSearchMode,
-    detection,
-    documentSkills,
-    text: promptText
-  }) ? "off" : webSearchMode;
-  const hint = effectiveWebSearchMode !== "off" ? buildSearchSystemHint(detection) : "";
-  let toolSetup = (agentMode || (study && readyDocuments.some((doc) => doc.project_id === study.course.id))) && !visualizing
+  // Visualize turns get web search too (for the data they chart), but not the document tools.
+  let toolSetup = agentMode || (study && readyDocuments.some((doc) => doc.project_id === study.course.id))
     ? withAvailableTools(chatRequest, {
         config,
-        webMode: agentMode ? effectiveWebSearchMode : "off",
-        webHint: agentMode ? hint : "",
+        webMode: agentMode ? webSearchMode : "off",
         readyDocuments,
         documentSkills,
         deferredTools: agentMode ? deferredTools : [],
-        userText: promptText,
-        study
+        study: visualizing ? null : study
       })
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
   let equippedRequest = toolSetup.request;
@@ -1498,7 +1476,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     tool_calls: [],
     metadata: {
       agent: { enabled: agentMode },
-      ...(toolEnabled.websearch ? { websearch: { mode: webSearchMode, detection } } : {}),
+      ...(toolEnabled.websearch ? { websearch: { mode: webSearchMode } } : {}),
       ...(toolEnabled.documents ? { documents: { ready: readyDocuments.length, skills: documentSkills?.skills || [], tools: documentSkills?.toolNames || [] } } : {}),
       ...(directPdfContext.mode ? { documents: { ...(toolEnabled.documents ? { skills: documentSkills?.skills || [], tools: documentSkills?.toolNames || [] } : {}), mode: directPdfContext.mode, ready: readyDocuments.length, pdfPages: directPdfContext.pageCount, pdfDocuments: directPdfContext.documentCount, retrieval: directPdfContext.retrieval } } : {})
     }
@@ -1575,7 +1553,6 @@ async function executeConversationMessage(req, res, config, conversationId, {
         ...(toolEnabled.websearch ? {
           websearch: {
             mode: webSearchMode,
-            detection,
             citations: webCitations,
             toolCallCount,
             provider: providers?.find((provider) => provider !== "documents") || null,

@@ -164,7 +164,7 @@ export function buildWebSearchTools({ maxResults = 5 } = {}) {
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the live web for current information. Use ONLY when the answer depends on facts you may not have — current events, today's news, prices, scores, recent releases, weather, or anything time-sensitive — or when the user explicitly asks you to search. Search results may only include snippets; call read_url for a specific result when you need exact page content. Do not use for general knowledge, definitions, code help, math, or stable historical facts.",
+        description: "Search the live web. Use it whenever it would make the answer more accurate or complete: current events, prices, scores, recent releases, niche or specialist facts, figures you are not sure of, or when the user asks you to search. Search as many times as the task needs. Results may only include snippets; call read_url on a result when you need the exact page content. Skip it when you already know the answer reliably (definitions, code help, math, well-established facts).",
         parameters: {
           type: "object",
           properties: {
@@ -253,7 +253,7 @@ export async function executeToolCall({ toolCall, websearch, weather, documents,
         error: { message: "Document tools unavailable" }
       };
     }
-    return executeDocumentToolCall({ toolCall, documents, maxToolResultChars });
+    return executeDocumentToolCall({ toolCall, documents, maxToolResultChars, citationOffset });
   }
 
   if (name === "create_study_preview") {
@@ -494,8 +494,11 @@ export async function runChatWithToolLoop({
     Number(config.documents?.maxToolCallsPerTurn || 0)
   );
   const maxToolCalls = Number.isFinite(configuredMax) ? Math.max(0, Math.floor(configuredMax)) : 0;
-  // One model turn per tool round, plus bounded room for the artifact
-  // correction, a forced final answer, and the empty-answer recovery.
+  /* Not a budget: the model decides how much to search and read. This only
+     stops a model stuck calling tools forever. Each loop (a chat turn, or a
+     writer/editor call inside it) has its own stop. One model turn per tool
+     round, plus room for the artifact correction, a forced final answer and
+     the empty-answer recovery. */
   const maxIterations = Math.max(4, maxToolCalls + 4);
   const messages = [...chatRequest.messages];
   let activeTools = Array.isArray(chatRequest.tools) ? [...chatRequest.tools] : [];
@@ -518,15 +521,8 @@ export async function runChatWithToolLoop({
   const inlineImageCache = new Map();
   const originalQuestion = latestUserText(chatRequest.messages);
   const artifactNames = new Set(["create_document", "edit_document", "export_document"]);
-  const reserveArtifact = Boolean(documents && hasDocumentArtifactTool(chatRequest) && maxToolCalls >= 3);
-  let artifactBudgetNotice = false;
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
-    if (reserveArtifact && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool)) && toolCallCount >= maxToolCalls - 2 && !artifactBudgetNotice) {
-      artifactBudgetNotice = true;
-      activeTools = activeTools.filter((tool) => artifactNames.has(toolName(tool)));
-      messages.push({ role: "user", content: "Research is now complete for this turn; the remaining calls are reserved for creating the requested artifact. Use verified evidence already gathered and call the document tool now. Omit unsupported estimates; show a missing core fact once if necessary. If the evidence cannot support the deliverable, explain that plainly without claiming a file exists." });
-    }
     onIterationStart(messages);
 
     let upstream;
@@ -697,10 +693,6 @@ export async function runChatWithToolLoop({
     });
 
     for (const call of toolCalls) {
-      if (reserveArtifact && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool)) && toolCallCount >= maxToolCalls - 2 && !artifactNames.has(call.function?.name)) {
-        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "The remaining tool budget is reserved for the requested artifact. Use the verified evidence already collected and create the file." }) });
-        continue;
-      }
       if (toolCallCount >= maxToolCalls) {
         if (!limitEventSent) {
           onToolEvent({ type: "tool:limit", limit: maxToolCalls });
@@ -814,7 +806,7 @@ export async function runChatWithToolLoop({
       if (result.ok && Array.isArray(result.citations) && result.citations.length) {
         for (const citation of result.citations) {
           const index = result.name === "web_search" ? citation.index : citationOffset + citation.index;
-          citations.push({ ...citation, index, marker: `[${index}]`, provider: result.provider || null });
+          citations.push({ ...citation, index, marker: `[${index}]`, provider: citation.provider || result.provider || null });
         }
       }
       if (result.ok && result.provider) providers.add(result.provider);
