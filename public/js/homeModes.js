@@ -36,7 +36,7 @@ const PILLS = [
 const EXPLAINERS = {
   compare: {
     title: "Compare",
-    body: "One prompt, two answers side by side.",
+    body: "One prompt, two different models answer side by side.",
     examples: [
       "What should I cook for dinner tonight?",
       "Explain how the internet works.",
@@ -46,7 +46,7 @@ const EXPLAINERS = {
   },
   council: {
     title: "Council",
-    body: "One prompt, 4 models solve, one final answer.",
+    body: "One prompt, 4 different models solve, one final answer.",
     examples: [
       "Should I rent or buy a home?",
       "Is coffee good or bad for you?",
