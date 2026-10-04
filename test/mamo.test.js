@@ -1054,6 +1054,36 @@ test("concurrent checkouts leave exactly one payable link", async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("when both checkouts are stored before either lists, the newest one stays payable", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv());
+  const calls = [];
+  try {
+    globalThis.fetch = checkoutFetch(calls);
+    const { links, db } = linkStore([]);
+    let stored = 0;
+    let release;
+    const bothStored = new Promise((resolve) => { release = resolve; });
+    const gated = {
+      ...db,
+      async createMamoPaymentLink(row) {
+        links.push({ id: row.id, subscription_id: row.subscription_id,
+          created_at: new Date(Date.UTC(2026, 9, 4, 0, 0, row.id.endsWith("1") ? 1 : 2)).toISOString() });
+        stored += 1;
+        if (stored === 2) release();
+        await bothStored;
+      }
+    };
+    const results = await Promise.all([1, 2].map(() => dispatch(config, {
+      method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+      body: { planId: "pro" }, overrides: stubbedDeps({ db: gated })
+    })));
+    assert.deepEqual(results.map((res) => res.statusCode).sort(), [200, 409]);
+    assert.ok(calls.includes("PATCH /links/LINK-NEW-1"));
+    assert.ok(!calls.includes("PATCH /links/LINK-NEW-2"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("deleting an account before the payment webhook still stops the checkout's schedule", async () => {
   const originalFetch = globalThis.fetch;
   const config = loadConfig(mamoEnv());

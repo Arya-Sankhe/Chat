@@ -337,13 +337,13 @@ async function deactivateLink(config, linkId, { signal }) {
 // after the new link is stored; when requests race, the newest link wins and the rest close.
 export async function closeOtherCheckouts(db, userId, ownLinkId, { config, signal }) {
   const links = await db.listMamoPaymentLinks(userId, { signal });
-  const own = links.find((link) => link.id === ownLinkId);
   const newer = (a, b) => (a.created_at === b.created_at ? a.id > b.id : Date.parse(a.created_at) > Date.parse(b.created_at));
-  const superseded = own && links.some((link) => link.id !== ownLinkId && newer(link, own));
+  // Every request closes all but the newest link it sees, so the newest overall is never closed.
+  const newest = links.reduce((best, link) => (!best || newer(link, best) ? link : best), null);
   for (const link of links) {
-    if (link.id !== ownLinkId || superseded) await deactivateLink(config, link.id, { signal });
+    if (link.id !== newest?.id) await deactivateLink(config, link.id, { signal });
   }
-  return !superseded;
+  return !newest || newest.id === ownLinkId;
 }
 
 // Unsubscribes the user from every checkout's schedule, whether or not a webhook recorded it.
