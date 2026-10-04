@@ -273,6 +273,8 @@ function mountBar(bar) {
       });
     };
     roll();
+    // Reduced motion: keep the first phrase still instead of rolling new ones in.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     phraseTimer = setInterval(() => {
       if (!bar.isConnected || bar.classList.contains("is-leaving")) {
         clearInterval(phraseTimer);

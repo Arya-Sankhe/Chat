@@ -8697,6 +8697,8 @@ async function startMamoPayment(planId) {
   if (isNative()) return;
   if (!requireAuth()) return;
   try {
+    // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
+    await couponCheck;
     const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
     if (payload.paymentUrl) await openExternal(payload.paymentUrl);
   } catch (err) {
@@ -8740,8 +8742,15 @@ function removeMamoCoupon() {
   els.paywallCouponToggle?.focus();
 }
 
-async function applyMamoCoupon(event) {
+let couponCheck = null;
+
+function applyMamoCoupon(event) {
   event?.preventDefault();
+  couponCheck = checkCouponCode().finally(() => { couponCheck = null; });
+  return couponCheck;
+}
+
+async function checkCouponCode() {
   if (!requireAuth()) return;
   const code = String(els.paywallCouponInput?.value || "").trim().toUpperCase();
   const setStatus = (text) => { if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = text; };

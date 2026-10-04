@@ -202,6 +202,9 @@ export function createResearchController({
     if (!card || !model.active) return false;
     const title = card.querySelector(".research-card-title");
     if (Boolean(title) !== Boolean(model.research.title)) return false;
+    // Summary or error text appearing mid-run changes the layout; let the full render handle it.
+    const note = cleanReportSummary(model.research.summary) || msg.error || "";
+    if ((card.querySelector(".research-card-main > p")?.textContent || "") !== note) return false;
     if (title && title.textContent !== model.research.title) title.textContent = model.research.title;
     const meta = card.querySelector(".research-card-meta");
     const metaHtml = researchMetaMarkup(model.meta);
