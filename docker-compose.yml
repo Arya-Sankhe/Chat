@@ -33,6 +33,9 @@ services:
     image: ghcr.io/jina-ai/reader:oss
     cap_add:
       - SYS_ADMIN
+    # Docker's default AppArmor profile now blocks Chrome's sandbox on the VPS (Debian 13).
+    security_opt:
+      - apparmor=unconfined
     expose:
       - "8081"
     environment:
