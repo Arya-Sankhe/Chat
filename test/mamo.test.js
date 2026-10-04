@@ -965,3 +965,48 @@ test("a coupon charge search that cannot reach the claim's date never re-sends t
     assert.equal(state.redemption.status, "charging");
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("a new checkout closes earlier ones, and cancelling stops every paid checkout's schedule", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv());
+  const calls = [];
+  try {
+    globalThis.fetch = async (url, options = {}) => {
+      const path = String(url).replace(LIVE_BASE, "");
+      const method = options.method || "GET";
+      calls.push(`${method} ${path}`);
+      if (method === "POST" && path === "/links") {
+        return Response.json({ id: "LINK-NEW", payment_url: PAYMENT_URL, subscription: { identifier: "SUB-NEW" } });
+      }
+      if (method === "GET" && path.endsWith("/subscribers")) {
+        return Response.json([{ id: `SUBSCRIBER-${path.split("/")[2]}`, status: "Active", customer: { email: "user@example.com" } }]);
+      }
+      return Response.json({ ok: true });
+    };
+    // Two checkouts were opened and both paid before this change; each has its own schedule.
+    const links = [{ id: "LINK-A", subscription_id: "SUB-A" }, { id: "LINK-B", subscription_id: "SUB-B" }];
+    const opened = await dispatch(config, {
+      method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+      body: { planId: "pro" }, overrides: stubbedDeps({ db: { async listMamoPaymentLinks() { return links; } } })
+    });
+    assert.equal(opened.statusCode, 200);
+    assert.ok(calls.indexOf("PATCH /links/LINK-A") < calls.indexOf("POST /links"));
+    assert.ok(calls.includes("PATCH /links/LINK-B"));
+
+    calls.length = 0;
+    const cancelled = await dispatch(config, {
+      method: "POST", path: "/api/me/subscription/cancel", headers: { authorization: "Bearer token" }, body: {},
+      overrides: stubbedDeps({ db: {
+        async listMamoPaymentLinks() { return links; },
+        async getLatestSubscription() {
+          return { provider: "mamo", status: "active", cancel_at_period_end: false,
+            raw: { subscription_id: "SUB-B", subscriberId: "SUBSCRIBER-SUB-B", payment_link_id: "LINK-B" } };
+        },
+        async cancelMamoSubscription() { return { provider: "mamo", status: "active", cancel_at_period_end: true }; }
+      } })
+    });
+    assert.equal(cancelled.statusCode, 200);
+    assert.ok(calls.includes("DELETE /subscriptions/SUB-A/subscribers/SUBSCRIBER-SUB-A"));
+    assert.ok(calls.includes("DELETE /subscriptions/SUB-B/subscribers/SUBSCRIBER-SUB-B"));
+  } finally { globalThis.fetch = originalFetch; }
+});

@@ -115,7 +115,7 @@ export class SupabaseRest {
     const links = [];
     for (let offset = 0; ; offset += 1000) {
       const rows = await this.request("mamo_payment_links", {
-        query: { user_id: `eq.${userId}`, select: "id", order: "id.asc", offset, limit: 1000 }, signal
+        query: { user_id: `eq.${userId}`, select: "id,subscription_id", order: "id.asc", offset, limit: 1000 }, signal
       });
       links.push(...rows);
       if (rows.length < 1000) return links;

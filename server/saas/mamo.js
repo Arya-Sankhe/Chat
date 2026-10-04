@@ -309,7 +309,39 @@ export async function applyWebhookToSubscription(payload, { db, plans, config, s
   }, { signal });
 }
 
+// Unsubscribes every active subscriber with this email (a checkout can be paid more than once).
+async function unsubscribeEmail(config, subscriptionId, email, { signal }) {
+  const needle = String(email || "").trim().toLowerCase();
+  if (!subscriptionId || !needle) return;
+  const rows = (await listSubscribers(config, subscriptionId, { signal }))
+    .filter((row) => String(row?.customer?.email || "").trim().toLowerCase() === needle
+      && String(row.status).toLowerCase() === "active");
+  for (const row of rows) {
+    try {
+      await unsubscribe(config, subscriptionId, row.id, { signal });
+    } catch (error) {
+      if (error?.details?.status !== 404) throw error;
+    }
+  }
+}
+
+async function deactivateLink(config, linkId, { signal }) {
+  try {
+    await mamoFetch(config, `/links/${encodeURIComponent(linkId)}`, { method: "PATCH", body: { active: false }, signal });
+  } catch (error) {
+    if (error?.details?.status !== 404) throw error;
+  }
+}
+
+// A new checkout closes the user's earlier ones, so two open checkouts cannot both be paid.
+export async function closeOtherCheckouts(db, userId, { config, signal }) {
+  for (const link of await db.listMamoPaymentLinks(userId, { signal })) {
+    await deactivateLink(config, link.id, { signal });
+  }
+}
+
 // Account deletion and Settings must both stop billing before changing local account state.
+// Every checkout's schedule is swept too, so a duplicate subscription cannot keep charging.
 export async function cancelMamoRenewal(subscription, { db, user, config, signal }) {
   if (subscription?.provider !== "mamo" || subscription.cancel_at_period_end) return subscription;
   const raw = asObject(subscription.raw);
@@ -325,27 +357,17 @@ export async function cancelMamoRenewal(subscription, { db, user, config, signal
   } catch (error) {
     if (error?.details?.status !== 404) throw error;
   }
+  const links = await db.listMamoPaymentLinks(user.id, { signal });
+  for (const id of new Set(links.map((link) => link.subscription_id).filter(Boolean))) {
+    await unsubscribeEmail(config, id, user.email, { signal });
+  }
   return db.cancelMamoSubscription(user.id, raw.payment_link_id, { signal });
 }
 
 // Disables a coupon checkout and stops its future-start subscription before any full-price charge.
 export async function stopCouponCheckout(link, email, { config, signal }) {
-  try {
-    await mamoFetch(config, `/links/${encodeURIComponent(link.id)}`, { method: "PATCH", body: { active: false }, signal });
-  } catch (error) {
-    if (error?.details?.status !== 404) throw error;
-  }
-  if (!link.subscription_id || !email) return;
-  const rows = (await listSubscribers(config, link.subscription_id, { signal }))
-    .filter((row) => String(row?.customer?.email || "").trim().toLowerCase() === String(email).trim().toLowerCase()
-      && String(row.status).toLowerCase() === "active");
-  for (const row of rows) {
-    try {
-      await unsubscribe(config, link.subscription_id, row.id, { signal });
-    } catch (error) {
-      if (error?.details?.status !== 404) throw error;
-    }
-  }
+  await deactivateLink(config, link.id, { signal });
+  await unsubscribeEmail(config, link.subscription_id, email, { signal });
 }
 
 function couponSubscriptionEvent(payment, link, eventType) {

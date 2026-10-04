@@ -9,6 +9,7 @@ import {
   mamoCharges,
   mamoFetch,
   cancelMamoRenewal,
+  closeOtherCheckouts,
   settleCouponCharge,
   startCouponPeriod
 } from "../saas/mamo.js";
@@ -221,6 +222,7 @@ export async function handleCreateMamoPayment(req, res, config) {
   if (current?.provider === "mamo" && !current.cancel_at_period_end) {
     throw new HttpError(409, "Cancel your current renewal before starting another subscription.");
   }
+  await closeOtherCheckouts(context.db, context.user.id, { config, signal: req.signal });
   const link = await createPaymentLink(config, {
     user: context.user,
     plan,
