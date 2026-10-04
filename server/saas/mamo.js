@@ -379,28 +379,40 @@ export async function settleCouponCharge(charge, link, { db, plans, config, sign
   return "pending";
 }
 
-// A charge whose request may or may not have reached Mamo is re-checked only after this long.
-const COUPON_CHARGE_STALE_MS = 5 * 60 * 1000;
+// A charge whose request may or may not have reached Mamo is re-sent only after this long.
+const COUPON_CHARGE_STALE_SECONDS = 5 * 60;
+const MAX_CHARGE_PAGES = 20;
 
-// Mamo lists charges newest first; the coupon charge is identified by its external_id.
-async function findCouponCharge(link, { config, signal }) {
+function parseMamoTimestamp(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  return match ? Date.UTC(match[1], match[2] - 1, match[3], match[4], match[5], match[6]) : NaN;
+}
+
+// Mamo lists charges newest first; the coupon charge is identified by its external_id. Returns
+// null only after passing every charge that could be it (a day before the claim, covering any
+// timezone Mamo dates use); otherwise the outcome is unknown and Mamo must redeliver later.
+async function findCouponCharge(link, claim, { config, signal }) {
   const externalId = couponChargeExternalId(link.id);
-  for (let page = 1; page <= 10; page += 1) {
+  const cutoff = Date.parse(claim.created_at) - 24 * 60 * 60 * 1000;
+  for (let page = 1; page <= MAX_CHARGE_PAGES; page += 1) {
     const result = await mamoFetch(config, `/charges?page=${page}&per_page=50`, { signal });
     if (!Array.isArray(result?.data)) throw new HttpError(502, "Mamo charge list was malformed.");
     const match = result.data.find((row) => row?.external_id === externalId);
-    if (match || !result.pagination_meta?.next_page) return match || null;
+    if (match) return match;
+    if (!result.pagination_meta?.next_page || result.data.some((row) => parseMamoTimestamp(row?.created_date) < cutoff)) return null;
   }
-  return null;
+  console.error("Mamo coupon charge search exhausted", link.id);
+  throw new HttpError(503, "Mamo coupon charge could not be located.");
 }
 
-// Settles from the canonical payment record, as callbacks do.
+// Settles from the canonical payment record, as callbacks do. A lookup failure is retried by
+// Mamo redelivering the callback, so it must not be acknowledged.
 async function settleCouponChargeById(chargeId, link, email, { db, plans, config, signal }) {
   let charge;
   try {
     charge = await mamoFetch(config, `/payments/${encodeURIComponent(chargeId)}`, { signal });
   } catch {
-    return "pending";
+    throw new HttpError(503, "Mamo coupon charge could not be read.");
   }
   if (charge?.status !== "failed" && (Number(charge?.amount) !== Number(link.initial_amount_aed)
     || charge?.amount_currency !== "AED" || charge?.external_id !== couponChargeExternalId(link.id))) {
@@ -442,14 +454,14 @@ async function chargeCoupon(claim, link, email, context) {
 }
 
 // A redelivered verification found the coupon mid-charge (crash, lost response or timeout).
-// Settle the charge if Mamo has it; once stale with no charge on record, it was never sent.
+// Settle the charge if Mamo has it. With no charge on record, only a stale claim is re-sent,
+// and the database lets exactly one caller re-arm it (which also restarts the stale window).
 async function recoverCouponCharge(claim, link, email, context) {
-  const found = await findCouponCharge(link, context);
+  const found = await findCouponCharge(link, claim, context);
   if (found?.id) return settleCouponChargeById(found.id, link, email, context);
-  if (!(Date.now() - Date.parse(claim.updated_at) >= COUPON_CHARGE_STALE_MS)) {
-    throw new HttpError(503, "Mamo coupon charge is still settling.");
-  }
-  return chargeCoupon(claim, link, email, context);
+  const rearmed = await context.db.rearmMamoCoupon(link.id, COUPON_CHARGE_STALE_SECONDS, { signal: context.signal });
+  if (!rearmed) throw new HttpError(503, "Mamo coupon charge is still settling.");
+  return chargeCoupon(rearmed, link, email, context);
 }
 
 // Card verified on a coupon checkout: start the free month, or charge the discounted month once.

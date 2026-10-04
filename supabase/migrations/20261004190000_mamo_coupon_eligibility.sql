@@ -34,4 +34,19 @@ begin
 end;
 $$;
 
+-- Stale-charge recovery: exactly one caller may re-send a charge that never reached Mamo.
+create or replace function public.klui_rearm_mamo_coupon(p_payment_link_id text, p_stale interval)
+returns jsonb language plpgsql security invoker set search_path = public as $$
+declare claim public.mamo_coupon_redemptions;
+begin
+  update public.mamo_coupon_redemptions set updated_at = now()
+    where payment_link_id = p_payment_link_id and status = 'charging' and updated_at < now() - p_stale
+    returning * into claim;
+  if not found then return null; end if;
+  return to_jsonb(claim);
+end;
+$$;
+revoke all on function public.klui_rearm_mamo_coupon(text,interval) from public, anon, authenticated;
+grant execute on function public.klui_rearm_mamo_coupon(text,interval) to service_role;
+
 notify pgrst, 'reload schema';

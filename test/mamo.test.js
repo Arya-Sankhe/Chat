@@ -652,6 +652,13 @@ function couponDb({ subscription = null, redemption = null, link } = {}) {
         }
         return { ...state.redemption, conflict: false };
       },
+      async rearmMamoCoupon(linkId, staleSeconds) {
+        const claim = state.redemption;
+        if (claim?.payment_link_id !== linkId || claim.status !== "charging"
+          || !(Date.now() - Date.parse(claim.updated_at) >= staleSeconds * 1000)) return null;
+        state.redemption = { ...claim, updated_at: new Date().toISOString() };
+        return state.redemption;
+      },
       async advanceMamoCoupon(linkId, from, to, initialPaymentId) {
         if (state.redemption?.payment_link_id !== linkId || !from.includes(state.redemption.status)) return null;
         state.redemption = { ...state.redemption, status: to, initial_payment_id: initialPaymentId || state.redemption.initial_payment_id };
@@ -677,7 +684,7 @@ const MIT = {
 };
 
 // Routes fake Mamo API calls and records what was requested.
-function mamoStub(calls, { charge = () => Response.json(MIT), payments = {}, charges = [], unsubscribe } = {}) {
+function mamoStub(calls, { charge = () => Response.json(MIT), payments = {}, charges = [], chargePage, unsubscribe } = {}) {
   return async (url, options = {}) => {
     const path = String(url).replace(LIVE_BASE, "");
     const method = options.method || "GET";
@@ -685,6 +692,7 @@ function mamoStub(calls, { charge = () => Response.json(MIT), payments = {}, cha
     if (method === "POST" && path === "/payments") return charge(jsonBody(options));
     if (method === "GET" && path.startsWith("/payments/")) return Response.json(payments[path.slice(10)]);
     if (method === "GET" && path.startsWith("/charges?")) {
+      if (chargePage) return chargePage(Number(new URL(path, LIVE_BASE).searchParams.get("page")));
       return Response.json({ data: charges, pagination_meta: { page: 1, next_page: null } });
     }
     if (method === "DELETE" && unsubscribe) return unsubscribe();
@@ -889,7 +897,9 @@ test("a FIRST50 charge stuck mid-request is recovered by external_id, or sent on
   const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
   const stuck = (updatedAt) => couponDb({
     link: COUPON_LINK,
-    redemption: { payment_link_id: "MB-LINK-COUPON", card_id: "CARD-1", status: "charging", updated_at: updatedAt }
+    redemption: {
+      payment_link_id: "MB-LINK-COUPON", card_id: "CARD-1", status: "charging", updated_at: updatedAt, created_at: updatedAt
+    }
   });
   try {
     // Mamo has the charge: settle it without charging again.
@@ -912,5 +922,46 @@ test("a FIRST50 charge stuck mid-request is recovered by external_id, or sent on
     assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
     assert.equal(calls.filter((call) => call === "POST /payments").length, 1);
     assert.equal(state.redemption.status, "active");
+
+    // Concurrent redeliveries of a stale claim re-send the charge once.
+    calls = [];
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED, "PAY-MIT": MIT } });
+    ({ state, db } = stuck(new Date(Date.now() - 10 * 60 * 1000).toISOString()));
+    const statuses = (await Promise.all([1, 2, 3].map(() => sendCouponWebhook(config, db, "PAY-VERIFY"))))
+      .map((res) => res.statusCode);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 1);
+    assert.ok(statuses.includes(200));
+
+    // A charge Mamo has but cannot return right now is not acknowledged.
+    calls = [];
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED }, charges: [MIT] });
+    const base = globalThis.fetch;
+    globalThis.fetch = async (url, options) => (String(url).endsWith("/payments/PAY-MIT")
+      ? Response.json({ messages: ["busy"] }, { status: 503 }) : base(url, options));
+    ({ state, db } = stuck(new Date(Date.now() - 10 * 60 * 1000).toISOString()));
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 503);
+    assert.equal(state.redemption.status, "charging");
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a coupon charge search that cannot reach the claim's date never re-sends the charge", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  const recent = { ...MIT, id: "PAY-OTHER", external_id: "other", created_date: "2099-01-01-00-00-00" };
+  try {
+    globalThis.fetch = mamoStub(calls, {
+      payments: { "PAY-VERIFY": VERIFIED },
+      chargePage: (page) => Response.json({ data: [recent], pagination_meta: { page, next_page: page + 1 } })
+    });
+    const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { state, db } = couponDb({
+      link: COUPON_LINK,
+      redemption: { payment_link_id: "MB-LINK-COUPON", card_id: "CARD-1", status: "charging", updated_at: stale, created_at: stale }
+    });
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 503);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+    assert.equal(state.redemption.status, "charging");
   } finally { globalThis.fetch = originalFetch; }
 });

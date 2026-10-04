@@ -64,6 +64,7 @@ declare result jsonb;
 begin
   if has_function_privilege('authenticated','public.klui_claim_mamo_coupon(text,text,text)','execute')
     or has_function_privilege('anon','public.klui_advance_mamo_coupon(text,text[],text,text)','execute')
+    or has_function_privilege('authenticated','public.klui_rearm_mamo_coupon(text,interval)','execute')
     or has_table_privilege('authenticated','public.mamo_coupon_redemptions','select') then
     raise exception 'Coupon privileges exposed to a client';
   end if;
@@ -74,6 +75,10 @@ begin
   assert (public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2')->>'conflict')::boolean, 'second coupon redeemed';
   assert public.klui_advance_mamo_coupon('LINK-C1',array['claimed'],'charging') is not null, 'start charge';
   assert public.klui_advance_mamo_coupon('LINK-C1',array['claimed'],'charging') is null, 'charged twice';
+  assert public.klui_rearm_mamo_coupon('LINK-C1','5 minutes') is null, 'fresh charge re-armed';
+  update public.mamo_coupon_redemptions set updated_at = now() - interval '10 minutes' where payment_link_id = 'LINK-C1';
+  assert public.klui_rearm_mamo_coupon('LINK-C1','5 minutes') is not null, 'stale charge not re-armed';
+  assert public.klui_rearm_mamo_coupon('LINK-C1','5 minutes') is null, 'stale charge re-armed twice';
   result := public.klui_advance_mamo_coupon('LINK-C1',array['claimed','charging'],'failed','PAY-M1');
   assert result->>'status' = 'failed', 'failed charge';
   result := public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2');

@@ -143,6 +143,10 @@ export class SupabaseRest {
     }, options);
   }
 
+  async rearmMamoCoupon(paymentLinkId, staleSeconds, options) {
+    return this.rpc("klui_rearm_mamo_coupon", { p_payment_link_id: paymentLinkId, p_stale: `${staleSeconds} seconds` }, options);
+  }
+
   async cancelMamoSubscription(userId, paymentLinkId, options) {
     return this.rpc("klui_cancel_mamo_subscription", { p_user_id: userId, p_payment_link_id: paymentLinkId }, options);
   }
