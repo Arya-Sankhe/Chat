@@ -629,6 +629,9 @@ body.study-session-open .chat-wallpaper-outline {
     -webkit-mask-image: none;
     mask-image: none;
   }
+  body[data-mode="dark"]:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
+    opacity: 0.2;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
