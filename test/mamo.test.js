@@ -89,6 +89,7 @@ function stubbedDeps({ role = "user", db = {} } = {}) {
     createDb: () => ({
       async listMamoPaymentLinks() { return []; },
       async getLatestSubscription() { return null; },
+      async getAffiliateCoupon() { return null; },
       async createMamoPaymentLink() {},
       async upsertProfile() { return { id: "user-1", role, created_at: "2026-01-01T00:00:00.000Z" }; },
       ...db

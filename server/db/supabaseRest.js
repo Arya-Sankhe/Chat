@@ -1,5 +1,6 @@
 import { HttpError } from "../http/responses.js";
 import * as admin from "./rest/admin.js";
+import * as affiliates from "./rest/affiliates.js";
 import * as attachments from "./rest/attachments.js";
 import * as billing from "./rest/billing.js";
 import * as caches from "./rest/caches.js";
@@ -105,6 +106,13 @@ export class SupabaseRest {
   async createMamoPaymentLink(row, options) {
     return this.request("mamo_payment_links", { method: "POST", body: row, ...options });
   }
+
+  async getAffiliateCoupon(code, options) { return affiliates.getAffiliateCoupon(this, code, options); }
+  async getAffiliateCreatorByUser(userId, options) { return affiliates.getAffiliateCreatorByUser(this, userId, options); }
+  async createAffiliateCreator(row, options) { return affiliates.createAffiliateCreator(this, row, options); }
+  async createAffiliateCoupon(row, options) { return affiliates.createAffiliateCoupon(this, row, options); }
+  async updateAffiliateCoupon(id, patch, options) { return affiliates.updateAffiliateCoupon(this, id, patch, options); }
+  async affiliateReport(options) { return affiliates.affiliateReport(this, options); }
 
   async getMamoPaymentLink(id, options) {
     const rows = await this.request("mamo_payment_links", { query: { id: `eq.${id}`, select: "*" }, ...options });
