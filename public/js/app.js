@@ -2261,10 +2261,10 @@ function applyAppearance() {
       : `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
     const usesNightSky = mode === "dark" && ["alpine", "valley"].includes(wallpaper);
     document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
-    // Inside a chat the same scene returns as faint line art (see .chat-wallpaper-outline).
+    // Inside a chat the same scene returns as a faint monochrome print (see .chat-wallpaper-outline).
     document.body.style.setProperty(
       "--chat-outline-image",
-      `url("/images/home-${wallpaper}-outline.webp${isNative() ? "" : "?v=20261004-1"}")`,
+      `url("/images/home-${wallpaper}-ink-${mode}.webp${isNative() ? "" : "?v=20261005-1"}")`,
     );
     document.body.style.setProperty(
       "--home-wallpaper-base",

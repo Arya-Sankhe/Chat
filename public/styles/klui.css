@@ -558,8 +558,10 @@ body.chat-empty .home-wallpaper {
   transition-delay: 0s;
 }
 
-/* Once a chat starts, the home scene stays behind it as faint monochrome line art.
-   It is strongest in the side gutters and fades to a whisper under the reading column. */
+/* Once a chat starts, the home scene stays behind it as a faint monochrome print of the same art,
+   aligned exactly with the home wallpaper so the switch reads as the colour draining out.
+   It sits at full strength in the side gutters and eases off (but never vanishes) under the
+   reading column, so the scene still reads edge to edge. */
 .chat-wallpaper-outline {
   position: absolute;
   inset: 0;
@@ -573,8 +575,8 @@ body.chat-empty .home-wallpaper {
   transition:
     opacity 520ms ease-out,
     visibility 0s linear 520ms;
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / 0.55) 22%, rgb(0 0 0 / 0.16) 38%, rgb(0 0 0 / 0.16) 62%, rgb(0 0 0 / 0.55) 78%, #000 100%);
-  mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / 0.55) 22%, rgb(0 0 0 / 0.16) 38%, rgb(0 0 0 / 0.16) 62%, rgb(0 0 0 / 0.55) 78%, #000 100%);
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 14%, rgb(0 0 0 / 0.5) 32%, rgb(0 0 0 / 0.38) 50%, rgb(0 0 0 / 0.5) 68%, #000 86%, #000 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 14%, rgb(0 0 0 / 0.5) 32%, rgb(0 0 0 / 0.38) 50%, rgb(0 0 0 / 0.5) 68%, #000 86%, #000 100%);
 }
 
 .chat-wallpaper-outline::before {
@@ -586,20 +588,14 @@ body.chat-empty .home-wallpaper {
   mask: var(--chat-outline-image, none) center bottom / cover no-repeat;
 }
 
-@media (min-width: 861px) {
-  .chat-wallpaper-outline {
-    grid-column: 2 / 3;
-  }
-}
-
 body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
-  opacity: 0.09;
+  opacity: 0.2;
   visibility: visible;
   transition-delay: 0s;
 }
 
 body[data-mode="dark"]:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
-  opacity: 0.13;
+  opacity: 0.26;
 }
 
 body.study-open .chat-wallpaper-outline,
@@ -607,9 +603,31 @@ body.study-session-open .chat-wallpaper-outline {
   visibility: hidden !important;
 }
 
+/* Let the print run under the collapsed rail like the home wallpaper does. */
+@media (min-width: 901px) {
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar {
+    background: transparent;
+    border-right-color: color-mix(in srgb, var(--border-light) 40%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--border-light) 40%, transparent);
+  }
+
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar-top,
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar-bottom {
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar-top {
+    border-radius: inherit;
+  }
+}
+
 @media (max-width: 860px) {
   body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
-    opacity: 0.08;
+    opacity: 0.16;
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 }
 
