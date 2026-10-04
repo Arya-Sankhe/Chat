@@ -175,7 +175,15 @@ function publicMamoSubscription(row) {
 
 // First-month coupons are for a user's first Klui subscription, once per account.
 async function eligibleCoupon(context, config, code, signal) {
-  const coupon = config.mamo?.coupons?.get(String(code || "").trim().toUpperCase());
+  const normalized = String(code || "").trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,32}$/.test(normalized)) throw new HttpError(400, "That coupon code isn't valid.");
+  let coupon = config.mamo?.coupons?.get(normalized);
+  if (!coupon) {
+    const row = await context.db.getAffiliateCoupon(normalized, { signal });
+    if (row?.enabled && row.percent_off != null && row.affiliate_creators.user_id !== context.user.id) {
+      coupon = { code: row.code, percentOff: Number(row.percent_off), affiliateCouponId: row.id };
+    }
+  }
   if (!coupon) throw new HttpError(400, "That coupon code isn't valid.");
   const [current, redemption] = await Promise.all([
     context.db.getLatestSubscription(context.user.id, { signal }),
@@ -233,7 +241,8 @@ export async function handleCreateMamoPayment(req, res, config) {
   await context.db.createMamoPaymentLink({
     id: link.id, user_id: context.user.id, plan_id: plan.id,
     amount_aed: link.renewalAmount, subscription_id: link.subscriptionId,
-    ...(coupon ? { coupon_code: coupon.code, initial_amount_aed: link.initialAmount, first_renewal_at: link.firstRenewalAt } : {})
+    ...(coupon ? { coupon_code: coupon.code, initial_amount_aed: link.initialAmount, first_renewal_at: link.firstRenewalAt,
+      affiliate_coupon_id: coupon.affiliateCouponId || null } : {})
   }, { signal: req.signal });
   if (!await closeOtherCheckouts(context.db, context.user.id, link.id, { config, signal: req.signal })) {
     throw new HttpError(409, "Another checkout was just opened. Use the newest one.");

@@ -86,3 +86,7 @@ begin
 end;
 $$;
 rollback;
+
+-- Keep payment attribution checks in the existing CI billing entry point.
+\ir ../../supabase/tests/mamo_billing.sql
+\ir ../../supabase/tests/affiliate_tracking.sql

@@ -1,6 +1,7 @@
 import { HttpError, sendProblem } from "./http/responses.js";
 import { applyApiCors, handleApiPreflight } from "./http/cors.js";
 import { handleAdminSettings, handleAdminSummary } from "./routes/admin.js";
+import { handleAdminAffiliateCoupon, handleAdminAffiliates, handleCreatorAffiliate } from "./routes/affiliates.js";
 import { handleClarifications } from "./routes/clarifications.js";
 import { API_DEPENDENCIES, defaultApiDependencies } from "./routes/context.js";
 import { handleConversationById, handleConversationSearch, handleConversations, handleMessageById } from "./routes/conversations.js";
@@ -512,6 +513,26 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/admin/summary" && req.method === "GET") {
       await handleAdminSummary(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/creator/affiliate") {
+      await handleCreatorAffiliate(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/admin/affiliates") {
+      await handleAdminAffiliates(req, res, url, config);
+      return;
+    }
+
+    if (parts.length === 5 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "affiliates" && parts[4] === "coupons") {
+      await handleAdminAffiliateCoupon(req, res, config, parts[3], true);
+      return;
+    }
+
+    if (parts.length === 4 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "affiliate-coupons") {
+      await handleAdminAffiliateCoupon(req, res, config, parts[3], false);
       return;
     }
 
