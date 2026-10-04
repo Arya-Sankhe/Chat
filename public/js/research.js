@@ -22,7 +22,9 @@ export function createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages
+  renderImages,
+  renderKluiThinkingStatus = null,
+  updateKluiBar = null
 }) {
   let researchPollTimer = null;
   let researchPollGeneration = 0;
@@ -129,33 +131,57 @@ export function createResearchController({
     elements.researchReportToc.classList.toggle("hidden", !headings.length);
   }
 
-  function renderResearchCard(msg) {
+  function formatElapsed(ms) {
+    const seconds = Math.max(1, Math.round(Number(ms || 0) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+  }
+
+  function researchCardModel(msg) {
     const research = researchMeta(msg) || {};
     const progress = research.progress || {};
     const active = ["queued", "running"].includes(research.status);
     const complete = research.status === "succeeded" || Boolean(research.partial);
     const label = progress.label || (active ? "Preparing research" : research.status === "cancelled" ? "Research cancelled" : "Research stopped");
     const percent = Math.max(0, Math.min(100, Number(progress.percent || (complete ? 100 : 0))));
-    const elapsed = research.elapsedMs ? `${Math.max(1, Math.round(research.elapsedMs / 1000))}s` : "";
+    const elapsed = research.elapsedMs ? formatElapsed(research.elapsedMs) : "";
+    const meta = [
+      research.sourceCount ? `${research.sourceCount} source${research.sourceCount === 1 ? "" : "s"}` : "",
+      elapsed,
+      research.partial ? "Partial report" : ""
+    ].filter(Boolean);
+    return { research, active, complete, label, percent, meta, status: active ? "is-active" : complete ? "is-complete" : "is-stopped" };
+  }
+
+  function researchMetaMarkup(meta) {
+    return meta.map((part) => `<span>${escapeHtml(part)}</span>`).join("");
+  }
+
+  function renderResearchCard(msg) {
+    const { research, active, complete, label, percent, meta, status } = researchCardModel(msg);
     const icon = complete
       ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>`
       : "";
+    const summary = cleanReportSummary(research.summary);
+    // While it runs, Klui narrates the current phase; the title waits until the plan names it.
+    const live = active && renderKluiThinkingStatus
+      ? renderKluiThinkingStatus({ id: `research-${research.runId || msg.id || "run"}` }, { label, active: true })
+      : "";
     return `
-    <div class="research-card ${active ? "is-active" : complete ? "is-complete" : "is-stopped"}">
+    <div class="research-card ${status}" data-research-run="${escapeHtml(research.runId || "")}">
       <div class="research-card-main">
         <div class="research-card-heading">
           <span class="research-card-icon" aria-hidden="true">${icon}</span>
           <span class="research-card-kicker">Deep research</span>
+          <span class="research-card-meta">${researchMetaMarkup(meta)}</span>
         </div>
-        <strong>${escapeHtml(research.title || label)}</strong>
-        ${cleanReportSummary(research.summary) ? `<p>${escapeHtml(cleanReportSummary(research.summary))}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
-        ${active ? `<div class="research-card-progress"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
+        ${research.title ? `<strong class="research-card-title">${escapeHtml(research.title)}</strong>` : active ? "" : `<strong class="research-card-title">${escapeHtml(label)}</strong>`}
+        ${live ? `<div class="research-card-live">${live}</div>` : ""}
+        ${summary ? `<p>${escapeHtml(summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
+        ${active ? `<div class="research-card-progress" role="progressbar" aria-label="Research progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
         <div class="research-card-footer">
-          <div class="research-card-meta">
-            ${research.sourceCount ? `<span>${research.sourceCount} sources</span>` : ""}
-            ${elapsed ? `<span>${elapsed}</span>` : ""}
-            ${research.partial ? "<span>Partial report</span>" : ""}
-          </div>
           <div class="research-card-actions">
             ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report <span aria-hidden="true">→</span></button>` : ""}
             ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
@@ -163,6 +189,32 @@ export function createResearchController({
         </div>
       </div>
     </div>`;
+  }
+
+  // Polls refresh the running card in place, so Klui keeps animating instead of remounting every 2s.
+  function patchResearchCard(msg) {
+    const id = msg?.id ? String(msg.id) : "";
+    if (!id || !updateKluiBar) return false;
+    const article = [...elements.messages.querySelectorAll("article.message[data-message-id]")]
+      .find((node) => node.dataset.messageId === id);
+    const card = article?.querySelector(".research-card.is-active");
+    const model = researchCardModel(msg);
+    if (!card || !model.active) return false;
+    const title = card.querySelector(".research-card-title");
+    if (Boolean(title) !== Boolean(model.research.title)) return false;
+    // Summary or error text appearing mid-run changes the layout; let the full render handle it.
+    const note = cleanReportSummary(model.research.summary) || msg.error || "";
+    if ((card.querySelector(".research-card-main > p")?.textContent || "") !== note) return false;
+    if (title && title.textContent !== model.research.title) title.textContent = model.research.title;
+    const meta = card.querySelector(".research-card-meta");
+    const metaHtml = researchMetaMarkup(model.meta);
+    if (meta && meta.innerHTML !== metaHtml) meta.innerHTML = metaHtml;
+    const progress = card.querySelector(".research-card-progress");
+    progress?.setAttribute("aria-valuenow", String(model.percent));
+    progress?.querySelector("span")?.style.setProperty("--research-progress", String(model.percent / 100));
+    const bar = card.querySelector(".klui-bar");
+    if (bar) updateKluiBar(bar, { label: model.label, active: true });
+    return true;
   }
 
   function renderResearchReport() {
@@ -225,8 +277,9 @@ export function createResearchController({
       if (generation !== researchPollGeneration) return;
       const run = payload.run;
       updateResearchMessage(run);
-      const messageVisible = state.messages.some((entry) => String(entry.id) === String(run.messageId));
-      if (messageVisible) renderMessages();
+      const message = state.messages.find((entry) => String(entry.id) === String(run.messageId));
+      const messageVisible = Boolean(message);
+      if (messageVisible && !patchResearchCard(message)) renderMessages();
       if (["queued", "running"].includes(run.status)) {
         state.activeResearchId = run.id;
         setRunning(true, run.conversationId);

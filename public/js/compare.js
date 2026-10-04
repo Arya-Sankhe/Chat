@@ -195,7 +195,7 @@ export function createCompareController({
     return `
     <article class="message assistant compare-message">
       <div class="message-body">
-        <div class="compare-message-label">Klui Compare</div>
+        <div class="compare-message-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>Compare</div>
         <div class="compare-grid">
           ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
         </div>

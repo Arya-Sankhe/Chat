@@ -803,7 +803,7 @@ test("native clients do not show checkout; unpaid users are sent to the website"
     /isNative\(\) \? "Subscribe on the website to start chatting" : "Choose a plan to start chatting"/
   );
   assert.match(source, /Pay with Ziina/);
-  assert.match(source, /data-start-mamo="\$\{escapeHtml\(plan.id\)\}">Join Klui</);
+  assert.match(source, /data-start-mamo="\$\{escapeHtml\(plan.id\)\}">Get \$\{escapeHtml\(plan.name\)\}</);
   assert.match(source, /data-start-mamo/);
 });
 

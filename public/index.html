@@ -92,11 +92,22 @@
             <div class="paywall-sticker">No 5 hour limits for all plans</div>
           </div>
           <p class="auth-email" id="paywallEmail"></p>
-          <form class="paywall-coupon hidden" id="paywallCouponForm" novalidate>
-            <input id="paywallCouponInput" name="coupon" aria-label="Coupon code" placeholder="Coupon code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32">
-            <button type="submit" id="paywallCouponApply">Apply</button>
+          <div class="paywall-coupon hidden" id="paywallCoupon">
+            <button class="coupon-toggle" id="paywallCouponToggle" type="button" aria-expanded="false" aria-controls="paywallCouponForm">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z"/><path d="M14 6v2"/><path d="M14 11v2"/><path d="M14 16v2"/></svg>
+              <span>Have a coupon code?</span>
+            </button>
+            <form class="coupon-form hidden" id="paywallCouponForm" novalidate>
+              <input id="paywallCouponInput" name="coupon" aria-label="Coupon code" placeholder="Enter code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32">
+              <button type="submit" id="paywallCouponApply">Apply</button>
+            </form>
+            <div class="coupon-applied hidden" id="paywallCouponApplied">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              <span><strong id="paywallCouponCode"></strong> <span id="paywallCouponSummary"></span></span>
+              <button type="button" id="paywallCouponRemove">Remove</button>
+            </div>
             <p class="paywall-coupon-status" id="paywallCouponStatus" role="status" aria-live="polite"></p>
-          </form>
+          </div>
           <div class="plan-grid" id="paywallPlans"></div>
           <p class="plan-payment-note">Usage is weekly. It resets 4 times each month.</p>
     <div class="paywall-actions">
@@ -125,6 +136,7 @@
               : "/images/home-" + wallpaper + (mode === "light" ? "-light" : "") + ".webp" + (packaged ? "" : "?v=20260825-clouds-b-1080");
           })();
         </script>
+        <div class="chat-wallpaper-outline" aria-hidden="true"></div>
         <svg class="temporary-chat-art" viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
           <path class="temporary-chat-line temporary-chat-line-fragments" pathLength="1000" vector-effect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94"/>
           <path class="temporary-chat-line temporary-chat-line-connector" pathLength="1000" vector-effect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94"/>
@@ -153,7 +165,7 @@
               </button>
             </div>
             <div class="sidebar-nav">
-              <button class="sidebar-nav-item" id="projectsButton" type="button" aria-label="Projects" title="Projects">
+              <button class="sidebar-nav-item" id="projectsButton" type="button" hidden aria-label="Projects" title="Projects">
                 <span class="sidebar-nav-icon" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
                 </span>

@@ -1,703 +1,428 @@
-/* ─── Council ─── */
-
+/* ─── Council ───
+   One open layout: a small label, Klui while the panel works, the final answer as
+   plain prose, and the individual answers behind a hairline disclosure. No cards. */
 .council-message {
-
   width: min(1180px, 100%);
-
   max-width: 100%;
-
   margin: 0 auto 32px;
-
   padding-left: 12px;
-
 }
 
 .council-shell {
-
   width: 100%;
-
-  border: 1px solid var(--border);
-
-  border-radius: var(--radius-lg);
-
-  background: var(--bg);
-
-  overflow: hidden;
-
 }
 
 .council-header {
-
   display: flex;
-
   align-items: center;
-
-  gap: 10px;
-
-  padding: 12px 16px;
-
-  background: var(--bg-secondary);
-
-  border-bottom: 1px solid var(--border-light);
-
+  gap: 7px;
+  margin-bottom: 14px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 550;
 }
 
 .council-header-icon {
-
   display: inline-flex;
-
   align-items: center;
-
   justify-content: center;
-
-  width: 28px;
-
-  height: 28px;
-
-  border-radius: var(--radius-full);
-
-  background: var(--accent);
-
-  color: var(--accent-contrast);
-
   flex-shrink: 0;
-
 }
 
 .council-header-title {
-
-  font-size: 14px;
-
-  font-weight: 700;
-
-  letter-spacing: -0.01em;
-
+  color: var(--text-secondary);
 }
 
-.council-header-sub {
-
-  font-size: 12px;
-
-  color: var(--text-tertiary);
-
-  margin-left: auto;
-
+.council-header-sub::before {
+  content: "·";
+  margin-right: 7px;
 }
 
+/* Live progress: Klui + a three-step line + a hairline track. */
 .council-progress {
+  margin: 4px 0 22px;
+  animation: council-fade-in 320ms var(--ease-out) both;
+}
 
-  padding: 14px 16px 12px;
+.council-progress[hidden] {
+  display: none;
+}
 
-  border-bottom: 1px solid var(--border-light);
-
-  background: var(--bg);
-
+.council-progress .thinking-status.klui-bar {
+  margin-bottom: 12px;
 }
 
 .council-progress-copy {
-
-  display: flex;
-
-  align-items: baseline;
-
-  justify-content: space-between;
-
-  gap: 12px;
-
   margin-bottom: 10px;
-
   font-size: 13px;
-
   font-weight: 650;
-
   color: var(--text);
-
 }
 
-.council-progress-copy small {
+.council-progress.is-error .council-progress-copy {
+  color: var(--danger, #c0392b);
+}
 
-  font-size: 12px;
+.council-progress-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
 
-  font-weight: 600;
-
+.council-progress-steps small {
   color: var(--text-tertiary);
-
+  font-size: 12px;
+  font-weight: 550;
   white-space: nowrap;
-
 }
 
 .council-progress-track {
-
-  height: 5px;
-
-  border-radius: var(--radius-full);
-
-  background: var(--bg-tertiary);
-
+  height: 1px;
+  background: var(--border-light);
   overflow: hidden;
-
 }
 
 .council-progress-track span {
-
   display: block;
-
   height: 100%;
-
-  border-radius: inherit;
-
-  background: var(--accent);
-
-  transition: width 260ms ease;
-
+  background: var(--text-secondary);
+  transition: width 420ms var(--ease-out);
 }
 
 .council-stages {
-
   display: flex;
-
   align-items: center;
-
   gap: 10px;
-
-  padding: 10px 16px;
-
-  background: var(--bg);
-
-  border-bottom: 1px solid var(--border-light);
-
   font-size: 12px;
-
 }
 
 .council-stage {
-
   display: inline-flex;
-
   align-items: center;
-
   gap: 6px;
-
   color: var(--text-tertiary);
-
   font-weight: 600;
-
+  transition: color 240ms ease;
 }
 
 .council-stage-dot {
-
-  width: 8px;
-
-  height: 8px;
-
+  width: 6px;
+  height: 6px;
   border-radius: var(--radius-full);
-
   background: var(--border);
-
-  transition: background var(--transition), box-shadow var(--transition);
-
+  transition: background 240ms ease, box-shadow 240ms ease;
 }
 
 .council-stage.active {
-
   color: var(--text);
-
 }
 
 .council-stage.active .council-stage-dot {
-
-  background: var(--accent);
-
-  box-shadow: 0 0 0 3px rgba(13, 13, 13, 0.12);
-
+  background: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 12%, transparent);
   animation: council-pulse 1.5s ease-in-out infinite;
-
 }
 
 .council-stage.done {
-
   color: var(--text-secondary);
-
 }
 
 .council-stage.done .council-stage-dot {
+  background: var(--text-secondary);
+}
 
-  background: #16a34a;
-
+.council-stage.error {
+  color: var(--danger, #c0392b);
 }
 
 .council-stage-sep {
-
-  flex: 1;
-
+  width: 28px;
   height: 1px;
+  background: var(--border);
+  transform-origin: left;
+}
 
-  background: var(--border-light);
-
-  min-width: 16px;
-
-  max-width: 40px;
-
+.council-stage-sep.done {
+  background: var(--text-secondary);
 }
 
 @keyframes council-pulse {
-
   0%, 100% { opacity: 1; transform: scale(1); }
-
-  50% { opacity: 0.55; transform: scale(1.18); }
-
+  50% { opacity: 0.55; transform: scale(1.25); }
 }
 
-.council-section-label {
-
-  padding: 14px 16px 6px;
-
-  font-size: 11px;
-
-  font-weight: 700;
-
-  letter-spacing: 0.06em;
-
-  text-transform: uppercase;
-
-  color: var(--text-tertiary);
-
+@keyframes council-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
-.council-panel-grid {
-
-  display: grid;
-
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-
-  gap: 10px;
-
-  padding: 0 16px 16px;
-
-}
-
-.council-panelist {
-
-  min-width: 0;
-
-  border: 1px solid var(--border);
-
-  border-radius: var(--radius);
-
-  background: var(--bg);
-
-  overflow: hidden;
-
-  display: flex;
-
-  flex-direction: column;
-
-}
-
-.council-panelist.rank-1 {
-
-  border-color: rgba(212, 175, 55, 0.55);
-
-  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.25);
-
-}
-
-.council-panelist-head {
-
-  display: flex;
-
-  align-items: center;
-
-  gap: 10px;
-
-  padding: 9px 12px;
-
-  border-bottom: 1px solid var(--border-light);
-
-  background: var(--bg-secondary);
-
-  font-size: 13px;
-
-}
-
-.council-panelist-head strong {
-
-  min-width: 0;
-
-  overflow: hidden;
-
-  text-overflow: ellipsis;
-
-  white-space: nowrap;
-
-  font-weight: 650;
-
-}
-
-.council-rank-badge {
-
-  display: inline-flex;
-
-  align-items: center;
-
-  gap: 4px;
-
-  padding: 2px 7px;
-
-  border-radius: var(--radius-full);
-
-  font-size: 11px;
-
-  font-weight: 700;
-
-  letter-spacing: 0.01em;
-
-  background: #f1f1f1;
-
-  color: var(--text-secondary);
-
-  flex-shrink: 0;
-
-  margin-left: auto;
-
-  white-space: nowrap;
-
-}
-
-.council-rank-badge.rank-1 {
-
-  background: linear-gradient(135deg, #fff4c5 0%, #ffe88a 100%);
-
-  color: #5b4400;
-
-}
-
-.council-rank-badge.rank-2 {
-
-  background: #ececec;
-
-  color: #444;
-
-}
-
-.council-rank-badge.rank-3 {
-
-  background: #f5e1c8;
-
-  color: #6b4a26;
-
-}
-
-.council-rank-pending {
-
-  font-size: 11px;
-
-  color: var(--text-tertiary);
-
-  font-weight: 600;
-
-  margin-left: auto;
-
-}
-
-.council-panelist-body {
-
-  padding: 12px 14px 12px;
-
-  font-size: 14.5px;
-
-  flex: 1;
-
-  min-height: 0;
-
-}
-
-.council-justifications {
-
-  border-top: 1px dashed var(--border-light);
-
-  padding: 8px 14px 12px;
-
-  background: var(--bg-secondary);
-
-}
-
-.council-justifications-title {
-
-  font-size: 10.5px;
-
-  font-weight: 700;
-
-  letter-spacing: 0.06em;
-
-  text-transform: uppercase;
-
-  color: var(--text-tertiary);
-
-  margin-bottom: 5px;
-
-}
-
-.council-justification {
-
-  font-size: 12.5px;
-
-  line-height: 1.45;
-
-  color: var(--text-secondary);
-
-  margin: 3px 0;
-
-  padding-left: 14px;
-
-  position: relative;
-
-}
-
-.council-justification::before {
-
-  content: "•";
-
-  position: absolute;
-
-  left: 4px;
-
-  color: var(--text-tertiary);
-
-}
-
+/* Final answer: reads like a normal reply, with a quiet caption. */
 .council-synthesis {
-
-  margin: 16px;
-
-  border: 1px solid var(--border);
-
-  border-radius: var(--radius);
-
-  background: var(--bg);
-
-  overflow: hidden;
-
+  margin: 0 0 8px;
+  animation: council-fade-in 360ms var(--ease-out) both;
 }
 
 .council-synthesis-head {
-
   display: flex;
-
   align-items: center;
-
   gap: 10px;
-
-  padding: 11px 14px;
-
-  background: var(--bg-secondary);
-
-  color: var(--text);
-
-  border-bottom: 1px solid var(--border-light);
-
-  font-size: 13px;
-
+  min-height: 28px;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 650;
-
-}
-
-.council-synthesis-head svg {
-
-  flex-shrink: 0;
-
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .council-synthesis-head .council-synthesis-model {
-
-  margin-left: auto;
-
-  font-size: 12px;
-
-  font-weight: 600;
-
   color: var(--text-tertiary);
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+}
 
+.council-synthesis-head .council-synthesis-model::before {
+  content: "·";
+  margin-right: 10px;
 }
 
 .council-synthesis-body {
-
-  padding: 16px 18px 18px;
-
   font-size: 16px;
-
   line-height: 1.65;
-
   color: var(--text);
-
 }
 
 .council-synthesis-pending {
-
-  padding: 18px;
-
-  text-align: center;
-
+  padding: 6px 0 2px;
   color: var(--text-tertiary);
-
   font-size: 13px;
-
-  font-weight: 500;
-
 }
 
 .council-peer-status {
-
-  padding: 8px 16px 0;
-
+  padding: 0 0 12px;
   color: var(--text-tertiary);
-
   font-size: 12px;
-
   font-style: italic;
-
 }
 
 .council-peer-status:empty {
-
   display: none;
-
 }
 
 .council-details {
-
+  margin-top: 18px;
   border-top: 1px solid var(--border-light);
-
-  background: var(--bg);
-
 }
 
 .council-details > summary {
-
   position: relative;
-
   display: flex;
-
   align-items: center;
-
   gap: 10px;
-
-  padding: 13px 16px;
-
+  padding: 14px 0;
   cursor: pointer;
-
   list-style: none;
-
   user-select: none;
-
+  color: var(--text-secondary);
   font-size: 13px;
+  font-weight: 600;
+  transition: color 160ms ease;
+}
 
-  font-weight: 650;
-
+.council-details > summary:hover {
   color: var(--text);
-
 }
 
 .council-details > summary::-webkit-details-marker {
-
   display: none;
-
 }
 
 .council-details > summary::after {
-
   content: "";
-
-  width: 7px;
-
-  height: 7px;
-
-  border-right: 1.8px solid currentColor;
-
-  border-bottom: 1.8px solid currentColor;
-
-  transform: rotate(45deg);
-
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
   margin-left: auto;
-
-  transition: transform var(--transition);
-
-  opacity: 0.55;
-
+  transition: transform 200ms var(--ease-out);
+  opacity: 0.6;
 }
 
 .council-details[open] > summary::after {
-
-  transform: rotate(225deg);
-
+  transform: rotate(225deg) translateY(-2px);
 }
 
 .council-details > summary small {
-
   font-size: 12px;
-
-  font-weight: 600;
-
+  font-weight: 500;
   color: var(--text-tertiary);
-
 }
 
 .council-details-body {
+  padding: 4px 0 8px;
+  animation: council-fade-in 260ms var(--ease-out) both;
+}
 
+.council-details-body > .council-stages {
+  margin-bottom: 14px;
+}
+
+.council-section-label {
+  display: none;
+}
+
+/* Individual answers: a 2×2 grid divided by hairlines, like Compare. */
+.council-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.council-panelist {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 32px 18px 0;
+}
+
+.council-panelist:nth-child(even) {
+  padding: 18px 0 18px 32px;
+  border-left: 1px solid var(--border-light);
+}
+
+.council-panelist:nth-child(n + 3) {
   border-top: 1px solid var(--border-light);
-
-  background: var(--bg-secondary);
-
 }
 
-.council-details-body .council-stages {
-
-  background: var(--bg);
-
+.council-panelist-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-bottom: 6px;
+  font-size: 12px;
 }
 
-@media (max-width: 768px) {
+.council-panelist-head .compare-model-mark {
+  display: none;
+}
 
+.council-panelist-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.council-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.council-rank-badge.rank-1 {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}
+
+.council-rank-pending {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.council-panelist-head .compare-copy-btn {
+  margin-left: auto;
+}
+
+.council-panelist-body {
+  flex: 1;
+  min-height: 0;
+  font-size: 14.5px;
+}
+
+.council-justifications {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.council-justifications-title {
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.council-justification {
+  margin: 3px 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.council-justification strong {
+  font-weight: 650;
+}
+
+@media (max-width: 860px) {
   .council-message {
-
     max-width: 100%;
-
   }
 
   .council-panel-grid {
-
     grid-template-columns: 1fr;
+  }
 
+  .council-panelist,
+  .council-panelist:nth-child(even) {
+    padding: 18px 0;
+    border-left: 0;
+  }
+
+  .council-panelist + .council-panelist {
+    border-top: 1px solid var(--border-light);
   }
 
   .council-synthesis-body {
-
-    padding: 14px 14px 16px;
-
     font-size: 15px;
-
   }
 
-  .council-progress-copy,
-
-  .council-details > summary {
-
+  .council-progress-steps {
     align-items: flex-start;
-
     flex-direction: column;
-
-    gap: 4px;
-
+    gap: 6px;
   }
 
-  .council-details > summary::after {
-
-    position: absolute;
-
-    right: 18px;
-
+  .council-details > summary small {
+    display: none;
   }
+}
 
+@media (prefers-reduced-motion: reduce) {
+  .council-progress,
+  .council-synthesis,
+  .council-details-body,
+  .council-stage.active .council-stage-dot {
+    animation: none;
+  }
 }
 
 /* ─── Composer Image Previews ─── */

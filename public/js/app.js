@@ -302,6 +302,8 @@ const LONG_PASTE_MAX_CHARS = 95000;
 
 const APPEARANCES = new Set(["light", "dark", "system"]);
 const COLOR_PRESETS = new Set(["default", "indigo", "emerald", "rose", "ocean", "violet", "teal", "amber"]);
+// Projects are hidden while they are reworked. Study courses share the projects API and stay on.
+const PROJECTS_ENABLED = false;
 const HOME_WALLPAPERS = new Set(["none", "clouds", "alpine", "valley", "launch"]);
 const WRITING_STYLE_LABELS = Object.freeze({
   normal: "Normal",
@@ -641,7 +643,14 @@ const els = {
   guestContinueSignup: document.querySelector("#guestContinueSignup"),
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
+  paywallCoupon: document.querySelector("#paywallCoupon"),
+  paywallCouponToggle: document.querySelector("#paywallCouponToggle"),
+  paywallCouponApplied: document.querySelector("#paywallCouponApplied"),
+  paywallCouponCode: document.querySelector("#paywallCouponCode"),
+  paywallCouponSummary: document.querySelector("#paywallCouponSummary"),
+  paywallCouponRemove: document.querySelector("#paywallCouponRemove"),
   paywallCouponForm: document.querySelector("#paywallCouponForm"),
+  paywallCouponApply: document.querySelector("#paywallCouponApply"),
   paywallCouponInput: document.querySelector("#paywallCouponInput"),
   paywallCouponStatus: document.querySelector("#paywallCouponStatus"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
@@ -928,6 +937,7 @@ function projectIdFromLocation() {
 }
 
 function projectsRouteFromLocation() {
+  if (!PROJECTS_ENABLED) return false;
   return window.location.pathname === "/projects" || Boolean(projectIdFromLocation());
 }
 
@@ -2251,6 +2261,11 @@ function applyAppearance() {
       : `/images/home-${wallpaper}${hasLightWallpaper ? "-light" : ""}.webp${version}`;
     const usesNightSky = mode === "dark" && ["alpine", "valley"].includes(wallpaper);
     document.body.style.setProperty("--home-wallpaper-image", `url("${wallpaperSrc}")`);
+    // Inside a chat the same scene returns as faint line art (see .chat-wallpaper-outline).
+    document.body.style.setProperty(
+      "--chat-outline-image",
+      `url("/images/home-${wallpaper}-outline.webp${isNative() ? "" : "?v=20261004-1"}")`,
+    );
     document.body.style.setProperty(
       "--home-wallpaper-base",
       usesNightSky ? `url("/images/home-night-sky.webp${isNative() ? "" : "?v=20260723-1"}")` : "none",
@@ -2264,6 +2279,7 @@ function applyAppearance() {
   } else {
     document.body.style.removeProperty("--home-wallpaper-image");
     document.body.style.removeProperty("--home-wallpaper-base");
+    document.body.style.removeProperty("--chat-outline-image");
   }
   applyCodeHighlightTheme(mode);
   syncAppearanceControls();
@@ -2448,6 +2464,7 @@ function hasUpgradePlans() {
 function showPaywall({ allowReturn = false } = {}) {
   els.paywallEmail.textContent = state.me?.user?.email || "";
   renderPlans();
+  applyCouponFromUrl();
   els.paywallBackButton?.classList.toggle("hidden", !allowReturn);
   els.paywallCloseButton?.classList.toggle("hidden", !allowReturn);
   showOnly(els.paywallView);
@@ -2601,7 +2618,7 @@ function renderPlans() {
   };
   const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
   const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
-  els.paywallCouponForm?.classList.toggle("hidden", isNative() || !(state.plans || []).some((plan) => plan.checkout === "mamo"));
+  renderCouponPanel();
   els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
     const id = String(plan.id || "").toLowerCase();
     const planClass = id.replace(/[^a-z0-9_-]/g, "");
@@ -2631,7 +2648,7 @@ function renderPlans() {
         ${meta.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}
       </ul>
       ${mamo ? `
-      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Join Klui</button>
+      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Get ${escapeHtml(plan.name)}</button>
       <p class="plan-payment-note">${chargeNote}</p>
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
@@ -3240,6 +3257,11 @@ function renderProjectChatCrumb() {
   const project = state.projects.find((item) => item.id === projectId)
     || (state.activeProject?.project?.id === projectId ? state.activeProject.project : null);
   const isCourse = project?.kind === "course";
+  if (!isCourse && !PROJECTS_ENABLED) {
+    els.projectChatCrumb.classList.add("hidden");
+    document.body.classList.remove("project-chat-open");
+    return;
+  }
   const name = project?.name || (isCourse ? "Course" : "Project");
   els.projectChatCrumb.dataset.projectId = isCourse ? "" : projectId;
   els.projectChatCrumb.dataset.courseId = isCourse ? projectId : "";
@@ -3291,6 +3313,7 @@ async function loadActiveProject() {
 }
 
 async function openProjects({ replace = false } = {}) {
+  if (!PROJECTS_ENABLED) return;
   if (!requireAuth() || blockChatNavigationWhileRunning()) return;
   if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
     showToast("Wait for the document upload to finish before opening projects.");
@@ -3317,6 +3340,7 @@ async function openProjects({ replace = false } = {}) {
 }
 
 async function openProject(projectId, { replace = false } = {}) {
+  if (!PROJECTS_ENABLED) return;
   if (!projectId || !requireAuth() || blockChatNavigationWhileRunning()) return;
   if (state.images.some((item) => item.category === "document" && !item.attachmentId)) {
     showToast("Wait for the document upload to finish before opening a project.");
@@ -7442,7 +7466,8 @@ researchController = createResearchController({
     researchReportSources: els.researchReportSources,
     researchReportSourcesSummary: els.researchReportSourcesSummary,
     chatView: els.chatView,
-    promptInput: els.promptInput
+    promptInput: els.promptInput,
+    messages: els.messages
   },
   state,
   createResearch,
@@ -7466,7 +7491,9 @@ researchController = createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages
+  renderImages,
+  renderKluiThinkingStatus,
+  updateKluiBar
 });
 
 async function loadStudyHub() {
@@ -7593,7 +7620,9 @@ councilController = createCouncilController({
   isPlaceholderPeerReason,
   compareModelAlias: (...args) => compareController.compareModelAlias(...args),
   renderCompareControls: () => compareController.renderCompareControls(),
-  renderResearchMode
+  renderResearchMode,
+  renderKluiThinkingStatus,
+  updateKluiBar
 });
 
 homeModesController = createHomeModesController({
@@ -8668,6 +8697,8 @@ async function startMamoPayment(planId) {
   if (isNative()) return;
   if (!requireAuth()) return;
   try {
+    // A coupon still being checked (e.g. from a ?coupon= link) must land before checkout opens.
+    await couponCheck;
     const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
     if (payload.paymentUrl) await openExternal(payload.paymentUrl);
   } catch (err) {
@@ -8675,26 +8706,95 @@ async function startMamoPayment(planId) {
   }
 }
 
-async function applyMamoCoupon(event) {
-  event.preventDefault();
+function couponSummary(percentOff) {
+  return percentOff >= 100 ? "First month free" : `${percentOff}% off your first month`;
+}
+
+// The coupon sits behind a small ticket link; once applied it becomes a confirmation chip.
+function renderCouponPanel() {
+  const available = !isNative() && (state.plans || []).some((plan) => plan.checkout === "mamo");
+  els.paywallCoupon?.classList.toggle("hidden", !available);
+  if (!available) return;
+  const applied = state.mamoCoupon?.coupon;
+  const open = !applied && els.paywallCouponToggle?.getAttribute("aria-expanded") === "true";
+  els.paywallCouponToggle?.classList.toggle("hidden", Boolean(applied) || open);
+  els.paywallCouponForm?.classList.toggle("hidden", !open);
+  els.paywallCouponApplied?.classList.toggle("hidden", !applied);
+  els.paywallCoupon?.classList.toggle("is-applied", Boolean(applied));
+  if (applied) {
+    if (els.paywallCouponCode) els.paywallCouponCode.textContent = applied.code;
+    if (els.paywallCouponSummary) els.paywallCouponSummary.textContent = couponSummary(applied.percentOff);
+  }
+}
+
+function openCouponForm() {
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
+  renderCouponPanel();
+  els.paywallCouponInput?.focus();
+}
+
+function removeMamoCoupon() {
+  state.mamoCoupon = null;
+  if (els.paywallCouponInput) els.paywallCouponInput.value = "";
+  if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = "";
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
+  renderPlans();
+  els.paywallCouponToggle?.focus();
+}
+
+let couponCheck = null;
+
+function applyMamoCoupon(event) {
+  event?.preventDefault();
+  couponCheck = checkCouponCode().finally(() => { couponCheck = null; });
+  return couponCheck;
+}
+
+async function checkCouponCode() {
   if (!requireAuth()) return;
   const code = String(els.paywallCouponInput?.value || "").trim().toUpperCase();
   const setStatus = (text) => { if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = text; };
   if (!code) {
-    state.mamoCoupon = null;
-    setStatus("");
-    renderPlans();
+    setStatus("Enter a coupon code.");
+    els.paywallCouponInput?.focus();
     return;
   }
+  els.paywallCouponApply?.setAttribute("disabled", "");
   try {
     state.mamoCoupon = await checkMamoCoupon(state.session, code);
-    const off = state.mamoCoupon.coupon.percentOff;
-    setStatus(off === 100 ? `${code}: first month free.` : `${code}: ${off}% off your first month.`);
+    setStatus("");
+    els.paywallCouponToggle?.setAttribute("aria-expanded", "false");
   } catch (err) {
     state.mamoCoupon = null;
     setStatus(err.message || "That coupon code isn't valid.");
+  } finally {
+    els.paywallCouponApply?.removeAttribute("disabled");
   }
   renderPlans();
+}
+
+// klui.ai/?coupon=CODE applies a shared code the first time the paywall opens.
+// Read at load, before any route sync can rewrite the address.
+let couponFromUrl = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const code = String(params.get("coupon") || "").trim().toUpperCase().slice(0, 32);
+    if (!code) return "";
+    params.delete("coupon");
+    const query = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    return code;
+  } catch {
+    return "";
+  }
+})();
+
+function applyCouponFromUrl() {
+  if (!couponFromUrl || state.mamoCoupon || !els.paywallCouponInput || isNative()) return;
+  els.paywallCouponInput.value = couponFromUrl;
+  couponFromUrl = "";
+  els.paywallCouponToggle?.setAttribute("aria-expanded", "true");
+  void applyMamoCoupon();
 }
 
 async function startZiinaPayment(planId) {
@@ -10110,6 +10210,8 @@ function bindEvents() {
   els.guestLoginButton.addEventListener("click", startSidebarLogin);
   els.guestContinueSignup?.addEventListener("click", startSidebarLogin);
   els.paywallCouponForm?.addEventListener("submit", applyMamoCoupon);
+  els.paywallCouponToggle?.addEventListener("click", openCouponForm);
+  els.paywallCouponRemove?.addEventListener("click", removeMamoCoupon);
   els.paywallPlans.addEventListener("click", (e) => {
     const mamoButton = e.target.closest("[data-start-mamo]");
     if (mamoButton) {
