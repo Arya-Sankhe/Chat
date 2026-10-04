@@ -677,13 +677,17 @@ const MIT = {
 };
 
 // Routes fake Mamo API calls and records what was requested.
-function mamoStub(calls, { charge = () => Response.json(MIT), payments = {} } = {}) {
+function mamoStub(calls, { charge = () => Response.json(MIT), payments = {}, charges = [], unsubscribe } = {}) {
   return async (url, options = {}) => {
     const path = String(url).replace(LIVE_BASE, "");
     const method = options.method || "GET";
     calls.push(`${method} ${path}`);
     if (method === "POST" && path === "/payments") return charge(jsonBody(options));
     if (method === "GET" && path.startsWith("/payments/")) return Response.json(payments[path.slice(10)]);
+    if (method === "GET" && path.startsWith("/charges?")) {
+      return Response.json({ data: charges, pagination_meta: { page: 1, next_page: null } });
+    }
+    if (method === "DELETE" && unsubscribe) return unsubscribe();
     if (path.endsWith("/subscribers") && method === "GET") {
       return Response.json([{ id: "SUBSCRIBER-1", status: "Active", customer: { email: "user@example.com" } }]);
     }
@@ -856,5 +860,57 @@ test("a second coupon checkout cannot redeem again and is stopped before renewal
     assert.equal(state.upserts.length, 0);
     assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
     assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-COUPON/subscribers/SUBSCRIBER-1"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a failed FIRST50 cleanup is retried when Mamo redelivers the callback", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  let unsubscribeOk = false;
+  try {
+    globalThis.fetch = mamoStub(calls, {
+      payments: { "PAY-VERIFY": VERIFIED },
+      charge: () => Response.json({ messages: ["Card declined"] }, { status: 422 }),
+      unsubscribe: () => (unsubscribeOk ? Response.json({ ok: true }) : Response.json({ messages: ["down"] }, { status: 500 }))
+    });
+    const { state, db } = couponDb({ link: COUPON_LINK });
+    assert.notEqual((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
+    assert.equal(state.redemption.status, "failed");
+    unsubscribeOk = true;
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
+    assert.equal(calls.filter((call) => call.startsWith("DELETE /subscriptions/MPB-SUB-COUPON/")).length, 2);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a FIRST50 charge stuck mid-request is recovered by external_id, or sent once it is stale", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const stuck = (updatedAt) => couponDb({
+    link: COUPON_LINK,
+    redemption: { payment_link_id: "MB-LINK-COUPON", card_id: "CARD-1", status: "charging", updated_at: updatedAt }
+  });
+  try {
+    // Mamo has the charge: settle it without charging again.
+    let calls = [];
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED, "PAY-MIT": MIT }, charges: [MIT] });
+    let { state, db } = stuck(new Date().toISOString());
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
+    assert.equal(state.redemption.status, "active");
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+
+    // No charge yet and the request is recent: it may still land, so ask Mamo to redeliver.
+    calls = [];
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED, "PAY-MIT": MIT } });
+    ({ state, db } = stuck(new Date().toISOString()));
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 503);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+
+    // No charge long after the request: it never reached Mamo, so send it now.
+    ({ state, db } = stuck(new Date(Date.now() - 10 * 60 * 1000).toISOString()));
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 1);
+    assert.equal(state.redemption.status, "active");
   } finally { globalThis.fetch = originalFetch; }
 });

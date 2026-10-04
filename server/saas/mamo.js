@@ -370,7 +370,8 @@ export async function settleCouponCharge(charge, link, { db, plans, config, sign
   }
   if (charge?.status === "failed") {
     // A failed first charge must not leave a full-price renewal scheduled; the coupon can be retried.
-    if (await db.advanceMamoCoupon(link.id, ["claimed", "charging"], "failed", charge.id, { signal })) {
+    // "failed" -> "failed" also matches, so a repeated callback retries cleanup that errored before.
+    if (await db.advanceMamoCoupon(link.id, ["claimed", "charging", "failed"], "failed", charge.id, { signal })) {
       await stopCouponCheckout(link, email, { config, signal });
     }
     return "failed";
@@ -378,22 +379,41 @@ export async function settleCouponCharge(charge, link, { db, plans, config, sign
   return "pending";
 }
 
-// Card verified on a coupon checkout: start the free month, or charge the discounted month once.
-export async function startCouponPeriod(payment, link, { db, plans, config, signal }) {
-  const email = payment?.customer_details?.email;
-  const claim = await db.claimMamoCoupon(link.id, payment?.payment_method?.card_id || null, payment.id, { signal });
-  if (claim?.conflict) {
-    await stopCouponCheckout(link, email, { config, signal });
-    return "conflict";
+// A charge whose request may or may not have reached Mamo is re-checked only after this long.
+const COUPON_CHARGE_STALE_MS = 5 * 60 * 1000;
+
+// Mamo lists charges newest first; the coupon charge is identified by its external_id.
+async function findCouponCharge(link, { config, signal }) {
+  const externalId = couponChargeExternalId(link.id);
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await mamoFetch(config, `/charges?page=${page}&per_page=50`, { signal });
+    if (!Array.isArray(result?.data)) throw new HttpError(502, "Mamo charge list was malformed.");
+    const match = result.data.find((row) => row?.external_id === externalId);
+    if (match || !result.pagination_meta?.next_page) return match || null;
   }
-  if (claim?.status === "active" || claim?.status === "failed") return claim.status;
-  if (Number(link.initial_amount_aed) === 0) {
-    await applyWebhookToSubscription(couponSubscriptionEvent(payment, link, "payment.card_verified"), { db, plans, config, signal });
-    await db.advanceMamoCoupon(link.id, ["claimed"], "active", null, { signal });
-    return "active";
+  return null;
+}
+
+// Settles from the canonical payment record, as callbacks do.
+async function settleCouponChargeById(chargeId, link, email, { db, plans, config, signal }) {
+  let charge;
+  try {
+    charge = await mamoFetch(config, `/payments/${encodeURIComponent(chargeId)}`, { signal });
+  } catch {
+    return "pending";
   }
-  // Compare-and-set: only one callback may ever request the discounted charge.
-  if (!claim?.card_id || !await db.advanceMamoCoupon(link.id, ["claimed"], "charging", null, { signal })) return "pending";
+  if (charge?.status !== "failed" && (Number(charge?.amount) !== Number(link.initial_amount_aed)
+    || charge?.amount_currency !== "AED" || charge?.external_id !== couponChargeExternalId(link.id))) {
+    console.error("Mamo coupon charge did not match", link.id);
+    return "pending";
+  }
+  return settleCouponCharge({ ...charge, customer_details: charge?.customer_details || { email } }, link,
+    { db, plans, config, signal });
+}
+
+// Requests the discounted charge on the saved card. Callers hold the "charging" state.
+async function chargeCoupon(claim, link, email, context) {
+  const { config, signal } = context;
   let charge;
   try {
     charge = await mamoFetch(config, "/payments", {
@@ -409,26 +429,53 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
     });
   } catch (error) {
     const status = Number(error?.details?.status);
-    // A timeout or 5xx may still have charged; never retry. The charge's own callback settles it.
+    // A timeout or 5xx may still have charged; never blindly retry. Its own callback settles it,
+    // and a redelivered verification callback looks it up by external_id (see recoverCouponCharge).
     if (!(status >= 400 && status < 500 && status !== 408 && status !== 429)) {
       console.error("Mamo coupon charge outcome unknown", link.id, error?.message);
-      return "pending";
+      throw new HttpError(503, "Mamo coupon charge outcome is unknown.");
     }
-    charge = { status: "failed", id: null, customer_details: { email } };
+    return settleCouponCharge({ status: "failed", id: null, customer_details: { email } }, link, context);
   }
-  if (charge?.id) {
-    // Settle from the canonical payment record, as callbacks do.
-    try {
-      charge = await mamoFetch(config, `/payments/${encodeURIComponent(charge.id)}`, { signal });
-    } catch {
-      return "pending";
-    }
+  if (!charge?.id) return "pending";
+  return settleCouponChargeById(charge.id, link, email, context);
+}
+
+// A redelivered verification found the coupon mid-charge (crash, lost response or timeout).
+// Settle the charge if Mamo has it; once stale with no charge on record, it was never sent.
+async function recoverCouponCharge(claim, link, email, context) {
+  const found = await findCouponCharge(link, context);
+  if (found?.id) return settleCouponChargeById(found.id, link, email, context);
+  if (!(Date.now() - Date.parse(claim.updated_at) >= COUPON_CHARGE_STALE_MS)) {
+    throw new HttpError(503, "Mamo coupon charge is still settling.");
   }
-  if (charge?.status !== "failed" && (Number(charge?.amount) !== Number(link.initial_amount_aed)
-    || charge?.amount_currency !== "AED" || charge?.external_id !== couponChargeExternalId(link.id))) {
-    console.error("Mamo coupon charge did not match", link.id);
-    return "pending";
+  return chargeCoupon(claim, link, email, context);
+}
+
+// Card verified on a coupon checkout: start the free month, or charge the discounted month once.
+export async function startCouponPeriod(payment, link, { db, plans, config, signal }) {
+  const context = { db, plans, config, signal };
+  const email = payment?.customer_details?.email;
+  const claim = await db.claimMamoCoupon(link.id, payment?.payment_method?.card_id || null, payment.id, { signal });
+  if (claim?.conflict) {
+    await stopCouponCheckout(link, email, { config, signal });
+    return "conflict";
   }
-  return settleCouponCharge({ ...charge, customer_details: charge?.customer_details || payment.customer_details }, link,
-    { db, plans, config, signal });
+  if (claim?.status === "active") return "active";
+  if (claim?.status === "failed") {
+    // Repeated so cleanup that errored on an earlier callback is retried.
+    await stopCouponCheckout(link, email, { config, signal });
+    return "failed";
+  }
+  if (claim?.status === "charging") return recoverCouponCharge(claim, link, email, context);
+  if (Number(link.initial_amount_aed) === 0) {
+    await applyWebhookToSubscription(couponSubscriptionEvent(payment, link, "payment.card_verified"), context);
+    await db.advanceMamoCoupon(link.id, ["claimed"], "active", null, { signal });
+    return "active";
+  }
+  // Compare-and-set: only one callback may ever request the discounted charge.
+  if (!claim?.card_id) return "pending";
+  const charging = await db.advanceMamoCoupon(link.id, ["claimed"], "charging", null, { signal });
+  if (!charging) return "pending";
+  return chargeCoupon(charging, link, email, context);
 }

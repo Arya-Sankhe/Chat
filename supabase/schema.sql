@@ -3150,6 +3150,11 @@ begin
   if found and claim.payment_link_id = link.id then
     return to_jsonb(claim) || '{"conflict":false}';
   end if;
+  -- Re-check checkout eligibility: the user may have subscribed since opening this checkout.
+  if exists (select 1 from public.subscriptions s where s.user_id = link.user_id
+    and coalesce(s.raw->>'payment_link_id', '') <> link.id) then
+    return jsonb_build_object('payment_link_id', link.id, 'status', 'ineligible', 'conflict', true);
+  end if;
   insert into public.mamo_coupon_redemptions as r (
     user_id, coupon_code, payment_link_id, card_id, verification_payment_id, status
   ) values (link.user_id, link.coupon_code, link.id, p_card_id, p_verification_payment_id, 'claimed')

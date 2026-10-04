@@ -54,6 +54,8 @@ begin
 end;
 $$;
 -- First-month coupons: one redemption per user, one discounted charge, trial periods.
+-- Coupons are for a first subscription: start from a user who has never subscribed.
+delete from public.subscriptions where user_id = '11111111-1111-4111-8111-000000009999';
 insert into public.mamo_payment_links (id, user_id, plan_id, amount_aed, subscription_id, coupon_code, initial_amount_aed, first_renewal_at)
 values ('LINK-C1','11111111-1111-4111-8111-000000009999','lite',10,'SUB-C1','FIRST50',5,'2099-11-04T20:00:00Z'),
        ('LINK-C2','11111111-1111-4111-8111-000000009999','lite',10,'SUB-C2','FIRSTFREE',0,'2099-11-04T20:00:00Z');
@@ -76,6 +78,17 @@ begin
   assert result->>'status' = 'failed', 'failed charge';
   result := public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2');
   assert not (result->>'conflict')::boolean and result->>'payment_link_id' = 'LINK-C2', 'failed coupon not released';
+  -- A coupon checkout opened before the user subscribed elsewhere cannot redeem afterwards.
+  begin
+    perform public.klui_advance_mamo_coupon('LINK-C2',array['claimed'],'failed');
+    insert into public.subscriptions (user_id, provider, provider_subscription_id, plan_id, status, raw)
+    values ('11111111-1111-4111-8111-000000009999','mamo','mamo:stale-checkout','lite','active',
+      '{"payment_link_id":"LINK-OTHER"}');
+    result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V3');
+    assert (result->>'conflict')::boolean and result->>'status' = 'ineligible', 'subscribed user redeemed a stale coupon checkout';
+    raise exception using errcode = 'P0042';
+  exception when sqlstate 'P0042' then null;
+  end;
   begin
     insert into public.mamo_payment_links (id, user_id, plan_id, amount_aed, coupon_code, initial_amount_aed, first_renewal_at)
     values ('LINK-BAD','11111111-1111-4111-8111-000000009999','lite',10,'FIRST50',10,now());
