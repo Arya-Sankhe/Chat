@@ -222,7 +222,6 @@ export async function handleCreateMamoPayment(req, res, config) {
   if (current?.provider === "mamo" && !current.cancel_at_period_end) {
     throw new HttpError(409, "Cancel your current renewal before starting another subscription.");
   }
-  await closeOtherCheckouts(context.db, context.user.id, { config, signal: req.signal });
   const link = await createPaymentLink(config, {
     user: context.user,
     plan,
@@ -236,6 +235,9 @@ export async function handleCreateMamoPayment(req, res, config) {
     amount_aed: link.renewalAmount, subscription_id: link.subscriptionId,
     ...(coupon ? { coupon_code: coupon.code, initial_amount_aed: link.initialAmount, first_renewal_at: link.firstRenewalAt } : {})
   }, { signal: req.signal });
+  if (!await closeOtherCheckouts(context.db, context.user.id, link.id, { config, signal: req.signal })) {
+    throw new HttpError(409, "Another checkout was just opened. Use the newest one.");
+  }
   sendJson(res, 200, {
     paymentUrl: link.paymentUrl,
     checkout: "mamo",

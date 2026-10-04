@@ -333,10 +333,24 @@ async function deactivateLink(config, linkId, { signal }) {
   }
 }
 
-// A new checkout closes the user's earlier ones, so two open checkouts cannot both be paid.
-export async function closeOtherCheckouts(db, userId, { config, signal }) {
-  for (const link of await db.listMamoPaymentLinks(userId, { signal })) {
-    await deactivateLink(config, link.id, { signal });
+// Opening a checkout closes the user's other ones, so two checkouts cannot both be paid. Runs
+// after the new link is stored; when requests race, the newest link wins and the rest close.
+export async function closeOtherCheckouts(db, userId, ownLinkId, { config, signal }) {
+  const links = await db.listMamoPaymentLinks(userId, { signal });
+  const own = links.find((link) => link.id === ownLinkId);
+  const newer = (a, b) => (a.created_at === b.created_at ? a.id > b.id : Date.parse(a.created_at) > Date.parse(b.created_at));
+  const superseded = own && links.some((link) => link.id !== ownLinkId && newer(link, own));
+  for (const link of links) {
+    if (link.id !== ownLinkId || superseded) await deactivateLink(config, link.id, { signal });
+  }
+  return !superseded;
+}
+
+// Unsubscribes the user from every checkout's schedule, whether or not a webhook recorded it.
+export async function stopAllMamoSchedules(db, user, { config, signal }) {
+  const links = await db.listMamoPaymentLinks(user.id, { signal });
+  for (const id of new Set(links.map((link) => link.subscription_id).filter(Boolean))) {
+    await unsubscribeEmail(config, id, user.email, { signal });
   }
 }
 
@@ -357,10 +371,7 @@ export async function cancelMamoRenewal(subscription, { db, user, config, signal
   } catch (error) {
     if (error?.details?.status !== 404) throw error;
   }
-  const links = await db.listMamoPaymentLinks(user.id, { signal });
-  for (const id of new Set(links.map((link) => link.subscription_id).filter(Boolean))) {
-    await unsubscribeEmail(config, id, user.email, { signal });
-  }
+  await stopAllMamoSchedules(db, user, { config, signal });
   return db.cancelMamoSubscription(user.id, raw.payment_link_id, { signal });
 }
 

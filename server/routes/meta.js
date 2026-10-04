@@ -2,7 +2,7 @@ import { configuredServices } from "../config.js";
 import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
-import { cancelMamoRenewal, mamoFetch } from "../saas/mamo.js";
+import { cancelMamoRenewal, mamoFetch, stopAllMamoSchedules } from "../saas/mamo.js";
 import { publicPlan } from "../saas/plans.js";
 import { storageUsage } from "../saas/storageQuota.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
@@ -89,6 +89,8 @@ export async function handleMe(req, res, config) {
         if (error?.details?.status !== 404) throw error;
       }
     }
+    // A payment whose webhook has not arrived yet has no local subscription; stop it anyway.
+    await stopAllMamoSchedules(context.db, context.user, { config, signal: req.signal });
     const subscription = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
     await cancelMamoRenewal(subscription, { db: context.db, user: context.user, config, signal: req.signal });
     if (typeof context.r2.deletePrefix === "function") {

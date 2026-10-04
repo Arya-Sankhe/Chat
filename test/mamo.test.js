@@ -966,38 +966,62 @@ test("a coupon charge search that cannot reach the claim's date never re-sends t
   } finally { globalThis.fetch = originalFetch; }
 });
 
+function linkStore(initial) {
+  const links = initial.map((link) => ({ ...link }));
+  return {
+    links,
+    db: {
+      async listMamoPaymentLinks() { return links.map((link) => ({ ...link })); },
+      async createMamoPaymentLink(row) {
+        await new Promise((resolve) => setImmediate(resolve));
+        links.push({ id: row.id, subscription_id: row.subscription_id, created_at: new Date().toISOString() });
+      }
+    }
+  };
+}
+
+function checkoutFetch(calls) {
+  let created = 0;
+  return async (url, options = {}) => {
+    const path = String(url).replace(LIVE_BASE, "");
+    const method = options.method || "GET";
+    calls.push(`${method} ${path}`);
+    if (method === "POST" && path === "/links") {
+      created += 1;
+      return Response.json({ id: `LINK-NEW-${created}`, payment_url: PAYMENT_URL, subscription: { identifier: `SUB-NEW-${created}` } });
+    }
+    if (method === "GET" && path.endsWith("/subscribers")) {
+      return Response.json([{ id: `SUBSCRIBER-${path.split("/")[2]}`, status: "Active", customer: { email: "user@example.com" } }]);
+    }
+    return Response.json({ ok: true });
+  };
+}
+
+const EARLIER_LINKS = [
+  { id: "LINK-A", subscription_id: "SUB-A", created_at: "2026-10-01T00:00:00.000Z" },
+  { id: "LINK-B", subscription_id: "SUB-B", created_at: "2026-10-02T00:00:00.000Z" }
+];
+
 test("a new checkout closes earlier ones, and cancelling stops every paid checkout's schedule", async () => {
   const originalFetch = globalThis.fetch;
   const config = loadConfig(mamoEnv());
   const calls = [];
   try {
-    globalThis.fetch = async (url, options = {}) => {
-      const path = String(url).replace(LIVE_BASE, "");
-      const method = options.method || "GET";
-      calls.push(`${method} ${path}`);
-      if (method === "POST" && path === "/links") {
-        return Response.json({ id: "LINK-NEW", payment_url: PAYMENT_URL, subscription: { identifier: "SUB-NEW" } });
-      }
-      if (method === "GET" && path.endsWith("/subscribers")) {
-        return Response.json([{ id: `SUBSCRIBER-${path.split("/")[2]}`, status: "Active", customer: { email: "user@example.com" } }]);
-      }
-      return Response.json({ ok: true });
-    };
-    // Two checkouts were opened and both paid before this change; each has its own schedule.
-    const links = [{ id: "LINK-A", subscription_id: "SUB-A" }, { id: "LINK-B", subscription_id: "SUB-B" }];
+    globalThis.fetch = checkoutFetch(calls);
+    const { db } = linkStore(EARLIER_LINKS);
     const opened = await dispatch(config, {
       method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
-      body: { planId: "pro" }, overrides: stubbedDeps({ db: { async listMamoPaymentLinks() { return links; } } })
+      body: { planId: "pro" }, overrides: stubbedDeps({ db })
     });
     assert.equal(opened.statusCode, 200);
-    assert.ok(calls.indexOf("PATCH /links/LINK-A") < calls.indexOf("POST /links"));
-    assert.ok(calls.includes("PATCH /links/LINK-B"));
+    assert.ok(calls.includes("PATCH /links/LINK-A") && calls.includes("PATCH /links/LINK-B"));
+    assert.ok(!calls.includes("PATCH /links/LINK-NEW-1"));
 
     calls.length = 0;
     const cancelled = await dispatch(config, {
       method: "POST", path: "/api/me/subscription/cancel", headers: { authorization: "Bearer token" }, body: {},
       overrides: stubbedDeps({ db: {
-        async listMamoPaymentLinks() { return links; },
+        async listMamoPaymentLinks() { return EARLIER_LINKS; },
         async getLatestSubscription() {
           return { provider: "mamo", status: "active", cancel_at_period_end: false,
             raw: { subscription_id: "SUB-B", subscriberId: "SUBSCRIBER-SUB-B", payment_link_id: "LINK-B" } };
@@ -1008,5 +1032,43 @@ test("a new checkout closes earlier ones, and cancelling stops every paid checko
     assert.equal(cancelled.statusCode, 200);
     assert.ok(calls.includes("DELETE /subscriptions/SUB-A/subscribers/SUBSCRIBER-SUB-A"));
     assert.ok(calls.includes("DELETE /subscriptions/SUB-B/subscribers/SUBSCRIBER-SUB-B"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("concurrent checkouts leave exactly one payable link", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv());
+  const calls = [];
+  try {
+    globalThis.fetch = checkoutFetch(calls);
+    const { links, db } = linkStore([]);
+    const results = await Promise.all([1, 2].map(() => dispatch(config, {
+      method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+      body: { planId: "pro" }, overrides: stubbedDeps({ db })
+    })));
+    const open = links.filter((link) => !calls.includes(`PATCH /links/${link.id}`));
+    assert.equal(links.length, 2);
+    assert.equal(open.length, 1);
+    // Whichever request lists last closes the older link (and answers 409 if its own is older).
+    assert.ok(results.some((res) => res.statusCode === 200));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("deleting an account before the payment webhook still stops the checkout's schedule", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv());
+  const calls = [];
+  try {
+    globalThis.fetch = checkoutFetch(calls);
+    const res = await dispatch(config, {
+      method: "DELETE", path: "/api/me", headers: { authorization: "Bearer token" },
+      overrides: stubbedDeps({ db: {
+        async listMamoPaymentLinks() { return [EARLIER_LINKS[0]]; },
+        async getLatestSubscription() { return null; },
+        async deleteAccount() {}
+      } })
+    });
+    assert.ok(calls.includes("PATCH /links/LINK-A"));
+    assert.ok(calls.includes("DELETE /subscriptions/SUB-A/subscribers/SUBSCRIBER-SUB-A"), `status ${res.statusCode}`);
   } finally { globalThis.fetch = originalFetch; }
 });
