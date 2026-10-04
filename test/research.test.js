@@ -434,7 +434,8 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(researchJs, /researchDownloadStatus[\s\S]*classList\.toggle\("hidden", !busy\)/);
   assert.match(styles, /\.research-download-status \{/);
   assert.doesNotMatch(app, /window\.print\(\)/);
-  assert.match(styles, /\.research-card\.is-active \.research-card-icon \{ animation: research-spin/);
+  assert.match(researchJs, /renderKluiThinkingStatus\(\{ id: `research-/);
+  assert.match(researchJs, /function patchResearchCard\(msg\)/);
   assert.match(styles, /research-report-tabs button\[aria-selected="true"\]/);
   assert.doesNotMatch(researchJs, /researchVisualTab\.classList\.toggle\("active"/);
   assert.doesNotMatch(html, /id="researchVisualTab"[^>]*class="active"|class="active"[^>]*id="researchVisualTab"/);

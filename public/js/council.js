@@ -10,7 +10,8 @@ export function createCouncilController({
   isPlaceholderPeerReason,
   compareModelAlias,
   renderCompareControls,
-  renderResearchMode
+  renderResearchMode,
+  renderKluiThinkingStatus = null
 }) {
   let councilDetailsOpenIds = new Set();
 
@@ -47,7 +48,7 @@ export function createCouncilController({
     <span class="council-stage ${stage.status}">
       <span class="council-stage-dot"></span>
       <span>${escapeHtml(stage.label)}</span>
-    </span>${index < stages.length - 1 ? '<span class="council-stage-sep"></span>' : ""}
+    </span>${index < stages.length - 1 ? `<span class="council-stage-sep ${stage.status === "done" ? "done" : ""}"></span>` : ""}
   `).join("")}</div>`;
   }
 
@@ -86,12 +87,20 @@ export function createCouncilController({
     return { label, sub, percent: Math.max(0, Math.min(100, percent)) };
   }
 
+  // While the council works, Klui narrates the stage; once the answer is in, the strip disappears.
   function renderCouncilProgress(council) {
     const progress = councilProgressState(council);
+    if (council.stage3Status === "done") return `<div class="council-progress is-done" hidden></div>`;
+    const errored = [council.stage1Status, council.stage2Status, council.stage3Status].includes("error");
+    const councilId = String(council.sessionId || council.id || "current-council");
+    const klui = !errored && renderKluiThinkingStatus
+      ? renderKluiThinkingStatus({ id: `council-${councilId}` }, { label: progress.label, active: true })
+      : `<div class="council-progress-copy"><span>${escapeHtml(progress.label)}</span></div>`;
     return `
-    <div class="council-progress" role="status" aria-live="polite">
-      <div class="council-progress-copy">
-        <span>${escapeHtml(progress.label)}</span>
+    <div class="council-progress${errored ? " is-error" : ""}" role="status" aria-live="polite">
+      ${klui}
+      <div class="council-progress-steps">
+        ${renderCouncilStages(council)}
         <small>${escapeHtml(progress.sub)}</small>
       </div>
       <div class="council-progress-track" aria-hidden="true">
@@ -143,10 +152,7 @@ export function createCouncilController({
   function renderCouncilSynthesis(chairman, panelists = []) {
     if (!chairman) {
       return `<div class="council-synthesis">
-      <div class="council-synthesis-head">
-        <span>Council Synthesis</span>
-      </div>
-      <div class="council-synthesis-pending">Waiting for the chairman to synthesize the final answer…</div>
+      <div class="council-synthesis-pending">The final answer appears here once the panel has weighed in.</div>
     </div>`;
     }
 
@@ -159,8 +165,8 @@ export function createCouncilController({
     return `
     <div class="council-synthesis"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="council-synthesis-head">
-        <span>Council Synthesis</span>
-        <span class="council-synthesis-model">by ${escapeHtml(modelName)}</span>
+        <span>Final answer</span>
+        <span class="council-synthesis-model">Chaired by ${escapeHtml(modelName)}</span>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </div>
       <div class="council-synthesis-body message-content">${renderAssistantMessageContent(msg)}</div>
@@ -199,7 +205,7 @@ export function createCouncilController({
     if (!progress) return false;
     progress.outerHTML = renderCouncilProgress(council);
 
-    const stages = article.querySelector(".council-stages");
+    const stages = article.querySelector(".council-details-body > .council-stages");
     if (stages) stages.outerHTML = renderCouncilStages(council);
     if (!syncCouncilPeerStatus(article, council)) return false;
 
@@ -208,7 +214,7 @@ export function createCouncilController({
     if (details && councilId) details.dataset.councilId = councilId;
 
     const sub = article.querySelector(".council-header-sub");
-    if (sub) sub.textContent = `${panelists.length} panelists${council.chairman ? " · 1 chairman" : ""}`;
+    if (sub) sub.textContent = councilHeaderSub(panelists, council);
 
     let synthesis = article.querySelector(".council-synthesis");
     if (!synthesis) return false;
@@ -237,6 +243,11 @@ export function createCouncilController({
     return true;
   }
 
+  function councilHeaderSub(panelists, council) {
+    const count = panelists.length || DEFAULT_COUNCIL_MODELS.length;
+    return `${count} models${council.chairman ? " · 1 chair" : ""}`;
+  }
+
   function renderCouncilMessage(council) {
     const panelists = council.panelists || [];
     const chairman = council.chairman || null;
@@ -251,17 +262,17 @@ export function createCouncilController({
       <div class="council-shell">
         <header class="council-header">
           <span class="council-header-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21h7l-1-5a3 3 0 00-3-3H4a3 3 0 00-3 3l-1 5h2"/><circle cx="5" cy="7" r="3"/><path d="M15 21h7l-1-5a3 3 0 00-3-3h-1a3 3 0 00-3 3l-1 5h2"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="3.5" r="2"/></svg>
           </span>
-          <span class="council-header-title">Model Council</span>
-          <span class="council-header-sub">${panelists.length} panelists${chairman ? " · 1 chairman" : ""}</span>
+          <span class="council-header-title">Council</span>
+          <span class="council-header-sub">${escapeHtml(councilHeaderSub(panelists, council))}</span>
         </header>
         ${renderCouncilProgress(council)}
         ${renderCouncilSynthesis(chairman, panelists)}
         <details class="council-details"${detailsOpen} data-council-id="${escapeHtml(councilId)}">
           <summary>
-            <span>How the council worked</span>
-            <small>${hasAnyRank ? "Rankings and individual answers" : "Individual answers and review progress"}</small>
+            <span>How the council got there</span>
+            <small>${hasAnyRank ? `${panelists.length} answers, peer ranked` : `${panelists.length} individual answers`}</small>
           </summary>
           <div class="council-details-body">
             ${renderCouncilStages(council)}

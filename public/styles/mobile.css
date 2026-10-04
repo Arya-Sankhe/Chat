@@ -824,15 +824,7 @@ body.chat-empty .composer-area {
 
   .council-stages {
 
-    align-items: flex-start;
-
     flex-wrap: wrap;
-
-  }
-
-  .council-stage-sep {
-
-    display: none;
 
   }
 

@@ -3,27 +3,36 @@
 .research-mode-chip.hidden { display: none; }
 .research-mode-chip .research-mode-mark.hidden { display: none; }
 .research-mode-chip button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 0 2px; font: inherit; }
-.research-card { width: min(820px, 100%); padding: 20px; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-secondary) 92%, var(--bg)); box-shadow: 0 1px 2px rgba(0,0,0,.03); }
-.research-card-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+/* Research card: one soft sheet. Klui narrates while it runs; the finished card reads like a cover. */
+.research-card { position: relative; width: min(760px, 100%); padding: 20px 22px 18px; border: 1px solid var(--border-light); border-radius: 18px; background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: research-card-in 380ms var(--ease-out) both; }
+.research-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; margin-bottom: 10px; }
 .research-card-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; color: var(--text-secondary); }
-.research-card.is-active .research-card-icon { border: 2px solid color-mix(in srgb, var(--text-tertiary) 35%, transparent); border-top-color: var(--text-secondary); }
-.research-card.is-active .research-card-icon { animation: research-spin 1s linear infinite; }
-.research-card.is-complete .research-card-icon { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
-.research-card.is-complete .research-card-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.research-card.is-active .research-card-icon { display: none; }
+.research-card.is-complete .research-card-icon { background: var(--text); color: var(--bg); }
+.research-card.is-complete .research-card-icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .research-card.is-stopped .research-card-icon { width: 8px; height: 8px; margin-inline: 5px; background: var(--text-tertiary); }
-@keyframes research-spin { to { transform: rotate(360deg); } }
+@keyframes research-card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .research-card-main { min-width: 0; }
-.research-card-kicker { color: var(--text-secondary); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: .08em; }
-.research-card-main strong { display: block; font-size: 17px; line-height: 1.35; }
-.research-card-main p { display: -webkit-box; margin: 8px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 14px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.research-card-progress { height: 3px; margin-top: 12px; overflow: hidden; border-radius: var(--radius-full); background: var(--border); }
-.research-card-progress span { display: block; height: 100%; background: var(--accent); transform: scaleX(var(--research-progress, 0)); transform-origin: left center; transition: transform 240ms var(--ease-in-out); }
-.research-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-light); }
-.research-card-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-tertiary); font-size: 12px; }
-.research-card-meta span + span::before { content: "·"; margin-right: 14px; }
+.research-card-kicker { color: var(--text-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.research-card-meta { display: inline-flex; flex-wrap: wrap; gap: 4px 9px; color: var(--text-tertiary); font-size: 12px; }
+.research-card-meta span::before { content: "·"; margin-right: 9px; }
+.research-card-main .research-card-title { display: block; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-size: 21px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; }
+.research-card-live { margin-top: 12px; }
+.research-card-live .thinking-status.klui-bar { margin: 0; }
+.research-card-main p { display: -webkit-box; margin: 10px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 14.5px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.research-card-progress { position: relative; height: 2px; margin-top: 16px; overflow: hidden; border-radius: var(--radius-full); background: var(--border-light); }
+.research-card-progress span { position: relative; display: block; height: 100%; overflow: hidden; background: var(--text); transform: scaleX(var(--research-progress, 0)); transform-origin: left center; transition: transform 600ms var(--ease-out); }
+.research-card-progress span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg) 70%, transparent), transparent); animation: research-shimmer 1.6s linear infinite; }
+@keyframes research-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.research-card-footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 14px; }
+.research-card.is-active .research-card-footer { margin-top: 8px; margin-bottom: -6px; }
+.research-card-footer:not(:has(button)) { display: none; }
 .research-card-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.research-card-actions button.secondary { border-color: transparent; background: transparent; color: var(--text-secondary); }
+.research-card-actions button.secondary:hover { color: var(--text); background: var(--bg-secondary); }
+.research-card-actions button:not(.secondary) { border-radius: var(--radius-full); padding-inline: 16px; background: var(--text); color: var(--bg); border-color: var(--text); transition: transform 140ms var(--ease-out); }
+.research-card-actions button:not(.secondary):hover { transform: translateX(2px); }
 .research-card-actions button, .research-report-header button:not([role="menuitem"]):not([role="tab"]) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
-.research-card-actions button:not(.secondary) { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
 .research-report-header #researchCopy.copy-flash { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
 .research-report-view { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: var(--bg); color: var(--text); }
 .research-report-view.hidden { display: none; }
@@ -134,8 +143,8 @@
 @keyframes report-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 720px) {
-  .research-card { padding: 16px; }
-  .research-card-footer { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .research-card { padding: 16px 16px 14px; border-radius: 16px; }
+  .research-card-main .research-card-title { font-size: 18px; }
   .research-card-actions { width: 100%; }
   .research-card-actions button { flex: 1; }
   .research-report-header { gap: 8px; padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
@@ -162,7 +171,8 @@
   .research-report-layout { display: block; width: 100%; margin: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .research-card.is-active .research-card-icon { animation: none; border-color: var(--text-tertiary); }
+  .research-card,
+  .research-card-progress span::after { animation: none; }
   .composer-tool,
   .send-btn,
   .stop-btn,

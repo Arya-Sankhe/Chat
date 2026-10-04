@@ -175,13 +175,25 @@ body.temporary-chat:not(.chat-empty) .messages {
 
 .compare-message-label {
 
-  margin-bottom: 12px;
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 7px;
+
+  margin-bottom: 14px;
 
   color: var(--text-tertiary);
 
   font-size: 13px;
 
-  font-weight: 500;
+  font-weight: 550;
+
+}
+
+.compare-message-label svg {
+
+  flex: 0 0 auto;
 
 }
 
@@ -1645,6 +1657,7 @@ body.visualize-expanded {
   }
 }
 
+/* Compare: two answers side by side, split by a single hairline. No cards. */
 .compare-message {
 
   max-width: min(1480px, calc(100vw - var(--sidebar-active-w) - 72px));
@@ -1661,21 +1674,50 @@ body.visualize-expanded {
 
   grid-template-columns: repeat(2, minmax(0, 1fr));
 
-  gap: 12px;
+  gap: 0;
 
 }
 
 .compare-response {
 
+  position: relative;
+
   min-width: 0;
 
-  border: 1px solid var(--border);
+  padding: 2px 36px 4px 0;
 
-  border-radius: 8px;
+  animation: compare-lane-in 360ms var(--ease-out, ease-out) both;
 
-  background: var(--bg);
+}
 
-  overflow: hidden;
+.compare-response + .compare-response {
+
+  padding: 2px 0 4px 36px;
+
+  animation-delay: 70ms;
+
+}
+
+/* The divider grows from the top, like a line being drawn between the two answers. */
+.compare-response + .compare-response::before {
+
+  content: "";
+
+  position: absolute;
+
+  top: 4px;
+
+  bottom: 4px;
+
+  left: 0;
+
+  width: 1px;
+
+  background: linear-gradient(to bottom, transparent, var(--border) 28px, var(--border) calc(100% - 28px), transparent);
+
+  transform-origin: top;
+
+  animation: compare-divider-in 520ms var(--ease-out, ease-out) both;
 
 }
 
@@ -1687,15 +1729,11 @@ body.visualize-expanded {
 
   gap: 8px;
 
-  min-height: 38px;
+  min-height: 28px;
 
-  padding: 9px 11px;
+  margin-bottom: 8px;
 
-  border-bottom: 1px solid var(--border-light);
-
-  background: var(--bg-secondary);
-
-  font-size: 13px;
+  font-size: 12px;
 
 }
 
@@ -1709,7 +1747,13 @@ body.visualize-expanded {
 
   white-space: nowrap;
 
+  color: var(--text-secondary);
+
   font-weight: 650;
+
+  letter-spacing: 0.06em;
+
+  text-transform: uppercase;
 
 }
 
@@ -1749,9 +1793,81 @@ body.visualize-expanded {
 
 .compare-response-body {
 
-  padding: 12px 14px 14px;
-
   font-size: 15px;
+
+}
+
+@keyframes compare-lane-in {
+
+  from { opacity: 0; transform: translateY(6px); }
+
+  to { opacity: 1; transform: none; }
+
+}
+
+@keyframes compare-divider-in {
+
+  from { transform: scaleY(0); }
+
+  to { transform: scaleY(1); }
+
+}
+
+@media (max-width: 860px) {
+
+  .compare-response,
+  .compare-response + .compare-response {
+
+    padding: 0;
+
+  }
+
+  .compare-response + .compare-response {
+
+    margin-top: 22px;
+
+    padding-top: 22px;
+
+  }
+
+  .compare-response + .compare-response::before {
+
+    top: 0;
+
+    right: 0;
+
+    bottom: auto;
+
+    width: auto;
+
+    height: 1px;
+
+    background: linear-gradient(to right, transparent, var(--border) 24px, var(--border) calc(100% - 24px), transparent);
+
+    transform-origin: left;
+
+    animation-name: compare-divider-in-x;
+
+  }
+
+  @keyframes compare-divider-in-x {
+
+    from { transform: scaleX(0); }
+
+    to { transform: scaleX(1); }
+
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .compare-response,
+  .compare-response + .compare-response::before {
+
+    animation: none;
+
+  }
 
 }
 

@@ -1158,6 +1158,20 @@ h2 {
   align-items: stretch;
 }
 
+.plans-coupon-note {
+  margin: 34px auto 0;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.plans-coupon-note a {
+  color: inherit;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
 .plan {
   position: relative;
   display: flex;

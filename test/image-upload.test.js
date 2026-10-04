@@ -96,3 +96,61 @@ test("images already within the limit are untouched", async () => {
   const file = new File(["small"], "photo.webp", { type: "image/webp" });
   assert.equal(await downscaleImageForUpload(file), file);
 });
+
+function mockCanvasEnvironment({ width, height }) {
+  const draws = [];
+  const original = { createImageBitmap: globalThis.createImageBitmap, document: globalThis.document };
+  let closed = false;
+  globalThis.createImageBitmap = async () => ({ width, height, close() { closed = true; } });
+  globalThis.document = {
+    createElement() {
+      const canvas = {
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          drawImage: (_source, _x, _y, w, h) => draws.push([w, h])
+        }),
+        toBlob(callback, type, quality) {
+          canvas.quality = quality;
+          callback(new Blob([new Uint8Array(Math.round(canvas.width * canvas.height / 8))], { type }));
+        }
+      };
+      return canvas;
+    }
+  };
+  return {
+    draws,
+    get closed() { return closed; },
+    restore() {
+      globalThis.createImageBitmap = original.createImageBitmap;
+      if (original.document === undefined) delete globalThis.document;
+      else globalThis.document = original.document;
+    }
+  };
+}
+
+test("large photos under the byte cap are fit to a 2048px long edge in halving steps", async () => {
+  const env = mockCanvasEnvironment({ width: 6000, height: 4000 });
+  try {
+    const file = new File([new Uint8Array(3 * 1024 * 1024)], "camera.jpg", { type: "image/jpeg" });
+    const resized = await downscaleImageForUpload(file);
+    assert.notEqual(resized, file);
+    assert.equal(resized.type, "image/jpeg");
+    assert.deepEqual(env.draws, [[3000, 2000], [2048, 1365]]);
+    assert.equal(env.closed, true);
+  } finally {
+    env.restore();
+  }
+});
+
+test("images already within 2048px and the byte cap are not re-encoded", async () => {
+  const env = mockCanvasEnvironment({ width: 1920, height: 1080 });
+  try {
+    const file = new File([new Uint8Array(900 * 1024)], "shot.png", { type: "image/png" });
+    assert.equal(await downscaleImageForUpload(file), file);
+    assert.deepEqual(env.draws, []);
+    assert.equal(env.closed, true);
+  } finally {
+    env.restore();
+  }
+});

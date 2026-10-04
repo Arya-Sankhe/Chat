@@ -558,6 +558,67 @@ body.chat-empty .home-wallpaper {
   transition-delay: 0s;
 }
 
+/* Once a chat starts, the home scene stays behind it as faint monochrome line art.
+   It is strongest in the side gutters and fades to a whisper under the reading column. */
+.chat-wallpaper-outline {
+  position: absolute;
+  inset: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 520ms ease-out,
+    visibility 0s linear 520ms;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / 0.55) 22%, rgb(0 0 0 / 0.16) 38%, rgb(0 0 0 / 0.16) 62%, rgb(0 0 0 / 0.55) 78%, #000 100%);
+  mask-image: linear-gradient(90deg, #000 0%, rgb(0 0 0 / 0.55) 22%, rgb(0 0 0 / 0.16) 38%, rgb(0 0 0 / 0.16) 62%, rgb(0 0 0 / 0.55) 78%, #000 100%);
+}
+
+.chat-wallpaper-outline::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--text);
+  -webkit-mask: var(--chat-outline-image, none) center bottom / cover no-repeat;
+  mask: var(--chat-outline-image, none) center bottom / cover no-repeat;
+}
+
+@media (min-width: 861px) {
+  .chat-wallpaper-outline {
+    grid-column: 2 / 3;
+  }
+}
+
+body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
+  opacity: 0.09;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+body[data-mode="dark"]:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
+  opacity: 0.13;
+}
+
+body.study-open .chat-wallpaper-outline,
+body.study-session-open .chat-wallpaper-outline {
+  visibility: hidden !important;
+}
+
+@media (max-width: 860px) {
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]) .chat-wallpaper-outline {
+    opacity: 0.08;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-wallpaper-outline {
+    transition: none;
+  }
+}
+
 /* Temporary chat is a blank sheet with one hand-drawn, erasable line. */
 .temporary-chat-art {
   position: fixed;

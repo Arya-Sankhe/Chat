@@ -648,10 +648,44 @@ function uploadCategory(file) {
 }
 
 const RESIZABLE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+// Vision models read images at about 2048px on the long edge, so larger photos are fit to that.
+// It keeps small text in screenshots legible while cutting upload time and token cost.
+export const IMAGE_UPLOAD_MAX_EDGE = 2048;
 
-export async function downscaleImageForUpload(file, maxBytes = imageUploadMaxBytes, { signal } = {}) {
-  if (uploadCategory(file) !== "image" || file.size <= maxBytes) return file;
-  if (file.type === "image/gif") throw new Error(`Animated GIFs must be ${Math.floor(maxBytes / 1024 / 1024)}MB or smaller.`);
+function imageCanvas(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This browser could not resize the image.");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  return { canvas, context };
+}
+
+// One big drawImage jump aliases fine detail; halving in steps keeps edges and text clean.
+function drawImageScaled(bitmap, width, height) {
+  let source = bitmap;
+  let sourceWidth = bitmap.width;
+  let sourceHeight = bitmap.height;
+  while (sourceWidth / 2 >= width && sourceHeight / 2 >= height) {
+    const step = imageCanvas(Math.round(sourceWidth / 2), Math.round(sourceHeight / 2));
+    step.context.drawImage(source, 0, 0, step.canvas.width, step.canvas.height);
+    source = step.canvas;
+    sourceWidth = step.canvas.width;
+    sourceHeight = step.canvas.height;
+  }
+  const target = imageCanvas(width, height);
+  target.context.drawImage(source, 0, 0, width, height);
+  return target.canvas;
+}
+
+export async function downscaleImageForUpload(file, maxBytes = imageUploadMaxBytes, { signal, maxEdge = IMAGE_UPLOAD_MAX_EDGE } = {}) {
+  if (uploadCategory(file) !== "image") return file;
+  if (file.type === "image/gif") {
+    if (file.size <= maxBytes) return file;
+    throw new Error(`Animated GIFs must be ${Math.floor(maxBytes / 1024 / 1024)}MB or smaller.`);
+  }
   if (!RESIZABLE_IMAGE_TYPES.has(file.type)) return file;
 
   let bitmap;
@@ -660,25 +694,25 @@ export async function downscaleImageForUpload(file, maxBytes = imageUploadMaxByt
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch (error) {
     if (signal?.aborted) throw error;
+    // An image within the limit can still go up as-is; the server validates it.
+    if (file.size <= maxBytes) return file;
     throw new Error("The image could not be read.");
   }
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close?.();
-    throw new Error("This browser could not resize the image.");
-  }
-  let scale = Math.min(0.98, Math.sqrt(maxBytes / file.size) * 0.98);
 
   try {
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    let scale = Math.min(1, maxEdge / longEdge);
+    if (scale === 1 && file.size <= maxBytes) return file;
+    // Bytes shrink roughly with pixel count; aim under the cap on the first encode.
+    if (file.size * scale * scale > maxBytes) scale = Math.min(0.98, Math.sqrt(maxBytes / file.size) * 0.98);
+
     for (let attempt = 0; attempt < 6; attempt += 1) {
       signal?.throwIfAborted();
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      context.imageSmoothingQuality = "high";
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      // Resizing loses pixels; preserve the source format and favor visual quality.
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, file.type, 0.92));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = drawImageScaled(bitmap, width, height);
+      // Keep the source format (PNG stays lossless for screenshots); lossy formats keep high quality.
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, file.type, 0.9));
       signal?.throwIfAborted();
       if (!blob || blob.type !== file.type) throw new Error("This browser could not resize the image.");
       if (blob.size <= maxBytes) {

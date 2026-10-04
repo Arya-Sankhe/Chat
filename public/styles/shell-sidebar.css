@@ -1377,3 +1377,8 @@ body:not(.sidebar-expanded) .conversation-row {
   color: var(--danger);
 
 }
+
+/* Sections switched off for now (e.g. Projects) stay out of the rail. */
+.sidebar-nav-item[hidden] {
+  display: none;
+}
