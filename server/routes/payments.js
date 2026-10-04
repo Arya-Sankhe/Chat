@@ -1,12 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
 import { generateNonce } from "../saas/council.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
-import { hasActiveSubscription } from "../saas/entitlements.js";
 import {
   applyWebhookToSubscription,
+  couponChargeExternalId,
+  couponPrice,
   createPaymentLink,
-  listSubscribers,
-  unsubscribe
+  mamoCharges,
+  mamoFetch,
+  cancelMamoRenewal,
+  settleCouponCharge,
+  startCouponPeriod
 } from "../saas/mamo.js";
 import { authContext, bearerContext, requireAdminContext } from "./context.js";
 import { clearAdminSummaryCache } from "./admin.js";
@@ -168,21 +172,78 @@ function publicMamoSubscription(row) {
   };
 }
 
+// First-month coupons are for a user's first Klui subscription, once per account.
+async function eligibleCoupon(context, config, code, signal) {
+  const coupon = config.mamo?.coupons?.get(String(code || "").trim().toUpperCase());
+  if (!coupon) throw new HttpError(400, "That coupon code isn't valid.");
+  const [current, redemption] = await Promise.all([
+    context.db.getLatestSubscription(context.user.id, { signal }),
+    context.db.getMamoCouponRedemption(context.user.id, { signal })
+  ]);
+  if (current || (redemption && redemption.status !== "failed")) {
+    throw new HttpError(409, "This coupon is only for your first Klui subscription.");
+  }
+  return coupon;
+}
+
+// Prices are before Mamo's processing fee; charges are what the card is billed.
+function publicCouponOffer(plan, coupon, config, firstRenewalAt = null) {
+  const { renewalAmount, initialAmount } = mamoCharges(plan, coupon, config);
+  return {
+    code: coupon.code,
+    percentOff: coupon.percentOff,
+    planId: plan.id,
+    initialAmountAed: couponPrice(plan, coupon),
+    renewalAmountAed: plan.amountAed,
+    initialChargeAed: initialAmount,
+    renewalChargeAed: renewalAmount,
+    ...(firstRenewalAt ? { firstRenewalAt } : {})
+  };
+}
+
+export async function handleCheckMamoCoupon(req, res, config) {
+  const context = await authContext(req, config);
+  const body = await parseJsonBody(req, 16 * 1024);
+  const coupon = await eligibleCoupon(context, config, body.coupon, req.signal);
+  sendJson(res, 200, { coupon: { code: coupon.code, percentOff: coupon.percentOff },
+    offers: config.plans.filter((plan) => plan.amountAed > 0).map((plan) => publicCouponOffer(plan, coupon, config)) });
+}
+
 export async function handleCreateMamoPayment(req, res, config) {
   const context = await authContext(req, config);
-  if (!config.mamo?.apiKey) throw new HttpError(503, "Mamo is not configured.");
+  if (!config.mamo?.apiKey || !config.mamo?.webhookAuth) throw new HttpError(503, "Mamo is not configured.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
   const plan = config.plans.find((candidate) => candidate.id === planId);
   if (!plan) throw new HttpError(400, "Choose a valid Klui plan.");
+  const coupon = String(body.coupon || "").trim() ? await eligibleCoupon(context, config, body.coupon, req.signal) : null;
+  const current = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
+  if (current?.provider === "mamo" && !current.cancel_at_period_end) {
+    throw new HttpError(409, "Cancel your current renewal before starting another subscription.");
+  }
   const link = await createPaymentLink(config, {
     user: context.user,
     plan,
     appUrl: config.appUrl,
+    coupon,
     signal: req.signal
   });
-  sendJson(res, 200, { paymentUrl: link.paymentUrl, checkout: "mamo" });
+  if (!link.id) throw new HttpError(502, "Mamo did not return a payment link ID.");
+  await context.db.createMamoPaymentLink({
+    id: link.id, user_id: context.user.id, plan_id: plan.id,
+    amount_aed: link.renewalAmount, subscription_id: link.subscriptionId,
+    ...(coupon ? { coupon_code: coupon.code, initial_amount_aed: link.initialAmount, first_renewal_at: link.firstRenewalAt } : {})
+  }, { signal: req.signal });
+  sendJson(res, 200, {
+    paymentUrl: link.paymentUrl,
+    checkout: "mamo",
+    ...(coupon ? { offer: publicCouponOffer(plan, coupon, config, link.firstRenewalAt) } : {})
+  });
 }
+
+const mamoBillingEvents = new Set(["payment.succeeded", "payment.failed", "payment.card_verified",
+  "subscription.succeeded", "subscription.failed", "payment.refunded",
+  "charge.succeeded", "charge.failed", "charge.card_verified", "charge.refunded"]);
 
 export async function handleMamoWebhook(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
@@ -198,12 +259,48 @@ export async function handleMamoWebhook(req, res, config) {
   // ponytail: 64KiB webhook payload cap.
   const payload = await parseJsonBody(req, 64 * 1024);
   const { db } = bearerContext(config);
-  await applyWebhookToSubscription(payload, {
-    db,
-    plans: config.plans,
-    config,
-    signal: req.signal
-  });
+  if (!mamoBillingEvents.has(payload?.event_type)) {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (!payload.id) throw new HttpError(400, "Payment ID is required.");
+  // Read the provider's current payment state: redirects and callback fields cannot grant access.
+  const payment = await mamoFetch(config, `/payments/${encodeURIComponent(payload.id)}`, { signal: req.signal });
+  const link = await db.getMamoPaymentLink(payment?.payment_link_id, { signal: req.signal });
+  if (!link) throw new HttpError(409, "Payment link is not registered with this app.");
+  // A coupon's discounted first month is a separate saved-card charge; renewals are full price.
+  const couponCharge = Boolean(link.coupon_code) && payment?.external_id === couponChargeExternalId(link.id);
+  if (payment?.id !== payload.id || payment.amount_currency !== "AED"
+    || Number(payment.amount) !== Number(couponCharge ? link.initial_amount_aed : link.amount_aed)
+    || (link.subscription_id && payment.subscription_id && payment.subscription_id !== link.subscription_id)
+    || (link.subscription_id && !payment.subscription_id && !couponCharge)) {
+    throw new HttpError(400, "Payment does not match the registered checkout.");
+  }
+  const context = { db, plans: config.plans, config, signal: req.signal };
+  if (payment.status === "card_verified") {
+    if (link.coupon_code) await startCouponPeriod(payment, link, context);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
+  if (couponCharge && !fullRefund) {
+    await settleCouponCharge(payment, link, context);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) {
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+  await applyWebhookToSubscription({
+    ...payment,
+    event_type: fullRefund ? "payment.refunded"
+      : ["captured", "succeeded"].includes(payment.status) ? "payment.succeeded" : "subscription.failed",
+    payment_link_id: link.id,
+    subscription_id: payment.subscription_id || link.subscription_id,
+    next_payment_date: payment.next_payment_date || payload.next_payment_date,
+    custom_data: { userId: link.user_id, planId: link.plan_id }, external_id: link.user_id
+  }, context);
   sendJson(res, 200, { ok: true });
 }
 
@@ -211,45 +308,9 @@ export async function handleCancelSubscription(req, res, config) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await authContext(req, config);
   const subscription = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
-  if (subscription?.provider !== "mamo" || !hasActiveSubscription(subscription)) {
+  if (subscription?.provider !== "mamo") {
     throw new HttpError(400, "This plan cannot be cancelled here.");
   }
-  if (subscription.cancel_at_period_end) {
-    sendJson(res, 200, { subscription: publicMamoSubscription(subscription) });
-    return;
-  }
-
-  const raw = subscription.raw && typeof subscription.raw === "object" ? subscription.raw : {};
-  const mamoPlanSubscriptionId = String(raw.mamoPlanSubscriptionId || raw.subscription_id || "").trim();
-  let subscriberId = String(raw.subscriberId || "").trim();
-  if (!subscriberId && mamoPlanSubscriptionId && context.user.email) {
-    const match = (await listSubscribers(config, mamoPlanSubscriptionId, { signal: req.signal }))
-      .find((row) => String(row?.customer?.email || "").trim().toLowerCase() === String(context.user.email).trim().toLowerCase());
-    subscriberId = String(match?.id || "").trim();
-  }
-  if (!mamoPlanSubscriptionId || !subscriberId) {
-    throw new HttpError(502, "Mamo subscriber was not found.");
-  }
-
-  try {
-    await unsubscribe(config, mamoPlanSubscriptionId, subscriberId, { signal: req.signal });
-  } catch (error) {
-    if (error?.details?.status !== 404) throw error;
-  }
-
-  const updated = await context.db.upsertSubscription({
-    user_id: context.user.id,
-    provider: "mamo",
-    provider_subscription_id: subscription.provider_subscription_id || `mamo:${context.user.id}`,
-    provider_customer_id: subscription.provider_customer_id || context.user.email || context.user.id,
-    provider_price_id: subscription.provider_price_id || subscription.plan_id,
-    plan_id: subscription.plan_id,
-    status: subscription.status,
-    cancel_at_period_end: true,
-    current_period_end: subscription.current_period_end,
-    raw,
-    updated_at: new Date().toISOString()
-  }, { signal: req.signal });
-
-  sendJson(res, 200, { subscription: publicMamoSubscription(updated || { ...subscription, cancel_at_period_end: true }) });
+  const updated = await cancelMamoRenewal(subscription, { db: context.db, user: context.user, config, signal: req.signal });
+  sendJson(res, 200, { subscription: publicMamoSubscription(updated) });
 }

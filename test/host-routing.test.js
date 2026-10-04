@@ -282,7 +282,7 @@ test("chat document and marketing page keep distinct canonicals and the moved no
   assert.match(home, /property="og:site_name" content="Klui for students"/);
   assert.match(home, /Locked in so you can/);
   assert.match(home, /rel="canonical" href="https:\/\/home.klui.ai\/"/);
-  assert.match(home, /one AI workspace for student life/i);
+  assert.match(home, /the AI study app for students/i);
   assert.doesNotMatch(home, /unleash|seamless|next-gen|Sign up|Start playing/i);
   assert.match(home, /"@type": "Organization"[\s\S]*?"url": "https:\/\/klui\.ai\/"/);
   assert.match(home, /"@type": "WebSite"[\s\S]*?"name": "Klui for students"[\s\S]*?"url": "https:\/\/home\.klui\.ai\/"/);

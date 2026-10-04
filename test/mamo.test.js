@@ -5,6 +5,7 @@ import test from "node:test";
 import { configuredServices, loadConfig } from "../server/config.js";
 import { createApiHandler } from "../server/routes.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
+import { withProcessingFee } from "../server/saas/mamo.js";
 import { loadPlans, publicPlan } from "../server/saas/plans.js";
 
 const SUPABASE_ENV = {
@@ -26,8 +27,6 @@ function mamoEnv(extra = {}) {
     ...SUPABASE_ENV,
     MAMO_API_KEY: MAMO_KEY,
     MAMO_WEBHOOK_AUTH: WEBHOOK_SECRET,
-    PLAN_LITE_MAMO_SUBSCRIPTION_ID: PLAN_SUB_LITE,
-    PLAN_PRO_MAMO_SUBSCRIPTION_ID: "MPB-SUB-PRO",
     ...extra
   };
 }
@@ -88,6 +87,9 @@ async function dispatch(config, { method = "GET", path, headers, body, overrides
 function stubbedDeps({ role = "user", db = {} } = {}) {
   return {
     createDb: () => ({
+      async listMamoPaymentLinks() { return []; },
+      async getLatestSubscription() { return null; },
+      async createMamoPaymentLink() {},
       async upsertProfile() { return { id: "user-1", role, created_at: "2026-01-01T00:00:00.000Z" }; },
       ...db
     }),
@@ -102,7 +104,7 @@ function stubbedDeps({ role = "user", db = {} } = {}) {
 function webhookDb(upserts) {
   return {
     async getLatestSubscription() { return null; },
-    async upsertSubscription(row) {
+    async applyMamoSubscription(row) {
       upserts.push(row);
       return row;
     }
@@ -175,8 +177,7 @@ test("configuredServices does not grow a mamo key", () => {
 
 test("publicPlan checkout is mamo when enabled, never leaks the api key", () => {
   const plans = loadPlans({
-    PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite",
-    PLAN_LITE_MAMO_SUBSCRIPTION_ID: PLAN_SUB_LITE
+    PLAN_LITE_ZIINA_PAYMENT_URL: "https://ziina.com/pay/lite"
   });
   const enabled = publicPlan(plans[0], true);
   const ziina = publicPlan(plans[0], false);
@@ -185,6 +186,8 @@ test("publicPlan checkout is mamo when enabled, never leaks the api key", () => 
   assert.equal(enabled.checkout, "mamo");
   assert.equal(ziina.checkout, "ziina");
   assert.equal(none.checkout, "none");
+  assert.equal(publicPlan(plans[0], true, loadConfig({}).mamo.fees).chargeAed, 11.46);
+  assert.equal(ziina.chargeAed, 10);
   assert.equal("apiKey" in enabled, false);
   assert.equal("mamoApiKey" in enabled, false);
   assert.doesNotMatch(JSON.stringify(enabled), /mamo-test-key|apiKey/);
@@ -280,7 +283,7 @@ test("POST /api/payments/mamo is 503 when Mamo is not configured", async () => {
   assert.equal(res.json().error, "Mamo is not configured.");
 });
 
-test("POST /api/payments/mamo creates a Mamo payment link with custom_data, external_id, and AED", {
+test("POST /api/payments/mamo creates a monthly Mamo link that adds the processing fee", {
   concurrency: false
 }, async () => {
   const originalFetch = globalThis.fetch;
@@ -310,25 +313,27 @@ test("POST /api/payments/mamo creates a Mamo payment link with custom_data, exte
     assert.match(requestHeader(calls[0].options, "authorization"), new RegExp(`^Bearer\\s+${MAMO_KEY}$`, "i"));
     const body = jsonBody(calls[0].options);
     assert.equal(body.amount_currency, "AED");
-    assert.equal(Number(body.amount), 10);
+    // 10 + 3.4% + AED 1 + 5% VAT on the fee nets Klui exactly AED 10.
+    assert.equal(Number(body.amount), 11.46);
+    assert.equal(body.description, "AED 10/month + AED 1.46 fee");
     assert.equal(body.custom_data?.userId, "user-1");
     assert.equal(body.external_id, "user-1");
-    assert.equal(body.subscription_id, PLAN_SUB_LITE);
-    assert.equal(body.link_type, "inline");
+    assert.equal(body.subscription?.frequency, "monthly");
+    assert.equal(body.link_type, "standalone");
     assert.equal(body.send_customer_receipt, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("POST /api/payments/mamo uses a legacy monthly subscription object when no plan subscription id is set", {
+test("POST /api/payments/mamo charges the plan price when processing fees are set to zero", {
   concurrency: false
 }, async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
-    return new Response(JSON.stringify({ payment_url: PAYMENT_URL }), {
+    return new Response(JSON.stringify({ id: "MB-LINK-TEST", payment_url: PAYMENT_URL }), {
       status: 200,
       headers: { "content-type": "application/json" }
     });
@@ -338,7 +343,9 @@ test("POST /api/payments/mamo uses a legacy monthly subscription object when no 
     const config = loadConfig({
       ...SUPABASE_ENV,
       MAMO_API_KEY: MAMO_KEY,
-      MAMO_WEBHOOK_AUTH: WEBHOOK_SECRET
+      MAMO_WEBHOOK_AUTH: WEBHOOK_SECRET,
+      MAMO_FEE_PERCENT: "0",
+      MAMO_FEE_FIXED_AED: "0"
     });
     const res = await dispatch(config, {
       method: "POST",
@@ -395,90 +402,143 @@ test("POST /api/payments/mamo/webhook rejects missing or wrong Authorization", a
   assert.equal(sameLength.statusCode, 401);
 });
 
-test("POST /api/payments/mamo/webhook accepts Bearer prefix and upserts on payment.succeeded", async () => {
-  const upserts = [];
+test("webhooks use verified provider state and immutable checkout ownership", async () => {
+  const originalFetch = globalThis.fetch;
   const config = loadConfig(mamoEnv());
-  const overrides = stubbedDeps({
-    db: webhookDb(upserts)
-  });
-
-  const res = await dispatch(config, {
-    method: "POST",
-    path: "/api/payments/mamo/webhook",
-    headers: { authorization: `Bearer ${WEBHOOK_SECRET}` },
-    body: {
-      event_type: "payment.succeeded",
-      status: "captured",
-      custom_data: { userId: "user-1", planId: "pro" },
-      external_id: "ignored-if-userId-present",
-      next_payment_date: "24/09/2026",
-      subscription_id: "MPB-SUB-PRO"
-    },
-    overrides
-  });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { ok: true });
-  assert.equal(upserts.length, 1);
-  assert.equal(upserts[0].provider, "mamo");
-  assert.equal(upserts[0].provider_subscription_id, "mamo:user-1");
-  assert.equal(upserts[0].status, "active");
-  assert.equal(upserts[0].user_id, "user-1");
-  const end = periodEndDate(upserts[0].current_period_end);
-  assert.equal(end.getUTCFullYear(), 2026);
-  assert.equal(end.getUTCMonth(), 8);
-  assert.equal(end.getUTCDate(), 24);
+  try {
+    for (const scenario of ["success", "renewal", "refund", "partial", "tampered", "unmapped"]) {
+      const upserts = [];
+      const payment = {
+        id: "PAY-TEST", payment_link_id: "MB-LINK-TEST", status: "captured",
+        amount: scenario === "tampered" ? 1 : 30, amount_currency: "AED",
+        subscription_id: "MPB-SUB-PRO", created_date: "2026-10-04-00-00-00",
+        refund_amount: scenario === "refund" ? 30 : scenario === "partial" ? 5 : 0,
+        next_payment_date: "04/11/2026", custom_data: {}, external_id: null
+      };
+      globalThis.fetch = async (url) => {
+        assert.equal(String(url), `${LIVE_BASE}/payments/PAY-TEST`);
+        return Response.json(payment);
+      };
+      const res = await dispatch(config, {
+        method: "POST", path: "/api/payments/mamo/webhook",
+        headers: { authorization: `Bearer ${WEBHOOK_SECRET}` },
+        body: { id: "PAY-TEST", event_type: scenario === "renewal" ? "subscription.succeeded"
+          : ["refund","partial"].includes(scenario) ? "payment.refunded" : "payment.succeeded",
+          custom_data: { userId: "attacker", planId: "max" } },
+        overrides: stubbedDeps({ db: {
+          ...webhookDb(upserts),
+          async getMamoPaymentLink(id) {
+            assert.equal(id, "MB-LINK-TEST");
+            return scenario === "unmapped" ? null : { user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PRO" };
+          }
+        } })
+      });
+      if (["tampered", "unmapped"].includes(scenario)) {
+        assert.equal(res.statusCode, scenario === "tampered" ? 400 : 409);
+        assert.equal(upserts.length, 0);
+      } else {
+        assert.equal(res.statusCode, 200);
+        assert.equal(upserts.length, 1);
+        assert.equal(upserts[0].user_id, "user-1");
+        assert.equal(upserts[0].plan_id, "pro");
+        assert.equal(upserts[0].status, scenario === "refund" ? "canceled" : "active");
+        // Access lasts through the whole Dubai renewal day (ends 20:00 UTC).
+        assert.equal(upserts[0].current_period_end, "2026-11-04T20:00:00.000Z");
+      }
+    }
+  } finally { globalThis.fetch = originalFetch; }
 });
 
-test("POST /api/payments/mamo/webhook reads user id from external_id and upserts subscription.succeeded", async () => {
-  const upserts = [];
-  const res = await dispatch(loadConfig(mamoEnv()), {
-    method: "POST",
-    path: "/api/payments/mamo/webhook",
-    headers: { authorization: WEBHOOK_SECRET },
-    body: {
-      event_type: "subscription.succeeded",
-      status: "captured",
-      custom_data: { planId: "lite" },
-      external_id: "user-1",
-      next_payment_date: "01/10/2026"
-    },
-    overrides: stubbedDeps({ db: webhookDb(upserts) })
-  });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { ok: true });
-  assert.equal(upserts.length, 1);
-  assert.equal(upserts[0].provider, "mamo");
-  assert.equal(upserts[0].provider_subscription_id, "mamo:user-1");
-  assert.equal(upserts[0].status, "active");
-  const end = periodEndDate(upserts[0].current_period_end);
-  assert.equal(end.getUTCFullYear(), 2026);
-  assert.equal(end.getUTCMonth(), 9);
-  assert.equal(end.getUTCDate(), 1);
-});
-
-test("POST /api/payments/mamo/webhook marks payment.refunded as canceled", async () => {
-  const upserts = [];
-  const res = await dispatch(loadConfig(mamoEnv()), {
-    method: "POST",
-    path: "/api/payments/mamo/webhook",
-    headers: { authorization: `Bearer ${WEBHOOK_SECRET}` },
-    body: {
-      event_type: "payment.refunded",
-      status: "refunded",
+test("failed Mamo subscriptions cannot create, extend, or revive paid access", async () => {
+  const { applyWebhookToSubscription } = await import("../server/saas/mamo.js");
+  const now = new Date("2026-10-04T00:00:00Z");
+  const end = "2026-11-01T00:00:00.000Z";
+  for (const existing of [
+    null,
+    { provider: "ziina", status: "active", plan_id: "lite", current_period_end: end },
+    { provider: "mamo", status: "canceled", plan_id: "lite", current_period_end: end },
+    { provider: "mamo", status: "active", plan_id: "lite", current_period_end: null },
+    { provider: "mamo", status: "active", plan_id: "lite", current_period_end: end }
+  ]) {
+    const upserts = [];
+    await applyWebhookToSubscription({
+      event_type: "subscription.failed", status: "failed",
       custom_data: { userId: "user-1", planId: "lite" },
-      external_id: "user-1"
-    },
-    overrides: stubbedDeps({ db: webhookDb(upserts) })
-  });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { ok: true });
-  assert.equal(upserts.length, 1);
-  assert.equal(upserts[0].provider, "mamo");
-  assert.equal(upserts[0].provider_subscription_id, "mamo:user-1");
-  assert.equal(upserts[0].status, "canceled");
+      next_payment_date: "01/12/2026"
+    }, {
+      config: loadConfig(mamoEnv()), plans: loadPlans({}), now,
+      db: { ...webhookDb(upserts), async getLatestSubscription() { return existing; } }
+    });
+    if (existing?.provider === "mamo" && existing.status === "active" && existing.current_period_end) {
+      assert.equal(upserts.length, 1);
+      assert.equal(upserts[0].status, "past_due");
+      assert.equal(upserts[0].current_period_end, end);
+    } else assert.equal(upserts.length, 0);
+  }
 });
 
-test("POST /api/payments/mamo/webhook returns 200 after valid auth even if user id is missing", async () => {
+test("Mamo access requires a valid future paid-period end", async () => {
+  const { hasActiveSubscription } = await import("../server/saas/entitlements.js");
+  const now = new Date("2026-10-04T00:00:00Z");
+  for (const current_period_end of [null, "invalid", "2026-10-03T00:00:00Z"]) {
+    assert.equal(hasActiveSubscription({ provider: "mamo", status: "active", current_period_end }, now), false);
+  }
+  assert.equal(hasActiveSubscription({ provider: "mamo", status: "active", current_period_end: "2026-11-01T00:00:00Z" }, now), true);
+});
+
+test("cancellation chooses the active subscriber after a user resubscribes", async () => {
+  const { subscriberByEmail } = await import("../server/saas/mamo.js");
+  const rows = [
+    { id: "old", status: "Unsubscribed", customer: { email: "user@example.com" } },
+    { id: "current", status: "Active", customer: { email: "USER@example.com" } }
+  ];
+  assert.equal(subscriberByEmail(rows, "user@example.com").id, "current");
+});
+
+test("expired or refunded plans must stop renewal before starting another checkout", async () => {
+  for (const status of ["active", "past_due", "canceled"]) {
+    const res = await dispatch(loadConfig(mamoEnv()), {
+      method: "POST", path: "/api/payments/mamo", body: { planId: "pro" },
+      overrides: stubbedDeps({ db: { async getLatestSubscription() {
+        return { provider: "mamo", status, current_period_end: "2020-01-01", cancel_at_period_end: false };
+      } } })
+    });
+    assert.equal(res.statusCode, 409);
+  }
+  const res = await dispatch(loadConfig(mamoEnv({ MAMO_WEBHOOK_AUTH: "" })), {
+    method: "POST", path: "/api/payments/mamo", body: { planId: "pro" }, overrides: stubbedDeps()
+  });
+  assert.equal(res.statusCode, 503);
+});
+
+test("account deletion stops Mamo billing first and keeps the account if unsubscribe fails", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const failed of [false, true]) {
+      const order = [];
+      globalThis.fetch = async (url, options) => {
+        const link = String(url).includes("/links/");
+        assert.equal(options.method, link ? "PATCH" : "DELETE");
+        if (link) assert.equal(jsonBody(options).active, false);
+        order.push(link ? "link" : "provider");
+        return Response.json({}, { status: failed && !link ? 503 : 200 });
+      };
+      const dependencies = stubbedDeps({ db: {
+        async listMamoPaymentLinks() { return [{ id: "LINK-1" }]; },
+        async getLatestSubscription() { return { provider: "mamo", status: "canceled", cancel_at_period_end: false,
+          raw: { subscription_id: PLAN_SUB_LITE, subscriberId: SUBSCRIBER_ID, payment_link_id: "LINK-1" } }; },
+        async cancelMamoSubscription(userId, linkId) { assert.equal(linkId, "LINK-1"); order.push("db"); return {}; },
+        async deleteAuthUser() { order.push("auth"); }
+      } });
+      dependencies.createR2 = () => ({ async deletePrefix() { order.push("storage"); } });
+      const res = await dispatch(loadConfig(mamoEnv()), { method: "DELETE", path: "/api/me", overrides: dependencies });
+      assert.equal(res.statusCode, failed ? 502 : 200);
+      assert.deepEqual(order, failed ? ["link", "provider"] : ["link", "provider", "db", "storage", "auth"]);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("POST /api/payments/mamo/webhook rejects callbacks without a payment ID", async () => {
   let upserted = false;
   const res = await dispatch(loadConfig(mamoEnv()), {
     method: "POST",
@@ -498,8 +558,7 @@ test("POST /api/payments/mamo/webhook returns 200 after valid auth even if user 
       }
     })
   });
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { ok: true });
+  assert.equal(res.statusCode, 400);
   assert.equal(upserted, false);
 });
 
@@ -555,9 +614,10 @@ test("POST /api/me/subscription/cancel unsubscribes the Mamo subscriber and sets
               }
             };
           },
-          async upsertSubscription(row) {
+          async cancelMamoSubscription(userId, paymentId) {
+            const row = { user_id: userId, status: "active", provider: "mamo", cancel_at_period_end: true };
             upserts.push(row);
-            return { ...row, cancel_at_period_end: true };
+            return row;
           }
         }
       })
@@ -571,4 +631,230 @@ test("POST /api/me/subscription/cancel unsubscribes the Mamo subscriber and sets
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+function couponDb({ subscription = null, redemption = null, link } = {}) {
+  const state = { subscription, redemption, upserts: [], links: [] };
+  return {
+    state,
+    db: {
+      async getLatestSubscription() { return state.subscription; },
+      async getMamoCouponRedemption() { return state.redemption; },
+      async createMamoPaymentLink(row) { state.links.push(row); },
+      async getMamoPaymentLink() { return link; },
+      async applyMamoSubscription(row) { state.upserts.push(row); state.subscription = row; return row; },
+      async claimMamoCoupon(linkId, cardId, verificationId) {
+        if (state.redemption && state.redemption.payment_link_id !== linkId && state.redemption.status !== "failed") {
+          return { ...state.redemption, conflict: true };
+        }
+        if (!state.redemption || state.redemption.payment_link_id !== linkId) {
+          state.redemption = { payment_link_id: linkId, card_id: cardId, verification_payment_id: verificationId, status: "claimed" };
+        }
+        return { ...state.redemption, conflict: false };
+      },
+      async advanceMamoCoupon(linkId, from, to, initialPaymentId) {
+        if (state.redemption?.payment_link_id !== linkId || !from.includes(state.redemption.status)) return null;
+        state.redemption = { ...state.redemption, status: to, initial_payment_id: initialPaymentId || state.redemption.initial_payment_id };
+        return state.redemption;
+      }
+    }
+  };
+}
+
+const COUPON_LINK = {
+  id: "MB-LINK-COUPON", user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-COUPON",
+  coupon_code: "FIRST50", initial_amount_aed: 15, first_renewal_at: "2026-11-04T20:00:00.000Z"
+};
+const VERIFIED = {
+  id: "PAY-VERIFY", status: "card_verified", amount: 30, amount_currency: "AED", payment_link_id: "MB-LINK-COUPON",
+  subscription_id: "MPB-SUB-COUPON", created_date: "2026-10-04-10-00-00",
+  customer_details: { email: "user@example.com" }, payment_method: { card_id: "CARD-1" }
+};
+const MIT = {
+  id: "PAY-MIT", status: "captured", amount: 15, amount_currency: "AED", payment_link_id: "MB-LINK-COUPON",
+  subscription_id: "MPB-SUB-COUPON", created_date: "2026-10-04-10-00-05", external_id: "klui-coupon:MB-LINK-COUPON",
+  customer_details: { email: "user@example.com" }
+};
+
+// Routes fake Mamo API calls and records what was requested.
+function mamoStub(calls, { charge = () => Response.json(MIT), payments = {} } = {}) {
+  return async (url, options = {}) => {
+    const path = String(url).replace(LIVE_BASE, "");
+    const method = options.method || "GET";
+    calls.push(`${method} ${path}`);
+    if (method === "POST" && path === "/payments") return charge(jsonBody(options));
+    if (method === "GET" && path.startsWith("/payments/")) return Response.json(payments[path.slice(10)]);
+    if (path.endsWith("/subscribers") && method === "GET") {
+      return Response.json([{ id: "SUBSCRIBER-1", status: "Active", customer: { email: "user@example.com" } }]);
+    }
+    return Response.json({ ok: true });
+  };
+}
+
+async function sendCouponWebhook(config, db, id, event = "payment.card_verified") {
+  return dispatch(config, {
+    method: "POST", path: "/api/payments/mamo/webhook",
+    headers: { authorization: `Bearer ${WEBHOOK_SECRET}` },
+    body: { id, event_type: event },
+    overrides: stubbedDeps({ db })
+  });
+}
+
+test("processing fee gross-up nets the plan price after Mamo's fee and VAT", () => {
+  const { fees } = loadConfig({}).mamo;
+  // Sandbox settlements: 30 -> fee 2.02 + VAT 0.10; 10 -> 1.34 + 0.07 (3.4% + AED 1, 5% VAT).
+  const net = (total) => {
+    const fee = Math.round(total * 3.4 + 100);
+    return (Math.round(total * 100) - fee - Math.round(fee * 0.05)) / 100;
+  };
+  for (const [price, charged] of [[10, 11.46], [30, 32.19], [50, 52.94], [5, 6.27], [15, 16.65], [25, 27.02]]) {
+    assert.equal(withProcessingFee(price, fees), charged);
+    assert.ok(net(charged) >= price && net(charged - 0.01) < price);
+  }
+  // A free first month only verifies the card: nothing is captured, so there is no fee.
+  assert.equal(withProcessingFee(0, fees), 0);
+});
+
+test("MAMO_COUPONS parses first-month percentages and ignores malformed entries", () => {
+  const { coupons } = loadConfig(mamoEnv({ MAMO_COUPONS: "first50:50, FIRSTFREE:100,BAD:0,NOPE,X:150" })).mamo;
+  assert.deepEqual([...coupons.keys()], ["FIRST50", "FIRSTFREE"]);
+  assert.equal(coupons.get("FIRSTFREE").percentOff, 100);
+});
+
+test("coupon checkout saves the card for a full-price subscription starting next month", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  let sent;
+  try {
+    globalThis.fetch = async (url, options) => {
+      sent = jsonBody(options);
+      return Response.json({ id: "MB-LINK-NEW", payment_url: PAYMENT_URL, subscription: { identifier: "MPB-SUB-NEW" } });
+    };
+    const { state, db } = couponDb();
+    const res = await dispatch(config, {
+      method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+      body: { planId: "pro", coupon: "first50" }, overrides: stubbedDeps({ db })
+    });
+    assert.equal(res.statusCode, 200);
+    // The discount applies to the plan price; the fee is added to what is actually charged.
+    assert.equal(res.json().offer.initialAmountAed, 15);
+    assert.equal(res.json().offer.initialChargeAed, 16.65);
+    assert.equal(res.json().offer.renewalChargeAed, 32.19);
+    assert.equal(sent.amount, 32.19);
+    assert.equal(sent.save_card, "required");
+    assert.equal(sent.subscription_id, undefined);
+    assert.match(sent.subscription.start_date, /^\d{4}\/\d{2}\/\d{2}$/);
+    assert.ok(sent.description.length <= 75);
+    assert.equal(state.links[0].coupon_code, "FIRST50");
+    assert.equal(state.links[0].initial_amount_aed, 16.65);
+    assert.equal(state.links[0].amount_aed, 32.19);
+    assert.equal(state.links[0].subscription_id, "MPB-SUB-NEW");
+
+    for (const [db2, status] of [
+      [couponDb({ subscription: { provider: "mamo", status: "canceled" } }).db, 409],
+      [couponDb({ redemption: { status: "active", payment_link_id: "OLD" } }).db, 409]
+    ]) {
+      const denied = await dispatch(config, {
+        method: "POST", path: "/api/payments/mamo", headers: { authorization: "Bearer token" },
+        body: { planId: "pro", coupon: "FIRST50" }, overrides: stubbedDeps({ db: db2 })
+      });
+      assert.equal(denied.statusCode, status);
+    }
+    const invalid = await dispatch(config, {
+      method: "POST", path: "/api/payments/mamo/coupon", headers: { authorization: "Bearer token" },
+      body: { coupon: "FIRSTFREE" }, overrides: stubbedDeps({ db: couponDb().db })
+    });
+    assert.equal(invalid.statusCode, 400);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("FIRSTFREE card verification starts a trial without charging", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRSTFREE:100" }));
+  const calls = [];
+  try {
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED } });
+    const { state, db } = couponDb({ link: { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } });
+    assert.equal((await sendCouponWebhook(config, db, "PAY-VERIFY")).statusCode, 200);
+    assert.equal(state.upserts.at(-1).status, "trialing");
+    assert.equal(state.upserts.at(-1).current_period_end, "2026-11-04T20:00:00.000Z");
+    assert.equal(state.redemption.status, "active");
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("FIRST50 charges the saved card once, even when verification callbacks repeat", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  const charges = [];
+  try {
+    globalThis.fetch = mamoStub(calls, {
+      payments: { "PAY-VERIFY": VERIFIED, "PAY-MIT": MIT },
+      charge: (body) => { charges.push(body); return Response.json(MIT); }
+    });
+    const { state, db } = couponDb({ link: COUPON_LINK });
+    await Promise.all([1, 2, 3].map(() => sendCouponWebhook(config, db, "PAY-VERIFY")));
+    await sendCouponWebhook(config, db, "PAY-MIT", "payment.succeeded");
+    assert.equal(charges.length, 1);
+    assert.deepEqual([charges[0].card_id, charges[0].amount, charges[0].external_id], ["CARD-1", 15, "klui-coupon:MB-LINK-COUPON"]);
+    assert.equal(state.redemption.status, "active");
+    assert.equal(state.subscription.status, "active");
+    assert.equal(state.subscription.current_period_end, "2026-11-04T20:00:00.000Z");
+    assert.equal(state.subscription.raw.payment_link_id, "MB-LINK-COUPON");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a declined FIRST50 charge stops the full-price renewal and releases the coupon", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  try {
+    globalThis.fetch = mamoStub(calls, {
+      payments: { "PAY-VERIFY": VERIFIED },
+      charge: () => Response.json({ messages: ["Card declined"] }, { status: 422 })
+    });
+    const { state, db } = couponDb({ link: COUPON_LINK });
+    await sendCouponWebhook(config, db, "PAY-VERIFY");
+    assert.equal(state.redemption.status, "failed");
+    assert.equal(state.upserts.length, 0);
+    assert.ok(calls.includes("PATCH /links/MB-LINK-COUPON"));
+    assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-COUPON/subscribers/SUBSCRIBER-1"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("an uncertain FIRST50 charge is never retried; its own callback settles it", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  let charges = 0;
+  try {
+    globalThis.fetch = mamoStub(calls, {
+      payments: { "PAY-VERIFY": VERIFIED, "PAY-MIT": MIT },
+      charge: () => { charges += 1; throw new TypeError("socket hang up"); }
+    });
+    const { state, db } = couponDb({ link: COUPON_LINK });
+    await sendCouponWebhook(config, db, "PAY-VERIFY");
+    await sendCouponWebhook(config, db, "PAY-VERIFY");
+    assert.equal(charges, 1);
+    assert.equal(state.redemption.status, "charging");
+    assert.equal(state.upserts.length, 0);
+    await sendCouponWebhook(config, db, "PAY-MIT", "payment.succeeded");
+    assert.equal(state.redemption.status, "active");
+    assert.equal(state.subscription.status, "active");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a second coupon checkout cannot redeem again and is stopped before renewal", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
+  const calls = [];
+  try {
+    globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": VERIFIED } });
+    const { state, db } = couponDb({ link: COUPON_LINK, redemption: { payment_link_id: "MB-LINK-OTHER", status: "active" } });
+    await sendCouponWebhook(config, db, "PAY-VERIFY");
+    assert.equal(state.upserts.length, 0);
+    assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+    assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-COUPON/subscribers/SUBSCRIBER-1"));
+  } finally { globalThis.fetch = originalFetch; }
 });

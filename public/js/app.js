@@ -4,6 +4,7 @@ import {
   clearMemory,
   cancelMamoSubscription,
   cancelResearch,
+  checkMamoCoupon,
   cancelPendingDocumentTurn,
   createContentReport,
   createConversation,
@@ -640,6 +641,9 @@ const els = {
   guestContinueSignup: document.querySelector("#guestContinueSignup"),
   paywallEmail: document.querySelector("#paywallEmail"),
   paywallPlans: document.querySelector("#paywallPlans"),
+  paywallCouponForm: document.querySelector("#paywallCouponForm"),
+  paywallCouponInput: document.querySelector("#paywallCouponInput"),
+  paywallCouponStatus: document.querySelector("#paywallCouponStatus"),
   paywallBackButton: document.querySelector("#paywallBackButton"),
   paywallCloseButton: document.querySelector("#paywallCloseButton"),
   nativeMobileMenu: document.querySelector("#nativeMobileMenu"),
@@ -2582,6 +2586,8 @@ function renderAuthOptions() {
   });
 }
 
+// Mirrors the home.klui.ai pricing cards. Prices exclude Mamo's processing fee, which is
+// added at checkout; `chargeAed` is the exact monthly card charge.
 function renderPlans() {
   const requestsByPlan = new Map(
     (state.paymentRequests || [])
@@ -2589,46 +2595,44 @@ function renderPlans() {
       .map((request) => [request.planId, request])
   );
   const planMeta = {
-    lite: {
-      tagline: "For light everyday use",
-      features: ["Access to premium models", "Model compare"]
-    },
-    pro: {
-      tagline: "For regular everyday use",
-      badge: "Most popular",
-      usage: "3x more usage",
-      features: ["Access to premium models", "Model compare", "Model council"]
-    },
-    max: {
-      tagline: "For pro workflows",
-      usage: "6x more usage",
-      features: ["Access to premium models", "Model compare", "Model council", "Highest pro model usage"]
-    }
+    lite: { copy: "Simple access for light everyday use.", features: ["All Klui features included.", "Klui doesn't train on your chats.", "No ads."] },
+    pro: { tag: "The daily driver", copy: "Everyday access for regular users.", features: ["Everything in Lite.", "Klui doesn't train on your chats.", "3× usage."] },
+    max: { copy: "Higher capacity for heavier workflows.", features: ["Everything in Pro.", "Klui doesn't train on your chats.", "6× usage."] }
   };
+  const aed = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const offers = new Map((state.mamoCoupon?.offers || []).map((offer) => [offer.planId, offer]));
+  els.paywallCouponForm?.classList.toggle("hidden", isNative() || !(state.plans || []).some((plan) => plan.checkout === "mamo"));
   els.paywallPlans.innerHTML = (state.plans || []).map((plan) => {
     const id = String(plan.id || "").toLowerCase();
     const planClass = id.replace(/[^a-z0-9_-]/g, "");
-    const meta = planMeta[id] || { tagline: plan.description || "", features: ["Access to premium models"] };
+    const meta = planMeta[id] || { copy: plan.description || "", features: [] };
     const pending = requestsByPlan.get(plan.id);
-    const price = plan.amountAed ? `${Number(plan.amountAed).toLocaleString()} AED` : (plan.priceLabel || "");
+    const mamo = plan.checkout === "mamo";
+    const offer = mamo ? offers.get(plan.id) : null;
+    const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
+    const feeNote = fee ? " <small>+ processing fee</small>" : "";
+    const price = offer
+      ? `<p class="plan-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "Free"}</strong>${offer.initialAmountAed ? " AED" : ""} <span>first month${offer.initialAmountAed ? feeNote : ""}</span></p>
+        <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""} · ${escapeHtml(offer.code)}</p>`
+      : plan.amountAed
+        ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
+        : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
+    const chargeNote = !mamo ? ""
+      : offer
+        ? `${offer.initialChargeAed ? `AED ${escapeHtml(aed(offer.initialChargeAed))} today` : "Nothing charged today, card saved"}, then AED ${escapeHtml(aed(offer.renewalChargeAed))}/month from month two${fee ? ", processing fee included" : ""}.`
+        : `AED ${escapeHtml(aed(plan.chargeAed || plan.amountAed))} charged monthly${fee ? ", processing fee included" : ""}. Cancel anytime.`;
     return `
     <article class="plan-card plan-card-${escapeHtml(planClass)}">
-      <div class="plan-pin" aria-hidden="true"></div>
-      ${meta.badge ? `<div class="plan-ribbon">${escapeHtml(meta.badge)}</div>` : ""}
-      ${meta.usage ? `<div class="plan-usage-badge">${escapeHtml(meta.usage)}</div>` : ""}
-      <div class="plan-head">
-        <h3>${escapeHtml(plan.name)}</h3>
-        <div class="price"><strong>${escapeHtml(price)}</strong><span>/month</span></div>
-        <p>${escapeHtml(meta.tagline)}</p>
-      </div>
+      ${meta.tag ? `<p class="plan-tag">${escapeHtml(meta.tag)}</p>` : ""}
+      <h3 class="plan-name">${escapeHtml(plan.name)}</h3>
+      ${price}
+      <p class="plan-copy">${escapeHtml(meta.copy)}</p>
       <ul>
-        ${meta.features.map((feature) => `<li><span aria-hidden="true">✓</span>${escapeHtml(feature)}</li>`).join("")}
+        ${meta.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join("")}
       </ul>
-      ${plan.checkout === "mamo" ? `
-      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">
-        Pay with Mamo
-      </button>
-      <p class="plan-payment-note">You'll be redirected to Mamo. Access starts after payment.</p>
+      ${mamo ? `
+      <button class="plan-pay-btn" type="button" data-start-mamo="${escapeHtml(plan.id)}">Join Klui</button>
+      <p class="plan-payment-note">${chargeNote}</p>
       ` : `
       ${requestsByPlan.has(plan.id) ? renderPendingPayment(requestsByPlan.get(plan.id)) : ""}
       <button class="plan-pay-btn" type="button" data-start-payment="${escapeHtml(plan.id)}" ${plan.ziinaPaymentUrl || plan.ziinaQrImageUrl ? "" : "disabled"}>
@@ -2747,7 +2751,6 @@ function renderSettingsAccount() {
   const sub = state.me?.subscription;
   const canCancel = signedIn
     && sub?.provider === "mamo"
-    && ["active", "trialing", "past_due"].includes(sub?.status)
     && !sub?.cancelAtPeriodEnd;
   els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
   if (!signedIn) return;
@@ -8012,6 +8015,22 @@ async function loadMe() {
   loadPinnedChatIds();
 }
 
+async function refreshAfterMamoReturn() {
+  const params = new URLSearchParams(window.location.search);
+  if (!state.session || params.get("status") !== "captured" || !params.get("transactionId")) return;
+  const planId = params.get("planId");
+  // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (state.me?.access?.active && (!planId || state.me?.subscription?.planId === planId)) return;
+    if (attempt === 0) showToast("Confirming your payment…");
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (!state.session) return;
+    await withTimeout(loadMe(), 4000, "Payment confirmation").catch(() => {});
+    renderShell();
+  }
+  if (!state.me?.access?.active) showToast("Payment confirmation is still pending. Refresh in a moment.");
+}
+
 async function refreshAccountAfterResume() {
   if (state.session?.access_token) {
     try {
@@ -8649,11 +8668,33 @@ async function startMamoPayment(planId) {
   if (isNative()) return;
   if (!requireAuth()) return;
   try {
-    const payload = await createMamoCheckout(state.session, planId);
+    const payload = await createMamoCheckout(state.session, planId, state.mamoCoupon?.coupon?.code || "");
     if (payload.paymentUrl) await openExternal(payload.paymentUrl);
   } catch (err) {
     showToast(err.message);
   }
+}
+
+async function applyMamoCoupon(event) {
+  event.preventDefault();
+  if (!requireAuth()) return;
+  const code = String(els.paywallCouponInput?.value || "").trim().toUpperCase();
+  const setStatus = (text) => { if (els.paywallCouponStatus) els.paywallCouponStatus.textContent = text; };
+  if (!code) {
+    state.mamoCoupon = null;
+    setStatus("");
+    renderPlans();
+    return;
+  }
+  try {
+    state.mamoCoupon = await checkMamoCoupon(state.session, code);
+    const off = state.mamoCoupon.coupon.percentOff;
+    setStatus(off === 100 ? `${code}: first month free.` : `${code}: ${off}% off your first month.`);
+  } catch (err) {
+    state.mamoCoupon = null;
+    setStatus(err.message || "That coupon code isn't valid.");
+  }
+  renderPlans();
 }
 
 async function startZiinaPayment(planId) {
@@ -9715,6 +9756,7 @@ async function bootstrap() {
         if (!els.paywallView.classList.contains("hidden")) renderPlans();
       });
     }
+    await refreshAfterMamoReturn();
     if (state.session && hasChatAccess()) {
       // The chat is now visible and authorized. Start focusing before the
       // model/conversation requests below so native startup feels immediate.
@@ -10067,6 +10109,7 @@ function bindEvents() {
 
   els.guestLoginButton.addEventListener("click", startSidebarLogin);
   els.guestContinueSignup?.addEventListener("click", startSidebarLogin);
+  els.paywallCouponForm?.addEventListener("submit", applyMamoCoupon);
   els.paywallPlans.addEventListener("click", (e) => {
     const mamoButton = e.target.closest("[data-start-mamo]");
     if (mamoButton) {
@@ -10232,7 +10275,7 @@ function bindEvents() {
     openDeleteConfirm({
       title: "Cancel subscription?",
       body: "You'll keep access until the end of the current period. Then it stops.",
-      confirmLabel: "Cancel",
+      confirmLabel: "Stop renewal",
       onConfirm: cancelMamoSubscriptionAndRefresh
     });
   });

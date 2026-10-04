@@ -27,6 +27,7 @@ import {
   handleAdminPaymentRequests,
   handleAdminUpdatePaymentRequest,
   handleCancelSubscription,
+  handleCheckMamoCoupon,
   handleCreateMamoPayment,
   handleCreateZiinaPaymentRequest,
   handleListPaymentRequests,
@@ -178,6 +179,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/payments/ziina" && req.method === "GET") {
       await handleListPaymentRequests(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/payments/mamo/coupon" && req.method === "POST") {
+      await handleCheckMamoCoupon(req, res, config);
       return;
     }
 

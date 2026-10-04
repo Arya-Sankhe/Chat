@@ -6,18 +6,18 @@
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#79CFFF">
     <title>Klui for students</title>
-    <meta name="description" content="Klui is one AI workspace for student life. Understand concepts, work with notes and PDFs, research with citations, and create documents.">
+    <meta name="description" content="Klui is the AI study app for students. Record lectures and get notes, flashcards and practice tests, build slides, compare models, and research with citations. No ads, and no training on your messages.">
     <link rel="canonical" href="https://home.klui.ai/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Klui for students">
     <meta property="og:title" content="Locked in so you can relax">
-    <meta property="og:description" content="Klui is one AI workspace for student life. Understand concepts, work with notes and PDFs, research with citations, and create documents.">
+    <meta property="og:description" content="Klui is the AI study app for students. Record lectures and get notes, flashcards and practice tests, build slides, compare models, and research with citations. No ads, and no training on your messages.">
     <meta property="og:url" content="https://home.klui.ai/">
     <meta property="og:image" content="https://home.klui.ai/assets/og-v4.jpg">
     <meta property="og:image:alt" content="An open book beneath blue halftone clouds and a wave of bright orange fire">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Locked in so you can relax">
-    <meta name="twitter:description" content="Klui is one AI workspace for student life. Understand concepts, work with notes and PDFs, research with citations, and create documents.">
+    <meta name="twitter:description" content="Klui is the AI study app for students. Record lectures and get notes, flashcards and practice tests, build slides, compare models, and research with citations. No ads, and no training on your messages.">
     <meta name="twitter:image" content="https://home.klui.ai/assets/og-v4.jpg">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
@@ -25,7 +25,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
     <link rel="icon" href="/favicon.ico" sizes="48x48">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260825-icon">
-    <link rel="stylesheet" href="styles.css?v=20260823-hero8">
+    <link rel="stylesheet" href="styles.css?v=20261004-site8">
+    <script src="hero.js?v=20261004-site7" defer></script>
+    <script src="page.js?v=20261004-site7" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -52,28 +54,52 @@
       }
     </script>
   </head>
-  <body>
+  <body class="home">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <!-- Klui in pixel blocks, the same voxel build as the one in the hero. -->
+      <symbol id="klui-px" viewBox="0 0 17 11" shape-rendering="crispEdges">
+        <rect x="0.15" y="3.4" width="2" height="2" fill="#4b97cf"/><rect x="1" y="4" width="2" height="2" fill="#8fd3fb"/>
+        <rect x="2.15" y="1.4" width="10" height="6" fill="#4b97cf"/><rect x="2.15" y="1.4" width="10" height="0.6" fill="#d3f2ff"/>
+        <rect x="4.2" y="8" width="1.5" height="1.6" fill="#8fd3fb"/><rect x="9.3" y="8" width="1.5" height="1.6" fill="#8fd3fb"/>
+        <rect x="3" y="2" width="10" height="6.3" fill="#8fd3fb"/>
+        <rect x="13.15" y="3.4" width="2" height="2" fill="#4b97cf"/><rect x="14" y="4" width="2" height="2" fill="#8fd3fb"/>
+        <rect x="7" y="3.3" width="1" height="1.5" fill="#16202e"/><rect x="11" y="3.3" width="1" height="1.5" fill="#16202e"/>
+      </symbol>
+      <!-- Line icons, drawn in whatever colour the tile gives them. -->
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.6" fill="currentColor"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-notes" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-tutor" viewBox="0 0 24 24"><path d="M4 5h16v11h-9l-4.5 4v-4H4z"/><path d="M10 9.2a2 2 0 1 1 2.6 1.9c-.4.2-.6.5-.6.9"/><circle cx="12" cy="13.6" r=".4" fill="currentColor"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-files" viewBox="0 0 24 24"><path d="M8 3h8l4 4v11H8z"/><path d="M16 3v4h4"/><path d="M5 7v14h11"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-cards" viewBox="0 0 24 24"><rect x="7" y="3.5" width="13" height="9" rx="1.5"/><rect x="4" y="10.5" width="13" height="9" rx="1.5"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-test" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 12.3l2.8 2.8L16.3 9"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-map" viewBox="0 0 24 24"><circle cx="12" cy="6" r="2.6"/><circle cx="5.5" cy="18" r="2.6"/><circle cx="18.5" cy="18" r="2.6"/><path d="M10.7 8.3l-3.9 7.4M13.3 8.3l3.9 7.4M8.1 18h7.8"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-pod" viewBox="0 0 24 24"><path d="M4 16v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4" height="6" rx="1.5"/><rect x="16.5" y="14" width="4" height="6" rx="1.5"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-doc" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M4 15h16M10 9.5V20"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-voice" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-pen" viewBox="0 0 24 24"><path d="M4 20l1-4.5L16 4.5l3.5 3.5-11 11z"/><path d="M13.5 7l3.5 3.5"/></symbol>
+        <symbol fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" id="i-memory" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    </svg>
     <div class="grain" aria-hidden="true"></div>
     <a class="skip" href="#content">Skip to content</a>
     <header class="site-header" id="top">
       <div class="nav">
         <nav class="nav-primary" aria-label="Main navigation">
-          <a href="#workspace">Workspace</a>
-          <a href="#research">Research</a>
-          <a href="#create">Create</a>
+          <a href="#dojo">Dojo</a>
+          <a href="#toolkit">Features</a>
+          <a href="#privacy">Privacy</a>
           <a href="pricing/">Pricing</a>
         </nav>
-        <a class="wordmark" href="#top" aria-label="Klui home">
-          <img src="/favicon.svg" width="36" height="36" alt="">
-          Klui
+        <a class="wordmark" href="#top" aria-label="Klui AI home">
+          <img src="assets/klui-wordmark.webp?v=20261004-vec" width="320" height="113" alt="Klui AI">
         </a>
         <span class="nav-balance" aria-hidden="true"></span>
         <details class="nav-mobile">
           <summary aria-label="Menu"><span class="menu-icon" aria-hidden="true"></span></summary>
           <nav aria-label="Mobile navigation">
-            <a href="#workspace">Workspace</a>
-            <a href="#research">Research</a>
-            <a href="#create">Create</a>
+            <a href="#dojo">Dojo</a>
+            <a href="#toolkit">Features</a>
+            <a href="#privacy">Privacy</a>
             <a href="pricing/">Pricing</a>
           </nav>
         </details>
@@ -82,91 +108,191 @@
 
     <main id="content">
       <section class="hero" aria-labelledby="hero-title">
-        <picture>
-          <source srcset="assets/hero-mobile.webp" type="image/webp" media="(max-width: 720px)">
-          <img class="hero-art" src="assets/hero-refined-v4.webp" width="1920" height="1076" alt="An open book beneath blue halftone clouds and a wave of bright orange fire" fetchpriority="high" decoding="async">
-        </picture>
-        <video class="hero-video hero-video-desktop" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture>
-          <source src="assets/hero-loop.mp4?v=20260823-hero8" type="video/mp4">
-        </video>
-        <video class="hero-video hero-video-mobile" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1" disablepictureinpicture>
-          <source src="assets/hero-loop-mobile.mp4?v=20260823-hero" type="video/mp4">
-        </video>
-        <script>
-          (function () {
-            var mobile = window.matchMedia("(max-width: 720px)").matches;
-            document.querySelectorAll(".hero-video").forEach(function (video) {
-              if (video.classList.contains("hero-video-mobile") === mobile) {
-                video.preload = "auto";
-                video.setAttribute("autoplay", "");
-                video.play().catch(function () {});
-                return;
-              }
-              video.remove();
-            });
-          })();
-        </script>
+        <canvas class="hero-canvas" aria-hidden="true"></canvas>
         <div class="hero-copy">
           <h1 id="hero-title">Locked in so you can relax</h1>
           <a class="cta" href="https://klui.ai">Join Klui <span aria-hidden="true">→</span></a>
         </div>
       </section>
 
-      <section class="band workspace-band" id="workspace" aria-labelledby="workspace-title">
+      <section class="screen day pop-paper" id="dojo" aria-labelledby="dojo-title">
         <div class="wrap">
-          <p class="eyebrow">Your whole academic life, one tab</p>
-          <h2 id="workspace-title">One desk for student life</h2>
-          <p class="section-copy">Ask Klui to explain a concept, sit with your notes, and keep the work in one chat instead of five tabs.</p>
-          <div class="bento">
-            <article class="cell cell-large"><span class="cell-number">01</span><h3>Understand the concept</h3><p>Learning and explanatory styles walk the idea, then let you try it.</p></article>
-            <article class="cell cell-sky"><span class="cell-number">02</span><h3>Notes and PDFs</h3><p>Drop lecture PDFs and notes. Klui reads the file in the same thread.</p></article>
-            <article class="cell cell-fire"><span class="cell-number">03</span><h3>Study guides and practice</h3><p>Turn a chapter into a guide, quiz, or worked examples.</p></article>
-            <article class="cell cell-ink"><span class="cell-number">04</span><h3>Pick the model</h3><p>Choose a model, or run Compare and Council when you want a second pass.</p></article>
-            <article class="cell cell-pink"><span class="cell-number">05</span><h3>Writing that sounds like you</h3><p>Formal, concise, or Humanize for cleaner, more natural phrasing, not a detector bypass.</p></article>
+          <div class="screen-head" data-reveal>
+            <p class="prompt"><span>&gt;_&lt;</span> dojo</p>
+            <h2 id="dojo-title">Sit through the lecture once. Klui does the rest.</h2>
+            <p class="lede">Record a class and Dojo turns it into notes, flashcards and a practice test, with a tutor that has read everything your course has.</p>
+          </div>
+
+          <div class="dojo">
+            <figure class="term" data-reveal aria-label="Dojo turning a recorded lecture into study material">
+              <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>klui · dojo</span></div>
+              <div class="term-body" aria-hidden="true">
+                <p class="term-rec"><b class="rec-dot"></b> REC <span class="rec-time" data-rec>01:12:48</span> <em>MATH 201 · lecture 7</em></p>
+                <p class="term-rule"></p>
+                <p style="--i:1"><b>✓</b> transcript <span>14,392 words</span></p>
+                <p style="--i:2"><b>✓</b> notes + summary <span>6 sections</span></p>
+                <p style="--i:3"><b>✓</b> flashcards <span>32 cards</span></p>
+                <p style="--i:4"><b>✓</b> practice test <span>15 questions, AI graded</span></p>
+                <p style="--i:5"><b>✓</b> mind map <span>limits → derivatives → integrals</span></p>
+                <p style="--i:6"><b>✓</b> study podcast <span>11 min</span></p>
+                <p class="term-ask" style="--i:7"><b>&gt;</b> why is this integral negative?<i class="caret"></i></p>
+              </div>
+              <svg class="term-klui" aria-hidden="true"><use href="#klui-px"/></svg>
+            </figure>
+
+            <ul class="dojo-grid" data-reveal>
+              <li class="c-sky" style="--i:0"><svg class="ico" aria-hidden="true"><use href="#i-rec"/></svg><h3>Record &amp; transcribe</h3></li>
+              <li class="c-sun" style="--i:1"><svg class="ico" aria-hidden="true"><use href="#i-notes"/></svg><h3>Notes &amp; summaries</h3></li>
+              <li class="c-coral" style="--i:2"><svg class="ico" aria-hidden="true"><use href="#i-tutor"/></svg><h3>AI tutor</h3></li>
+              <li class="c-cream" style="--i:3"><svg class="ico" aria-hidden="true"><use href="#i-files"/></svg><h3>Chat with your course</h3></li>
+              <li class="c-sky" style="--i:4"><svg class="ico" aria-hidden="true"><use href="#i-cards"/></svg><h3>Flashcards</h3></li>
+              <li class="c-sun" style="--i:5"><svg class="ico" aria-hidden="true"><use href="#i-test"/></svg><h3>Practice tests &amp; grading</h3></li>
+              <li class="c-coral" style="--i:6"><svg class="ico" aria-hidden="true"><use href="#i-map"/></svg><h3>Mind maps</h3></li>
+              <li class="c-cream" style="--i:7"><svg class="ico" aria-hidden="true"><use href="#i-pod"/></svg><h3>Study podcasts</h3></li>
+            </ul>
           </div>
         </div>
       </section>
 
-      <section class="band research-band" id="research" aria-labelledby="research-title">
-        <div class="wrap research-grid">
-          <div><p class="eyebrow">Receipts included</p><h2 id="research-title">Cited research, not a vibes paragraph</h2></div>
-          <p class="research-note">Deep Research plans, reads, and writes a report with sources you can actually check.</p>
-        </div>
-      </section>
-
-      <section class="band create-band" id="create" aria-labelledby="create-title">
+      <section class="screen night pop-blue" id="toolkit" aria-labelledby="toolkit-title">
         <div class="wrap">
-          <p class="eyebrow">Made in the chat</p>
-          <h2 id="create-title">Hand in the file, not just the answer</h2>
-          <p class="section-copy">Klui writes and edits the formats your assignments already use.</p>
-          <ul class="formats">
-            <li><strong>PDF</strong><span>Reports and readings</span></li>
-            <li><strong>DOCX</strong><span>Essays and notes</span></li>
-            <li><strong>XLSX</strong><span>Tables and sheets</span></li>
-            <li><strong>PPTX</strong><span>Slide decks</span></li>
-          </ul>
+          <div class="screen-head" data-reveal>
+            <p class="prompt"><span>&gt;_&lt;</span> and the rest</p>
+            <h2 id="toolkit-title">One tab for the whole semester.</h2>
+          </div>
+
+          <div class="kit">
+            <article class="card card-slides" data-reveal>
+              <p class="tag">Slides</p>
+              <h3>Decks you'd actually present</h3>
+              <div class="deck" aria-hidden="true">
+                <div class="pslide ps-title">
+                  <i class="ps-sun"></i>
+                  <span class="ps-kicker">BIO 110 · week 4</span>
+                  <b>Photosynthesis</b>
+                  <span class="ps-sub">How plants turn light into sugar</span>
+                  <span class="ps-num">01</span>
+                </div>
+                <div class="pslide ps-content">
+                  <b>Light reactions</b>
+                  <div class="ps-cols">
+                    <ul><li></li><li></li><li></li></ul>
+                    <p class="ps-flow"><span>H₂O</span><em>→</em><span>O₂</span></p>
+                  </div>
+                  <span class="ps-num">02</span>
+                </div>
+                <div class="pslide ps-timeline">
+                  <b>Calvin cycle</b>
+                  <ol><li>Fixation</li><li>Reduction</li><li>Regeneration</li></ol>
+                  <span class="ps-num">03</span>
+                </div>
+              </div>
+              <p class="ask" aria-hidden="true"><b>&gt;</b> make slide 3 a timeline<i class="caret"></i></p>
+            </article>
+
+            <article class="card card-council" data-reveal>
+              <p class="tag">Compare &amp; Council</p>
+              <h3>A second opinion, or four</h3>
+              <div class="council is-council" aria-hidden="true" data-council>
+                <p class="seg"><span>Compare</span><span>Council</span></p>
+                <div class="views">
+                  <div class="v-compare">
+                    <p class="c-prompt">explain eigenvalues simply</p>
+                    <div class="c-answers">
+                      <p class="model" style="--c:var(--klui)"><b>A</b><s></s><s></s><s></s><s></s></p>
+                      <p class="model" style="--c:var(--coral)"><b>B</b><s></s><s></s><s></s><s></s></p>
+                    </div>
+                  </div>
+                  <div class="v-council">
+                    <p class="c-prompt">explain eigenvalues simply</p>
+                    <div class="models">
+                      <p class="model" style="--c:var(--klui)"><b>A</b><s></s><s></s></p>
+                      <p class="model" style="--c:var(--coral)"><b>B</b><s></s><s></s></p>
+                      <p class="model" style="--c:var(--yellow)"><b>C</b><s></s><s></s></p>
+                      <p class="model" style="--c:var(--night-ink)"><b>D</b><s></s><s></s></p>
+                    </div>
+                    <svg class="wires" viewBox="0 0 100 24" preserveAspectRatio="none">
+                      <path d="M12.5 0 C12.5 14 50 10 50 24"/><path d="M37.5 0 C37.5 14 50 10 50 24"/><path d="M62.5 0 C62.5 14 50 10 50 24"/><path d="M87.5 0 C87.5 14 50 10 50 24"/>
+                    </svg>
+                    <p class="answer"><svg><use href="#klui-px"/></svg><b>Final answer</b><i>chosen</i><s></s><s></s></p>
+                  </div>
+                </div>
+            </article>
+
+            <article class="card card-visual" data-reveal>
+              <p class="tag">Illustrate &amp; Visualize</p>
+              <h3>When words aren't enough</h3>
+              <div class="viz" aria-hidden="true">
+                <p class="bubble">plot sin x and its derivative</p>
+                <figure class="plot">
+                  <svg viewBox="-6 14 252 92">
+                    <path class="grid" d="M0 22H240M0 41H240M0 79H240M0 98H240M60 14V106M120 14V106M180 14V106"/>
+                    <path class="axis" d="M0 60H240"/>
+                    <path class="curve c1" pathLength="1" d="M0 60.0 L5 55.0 L10 50.2 L15 45.5 L20 41.0 L25 36.9 L30 33.1 L35 29.9 L40 27.1 L45 24.9 L50 23.3 L55 22.3 L60 22.0 L65 22.3 L70 23.3 L75 24.9 L80 27.1 L85 29.9 L90 33.1 L95 36.9 L100 41.0 L105 45.5 L110 50.2 L115 55.0 L120 60.0 L125 65.0 L130 69.8 L135 74.5 L140 79.0 L145 83.1 L150 86.9 L155 90.1 L160 92.9 L165 95.1 L170 96.7 L175 97.7 L180 98.0 L185 97.7 L190 96.7 L195 95.1 L200 92.9 L205 90.1 L210 86.9 L215 83.1 L220 79.0 L225 74.5 L230 69.8 L235 65.0 L240 60.0"/>
+                    <path class="curve c2" pathLength="1" d="M0 22.0 L5 22.3 L10 23.3 L15 24.9 L20 27.1 L25 29.9 L30 33.1 L35 36.9 L40 41.0 L45 45.5 L50 50.2 L55 55.0 L60 60.0 L65 65.0 L70 69.8 L75 74.5 L80 79.0 L85 83.1 L90 86.9 L95 90.1 L100 92.9 L105 95.1 L110 96.7 L115 97.7 L120 98.0 L125 97.7 L130 96.7 L135 95.1 L140 92.9 L145 90.1 L150 86.9 L155 83.1 L160 79.0 L165 74.5 L170 69.8 L175 65.0 L180 60.0 L185 55.0 L190 50.2 L195 45.5 L200 41.0 L205 36.9 L210 33.1 L215 29.9 L220 27.1 L225 24.9 L230 23.3 L235 22.3 L240 22.0"/>
+                  </svg>
+                  <figcaption><span class="k1">sin x</span><span class="k2">cos x</span></figcaption>
+                </figure>
+              </div>
+            </article>
+
+            <article class="card card-more" data-reveal>
+              <p class="tag">More Klui</p>
+              <h3>Plus the everyday stuff</h3>
+              <ul class="more">
+                <li class="wide"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg><b>Web search &amp; Deep Research</b><small>cited reports</small></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-doc"/></svg><b>Docs &amp; spreadsheets</b><small>docx · xlsx · pdf</small></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-voice"/></svg><b>Voice chat</b><small>talk it through</small></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg><b>Humanize</b><small>sounds like you</small></li>
+                <li><svg class="ico" aria-hidden="true"><use href="#i-memory"/></svg><b>Memory</b><small>picks up where you left off</small></li>
+              </ul>
+            </article>
+          </div>
         </div>
       </section>
 
-      <section class="band pricing-peek" aria-labelledby="pricing-title">
-        <div class="wrap pricing-peek-grid">
-          <div><p class="eyebrow">No scary subscription math</p><h2 id="pricing-title">Starts at 10 AED a month</h2></div>
-          <a class="paper-link" href="pricing/">See all plans <span aria-hidden="true">→</span></a>
+      <section class="screen day pop-pink" id="privacy" aria-labelledby="privacy-title">
+        <div class="wrap privacy">
+          <div class="screen-head" data-reveal>
+            <p class="prompt"><span>&gt;_&lt;</span> privacy</p>
+            <h2 id="privacy-title">Your notes stay yours.</h2>
+            <p class="lede">Klui runs on student subscriptions, not on your data.</p>
+          </div>
+          <div class="stamps" data-reveal>
+            <p class="stamp"><b>No training</b> We don't train AI on your messages.</p>
+            <p class="stamp stamp-coral"><b>No ads</b> Just you and your work, nothing in the way.</p>
+          </div>
         </div>
       </section>
 
-      <section class="band launch-band" id="apps" aria-labelledby="apps-title">
-        <div class="wrap launch-copy">
-          <p class="launch-kicker">BRB, packing the apps</p>
-          <h2 id="apps-title">Launching on Android, iPhone, Windows and macOS very soon.</h2>
-          <p>Klui already lives on the web. The rest are cooking.</p>
+      <section class="screen night finale pop-coral" aria-labelledby="join-title">
+        <div class="wrap finale-grid">
+          <div data-reveal>
+            <p class="prompt"><span>&gt;_&lt;</span> join</p>
+            <h2 id="join-title">Starts at 10 AED a month.</h2>
+            <div class="finale-actions">
+              <a class="cta" href="https://klui.ai">Join Klui <span aria-hidden="true">→</span></a>
+              <a class="text-link" href="pricing/">See all plans</a>
+            </div>
+          </div>
+          <div class="platforms" data-reveal>
+            <svg class="platforms-klui" aria-hidden="true"><use href="#klui-px"/></svg>
+            <p class="platforms-note">On the web today. The apps are on the way.</p>
+            <ul>
+              <li><span>web</span><b class="live">live</b></li>
+              <li><span>android</span><b>soon</b></li>
+              <li><span>iphone</span><b>soon</b></li>
+              <li><span>windows</span><b>soon</b></li>
+              <li><span>macos</span><b>soon</b></li>
+            </ul>
+          </div>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <div class="footer-mark"><img src="assets/klui-icon.svg?v=20260912-motion-2" width="40" height="40" alt=""><span>Klui</span></div>
-      <p>Made for students who have tabs to close.</p>
+      <a class="footer-mark" href="#top" aria-label="Back to top"><img src="assets/klui-wordmark.webp?v=20261004-vec" width="320" height="113" alt="Klui AI"></a>
+      <p>Less cramming, more living.</p>
       <nav aria-label="Footer navigation"><a href="pricing/">Pricing</a><a href="terms/">Terms</a><a href="privacy/">Privacy</a><a href="legal/">Legal</a><a href="https://klui.ai">Join Klui</a></nav>
     </footer>
   </body>

@@ -273,7 +273,7 @@ Skipped: CORS to call `https://klui.ai/api/health` from home (add if the hosts e
 
 **Decision:** Precode Mamo; keep Ziina until we test Mamo then delete Ziina.
 
-- **Checkout:** `POST /api/payments/mamo` creates a Mamo payment link (official `POST /links`). Recurring via `subscription_id` + `link_type: inline` if `PLAN_*_MAMO_SUBSCRIPTION_ID` is set, else the legacy monthly `subscription` object on the link.
+- **Checkout:** `POST /api/payments/mamo` creates a Mamo payment link (official `POST /links`). Each checkout is a standalone link with a monthly `subscription` object; the amount is the plan price plus Mamo's processing fee (`MAMO_FEE_*`).
 - **Access:** webhook `POST /api/payments/mamo/webhook`; `Authorization` header = `MAMO_WEBHOOK_AUTH`. Register the webhook yourself in Mamo (we do not auto-create it): events `payment.succeeded`, `subscription.succeeded`, `payment.refunded`, `subscription.failed`.
 - **Unique Klui sub id** `mamo:${userId}` because Mamo plan ids are shared.
 - **Cancel** in Settings → Account; Mamo `DELETE` subscriber API; access until period end.

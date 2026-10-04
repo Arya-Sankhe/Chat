@@ -1,3 +1,5 @@
+import { withProcessingFee } from "./mamo.js";
+
 const PLAN_DEFAULTS = [
   {
     id: "lite",
@@ -71,7 +73,6 @@ export function loadPlans(env = process.env) {
       : plan.amountAed,
     ziinaPaymentUrl: clean(env[envName(plan.id, "ZIINA_PAYMENT_URL")]),
     ziinaQrImageUrl: clean(env[envName(plan.id, "ZIINA_QR_IMAGE_URL")]),
-    mamoSubscriptionId: clean(env[envName(plan.id, "MAMO_SUBSCRIPTION_ID")]),
     monthlyApiCreditLimit: Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")])) > 0
       ? Number(clean(env[envName(plan.id, "MONTHLY_API_CREDITS")]))
       : plan.monthlyApiCreditLimit,
@@ -85,13 +86,15 @@ export function loadPlans(env = process.env) {
   })).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export function publicPlan(plan, mamoEnabled) {
+// With Mamo, `chargeAed` is the monthly card charge: the plan price plus Mamo's processing fee.
+export function publicPlan(plan, mamoEnabled, fees = null) {
   return {
     id: plan.id,
     name: plan.name,
     description: plan.description,
     priceLabel: plan.priceLabel,
     amountAed: plan.amountAed,
+    chargeAed: mamoEnabled ? withProcessingFee(plan.amountAed, fees) : plan.amountAed,
     currency: "AED",
     ziinaPaymentUrl: plan.ziinaPaymentUrl,
     ziinaQrImageUrl: plan.ziinaQrImageUrl,
