@@ -121,12 +121,23 @@ export async function fetchZiinaPaymentRequests(session) {
   return response.json();
 }
 
-export async function createMamoCheckout(session, planId) {
+export async function checkMamoCoupon(session, coupon) {
+  const response = await apiFetch("/api/payments/mamo/coupon", {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ coupon })
+  });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
+export async function createMamoCheckout(session, planId, coupon = "") {
   const response = await apiFetch("/api/payments/mamo", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ planId })
+    body: JSON.stringify(coupon ? { planId, coupon } : { planId })
   });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();

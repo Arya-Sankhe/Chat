@@ -92,6 +92,11 @@
             <div class="paywall-sticker">No 5 hour limits for all plans</div>
           </div>
           <p class="auth-email" id="paywallEmail"></p>
+          <form class="paywall-coupon hidden" id="paywallCouponForm" novalidate>
+            <input id="paywallCouponInput" name="coupon" aria-label="Coupon code" placeholder="Coupon code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32">
+            <button type="submit" id="paywallCouponApply">Apply</button>
+            <p class="paywall-coupon-status" id="paywallCouponStatus" role="status" aria-live="polite"></p>
+          </form>
           <div class="plan-grid" id="paywallPlans"></div>
           <p class="plan-payment-note">Usage is weekly. It resets 4 times each month.</p>
     <div class="paywall-actions">

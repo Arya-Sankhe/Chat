@@ -102,6 +102,55 @@ export class SupabaseRest {
     return subscriptions.upsertSubscription(this, subscription, options);
   }
 
+  async createMamoPaymentLink(row, options) {
+    return this.request("mamo_payment_links", { method: "POST", body: row, ...options });
+  }
+
+  async getMamoPaymentLink(id, options) {
+    const rows = await this.request("mamo_payment_links", { query: { id: `eq.${id}`, select: "*" }, ...options });
+    return rows?.[0] || null;
+  }
+
+  async listMamoPaymentLinks(userId, { signal } = {}) {
+    const links = [];
+    for (let offset = 0; ; offset += 1000) {
+      const rows = await this.request("mamo_payment_links", {
+        query: { user_id: `eq.${userId}`, select: "id,subscription_id,created_at", order: "id.asc", offset, limit: 1000 }, signal
+      });
+      links.push(...rows);
+      if (rows.length < 1000) return links;
+    }
+  }
+
+  async applyMamoSubscription(subscription, options) {
+    return this.rpc("klui_apply_mamo_subscription", { p_subscription: subscription }, options);
+  }
+
+  async getMamoCouponRedemption(userId, options) {
+    const rows = await this.request("mamo_coupon_redemptions", { query: { user_id: `eq.${userId}`, select: "*" }, ...options });
+    return rows?.[0] || null;
+  }
+
+  async claimMamoCoupon(paymentLinkId, cardId, verificationPaymentId, options) {
+    return this.rpc("klui_claim_mamo_coupon", {
+      p_payment_link_id: paymentLinkId, p_card_id: cardId, p_verification_payment_id: verificationPaymentId
+    }, options);
+  }
+
+  async advanceMamoCoupon(paymentLinkId, from, to, initialPaymentId, options) {
+    return this.rpc("klui_advance_mamo_coupon", {
+      p_payment_link_id: paymentLinkId, p_from: from, p_to: to, p_initial_payment_id: initialPaymentId || null
+    }, options);
+  }
+
+  async rearmMamoCoupon(paymentLinkId, staleSeconds, options) {
+    return this.rpc("klui_rearm_mamo_coupon", { p_payment_link_id: paymentLinkId, p_stale: `${staleSeconds} seconds` }, options);
+  }
+
+  async cancelMamoSubscription(userId, paymentLinkId, options) {
+    return this.rpc("klui_cancel_mamo_subscription", { p_user_id: userId, p_payment_link_id: paymentLinkId }, options);
+  }
+
   async createPaymentRequest(row, options) {
     return payments.createPaymentRequest(this, row, options);
   }

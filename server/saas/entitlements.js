@@ -14,8 +14,7 @@ export function hasActiveSubscription(subscription, now = new Date()) {
   if (subscription?.provider === "mamo") {
     if (!inPeriodStatuses.has(status)) return false;
     const end = parseDate(subscription.current_period_end);
-    if (end && end <= now) return false;
-    return true;
+    return Boolean(end && end > now);
   }
   return activeStatuses.has(status);
 }

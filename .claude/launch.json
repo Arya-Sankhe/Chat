@@ -4,9 +4,22 @@
     {
       "name": "chat",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3100,
       "autoPort": true
+    },
+    {
+      "name": "home",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "-e",
+        "const h=require('http'),f=require('fs'),p=require('path');const root=p.resolve(process.argv[1]);const t={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.woff2':'font/woff2','.webp':'image/webp','.png':'image/png'};h.createServer((q,s)=>{let u=decodeURIComponent(q.url.split('?')[0]);let fp=p.join(root,u);if(!fp.startsWith(root)){s.writeHead(403);return s.end()}if(u.endsWith('/'))fp=p.join(fp,'index.html');f.readFile(fp,(e,d)=>{if(e){fp=p.join(p.resolve(root,'..'),u);return f.readFile(fp,(e2,d2)=>{if(e2){s.writeHead(404);return s.end()}s.writeHead(200,{'content-type':t[p.extname(fp)]||'application/octet-stream'});s.end(d2)})}s.writeHead(200,{'content-type':t[p.extname(fp)]||'application/octet-stream'});s.end(d)})}).listen(4180)",
+        "public/home"
+      ],
+      "port": 4180
     }
   ]
 }

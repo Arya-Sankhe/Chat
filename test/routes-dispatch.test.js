@@ -168,6 +168,7 @@ const ROUTES = [
   { path: "/api/plans", method: "GET", public: true },
   { path: "/api/payments/ziina", method: "POST", authKind: "user" },
   { path: "/api/payments/ziina", method: "GET", authKind: "user" },
+  { path: "/api/payments/mamo/coupon", method: "POST", authKind: "user" },
   { path: "/api/payments/mamo", method: "POST", authKind: "user" },
   { path: "/api/payments/mamo/webhook", method: "POST", public: true, enforced405: "GET" },
   { path: "/api/me", method: "GET", authKind: "user" },

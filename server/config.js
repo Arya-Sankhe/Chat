@@ -27,6 +27,11 @@ function readPositiveNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function readFeeNumber(value, fallback) {
+  const parsed = Number(clean(value) || NaN);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function readMeteringMode(value) {
   const mode = clean(value || "legacy").toLowerCase();
   return ["legacy", "observe", "enforce"].includes(mode) ? mode : "legacy";
@@ -42,6 +47,17 @@ function readBoolean(value, fallback = false) {
   const normalized = clean(value).toLowerCase();
   if (!normalized) return fallback;
   return ["1", "true", "yes", "on"].includes(normalized);
+}
+
+// MAMO_COUPONS=FIRST50:50,FIRSTFREE:100 — percent off the first month only.
+function parseMamoCoupons(value) {
+  const coupons = new Map();
+  for (const entry of clean(value).split(",")) {
+    const match = /^([A-Z0-9_-]{3,32}):(\d{1,3})$/i.exec(entry.trim());
+    const percentOff = Number(match?.[2]);
+    if (match && percentOff >= 1 && percentOff <= 100) coupons.set(match[1].toUpperCase(), { code: match[1].toUpperCase(), percentOff });
+  }
+  return coupons;
 }
 
 function readSearchMode(value) {
@@ -174,7 +190,17 @@ export function loadConfig(env = process.env) {
           : "https://business.mamopay.com/manage_api/v1"
       ),
       // ponytail: Mamo auth_header max 50.
-      webhookAuth: clean(env.MAMO_WEBHOOK_AUTH).slice(0, 50)
+      webhookAuth: clean(env.MAMO_WEBHOOK_AUTH).slice(0, 50),
+      // Sandbox-only "test" schedules renew within minutes so renewals can be observed.
+      testSchedule: readBoolean(env.MAMO_SANDBOX, false) && readBoolean(env.MAMO_TEST_SCHEDULE, false),
+      coupons: parseMamoCoupons(env.MAMO_COUPONS),
+      // Customers pay Mamo's processing fee on top of the plan price. Defaults are Mamo's
+      // Growth-plan international card rate (the highest card rate) and UAE VAT on the fee.
+      fees: {
+        percent: readFeeNumber(env.MAMO_FEE_PERCENT, 3.4),
+        fixedAed: readFeeNumber(env.MAMO_FEE_FIXED_AED, 1),
+        vatPercent: readFeeNumber(env.MAMO_FEE_VAT_PERCENT, 5)
+      }
     },
     supabase: {
       url: cleanUrl(env.SUPABASE_URL),

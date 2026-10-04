@@ -85,6 +85,8 @@ async function dispatch(config, { method = "GET", path, headers, body, overrides
 function stubbedDeps({ db = {}, r2 = {} } = {}) {
   return {
     createDb: () => ({
+      async listMamoPaymentLinks() { return []; },
+      async getLatestSubscription() { return null; },
       async upsertProfile() { return { id: "user-1", role: "user" }; },
       ...db
     }),

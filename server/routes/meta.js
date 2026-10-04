@@ -2,6 +2,7 @@ import { configuredServices } from "../config.js";
 import { HttpError, sendJson } from "../http/responses.js";
 import { apiUsageWindow } from "../saas/billing.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
+import { cancelMamoRenewal, mamoFetch, stopAllMamoSchedules } from "../saas/mamo.js";
 import { publicPlan } from "../saas/plans.js";
 import { storageUsage } from "../saas/storageQuota.js";
 import { loadGlobalSystemPrompt } from "../saas/systemPrompt.js";
@@ -27,7 +28,7 @@ function publicMe({ user, profile, subscription, plan, usage, config, settings }
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       provider: subscription.provider || null
     } : null,
-    plan: plan ? publicPlan(plan, Boolean(config.mamo?.apiKey)) : null,
+    plan: plan ? publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees) : null,
     usage: usage || {},
     access: {
       mode: config.access.mode,
@@ -71,12 +72,27 @@ export function handleConfig(req, res, config) {
 }
 
 export function handlePlans(req, res, config) {
-  sendJson(res, 200, { plans: config.plans.map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey))) });
+  sendJson(res, 200, { plans: config.plans.map((plan) => publicPlan(plan, Boolean(config.mamo?.apiKey), config.mamo?.fees)) });
 }
 
 export async function handleMe(req, res, config) {
   const context = await authContext(req, config);
   if (req.method === "DELETE") {
+    // A checkout opened before deletion must not remain payable after its owner is gone.
+    const links = await context.db.listMamoPaymentLinks(context.user.id, { signal: req.signal });
+    for (const link of links) {
+      try {
+        await mamoFetch(config, `/links/${encodeURIComponent(link.id)}`, {
+          method: "PATCH", body: { active: false }, signal: req.signal
+        });
+      } catch (error) {
+        if (error?.details?.status !== 404) throw error;
+      }
+    }
+    // A payment whose webhook has not arrived yet has no local subscription; stop it anyway.
+    await stopAllMamoSchedules(context.db, context.user, { config, signal: req.signal });
+    const subscription = await context.db.getLatestSubscription(context.user.id, { signal: req.signal });
+    await cancelMamoRenewal(subscription, { db: context.db, user: context.user, config, signal: req.signal });
     if (typeof context.r2.deletePrefix === "function") {
       await context.r2.deletePrefix(`users/${context.user.id}/`, { signal: req.signal });
     } else if (typeof context.db.listAccountObjectKeysBatch === "function") {
