@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -16,6 +17,10 @@ public class MainActivity extends BridgeActivity {
   protected void onCreate(Bundle savedInstanceState) {
     registerPlugin(TextZoomPlugin.class);
     super.onCreate(savedInstanceState);
+    // Keyboard.load() runs on the bridge queue. Install our root callback
+    // after it finishes, so its STOP callback cannot replace ours on startup.
+    getBridge().execute(() -> getBridge().executeOnMainThread(() ->
+        ((TextZoomPlugin) getBridge().getPlugin("TextZoom").getInstance()).installKeyboardInsets()));
     getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
     // True edge-to-edge from the very first frame. The Capacitor StatusBar
@@ -56,9 +61,36 @@ public class MainActivity extends BridgeActivity {
         WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
   }
 
+  private boolean keyboardOpenWhenStopped;
+
+  @Override
+  public void onPause() {
+    // Reconnect the editor on resume with one fresh keyboard transition.
+    WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(getWindow().getDecorView());
+    keyboardOpenWhenStopped = insets != null && insets.isVisible(WindowInsetsCompat.Type.ime());
+    if (keyboardOpenWhenStopped && getBridge() != null) {
+      View webView = getBridge().getWebView();
+      WindowCompat.getInsetsController(getWindow(), webView).hide(WindowInsetsCompat.Type.ime());
+
+    }
+    super.onPause();
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    hideSystemBars();
+  }
+
   @Override
   public void onWindowFocusChanged(boolean hasFocus) {
     super.onWindowFocusChanged(hasFocus);
-    if (hasFocus) hideSystemBars();
+    if (!hasFocus) return;
+    hideSystemBars();
+    if (keyboardOpenWhenStopped && getBridge() != null) {
+      keyboardOpenWhenStopped = false;
+      WindowCompat.getInsetsController(getWindow(), getBridge().getWebView())
+          .show(WindowInsetsCompat.Type.ime());
+    }
   }
 }

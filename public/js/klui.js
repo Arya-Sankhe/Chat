@@ -1,3 +1,4 @@
+import { pixelKluiMarkup } from "./composerKlui.js";
 import { slotText } from "../vendor/slot-text/dist/index.js";
 import { escapeHtml } from "./render.js";
 import { mountKluiMotion } from "./klui-motion.js";
@@ -351,7 +352,14 @@ export function hydrateKluiBars(root = document) {
 
 export function renderHomeGreetingHtml({ guest = false, temporary = false } = {}) {
   const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
-  const native = document.body.classList.contains("capacitor-native");
+  const native = document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches;
+  if (native) {
+    // Mobile/native keeps the pixel mascot but restores the rotating typed
+    // lines: type-text + caret let startHomeGreeting cycle phrases again.
+    const launchText = temporary ? "A little space to think" : window.__kluiLaunchGreeting || pickOne(pool).text;
+    const initialText = temporary ? launchText : launchText;
+    return `<div class="empty-state mobile-home-greeting"><div class="hero-line${initialText.length > 22 ? " is-long" : ""}"><div class="klui" aria-hidden="true">${pixelKluiMarkup()}</div><p class="type-line"><span class="type-text">${escapeHtml(initialText)}</span><span class="caret"></span></p></div></div>`;
+  }
   const first = pool[0];
   const launchText = temporary ? "" : window.__kluiLaunchGreeting;
   const initialText = native ? launchText || pickOne(pool).text : "";
@@ -374,8 +382,8 @@ export function startHomeGreeting({ guest = false, temporary = false } = {}) {
   const caret = root.querySelector(".caret");
   const klui = root.querySelector(".klui");
   const mouth = root.querySelector(".mouth-normal, .mouth");
-  mountKluiMotion(klui);
   if (!typeEl || !caret) return;
+  mountKluiMotion(klui);
   const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
   const initialText = typeEl.textContent;
   if (document.body.classList.contains("capacitor-native") && initialText) {

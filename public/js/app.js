@@ -1,3 +1,4 @@
+import { createCameraSheet } from "./cameraSheet.js";
 import {
   configureApiAuth,
   approveAdminPayment,
@@ -432,7 +433,8 @@ let googleButtonRenderKey = "";
 let reasoningOpenIds = new Set();
 let suppressUrlSync = false;
 let lastMessagesTouchY = 0;
-let lastNativeBackAt = 0;
+let cameraSheet = null;
+let lastNativeSwipeAt = 0;
 let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
@@ -2723,6 +2725,11 @@ function toggleProfileMenu() {
     openAuthDialog();
     return;
   }
+  if (isMobileLayout()) {
+    closeProfileMenu();
+    openSettings();
+    return;
+  }
   renderProfileMenu();
   if (isProfileMenuOpen()) {
     closeProfileMenu();
@@ -4066,14 +4073,31 @@ function setActionMenuPage(page) {
   if (els.composerActionMenu) els.composerActionMenu.dataset.page = page === "more" ? "more" : "root";
 }
 
+function dismissComposerKeyboard() {
+  if (!isMobileLayout()) return;
+  document.activeElement?.blur?.();
+  void hideNativeKeyboard();
+}
+
+function isMobileLayout() {
+  return isNative() || window.matchMedia("(max-width: 860px)").matches;
+}
+
+function closeMobileModeSheet() {
+  els.nativeMobileModeButton?.setAttribute("aria-expanded", "false");
+  els.nativeMobileModeDropdown?.classList.add("hidden");
+}
+
 function toggleActionMenu() {
   const open = els.composerActionMenu.classList.contains("hidden")
     && els.writingStyleMenu?.classList.contains("hidden");
+  if (open) { dismissComposerKeyboard(); closeMobileModeSheet(); }
   setActionMenuPage("root");
   els.composerActionMenu.classList.toggle("hidden", !open);
   els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton.setAttribute("aria-expanded", String(open));
   els.composerActionMenuWrap.classList.toggle("is-open", open);
+  if (open) cameraSheet?.preload?.();
 }
 
 function openWritingStyleMenu() {
@@ -4109,6 +4133,9 @@ function closeActionMenu() {
 }
 
 function toggleSidebar() {
+  dismissComposerKeyboard();
+  closeActionMenu();
+  closeMobileModeSheet();
   closeProfileMenu();
   closePinnedPopup();
   closeConversationMenus();
@@ -6916,9 +6943,11 @@ function closeLightbox() {
 /* ─── Drawers / Dialogs ─── */
 
 function openSettings() {
+  dismissComposerKeyboard();
   document.body.classList.remove("sidebar-open");
   syncSettingsInputs();
   setSettingsTab("general");
+  if (isMobileLayout()) showMobileSettingsOverview();
   els.settingsDrawer.classList.add("open");
   els.settingsDrawer.setAttribute("aria-hidden", "false");
   els.overlay.hidden = false;
@@ -7018,6 +7047,9 @@ async function clearMemorySettings() {
 }
 
 function setSettingsTab(tab) {
+  els.settingsDrawer.dataset.mobilePage = "detail";
+  const main = els.settingsDrawer.querySelector(".settings-main");
+  if (main) main.scrollTop = 0;
   const selected = ["general", "voice", "memory", "storage", "account"].includes(tab) ? tab : "general";
   if (selected !== "voice") voiceSettingsPicker?.stopPreview();
   els.settingsTabs?.querySelectorAll("[data-settings-tab]").forEach((button) => {
@@ -7025,7 +7057,7 @@ function setSettingsTab(tab) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  document.querySelectorAll("[data-settings-panel], #settingsTextScaleSection").forEach((panel) => {
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
     panel.hidden = (panel.dataset.settingsPanel || "general") !== selected;
   });
   if (els.settingsTitle) els.settingsTitle.textContent = selected[0].toUpperCase() + selected.slice(1);
@@ -7042,6 +7074,7 @@ function setSettingsTab(tab) {
 }
 
 function closeSettings() {
+  if (els.settingsDrawer.contains(document.activeElement)) document.activeElement.blur();
   voiceSettingsPicker?.stopPreview();
   els.settingsDrawer.classList.remove("open");
   els.settingsDrawer.setAttribute("aria-hidden", "true");
@@ -7323,8 +7356,6 @@ function syncSettingsInputs() {
   if (els.showModelReasoningInput) {
     els.showModelReasoningInput.checked = state.settings.showModelReasoning !== false;
   }
-  if (els.textScaleInput) els.textScaleInput.value = String(clampTextScale(state.settings.uiTextScale));
-  if (els.textScaleValue) els.textScaleValue.textContent = `${clampTextScale(state.settings.uiTextScale)}%`;
   syncAppearanceControls();
   renderSettingsStorage();
 }
@@ -7416,7 +7447,7 @@ function syncComposerKlui() {
   const home = document.body.classList.contains("chat-empty");
   const phone = phoneLayout.matches || document.body.classList.contains("capacitor-native");
   composerKlui.sync({
-    show: home ? phone : state.messages.length > 0,
+    show: !phone && !home && state.messages.length > 0,
     running: Boolean(state.running),
     key: state.activeConversationId || ""
   });
@@ -8076,6 +8107,7 @@ async function checkAndShowAppUpdate() {
   const update = await checkForAppUpdate().catch(() => null);
   if (!update || !els.appUpdateDialog) return;
   availableAppUpdate = update;
+  if (isNative()) { els.promptInput?.blur(); void hideNativeKeyboard(); }
   const notes = Array.isArray(update.releaseNotes) && update.releaseNotes.length
     ? ` ${update.releaseNotes.join(" ")}`
     : "";
@@ -8096,6 +8128,21 @@ function closeAppUpdate() {
 }
 
 function closeTopNativeSurface() {
+  if (cameraSheet?.close()) return true;
+  const contextToggle = document.querySelector("[data-context-toggle][aria-expanded=true]");
+  if (contextToggle) { contextToggle.click(); return true; }
+  const deckDialog = document.getElementById("deckPresetDialog");
+  if (deckDialog?.open) { deckDialog.close(); return true; }
+  if (homeModesController?.closePicker?.()) return true;
+  if (els.nativeMobileModeButton?.getAttribute("aria-expanded") === "true") {
+    closeMobileModeSheet(); return true;
+  }
+  if (els.composerActionMenuWrap?.classList.contains("is-open")) {
+    closeActionMenu(); return true;
+  }
+  if (els.composerModelWrap?.classList.contains("is-open")) {
+    closeModelDropdown(); return true;
+  }
   if (studyHub?.handleEscape?.()) return true;
   if (!els.appUpdateDialog?.classList.contains("hidden")) {
     closeAppUpdate();
@@ -8148,6 +8195,19 @@ function closeTopNativeSurface() {
   return false;
 }
 
+async function handleNativeBack() {
+  if (closeTopNativeSurface()) return;
+  if (document.body.classList.contains("keyboard-open")) {
+    dismissComposerKeyboard();
+    return;
+  }
+  if (state.activeConversationId || window.location.pathname !== "/") {
+    openNewChat({ replaceUrl: true });
+    return;
+  }
+  await exitApp();
+}
+
 async function setupNativeLifecycle() {
   if (!isNative()) return;
   await listenForNativeAuth(state.config, {
@@ -8167,18 +8227,10 @@ async function setupNativeLifecycle() {
     }
   });
   await registerBackButton(async () => {
-    if (closeTopNativeSurface()) return;
-    if (state.activeConversationId || window.location.pathname !== "/") {
-      openNewChat({ replaceUrl: true });
-      return;
-    }
-    const now = Date.now();
-    if (now - lastNativeBackAt < 1800) {
-      await exitApp();
-      return;
-    }
-    lastNativeBackAt = now;
-    showToast("Press back again to exit.");
+    // An edge swipe can also reach the WebView. Consume its duplicate native
+    // callback so the same gesture cannot close a sheet and then exit the app.
+    if (Date.now() - lastNativeSwipeAt < 350) return;
+    await handleNativeBack();
   });
 }
 
@@ -9858,16 +9910,12 @@ async function bootstrap() {
     }
     await refreshAfterMamoReturn();
     if (state.session && hasChatAccess()) {
-      // The chat is now visible and authorized. Start focusing before the
-      // model/conversation requests below so native startup feels immediate.
-      if (!researchIdFromLocation()) focusPromptInputSoon();
       await loadChatApp();
       await restorePendingDocuments();
       const reportId = researchIdFromLocation();
       if (reportId) await researchController.openResearchReport(reportId, { push: false });
     }
-    if (!isGuestContinueOpen()) focusPromptInputSoon();
-    await checkAndShowAppUpdate();
+    void checkAndShowAppUpdate();
   } catch (err) {
     state.session = null;
     state.me = null;
@@ -9900,19 +9948,10 @@ function composerHasFocus() {
   return Boolean(els.composer?.contains(document.activeElement));
 }
 
-async function showNativeKeyboard() {
-  if (!isNative()) return;
-  try {
-    await showNativeKeyboardInstant();
-  } catch {
-    try {
-      const { Keyboard } = await import("@capacitor/keyboard");
-      await Keyboard.show();
-    } catch {
-      // The input focus still remains correct if an older Android build cannot
-      // show the IME programmatically.
-    }
-  }
+// Normal taps use Android's editor focus. Only startup/new-chat/pill actions
+// need an explicit request; one bridge call, without timers or a second path.
+function showNativeKeyboard() {
+  return showNativeKeyboardInstant().catch(() => {});
 }
 
 async function hideNativeKeyboard() {
@@ -9931,7 +9970,7 @@ function blurEmptyComposerForHistoryScroll() {
 }
 
 function focusPromptInput() {
-  if (!els.promptInput || !isNative() || !state.session || !hasChatAccess()) return;
+  if (!els.promptInput || !isNative()) return;
   if (els.chatView?.classList.contains("hidden") || !els.researchReportView?.classList.contains("hidden")) return;
   els.composer?.classList.remove("compact");
   els.promptInput.focus({ preventScroll: true });
@@ -9947,7 +9986,165 @@ function setAutoScroll(enabled) {
   state.autoScroll = Boolean(enabled);
 }
 
+function showMobileSettingsOverview() {
+  els.settingsDrawer.dataset.mobilePage = "overview";
+  els.settingsTitle.textContent = "Settings";
+  const name = state.me?.user?.name || profileDisplayName(state.me?.user?.email || "") || "Klui";
+  document.getElementById("mobileSettingsName").textContent = name;
+  document.getElementById("mobileSettingsAvatar").textContent = name.split(/\s+/).map(part => part[0]).slice(0, 2).join("").toUpperCase();
+  document.getElementById("mobileSettingsPlan").textContent = state.me?.plan?.name ? `${state.me.plan.name} plan` : "Free plan";
+  const usage = document.getElementById("mobileSettingsUsage");
+  if (usage) {
+    usage.innerHTML = renderAccountUsageMarkup();
+    usage.hidden = !usage.innerHTML;
+  }
+  const accountDescription = els.settingsTabs.querySelector("[data-settings-tab=account] .mobile-settings-description");
+  if (accountDescription) accountDescription.textContent = state.me?.user?.email || "Profile and subscription";
+}
+
+function setupMobileLayout() {
+  const wrap = els.nativeMobileModeButton?.closest(".native-mobile-mode-wrap");
+  const header = document.querySelector(".native-mobile-bar");
+  const actions = document.querySelector(".composer-actions");
+  const settingsHeader = els.settingsTitle?.closest(".drawer-header");
+  const settingsPanel = els.settingsDrawer.querySelector(".settings-panel");
+  const settingsMain = els.settingsDrawer.querySelector(".settings-main");
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "mobile-settings-back";
+  back.setAttribute("aria-label", "Back to settings");
+  back.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>';
+  back.addEventListener("click", () => {
+    if (els.settingsDrawer.dataset.mobilePage === "overview") closeSettings();
+    else showMobileSettingsOverview();
+  });
+  settingsHeader.prepend(back);
+  const descriptions = {
+    general: "Appearance and wallpaper", voice: "Voice and playback",
+    memory: "What Klui remembers", storage: "Files and documents", account: "Profile and subscription"
+  };
+  const profile = document.createElement("div");
+  profile.className = "mobile-settings-profile";
+  profile.innerHTML = '<div id="mobileSettingsAvatar" aria-hidden="true"></div><div class="mobile-settings-identity"><strong id="mobileSettingsName"></strong><span id="mobileSettingsPlan"></span></div>';
+  const personalLabel = document.createElement("div");
+  personalLabel.className = "mobile-settings-group";
+  personalLabel.textContent = "My Klui";
+  els.settingsTabs.prepend(profile, personalLabel);
+  els.settingsTabs.querySelectorAll("[data-settings-tab]").forEach(button => {
+    const copy = document.createElement("span");
+    copy.className = "mobile-settings-description";
+    copy.textContent = descriptions[button.dataset.settingsTab];
+    button.append(copy);
+  });
+  const usage = document.createElement("div");
+  usage.id = "mobileSettingsUsage";
+  usage.className = "mobile-settings-usage";
+  const logout = document.createElement("button");
+  logout.type = "button";
+  logout.className = "mobile-settings-logout";
+  logout.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 5H4v14h5m5-14 7 7-7 7M8 12h13"/></svg><span>Log out</span>';
+  logout.addEventListener("click", () => { closeSettings(); void signOutAndReset(); });
+  els.settingsTabs.append(usage, logout);
+  const sendArrow = els.sendButton.querySelector(".send-icon-arrow");
+  const originalSendArrow = sendArrow.innerHTML;
+  const context = document.getElementById("composerContextWrap");
+  const contextNext = context.nextSibling;
+  const sheets = [els.nativeMobileModeDropdown, els.composerActionMenu, els.writingStyleMenu, els.deckPickerPop].filter(Boolean);
+  const homes = sheets.map(sheet => ({ sheet, parent: sheet.parentNode, next: sheet.nextSibling }));
+  const fileLabel = els.imageToggle.querySelector("span");
+  const originalFileLabel = fileLabel.textContent;
+  const adapt = () => {
+    const mobile = isMobileLayout();
+    els.accountButton?.setAttribute("aria-haspopup", mobile ? "dialog" : "menu");
+    document.body.classList.toggle("mobile-ui", mobile);
+    document.body.classList.toggle("capacitor-native", mobile);
+    els.cameraAction?.classList.toggle("hidden", !mobile);
+    fileLabel.textContent = mobile ? "Files" : originalFileLabel;
+    sendArrow.innerHTML = mobile
+      ? '<path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>'
+      : originalSendArrow;
+    if (mobile) {
+      actions?.append(wrap);
+      els.composer.insertBefore(context, els.composer.querySelector(".composer-input"));
+      settingsPanel?.prepend(settingsHeader);
+      sheets.forEach(sheet => document.body.append(sheet));
+    } else {
+      header?.insertBefore(wrap, header.children[1]);
+      actions.insertBefore(context, contextNext?.parentNode === actions ? contextNext : null);
+      settingsMain?.prepend(settingsHeader);
+      homes.forEach(({ sheet, parent, next }) => parent.insertBefore(sheet, next?.parentNode === parent ? next : null));
+    }
+  };
+  adapt();
+  window.matchMedia("(max-width: 860px)").addEventListener("change", adapt);
+  const backdrop = document.createElement("button");
+  backdrop.id = "mobileSheetBackdrop";
+  backdrop.type = "button";
+  backdrop.setAttribute("aria-label", "Close sheet");
+  backdrop.addEventListener("click", closeTopNativeSurface);
+  document.body.append(backdrop);
+  const sheetHeader = (sheet, title, close) => {
+    const head = document.createElement("div");
+    head.className = "mobile-sheet-header";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("aria-label", `Close ${title.toLowerCase()}`);
+    button.textContent = "×";
+    button.addEventListener("click", close);
+    const label = document.createElement("strong");
+    label.textContent = title;
+    head.append(button, label);
+    sheet?.prepend(head);
+  };
+  sheetHeader(els.nativeMobileModeDropdown, "Select model", closeMobileModeSheet);
+  sheetHeader(els.composerActionMenu, "Add to chat", closeActionMenu);
+  const originalAccept = els.imageFileInput.accept;
+  const documentAccept = originalAccept.split(",").filter(type => !type.startsWith("image/")).join(",");
+  const addAction = (id, label, icon, handler) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.id = id;
+    button.className = "composer-action-menu-item mobile-session-action";
+    button.dataset.menuPage = "root";
+    button.setAttribute("role", "menuitem");
+    button.innerHTML = `${icon}<span>${label}</span>`;
+    button.addEventListener("click", () => { closeActionMenu(); handler(); });
+    els.composerActionMenu.append(button);
+  };
+  addAction("mobilePhotosAction", "Photos", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-7 5 6"/></svg>', () => {
+    if (els.imageToggle.disabled) return;
+    els.imageFileInput.accept = "image/*";
+    els.imageFileInput.click();
+  });
+  els.imageToggle.addEventListener("click", () => { els.imageFileInput.accept = isMobileLayout() ? documentAccept : originalAccept; }, true);
+  addAction("mobileSlidesAction", "Slides", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M12 16v5m-4 0h8M8 7v5m4-3v3m4-5v5"/></svg>', () => homeModesController.selectMode("slides"));
+  addAction("mobileStudyAction", "Dojo", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 9 10-5 10 5-10 5-10-5Zm4 2v6c4 3 8 3 12 0v-6m4-2v7"/></svg>', () => homeModesController.selectMode("study"));
+  // A single horizontal gesture dismisses the top surface. Ignore controls that
+  // own horizontal dragging (sliders, input, carousels and slide galleries).
+  let swipe = null;
+  document.addEventListener("touchstart", event => {
+    swipe = null;
+    if (!isMobileLayout() || event.touches.length !== 1 || event.target.closest("input, textarea, [contenteditable], [role=slider], .wallpaper-picker, .deck-gallery, .deck-preset-viewer")) return;
+    const touch = event.touches[0];
+    swipe = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  document.addEventListener("touchend", event => {
+    const start = swipe;
+    swipe = null;
+    if (!start || !event.changedTouches.length) return;
+    const touch = event.changedTouches[0];
+    if (touch.clientX - start.x > 72 && Math.abs(touch.clientY - start.y) < 60) {
+      if (isNative()) {
+        lastNativeSwipeAt = Date.now();
+        void handleNativeBack();
+      } else closeTopNativeSurface();
+    }
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });
+}
+
 function bindEvents() {
+  setupMobileLayout();
   initDocumentViewerWidth();
   els.appUpdateReload?.addEventListener("click", reloadAppIfSafe);
   els.messages?.addEventListener("click", (event) => {
@@ -10111,7 +10308,7 @@ function bindEvents() {
       }, 120);
     };
     const updateCompact = () => {
-      if (composerHasPendingContent() || composerHasFocus()) {
+      if (!state.messages.length || document.body.classList.contains("study-open") || composerHasPendingContent() || composerHasFocus()) {
         clearCompactBottomSettleTimer();
         els.composer.classList.remove("compact");
         return;
@@ -10233,11 +10430,6 @@ function bindEvents() {
   els.sidebarButton.addEventListener("click", toggleSidebar);
   els.sidebarCloseButton?.addEventListener("click", () => {
     document.body.classList.remove("sidebar-open");
-  });
-  els.promptInput?.addEventListener("click", () => {
-    if (!isNative()) return;
-    els.promptInput.focus({ preventScroll: true });
-    void showNativeKeyboard();
   });
   els.nativeMobileMenu?.addEventListener("click", toggleSidebar);
   els.compactNewChatButton?.addEventListener("click", () => {
@@ -10536,7 +10728,7 @@ function bindEvents() {
     if (!els.composerModelWrap?.contains(e.target)) {
       closeModelDropdown();
     }
-    if (!els.composerActionMenu.contains(e.target) && !els.composerActionMenuWrap.contains(e.target)) {
+    if (!els.composerActionMenu.contains(e.target) && !els.writingStyleMenu?.contains(e.target) && !els.composerActionMenuWrap.contains(e.target)) {
       closeActionMenu();
     }
     if (!els.compareDropdown.contains(e.target) && !els.compareWrap.contains(e.target)) {
@@ -10625,14 +10817,12 @@ function bindEvents() {
     syncNativeTopBarMode();
   }
 
-  function closeTopBarModeDropdown() {
-    if (!els.nativeMobileModeButton) return;
-    els.nativeMobileModeButton.setAttribute("aria-expanded", "false");
-    els.nativeMobileModeDropdown?.classList.add("hidden");
-  }
+  const closeTopBarModeDropdown = closeMobileModeSheet;
 
   function openTopBarModeDropdown() {
     if (!els.nativeMobileModeButton) return;
+    dismissComposerKeyboard();
+    closeActionMenu();
     renderTopBarMode();
     els.nativeMobileModeButton.setAttribute("aria-expanded", "true");
     els.nativeMobileModeDropdown?.classList.remove("hidden");
@@ -10827,9 +11017,11 @@ function bindEvents() {
     acceptPendingFiles(e.target.files || []);
     e.target.value = "";
   });
+  cameraSheet = createCameraSheet({ onPhoto: file => acceptPendingFiles([file]), onError: showToast });
   els.cameraAction?.addEventListener("click", () => {
     closeActionMenu();
-    els.cameraFileInput?.click();
+    dismissComposerKeyboard();
+    void cameraSheet.open();
   });
   els.cameraFileInput?.addEventListener("change", (e) => {
     acceptPendingFiles(e.target.files || []);
@@ -11455,14 +11647,6 @@ function bindEvents() {
     updateSetting("showModelReasoning", e.target.checked);
     renderMessages();
   });
-  els.textScaleInput?.addEventListener("input", (e) => {
-    const value = clampTextScale(e.target.value);
-    if (els.textScaleValue) els.textScaleValue.textContent = `${value}%`;
-    void setTextZoom(value);
-  });
-  els.textScaleInput?.addEventListener("change", (e) => {
-    updateSetting("uiTextScale", clampTextScale(e.target.value));
-  });
   els.saveSystemPromptButton?.addEventListener("click", () => { void adminPanel.saveGlobalSystemPrompt(); });
   els.appearancePill?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-appearance]");
@@ -11516,5 +11700,8 @@ bindEvents();
 if (location.hash === "#settings") {
   history.replaceState(null, "", `${location.pathname}${location.search}`);
   openSettings();
+} else if (!studyRouteFromLocation() && !projectsRouteFromLocation() && !researchIdFromLocation()) {
+  // Start the editor/IME before bootstrap's first preference/network await.
+  focusPromptInputSoon();
 }
 bootstrap();

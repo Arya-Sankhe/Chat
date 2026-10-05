@@ -21,7 +21,9 @@ const config: CapacitorConfig = {
       disableBackButtonHandler: false
     },
     Keyboard: {
-      resize: "none",
+      // TextZoom forwards animated IME height to the page. Keep Capacitor's
+      // native full-screen resize off so the WebView stays fully painted.
+      resize: "app",
       resizeOnFullScreen: false
     },
     SplashScreen: {

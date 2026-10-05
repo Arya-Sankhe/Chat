@@ -50,13 +50,13 @@ test("mobile composer uses a lifted, compact layout and mode dots retain their c
   const css = readStylesheet();
   assert.match(
     css,
-    /body\.capacitor-native \.app-shell,[\s\S]*?body\.capacitor-native \.chat-panel\s*\{[\s\S]*?height:\s*100dvh;[\s\S]*?min-height:\s*100dvh;/
+    /body\.capacitor-native \.app-shell\s*\{\s*height:\s*100dvh;\s*min-height:\s*100dvh;/
   );
   assert.match(css, /grid-template-columns:\s*36px minmax\(0, 1fr\) 74px/);
   assert.match(css, /body\.capacitor-native \.composer-plus-btn\[aria-expanded="true"\]\s*\{[\s\S]*?background:\s*var\(--accent\)\s*!important/);
   assert.match(css, /\.mode-dot-nitro\s*\{\s*background:\s*#34c759/);
   assert.match(css, /\.composer-area \.composer-wrap\s*\{\s*width:\s*min\(84%, 560px\)/);
-  assert.match(css, /bottom:\s*calc\(var\(--native-keyboard-height\) \+ 26px\)\s*!important/);
+  assert.match(css, /bottom:\s*26px\s*!important/);
   assert.match(css, /min-height:\s*56px[\s\S]*?background:\s*var\(--bg\)\s*!important/);
 });
 
@@ -94,6 +94,23 @@ test("the top bar markup order: hamburger → mode chip → temp-chat label → 
   assert.ok(idxMode < idxLabel, "mode chip should be left of active temporary-chat label");
   assert.ok(idxLabel < idxTemp, "active temporary-chat label should sit before the temp-chat icon");
   assert.ok(idxTemp < idxNew, "temp-chat icon should be left of new-chat");
+});
+
+test("the in-chat new-chat button aligns with the hamburger and uses the Klui icon", () => {
+  const html = readPublic("index.html");
+  const css = readStylesheet();
+  // No `hidden`/`aria-hidden`/`tabindex` lockout: visibility is gated by
+  // body.chat-empty in CSS so it shows inside conversations.
+  assert.doesNotMatch(html, /id="compactNewChatButton"[^>]*\bhidden\b/);
+  assert.doesNotMatch(html, /id="compactNewChatButton"[^>]*aria-hidden="true"/);
+  // Klui's own pencil icon, same as the sidebar New chat entry.
+  assert.match(html, /id="compactNewChatButton"[\s\S]*?M12 20h9/);
+  // Static in the flex row (never the old absolute corner), level with the
+  // hamburger; right-aligned when the temp toggle is hidden in normal chats.
+  const block = (css.match(/body\.capacitor-native:not\(\.chat-empty\) #compactNewChatButton \{[^}]*\}/) || [])[0] || "";
+  assert.ok(block, "in-chat new-chat visibility block not found");
+  assert.match(block, /position:\s*static !important/);
+  assert.match(css, /body\.capacitor-native:not\(\.chat-empty\):not\(\.temporary-chat\) #compactNewChatButton \{[^}]*margin-left:\s*auto/);
 });
 
 test("the APK temporary-chat label is in the top bar, not floated into the chat content", () => {
@@ -266,7 +283,7 @@ test("the compact pill while scrolling is small, centered, solid, and tappable",
   assert.match(appJs, /state\.images\?\.length \|\| state\.pastedText\) els\.composer\?\.classList\.remove\("compact"\)/, "attachment previews should keep the composer full-size");
   assert.match(appJs, /blurEmptyComposerForHistoryScroll\(\)/, "scrolling history should blur an empty focused composer so it can compact");
   assert.match(appJs, /focusPromptInput\(\)/, "tapping the compact pill should expand and focus the composer");
-  assert.match(appJs, /Keyboard\.show\(\)/, "native focus should request the Android keyboard");
+  assert.match(appJs, /showNativeKeyboardInstant\(\)/, "native focus should request the Android keyboard");
 });
 
 test("the composer is hidden model/compare chips on the APK (Gemini-style clean pill)", () => {
@@ -327,8 +344,34 @@ test("the APK greeting is present on first paint and long lines stay compact", (
 test("the APK uses one IME layout path so the composer is never lifted twice", () => {
   const config = readFileSync(resolve(here, "..", "capacitor.config.ts"), "utf8");
   const platform = readPublic("js/platform/index.js");
-  assert.match(config, /Keyboard:\s*\{[\s\S]*?resize:\s*"none"/);
-  assert.match(platform, /Keyboard\.setResizeMode\(\{ mode: KeyboardResize\.None \}\)/);
+  const textZoom = readFileSync(
+    resolve(here, "..", "android", "app", "src", "main", "java", "tech", "klui", "app", "TextZoomPlugin.java"),
+    "utf8"
+  );
+  const activity = readFileSync(resolve(here, "..", "android/app/src/main/java/tech/klui/app/MainActivity.java"), "utf8");
+  assert.match(activity, /getBridge\(\)\.execute\(\(\) -> getBridge\(\)\.executeOnMainThread[\s\S]*?installKeyboardInsets\(\)/,
+    "install the root callback after the keyboard plugin's queued load");
+  assert.match(config, /Keyboard:\s*\{[\s\S]*?resize:\s*"app"/);
+  assert.match(config, /Keyboard:\s*\{[\s\S]*?resizeOnFullScreen:\s*false/);
+  assert.match(platform, /Keyboard\.setResizeMode\(\{ mode: KeyboardResize\.App \}\)/);
+  assert.match(textZoom, /setProperty\('--native-keyboard-height'/);
+  assert.doesNotMatch(textZoom, /setPadding|requestLayout|setLayoutParams/,
+    "the WebView must cover the entire window throughout keyboard animation");
+  assert.match(textZoom, /setWindowInsetsAnimationCallback\(getActivity\(\)\.getWindow\(\)\.getDecorView\(\)/,
+    "IME frames must be handled above Capacitor's STOP callback");
+  assert.match(textZoom, /setOnApplyWindowInsetsListener[\s\S]*?applyKeyboardInsets/);
+  assert.match(textZoom, /if \(!imeAnimating\) applyKeyboardInsets/,
+    "the destination height must not reserve empty space before the keyboard moves");
+  assert.match(textZoom, /onProgress[\s\S]*?applyKeyboardInsets\(webView, insets\)/);
+  assert.match(textZoom, /onEnd[\s\S]*?applyKeyboardInsets\(webView, targetInsets\)/);
+  assert.doesNotMatch(textZoom, /getRootWindowInsets|setTranslationY/,
+    "settling must not sample stale insets or shift the whole screen");
+  assert.match(textZoom, /WindowCompat\.getInsetsController[\s\S]*?\.show\(WindowInsetsCompat\.Type\.ime\(\)\)/);
+  assert.doesNotMatch(textZoom, /manager\.showSoftInput/);
+  assert.match(textZoom, /if \(!webView\.hasFocus\(\)\) webView\.requestFocus\(\)/);
+  // Chromium receives no second IME inset after CSS owns the chat layout.
+  assert.match(textZoom, /setInsets\(WindowInsetsCompat\.Type\.ime\(\), Insets\.NONE\)/);
+
 });
 
 test("new chat and repeated composer focus cannot scroll or reanimate the native viewport", () => {
@@ -339,4 +382,22 @@ test("new chat and repeated composer focus cannot scroll or reanimate the native
   assert.doesNotMatch(newChat, /renderShell\(\);\s*els\.promptInput\?\.focus\(\)/);
   assert.match(appJs, /if \(!document\.body\.classList\.contains\("keyboard-open"\)\) void showNativeKeyboard\(\)/);
   assert.doesNotMatch(css, /bottom:\s*var\(--native-keyboard-height\)\s*!important;\s*transition:\s*bottom/);
+  assert.doesNotMatch(appJs, /els\.promptInput\?\.addEventListener\("click"/,
+    "ordinary editor taps must use Android focus without another keyboard request");
+  assert.doesNotMatch(appJs, /lastKeyboardShowAt/);
+
+});
+
+test("the mobile composer stays bottom anchored inside the keyboard-aware chat, and previews stay left-aligned", () => {
+  const css = readStylesheet();
+  // The chat panel follows the IME; the composer needs no extra lift or timer.
+  const area = (css.match(/body\.mobile-ui #app \.composer-area \{[\s\S]*?\}/) || [])[0] || "";
+  assert.ok(area, "mobile composer-area rule not found");
+  assert.doesNotMatch(area, /transition:/);
+  assert.match(css, /:root \{\s*--native-keyboard-height:\s*0px;/);
+  assert.match(css, /body\.capacitor-native \.chat-panel \{\s*height:\s*var\(--native-viewport-height\)/);
+  // Attached-photo previews run from the left edge of the composer.
+  const previews = (css.match(/body\.mobile-ui #app \.composer-previews \{[^}]*\}/) || [])[0] || "";
+  assert.match(previews, /align-self:\s*stretch/);
+  assert.match(previews, /justify-content:\s*flex-start/);
 });

@@ -355,7 +355,7 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
     // safe-area padding still keeps the top bar icons clear of the clock.
     StatusBar.setBackgroundColor({ color: "#00000000" }),
     StatusBar.setOverlaysWebView({ overlay: true }),
-    Keyboard.setResizeMode({ mode: KeyboardResize.None })
+    Keyboard.setResizeMode({ mode: KeyboardResize.App })
   ]).catch(() => {});
 }
 

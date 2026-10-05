@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import { fileURLToPath } from "node:url";
 
 import { readStylesheet } from "./helpers/styles.js";
 
@@ -185,6 +190,29 @@ test("mobile bundle includes the shared Deep Research controls", async () => {
   assert.match(buildScript, /Mobile build is missing the Deep Research control/);
 });
 
+test("mobile bundle includes the slide catalog and every preview image it references", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "klui-mobile-assets-"));
+  try {
+    await symlink(fileURLToPath(new URL("../public", import.meta.url)), join(directory, "public"), "junction");
+    await mkdir(join(directory, "dist-mobile"));
+    await writeFile(join(directory, "dist-mobile", "index.html"), '<button id="deepResearchToggle"></button>');
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/mobile/copy-static.mjs", import.meta.url))], {
+      cwd: directory, encoding: "utf8", timeout: 30000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const catalog = JSON.parse(await readFile(join(directory, "dist-mobile", "deck-presets", "catalog.json"), "utf8"));
+    for (const image of catalog.presets.flatMap((preset) => [preset.cover, ...preset.slides])) {
+      assert.deepEqual(
+        await readFile(join(directory, "dist-mobile", image)),
+        await readFile(new URL(`../public${image}`, import.meta.url)),
+        image
+      );
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("mobile compare and council reuse the composer mode chip", async () => {
   const appJs = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
@@ -290,7 +318,7 @@ test("native login renders the authenticated shell before loading account data",
   assert.ok(handler.indexOf("renderShell();") < handler.indexOf("await withTimeout(loadMe()"));
 });
 
-test("native startup focuses early only after an accessible chat is visible", async () => {
+test("native startup focuses the visible editor before bootstrap begins", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) =>
     readFile(new URL("../public/js/app.js", import.meta.url), "utf8")
   );
@@ -302,12 +330,10 @@ test("native startup focuses early only after an accessible chat is visible", as
     source.indexOf("function focusPromptInput()"),
     source.indexOf("function focusPromptInputSoon()")
   );
-  assert.equal((bootstrap.match(/focusPromptInputSoon\(\)/g) || []).length, 2);
-  assert.ok(
-    bootstrap.indexOf("if (!researchIdFromLocation()) focusPromptInputSoon();")
-      < bootstrap.indexOf("await loadChatApp();")
-  );
-  assert.match(focusPrompt, /!state\.session \|\| !hasChatAccess\(\)/);
+  assert.equal((bootstrap.match(/focusPromptInputSoon\(\)/g) || []).length, 0);
+  const startup = source.slice(source.lastIndexOf("bindEvents();"));
+  assert.ok(startup.indexOf("focusPromptInputSoon();") < startup.indexOf("bootstrap();"));
+  assert.doesNotMatch(focusPrompt, /state\.session|hasChatAccess/);
   assert.match(focusPrompt, /researchReportView\?\.classList\.contains\("hidden"\)/);
 });
 
@@ -617,7 +643,7 @@ test("camera action button exists in the + menu", async () => {
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   );
   assert.match(source, /class="composer-action-menu-item mobile-camera-action hidden"[^>]+id="cameraAction"/, "camera action button must be hidden by default");
-  assert.match(source, /Take photo/, "camera action button must have label 'Take photo'");
+  assert.match(source, /Camera/, "camera action button must have label 'Camera'");
 });
 
 test("desktop composer uses the same headered mode card as mobile", () => {
@@ -947,39 +973,17 @@ test("native composer hides model and compare chips so only plus and send remain
   assert.match(css, composerChipRule, "composer model/compare chips should be hidden on the APK");
 });
 
-test("settings has an APK-only text size slider that is hidden on the web", async () => {
+test("settings has no text size slider (removed from the menu)", async () => {
   const readFile = (await import("node:fs/promises")).readFile;
   const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
   const css = readStylesheet();
   const js = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
-  const java = await readFile(
-    new URL("../android/app/src/main/java/tech/klui/app/TextZoomPlugin.java", import.meta.url),
-    "utf8"
-  );
 
-  // Markup: a range input, hidden by default like every other APK-only control.
-  assert.match(
-    html,
-    /<section class="settings-section hidden" id="settingsTextScaleSection">[\s\S]*?<input type="range" id="textScaleInput"[^>]*min="85"[^>]*max="130"/,
-    "text size slider should exist, hidden by default, with an 85-130 range"
-  );
-
-  // CSS: only revealed on the APK, same pattern as the camera action button.
-  assert.match(
-    css,
-    /body\.capacitor-native #settingsTextScaleSection\.hidden\s*\{\s*display:\s*block\s*!important;/,
-    "text size section should only be revealed on body.capacitor-native"
-  );
-
-  // JS: the value is clamped and applied through the native WebView text
-  // zoom (font-size only, so it can't break fixed-height layout) rather
-  // than a CSS-level page zoom.
-  assert.match(js, /function clampTextScale\(value\)/);
-  assert.match(js, /Math\.min\(130, Math\.max\(85, num\)\)/);
-  assert.match(js, /function applyTextScale\(\)\s*\{\s*void setTextZoom\(clampTextScale\(state\.settings\.uiTextScale\)\)/);
-  assert.match(js, /key === "uiTextScale"\) applyTextScale\(\)/);
-  assert.match(java, /if \(percent < 85\) percent = 85;/);
-  assert.match(java, /if \(percent > 130\) percent = 130;/);
+  // The Text size section was removed from the settings menu entirely.
+  assert.doesNotMatch(html, /settingsTextScaleSection/, "text size section should not exist in settings");
+  assert.doesNotMatch(html, /textScaleInput/, "text size slider should not exist in settings");
+  assert.doesNotMatch(css, /settingsTextScaleSection/, "no CSS should target the removed text size section");
+  assert.doesNotMatch(js, /textScaleInput\?\.addEventListener/, "no listeners should wire a removed slider");
 });
 
 test("settings uses appearance and wallpapers without legacy chat themes", async () => {
@@ -1074,4 +1078,38 @@ test("desktop chat navigation stays out of mobile and tracks prompt position", a
   assert.match(css, /\.chat-prompt-nav \{[\s\S]*?right:\s*18px/);
   assert.match(css, /\.chat-prompt-panel \{[\s\S]*?max-height:\s*min\(248px,\s*calc\(100vh - 160px\)\);[\s\S]*?overflow-y:\s*auto/);
   assert.match(css, /\.chat-prompt-list button \{[\s\S]*?height:\s*36px;[\s\S]*?padding:\s*0 9px/);
+});
+
+
+test("Android exposes the camera capture intent to the native file chooser", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const manifest = await readFile(new URL("../android/app/src/main/AndroidManifest.xml", import.meta.url), "utf8");
+  assert.match(manifest, /<queries>[\s\S]*?<intent>[\s\S]*?android:name="android.media.action.IMAGE_CAPTURE"[\s\S]*?<\/intent>[\s\S]*?<\/queries>/);
+});
+
+
+test("cold startup requests editor and keyboard focus before any async bootstrap work", async () => {
+  const source = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const helpers = source.slice(source.indexOf("function focusPromptInput()"), source.indexOf("function setAutoScroll("));
+  const startup = source.slice(source.lastIndexOf("bindEvents();"));
+  const events = [];
+  const context = {
+    isNative: () => true,
+    els: {
+      promptInput: { focus: options => { assert.equal(options.preventScroll, true); events.push("focus"); } },
+      composer: { classList: { remove: () => {} } },
+      chatView: { classList: { contains: () => false } },
+      researchReportView: { classList: { contains: () => true } }
+    },
+    document: { body: { classList: { contains: () => false } } },
+    showNativeKeyboard: () => events.push("keyboard"),
+    bindEvents: () => {},
+    location: { hash: "" },
+    studyRouteFromLocation: () => false,
+    projectsRouteFromLocation: () => false,
+    researchIdFromLocation: () => "",
+    bootstrap: () => { events.push("bootstrap"); return new Promise(() => {}); }
+  };
+  runInNewContext(helpers + startup, context);
+  assert.deepEqual(events, ["focus", "keyboard", "bootstrap"]);
 });
