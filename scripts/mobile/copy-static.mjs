@@ -12,6 +12,6 @@ if (!mobileIndex.includes('id="deepResearchToggle"')) {
   throw new Error("Mobile build is missing the Deep Research control.");
 }
 
-for (const entry of ["img", "images", "icons", "vendor", "audio", "favicon.svg"]) {
+for (const entry of ["img", "images", "icons", "vendor", "audio", "deck-presets", "favicon.svg"]) {
   await cp(path.join(source, entry), path.join(destination, entry), { recursive: true });
 }

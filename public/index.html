@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)">
     <title>Klui AI</title>
@@ -286,7 +286,7 @@
                 <path d="M11 16.5h2"/>
               </svg>
             </button>
-            <button class="native-mobile-icon-btn compact-new-chat" id="compactNewChatButton" type="button" aria-hidden="true" tabindex="-1" hidden>
+            <button class="native-mobile-icon-btn compact-new-chat" id="compactNewChatButton" type="button" aria-label="New chat" title="New chat">
               <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             </button>
           </header>
@@ -396,8 +396,8 @@
                           <span>Add photos & files</span>
                         </button>
                         <button class="composer-action-menu-item mobile-camera-action hidden" type="button" id="cameraAction" role="menuitem" data-menu-page="root">
-                          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                          <span>Take photo</span>
+                          <svg width="19" height="19" viewBox="-1 -1 26 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                          <span>Camera</span>
                         </button>
                         <button class="composer-action-menu-item hidden" type="button" id="deepResearchToggle" role="menuitem" aria-pressed="false" data-menu-page="root">
                           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14.2 16.6 5.6a1.05 1.05 0 0 1 1.48 0l1.15 1.15a1.05 1.05 0 0 1 0 1.48L10.6 16.8z"/><path d="M6.2 15.6 8.4 13.4"/><path d="M6.5 16.2h11a1 1 0 0 1 1 1V19H5.5v-1.8a1 1 0 0 1 1-1z"/><path d="M4.5 19.5h15a1 1 0 0 1 1 1V22H3.5v-1.5a1 1 0 0 1 1-1z"/></svg>
@@ -719,16 +719,6 @@
               </div>
               <div class="memory-empty" id="memoryEmpty">Turn memory on to start building a private, editable summary from your future messages.</div>
               <p class="settings-notice" id="memoryNotice" role="status" aria-live="polite"></p>
-            </section>
-
-            <section class="settings-section hidden" id="settingsTextScaleSection">
-              <h2>Text size</h2>
-              <div class="text-scale-row">
-                <span class="text-scale-icon text-scale-icon-sm" aria-hidden="true">A</span>
-                <input type="range" id="textScaleInput" min="85" max="130" step="5" value="100" aria-label="Text size">
-                <span class="text-scale-icon text-scale-icon-lg" aria-hidden="true">A</span>
-                <span class="text-scale-value" id="textScaleValue">100%</span>
-              </div>
             </section>
 
             <section class="settings-section hidden" id="settingsReasoningSection" data-settings-panel="general">
@@ -1113,10 +1103,7 @@
             </div>
           </div>`;
         }
-        requestAnimationFrame(() => {
-          document.querySelector("#promptInput")?.focus({ preventScroll: true });
-          void window.Capacitor?.Plugins?.TextZoom?.showKeyboard?.();
-        });
+
       }
     </script>
     <script type="module" src="/js/app.js"></script>

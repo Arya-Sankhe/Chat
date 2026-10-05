@@ -34,6 +34,33 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 Use `npm run mobile:open` to open the native project in Android Studio.
 
+### Configured Mac build environment
+
+The new Mac uses Homebrew OpenJDK 21 and Android command-line tools, with
+SDK platform 36 and build-tools 36.0.0. Android Studio is optional for CLI builds.
+The `Pixel_8_API_36` emulator uses the Google APIs ARM64 Android 36 image.
+The shell setup is stored outside the repository:
+
+```sh
+source "$HOME/.klui/android-env.sh"
+npm run mobile:apk:debug
+```
+
+For signed builds, load the local signing configuration first:
+
+```sh
+source "$HOME/.klui/android-env.sh"
+source "$HOME/.klui/android-signing.env"
+npm run mobile:apk:release
+```
+
+Beta 1 is `1.1.0-beta.1` (version code 11). It uses a new signing key because
+the original keystore was unavailable. Existing Android installations must be
+uninstalled before installing Beta 1; this removes their local app data.
+The new key is `$HOME/.klui/klui-beta-release.keystore`, with alias `klui-beta`.
+Keep encrypted backups of that file and the signing configuration outside this
+Mac so future releases can update Beta 1 in place. Neither file belongs in Git.
+
 ## Supabase and Google authentication
 
 The website keeps Google Identity Services. Android uses Supabase Google OAuth
@@ -216,3 +243,22 @@ public/js/platform/
 The backend contract, stream events and upload flow remain platform-neutral.
 When the Expo application reaches parity, remove those Capacitor paths and
 native dependencies while retaining `public/` as the website.
+
+Beta 2 is `1.1.0-beta.2` (version code 12), signed with the same local beta key.
+It installs directly over Beta 1. It includes the redesigned mobile composer,
+settings and sheets, single-swipe dismissal, and separate camera/photo/document
+actions. Android camera capture is declared in package-visibility queries so
+Capacitor can find the capture activity instead of falling back to Photos.
+
+
+Beta 3 is `1.1.0-beta.3` (version code 13), signed with the same beta key, and
+installs over Beta 1 or Beta 2. It removes double-back exit, keeps the greeting
+visible above the keyboard, restores the compact composer when browsing chat
+history, and uses the existing pixel Klui sprite on the home screen. Menus use
+visible attachment icons, titles-only model rows, and More as the final action.
+Settings has an avatar header and grouped rows with the standard UI font.
+
+Camera now uses an in-app video sheet through `getUserMedia`, with the Android
+CAMERA permission handled by Capacitor's WebChromeClient. Closing, capturing,
+switching cameras, or backgrounding the app releases the active media tracks;
+a pending permission response after dismissal also releases its stream.

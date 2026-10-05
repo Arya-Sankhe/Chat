@@ -1,0 +1,364 @@
+/* Mobile uses one composer layout for home, conversations and Dojo. */
+body.mobile-ui.mobile-ui {
+  --mobile-surface: color-mix(in srgb, var(--text) 6%, var(--bg));
+  --mobile-control: color-mix(in srgb, var(--text) 12%, var(--bg));
+}
+.mobile-sheet-header, .mobile-settings-back, .mobile-settings-description,
+.mobile-session-action, #mobileSheetBackdrop { display: none; }
+body.mobile-ui.mobile-ui .hidden, body.mobile-ui.mobile-ui [hidden] { display: none !important; }
+body.mobile-ui.mobile-ui .native-mobile-bar { padding: 8px 16px; background: transparent; box-shadow: none; }
+body.mobile-ui.mobile-ui .native-mobile-icon-btn {
+  width: 44px; height: 44px; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 50%;
+}
+body.mobile-ui #app .composer-area {
+  position: absolute !important; inset: auto 0 12px !important;
+  width: 100% !important; height: auto !important; max-height: none !important;
+  padding: 0 16px !important; overflow: visible !important; transform: none !important;
+  background: transparent !important; margin: 0 !important;
+}
+body.mobile-ui #app .composer-wrap {
+  width: 100% !important; max-width: 760px !important; margin: 0 auto !important;
+  position: relative !important; inset: auto !important; transform: none !important;
+}
+body.mobile-ui.mobile-ui .composer-slot { width: 100%; }
+body.mobile-ui.mobile-ui .composer,
+body.mobile-ui.mobile-ui.study-open .study-composer-slot .composer:not(.compact) {
+  display: flex !important; flex-direction: column !important; gap: 0 !important;
+  grid-template: none !important; width: 100% !important; min-height: 0 !important;
+  height: auto !important; max-height: none !important; padding: 14px 12px 10px !important;
+  border: 1px solid var(--border) !important; border-radius: 24px !important;
+  background: var(--mobile-surface) !important; box-shadow: 0 4px 24px #0000000a !important;
+  overflow: visible !important; transform: none !important; opacity: 1 !important;
+}
+body.mobile-ui.mobile-ui .composer-beam, body.mobile-ui.mobile-ui .composer-klui,
+body.mobile-ui.mobile-ui .home-modes, body.mobile-ui.mobile-ui .composer-footer,
+body.mobile-ui.mobile-ui .mode-switch { display: none !important; }
+body.mobile-ui #app .composer-input {
+  display: flex !important; flex-direction: column !important; width: 100% !important;
+  min-width: 0 !important; min-height: 28px !important; margin: 0 !important;
+  padding: 0 2px !important; overflow: visible !important; grid-area: auto !important;
+  opacity: 1 !important; visibility: visible !important; pointer-events: auto !important;
+}
+body.mobile-ui #app .composer-prompt {
+  display: block !important; width: 100% !important; min-width: 0 !important;
+  min-height: 28px !important; max-height: min(180px, 28dvh) !important;
+  padding: 0 !important; margin: 0 !important; overflow: auto !important;
+  font-family: var(--font-sans) !important; font-size: 18px !important; line-height: 1.45 !important;
+  white-space: pre-wrap; overflow-wrap: anywhere; opacity: 1 !important; visibility: visible !important;
+}
+body.mobile-ui #app .composer-bottom {
+  display: flex !important; justify-content: space-between !important; align-items: center !important;
+  gap: 8px !important; padding: 0 !important; margin: 8px 0 0 !important; width: 100% !important;
+}
+body.mobile-ui #app .composer-actions, body.mobile-ui #app .composer-send {
+  display: flex !important; align-items: center !important; gap: 8px !important;
+  padding: 0 !important; overflow: visible !important; margin: 0 !important; position: static !important; flex: 0 0 auto !important;
+}
+body.mobile-ui #app .composer-actions { flex: 1 1 auto !important; min-width: 0; }
+body.mobile-ui.mobile-ui .composer-action-menu-wrap { display: block !important; position: static !important; }
+body.mobile-ui.mobile-ui .composer-tool, body.mobile-ui.mobile-ui #voiceButton,
+body.mobile-ui.mobile-ui #sendButton, body.mobile-ui.mobile-ui #voiceModeButton, body.mobile-ui.mobile-ui #stopButton {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px !important; height: 40px !important; min-width: 40px !important;
+  border: 0 !important; border-radius: 50% !important; background: var(--mobile-control) !important;
+  color: var(--text) !important; margin: 0 !important; padding: 0 !important;
+  position: static !important; transform: none; box-shadow: none !important;
+}
+body.mobile-ui.mobile-ui #sendButton, body.mobile-ui.mobile-ui #voiceModeButton { background: var(--accent) !important; color: var(--accent-contrast) !important; }
+body.mobile-ui.mobile-ui #voiceButton svg { width: 22px; height: 22px; }
+body.mobile-ui.mobile-ui #actionMenuButton svg { width: 23px; height: 23px; }
+body.mobile-ui.mobile-ui .native-mobile-mode-wrap {
+  display: block !important; position: static !important; min-width: 0; margin: 0;
+}
+body.mobile-ui.mobile-ui .native-mobile-mode-btn {
+  display: flex; align-items: center; gap: 5px; height: 40px; padding: 0 14px;
+  max-width: 100%; border: 0; border-radius: 24px; background: var(--mobile-control);
+  color: var(--text); font-size: 15px; font-weight: 500; box-shadow: none !important;
+  background: var(--mobile-control) !important;
+}
+body.mobile-ui.mobile-ui .native-mobile-mode-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.mobile-ui.mobile-ui .research-mode-chip {
+  display: flex; align-items: center; justify-content: flex-start;
+  width: 100% !important; padding: 0 2px 10px !important; margin: 0 0 10px !important;
+  min-height: 0 !important; border-bottom: 1px solid var(--border-light); grid-area: auto !important;
+  background: transparent; font-size: 13px;
+}
+body.mobile-ui.mobile-ui .research-mode-chip button { margin-left: auto; width: 28px !important; height: 28px !important; }
+body.mobile-ui #app .composer-deck-thumb {
+  align-self: flex-start; display: flex; flex: none !important; width: auto !important;
+  max-width: 100%; height: 48px !important; margin: 0 0 10px !important;
+}
+body.mobile-ui #app .composer-deck-thumb-card { width: 72px !important; height: 42px !important; }
+body.mobile-ui #app .composer-deck-thumb img { width: 72px !important; height: 42px !important; object-fit: cover; border-radius: 8px; }
+body.mobile-ui #app .composer-deck-thumb-label { font-size: 13px; }
+body.mobile-ui #app .composer-previews { max-height: 110px; overflow: auto; align-self: stretch; justify-content: flex-start; }
+body.mobile-ui.mobile-ui .messages { padding-bottom: 174px !important; }
+body.mobile-ui.mobile-ui .mobile-home-greeting {
+  position: absolute !important; inset: 60px 16px 180px !important;
+  display: flex; align-items: center; justify-content: center; min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important;
+}
+body.mobile-ui.mobile-ui .mobile-home-greeting .hero-line { flex-direction: column; gap: 16px; width: 100%; }
+body.mobile-ui.mobile-ui .mobile-home-greeting .klui { display: block !important; width: 72px; height: 44px; }
+body.mobile-ui.mobile-ui .mobile-home-greeting .type-line {
+  display: block; font-family: var(--font-sans);
+  font-size: clamp(25px, 7vw, 34px); font-weight: 400; line-height: 1.2; text-align: center;
+  letter-spacing: -.025em; white-space: normal;
+}
+body.mobile-ui.mobile-ui.keyboard-open .mobile-home-greeting { inset: 60px 16px 174px !important; }
+/* Sheet positioning is independent of the composer and the IME. */
+body.mobile-ui.mobile-ui #mobileSheetBackdrop {
+  position: fixed; inset: 0; z-index: 119; border: 0; background: #0006;
+}
+body.mobile-ui.mobile-ui:has(#nativeMobileModeDropdown:not(.hidden), .composer-action-menu-wrap.is-open, #deckPickerPop:not([hidden])) #mobileSheetBackdrop { display: block; }
+body.mobile-ui.mobile-ui .native-mobile-mode-dropdown,
+body.mobile-ui.mobile-ui .composer-action-menu,
+body.mobile-ui.mobile-ui #deckPickerPop {
+  position: fixed !important; inset: auto 0 0 !important; z-index: 120 !important;
+  width: 100% !important; max-width: none !important; max-height: 85dvh !important;
+  padding: 10px 12px calc(18px + env(safe-area-inset-bottom)) !important;
+  margin: 0 !important; border: 0 !important; border-radius: 28px 28px 0 0 !important;
+  background: var(--bg) !important; color: var(--text); box-shadow: 0 -12px 40px #0002;
+  overflow-y: auto !important; transform: none !important; animation: mobile-sheet-in 180ms ease-out;
+}
+body.mobile-ui.mobile-ui .mobile-sheet-header {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 58px; margin-bottom: 10px; font-size: 18px;
+}
+body.mobile-ui.mobile-ui .mobile-sheet-header::before { content: ''; position: absolute; top: -2px; width: 36px; height: 4px; border-radius: 4px; background: var(--border); }
+body.mobile-ui.mobile-ui .mobile-sheet-header button { position: absolute; left: 4px; width: 40px; height: 40px; background: transparent; border: 0; color: var(--text); font-size: 30px; font-weight: 300; }
+body.mobile-ui.mobile-ui .native-mobile-mode-item {
+  position: relative; display: grid; grid-template-columns: 22px 1fr; gap: 3px 10px;
+  width: 100%; min-height: 58px; padding: 16px; border: 0; border-radius: 0;
+  background: var(--mobile-surface); color: var(--text); text-align: left; font-size: 18px;
+  border-bottom: 1px solid var(--border-light);
+}
+body.mobile-ui.mobile-ui .native-mobile-mode-item:first-of-type { border-radius: 18px 18px 0 0; }
+body.mobile-ui.mobile-ui .native-mobile-mode-item:last-of-type { border-radius: 0 0 18px 18px; border-bottom: 0; }
+body.mobile-ui.mobile-ui .native-mobile-mode-item small { grid-column: 2; font-size: 13px; color: var(--text-secondary); padding-right: 20px; }
+body.mobile-ui.mobile-ui .native-mobile-mode-item[aria-selected=true]::after { content: '✓'; position: absolute; right: 18px; top: 16px; color: var(--accent); }
+body.mobile-ui.mobile-ui .composer-action-menu { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+body.mobile-ui.mobile-ui .composer-action-menu .mobile-sheet-header { grid-column: 1 / -1; }
+body.mobile-ui.mobile-ui .composer-action-menu-item {
+  display: flex; gap: 12px; align-items: center; width: 100%; min-height: 64px;
+  padding: 16px; border-radius: 16px; background: var(--mobile-surface); font-size: 18px;
+  grid-column: 1 / -1; color: var(--text);
+}
+body.mobile-ui.mobile-ui #cameraAction, body.mobile-ui.mobile-ui #imageToggle, body.mobile-ui.mobile-ui #mobilePhotosAction {
+  grid-column: auto; grid-row: 2; flex-direction: column; justify-content: center;
+  gap: 12px; height: 114px; padding: 14px 4px; font-size: 17px;
+}
+body.mobile-ui.mobile-ui #cameraAction { order: -3; }
+body.mobile-ui.mobile-ui #mobilePhotosAction { order: -2; }
+body.mobile-ui.mobile-ui #imageToggle { order: -1; }
+body.mobile-ui.mobile-ui .composer-action-menu-item > svg { flex-shrink: 0; width: 23px; height: 23px; }
+body.mobile-ui.mobile-ui .composer-action-menu .mobile-sheet-header { order: -4; }
+body.mobile-ui.mobile-ui .composer-action-menu[data-page=root] [data-menu-page=more],
+body.mobile-ui.mobile-ui .composer-action-menu[data-page=more] [data-menu-page=root] { display: none !important; }
+body.mobile-ui.mobile-ui .composer-style-menu { display: block; }
+body.mobile-ui.mobile-ui .composer-style-option { min-height: 54px; font-size: 17px; background: var(--mobile-surface); padding: 16px; }
+body.mobile-ui.mobile-ui #deckPickerPop .deck-picker-body { max-height: 65dvh; overflow-y: auto; }
+body.mobile-ui.mobile-ui #deckPickerPop .deck-picker-top { padding: 12px 4px 16px; }
+/* Settings overview and subpages reuse the same saved settings controls. */
+body.mobile-ui.mobile-ui .settings-drawer { inset: 0 !important; width: 100% !important; height: var(--native-viewport-height, 100dvh) !important; padding: 0 !important; }
+body.mobile-ui.mobile-ui .settings-panel {
+  display: flex !important; flex-direction: column !important; width: 100% !important;
+  height: 100% !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important;
+}
+body.mobile-ui.mobile-ui .settings-panel > .drawer-header {
+  position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  height: calc(64px + env(safe-area-inset-top)); margin: 0; padding: env(safe-area-inset-top) 16px 0;
+  background: var(--bg); border: 0;
+}
+body.mobile-ui.mobile-ui .settings-panel > .drawer-header strong { font: 600 22px var(--font-sans); }
+body.mobile-ui.mobile-ui .settings-panel > .drawer-header .drawer-close { position: absolute; right: 16px; bottom: 12px; width: 40px; height: 40px; }
+/* Mobile settings use the back arrow only — no X on any settings page. */
+body.mobile-ui.mobile-ui .settings-panel > .drawer-header .drawer-close,
+body.mobile-ui.mobile-ui #settingsDrawer .drawer-close,
+body.mobile-ui.mobile-ui #accountDrawer .drawer-close { display: none !important; }
+body.mobile-ui.mobile-ui .mobile-settings-back { display: grid; place-items: center; position: absolute; left: 12px; bottom: 10px; width: 44px; height: 44px; border: 0; background: transparent; color: var(--text); font-size: 36px; line-height: 0; padding: 0; }
+body.mobile-ui.mobile-ui .mobile-settings-back svg { display: block; width: 24px; height: 24px; }
+body.mobile-ui.mobile-ui .settings-nav { flex-direction: column !important; overflow: auto !important; width: 100%; padding: 22px 16px !important; border: 0; gap: 0; background: var(--bg); }
+body.mobile-ui.mobile-ui .settings-nav-brand { display: none; }
+body.mobile-ui.mobile-ui .settings-tab {
+  position: relative; display: grid; grid-template-columns: 28px 1fr;
+  flex: none !important; gap: 6px 12px; min-height: 88px; padding: 18px 20px;
+  background: var(--mobile-surface) !important; color: var(--text); border-radius: 0; border-bottom: 1px solid var(--border-light); font-size: 18px;
+}
+body.mobile-ui.mobile-ui .settings-tab:first-of-type { border-radius: 18px 18px 0 0; }
+body.mobile-ui.mobile-ui .settings-tab:last-of-type { border-radius: 0 0 18px 18px; border-bottom: 0; }
+body.mobile-ui.mobile-ui .settings-tab svg { grid-row: 1 / 3; width: 24px; height: 24px; align-self: center; }
+body.mobile-ui.mobile-ui .settings-tab::after { content: '›'; position: absolute; right: 20px; top: 30px; color: var(--text-secondary); }
+body.mobile-ui.mobile-ui .mobile-settings-description { display: block; grid-column: 2; font-size: 14px; color: var(--text-secondary); padding-right: 16px; }
+body.mobile-ui.mobile-ui .settings-main { flex: 1; min-height: 0; padding: 0 16px 32px !important; overflow-y: auto; }
+body.mobile-ui.mobile-ui .settings-section { background: var(--mobile-surface); border-radius: 18px; padding: 18px; margin-top: 14px; }
+body.mobile-ui.mobile-ui .settings-section h2 { font-size: 15px; margin: 0 0 16px; }
+body.mobile-ui.mobile-ui .settings-section textarea { max-height: 180px; }
+body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=overview] .settings-main,
+body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=overview] .mobile-settings-back,
+body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=detail] .settings-nav { display: none !important; }
+body.mobile-ui.mobile-ui .wallpaper-picker { overflow-x: auto; max-width: 100%; }
+body.mobile-ui.mobile-ui .accent-picker { flex-wrap: wrap; }
+/* Avoid stretching the Sources list into an empty full-height box. */
+body.mobile-ui.mobile-ui.study-open .study-view { padding: 64px 12px 16px !important; overflow-y: auto !important; }
+body.mobile-ui.mobile-ui .study-detail-header { min-height: 72px; gap: 12px; }
+body.mobile-ui.mobile-ui .study-detail, body.mobile-ui.mobile-ui .study-detail-body { flex: 0 0 auto; }
+body.mobile-ui.mobile-ui .dojo-workspace { min-height: 0; flex: 0 0 auto; margin-top: 12px; }
+body.mobile-ui.mobile-ui .dojo-sources { min-height: 260px; max-height: calc(var(--native-viewport-height, 100dvh) - 190px); border-radius: 18px; }
+body.mobile-ui.mobile-ui .study-materials { flex: 0 1 auto; max-height: calc(var(--native-viewport-height, 100dvh) - 260px); }
+body.mobile-ui.mobile-ui .dojo-chat { height: calc(var(--native-viewport-height, 100dvh) - 200px); min-height: 300px; }
+body.mobile-ui.mobile-ui .study-composer-slot .composer-area { position: relative !important; bottom: auto !important; padding: 10px !important; }
+body.mobile-ui.mobile-ui .study-composer-slot .composer-wrap { width: 100% !important; }
+body.mobile-ui.mobile-ui.study-open .study-composer-slot .native-mobile-mode-wrap { display: block !important; }
+body.mobile-ui.mobile-ui button:active { transform: scale(.97); }
+@keyframes mobile-sheet-in { from { translate: 0 20px; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@media (max-width: 360px) {
+  body.mobile-ui #app .composer-area { padding: 0 10px !important; }
+  body.mobile-ui #app .composer-bottom, body.mobile-ui #app .composer-actions, body.mobile-ui #app .composer-send { gap: 5px !important; }
+  body.mobile-ui.mobile-ui .native-mobile-mode-btn { padding: 0 10px; font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.mobile-ui.mobile-ui *, body.mobile-ui.mobile-ui *::before, body.mobile-ui.mobile-ui *::after { animation: none !important; scroll-behavior: auto !important; }
+}
+
+body.mobile-ui #app .composer { background: var(--mobile-surface) !important; }
+body.mobile-ui #app .composer-bottom { padding: 0 !important; }
+body.mobile-ui #app .composer-actions { overflow: visible !important; }
+body.mobile-ui .native-mobile-mode-dropdown { gap: 0 !important; }
+
+body.mobile-ui #app .study-composer-slot { padding: 0 !important; }
+body.mobile-ui #app .study-composer-slot .composer-area { position: relative !important; inset: auto !important; width: 100% !important; padding: 10px !important; }
+body.mobile-ui #app .study-composer-slot .composer-wrap { width: 100% !important; }
+body.mobile-ui #composerContextWrap:not(:empty) { align-self: flex-start; margin: 0 0 10px; }
+body.mobile-ui .composer-context-pop { position: fixed; inset: auto 12px 12px; width: calc(100vw - 24px); max-height: 70dvh; overflow: auto; z-index: 120; border-radius: 22px; }
+
+body.mobile-ui #app .composer-deck-thumb { transform: none !important; }
+body.mobile-ui #sendButton .send-icon-arrow { width: 22px; height: 22px; }
+
+body.mobile-ui #cameraAction svg, body.mobile-ui #mobilePhotosAction svg, body.mobile-ui #imageToggle svg { flex: 0 0 44px; box-sizing: border-box; width: 44px; height: 44px; min-height: 44px; padding: 10px; border-radius: 50%; background: var(--mobile-control); overflow: visible; }
+
+body.mobile-ui #actionMenuMore { order: 10; }
+body.mobile-ui .native-mobile-mode-item small { display: none !important; }
+body.mobile-ui .mobile-home-greeting .klui svg { display: block; width: 100%; height: 100%; }
+body.mobile-ui.chat-empty #messages { position: static; overflow: hidden !important; }
+.mobile-settings-profile, .mobile-settings-group { display: none; }
+body.mobile-ui #settingsDrawer[data-mobile-page=overview] .mobile-settings-back { display: block !important; }
+body.mobile-ui #settingsDrawer[data-mobile-page=detail] .mobile-settings-profile { display: none; }
+body.mobile-ui .nav-btn, body.mobile-ui .nav-item, body.mobile-ui .chat-title, body.mobile-ui .conversation-title, body.mobile-ui .convo-title { font-size: 18px !important; }
+#mobileCameraSheet[hidden] { display: none !important; }
+#mobileCameraSheet { position: fixed; inset: auto 0 0; height: min(64dvh, 620px); z-index: 122; overflow: hidden; border-radius: 28px 28px 0 0; background: #111; color: #fff; }
+#mobileCameraSheet video { width: 100%; height: 100%; object-fit: cover; }
+#mobileCameraSheet .camera-selfie { transform: scaleX(-1); }
+.camera-controls { position: absolute; inset: auto 0 max(22px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-around; }
+.camera-controls button { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #0008; color: white; line-height: 0; padding: 0; }
+.camera-controls .camera-close svg { display: block; width: 26px; height: 26px; }
+.camera-controls .camera-shutter { width: 64px; height: 64px; background: white; border: 4px solid #ffffff70; outline: 2px solid #fff; outline-offset: 3px; }
+.camera-shutter:disabled { opacity: .4; }
+.camera-switch svg { width: 24px; height: 24px; }
+.camera-status { position: absolute; inset: 20px 20px auto; padding: 14px; border-radius: 14px; background: #0009; font-size: 16px; text-align: center; }
+body.mobile-ui:has(#mobileCameraSheet:not([hidden])) #mobileSheetBackdrop { display: block; }
+
+body.mobile-ui .sidebar-nav-item, body.mobile-ui .sidebar-nav-label, body.mobile-ui .sidebar-profile-name { font-size: 18px !important; }
+body.mobile-ui #app .composer.compact { width: 56px !important; height: 14px !important; min-height: 14px !important; padding: 0 !important; margin: 0 auto !important; border: 0 !important; border-radius: 999px !important; background: color-mix(in srgb, var(--text-secondary) 78%, var(--bg)) !important; overflow: hidden !important; cursor: pointer; }
+body.mobile-ui #app .composer.compact > * { display: none !important; }
+body.mobile-ui #app .composer.compact::after { display: none !important; }
+body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=overview] .mobile-settings-back { display: block !important; }
+body.mobile-ui.mobile-ui .settings-panel { background: var(--bg) !important; }
+body.mobile-ui #app .composer { transition: background-color 150ms ease, border-color 150ms ease !important; }
+
+/* Match keyboard motion in native layout, without a second CSS animation. */
+body.mobile-ui.mobile-ui .composer:focus-within {
+  border-color: var(--border) !important;
+  box-shadow: 0 4px 24px #0000000a !important;
+}
+
+/* Light mode: cool, crisp neutrals instead of flat grey; white cards float on a soft canvas. */
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) {
+  --mobile-surface: #f4f4f7;
+  --mobile-control: #e9e9ee;
+  --mobile-canvas: #f3f3f6;
+  --mobile-card: #ffffff;
+  --mobile-hairline: #e7e7ec;
+  --mobile-card-shadow: 0 1px 2px #1018280a, 0 2px 10px #10182808;
+}
+body.mobile-ui.mobile-ui[data-mode="dark"] {
+  --mobile-canvas: var(--bg);
+  --mobile-card: color-mix(in srgb, var(--text) 9%, var(--bg));
+  --mobile-hairline: color-mix(in srgb, var(--text) 8%, transparent);
+  --mobile-card-shadow: none;
+}
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) .composer { border-color: var(--mobile-hairline) !important; }
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) #app .composer-wrap .composer:not(.compact) { background: var(--mobile-card) !important; box-shadow: 0 2px 6px #1018280a, 0 8px 28px #1018280f !important; }
+/* Focus retains the neutral card edge and shadow. */
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) #app .composer-wrap .composer:not(.compact):focus-within {
+  border-color: var(--mobile-hairline) !important;
+  box-shadow: 0 2px 6px #1018280a, 0 8px 28px #1018280f !important;
+}
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) :is(.native-mobile-mode-dropdown, .composer-action-menu, #deckPickerPop) { background: var(--mobile-canvas) !important; }
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) :is(.native-mobile-mode-item, .composer-action-menu-item, .composer-style-option) { background: var(--mobile-card); }
+body.mobile-ui.mobile-ui:not([data-mode="dark"]) .native-mobile-mode-item { border-bottom-color: var(--mobile-hairline); }
+
+/* Settings overview: compact identity row, one grouped list, account card, open usage + log out. */
+body.mobile-ui.mobile-ui .settings-panel,
+body.mobile-ui.mobile-ui .settings-panel > .drawer-header,
+body.mobile-ui.mobile-ui .settings-nav { background: var(--mobile-canvas) !important; }
+body.mobile-ui.mobile-ui .mobile-settings-back { width: 44px; height: 44px; border-radius: 50%; background: var(--mobile-card); box-shadow: var(--mobile-card-shadow); }
+body.mobile-ui.mobile-ui .settings-nav { padding: 6px 16px calc(28px + env(safe-area-inset-bottom)) !important; }
+body.mobile-ui.mobile-ui .mobile-settings-profile {
+  display: flex; align-items: center; gap: 14px; padding: 6px 4px 4px;
+}
+body.mobile-ui.mobile-ui #mobileSettingsAvatar {
+  display: grid; place-items: center; flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-contrast);
+  font: 600 18px/1 var(--font-sans); letter-spacing: .02em;
+}
+body.mobile-ui.mobile-ui .mobile-settings-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+body.mobile-ui.mobile-ui #mobileSettingsName { overflow: hidden; font-size: 19px; font-weight: 600; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+body.mobile-ui.mobile-ui #mobileSettingsPlan { font-size: 14px; color: var(--text-secondary); }
+body.mobile-ui.mobile-ui .mobile-settings-group {
+  display: block; padding: 24px 6px 8px; font-size: 13px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--text-secondary);
+}
+body.mobile-ui.mobile-ui .settings-tab {
+  display: grid; grid-template-columns: 24px 1fr; align-items: center; gap: 2px 16px;
+  min-height: 58px !important; padding: 14px 44px 14px 18px !important;
+  background: var(--mobile-card) !important; color: var(--text);
+  border: 0; border-bottom: 1px solid var(--mobile-hairline); border-radius: 0;
+  font-size: 17px !important; font-weight: 500;
+}
+body.mobile-ui.mobile-ui .settings-tab svg { grid-row: 1 / 3; width: 22px; height: 22px; color: var(--text-secondary); }
+body.mobile-ui.mobile-ui .settings-tab::after {
+  content: ''; position: absolute; top: 50%; right: 20px; width: 7px; height: 7px;
+  border: solid var(--text-tertiary); border-width: 2px 2px 0 0; transform: translateY(-50%) rotate(45deg);
+}
+body.mobile-ui.mobile-ui .settings-tab .mobile-settings-description { display: none; }
+body.mobile-ui.mobile-ui #settingsTabs .settings-tab[data-settings-tab=general] { border-radius: 20px 20px 0 0; }
+body.mobile-ui.mobile-ui #settingsTabs .settings-tab[data-settings-tab=storage] { border-radius: 0 0 20px 20px; border-bottom: 0; }
+body.mobile-ui.mobile-ui :is(.settings-tab[data-settings-tab=general], .settings-tab[data-settings-tab=storage], .settings-tab[data-settings-tab=account]) { box-shadow: var(--mobile-card-shadow); }
+body.mobile-ui.mobile-ui #settingsTabs .settings-tab[data-settings-tab=account] { margin-top: 16px; border: 0; border-radius: 20px; min-height: 68px !important; }
+body.mobile-ui.mobile-ui .settings-tab[data-settings-tab=account] .mobile-settings-description {
+  display: block; overflow: hidden; padding: 0; font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap;
+}
+.mobile-settings-usage, .mobile-settings-logout { display: none; }
+body.mobile-ui.mobile-ui .mobile-settings-usage { display: block; margin: 28px 0 0; padding: 0 6px; }
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage { margin: 0; padding: 0; border: 0; }
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-head { align-items: baseline; margin-bottom: 12px; }
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-label { font-size: 16px; font-weight: 600; }
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-value { font-size: 16px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-track {
+  height: 12px; background: var(--mobile-control);
+  box-shadow: inset 0 1px 2px #0000000d;
+}
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 72%, var(--mobile-card)), var(--accent));
+}
+body.mobile-ui.mobile-ui .mobile-settings-usage .account-usage-note { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+body.mobile-ui.mobile-ui .mobile-settings-logout {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0; align-self: flex-start;
+  width: auto; margin: 22px 0 0; padding: 10px 6px; min-height: 44px;
+  background: transparent; border: 0; border-radius: 12px;
+  color: var(--danger, #e5484d); font: 600 17px var(--font-sans); text-align: left;
+}
+body.mobile-ui.mobile-ui .mobile-settings-logout svg { width: 22px; height: 22px; }
+/* Detail pages share the canvas and card treatment. */
+body.mobile-ui.mobile-ui .settings-main { background: var(--mobile-canvas); }
+body.mobile-ui.mobile-ui .settings-section { background: var(--mobile-card); box-shadow: var(--mobile-card-shadow); border-radius: 20px; }

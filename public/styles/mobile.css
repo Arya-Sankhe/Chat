@@ -376,12 +376,6 @@ body.capacitor-native .composer-action-menu {
 
 }
 
-/* Text size lives in Settings only on the APK — the web app already has
-   the browser/OS zoom for this, so there's no need to duplicate it there. */
-body.capacitor-native #settingsTextScaleSection.hidden {
-  display: block !important;
-}
-
 body.capacitor-native .composer-action-menu[data-page="root"] .mobile-camera-action.hidden {
 
   display: flex !important;
@@ -1587,6 +1581,12 @@ body.chat-empty .composer-area {
   .message-content {
 
     font-size: 15px;
+
+  }
+
+  .message.assistant .message-content {
+
+    font-size: 17px;
 
   }
 
@@ -3122,12 +3122,30 @@ body.capacitor-native {
   --apk-chip-bg-active: color-mix(in srgb, var(--bg) 90%, var(--text) 10%);
 }
 
-/* 1) New-chat icon must never stack over temp-chat in the APK top bar. */
-body.capacitor-native .compact-new-chat,
-body.capacitor-native #compactNewChatButton {
+/* 1) New-chat sits top-right once the user is inside a chat (Claude-style).
+   Hidden on the empty home screen, where temp-chat owns the right slot.
+   Static in the flex row (never the old absolute corner) so it lands on the
+   same level as the hamburger, in its own bubble. */
+body.capacitor-native.chat-empty .compact-new-chat,
+body.capacitor-native.chat-empty #compactNewChatButton {
   display: none !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+body.capacitor-native:not(.chat-empty) .compact-new-chat,
+body.capacitor-native:not(.chat-empty) #compactNewChatButton {
+  display: inline-flex !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  margin-right: 4px;
+}
+/* In a normal chat the temp toggle is hidden, so the new-chat button takes
+   its right-aligned slot. In a temporary chat both show side by side. */
+body.capacitor-native:not(.chat-empty):not(.temporary-chat) #compactNewChatButton {
+  margin-left: auto !important;
 }
 
 /* Temp-chat is only an affordance for a fresh/new chat or an active temp
@@ -3529,22 +3547,27 @@ body.capacitor-native.sidebar-open #pinnedChatsButton:active {
   background: transparent !important;
 }
 
-/* The IME overlays the native app. Keep the wallpaper/layout at full height
-   and lift only the composer to the keyboard edge. */
-body.capacitor-native {
+/* The native window stays fully painted during IME animation. The chat
+   shrinks inside it; the wallpaper and WebView never reveal native padding. */
+:root {
   --native-keyboard-height: 0px;
+  --native-viewport-height: calc(100dvh - var(--native-keyboard-height));
 }
 
-body.capacitor-native .app-shell,
-body.capacitor-native .chat-panel {
+body.capacitor-native .app-shell {
   height: 100dvh;
   min-height: 100dvh;
+}
+
+body.capacitor-native .chat-panel {
+  height: var(--native-viewport-height);
+  min-height: var(--native-viewport-height);
 }
 
 body.capacitor-native .composer-area,
 body.capacitor-native.chat-empty .composer-area {
   top: auto !important;
-  bottom: var(--native-keyboard-height) !important;
+  bottom: 0 !important;
 }
 
 /* Final mobile composer sizing: leave the wallpaper's bottom detail visible. */
@@ -3554,7 +3577,7 @@ body.capacitor-native .native-mobile-mode-item .mode-dot-nitro {
 
 body.capacitor-native .composer-area,
 body.capacitor-native.chat-empty .composer-area {
-  bottom: calc(var(--native-keyboard-height) + 26px) !important;
+  bottom: 26px !important;
 }
 
 body.capacitor-native .composer-area .composer-wrap {

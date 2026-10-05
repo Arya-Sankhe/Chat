@@ -10,7 +10,6 @@
 // the same gallery as a popover above the composer. See public/js/app.js for the integration
 // points (search "homeModesController").
 
-import { apiUrl } from "./platform/index.js";
 import { escapeHtml } from "./render.js";
 
 const CATALOG_URL = "/deck-presets/catalog.json";
@@ -57,7 +56,7 @@ const EXPLAINERS = {
 };
 
 /* Tolerant catalog normalization: never throws, drops malformed entries. */
-// resolveUrl maps catalog image paths to where they are served (the API origin in the native app).
+// An optional resolver can map catalog image paths to another asset origin.
 export function normalizeDeckCatalog(raw, { resolveUrl = (src) => src } = {}) {
   const groups = (Array.isArray(raw?.groups) ? raw.groups : [])
     .map((group) => ({
@@ -148,6 +147,10 @@ export function createHomeModesController({
   let lastPanelMarkup = "";
   let lastPickerMarkup = "";
 
+  function mobileLayout() {
+    return document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches;
+  }
+
   function skillIds() {
     return Array.isArray(state.composerSkillIds) ? state.composerSkillIds : [];
   }
@@ -182,13 +185,13 @@ export function createHomeModesController({
   // A failed load waits for Retry (or another explicit pick) instead of refetching on every render.
   function ensureCatalogLoaded() {
     if (catalog || catalogPromise || catalogError) return;
-    catalogPromise = fetch(apiUrl(CATALOG_URL), { cache: "no-cache" })
+    catalogPromise = fetch(CATALOG_URL, { cache: "no-cache" })
       .then((res) => {
         if (!res.ok) throw new Error(`catalog ${res.status}`);
         return res.json();
       })
       .then((json) => {
-        catalog = normalizeDeckCatalog(json, { resolveUrl: (src) => (src.startsWith("/") ? apiUrl(src) : src) });
+        catalog = normalizeDeckCatalog(json);
         catalogError = "";
       })
       .catch(() => {
@@ -227,13 +230,14 @@ export function createHomeModesController({
       else if (mode === "council" && enterCouncilMode() === false) return;
       explainerOpen = true;
     }
+    if (mobileLayout() && mode === "slides") pickerOpen = true;
     render();
-    focusComposer();
+    if (!mobileLayout()) focusComposer();
   }
 
   // The composer's Compare/Council switch opens the same explainer as the pills.
   function showAnswerModeExplainer() {
-    if (!answerMode() || !isHomeScreen()) {
+    if (mobileLayout() || !answerMode() || !isHomeScreen()) {
       render();
       return;
     }
@@ -384,8 +388,8 @@ export function createHomeModesController({
       ensureCatalogLoaded();
     }
     const home = isHomeScreen();
-    renderHome(home);
-    renderPicker(!home && pickerOpen && slidesActive());
+    renderHome(home && !mobileLayout());
+    renderPicker((!home || mobileLayout()) && pickerOpen && slidesActive());
     renderComposerThumb();
   }
 
@@ -508,7 +512,7 @@ export function createHomeModesController({
   }
 
   function openPicker() {
-    if (isHomeScreen()) {
+    if (isHomeScreen() && !mobileLayout()) {
       // The gallery is already on the page; bring it into view.
       const area = composerArea();
       const panel = els.homeModes?.querySelector(".home-modes-panel");
@@ -721,6 +725,8 @@ export function createHomeModesController({
   return {
     init,
     render,
+    selectMode: handlePillClick,
+    closePicker,
     placeholderOverride,
     deckThemeForSend,
     showAnswerModeExplainer

@@ -2,6 +2,15 @@
 
 This repo is prepared for a local agentic Android loop on Arya's Windows PC.
 
+The new Mac is also configured with JDK 21, Android SDK 36 and the ARM64
+`Pixel_8_API_36` emulator. Load its environment before running the commands below:
+
+```sh
+source "$HOME/.klui/android-env.sh"
+```
+
+See `MOBILE.md` for the Mac's Beta 1 signing configuration.
+
 ## Installed local toolchain
 
 - Android Studio + Android SDK at `C:\Users\Arya\AppData\Local\Android\Sdk`

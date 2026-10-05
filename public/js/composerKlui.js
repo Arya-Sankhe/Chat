@@ -57,6 +57,16 @@ function spriteMarkup() {
   </svg>`;
 }
 
+// The same flat sprite, without laptop or alternate pose, for the home greeting.
+export function pixelKluiMarkup() {
+  const c = COLORS;
+  return `<svg viewBox="1 3.5 14 8.5" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    ${px(3, 3.5, 10, 6, c.body)}${px(1, 5.5, 2, 2, c.body)}${px(13, 5.5, 2, 2, c.body)}
+    ${px(5, 9.5, 1, 2.5, c.body)}${px(10, 9.5, 1, 2.5, c.body)}
+    ${px(5, 5, 1, 1.5, c.eye)}${px(10, 5, 1, 1.5, c.eye)}
+  </svg>`;
+}
+
 // A flat portal, opened and closed with data-open.
 function makePortal(className) {
   const portal = document.createElement("span");
