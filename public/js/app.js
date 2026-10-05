@@ -4097,7 +4097,7 @@ function toggleActionMenu() {
   els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton.setAttribute("aria-expanded", String(open));
   els.composerActionMenuWrap.classList.toggle("is-open", open);
-  if (open) cameraSheet?.preload?.();
+  if (open && isMobileLayout()) cameraSheet?.preload?.();
 }
 
 function openWritingStyleMenu() {
