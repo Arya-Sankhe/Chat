@@ -234,7 +234,9 @@ body.mobile-ui.mobile-ui .dojo-workspace[data-mobile-panel="chat"] .dojo-chat,
 body.mobile-ui.mobile-ui .dojo-workspace[data-mobile-panel="practice"] .dojo-studio { display: flex; }
 body.mobile-ui.mobile-ui .dojo-collapse-sources, body.mobile-ui.mobile-ui .dojo-collapse-studio,
 body.mobile-ui.mobile-ui .dojo-source-rail, body.mobile-ui.mobile-ui .dojo-studio-rail, body.mobile-ui.mobile-ui .dojo-resizer { display: none !important; }
-body.mobile-ui.mobile-ui .dojo-sources-expanded, body.mobile-ui.mobile-ui .dojo-studio-expanded { display: flex; width: 100%; }
+body.mobile-ui.mobile-ui .dojo-workspace .dojo-sources-expanded, body.mobile-ui.mobile-ui .dojo-workspace .dojo-studio-expanded {
+  display: flex; width: 100%; opacity: 1; visibility: visible; pointer-events: auto;
+}
 body.mobile-ui.mobile-ui .dojo-workspace .dojo-panel {
   flex: 1 1 auto; min-height: 0; max-height: none; height: auto;
   border: 0; border-radius: 0; background: transparent; box-shadow: none;
