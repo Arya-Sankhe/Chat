@@ -10,7 +10,7 @@ const EVIDENCE_MAX_CHARS = 60_000;
 
 const SEARCH_NOTE = "You can call web_search and read_url when the edit needs current or missing facts. Your final reply must still be only the edit JSON.";
 
-export async function runEditorModel({ config, modelClient, provider, websearch = null, signal, body, note = SEARCH_NOTE }) {
+export async function runEditorModel({ config, modelClient, provider, websearch = null, signal, body, note = SEARCH_NOTE, progress = null }) {
   if (!websearch) {
     const upstream = await modelClient.streamChatCompletion({
       apiKey: provider.apiKey,
@@ -19,7 +19,7 @@ export async function runEditorModel({ config, modelClient, provider, websearch 
       signal,
       body
     });
-    const result = await streamProviderAndAccumulate(upstream, () => {});
+    const result = await streamProviderAndAccumulate(upstream, (event) => progress?.onEvent(event));
     return { content: result?.content || "", finishReason: result?.finishReason || "", citations: [], evidence: "" };
   }
   // Loaded on use: the tool loop imports the document tools, which import the editors.
@@ -38,7 +38,8 @@ export async function runEditorModel({ config, modelClient, provider, websearch 
     provider,
     signal,
     websearch,
-    onUpstreamEvent: () => {},
+    onUpstreamEvent: (event) => progress?.onEvent(event),
+    onToolEvent: (event) => progress?.onToolEvent(event),
     onIterationStart: (messages) => { transcript = messages; }
   });
   const evidence = transcript

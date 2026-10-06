@@ -170,6 +170,188 @@
   font-weight: 500;
 }
 
+/* Live updates: a few quiet lines under the bar saying what Klui is doing right now. */
+/* Two rows: Klui and its lines on top, the feed always on its own row underneath. */
+.thinking-status.klui-bar.has-feed {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+}
+
+.klui-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.klui-feed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.klui-feed-toggle:hover {
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+  color: var(--text-secondary);
+}
+
+.klui-feed-toggle svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.klui-bar.feed-collapsed .klui-feed-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.klui-bar .klui-feed {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 0 0 32px;
+  margin-left: 19px;
+  border-left: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  list-style: none;
+  max-width: min(600px, calc(100% - 19px));
+  transition: opacity 200ms ease;
+}
+
+.klui-bar.feed-collapsed .klui-feed {
+  display: none;
+}
+
+.klui-bar .klui-feed-row {
+  display: grid;
+  margin: 0;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 300ms cubic-bezier(0.23, 1, 0.32, 1), opacity 220ms ease;
+}
+
+.klui-feed-row-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 2px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+
+.klui-feed-row.is-leaving {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.klui-feed-row.is-entering .klui-feed-row-inner {
+  animation: klui-feed-in 360ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes klui-feed-in {
+  from { opacity: 0; transform: translateY(7px); filter: blur(2px); }
+}
+
+.klui-feed-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+}
+
+.klui-feed-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.klui-feed-row[data-kind="thought"] .klui-feed-icon svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.klui-feed-favicons {
+  display: inline-flex;
+}
+
+.klui-feed-favicons img {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px var(--bg, #fff);
+}
+
+.klui-feed-favicons img + img {
+  margin-left: -4px;
+}
+
+.klui-feed-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.klui-feed-row[data-kind="thought"] .klui-feed-text {
+  font-style: italic;
+}
+
+.klui-feed-row[data-kind="error"] .klui-feed-row-inner {
+  opacity: .7;
+}
+
+/* The line Klui is on right now reads brighter, with a soft light passing over it. */
+.klui-feed-row.is-live .klui-feed-row-inner {
+  color: var(--text-secondary);
+}
+
+.klui-feed-row.is-live .klui-feed-icon {
+  color: var(--accent, #6366f1);
+}
+
+.klui-feed-row.is-live .klui-feed-text {
+  background: linear-gradient(90deg, var(--text-secondary) 0%, var(--text-secondary) 40%, var(--text) 50%, var(--text-secondary) 60%, var(--text-secondary) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: klui-feed-shimmer 2.2s linear infinite;
+}
+
+@keyframes klui-feed-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
 /* Home greeting */
 .empty-state .hero-line {
   display: flex;

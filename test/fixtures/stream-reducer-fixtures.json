@@ -101,6 +101,10 @@
       "expected": {
         "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
         "toolEvents": [{ "id": "call_1", "name": "web_search", "query": "x", "status": "done", "cached": true, "provider": "searxng", "resultCount": 1 }],
+        "activity": [
+          { "key": "call_1", "kind": "search", "text": "Searching “x”", "live": false },
+          { "key": "call_1:found", "kind": "sources", "hosts": ["example.com"], "text": "Found 1 source · example.com", "live": false }
+        ],
         "citations": [{ "index": 1, "title": "T", "url": "https://example.com", "snippet": "S" }]
       }
     },
@@ -114,6 +118,7 @@
       "expected": {
         "id": "local_assistant_1", "role": "assistant", "content": "", "reasoning": "", "toolCalls": [],
         "toolEvents": [{ "id": "call_9", "name": "web_search", "status": "error", "error": "boom" }],
+        "activity": [],
         "citations": []
       }
     },

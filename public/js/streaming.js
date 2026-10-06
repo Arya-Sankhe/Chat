@@ -1,4 +1,5 @@
 import { extractReasoningDelta } from "./reasoning.js";
+import { applyActivityEvent } from "./activityFeed.js";
 
 export function createStreamReducer({
   isAdminUser,
@@ -24,6 +25,7 @@ export function createStreamReducer({
       markActivityStarted(message);
       let parsedArgs = {};
       try { parsedArgs = JSON.parse(event.arguments || "{}"); } catch {}
+      applyActivityEvent(message, event, parsedArgs);
       message.toolEvents.push({
         id: event.toolCallId,
         name: event.name,
@@ -32,6 +34,7 @@ export function createStreamReducer({
       });
       return;
     }
+    if (event.type !== "tool:start") applyActivityEvent(message, event);
     if (event.type === "tool:result") {
       const entry = message.toolEvents.find((row) => row.id === event.toolCallId);
       if (entry) {
@@ -105,6 +108,12 @@ export function createStreamReducer({
       // Tool-loop prose is useful while the tool is running. Replace it only
       // when the next answer actually begins, not when the tool call starts.
       message.resetContentOnNextTextDelta = true;
+      return;
+    }
+
+    if (event?.type === "status:step" || event?.type === "status:thought") {
+      markActivityStarted(message);
+      applyActivityEvent(message, event);
       return;
     }
 

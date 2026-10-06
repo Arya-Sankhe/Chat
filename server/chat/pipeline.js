@@ -68,6 +68,7 @@ import { purgeMessageStorage } from "../routes/conversations.js";
 import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
 import { buildUntrustedWebContext, insertBeforeLatestUserMessage, withVoiceReasoning } from "./shared.js";
+import { createThoughtTicker } from "./thoughtTicker.js";
 import {
   createAssistantOutputMessage,
   hasAssistantOutput,
@@ -1395,6 +1396,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     });
 
     const allCitations = [];
+    const thought = createThoughtTicker((event) => writeSse(res, event));
+    if (documents) documents.onProgress = (text) => writeSse(res, { type: "status:step", text });
     let response = augmented
       ? await runChatWithToolLoop({
           chatRequest: equippedRequest,
@@ -1411,6 +1414,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           artifactRequested: Boolean(documentSkills?.artifactRequested),
           onUpstreamEvent: (event) => {
             writeSse(res, sanitizeProviderEvent(event, { includeReasoning }));
+            thought(event);
           },
           onToolEvent: (event) => { writeSse(res, event); }
         })

@@ -3,6 +3,7 @@ import { Script } from "node:vm";
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_NITRO_MODEL } from "../providers.js";
 import { pipeProviderStreamAndAccumulate, writeProviderEvent } from "../saas/messages.js";
+import { createThoughtTicker } from "./thoughtTicker.js";
 
 export async function streamSingleChat({ chatRequest, modelClient, provider, signal, res, includeReasoning = false }) {
   const upstream = await modelClient.streamChatCompletion({
@@ -13,7 +14,10 @@ export async function streamSingleChat({ chatRequest, modelClient, provider, sig
     signal
   });
   if (!upstream.body) throw new HttpError(502, `${provider.label} returned an empty response stream.`);
-  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning });
+  const onEvent = createThoughtTicker((event) => {
+    if (!res.destroyed && !res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  const accumulated = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning, onEvent });
   return { accumulated, citations: [], providers: [], toolCallCount: 0 };
 }
 

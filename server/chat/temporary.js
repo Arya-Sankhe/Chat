@@ -33,6 +33,7 @@ import {
 } from "./pipeline.js";
 import { hasAssistantOutput, withVoiceReasoning, writeSse } from "./shared.js";
 import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
+import { createThoughtTicker } from "./thoughtTicker.js";
 
 function normalizeTemporaryHistory(messages) {
   if (!Array.isArray(messages)) return [];
@@ -173,6 +174,7 @@ export async function handleTemporaryChat(req, res, config) {
       "x-accel-buffering": "no",
       "x-klui-temporary-chat": "1"
     });
+    const thought = createThoughtTicker((event) => writeSse(res, event));
     let response = toolSetup.augmented
       ? await runChatWithToolLoop({
           chatRequest,
@@ -186,6 +188,7 @@ export async function handleTemporaryChat(req, res, config) {
           visualDocuments: false,
           onUpstreamEvent: (event) => {
             res.write(`data: ${JSON.stringify(sanitizeProviderEvent(event, { includeReasoning }))}\n\n`);
+            thought(event);
           },
           onToolEvent: (event) => { writeSse(res, event); }
         })

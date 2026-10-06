@@ -8,6 +8,7 @@ import { parseDocMarkdown } from "../../worker/doc/spec.js";
 import { STYLES } from "../../worker/doc/themes.js";
 import { reviewDoc } from "./docReview.js";
 import { runEditorModel } from "./editorModel.js";
+import { createWriterProgress } from "./writerProgress.js";
 
 const STYLE_GUIDE = Object.values(STYLES).map((style) => `- "${style.name}" (${style.label}): ${style.use}.`).join("\n");
 
@@ -196,13 +197,14 @@ const SEARCH_NOTE = "You can call web_search and read_url when the material lack
 
 // One writer call. With web search on, the model may look things up mid-task; the pages it used
 // are collected in `sources` for the chat's Sources panel.
-async function runModel({ config, modelClient, provider, websearch = null, sources = null, evidence = null, model, system, messages, signal, maxTokens, reasoning }) {
+async function runModel({ config, modelClient, provider, websearch = null, sources = null, evidence = null, model, system, messages, signal, maxTokens, reasoning, progress = null }) {
   const result = await runEditorModel({
     config,
     modelClient,
     provider,
     websearch,
     signal,
+    progress,
     note: SEARCH_NOTE,
     body: {
       model,
@@ -247,7 +249,7 @@ export const DOC_MODELS = [OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL];
  * Write a DocSpec. The first usable draft is reviewed (docReview.js) and revised once when the
  * review finds problems. Returns { doc, source, model, review } or null when every model failed.
  */
-export async function writeDoc({ config, modelClient, websearch = null, signal, brief, images = [], timeoutMs }) {
+export async function writeDoc({ config, modelClient, websearch = null, signal, brief, images = [], timeoutMs, onProgress = null }) {
   if (!modelClient?.streamChatCompletion) return null;
   let provider;
   try {
@@ -264,10 +266,11 @@ export async function writeDoc({ config, modelClient, websearch = null, signal, 
   for (const model of DOC_MODELS) {
     const reasoning = model === OPENROUTER_PRO_MODEL ? { effort: "low", exclude: true } : null;
     const first = [{ role: "user", content: userMessage(user, model === OPENROUTER_PRO_MODEL ? images : []) }];
+    onProgress?.(model === OPENROUTER_PRO_MODEL ? "Planning the document" : "Switching to the backup writer");
     let draft;
     try {
       draft = await attempt(signal, limit, "doc writer", async (attemptSignal) => {
-        const { content } = await runModel({ ...search, modelClient, provider, model, system: DOC_WRITER_SYSTEM, messages: first, signal: attemptSignal, maxTokens: 28_000, reasoning });
+        const { content } = await runModel({ ...search, modelClient, provider, model, system: DOC_WRITER_SYSTEM, messages: first, signal: attemptSignal, maxTokens: 28_000, reasoning, progress: createWriterProgress(onProgress) });
         const doc = parseWriterDoc(content, fallback);
         if (docLooksUsable(doc)) return { doc, content };
         console.warn(`doc writer: ${model} returned an unusable document (${content.length} chars)`);
@@ -280,6 +283,7 @@ export async function writeDoc({ config, modelClient, websearch = null, signal, 
     if (!draft) continue;
     let best = { ...draft, review: reviewDoc(draft.doc, { userRequest: brief?.userRequest || "", material: withEvidence(user, evidence) }) };
     if (best.review.notes.length) {
+      onProgress?.(`Polishing ${best.review.notes.length} thing${best.review.notes.length === 1 ? "" : "s"} the review caught`);
       console.info(`doc writer: ${model} revising, score ${best.review.score}: ${best.review.notes.join(" | ").slice(0, 500)}`);
       try {
         const revised = await attempt(signal, limit, "doc reviser", async (attemptSignal) => {
@@ -288,7 +292,7 @@ export async function writeDoc({ config, modelClient, websearch = null, signal, 
             { role: "assistant", content: draft.content },
             { role: "user", content: `${DOC_REVISE_INSTRUCTIONS}\n\nREVIEW NOTES:\n${best.review.notes.map((note) => `- ${note}`).join("\n")}` }
           ];
-          const { content } = await runModel({ ...search, modelClient, provider, model, system: DOC_WRITER_SYSTEM, messages, signal: attemptSignal, maxTokens: 28_000, reasoning });
+          const { content } = await runModel({ ...search, modelClient, provider, model, system: DOC_WRITER_SYSTEM, messages, signal: attemptSignal, maxTokens: 28_000, reasoning, progress: createWriterProgress(onProgress, { verb: "Revising" }) });
           const doc = parseWriterDoc(content, fallback);
           return docLooksUsable(doc) ? { doc, content } : null;
         });
@@ -301,6 +305,7 @@ export async function writeDoc({ config, modelClient, websearch = null, signal, 
         console.warn(`doc writer: ${model} revision failed: ${error?.message || error}`);
       }
     }
+    onProgress?.("Laying out the pages");
     return { doc: best.doc, source: best.content, model, review: best.review.notes, citations: sources };
   }
   return null;

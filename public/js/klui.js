@@ -222,19 +222,82 @@ function idPrefixFromMessage(message) {
   return `k${raw.slice(0, 14) || "x"}`;
 }
 
-export function renderKluiThinkingStatus(message, { label, update = "", updateKey = "", active }) {
+const FEED_VISIBLE = 3;
+const FEED_COLLAPSED_KEY = "klui.activityFeed.collapsed";
+const FEED_ICONS = {
+  search: `<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>`,
+  read: `<svg viewBox="0 0 16 16"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M6.2 8h3.6M6.2 10.5h3.6"/></svg>`,
+  sources: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5C6.4 11.9 5.7 10.1 5.7 8S6.4 4.1 8 2.5"/></svg>`,
+  thought: `<svg viewBox="0 0 16 16"><path d="M8 2.2c.4 2.9 1.9 4.4 4.8 4.8-2.9.4-4.4 1.9-4.8 4.8-.4-2.9-1.9-4.4-4.8-4.8 2.9-.4 4.4-1.9 4.8-4.8z"/></svg>`,
+  step: `<svg viewBox="0 0 16 16"><path d="m10.4 3 2.6 2.6-6.9 6.9-3.2.6.6-3.2z"/></svg>`,
+  error: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.2 6.2l3.6 3.6M9.8 6.2l-3.6 3.6"/></svg>`
+};
+
+function feedCollapsed() {
+  try { return localStorage.getItem(FEED_COLLAPSED_KEY) === "1"; } catch { return false; }
+}
+
+function feedIcon(entry) {
+  if (entry.kind === "sources" && entry.hosts?.length) {
+    return `<span class="klui-feed-favicons">${entry.hosts.map((host) => `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32" alt="" width="14" height="14" decoding="async">`).join("")}</span>`;
+  }
+  return FEED_ICONS[entry.kind] || FEED_ICONS.step;
+}
+
+function feedRowHtml(entry) {
+  return `<li class="klui-feed-row${entry.live ? " is-live" : ""}" data-kind="${escapeHtml(entry.kind)}" data-key="${escapeHtml(entry.key)}"><div class="klui-feed-row-inner"><span class="klui-feed-icon" aria-hidden="true">${feedIcon(entry)}</span><span class="klui-feed-text">${escapeHtml(entry.text)}</span></div></li>`;
+}
+
+function elapsedText(startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(startedAt || Date.now())) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+// feed: the message's activity entries, or null for bars without a feed (council, research).
+export function renderKluiThinkingStatus(message, { label, active, feed = null, startedAt = 0 }) {
   const state = labelToKluiState(label);
   const prefix = idPrefixFromMessage(message);
   const safeLabel = escapeHtml(label);
-  const safeUpdate = escapeHtml(update);
-  const safeUpdateKey = escapeHtml(updateKey);
-  return `<div class="thinking-status klui-bar ${active ? "is-active" : "is-done"}" data-state="${state}" data-label="${safeLabel}" data-update="${safeUpdate}" data-update-key="${safeUpdateKey}" role="status" aria-live="polite">
+  const hasFeed = Array.isArray(feed) && active;
+  const collapsed = hasFeed && feedCollapsed();
+  return `<div class="thinking-status klui-bar ${active ? "is-active" : "is-done"}${hasFeed ? " has-feed" : ""}${collapsed ? " feed-collapsed" : ""}" data-state="${state}" data-label="${safeLabel}" data-started="${Number(startedAt) || Date.now()}" role="status" aria-live="polite">
     <div class="klui" aria-hidden="true">${kluiSvgMarkup(prefix)}</div>
     <div class="klui-copy">
       <span class="klui-state">${safeLabel}</span>
-      <span class="klui-phrase">${escapeHtml(PHRASES[state][0])}</span>
+      <span class="klui-sub"><span class="klui-phrase">${escapeHtml(PHRASES[state][0])}</span>${hasFeed ? `<button type="button" class="klui-feed-toggle" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Show" : "Hide"} live updates"><span class="klui-feed-time">${elapsedText(startedAt)}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></button>` : ""}</span>
     </div>
+    ${hasFeed ? `<ol class="klui-feed" aria-label="What Klui is doing">${feed.slice(-FEED_VISIBLE).map(feedRowHtml).join("")}</ol>` : ""}
   </div>`;
+}
+
+// Adds new rows, settles finished ones and lets the oldest slide away, keeping the last few.
+function syncFeed(bar, feed) {
+  const list = bar.querySelector(".klui-feed");
+  if (!list || !Array.isArray(feed)) return;
+  const wanted = feed.slice(-FEED_VISIBLE);
+  const keys = new Set(wanted.map((entry) => String(entry.key)));
+  for (const row of list.querySelectorAll(".klui-feed-row:not(.is-leaving)")) {
+    if (keys.has(row.dataset.key)) continue;
+    row.classList.add("is-leaving");
+    setTimeout(() => row.remove(), 320);
+  }
+  for (const entry of wanted) {
+    let row = [...list.children].find((child) => child.dataset.key === String(entry.key) && !child.classList.contains("is-leaving"));
+    if (!row) {
+      list.insertAdjacentHTML("beforeend", feedRowHtml(entry));
+      row = list.lastElementChild;
+      row.classList.add("is-entering");
+      row.addEventListener("animationend", () => row.classList.remove("is-entering"), { once: true });
+      continue;
+    }
+    row.classList.toggle("is-live", Boolean(entry.live));
+    if (row.dataset.kind !== entry.kind) {
+      row.dataset.kind = entry.kind;
+      row.querySelector(".klui-feed-icon").innerHTML = feedIcon(entry);
+    }
+    const text = row.querySelector(".klui-feed-text");
+    if (text.textContent !== entry.text) text.textContent = entry.text;
+  }
 }
 
 function mountBar(bar) {
@@ -247,14 +310,10 @@ function mountBar(bar) {
   mountKluiMotion(bar.querySelector(".klui"));
   const initialState = bar.dataset.state || "thinking";
   const initialLabel = bar.dataset.label || "Thinking";
-  const initialUpdate = bar.dataset.update || "";
-  const initialUpdateKey = bar.dataset.updateKey || "";
-  delete bar.dataset.updateKey;
   const stateSlot = slotText(stateEl, initialLabel);
   const phraseSlot = slotText(phraseEl, (PHRASES[initialState] || PHRASES.thinking)[0]);
   let phraseIdx = 0;
   let phraseTimer = null;
-  let updateTimer = null;
   let dirUp = true;
   let state = initialState;
   let pendingLabel = null;
@@ -286,20 +345,19 @@ function mountBar(bar) {
     }, 2600);
   }
 
-  function showUpdate(update, updateKey) {
-    if (!update || !updateKey || updateKey === bar.dataset.updateKey) return false;
-    clearTimeout(updateTimer);
-    bar.dataset.updateKey = updateKey;
-    stateSlot.set(update, { direction: "up", skipUnchanged: true, interrupt: false, color: accentFlash() });
-    updateTimer = setTimeout(() => {
-      if (bar.isConnected) {
-        stateSlot.set(bar.dataset.label || initialLabel, { direction: "down", skipUnchanged: true, interrupt: false, color: accentFlash() });
-      }
-    }, 2800);
-    return true;
-  }
+  const timeEl = bar.querySelector(".klui-feed-time");
+  const clock = timeEl && setInterval(() => {
+    if (!bar.isConnected || !bar.classList.contains("is-active")) return clearInterval(clock);
+    timeEl.textContent = elapsedText(bar.dataset.started);
+  }, 1000);
+  bar.querySelector(".klui-feed-toggle")?.addEventListener("click", (event) => {
+    const collapsed = bar.classList.toggle("feed-collapsed");
+    event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
+    event.currentTarget.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} live updates`);
+    try { localStorage.setItem(FEED_COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* Storage is optional. */ }
+  });
 
-  function applyNow(label, { update = "", updateKey = "", active = true } = {}) {
+  function applyNow(label, { feed = null, active = true } = {}) {
     const next = labelToKluiState(label);
     const labelChanged = label !== (bar.dataset.label || "");
     const stateChanged = next !== state;
@@ -308,15 +366,16 @@ function mountBar(bar) {
     bar.classList.toggle("is-active", active);
     bar.classList.toggle("is-done", !active);
     setFaceExtras(bar, next);
-    if (!showUpdate(update, updateKey) && labelChanged && !updateTimer) {
+    if (labelChanged) {
       stateSlot.set(label, { direction: "up", skipUnchanged: true, interrupt: false, color: accentFlash() });
     }
+    syncFeed(bar, feed);
     state = next;
     if (stateChanged || !phraseTimer) startPhraseCycle();
   }
 
-  function apply(label, { update = "", updateKey = "", active = true } = {}) {
-    pendingLabel = { label, update, updateKey, active };
+  function apply(label, { feed = null, active = true } = {}) {
+    pendingLabel = { label, feed, active };
     if (coalesce) return;
     coalesce = true;
     requestAnimationFrame(() => {
@@ -328,7 +387,7 @@ function mountBar(bar) {
   }
 
   setFaceExtras(bar, state);
-  applyNow(initialLabel, { update: initialUpdate, updateKey: initialUpdateKey, active: !bar.classList.contains("is-done") });
+  applyNow(initialLabel, { active: !bar.classList.contains("is-done") });
 
   const api = {
     apply,
@@ -337,10 +396,10 @@ function mountBar(bar) {
   return api;
 }
 
-export function updateKluiBar(bar, { label, update = "", updateKey = "", active = true } = {}) {
+export function updateKluiBar(bar, { label, feed = null, active = true } = {}) {
   if (!bar || !label) return;
   const api = controllers.get(bar) || mountBar(bar);
-  api?.apply(label, { update, updateKey, active });
+  api?.apply(label, { feed, active });
 }
 
 export function hydrateKluiBars(root = document) {

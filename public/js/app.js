@@ -4401,35 +4401,10 @@ function toolStatusLabel(tool = {}) {
   return "Working";
 }
 
-function toolTaskLabel(tool = {}) {
-  const name = String(tool.name || "").toLowerCase();
-  const query = String(tool.query || "").trim().replace(/\s+/g, " ");
-  const detail = query.length > 46 ? `${query.slice(0, 43)}…` : query;
-  if (name === "web_search") return detail ? `Searching for ${detail}` : "Searching the web";
-  if (name === "read_url") {
-    try {
-      return `Reading ${new URL(query).hostname.replace(/^www\./i, "")}`;
-    } catch {}
-    return "Reading a source";
-  }
-  if (name === "get_weather") return "Checking the forecast";
-  if (name === "search_document") return detail ? `Searching documents for ${detail}` : "Searching documents";
-  if (["read_document", "extract_tables"].includes(name)) return "Reading your document";
-  if (name === "query_spreadsheet") return "Calculating from your spreadsheet";
-  if (name === "load_tools") return "Preparing tools";
-  if (["create_document", "edit_document", "export_document"].includes(name)) return toolStatusLabel(tool);
-  return "Working on your request";
-}
-
-function currentThinkingUpdate(message, { streaming = false } = {}) {
-  if (!streaming || isFinalFinishReason(message?.finishReason)) return "";
-  const tools = Array.isArray(message?.toolEvents) ? message.toolEvents : [];
-  const runningTool = [...tools].reverse().find((tool) => tool.status === "running");
-  if (!runningTool) return null;
-  return {
-    key: String(runningTool.id || `${tools.length}:${runningTool.name}:${runningTool.query || ""}`),
-    text: toolTaskLabel(runningTool)
-  };
+// Live updates under the Klui bar; a first line shows until the stream reports anything.
+function thinkingFeed(message) {
+  const feed = Array.isArray(message?.activity) ? message.activity : [];
+  return feed.length ? feed : [{ key: "start", kind: "thought", text: "Reading your message", live: true }];
 }
 
 function currentThinkingStatus(message, { streaming = false } = {}) {
@@ -4459,8 +4434,7 @@ function renderThinkingStatus(message, { streaming = false } = {}) {
   const label = currentThinkingStatus(message, { streaming });
   if (!label) return "";
   const active = streaming && !isFinalFinishReason(message?.finishReason);
-  const update = currentThinkingUpdate(message, { streaming });
-  return renderKluiThinkingStatus(message, { label, update: update?.text, updateKey: update?.key, active });
+  return renderKluiThinkingStatus(message, { label, active, feed: thinkingFeed(message), startedAt: message?.activityStartedAt });
 }
 
 function renderReasoning(message, { streaming = false } = {}) {
@@ -6520,11 +6494,9 @@ function renderStreamingMessageSurface(message) {
         statusEl.classList.remove("is-leaving");
         const label = currentThinkingStatus(message, { streaming: true });
         if (label) {
-          const update = currentThinkingUpdate(message, { streaming: true });
           updateKluiBar(statusEl, {
             label,
-            update: update?.text,
-            updateKey: update?.key,
+            feed: thinkingFeed(message),
             active: !isFinalFinishReason(message?.finishReason)
           });
         }
@@ -6542,11 +6514,9 @@ function renderStreamingMessageSurface(message) {
       // mid-roll (old shimmer stutter). Patch the live bar instead of remounting.
       const label = currentThinkingStatus(message, { streaming: true });
       if (label) {
-        const update = currentThinkingUpdate(message, { streaming: true });
         updateKluiBar(statusEl, {
           label,
-          update: update?.text,
-          updateKey: update?.key,
+          feed: thinkingFeed(message),
           active: !isFinalFinishReason(message?.finishReason)
         });
       }
@@ -8108,14 +8078,14 @@ function patchKluiThinkingInPlace(message) {
   const label = currentThinkingStatus(message, { streaming: true });
   if (!label) return false;
   const active = !isFinalFinishReason(message?.finishReason);
-  const update = currentThinkingUpdate(message, { streaming: true });
+  const feed = thinkingFeed(message);
   let bar = contentEl.querySelector(".klui-bar");
   if (!bar) {
-    contentEl.insertAdjacentHTML("afterbegin", renderKluiThinkingStatus(message, { label, update: update?.text, updateKey: update?.key, active }));
+    contentEl.insertAdjacentHTML("afterbegin", renderKluiThinkingStatus(message, { label, active, feed, startedAt: message.activityStartedAt }));
     hydrateKluiBars(contentEl);
     return true;
   }
-  updateKluiBar(bar, { label, update: update?.text, updateKey: update?.key, active });
+  updateKluiBar(bar, { label, feed, active });
   return true;
 }
 

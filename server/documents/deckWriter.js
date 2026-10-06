@@ -8,6 +8,7 @@ import { salvageJsonObjects } from "../study/jsonSalvage.js";
 import { normalizeDeck } from "../../worker/deck/spec.js";
 import { THEMES } from "../../worker/deck/themes.js";
 import { reviewDeck } from "./deckReview.js";
+import { createWriterProgress } from "./writerProgress.js";
 
 // One line per theme so the writer can match a deck to its audience.
 const THEME_GUIDE = Object.values(THEMES).map((theme) => `- "${theme.name}" (${theme.label}): ${theme.meta?.use || theme.meta?.description || ""}.`).join("\n");
@@ -213,13 +214,14 @@ const SEARCH_NOTE = "You can call web_search and read_url when the material lack
 
 // One writer call. With web search on, the model may look things up mid-task; the pages it used
 // are collected in `sources` for the chat's Sources panel.
-async function runModel({ config, modelClient, provider, websearch = null, sources = null, evidence = null, model, system, user, messages = null, signal, maxTokens, reasoning }) {
+async function runModel({ config, modelClient, provider, websearch = null, sources = null, evidence = null, model, system, user, messages = null, signal, maxTokens, reasoning, progress = null }) {
   const result = await runEditorModel({
     config,
     modelClient,
     provider,
     websearch,
     signal,
+    progress,
     note: SEARCH_NOTE,
     body: {
       model,
@@ -277,7 +279,7 @@ async function attempt(signal, timeoutMs, label, run) {
 // steps in when Pro fails, so an outage still yields a deck.
 export const DECK_MODELS = [OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL];
 
-export async function writeDeck({ config, modelClient, websearch = null, signal, brief, timeoutMs }) {
+export async function writeDeck({ config, modelClient, websearch = null, signal, brief, timeoutMs, onProgress = null }) {
   if (!modelClient?.streamChatCompletion) return null;
   let provider;
   try {
@@ -293,10 +295,11 @@ export async function writeDeck({ config, modelClient, websearch = null, signal,
   const limit = Math.max(20_000, Number(timeoutMs || config?.documents?.deckWriterTimeoutMs || 150_000));
   for (const model of models) {
     const reasoning = model === OPENROUTER_PRO_MODEL ? { effort: "low", exclude: true } : null;
+    onProgress?.(model === OPENROUTER_PRO_MODEL ? "Planning the slides" : "Switching to the backup writer");
     let draft;
     try {
       draft = await attempt(signal, limit, "deck writer", async (attemptSignal) => {
-        const { content } = await runModel({ ...search, modelClient, provider, model, system: DECK_WRITER_SYSTEM, user, signal: attemptSignal, maxTokens: 16_000, reasoning });
+        const { content } = await runModel({ ...search, modelClient, provider, model, system: DECK_WRITER_SYSTEM, user, signal: attemptSignal, maxTokens: 16_000, reasoning, progress: createWriterProgress(onProgress) });
         const deck = parseDeckJson(content);
         if (deck && deckLooksUsable(deck)) return { deck, content };
         console.warn(`deck writer: ${model} returned an unusable deck (${content.length} chars)`);
@@ -310,11 +313,12 @@ export async function writeDeck({ config, modelClient, websearch = null, signal,
     const check = async (deck) => {
       const material = withEvidence(user, evidence);
       const review = reviewDeck(deck, { material, userRequest: brief?.userRequest || "" });
+      onProgress?.("Fact-checking the slides");
       try {
         const audit = await attempt(signal, limit, "deck audit", async (attemptSignal) => {
           const { content } = await runModel({ ...search, modelClient, provider, model, system: DECK_AUDIT_SYSTEM,
             user: `${material}\n\nDRAFT:\n${JSON.stringify(withoutPlan(deck))}`, signal: attemptSignal, maxTokens: 6000,
-            reasoning: { effort: "medium", exclude: true } });
+            reasoning: { effort: "medium", exclude: true }, progress: createWriterProgress(onProgress) });
           let parsed;
           try {
             parsed = JSON.parse(stripFences(content));
@@ -351,6 +355,7 @@ export async function writeDeck({ config, modelClient, websearch = null, signal,
     // One revision for any note; a second only while factual errors remain, so editorial
     // preferences do not keep the user waiting.
     for (let revision = 0; current.review.notes.length && (revision === 0 || (revision === 1 && current.review.errors)); revision++) {
+      onProgress?.(`Fixing ${current.review.notes.length} note${current.review.notes.length === 1 ? "" : "s"} from the check`);
       console.info(`deck writer: ${model} revision ${revision + 1}, ${current.review.errors} factual errors, score ${current.review.score}`);
       try {
         const revised = await attempt(signal, limit, "deck reviser", async (attemptSignal) => {
@@ -359,7 +364,7 @@ export async function writeDeck({ config, modelClient, websearch = null, signal,
             { role: "assistant", content: current.content },
             { role: "user", content: `${DECK_REVISE_INSTRUCTIONS}\n\nREVIEW NOTES:\n${current.review.notes.map((entry) => `- ${entry}`).join("\n")}` }
           ];
-          const { content } = await runModel({ ...search, modelClient, provider, model, system: DECK_WRITER_SYSTEM, messages, signal: attemptSignal, maxTokens: 16_000, reasoning });
+          const { content } = await runModel({ ...search, modelClient, provider, model, system: DECK_WRITER_SYSTEM, messages, signal: attemptSignal, maxTokens: 16_000, reasoning, progress: createWriterProgress(onProgress, { verb: "Reworking" }) });
           const deck = parseDeckJson(content);
           return deck && deckLooksUsable(deck) ? { deck, content } : null;
         });
@@ -378,6 +383,7 @@ export async function writeDeck({ config, modelClient, websearch = null, signal,
     const unresolved = best.review.notes.filter((note) => note.startsWith("FACT / REQUIREMENT:")).map((note) => note.replace(/^FACT \/ REQUIREMENT:\s*/, ""));
     if (best.review.unverified) unresolved.push("The final fact check did not complete, so figures and claims were not independently verified.");
     if (unresolved.length) console.warn(`deck writer: shipping with ${unresolved.length} unresolved factual notes: ${unresolved.join(" | ").slice(0, 600)}`);
+    onProgress?.("Designing the slides");
     return { deck: withoutPlan(best.deck), model, review: best.review.notes, unresolved, citations: sources };
   }
   return null;

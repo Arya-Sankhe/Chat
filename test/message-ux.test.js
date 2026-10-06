@@ -188,21 +188,20 @@ test("thinking status is block-level and omitted once final answer text exists",
   assert.match(css, /\.thinking-status\.is-leaving/);
 });
 
-test("thinking status briefly rolls real tool updates through its existing heading", () => {
+test("thinking status keeps its heading and lists live updates in a feed below", () => {
   const appJs = readPublic("js/app.js");
   const kluiJs = readPublic("js/klui.js");
   const css = readStylesheet();
-  assert.match(appJs, /function currentThinkingUpdate\(message, \{ streaming = false \} = \{\}\)/);
-  assert.match(appJs, /text: toolTaskLabel\(runningTool\)/);
-  assert.match(appJs, /name === "web_search"\) return detail \? `Searching for \$\{detail\}`/);
+  assert.match(appJs, /function thinkingFeed\(message\)/);
   assert.match(kluiJs, /class="klui-copy"/);
   assert.match(kluiJs, /class="klui-phrase"/);
   assert.match(kluiJs, /function startPhraseCycle\(\)/);
-  assert.match(kluiJs, /function showUpdate\(update, updateKey\)/);
+  assert.match(kluiJs, /function syncFeed\(bar, feed\)/);
+  assert.match(kluiJs, /class="klui-feed-toggle"/);
+  assert.doesNotMatch(kluiJs, /function showUpdate\(/, "tool queries no longer replace the heading");
   assert.match(kluiJs, /function accentFlash\(\)/);
-  assert.ok((kluiJs.match(/color: accentFlash\(\)/g) || []).length >= 4);
-  assert.match(kluiJs, /\}, 2800\);/);
   assert.match(css, /\.klui-copy\s*\{[^}]*display:\s*grid/);
+  assert.match(css, /\.klui-bar\.feed-collapsed \.klui-feed\s*\{[^}]*display:\s*none/);
 });
 
 test("sources popover chooses the roomier side and caps its visible rows", () => {

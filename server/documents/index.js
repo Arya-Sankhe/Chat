@@ -1066,6 +1066,7 @@ export class DocumentService {
     const named = this.requestedDeckTheme(theme || base.theme);
     const written = await writeDeck({
       config: this.config,
+      onProgress: this.onProgress,
       modelClient: this.modelClient,
       websearch: this.websearch,
       signal: this.signal,
@@ -1098,6 +1099,7 @@ export class DocumentService {
     const suggested = !style && styleName(theme) ? `The assistant suggested the "${styleName(theme)}" style; use it only if it fits the document type.` : "";
     const written = await writeDoc({
       config: this.config,
+      onProgress: this.onProgress,
       modelClient: this.modelClient,
       websearch: this.websearch,
       signal: this.signal,

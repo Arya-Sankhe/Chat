@@ -145,7 +145,7 @@ function attachPartialOnAbort(error, assistant) {
   error.partial = assistant;
 }
 
-export async function pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning = false } = {}) {
+export async function pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning = false, onEvent = null } = {}) {
   const reader = upstream.body.getReader();
   const decoder = new TextDecoder();
   const assistant = {
@@ -168,6 +168,7 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
       buffer = parseSseEvents(buffer, (event) => {
         applyStreamEvent(assistant, event);
         if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
+        onEvent?.(event);
       });
     }
   } catch (error) {
