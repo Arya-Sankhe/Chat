@@ -401,6 +401,24 @@ export async function showNativeKeyboard() {
   }
 }
 
+let emailComposePlugin = null;
+
+// Opens the draft in the mail app itself. Returns false on the web, on older
+// app builds without the plugin, or when that app isn't installed.
+export async function composeEmailNatively(app, { to = "", subject = "", body = "" } = {}) {
+  if (!isNative()) return false;
+  try {
+    if (!emailComposePlugin) {
+      const { registerPlugin } = await import("@capacitor/core");
+      emailComposePlugin = registerPlugin("EmailCompose");
+    }
+    await emailComposePlugin.compose({ app, to, subject, body });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function registerBackButton(handler) {
   if (!isNative()) return () => {};
   const { App } = await import("@capacitor/app");

@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     registerPlugin(TextZoomPlugin.class);
+    registerPlugin(EmailComposePlugin.class);
     super.onCreate(savedInstanceState);
     // Keyboard.load() runs on the bridge queue. Install our root callback
     // after it finishes, so its STOP callback cannot replace ours on startup.

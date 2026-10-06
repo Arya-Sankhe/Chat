@@ -108,6 +108,7 @@ import {
   listenForDeepLinks,
   onResume,
   openExternal,
+  composeEmailNatively,
   preferences,
   registerBackButton,
   setTextZoom,
@@ -11417,9 +11418,12 @@ function bindEvents() {
     const emailChoice = e.target.closest("[data-email-open]");
     if (emailChoice) {
       e.preventDefault();
-      const url = emailComposeUrls[emailChoice.dataset.emailOpen](emailCardValues(emailChoice.closest("[data-email-card]")));
+      const app = emailChoice.dataset.emailOpen;
+      const values = emailCardValues(emailChoice.closest("[data-email-card]"));
       closeEmailMenus();
-      openExternal(url).catch(() => showToast("Could not open email."));
+      composeEmailNatively(app, values)
+        .then((opened) => opened || openExternal(emailComposeUrls[app](values)))
+        .catch(() => showToast("Could not open email."));
       return;
     }
 
