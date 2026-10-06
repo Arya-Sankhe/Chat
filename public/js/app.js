@@ -98,7 +98,7 @@ import {
   renderGoogleSignInButton,
   saveSession,
   signOut,
-  listenForNativeAuth
+  listenForNativeAuth,
   markBetaWelcomeSeen,
 } from "./auth.js";
 import {
