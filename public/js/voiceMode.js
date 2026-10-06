@@ -120,6 +120,18 @@ export function createSpeechChunker({ first = 6, min = 14, max = 42 } = {}) {
   };
 }
 
+// Said when the model starts a tool without saying what it is doing, so the wait is not silent.
+const TOOL_UPDATES = {
+  web_search: ["Let me look that up.", "One sec, checking that.", "Let me check the latest."],
+  read_url: ["Let me open that page.", "One sec, reading that."],
+  get_weather: ["Let me check the weather.", "One sec, pulling up the forecast."]
+};
+
+export function toolUpdate(name, pick = Math.random()) {
+  const lines = TOOL_UPDATES[name] || ["One sec, working on that.", "Give me a moment."];
+  return lines[Math.min(lines.length - 1, Math.floor(pick * lines.length))];
+}
+
 // /api/voice/speech rejects more than 700 characters; stay under it with room for word swaps.
 export const SPEECH_CHUNK_MAX_CHARS = 600;
 
@@ -549,6 +561,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   let streaming = false;
   let listen = null;
   let reply = { full: "", spoken: 0, cut: false };
+  // The reply restarts after each tool call. Lines spoken from an earlier part (a "let me check"
+  // before a search) are captioned on their own instead of being matched against the new text.
+  let part = 0;
+  let aside = "";
   // Speech: sentences are recorded up to TTS_PARALLEL at a time and played strictly in order.
   let queue = [];
   let current = null;
@@ -608,7 +624,9 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     // The answer appears sentence by sentence as Klui says it, never ahead of the voice, and it
     // replaces the user's words once it starts.
     const said = reply.full.slice(0, reply.spoken).trim();
-    if (!said) {
+    if (!said && aside) {
+      replyLine.innerHTML = escapeHtml(aside);
+    } else if (!said) {
       replyLine.innerHTML = phase === "thinking" ? '<span class="voice-dots" aria-label="Thinking"><i></i><i></i><i></i></span>' : "";
     } else {
       if (!youLine.classList.contains("is-live")) paintYou("");
@@ -617,6 +635,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     if (stick) captions.scrollTop = captions.scrollHeight;
   }
   function markSpoken(text) {
+    aside = "";
     const probe = text.slice(0, 24);
     const at = probe ? reply.full.indexOf(probe, Math.max(0, reply.spoken - 4)) : -1;
     reply.spoken = at >= 0 ? Math.min(reply.full.length, at + text.length) : Math.min(reply.full.length, reply.spoken + text.length + 1);
@@ -697,9 +716,9 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
         });
     }
   }
-  function say(text) {
+  function say(text, from = part) {
     if (text.length > SPEECH_CHUNK_MAX_CHARS) {
-      for (const piece of splitForSpeech(text)) say(piece);
+      for (const piece of splitForSpeech(text)) say(piece, from);
       return;
     }
     const speech = spokenText(text);
@@ -712,7 +731,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     chain = chain.then(() => job.ready).then((buffer) => {
       if (gen !== speechGen) return;
       pendingSpeech -= 1;
-      queue.push({ buffer, text });
+      queue.push({ buffer, text, part: from });
       pump();
     });
     startJobs();
@@ -721,7 +740,11 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     if (current || !queue.length || closed) return;
     const item = queue.shift();
     setPhase("speaking");
-    markSpoken(item.text);
+    if (item.part === part) markSpoken(item.text);
+    else {
+      aside = item.text;
+      paintReply();
+    }
     const next = () => {
       current = null;
       pump();
@@ -747,11 +770,13 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     resetSpeech();
     turnDone = false;
     reply = { full: "", spoken: 0, cut: false };
+    aside = "";
     paintYou(text);
     setPhase("thinking", root.classList.contains("is-heard") ? "Got it" : LABELS.thinking);
     paintReply();
-    const chunker = createSpeechChunker();
+    let chunker = createSpeechChunker();
     let seen = "";
+    let updated = false;
     streaming = true;
     let outcome = null;
     let ended = false;
@@ -768,15 +793,30 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       outcome = await sendTurn(text, {
         onStreamEnd: endStream,
         onStart: (abort) => { if (seq === turnSeq) abortTurn = abort; else abort(); },
-        onTool: () => { if (seq === turnSeq && phase === "thinking") setStatus("Looking that up"); },
+        onTool: (event) => {
+          if (seq !== turnSeq || closed || event?.type !== "tool:start") return;
+          if (phase === "thinking") setStatus("Looking that up");
+          // Say the line before the tool call now ("Let me check that."), not after the search.
+          // If the model went straight to the tool, say a short line ourselves the first time.
+          const lead = chunker.flush();
+          for (const chunk of lead) say(chunk);
+          if (!lead.length && !seen.trim() && !updated) say(toolUpdate(event.name), -1);
+          updated = true;
+          chunker = createSpeechChunker();
+        },
         onText: (full) => {
           if (seq !== turnSeq || closed) return;
           let delta;
           if (full.startsWith(seen)) delta = full.slice(seen.length);
           else {
-            // The answer restarted after a tool call: speak the new text from its start.
-            delta = `\n${full}`;
+            // The answer restarted after a tool call: finish the earlier lines, then speak the
+            // new text from its start.
+            for (const chunk of chunker.flush()) say(chunk);
+            chunker = createSpeechChunker();
+            delta = full;
+            aside = reply.full.slice(0, reply.spoken).trim() || aside;
             reply.spoken = 0;
+            part += 1;
           }
           seen = full;
           if (!delta) return;

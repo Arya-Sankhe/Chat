@@ -174,7 +174,20 @@ export function createCompareController({
     renderShell();
   }
 
-  function renderCompareResponse(raw, index) {
+  /* Each model searches on its own, so each answer lists its own sources. Older compare
+     chats ran one shared search; every answer then has the same list, shown once below. */
+  function sharedCompareCitations(messages) {
+    const lists = (messages || []).map((message) => renderCitations(message));
+    return lists.length > 1 && lists.every((html) => html === lists[0]) ? lists[0] : "";
+  }
+
+  function laneSources(msg, shared) {
+    if (shared) return "";
+    const html = renderCitations(msg);
+    return html ? `<div class="message-footer-sources compare-response-sources">${html}</div>` : "";
+  }
+
+  function renderCompareResponse(raw, index, shared = "") {
     const msg = normalizeMessage(raw);
     const rawText = rawTextContent(msg.content);
     const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
@@ -186,18 +199,19 @@ export function createCompareController({
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </header>
       <div class="compare-response-body message-content">${renderAssistantMessageContent(msg)}</div>
+      ${laneSources(msg, shared)}
     </section>
   `;
   }
 
   function renderCompareMessage(messages) {
-    const sharedCitations = (messages || []).map((m) => renderCitations(m)).find((html) => html);
+    const sharedCitations = sharedCompareCitations(messages);
     return `
     <article class="message assistant compare-message">
       <div class="message-body">
         <div class="compare-message-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/></svg>Compare</div>
         <div class="compare-grid">
-          ${messages.map((message, index) => renderCompareResponse(message, index)).join("")}
+          ${messages.map((message, index) => renderCompareResponse(message, index, sharedCitations)).join("")}
         </div>
         ${sharedCitations ? `<div class="message-footer-sources">${sharedCitations}</div>` : ""}
       </div>
@@ -214,6 +228,7 @@ export function createCompareController({
     if (!article?.classList.contains("compare-message")) return false;
     const lanes = [...article.querySelectorAll(".compare-grid > .compare-response")];
     if (!messages?.length || lanes.length !== messages.length) return false;
+    const citations = sharedCompareCitations(messages);
     for (let i = 0; i < messages.length; i += 1) {
       const msg = normalizeMessage(messages[i]);
       const lane = lanes[i];
@@ -222,10 +237,11 @@ export function createCompareController({
       lane.dataset.rawText = rawText;
       ensureCompareCopyButton(lane.querySelector(".compare-response-head"), rawText);
       lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+      lane.querySelector(":scope > .compare-response-sources")?.remove();
+      lane.insertAdjacentHTML("beforeend", laneSources(msg, citations));
     }
     const body = article.querySelector(".message-body");
     if (!body) return false;
-    const citations = messages.map((message) => renderCitations(message)).find((html) => html);
     const prev = body.querySelector(":scope > .message-footer-sources");
     const next = citations ? `<div class="message-footer-sources">${citations}</div>` : "";
     if (prev && next) prev.outerHTML = next;

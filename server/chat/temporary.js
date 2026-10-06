@@ -16,7 +16,9 @@ import { runChatWithToolLoop } from "../websearch/tool.js";
 import { resolveChatRole } from "../models.js";
 import {
   OPENROUTER_PRO_MODEL,
+  OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_MODEL,
+  OPENROUTER_VOICE_MODEL,
   resolveProvider,
   thinkUsesLunaFlex
 } from "../providers.js";
@@ -82,7 +84,7 @@ export async function handleTemporaryChat(req, res, config) {
   })();
   res.on("close", () => { void cleanupImages(); });
 
-  // Voice mode always answers with Think (DeepSeek V4 Flash), reasoning off (see withVoiceReasoning).
+  // Voice mode routes like Think, reasoning off (see withVoiceReasoning); text turns answer with Mercury.
   const voiceRole = body.voice === true ? "think" : null;
   const routed = resolveChatRole({
     role: voiceRole || body.role,
@@ -117,7 +119,8 @@ export async function handleTemporaryChat(req, res, config) {
   // Think answers images with Luna on its flex tier while flex is faster than MiMo.
   const thinkFlex = routed.role === "think" && routed.models[0] === OPENROUTER_VISION_MODEL
     && await thinkUsesLunaFlex(provider);
-  const model = thinkFlex ? OPENROUTER_PRO_MODEL : routed.models[0];
+  const voiceUsesMercury = voiceRole === "think" && routed.models[0] === OPENROUTER_TEXT_MODEL;
+  const model = thinkFlex ? OPENROUTER_PRO_MODEL : voiceUsesMercury ? OPENROUTER_VOICE_MODEL : routed.models[0];
   const modelClient = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,

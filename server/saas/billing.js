@@ -4,6 +4,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const OPENROUTER_FALLBACK_PRICING = {
   "inclusionai/ling-3.0-flash": { prompt: 0.021, completion: 0.063 },
+  "inception/mercury-2.5": { prompt: 0.04, completion: 0.15 },
   "deepseek/deepseek-v4-flash-0731": { prompt: 0.09, completion: 0.18 },
   "tencent/hy3": { prompt: 0.132, completion: 0.528 },
   "xiaomi/mimo-v2.5": { prompt: 0.60, completion: 1.80 },

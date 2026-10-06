@@ -1810,6 +1810,12 @@ body.visualize-expanded {
 
 }
 
+.compare-response-sources {
+
+  margin-top: 10px;
+
+}
+
 @keyframes compare-lane-in {
 
   from { opacity: 0; transform: translateY(6px); }

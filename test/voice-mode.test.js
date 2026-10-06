@@ -6,7 +6,7 @@ import { withVoiceReasoning } from "../server/chat/shared.js";
 import { adaptChatRequestForProvider } from "../server/providers.js";
 import { VOICE_SYSTEM_PROMPT } from "../server/saas/systemPrompt.js";
 import { existsSync } from "node:fs";
-import { createSpeechChunker, normalizeVoiceSpeed, SPEECH_CHUNK_MAX_CHARS, splitForSpeech, spokenText, VOICE_OPTIONS, VOICE_SPEEDS, voicePreviewUrl } from "../public/js/voiceMode.js";
+import { createSpeechChunker, normalizeVoiceSpeed, SPEECH_CHUNK_MAX_CHARS, splitForSpeech, spokenText, toolUpdate, VOICE_OPTIONS, VOICE_SPEEDS, voicePreviewUrl } from "../public/js/voiceMode.js";
 import { VOICE_SPEECH_MAX_CHARS } from "../server/routes/voice.js";
 
 test("voice mode voices use abstract names and match on both sides", () => {
@@ -24,6 +24,20 @@ test("voice turns skip reasoning and use the short spoken prompt", () => {
   assert.deepEqual(adaptChatRequestForProvider(request, "openrouter").reasoning, { enabled: false }, "OpenRouter gets reasoning off");
   assert.match(VOICE_SYSTEM_PROMPT, /read aloud/);
   assert.match(VOICE_SYSTEM_PROMPT, /under about 60 words/);
+  assert.match(VOICE_SYSTEM_PROMPT, /Before your first tool call, say one short, natural line/);
+});
+
+test("voice mode uses Mercury and falls back to Think's model on OpenRouter", () => {
+  const adapted = adaptChatRequestForProvider(withVoiceReasoning({ model: "inception/mercury-2.5", messages: [] }), "openrouter");
+  assert.deepEqual(adapted.models, ["inception/mercury-2.5", "deepseek/deepseek-v4-flash-0731"]);
+  assert.deepEqual(adapted.reasoning, { enabled: false });
+});
+
+test("a tool started without a spoken line gets a short update that fits the tool", () => {
+  assert.equal(toolUpdate("web_search", 0), "Let me look that up.");
+  assert.equal(toolUpdate("get_weather", 0), "Let me check the weather.");
+  assert.equal(toolUpdate("read_url", 0.99), "One sec, reading that.");
+  assert.equal(toolUpdate("load_tools", 0), "One sec, working on that.");
 });
 
 test("the speech chunker starts early at a clause and keeps order", () => {

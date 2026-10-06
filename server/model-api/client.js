@@ -5,7 +5,9 @@ import {
   OPENROUTER_IMAGE_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
   OPENROUTER_PRO_MODEL,
+  OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_MODEL,
+  OPENROUTER_VOICE_MODEL,
   refreshDeepSeekProviderOrder
 } from "../providers.js";
 import { stripLeakedReasoningMarkup } from "../saas/messages/content.js";
@@ -167,8 +169,98 @@ function proFallbackBody(body) {
   return { ...rest, model: flexOnly === true ? OPENROUTER_VISION_MODEL : OPENROUTER_PRO_FALLBACK_MODEL };
 }
 
+/* Mercury (voice) sometimes accepts a stream and never starts it; OpenRouter only moves to
+   the fallback model after about 12 seconds, too long for a spoken reply. Mercury usually
+   starts within 2 seconds, so after VOICE_HEDGE_MS DeepSeek Flash is asked too and the
+   first one to start answering wins; the other is cancelled. */
+const VOICE_HEDGE_MS = 2500;
+
+// Resolves once the stream's first data line arrives (OpenRouter's keep-alive comments
+// don't count), with the bytes read so far replayed at the front of the returned body.
+function openStreamUntilData({ apiKey, baseUrl, requestBody, signal, maxAttempts }) {
+  const controller = new AbortController();
+  const forward = () => controller.abort(signal.reason);
+  if (signal?.aborted) forward();
+  else signal?.addEventListener("abort", forward, { once: true });
+  const ready = (async () => {
+    const response = await postChatCompletion({ apiKey, baseUrl, requestBody, signal: controller.signal, maxAttempts });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const held = [];
+    let text = "";
+    while (!/(^|\n)data:/.test(text)) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      held.push(value);
+      text += decoder.decode(value, { stream: true });
+    }
+    const body = new ReadableStream({
+      start(stream) {
+        for (const chunk of held) stream.enqueue(chunk);
+      },
+      async pull(stream) {
+        const { value, done } = await reader.read();
+        if (done) stream.close();
+        else stream.enqueue(value);
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      }
+    });
+    return new Response(body, { status: response.status, headers: response.headers });
+  })();
+  ready.catch(() => {});
+  return {
+    ready,
+    cancel() {
+      signal?.removeEventListener("abort", forward);
+      controller.abort();
+    }
+  };
+}
+
+function streamBody(body, providerId) {
+  return {
+    ...adaptChatRequestForProvider(body, providerId),
+    stream: true,
+    stream_options: { include_usage: true }
+  };
+}
+
+async function streamVoiceCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
+  const mercury = openStreamUntilData({ apiKey, baseUrl, requestBody: streamBody(body, providerId), signal, maxAttempts: 1 });
+  const early = await Promise.race([
+    mercury.ready.catch(() => null),
+    sleep(VOICE_HEDGE_MS, signal).then(() => null)
+  ]);
+  if (early) return early;
+  await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
+  const { sticky_provider: _host, ...rest } = body;
+  const deepseek = openStreamUntilData({
+    apiKey,
+    baseUrl,
+    requestBody: streamBody({ ...rest, model: OPENROUTER_TEXT_MODEL }, providerId),
+    signal,
+    maxAttempts
+  });
+  try {
+    const winner = await Promise.any([
+      mercury.ready.then((response) => ({ response, loser: deepseek })),
+      deepseek.ready.then((response) => ({ response, loser: mercury }))
+    ]);
+    winner.loser.cancel();
+    return winner.response;
+  } catch (error) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    throw error.errors?.at(-1) || error;
+  }
+}
+
 export async function streamChatCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts }) {
   assertAllowedChatModels(body);
+  if (providerId === "openrouter" && body?.model === OPENROUTER_VOICE_MODEL) {
+    return streamVoiceCompletion({ apiKey, baseUrl, body, signal, providerId, maxAttempts });
+  }
   if (providerId === "openrouter" && String(body?.model || "").startsWith("deepseek/")) {
     await refreshDeepSeekProviderOrder({ apiKey, baseUrl });
   }

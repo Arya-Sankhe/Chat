@@ -19,7 +19,7 @@ import { searxngSearch, selectRelevantResults } from "../server/websearch/searxn
 import { tinyfishSearch } from "../server/websearch/tinyfish.js";
 import { tinyfetchRead } from "../server/websearch/tinyfetch.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
-import { answerCitations } from "../server/websearch/tool/loop.js";
+import { answerCitations, onlyPromisesLookup } from "../server/websearch/tool/loop.js";
 import {
   buildLoadToolsTool,
   buildWebSearchTools,
@@ -2768,6 +2768,38 @@ test("tool page images stay within one total cap across reads, oldest swapped fo
   const notes = JSON.stringify(bodies[3].messages);
   assert.match(notes, /Page 1: its image was removed to keep this request small/);
   assert.match(notes, /Page 5: its image was removed/);
+});
+
+test("a reply that only promises a lookup is nudged once to make the tool call", async () => {
+  const bodies = [];
+  const events = [];
+  const replies = [
+    [contentDelta("One sec, let me look up the score.")],
+    [toolCallDelta({ args: { query: "arsenal score" } })],
+    [contentDelta("Arsenal won two nil.")]
+  ];
+  const result = await runChatWithToolLoop({
+    chatRequest: { model: "m", messages: [{ role: "user", content: "arsenal score?" }], tools: buildWebSearchTools({ maxResults: 3 }) },
+    modelClient: { async streamChatCompletion({ body }) { bodies.push(body); return streamResponse(replies[bodies.length - 1]); } },
+    config: { websearch: { maxToolCallsPerTurn: 4 }, documents: { maxToolCallsPerTurn: 0 } },
+    signal: new AbortController().signal,
+    websearch: { search: async () => ({ ok: true, provider: "jina", results: [{ index: 1, title: "T", url: "https://u", snippet: "s", content: "c" }] }) },
+    onUpstreamEvent: () => {},
+    onToolEvent: (event) => events.push(event.type)
+  });
+  assert.equal(result.accumulated.content, "Arsenal won two nil.");
+  assert.equal(result.toolCallCount, 1);
+  assert.equal(bodies[1].messages.at(-2).content, "One sec, let me look up the score.");
+  assert.match(bodies[1].messages.at(-1).content, /call the tool now/);
+  assert.deepEqual(events.slice(0, 2), ["response:reset", "response:reset"]);
+});
+
+test("only a short announcement counts as a promised lookup", () => {
+  assert.equal(onlyPromisesLookup("Let me check the latest Arsenal results.\n\n"), true);
+  assert.equal(onlyPromisesLookup("Sure, I'll search for that."), true);
+  assert.equal(onlyPromisesLookup("Let me know if you need more."), false);
+  assert.equal(onlyPromisesLookup("Let me explain how it works."), false);
+  assert.equal(onlyPromisesLookup("Let me check: Max won. Hamilton was second. Then the season went on."), false);
 });
 
 test("a model call that reasons without answering is retried once with the same request", async () => {
