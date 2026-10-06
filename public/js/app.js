@@ -8013,8 +8013,28 @@ function toggleVoiceRecording() {
 }
 
 function applyComposerHeight() {
-  els.promptInput.style.height = "auto";
-  els.promptInput.style.height = `${Math.min(200, els.promptInput.scrollHeight)}px`;
+  const input = els.promptInput;
+  input.style.height = "auto";
+  if (!document.body.classList.contains("mobile-ui")) {
+    input.style.height = `${Math.min(200, input.scrollHeight)}px`;
+    return;
+  }
+  // Phones keep one line and, once the text wraps, show only a sliver of the
+  // line above: enough to hint that earlier text is there to scroll back to.
+  const line = parseFloat(getComputedStyle(input).lineHeight) || 26;
+  const multiline = input.scrollHeight > line * 1.5;
+  input.classList.toggle("is-multiline", multiline);
+  input.style.height = multiline ? `${Math.round(line * 1.4)}px` : "";
+  if (multiline && isCaretAtComposerEnd()) input.scrollTop = input.scrollHeight;
+}
+
+function isCaretAtComposerEnd() {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !els.promptInput.contains(selection.anchorNode)) return true;
+  const tail = document.createRange();
+  tail.selectNodeContents(els.promptInput);
+  tail.setStart(selection.anchorNode, selection.anchorOffset);
+  return !tail.toString().trim();
 }
 
 function isStreamDeltaEvent(event) {
@@ -10121,10 +10141,19 @@ function setupMobileLayout() {
   addAction("mobileStudyAction", "Dojo", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 9 10-5 10 5-10 5-10-5Zm4 2v6c4 3 8 3 12 0v-6m4-2v7"/></svg>', () => homeModesController.selectMode("study"));
   // A single horizontal gesture dismisses the top surface. Ignore controls that
   // own horizontal dragging (sliders, input, carousels and slide galleries).
+  // Tables, code blocks and other wide content scroll sideways; dragging them
+  // back to the left must not read as a back gesture.
+  const inHorizontalScroller = (node) => {
+    for (let el = node instanceof Element ? node : node?.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (el.scrollWidth > el.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(el).overflowX)) return true;
+    }
+    return document.scrollingElement?.scrollLeft > 0;
+  };
   let swipe = null;
   document.addEventListener("touchstart", event => {
     swipe = null;
     if (!isMobileLayout() || event.touches.length !== 1 || event.target.closest("input, textarea, [contenteditable], [role=slider], .wallpaper-picker, .deck-gallery, .deck-preset-viewer")) return;
+    if (inHorizontalScroller(event.target)) return;
     const touch = event.touches[0];
     swipe = { x: touch.clientX, y: touch.clientY };
   }, { passive: true });
@@ -10134,10 +10163,11 @@ function setupMobileLayout() {
     if (!start || !event.changedTouches.length) return;
     const touch = event.changedTouches[0];
     if (touch.clientX - start.x > 72 && Math.abs(touch.clientY - start.y) < 60) {
-      if (isNative()) {
+      // Mid-screen swipes only dismiss sheets; leaving a chat takes an edge swipe.
+      if (isNative() && start.x <= 32) {
         lastNativeSwipeAt = Date.now();
         void handleNativeBack();
-      } else closeTopNativeSurface();
+      } else if (closeTopNativeSurface() && isNative()) lastNativeSwipeAt = Date.now();
     }
   }, { passive: true });
   document.addEventListener("touchcancel", () => { swipe = null; }, { passive: true });

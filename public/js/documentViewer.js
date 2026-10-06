@@ -1,5 +1,6 @@
 import { mountDocumentEditor } from "./documentEditor.js";
 import { rangePlainText } from "./documentSelection.js";
+import { fetchNativeBytes, isNative } from "./platform/index.js";
 
 const viewerSvg = (content) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${content}</svg>`;
 const DOWNLOAD_ICON = viewerSvg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>');
@@ -764,7 +765,9 @@ export function createDocumentViewer({
     try {
       if (loadedPdf) pdf = loadedPdf;
       else {
-        pdfLoadTask = pdfjs.getDocument({ url });
+        const source = isNative() ? { data: await fetchNativeBytes(url) } : { url };
+        if (token !== pdfRenderToken) return;
+        pdfLoadTask = pdfjs.getDocument(source);
         pdf = await pdfLoadTask.promise;
       }
     } catch {

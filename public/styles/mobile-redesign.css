@@ -198,14 +198,46 @@ body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=overview] .mobile-sett
 body.mobile-ui.mobile-ui #settingsDrawer[data-mobile-page=detail] .settings-nav { display: none !important; }
 body.mobile-ui.mobile-ui .wallpaper-picker { overflow-x: auto; max-width: 100%; }
 body.mobile-ui.mobile-ui .accent-picker { flex-wrap: wrap; }
-/* Avoid stretching the Sources list into an empty full-height box. */
 body.mobile-ui.mobile-ui.study-open .study-view { padding: 64px 12px 16px !important; overflow-y: auto !important; }
-body.mobile-ui.mobile-ui .study-detail-header { min-height: 72px; gap: 12px; }
-body.mobile-ui.mobile-ui .study-detail, body.mobile-ui.mobile-ui .study-detail-body { flex: 0 0 auto; }
-body.mobile-ui.mobile-ui .dojo-workspace { min-height: 0; flex: 0 0 auto; margin-top: 12px; }
-body.mobile-ui.mobile-ui .dojo-sources { min-height: 260px; max-height: calc(var(--native-viewport-height, 100dvh) - 190px); border-radius: 18px; }
-body.mobile-ui.mobile-ui .study-materials { flex: 0 1 auto; max-height: calc(var(--native-viewport-height, 100dvh) - 260px); }
-body.mobile-ui.mobile-ui .dojo-chat { height: calc(var(--native-viewport-height, 100dvh) - 200px); min-height: 300px; }
+/* Dojo course on phones: the course name sits in the top bar, the tabs are a
+   slim switch, and the open panel fills the rest and scrolls inside itself. */
+body.mobile-ui.mobile-ui {
+  --dojo-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+  --dojo-bar: calc(var(--dojo-top) + var(--native-bar-h, 52px) + 6px);
+}
+body.mobile-ui.mobile-ui.study-open .study-view--detail {
+  display: flex !important; flex-direction: column !important; padding: var(--dojo-bar) 12px 0 !important; overflow: hidden !important;
+}
+body.mobile-ui.mobile-ui.study-open #compactNewChatButton, body.mobile-ui.mobile-ui.study-open #temporaryChatToggle { display: none !important; }
+body.mobile-ui.mobile-ui .study-detail, body.mobile-ui.mobile-ui .study-detail-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+body.mobile-ui.mobile-ui .study-detail-header { display: contents; }
+body.mobile-ui.mobile-ui .dojo-breadcrumb {
+  position: fixed; z-index: 30; top: calc(var(--dojo-top) + 10px); left: 70px; right: 104px;
+  display: flex; align-items: center; gap: 6px; height: 44px; min-width: 0; margin: 0;
+}
+body.mobile-ui.mobile-ui .dojo-breadcrumb .study-back-btn { flex: none; padding: 0; }
+body.mobile-ui.mobile-ui .dojo-breadcrumb .study-back-btn svg { width: auto; height: 22px; }
+body.mobile-ui.mobile-ui .dojo-breadcrumb > span { flex: none; }
+body.mobile-ui.mobile-ui .dojo-breadcrumb .study-title-input {
+  flex: 1 1 auto; width: auto; min-width: 0; padding: 4px 2px; font-size: 15px; font-weight: 600; text-overflow: ellipsis;
+}
+body.mobile-ui.mobile-ui .study-tabs { flex: none; gap: 2px; margin: 0 0 8px; padding: 3px; border-radius: 12px; }
+body.mobile-ui.mobile-ui .study-tabs button { height: 32px; padding: 0 8px; border-radius: 9px; font-size: 13px; }
+body.mobile-ui.mobile-ui .dojo-workspace { flex: 1 1 auto; min-height: 0; margin: 0; }
+body.mobile-ui.mobile-ui .dojo-workspace .dojo-panel {
+  flex: 1 1 auto; min-height: 0; max-height: none; height: auto;
+  border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+body.mobile-ui.mobile-ui .dojo-sources-expanded, body.mobile-ui.mobile-ui .dojo-studio-expanded { min-height: 0; }
+body.mobile-ui.mobile-ui .study-materials { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* The tabs already name the panel; its own actions move to the top bar's free corner. */
+body.mobile-ui.mobile-ui .dojo-studio .dojo-panel-header { display: none; }
+body.mobile-ui.mobile-ui .dojo-sources .dojo-panel-header, body.mobile-ui.mobile-ui .dojo-chat .dojo-panel-header {
+  position: fixed; z-index: 30; top: calc(var(--dojo-top) + 10px); right: 12px;
+  height: 44px; min-height: 0; padding: 0; border: 0; background: transparent;
+}
+body.mobile-ui.mobile-ui .dojo-panel-header h2 { display: none; }
+body.mobile-ui.mobile-ui .dojo-panel-header .study-icon-btn { width: 40px; height: 40px; }
 body.mobile-ui.mobile-ui .study-composer-slot .composer-area { position: relative !important; bottom: auto !important; padding: 10px !important; }
 body.mobile-ui.mobile-ui .study-composer-slot .composer-wrap { width: 100% !important; }
 body.mobile-ui.mobile-ui.study-open .study-composer-slot .native-mobile-mode-wrap { display: block !important; }
@@ -362,3 +394,17 @@ body.mobile-ui.mobile-ui .mobile-settings-logout svg { width: 22px; height: 22px
 /* Detail pages share the canvas and card treatment. */
 body.mobile-ui.mobile-ui .settings-main { background: var(--mobile-canvas); }
 body.mobile-ui.mobile-ui .settings-section { background: var(--mobile-card); box-shadow: var(--mobile-card-shadow); border-radius: 20px; }
+
+/* Full-screen document preview: keep the header below the status bar. */
+body.mobile-ui.mobile-ui .document-viewer:not(.is-inline-source) .document-viewer-header {
+  height: auto; min-height: 60px; padding: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px) 12px 8px;
+}
+/* Generated-file cards fit the screen; long names truncate instead of widening the chat. */
+body.mobile-ui.mobile-ui .artifact-list { grid-template-columns: minmax(0, 1fr); max-width: 100%; min-width: 0; }
+body.mobile-ui.mobile-ui .artifact-card { min-width: 0; max-width: 100%; }
+/* The prompt follows the height applyComposerHeight sets (one line, then a peek of the line above). */
+body.mobile-ui #app .composer-prompt { flex: 0 0 auto !important; }
+body.mobile-ui #app .composer-prompt.is-multiline {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px);
+  mask-image: linear-gradient(to bottom, transparent, #000 14px);
+}
