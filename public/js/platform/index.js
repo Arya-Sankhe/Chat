@@ -359,6 +359,18 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
   ]).catch(() => {});
 }
 
+// Fallback for signed storage links the WebView (https://localhost) cannot
+// read because of CORS. Native HTTP has no CORS but buffers the whole file.
+export async function fetchNativeBytes(url) {
+  const { CapacitorHttp } = await import("@capacitor/core");
+  const response = await CapacitorHttp.get({ url, responseType: "arraybuffer" });
+  if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+  const binary = atob(String(response.data || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 let textZoomPlugin = null;
 
 export async function setTextZoom(percent) {

@@ -1,5 +1,6 @@
 import { mountDocumentEditor } from "./documentEditor.js";
 import { rangePlainText } from "./documentSelection.js";
+import { fetchNativeBytes, isNative } from "./platform/index.js";
 
 const viewerSvg = (content) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${content}</svg>`;
 const DOWNLOAD_ICON = viewerSvg('<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>');
@@ -765,7 +766,15 @@ export function createDocumentViewer({
       if (loadedPdf) pdf = loadedPdf;
       else {
         pdfLoadTask = pdfjs.getDocument({ url });
-        pdf = await pdfLoadTask.promise;
+        pdf = await pdfLoadTask.promise.catch(async (error) => {
+          // The app's origin needs the storage CORS rule. If a signed link is
+          // still refused, read the whole file natively as a last resort.
+          if (!isNative() || token !== pdfRenderToken) throw error;
+          const data = await fetchNativeBytes(url);
+          if (token !== pdfRenderToken) throw error;
+          pdfLoadTask = pdfjs.getDocument({ data });
+          return pdfLoadTask.promise;
+        });
       }
     } catch {
       if (token !== pdfRenderToken) return;

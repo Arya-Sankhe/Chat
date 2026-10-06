@@ -96,25 +96,17 @@ Use `MOBILE_ALLOWED_ORIGINS` only for additional development origins:
 MOBILE_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-Add the packaged Android origin to Cloudflare R2 CORS:
+Cloudflare R2 CORS must include the packaged Android origin. Without it the
+app cannot read previews from signed links and falls back to a full native
+download. The live rules (wrangler format) are:
 
 ```json
-[
-  {
-    "AllowedOrigins": [
-      "https://klui.ai",
-      "https://www.klui.ai",
-      "https://klui.tech",
-      "https://www.klui.tech",
-      "https://localhost"
-    ],
-    "AllowedMethods": ["PUT", "HEAD", "GET"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
+{"rules":[{"allowed":{"origins":["http://localhost:3000","http://127.0.0.1:3000","https://klui.tech","https://www.klui.tech","https://klui.ai","https://www.klui.ai","https://localhost"],"methods":["PUT","HEAD","GET"],"headers":["*"]},"exposeHeaders":["ETag","Accept-Ranges","Content-Range","Content-Length","Content-Encoding"],"maxAgeSeconds":3600}]}
 ```
+
+Apply with `wrangler r2 bucket cors set klui-chat-uploads --file cors.json`.
+The `localhost:3000` origins exist because local development uses the same
+bucket. Every read and write still needs a server-issued signed URL.
 
 Direct R2 uploads remain preferred. Klui automatically uses its authenticated
 upload relay if direct upload is unavailable.

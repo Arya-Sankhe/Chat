@@ -3258,8 +3258,13 @@ export function createStudyHubController({
       return;
     }
     renderCreateList();
+    // On phones the keyboard would cover the picker; search only when tapped.
+    const mobile = document.body.classList.contains("mobile-ui");
+    if (els.studyCreateDialog) els.studyCreateDialog.autofocus = mobile;
     els.studyCreateDialog?.showModal();
-    window.requestAnimationFrame(() => els.studyCreateSearch?.focus());
+    if (mobile) {
+      if (document.activeElement?.matches?.("input, textarea")) document.activeElement.blur();
+    } else window.requestAnimationFrame(() => els.studyCreateSearch?.focus());
   }
 
   function submitCreatePicker(event) {
