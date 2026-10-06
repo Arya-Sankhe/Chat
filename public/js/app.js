@@ -99,6 +99,7 @@ import {
   saveSession,
   signOut,
   listenForNativeAuth
+  markBetaWelcomeSeen,
 } from "./auth.js";
 import {
   configureNativeChrome,
@@ -640,6 +641,8 @@ const els = {
   googleButton: document.querySelector("#googleButton"),
   authNotice: document.querySelector("#authNotice"),
   authDialog: document.querySelector("#authDialog"),
+  betaWelcome: document.querySelector("#betaWelcome"),
+  betaWelcomeClose: document.querySelector("#betaWelcomeClose"),
   guestLoginPanel: document.querySelector("#guestLoginPanel"),
   guestLoginButton: document.querySelector("#guestLoginButton"),
   guestContinue: document.querySelector("#guestContinue"),
@@ -7140,6 +7143,43 @@ function closeAuthDialog() {
   }
 }
 
+// Once per account, on desktop web, right after the account loads: a thank-you for joining the beta.
+let betaWelcomeTried = false;
+let stopBetaWelcome = null;
+
+function maybeShowBetaWelcome() {
+  if (betaWelcomeTried || !els.betaWelcome || !state.session || isNative()) return;
+  if (state.me?.user?.betaWelcomeSeen !== false) return;
+  if (!matchMedia("(min-width: 721px)").matches || !els.overlay.hidden) return;
+  betaWelcomeTried = true;
+  markBetaWelcomeSeen(state.config, state.session).catch(() => {});
+  import("./betaWelcome.js").then(({ mountBetaWelcome }) => {
+    if (!els.overlay.hidden) return;
+    stopBetaWelcome = mountBetaWelcome(els.betaWelcome.querySelector("canvas"));
+    els.betaWelcome.classList.add("open");
+    els.betaWelcome.setAttribute("aria-hidden", "false");
+    els.overlay.hidden = false;
+    els.overlay.dataset.mode = "welcome";
+  }).catch(() => {});
+}
+
+function isBetaWelcomeOpen() {
+  return Boolean(els.betaWelcome?.classList.contains("open"));
+}
+
+function closeBetaWelcome() {
+  els.betaWelcome?.classList.remove("open");
+  els.betaWelcome?.setAttribute("aria-hidden", "true");
+  if (els.overlay.dataset.mode === "welcome") {
+    els.overlay.hidden = true;
+    delete els.overlay.dataset.mode;
+  }
+  const stop = stopBetaWelcome;
+  stopBetaWelcome = null;
+  // Let the fade-out finish before the scene stops moving.
+  if (stop) setTimeout(stop, 300);
+}
+
 function openDeleteConfirm({ title, body, chatId = "", attachmentId = "", projectId = "", onConfirm = null, confirmLabel = "Delete" } = {}) {
   closeConversationMenus();
   closePinnedPopup();
@@ -8104,6 +8144,7 @@ async function loadMe() {
     if (saved) localStorage.setItem(key, saved);
   }
   loadPinnedChatIds();
+  maybeShowBetaWelcome();
 }
 
 async function refreshAfterMamoReturn() {
@@ -10629,11 +10670,14 @@ function bindEvents() {
     closeSettings();
   });
 
+  els.betaWelcomeClose?.addEventListener("click", closeBetaWelcome);
+
   els.overlay.addEventListener("click", () => {
     const mode = els.overlay.dataset.mode;
     if (mode === "confirm") closeConfirmDialog();
     else if (mode === "rename") closeRenameDialog();
     else if (mode === "auth") closeAuthDialog();
+    else if (mode === "welcome") closeBetaWelcome();
     else if (mode === "search") closeSearchDialog();
     else if (mode === "account") closeAccount();
     else if (mode === "app-update") closeAppUpdate();
@@ -10684,6 +10728,7 @@ function bindEvents() {
     if (!els.compareDropdown.classList.contains("hidden")) { compareController.closeCompareDropdown(); return; }
     if (els.composerModelWrap?.classList.contains("is-open")) { closeModelDropdown(); return; }
     if (els.authDialog.classList.contains("open")) { closeAuthDialog(); return; }
+    if (isBetaWelcomeOpen()) { closeBetaWelcome(); return; }
     if (isGuestContinueOpen()) { dismissGuestContinue(); return; }
     if (els.accountDrawer.classList.contains("open")) { closeAccount(); return; }
     if (els.settingsDrawer.classList.contains("open")) { closeSettings(); return; }

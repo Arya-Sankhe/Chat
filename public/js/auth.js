@@ -24,6 +24,16 @@ function authHeaders(config, session) {
   };
 }
 
+// Remembered on the account itself, so the beta welcome shows once per person, not per browser.
+export async function markBetaWelcomeSeen(config, session) {
+  const response = await fetch(`${cleanUrl(config.supabaseUrl)}/auth/v1/user`, {
+    method: "PUT",
+    headers: { ...authHeaders(config, session), "content-type": "application/json" },
+    body: JSON.stringify({ data: { beta_welcome_seen: true } })
+  });
+  if (!response.ok) throw new Error("Could not save the welcome as seen.");
+}
+
 export async function loadSession() {
   try {
     const session = JSON.parse(await storage.get(AUTH_STORAGE_KEY) || "null");

@@ -17,7 +17,12 @@ function accountName(user) {
 
 function publicMe({ user, profile, subscription, plan, usage, config, settings }) {
   return {
-    user: { id: user.id, email: user.email, name: accountName(user) },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: accountName(user),
+      betaWelcomeSeen: Boolean(user.raw?.user_metadata?.beta_welcome_seen)
+    },
     profile: {
       role: profile?.role || "user"
     },

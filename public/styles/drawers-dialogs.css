@@ -1973,6 +1973,106 @@ body[data-mode="dark"] .google-continue {
   }
 }
 
+/* ─── Beta welcome ─── */
+
+/* Same box as the sign-in dialog: the scene takes 85%, the thank-you the rest. */
+.welcome-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(860px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  transform: translate(-50%, calc(-50% + 10px)) scale(0.98);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-medium) var(--ease-out), transform var(--motion-medium) var(--ease-out);
+  z-index: 45;
+}
+
+body[data-mode="dark"] .welcome-dialog {
+  background: #141414;
+  border-color: #2a2a2a;
+}
+
+.welcome-dialog.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.welcome-dialog-layout {
+  display: grid;
+  grid-template-rows: 85fr 15fr;
+  gap: 8px;
+  height: 440px;
+}
+
+.welcome-dialog-art {
+  min-height: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1c1c1f;
+}
+
+.welcome-dialog-art canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.welcome-dialog-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 0 24px;
+}
+
+.welcome-dialog-copy h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.welcome-dialog-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.welcome-dialog-close {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #efede6;
+  cursor: pointer;
+  transition: background-color 160ms ease, transform 160ms var(--ease-out);
+}
+
+.welcome-dialog-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.welcome-dialog-close:active {
+  transform: scale(0.94);
+}
+
 /* ─── Search dialog ─── */
 
 .search-dialog {
