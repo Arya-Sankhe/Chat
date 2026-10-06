@@ -359,8 +359,8 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
   ]).catch(() => {});
 }
 
-// Signed storage links only allow the website's origin, so the WebView
-// (https://localhost) cannot read them with fetch. Native HTTP has no CORS.
+// Fallback for signed storage links the WebView (https://localhost) cannot
+// read because of CORS. Native HTTP has no CORS but buffers the whole file.
 export async function fetchNativeBytes(url) {
   const { CapacitorHttp } = await import("@capacitor/core");
   const response = await CapacitorHttp.get({ url, responseType: "arraybuffer" });

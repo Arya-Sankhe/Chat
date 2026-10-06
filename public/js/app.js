@@ -8016,6 +8016,7 @@ function applyComposerHeight() {
   const input = els.promptInput;
   input.style.height = "auto";
   if (!document.body.classList.contains("mobile-ui")) {
+    input.classList.remove("is-multiline");
     input.style.height = `${Math.min(200, input.scrollHeight)}px`;
     return;
   }
@@ -8031,10 +8032,12 @@ function applyComposerHeight() {
 function isCaretAtComposerEnd() {
   const selection = window.getSelection();
   if (!selection?.rangeCount || !els.promptInput.contains(selection.anchorNode)) return true;
+  if (!selection.isCollapsed) return false;
   const tail = document.createRange();
   tail.selectNodeContents(els.promptInput);
   tail.setStart(selection.anchorNode, selection.anchorOffset);
-  return !tail.toString().trim();
+  // Trailing spaces still count as the end; a following line does not.
+  return /^[ \t\u00a0]*$/.test(tail.toString());
 }
 
 function isStreamDeltaEvent(event) {
@@ -10077,6 +10080,8 @@ function setupMobileLayout() {
     const mobile = isMobileLayout();
     els.accountButton?.setAttribute("aria-haspopup", mobile ? "dialog" : "menu");
     document.body.classList.toggle("mobile-ui", mobile);
+    // The prompt height rules differ per layout; recompute after switching.
+    if (els.promptInput) applyComposerHeight();
     document.body.classList.toggle("capacitor-native", mobile);
     els.cameraAction?.classList.toggle("hidden", !mobile);
     fileLabel.textContent = mobile ? "Files" : originalFileLabel;

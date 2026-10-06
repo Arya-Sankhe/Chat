@@ -223,7 +223,18 @@ body.mobile-ui.mobile-ui .dojo-breadcrumb .study-title-input {
 }
 body.mobile-ui.mobile-ui .study-tabs { flex: none; gap: 2px; margin: 0 0 8px; padding: 3px; border-radius: 12px; }
 body.mobile-ui.mobile-ui .study-tabs button { height: 32px; padding: 0 8px; border-radius: 9px; font-size: 13px; }
-body.mobile-ui.mobile-ui .dojo-workspace { flex: 1 1 auto; min-height: 0; margin: 0; }
+body.mobile-ui.mobile-ui .dojo-workspace { display: flex; flex: 1 1 auto; min-height: 0; margin: 0; }
+/* One panel at a time on every mobile-layout width (study-hub.css only does this below 761px). */
+body.mobile-ui.mobile-ui .study-tabs { display: flex; width: 100%; background: var(--dojo-soft); }
+body.mobile-ui.mobile-ui .study-tabs button { flex: 1; border: 0; color: var(--study-muted); background: transparent; font-family: var(--study-font); }
+body.mobile-ui.mobile-ui .study-tabs button.active { background: var(--dojo-surface); color: var(--study-ink); box-shadow: 0 1px 3px #00000008; }
+body.mobile-ui.mobile-ui .dojo-workspace .dojo-panel { display: none; width: 100%; }
+body.mobile-ui.mobile-ui .dojo-workspace[data-mobile-panel="materials"] .dojo-sources,
+body.mobile-ui.mobile-ui .dojo-workspace[data-mobile-panel="chat"] .dojo-chat,
+body.mobile-ui.mobile-ui .dojo-workspace[data-mobile-panel="practice"] .dojo-studio { display: flex; }
+body.mobile-ui.mobile-ui .dojo-collapse-sources, body.mobile-ui.mobile-ui .dojo-collapse-studio,
+body.mobile-ui.mobile-ui .dojo-source-rail, body.mobile-ui.mobile-ui .dojo-studio-rail, body.mobile-ui.mobile-ui .dojo-resizer { display: none !important; }
+body.mobile-ui.mobile-ui .dojo-sources-expanded, body.mobile-ui.mobile-ui .dojo-studio-expanded { display: flex; width: 100%; }
 body.mobile-ui.mobile-ui .dojo-workspace .dojo-panel {
   flex: 1 1 auto; min-height: 0; max-height: none; height: auto;
   border: 0; border-radius: 0; background: transparent; box-shadow: none;
@@ -396,7 +407,8 @@ body.mobile-ui.mobile-ui .settings-main { background: var(--mobile-canvas); }
 body.mobile-ui.mobile-ui .settings-section { background: var(--mobile-card); box-shadow: var(--mobile-card-shadow); border-radius: 20px; }
 
 /* Full-screen document preview: keep the header below the status bar. */
-body.mobile-ui.mobile-ui .document-viewer:not(.is-inline-source) .document-viewer-header {
+body.mobile-ui.mobile-ui .document-viewer:not(.is-inline-source) .document-viewer-header,
+body.mobile-ui.mobile-ui.document-viewer-fullscreen .document-viewer .document-viewer-header {
   height: auto; min-height: 60px; padding: calc(var(--safe-area-inset-top, env(safe-area-inset-top)) + 8px) 12px 8px;
 }
 /* Generated-file cards fit the screen; long names truncate instead of widening the chat. */

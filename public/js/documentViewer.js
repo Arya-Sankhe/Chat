@@ -765,10 +765,16 @@ export function createDocumentViewer({
     try {
       if (loadedPdf) pdf = loadedPdf;
       else {
-        const source = isNative() ? { data: await fetchNativeBytes(url) } : { url };
-        if (token !== pdfRenderToken) return;
-        pdfLoadTask = pdfjs.getDocument(source);
-        pdf = await pdfLoadTask.promise;
+        pdfLoadTask = pdfjs.getDocument({ url });
+        pdf = await pdfLoadTask.promise.catch(async (error) => {
+          // The app's origin needs the storage CORS rule. If a signed link is
+          // still refused, read the whole file natively as a last resort.
+          if (!isNative() || token !== pdfRenderToken) throw error;
+          const data = await fetchNativeBytes(url);
+          if (token !== pdfRenderToken) throw error;
+          pdfLoadTask = pdfjs.getDocument({ data });
+          return pdfLoadTask.promise;
+        });
       }
     } catch {
       if (token !== pdfRenderToken) return;
