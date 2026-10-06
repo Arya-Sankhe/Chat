@@ -61,7 +61,9 @@ import { sanitizeResearchPublicView } from "../research/public.js";
 import { modelsForRole, resolveChatRole } from "../models.js";
 import {
   OPENROUTER_PRO_MODEL,
+  OPENROUTER_TEXT_MODEL,
   OPENROUTER_VISION_MODEL,
+  OPENROUTER_VOICE_MODEL,
   resolveProvider,
   thinkUsesLunaFlex
 } from "../providers.js";
@@ -802,7 +804,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   const provider = resolveProvider("openrouter", config);
   const hasCompareMedia = requestHasCompareMedia({ userContent, existingMessages, attachments });
-  // Voice mode always answers with Think (DeepSeek V4 Flash), reasoning off (see withVoiceReasoning).
+  // Voice mode routes like Think, reasoning off (see withVoiceReasoning). Text turns answer with
+  // Mercury below; images and Dojo courses keep Think's models.
   const voiceRole = body.voice === true && !isRetry && !isEdit && earlyRoute.role !== "compare" && earlyRoute.role !== "council"
     ? "think"
     : null;
@@ -818,7 +821,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
   // Think answers images and documents with Luna on its flex tier while flex is faster than MiMo.
   const thinkFlex = routed.role === "think" && routed.models[0] === OPENROUTER_VISION_MODEL
     && await thinkUsesLunaFlex(provider);
-  const requestedModel = thinkFlex ? OPENROUTER_PRO_MODEL : routed.models[0];
+  const voiceUsesMercury = voiceRole === "think" && routed.models[0] === OPENROUTER_TEXT_MODEL && project?.kind !== "course";
+  const requestedModel = thinkFlex ? OPENROUTER_PRO_MODEL : voiceUsesMercury ? OPENROUTER_VOICE_MODEL : routed.models[0];
   const pastedTextRange = !isRetry && !isEdit
     ? normalizePastedTextRange(body.paste, contentText(userContent))
     : null;
@@ -1216,15 +1220,16 @@ async function executeConversationMessage(req, res, config, conversationId, {
   const promptText = contentText(userContent);
 
   if (councilEnabled || compareModels.length) {
-    /* Parallel panel/compare modes can't easily run independent tool
-       calls in parallel, so run one shared pre-search up front and
-       inject the results as untrusted user-context. */
-    const sharedSearch = await runSharedPreSearch({
-      websearch,
-      userText: promptText,
-      mode: webSearchMode,
-      signal: req.signal
-    });
+    /* Council's panel shares one search run up front, injected as untrusted user-context.
+       Compare models each get web search as a tool and decide for themselves, like a normal chat. */
+    const sharedSearch = councilEnabled
+      ? await runSharedPreSearch({
+          websearch,
+          userText: promptText,
+          mode: webSearchMode,
+          signal: req.signal
+        })
+      : null;
     /* Panel models can't call document tools, so every model gets the same documents
        (already in each request): whole when they fit, plus the pages matching the question. */
     const sharedDocuments = await documentContext();
@@ -1277,6 +1282,9 @@ async function executeConversationMessage(req, res, config, conversationId, {
       return { status: req.turnController?.signal.aborted ? "cancelled" : "done" };
     }
 
+    const toolSetups = agentMode
+      ? panelRequests.map((request) => withAvailableTools(request, { config, webMode: webSearchMode, readyDocuments: [] }))
+      : [];
     await handleCompareConversationMessage({
       req,
       res,
@@ -1287,6 +1295,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
       provider,
       webSearch: sharedSearch,
       documentSearch: compareDocumentSearch,
+      toolSetups,
+      config,
+      websearch,
+      webSearchMode,
       turnRun
     });
     await updateConversationIdentity().catch(() => {});

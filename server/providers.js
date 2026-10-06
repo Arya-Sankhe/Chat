@@ -18,13 +18,15 @@ export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
 export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
 export const OPENROUTER_IMAGE_MODEL = "krea/krea-2-medium-turbo";
+// Voice mode's text model: a fast diffusion LLM, falling back to DeepSeek Flash (Think).
+export const OPENROUTER_VOICE_MODEL = "inception/mercury-2.5";
 
 // Product models only: configuration, saved chats and fallback lists cannot add models.
 export const ALLOWED_CHAT_MODELS = Object.freeze([
   OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL, OPENROUTER_PRO_FALLBACK_MODEL, OPENROUTER_VISION_L2,
   OPENROUTER_VISION_L3, OPENROUTER_MIMO_V25_MODEL, OPENROUTER_NITRO_MODEL,
-  OPENROUTER_TITLE_MODEL, OPENROUTER_LAGUNA_S
+  OPENROUTER_TITLE_MODEL, OPENROUTER_LAGUNA_S, OPENROUTER_VOICE_MODEL
 ]);
 
 export function assertAllowedChatModels(body) {
@@ -406,6 +408,10 @@ export function adaptChatRequestForProvider(body, providerId) {
   }
   if (modelId === OPENROUTER_NITRO_MODEL) {
     adapted.models = [OPENROUTER_TEXT_MODEL];
+  }
+  if (modelId === OPENROUTER_VOICE_MODEL) {
+    // Mercury has one host; if it is down or rate-limited, voice answers with Think's model.
+    adapted.models = [OPENROUTER_VOICE_MODEL, OPENROUTER_TEXT_MODEL];
   }
 
   const isDeepSeekModel = modelId.startsWith("deepseek/");

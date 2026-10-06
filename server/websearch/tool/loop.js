@@ -539,6 +539,15 @@ function callWatchdog(controller, { startMs, idleMs }) {
   return watch;
 }
 
+const PROMISED_LOOKUP = /^(?:(?:ok(?:ay)?|sure|alright|got it)[,.!]?\s+)?(?:(?:one|just a) sec(?:ond)?|just a moment|give me a (?:sec(?:ond)?|moment)|hang on|hold on)?[,.!]?\s*(?:let me|i'll|i will|i'm going to|i am going to|let's)\s+(?:quickly\s+|just\s+)?(?:check|look|search|find|pull|get|grab|see|open|read)\b/i;
+
+// A short reply that only announces a lookup ("One sec, let me check the score.").
+export function onlyPromisesLookup(content) {
+  const text = String(content || "").trim();
+  if (!text || text.split(/\s+/).length > 25) return false;
+  return PROMISED_LOOKUP.test(text) && text.split(/(?<=[.!?])\s+/).length <= 2;
+}
+
 export async function runChatWithToolLoop({
   chatRequest,
   modelClient,
@@ -587,6 +596,7 @@ export async function runChatWithToolLoop({
   let requireArtifactTool = false;
   let documentFallbackModel = "";
   let emptyAnswerRetrySent = false;
+  let promisedLookupRetrySent = false;
   let forcedToolRetrySent = false;
   let finalInstructionSent = false;
   const inlineImageCache = new Map();
@@ -763,6 +773,25 @@ export async function runChatWithToolLoop({
       }
       if (missingArtifactHandoff && artifactHandoffCorrectionSent && assistantLooksLikeDocumentArtifactHandoff(accumulated.content, false)) {
         throw new Error("The model stopped without creating the requested document after a tool-call retry.");
+      }
+      /* A fast model sometimes says "let me look that up" and stops without calling the
+         tool. Keep the line (voice has already spoken it) and have it make the call now. */
+      if (
+        !promisedLookupRetrySent
+        && !forceFinalWithoutTools
+        && toolCallCount === 0
+        && activeTools.length
+        && toolFallbackLevel < 2
+        && onlyPromisesLookup(accumulated.content)
+      ) {
+        promisedLookupRetrySent = true;
+        onToolEvent({ type: "response:reset" });
+        messages.push({ role: "assistant", content: accumulated.content || "" });
+        messages.push({
+          role: "user",
+          content: "Go ahead: call the tool now in this reply, then answer. Don't repeat that you're about to check."
+        });
+        continue;
       }
       if (!String(accumulated.content || "").trim() && !emptyAnswerRetrySent) {
         emptyAnswerRetrySent = true;

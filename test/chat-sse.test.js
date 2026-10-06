@@ -659,6 +659,78 @@ test("compare: server substitutes the default pair and streams per-index start/d
   ]);
 });
 
+test("compare: each model gets web search as an optional tool, like a normal chat", async (t) => {
+  t.after(restoreFetch);
+  const providerBodies = [];
+  let searched = false;
+  installProviderFetch({
+    streamFor: (body) => {
+      providerBodies.push(body);
+      if (body.model === TEXT_MODEL && !searched) {
+        searched = true;
+        return [toolCallDelta()];
+      }
+      return [contentDelta(`Answer from ${body.model}`), usageChunk()];
+    }
+  });
+
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "What is the latest AI news today?", models: ["model-a", "model-b"], agentMode: true }
+  });
+
+  assert.equal(res.statusCode, 200, res.body);
+  const events = parseSse(res.body);
+  // No search runs before the models: each first request carries the tool and no web context.
+  const firstBodies = DEFAULT_COMPARE_MODELS.map((model) => providerBodies.find((body) => body.model === model));
+  for (const body of firstBodies) {
+    assert.ok(body.tools?.some((tool) => tool.function?.name === "web_search"), `${body.model} gets web_search`);
+    assert.equal(body.tool_choice, "auto");
+    assert.ok(!JSON.stringify(body.messages).includes("A fresh web search was run"));
+  }
+  // The model that searched streams its tool events in its own lane; the other answers directly.
+  const searchLane = events.filter((event) => event.index === 0).map((event) => event.event?.type || event.type);
+  assert.ok(searchLane.includes("tool:start") && searchLane.includes("tool:result"), searchLane.join());
+  assert.ok(!events.filter((event) => event.index === 1).some((event) => event.event?.type?.startsWith("tool:")));
+  assert.equal(providerBodies.filter((body) => body.model === DEFAULT_COMPARE_MODELS[1]).length, 1);
+
+  const updates = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content);
+  const searchedRow = updates.find((call) => call.patch.content === `Answer from ${TEXT_MODEL}`);
+  assert.equal(searchedRow.patch.metadata.websearch.toolCallCount, 1);
+  assert.equal(searchedRow.patch.metadata.websearch.citations[0].url, "https://example.com/ai");
+  const directRow = updates.find((call) => call.patch.content === `Answer from ${DEFAULT_COMPARE_MODELS[1]}`);
+  assert.equal(directRow.patch.metadata?.websearch?.toolCallCount || 0, 0);
+});
+
+test("voice turns answer with Mercury, and image turns keep Think's vision model", async (t) => {
+  t.after(restoreFetch);
+  const models = [];
+  installProviderFetch({
+    streamFor: (body) => {
+      models.push(body.model);
+      return [contentDelta("Sure."), usageChunk()];
+    }
+  });
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow });
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "Hi there", role: "think", voice: true, agentMode: true }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(models, ["inception/mercury-2.5"]);
+
+  models.length = 0;
+  const temporary = await dispatchChat(config, makeDb({ conversation: conversationRow }), {
+    path: "/api/temporary-chat",
+    body: { text: "Hi there", role: "think", voice: true, agentMode: true }
+  });
+  assert.equal(temporary.statusCode, 200, temporary.body);
+  assert.deepEqual(models, ["inception/mercury-2.5"]);
+});
+
 /* ── (c) council through chairman synthesis ── */
 
 test("council: panel, anonymized peer review, and chairman synthesis transcript", async (t) => {
