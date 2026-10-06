@@ -1,16 +1,16 @@
 {
   "published": true,
-  "versionName": "1.1.0-beta.10",
-  "versionCode": 20,
+  "versionName": "1.1.0-beta.11",
+  "versionCode": 21,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.10.apk",
+  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.11.apk",
   "releaseNotes": [
-    "Redesigned mobile composer, mode picker and settings.",
-    "Take photos directly from the composer.",
-    "The keyboard opens instantly on launch and closes immediately on back.",
-    "No more grey strip or jumping composer when the keyboard opens or the app reopens."
+    "Documents, Word files and slides open again in the app.",
+    "Chats no longer close by themselves when you scroll a table sideways.",
+    "Dojo fits phones better: course name in the top bar, slimmer tabs, and every list scrolls.",
+    "Long messages show a hint of the line above as you type."
   ],
-  "sizeBytes": 16682152,
-  "sha256": "bc7fd9376a99d98cd8360c9f2daff2b0c33188113f8a8a8c154765539c83d192",
-  "releasedAt": "2026-10-05T12:52:41.060Z"
+  "sizeBytes": 16683432,
+  "sha256": "c56807890ab747d0b6dad79431f15649a37f23b86b856993ec3d8669d1a5168e",
+  "releasedAt": "2026-10-06T12:20:08.153Z"
 }
