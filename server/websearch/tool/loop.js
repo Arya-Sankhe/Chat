@@ -99,61 +99,15 @@ function assistantLooksLikeDocumentArtifactHandoff(content, includeRefusal = tru
 
 /* ── Tool schema ── */
 
-const TOOL_CAPABILITIES = {
-  "documents.read": {
-    description: "search and read uploaded documents, and compute over spreadsheets",
-    tools: ["search_document", "read_document", "query_spreadsheet"]
-  },
-  "documents.create": {
-    description: "create and write downloadable Markdown, DOCX, XLSX, PPTX, or PDF files",
-    tools: ["create_document"]
-  },
-  "documents.edit": {
-    description: "edit an existing document into a new version",
-    tools: ["edit_document"]
-  },
-  "documents.export": {
-    description: "export an existing document to another supported format",
-    tools: ["export_document"]
-  }
-};
-
-function toolName(tool) {
-  return tool?.function?.name || "";
-}
-
-function availableDeferredCapabilities(deferredTools = []) {
-  const names = new Set(deferredTools.map(toolName));
-  return Object.entries(TOOL_CAPABILITIES)
-    .filter(([, capability]) => capability.tools.some((name) => names.has(name)))
-    .map(([name]) => name);
-}
-
-export function buildLoadToolsTool(deferredTools = []) {
-  const capabilities = availableDeferredCapabilities(deferredTools);
-  if (!capabilities.length) return null;
-  const catalog = capabilities
-    .map((name) => `${name}: ${TOOL_CAPABILITIES[name].description}`)
-    .join("; ");
+// Chats without documents get this instead of the document tools, which would add about 3,000
+// tokens to every message. Calling it adds them for the rest of the turn.
+export function buildLoadToolsTool() {
   return {
     type: "function",
     function: {
       name: "load_tools",
-      description: `Discover and enable additional tools for the current task. If a needed capability is missing from your current tools, call this instead of claiming you cannot do the task. Available capability groups: ${catalog}.`,
-      parameters: {
-        type: "object",
-        properties: {
-          capabilities: {
-            type: "array",
-            items: { type: "string", enum: capabilities },
-            minItems: 1,
-            maxItems: capabilities.length,
-            uniqueItems: true,
-            description: "Capability groups needed to finish the user's current task."
-          }
-        },
-        required: ["capabilities"]
-      }
+      description: "Get the document tools: create downloadable DOCX, XLSX, PPTX, PDF or Markdown files, and read, edit or export documents. Call this instead of saying you cannot do the task.",
+      parameters: { type: "object", properties: {} }
     }
   };
 }
@@ -558,6 +512,7 @@ export async function runChatWithToolLoop({
   weather = null,
   documents = null,
   study = null,
+  // Tools load_tools adds when the model calls it.
   deferredTools = [],
   visualDocuments = false,
   // False when the user's message only reads documents: a reply about a document is then
@@ -581,8 +536,8 @@ export async function runChatWithToolLoop({
      the empty-answer recovery. */
   const maxIterations = Math.max(4, maxToolCalls + 4);
   const messages = [...chatRequest.messages];
+  // The tool list only changes when load_tools adds tools: changing it throws away the prompt cache.
   let activeTools = Array.isArray(chatRequest.tools) ? [...chatRequest.tools] : [];
-  const deferredByName = new Map(deferredTools.map((tool) => [toolName(tool), tool]));
   const citations = [];
   const artifacts = [];
   const providers = new Set();
@@ -623,23 +578,16 @@ export async function runChatWithToolLoop({
         messages: requestMessages,
         ...(requireArtifactTool ? { tool_choice: "required" } : {})
       };
-      /* `activeTools` is the single source of truth: never let a stale
-         chatRequest.tools (e.g. an already-consumed load_tools schema)
-         leak through when the active set changes mid-turn. */
       if (activeTools.length) {
         request.tools = activeTools;
       } else {
         delete request.tools;
         delete request.tool_choice;
       }
-      let body;
-      if (forceFinalWithoutTools) {
-        // Removing the schemas is more reliable than asking inconsistent
-        // providers to honor `tool_choice: "none"` on the final turn.
-        body = applyToolFallback(request, 2);
-      } else {
-        body = applyToolFallback(request, toolFallbackLevel);
-      }
+      // The final answer keeps the same tools so the cached prompt still matches; the message
+      // before it asks for no tool call. (`tool_choice: "none"` would move many hosts' requests
+      // elsewhere.) Only a host that rejects tools, or a model that calls one anyway, loses them.
+      const body = applyToolFallback(request, forceFinalWithoutTools ? Math.max(1, toolFallbackLevel) : toolFallbackLevel);
       try {
         callController = new AbortController();
         const abortCall = () => callController.abort(signal?.reason);
@@ -662,10 +610,9 @@ export async function runChatWithToolLoop({
            honor tools/tool_choice. Degrade one step and retry instead of
            failing the whole turn. (Skipped once we've already tool-called
            successfully, i.e. forceFinalWithoutTools.) */
-        /* Only tools actually exposed this iteration count: merely-deferred
-           artifact tools (behind load_tools) must not force a model switch
-           or a hard failure on turns that never needed them. */
-        const needsDocumentArtifact = documents && hasDocumentArtifactTool({ tools: activeTools });
+        /* Only a turn that asked for a file needs the document tools to work: other turns
+           must not switch model or fail just because the tools are listed. */
+        const needsDocumentArtifact = documents && artifactRequested && hasDocumentArtifactTool({ tools: activeTools });
         if (
           !forceFinalWithoutTools
           && toolFallbackLevel === 1
@@ -678,6 +625,10 @@ export async function runChatWithToolLoop({
           documentFallbackModel = OPENROUTER_TEXT_MODEL;
           toolFallbackLevel = 0;
           onToolEvent({ type: "tool:degraded", reason: "document-model-fallback" });
+          continue;
+        }
+        if (forceFinalWithoutTools && toolFallbackLevel < 2 && isToolsUnsupportedError(error)) {
+          toolFallbackLevel = 2;
           continue;
         }
         if (!forceFinalWithoutTools && toolFallbackLevel < 2 && isToolsUnsupportedError(error)) {
@@ -739,12 +690,10 @@ export async function runChatWithToolLoop({
     }
 
     if (!hasToolCalls || !finishedForTools) {
-      const deferredArtifactTools = ["create_document", "edit_document", "export_document"]
-        .filter((name) => deferredByName.has(name));
       const missingArtifactHandoff = documents
         && artifactRequested
         && !artifacts.some((artifact) => artifactNames.has(artifact.source_tool))
-        && (hasDocumentArtifactTool({ tools: activeTools }) || deferredArtifactTools.length > 0)
+        && hasDocumentArtifactTool({ tools: activeTools })
         && assistantLooksLikeDocumentArtifactHandoff(accumulated.content);
       if (
         missingArtifactHandoff
@@ -752,10 +701,6 @@ export async function runChatWithToolLoop({
         && toolFallbackLevel < 2
         && !artifactHandoffCorrectionSent
       ) {
-        if (!hasDocumentArtifactTool({ tools: activeTools })) {
-          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
-          for (const name of deferredArtifactTools) activeTools.push(deferredByName.get(name));
-        }
         artifactHandoffCorrectionSent = true;
         requireArtifactTool = true;
         onToolEvent({ type: "response:reset" });
@@ -855,62 +800,18 @@ export async function runChatWithToolLoop({
 
       let result;
       if (call.function?.name === "load_tools") {
-        const args = safeParseArgs(call.function?.arguments);
-        /* Models frequently pass a bare string instead of an array. */
-        const rawCapabilities = args?.capabilities;
-        const requested = Array.isArray(rawCapabilities)
-          ? rawCapabilities
-          : (typeof rawCapabilities === "string" && rawCapabilities.trim() ? [rawCapabilities.trim()] : []);
-        const knownCapabilities = Array.from(new Set(requested.filter((name) => TOOL_CAPABILITIES[name])));
-        const requestedNames = Array.from(new Set(knownCapabilities.flatMap((name) => TOOL_CAPABILITIES[name].tools)));
-        const activeNames = new Set(activeTools.map(toolName));
-        const loaded = requestedNames.filter((name) => deferredByName.has(name) && !activeNames.has(name));
-
-        if (loaded.length) {
-          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
-          for (const name of loaded) activeTools.push(deferredByName.get(name));
-          result = {
-            ok: true,
-            name: "load_tools",
-            citations: [],
-            toolResultJson: JSON.stringify({
-              loaded_tools: loaded.map((name) => ({
-                name,
-                description: deferredByName.get(name)?.function?.description || ""
-              })),
-              instruction: "Continue the original task now using the newly loaded tools. Do not merely describe them or claim they are unavailable."
-            })
-          };
-        } else if (requestedNames.length && requestedNames.every((name) => activeNames.has(name))) {
-          /* Everything requested is already active: discovery is done. */
-          activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
-          result = {
-            ok: true,
-            name: "load_tools",
-            citations: [],
-            toolResultJson: JSON.stringify({
-              loaded_tools: [],
-              instruction: "The requested tools are already in your current tool list. Continue the task using them now."
-            })
-          };
-        } else {
-          /* Malformed args or unknown capability names. Keep load_tools
-             available so one bad call cannot kill discovery for the turn. */
-          const loadable = Object.entries(TOOL_CAPABILITIES)
-            .filter(([, capability]) => capability.tools.some((name) => deferredByName.has(name) && !activeNames.has(name)))
-            .map(([name]) => name);
-          if (!loadable.length) activeTools = activeTools.filter((tool) => toolName(tool) !== "load_tools");
-          const message = loadable.length
-            ? `No tools were loaded. Call load_tools again with {"capabilities": [...]} using only these values: ${loadable.join(", ")}.`
-            : "No additional tools are available to load. Continue with your current tools.";
-          result = {
-            ok: false,
-            name: "load_tools",
-            citations: [],
-            toolResultJson: JSON.stringify({ error: message }),
-            error: { message }
-          };
-        }
+        const names = new Set(activeTools.map((tool) => tool.function?.name));
+        const added = deferredTools.filter((tool) => !names.has(tool.function?.name));
+        activeTools = [...activeTools.filter((tool) => tool.function?.name !== "load_tools"), ...added];
+        result = {
+          ok: true,
+          name: "load_tools",
+          citations: [],
+          toolResultJson: JSON.stringify({
+            loaded_tools: added.map((tool) => tool.function.name),
+            instruction: "Continue the user's task now with these tools."
+          })
+        };
       } else if (documents && ["create_document", "export_document"].includes(call.function?.name)
         && artifacts.some((artifact) => ["create_document", "export_document"].includes(artifact.source_tool))) {
         // One new file per turn: a second create/export would hand the user two files for one ask.

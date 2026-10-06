@@ -47,14 +47,10 @@ import {
 import { DocumentService, normalizeDeckTheme } from "../documents/index.js";
 import { styleName } from "../../worker/doc/themes.js";
 import { buildDocumentSystemHint, selectDocumentSkills } from "../documents/skills.js";
-import { buildDocumentTools, isDocumentToolName } from "../documents/tool.js";
+import { buildDocumentTools } from "../documents/tool.js";
 import { buildStudyPreviewTool } from "../study/chatTool.js";
 import { WebSearchOrchestrator, formatResultsForModel } from "../websearch/index.js";
-import {
-  buildLoadToolsTool,
-  buildWebSearchTools,
-  runChatWithToolLoop
-} from "../websearch/tool.js";
+import { buildLoadToolsTool, buildWebSearchTools, runChatWithToolLoop } from "../websearch/tool.js";
 import { buildWeatherTool } from "../weather.js";
 import { detectSearchNeed } from "../websearch/detect.js";
 import { sanitizeResearchPublicView } from "../research/public.js";
@@ -418,7 +414,11 @@ export function normalizeSourcePages(value, sources = []) {
 // The model always gets web search when the user has it on; it decides when a turn needs it.
 const WEB_SEARCH_HINT = "Use web_search when the answer depends on current, niche, or uncertain facts, and read_url to open links the user shares or pages found by search. Skip them when the conversation already has what you need.";
 
-export function withAvailableTools(chatRequest, { config, webMode, readyDocuments, documentSkills = null, deferredTools = [], study = null }) {
+// Every message in a chat sends the same tools in the same order, and the main system prompt
+// does not change between messages, so the provider's prompt cache survives the whole chat.
+// Which document tools fit this message is said next to the message instead (`turnHint`).
+// `deferredTools` are offered through load_tools instead of being listed.
+export function withAvailableTools(chatRequest, { config, webMode, readyDocuments, documentSkills = null, documentTools = [], deferredTools = [], study = null }) {
   const tools = [];
   const hints = [];
   const enabled = { websearch: false, weather: false, documents: false };
@@ -433,31 +433,20 @@ export function withAvailableTools(chatRequest, { config, webMode, readyDocument
     hints.push("For weather conditions or forecasts, use get_weather instead of web_search.");
     enabled.weather = true;
   }
-  if (documentSkills?.enabled) {
-    tools.push(...buildDocumentTools({ toolNames: documentSkills.toolNames || [] }));
+  if (documentTools.length) {
+    tools.push(...documentTools);
     enabled.documents = true;
+    hints.push("Use the document tools only when the user asks about their documents or asks for a downloadable file. When a document tool returns output.download_url, mention the file briefly without a URL or markdown link; the app shows a card that opens and downloads it.");
+  }
+  if (deferredTools.length) {
+    tools.push(buildLoadToolsTool());
+    enabled.documents = true;
+    hints.push("If the user asks for a downloadable file (DOCX, XLSX, PPTX, PDF or Markdown), call load_tools first to get the document tools, then make it. Never say you cannot create files.");
   }
   if (studyDocuments.length) {
     tools.push(buildStudyPreviewTool());
     enabled.documents = true;
     hints.push(`In this course, use create_study_preview when asked to make flashcards, study questions, a practice test, or a mind map in chat. Match the source by name from these course files: ${studyDocuments.map((doc) => `${(Array.isArray(doc.attachments) ? doc.attachments[0] : doc.attachments)?.file_name || doc.file_name || "Document"} (attachment_id ${doc.attachment_id})`).join("; ")}. Honor an exact requested page number. Ask which file only if two sources are genuinely ambiguous. The preview appears inline and can be saved by the user.`);
-  }
-  const activeNames = new Set(tools.map((tool) => tool.function?.name));
-  const missingTools = deferredTools.filter((tool) => !activeNames.has(tool.function?.name));
-  if (documentSkills?.enabled) {
-    hints.push(buildDocumentSystemHint({
-      readyDocuments,
-      selection: documentSkills,
-      deferredToolNames: missingTools
-        .map((tool) => tool.function?.name)
-        .filter((name) => isDocumentToolName(name))
-    }));
-  }
-  const loadTools = buildLoadToolsTool(missingTools);
-  if (loadTools) {
-    tools.push(loadTools);
-    if (missingTools.some((tool) => isDocumentToolName(tool.function?.name))) enabled.documents = true;
-    hints.push("If the current tools are insufficient for the user's request, call load_tools to discover and enable additional tools, then continue the task. Never refuse a request because a tool is not yet listed.");
   }
   if (tools.length) {
     hints.push("You have tool-calling capabilities. Use the tools provided with this request whenever they help; do not claim a listed capability is unavailable without attempting the relevant tool.");
@@ -471,7 +460,7 @@ export function withAvailableTools(chatRequest, { config, webMode, readyDocument
   }
   if (!tools.length && !hints.length) return { request: chatRequest, augmented: false, enabled };
   let messages = [...chatRequest.messages];
-  for (const hint of hints.filter(Boolean)) {
+  for (const hint of hints) {
     const firstSystemIdx = messages.findIndex((message) => message.role === "system");
     if (firstSystemIdx >= 0) {
       messages[firstSystemIdx] = {
@@ -482,12 +471,15 @@ export function withAvailableTools(chatRequest, { config, webMode, readyDocument
       messages.unshift({ role: "system", content: hint });
     }
   }
+  const turnHint = documentTools.length && documentSkills?.enabled
+    ? buildDocumentSystemHint({ readyDocuments, selection: documentSkills })
+    : "";
+  if (turnHint) messages = insertBeforeLatestUserMessage(messages, { role: "user", content: `Note from the app for this message:\n\n${turnHint}` });
   if (!tools.length) return { request: { ...chatRequest, messages }, augmented: false, enabled };
   return {
     request: { ...chatRequest, tools, tool_choice: "auto", messages },
     augmented: true,
-    enabled,
-    deferredTools: missingTools
+    enabled
   };
 }
 
@@ -879,20 +871,17 @@ async function executeConversationMessage(req, res, config, conversationId, {
   settings.systemPrompt = withUserMemorySystemPrompt(globalSystemPrompt, userMemory?.content);
   if (!voiceMode) {
     settings.systemPrompt = withWritingStyleSystemPrompt(settings.systemPrompt, body.writingStyle);
-    settings.systemPrompt = withComposerSkillsSystemPrompt(settings.systemPrompt, skillIds);
   }
-  settings.systemPrompt = withResponseAdjustmentSystemPrompt(
-    settings.systemPrompt,
-    responseAdjustment,
-    retryAssistantContent
-  );
-  if (visualizing && visualizeRuntimeError) {
-    settings.systemPrompt = withVisualizeRepairSystemPrompt(
-      settings.systemPrompt,
-      visualizeRuntimeError,
-      retryAssistantContent
-    );
-  }
+  // Instructions for this message only (composer skills, a shorter/longer rewrite, a visual
+  // repair) go next to the latest message, not in the system prompt: changing the system
+  // prompt would throw away the cached prompt for the whole chat.
+  const messageInstructions = [
+    voiceMode ? "" : withComposerSkillsSystemPrompt("", skillIds),
+    withResponseAdjustmentSystemPrompt("", responseAdjustment, retryAssistantContent),
+    visualizing && visualizeRuntimeError
+      ? withVisualizeRepairSystemPrompt("", visualizeRuntimeError, retryAssistantContent)
+      : ""
+  ].map((text) => text.trim()).filter(Boolean).join("\n\n");
   if (project?.instructions) {
     settings.systemPrompt = `${settings.systemPrompt || ""}\n\nProject instructions from the user:\n${project.instructions}`.trim();
   }
@@ -916,7 +905,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
     meteringMode: config.desktop.meteringMode,
     reservationCredits: config.desktop.chatReservationCredits,
     chatCompletionFn: fencedModelClient.chatCompletion,
-    streamChatCompletionFn: fencedModelClient.streamChatCompletion
+    streamChatCompletionFn: fencedModelClient.streamChatCompletion,
+    recentHostsKey: `${context.user.id}:${conversation.id}`
   });
   const summarizeHistory = createConversationSummarizer({
     modelClient,
@@ -1102,7 +1092,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
 
   async function providerMessagesForModel(model, { vision = modelSupportsVision(model) } = {}) {
     const history = await historyForModel(model);
-    return withDocumentContext(history, await documentContextFor(history), { vision });
+    const messages = await withDocumentContext(history, await documentContextFor(history), { vision });
+    return messageInstructions
+      ? insertBeforeLatestUserMessage(messages, { role: "user", content: `Instructions from the app for this message:\n\n${messageInstructions}` })
+      : messages;
   }
 
   const chatRequests = illustrationSkill
@@ -1266,7 +1259,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
         panelModels,
         originalPrompt: promptText,
         settings: {
-          systemPrompt: settings.systemPrompt || "",
+          systemPrompt: [settings.systemPrompt, messageInstructions].filter(Boolean).join("\n\n"),
           reasoning_effort: settings.reasoning_effort,
           max_tokens: settings.max_tokens,
           preferredModel: body.model
@@ -1350,7 +1343,13 @@ async function executeConversationMessage(req, res, config, conversationId, {
     messageHasDocuments: attachments.some((attachment) => attachment.category === "document"),
     createFormat: skillIds.includes("slides") ? "pptx" : skillIds.includes("docs") ? "docx" : ""
   }) : null;
-  const deferredTools = documents && !visualizing ? buildDocumentTools() : [];
+  // A chat gets the document tools once it has documents or asks for a file, and then keeps
+  // them (a file the model makes becomes one of the chat's documents), so its tool list stays
+  // the same from message to message. Any other chat only gets load_tools, which adds them.
+  const canUseDocumentTools = Boolean(agentMode && documents && !visualizing);
+  const documentToolsOn = canUseDocumentTools && (readyDocuments.length > 0 || Boolean(documentSkills?.enabled));
+  const documentTools = documentToolsOn ? buildDocumentTools() : [];
+  const deferredTools = canUseDocumentTools && !documentToolsOn ? buildDocumentTools() : [];
   // Visualize turns get web search too (for the data they chart), but not the document tools.
   let toolSetup = agentMode || (study && readyDocuments.some((doc) => doc.project_id === study.course.id))
     ? withAvailableTools(chatRequest, {
@@ -1358,7 +1357,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
         webMode: agentMode ? webSearchMode : "off",
         readyDocuments,
         documentSkills,
-        deferredTools: agentMode ? deferredTools : [],
+        documentTools,
+        deferredTools,
         study: visualizing ? null : study
       })
     : { request: chatRequest, augmented: false, enabled: { websearch: false, weather: false, documents: false } };
@@ -1408,7 +1408,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
           weather: config.weather,
           documents,
           study,
-          deferredTools: toolSetup.deferredTools,
+          deferredTools,
           visualDocuments: selectedModelSupportsVision,
           artifactRequested: Boolean(documentSkills?.artifactRequested),
           onUpstreamEvent: (event) => {

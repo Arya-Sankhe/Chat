@@ -144,22 +144,49 @@ test("withAvailableTools gives GPT-6 Luna strict native tool-call instructions",
   assert.match(result.request.messages[0].content, /complete final answer/);
 });
 
-test("withAvailableTools advertises deferred document capabilities through load_tools", () => {
+test("withAvailableTools sends the same tools and system prompt whatever the message asks", () => {
+  const config = loadConfig({});
+  const build = (text) => withAvailableTools({
+    model: "test",
+    messages: [{ role: "system", content: "base" }, { role: "user", content: "earlier" }, { role: "assistant", content: "ok" }, { role: "user", content: text }]
+  }, {
+    config,
+    webMode: "auto",
+    readyDocuments: [],
+    documentSkills: selectDocumentSkills({ text, readyDocuments: [] }),
+    documentTools: buildDocumentTools()
+  }).request;
+  const plain = build("what is the capital of France?");
+  const deck = build("create a ppt deck for an executive review");
+
+  assert.deepEqual(deck.tools, plain.tools);
+  assert.equal(deck.messages[0].content, plain.messages[0].content);
+  assert.ok(plain.tools.some((tool) => tool.function.name === "create_document"));
+  assert.ok(!plain.tools.some((tool) => tool.function.name === "load_tools"));
+  // The per-message document routing sits right before the latest message, not in the system prompt.
+  assert.equal(plain.messages.length, 4);
+  assert.equal(deck.messages.length, 5);
+  assert.match(deck.messages[3].content, /Document tool routing for this message[\s\S]*Selected document tools: create_document/);
+  assert.equal(deck.messages[4].content, "create a ppt deck for an executive review");
+});
+
+test("a chat without documents gets load_tools instead of the document tools", () => {
+  const text = "what is the capital of France?";
   const result = withAvailableTools({
     model: "test",
-    messages: [{ role: "system", content: "base" }, { role: "user", content: "help" }]
+    messages: [{ role: "system", content: "base" }, { role: "user", content: text }]
   }, {
     config: loadConfig({}),
-    webMode: "off",
+    webMode: "auto",
     readyDocuments: [],
+    documentSkills: selectDocumentSkills({ text, readyDocuments: [] }),
     deferredTools: buildDocumentTools()
   });
-
-  assert.deepEqual(result.request.tools.map((tool) => tool.function.name), ["load_tools"]);
-  assert.match(result.request.messages[0].content, /call load_tools to discover and enable additional tools/);
-  assert.match(result.request.messages[0].content, /Never refuse a request because a tool is not yet listed/);
-  assert.match(result.request.tools[0].function.description, /documents\.create: create and write/);
-  assert.equal(result.deferredTools.length, 6);
+  const names = result.request.tools.map((tool) => tool.function.name);
+  assert.ok(names.includes("load_tools"));
+  assert.ok(!names.includes("create_document"));
+  assert.match(result.request.messages[0].content, /call load_tools first/);
+  assert.equal(result.request.messages.length, 2);
 });
 
 test("course chat exposes an exact-source study preview tool", () => {
@@ -205,7 +232,7 @@ test("document requests offer web tools for the model to choose unless search is
     const documentSkills = selectDocumentSkills({ text, readyDocuments: [] });
     for (const webMode of ["auto", "on", "off"]) {
       const result = withAvailableTools({ model: "test", messages: [{ role: "user", content: text }] }, {
-        config, webMode, readyDocuments: [], documentSkills
+        config, webMode, readyDocuments: [], documentSkills, documentTools: buildDocumentTools()
       });
       const names = result.request.tools.map((tool) => tool.function.name);
       assert.ok(names.includes("create_document"), text);

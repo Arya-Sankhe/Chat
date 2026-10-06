@@ -267,9 +267,7 @@ test("buildDocumentSystemHint injects selected skills without unrelated formats"
   assert.match(hint, /Tool availability is not an instruction to create a file/);
   assert.match(hint, /document designer writes and lays out the file/);
   assert.match(hint, /Put everything the document must contain into `content`/);
-  assert.match(hint, /Available document tools this turn: create_document/);
-  assert.match(hint, /without including a URL or markdown link/);
-  assert.match(hint, /artifact card that opens the document viewer/);
+  assert.match(hint, /Selected document tools: create_document/);
   assert.doesNotMatch(hint, /Professional XLSX workbook creation skill/);
   assert.doesNotMatch(hint, /Professional Word document creation skill/);
   assert.doesNotMatch(hint, /Professional PPTX presentation skill/);
@@ -302,7 +300,7 @@ test("buildDocumentSystemHint injects professional Word guidance only for DOCX c
   assert.doesNotMatch(excelHint, /polished document, not a chat transcript/);
 });
 
-test("buildDocumentSystemHint advertises deferred creation instead of read-only routing", () => {
+test("a read-only selection still lets the model use the other document tools when needed", () => {
   const selection = selectDocumentSkills({
     text: "summarize this",
     readyDocuments: [{ attachment_id: "a1", kind: "docx", attachments: { file_name: "Report.docx" } }],
@@ -310,20 +308,10 @@ test("buildDocumentSystemHint advertises deferred creation instead of read-only 
   });
   assert.deepEqual(selection.toolNames, ["search_document", "read_document"]);
 
-  const hint = buildDocumentSystemHint({
-    readyDocuments: [],
-    selection,
-    deferredToolNames: ["create_document", "edit_document", "export_document"]
-  });
-  assert.match(hint, /call load_tools to enable it instead of refusing/);
-  assert.match(hint, /Additional document tools available on demand via load_tools: create_document, edit_document, export_document/);
-  assert.match(hint, /calling load_tools with \["documents\.create"\] and then create_document/);
-  assert.match(hint, /You are not read-only/);
-  assert.doesNotMatch(hint, /Use only the selected document tools/);
-
-  const undeferredHint = buildDocumentSystemHint({ readyDocuments: [], selection });
-  assert.match(undeferredHint, /Use only the selected document tools/);
-  assert.doesNotMatch(undeferredHint, /load_tools/);
+  const hint = buildDocumentSystemHint({ readyDocuments: [], selection });
+  assert.match(hint, /Selected document tools: search_document, read_document/);
+  assert.match(hint, /use another document tool only when the task genuinely needs it/);
+  assert.doesNotMatch(hint, /load_tools/);
 });
 
 test("Markdown requests use the editable document creation path", () => {
@@ -344,7 +332,7 @@ test("buildDocumentSystemHint injects presentation guidance and exposes PPTX cre
   assert.match(hint, /Artifact planner/);
   assert.match(hint, /Professional PPTX presentation skill/);
   assert.match(hint, /Use create_document with format "pptx"/);
-  assert.match(hint, /Available document tools this turn: create_document/);
+  assert.match(hint, /Selected document tools: create_document/);
   assert.doesNotMatch(hint, /Professional Word document creation skill/);
   assert.doesNotMatch(hint, /Professional PDF creation skill/);
 });

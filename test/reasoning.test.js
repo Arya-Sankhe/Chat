@@ -203,6 +203,17 @@ test("DeepSeek routing ranks fastest p50 throughput inside the sweet-spot bracke
   ]);
 });
 
+test("DeepSeek routing prices input mostly at the cached rate", () => {
+  const endpoints = [
+    { tag: "deepinfra/fp8", status: 0, pricing: { prompt: "0.00000006", completion: "0.00000018", input_cache_read: "0.000000015" }, throughput_last_30m: { p50: 42 } },
+    // $0.12 input is over the $0.10 sweet spot, but at $0.012 cached it averages about $0.04.
+    { tag: "fastcache", status: 0, pricing: { prompt: "0.00000012", completion: "0.00000018", input_cache_read: "0.000000012" }, throughput_last_30m: { p50: 30 } },
+    // Same list price with no cache discount stays out of the sweet spot.
+    { tag: "nocache", status: 0, pricing: { prompt: "0.00000012", completion: "0.00000018" }, throughput_last_30m: { p50: 35 } }
+  ];
+  assert.deepEqual(deepSeekProviderOrderFromEndpoints(endpoints).slice(0, 2), ["deepinfra/fp8", "fastcache"]);
+});
+
 test("DeepSeek routing drops denylisted hosts and anything over the price ceilings", () => {
   const endpoints = [
     { tag: "open-inference/fp8", status: 0, pricing: { prompt: "0.00000004", completion: "0.0000001" }, throughput_last_30m: { p50: 200 } },

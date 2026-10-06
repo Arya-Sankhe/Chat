@@ -115,6 +115,17 @@ function pricePerMillionTokens(value) {
   return price * 1_000_000;
 }
 
+// Most of a chat's input is history the host has already cached, so input is priced as a blend
+// of the cached and uncached rates (a host without cache pricing pays full price on all of it).
+const DEEPSEEK_CACHED_INPUT_SHARE = 0.75;
+
+function inputPerMillionTokens(endpoint) {
+  const prompt = pricePerMillionTokens(endpoint?.pricing?.prompt);
+  const cached = pricePerMillionTokens(endpoint?.pricing?.input_cache_read);
+  if (prompt == null || cached == null) return prompt;
+  return prompt * (1 - DEEPSEEK_CACHED_INPUT_SHARE) + cached * DEEPSEEK_CACHED_INPUT_SHARE;
+}
+
 function throughputP50(endpoint) {
   const raw = endpoint?.throughput_last_30m;
   // Live shape is { p50, p75, p90, p99 }; accept a bare number too so a
@@ -143,7 +154,7 @@ export function deepSeekProviderOrderFromEndpoints(endpoints) {
     // Degraded endpoints stay out of the ranking; OpenRouter can still
     // fall back to them via allow_fallbacks if every ranked host fails.
     if (endpoint?.status != null && Number(endpoint.status) !== 0) continue;
-    const promptPerM = pricePerMillionTokens(endpoint?.pricing?.prompt);
+    const promptPerM = inputPerMillionTokens(endpoint);
     const completionPerM = pricePerMillionTokens(endpoint?.pricing?.completion);
     if (promptPerM == null || completionPerM == null) continue;
     if (promptPerM > DEEPSEEK_MAX_PROMPT_PER_M || completionPerM > DEEPSEEK_MAX_COMPLETION_PER_M) continue;
@@ -182,7 +193,7 @@ export function deepSeekProviderOrderFromEndpoints(endpoints) {
     const live = liveByTag.get(tailKey);
     if (live) {
       if (live?.status != null && Number(live.status) !== 0) continue;
-      const promptPerM = pricePerMillionTokens(live?.pricing?.prompt);
+      const promptPerM = inputPerMillionTokens(live);
       const completionPerM = pricePerMillionTokens(live?.pricing?.completion);
       if (promptPerM == null || completionPerM == null) continue;
       if (promptPerM > DEEPSEEK_MAX_PROMPT_PER_M || completionPerM > DEEPSEEK_MAX_COMPLETION_PER_M) continue;

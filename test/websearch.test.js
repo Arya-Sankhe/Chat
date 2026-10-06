@@ -1037,20 +1037,13 @@ describe("tool", () => {
     assert.equal(tools[1].function.name, "read_url");
   });
 
-  test("runChatWithToolLoop can discover and use a deferred document tool", async () => {
-    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
-    const loadTools = buildLoadToolsTool(deferredTools);
+  test("runChatWithToolLoop sends the same tools on every step of a turn, including the final answer", async () => {
+    const tools = [...buildWebSearchTools(), ...buildDocumentTools()];
     const bodies = [];
     const modelClient = {
       async streamChatCompletion({ body }) {
         bodies.push(body);
         if (bodies.length === 1) {
-          return streamResponse([toolCallDelta({
-            name: "load_tools",
-            args: { capabilities: ["documents.create"] }
-          })]);
-        }
-        if (bodies.length === 2) {
           return streamResponse([toolCallDelta({
             name: "create_document",
             args: { format: "docx", title: "Summary", content: "Complete summary." }
@@ -1061,13 +1054,50 @@ describe("tool", () => {
     };
 
     const result = await runChatWithToolLoop({
-      chatRequest: {
-        model: "test",
-        messages: [{ role: "user", content: "attach it" }],
-        tools: [loadTools],
-        tool_choice: "auto"
+      chatRequest: { model: "test", messages: [{ role: "user", content: "attach it" }], tools, tool_choice: "auto" },
+      modelClient,
+      config: {
+        websearch: { maxToolCallsPerTurn: 0 },
+        documents: { maxToolCallsPerTurn: 1, maxToolResultChars: 5000 }
       },
-      deferredTools,
+      signal: new AbortController().signal,
+      websearch: null,
+      documents: {
+        async createDocument() {
+          return { ok: true, output: { attachment_id: "att-1", document_file_id: "doc-1", file_name: "Summary.docx", kind: "docx", status: "ready" } };
+        }
+      },
+      onUpstreamEvent: () => {}
+    });
+
+    assert.equal(bodies.length, 2);
+    for (const body of bodies) assert.deepEqual(body.tools, tools);
+    // The tool limit is reached: the final answer keeps the tools; only the message asks for no tool call.
+    assert.equal("tool_choice" in bodies[1], false);
+    assert.equal(result.artifacts[0].attachment_id, "att-1");
+    assert.equal(result.accumulated.content, "The document is ready.");
+  });
+
+  test("load_tools adds the document tools for the rest of the turn", async () => {
+    const webTools = buildWebSearchTools();
+    const documentTools = buildDocumentTools();
+    const bodies = [];
+    const modelClient = {
+      async streamChatCompletion({ body }) {
+        bodies.push(body);
+        if (bodies.length === 1) return streamResponse([toolCallDelta({ name: "load_tools", args: {} })]);
+        if (bodies.length === 2) {
+          return streamResponse([toolCallDelta({
+            name: "create_document",
+            args: { format: "docx", title: "Notes", content: "Notes." }
+          })]);
+        }
+        return streamResponse([contentDelta("Your file is ready.")]);
+      }
+    };
+
+    const result = await runChatWithToolLoop({
+      chatRequest: { model: "test", messages: [{ role: "user", content: "save that as a word doc" }], tools: [...webTools, buildLoadToolsTool()], tool_choice: "auto" },
       modelClient,
       config: {
         websearch: { maxToolCallsPerTurn: 0 },
@@ -1075,32 +1105,24 @@ describe("tool", () => {
       },
       signal: new AbortController().signal,
       websearch: null,
+      deferredTools: documentTools,
       documents: {
         async createDocument() {
-          return {
-            ok: true,
-            output: {
-              attachment_id: "att-deferred",
-              document_file_id: "doc-deferred",
-              file_name: "Summary.docx",
-              kind: "docx",
-              status: "ready"
-            }
-          };
+          return { ok: true, output: { attachment_id: "att-1", document_file_id: "doc-1", file_name: "Notes.docx", kind: "docx", status: "ready" } };
         }
       },
       onUpstreamEvent: () => {}
     });
 
-    assert.deepEqual(bodies[0].tools.map((tool) => tool.function.name), ["load_tools"]);
-    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["create_document"]);
-    assert.equal(result.toolCallCount, 2);
-    assert.equal(result.artifacts[0].attachment_id, "att-deferred");
-    assert.equal(result.accumulated.content, "The document is ready.");
+    assert.deepEqual(bodies[0].tools.map((tool) => tool.function.name), [...webTools.map((tool) => tool.function.name), "load_tools"]);
+    assert.deepEqual(bodies[1].tools, [...webTools, ...documentTools]);
+    assert.deepEqual(bodies[2].tools, [...webTools, ...documentTools]);
+    assert.equal(result.artifacts[0].attachment_id, "att-1");
+    assert.equal(result.accumulated.content, "Your file is ready.");
   });
 
-  test("runChatWithToolLoop rejects a false refusal and loads deferred document creation", async () => {
-    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
+  test("runChatWithToolLoop rejects a false refusal and requires document creation", async () => {
+    const tools = buildDocumentTools();
     const bodies = [];
     const modelClient = {
       async streamChatCompletion({ body }) {
@@ -1122,10 +1144,9 @@ describe("tool", () => {
       chatRequest: {
         model: "test",
         messages: [{ role: "user", content: "attach it" }],
-        tools: [buildLoadToolsTool(deferredTools)],
+        tools,
         tool_choice: "auto"
       },
-      deferredTools,
       modelClient,
       config: {
         websearch: { maxToolCallsPerTurn: 0 },
@@ -1150,88 +1171,13 @@ describe("tool", () => {
       onUpstreamEvent: () => {}
     });
 
-    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["create_document"]);
+    assert.deepEqual(bodies[1].tools, tools);
     assert.equal(bodies[1].tool_choice, "required");
     assert.equal(result.artifacts[0].attachment_id, "att-rescued");
     assert.equal(result.accumulated.content, "The document is ready.");
   });
 
-  test("runChatWithToolLoop keeps load_tools retryable after a failed discovery call and coerces string capabilities", async () => {
-    const deferredTools = buildDocumentTools({ toolNames: ["create_document"] });
-    const loadTools = buildLoadToolsTool(deferredTools);
-    const bodies = [];
-    const toolEvents = [];
-    const modelClient = {
-      async streamChatCompletion({ body }) {
-        bodies.push(body);
-        if (bodies.length === 1) {
-          return streamResponse([toolCallDelta({
-            name: "load_tools",
-            args: { capabilities: ["nonsense.group"] }
-          })]);
-        }
-        if (bodies.length === 2) {
-          // A bare string instead of an array, as models often produce.
-          return streamResponse([toolCallDelta({
-            name: "load_tools",
-            args: { capabilities: "documents.create" }
-          })]);
-        }
-        if (bodies.length === 3) {
-          return streamResponse([toolCallDelta({
-            name: "create_document",
-            args: { format: "docx", title: "Summary", content: "Complete summary." }
-          })]);
-        }
-        return streamResponse([contentDelta("The document is ready.")]);
-      }
-    };
-
-    const result = await runChatWithToolLoop({
-      chatRequest: {
-        model: "test",
-        messages: [{ role: "user", content: "attach it" }],
-        tools: [loadTools],
-        tool_choice: "auto"
-      },
-      deferredTools,
-      modelClient,
-      config: {
-        websearch: { maxToolCallsPerTurn: 0 },
-        documents: { maxToolCallsPerTurn: 4, maxToolResultChars: 5000 }
-      },
-      signal: new AbortController().signal,
-      websearch: null,
-      documents: {
-        async createDocument() {
-          return {
-            ok: true,
-            output: {
-              attachment_id: "att-retried",
-              document_file_id: "doc-retried",
-              file_name: "Summary.docx",
-              kind: "docx",
-              status: "ready"
-            }
-          };
-        }
-      },
-      onUpstreamEvent: () => {},
-      onToolEvent: (event) => toolEvents.push(event)
-    });
-
-    // The failed call must not burn discovery: load_tools stays advertised.
-    assert.deepEqual(bodies[1].tools.map((tool) => tool.function.name), ["load_tools"]);
-    const failedLoad = toolEvents.find((event) => event.type === "tool:error" && event.name === "load_tools");
-    assert.match(failedLoad.error.message, /documents\.create/);
-    // The retried string-form call loads the deferred tool.
-    assert.deepEqual(bodies[2].tools.map((tool) => tool.function.name), ["create_document"]);
-    assert.equal(result.artifacts[0].attachment_id, "att-retried");
-    assert.equal(result.accumulated.content, "The document is ready.");
-  });
-
-  test("runChatWithToolLoop degrades tool-less when tools are rejected and document tools are only deferred", async () => {
-    const deferredTools = buildDocumentTools();
+  test("runChatWithToolLoop degrades tool-less when tools are rejected on a turn that asked for no file", async () => {
     const bodies = [];
     const modelClient = {
       async streamChatCompletion({ body }) {
@@ -1247,10 +1193,10 @@ describe("tool", () => {
       chatRequest: {
         model: "inclusionai/ling-3.0-flash",
         messages: [{ role: "user", content: "hello" }],
-        tools: [buildLoadToolsTool(deferredTools), ...buildWebSearchTools()],
+        tools: [...buildDocumentTools(), ...buildWebSearchTools()],
         tool_choice: "auto"
       },
-      deferredTools,
+      artifactRequested: false,
       modelClient,
       config: {
         websearch: { maxToolCallsPerTurn: 3 },
@@ -1263,7 +1209,7 @@ describe("tool", () => {
       onUpstreamEvent: () => {}
     });
 
-    // Deferred artifact tools must not force a document-model switch or a throw.
+    // Listed document tools must not force a document-model switch or a throw.
     assert.equal(result.accumulated.content, "Plain answer");
     assert.equal(bodies.every((body) => body.model === "inclusionai/ling-3.0-flash"), true);
     assert.equal("tools" in bodies.at(-1), false);
@@ -1432,7 +1378,6 @@ describe("tool", () => {
       signal: new AbortController().signal,
       websearch: { search: async () => ({ ok: false, error: { message: "n/a" } }) },
       documents: { async createDocument() { throw new Error("a reading turn must not create a file"); } },
-      deferredTools: buildDocumentTools({ toolNames: ["create_document", "edit_document", "export_document"] }),
       artifactRequested: false,
       onUpstreamEvent: () => {}
     });
@@ -1478,13 +1423,11 @@ describe("tool", () => {
   });
 
   test("document promises execute the artifact tool instead of ending the turn", async () => {
-    for (const [promise, deferred] of [["I'll create the deck now.", false], ["I’m creating the PowerPoint now.", true], ["Let me prepare the document.", false]]) {
+    for (const promise of ["I'll create the deck now.", "I’m creating the PowerPoint now.", "Let me prepare the document."]) {
       const tools = buildDocumentTools({ toolNames: ["create_document"] });
       const bodies = [];
       const result = await runChatWithToolLoop({
-        chatRequest: { model: "test", messages: [{ role: "user", content: "create me on the topic machine learning" }],
-          tools: deferred ? [buildLoadToolsTool(tools)] : tools },
-        deferredTools: deferred ? tools : [],
+        chatRequest: { model: "test", messages: [{ role: "user", content: "create me on the topic machine learning" }], tools },
         modelClient: { async streamChatCompletion({ body }) {
           bodies.push(body);
           if (bodies.length === 1) return streamResponse([contentDelta(promise)]);
@@ -1589,8 +1532,9 @@ describe("tool", () => {
     assert.equal(result.accumulated.content, "Final answer");
     assert.equal(result.toolCallCount, 1);
     assert.deepEqual(result.providers, ["jina"]);
+    // Same tools as before, so the cached prompt still matches.
     assert.equal("tool_choice" in bodies[1], false);
-    assert.equal("tools" in bodies[1], false);
+    assert.deepEqual(bodies[1].tools, bodies[0].tools);
   });
 
   test("runChatWithToolLoop resets provisional prose before the final tool answer", async () => {
@@ -1640,7 +1584,7 @@ describe("tool", () => {
     assert.equal(toolEvents[0].type, "response:reset");
   });
 
-  test("runChatWithToolLoop retries once without tools when the model returns no answer", async () => {
+  test("runChatWithToolLoop retries once with no tool call allowed when the model returns no answer", async () => {
     const bodies = [];
     const modelClient = {
       async streamChatCompletion({ body }) {
@@ -1667,7 +1611,7 @@ describe("tool", () => {
 
     assert.equal(bodies.length, 2);
     assert.equal("tool_choice" in bodies[1], false);
-    assert.equal("tools" in bodies[1], false);
+    assert.deepEqual(bodies[1].tools, bodies[0].tools);
     assert.equal(result.accumulated.content, "Recovered answer");
   });
 
@@ -1953,7 +1897,8 @@ describe("tool", () => {
 
     assert.equal(searchCalls, 1);
     assert.equal(bodies.length, 3);
-    assert.equal("tools" in bodies[1], false);
+    // Asked for no tool call first; a model that calls one anyway gets the tools removed.
+    assert.deepEqual(bodies[1].tools, bodies[0].tools);
     assert.equal("tools" in bodies[2], false);
   });
 

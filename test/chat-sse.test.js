@@ -373,6 +373,12 @@ async function dispatchChat(config, db, { path, body }) {
 
 const conversationRow = { id: "conv-1", title: "Existing chat", model: TEXT_MODEL };
 
+// Instructions for one message go in a user note just before that message, not the system prompt.
+function appInstructions(request) {
+  return request.messages.find((message) => message.role === "user"
+    && String(message.content).startsWith("Instructions from the app for this message:"))?.content || "";
+}
+
 test("chat role think resolves on the server without a vendor model ID", async (t) => {
   t.after(restoreFetch);
   installProviderFetch({
@@ -638,7 +644,7 @@ test("compare: server substitutes the default pair and streams per-index start/d
   }
   assert.equal(events.length, 8, "compare emits exactly per-lane events, no global done/usage");
   assert.ok(providerBodies.every((body) => /Writing style skill \(learning\)/.test(body.messages[0].content)));
-  assert.ok(providerBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages[0].content)));
+  assert.ok(providerBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(appInstructions(body))));
   assert.ok(providerBodies.every((body) => !("skillIds" in body)));
 
   /* Two assistant rows persisted, then updated with their content. */
@@ -824,7 +830,8 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
   assert.equal(events.at(-1).type, "council:chairman:done");
   assert.equal(streamedBodies.length, 5, "four panelists and the chairman stream");
   assert.ok(streamedBodies.every((body) => /Writing style skill \(formal\)/.test(body.messages[0].content)));
-  assert.ok(streamedBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages[0].content)));
+  // The chairman gets them in its system prompt, the panelists next to the message.
+  assert.ok(streamedBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages.map((message) => message.content).join("\n"))));
   assert.ok(streamedBodies.every((body) => !("skillIds" in body)));
 
   /* Stage ordering is frozen. */
@@ -1032,7 +1039,8 @@ test("composer skills reach normal and temporary prompts without leaking skillId
   });
 
   assert.equal(requests.length, 2);
-  assert.match(requests[0].messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(appInstructions(requests[0]), /<klui_composer_skill id="humanizer">/);
+  assert.doesNotMatch(requests[0].messages[0].content, /klui_composer_skill/);
   assert.match(requests[1].messages[0].content, /<klui_composer_skill id="humanizer">/);
   assert.match(requests[1].messages[0].content, /Temporary chat cannot create/);
   assert.equal("skillIds" in requests[0], false);
@@ -1062,7 +1070,7 @@ test("visualize replaces a plain model answer with an interactive document", asy
 
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(requests.length, 2);
-  assert.match(requests[0].messages[0].content, /output contract is mandatory/);
+  assert.match(appInstructions(requests[0]), /output contract is mandatory/);
   assert.match(requests[1].messages.at(-1).content, /Replace the previous response completely/);
   assert.equal("tools" in requests[1], false);
   assert.ok(parseSse(res.body).some((event) => event.type === "response:reset"));
@@ -1444,7 +1452,7 @@ test("retry: deletes failed assistant, reuses user message, streams fresh assist
   assert.equal(finalUpdate.id, "msg-1");
   assert.equal(finalUpdate.patch.content, "Retried answer.");
   assert.equal(finalUpdate.patch.finish_reason, "stop");
-  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(appInstructions(providerRequest), /<klui_composer_skill id="humanizer">/);
   assert.equal("skillIds" in providerRequest, false);
 });
 
@@ -1472,7 +1480,7 @@ test("visualize retry restores the skill with web search but no document tools",
 
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(requests.length, 1);
-  assert.match(requests[0].messages[0].content, /<klui_composer_skill id="visualize">/);
+  assert.match(appInstructions(requests[0]), /<klui_composer_skill id="visualize">/);
   assert.deepEqual(requests[0].tools.map((tool) => tool.function.name), ["web_search", "read_url"]);
   assert.equal(requests[0].tool_choice, "auto");
   const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
@@ -1509,7 +1517,7 @@ test("visualize retry with a sandbox runtime error asks for a targeted repair of
 
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(requests.length, 1);
-  const system = requests[0].messages[0].content;
+  const system = appInstructions(requests[0]);
   assert.match(system, /Visualization repair task:/);
   assert.match(system, /RangeError: Incorrect locale information provided at x/);
   assert.doesNotMatch(system, /\u0000/);
@@ -1546,9 +1554,9 @@ test("longer retry rewrites the existing answer without adding a user message", 
     body: { retryAssistantMessageId: "asst-2", responseAdjustment: "longer", model: TEXT_MODEL }
   });
 
-  assert.match(providerRequest.messages[0].content, /substantially longer/);
-  assert.match(providerRequest.messages[0].content, /<previous_response>\nShort answer\./);
-  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(appInstructions(providerRequest), /substantially longer/);
+  assert.match(appInstructions(providerRequest), /<previous_response>\nShort answer\./);
+  assert.match(appInstructions(providerRequest), /<klui_composer_skill id="humanizer">/);
   assert.equal("skillIds" in providerRequest, false);
   assert.equal(db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "user").length, 0);
   assert.deepEqual(db.calls.filter((call) => call.op === "deleteMessage").map((call) => call.id), ["asst-2"]);
@@ -1595,7 +1603,7 @@ test("edit: rewrites user text, purges downstream messages, streams new assistan
   assert.equal(userUpdates.length, 1);
   assert.equal(userUpdates[0].patch.content, "Edited follow up?");
   assert.equal("metadata" in userUpdates[0].patch, false);
-  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(appInstructions(providerRequest), /<klui_composer_skill id="humanizer">/);
   assert.equal("skillIds" in providerRequest, false);
 
   const inserts = db.calls.filter((call) => call.op === "insertMessage");
@@ -1885,7 +1893,7 @@ test("client-keyed send persists one durable turn and fences the first provider 
   assert.equal(calls.find((call) => call.op === "submitDocumentTurn").payload.requestPayload.writingStyle, "learning");
   assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.requestPayload.skillIds, ["humanizer"]);
   assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.messageMetadata.skillIds, ["humanizer"]);
-  assert.match(providerRequest.messages[0].content, /<klui_composer_skill id="humanizer">/);
+  assert.match(appInstructions(providerRequest), /<klui_composer_skill id="humanizer">/);
   assert.equal("skillIds" in providerRequest, false);
   assert.deepEqual(calls.find((call) => call.op === "submitDocumentTurn").payload.attachmentIds, []);
   assert.equal(calls.filter((call) => call.op === "upsertProfile").length, 2);

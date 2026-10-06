@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chatCompletion, streamChatCompletion } from "../model-api/client.js";
 import { HttpError } from "../http/responses.js";
+import { ALLOWED_CHAT_MODELS } from "../providers.js";
 import {
   assertApiBudgetAvailable,
   apiUsageWindow,
@@ -8,6 +9,17 @@ import {
   fetchOpenRouterGenerationCost,
   usageCostCredits
 } from "./billing.js";
+
+// Hosts keep a cached prompt for a few minutes, so a chat's next message within this window
+// asks for the hosts its last message used. In memory only: a restart just costs one miss.
+const RECENT_HOSTS_MS = 5 * 60_000;
+const recentHosts = new Map(); // chat id -> { hosts: Map(model -> host), at }
+
+function recentHostsFor(key) {
+  const now = Date.now();
+  for (const [id, entry] of recentHosts) if (now - entry.at >= RECENT_HOSTS_MS) recentHosts.delete(id);
+  return key ? Object.fromEntries(recentHosts.get(key)?.hosts || []) : {};
+}
 
 function modelFromBody(body = {}) {
   return typeof body.model === "string" ? body.model : "";
@@ -36,7 +48,9 @@ function parseSseEvents(buffer, onEvent) {
 }
 
 function usageFromPayload(payload) {
-  return payload?.usage && typeof payload.usage === "object" ? payload.usage : null;
+  if (!payload?.usage || typeof payload.usage !== "object") return null;
+  // The saved usage already has the cached-token count; the host makes hit rates readable per host.
+  return payload.provider ? { ...payload.usage, provider_host: payload.provider } : payload.usage;
 }
 
 /**
@@ -59,21 +73,31 @@ export function createModelUsageMeter({
   oauthClientId = null,
   reservationCredits = 0.25,
   requestIdFactory = randomUUID,
-  stickyProviders = null
+  stickyProviders = null,
+  recentHostsKey = null
 }) {
   // One meter serves one turn. Once a model's first response names its host, every later
   // request for that model in the turn asks for the same host so its prompt cache is reused.
-  const pinnedHosts = new Map(Object.entries(stickyProviders || {}).filter(([, name]) => name));
+  // A model answered by its backup model (Mercury by DeepSeek, say) has the rest of the turn
+  // sent to the backup directly, on the backup's host, instead of waiting on the first again.
+  const pinnedHosts = new Map(Object.entries({ ...recentHostsFor(recentHostsKey), ...stickyProviders }).filter(([, name]) => name));
+  const backupModels = new Map();
   const learnHost = (model, event) => {
     const host = typeof event?.provider === "string" ? event.provider.trim() : "";
-    if (!model || !host || pinnedHosts.has(model)) return;
-    if (event?.model && !String(event.model).startsWith(model)) return; // served by a fallback model
-    pinnedHosts.set(model, host);
+    if (!model || !host) return;
+    const served = String(event?.model || model);
+    const backup = served.startsWith(model) ? model : ALLOWED_CHAT_MODELS.find((id) => served.startsWith(id));
+    if (!backup) return;
+    if (backup !== model) backupModels.set(model, backup);
+    if (!pinnedHosts.has(backup)) pinnedHosts.set(backup, host);
+    if (recentHostsKey) recentHosts.set(recentHostsKey, { hosts: pinnedHosts, at: Date.now() });
   };
   const withPinnedHost = (params) => {
-    const model = modelFromBody(params?.body);
+    const requested = modelFromBody(params?.body);
+    const model = backupModels.get(requested) || requested;
     const host = pinnedHosts.get(model);
-    return host ? { ...params, body: { ...params.body, sticky_provider: host } } : params;
+    if (model === requested && !host) return params;
+    return { ...params, body: { ...params.body, model, ...(host ? { sticky_provider: host } : {}) } };
   };
   async function checkBudget(callSignal = signal) {
     return assertApiBudgetAvailable({
