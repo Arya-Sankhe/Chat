@@ -86,36 +86,32 @@ test("adaptChatRequestForProvider always pins HY3 reasoning to high", () => {
   assert.deepEqual(adapted.reasoning, { effort: "high", exclude: false });
 });
 
-test("adaptChatRequestForProvider adds Laguna S model fallbacks", () => {
+test("adaptChatRequestForProvider turns on Solar's reasoning at medium and falls back to DeepSeek", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "poolside/laguna-s-2.1",
+    model: "upstage/solar-pro4",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high",
     top_p: 0.95
   }, "openrouter");
 
   assert.deepEqual(adapted.models, [
-    "poolside/laguna-s-2.1",
+    "upstage/solar-pro4",
     "deepseek/deepseek-v4-flash-0731"
   ]);
-  assert.equal(adapted.top_p, undefined);
-  // Shared with the DeepSeek fallback — OpenRouter can't set per-fallback effort.
+  assert.equal(adapted.top_p, 0.95);
+  // Solar has reasoning off by default; the DeepSeek fallback shares this effort.
   assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
 });
 
-test("adaptChatRequestForProvider keeps Laguna S enabled-only reasoning when tools force require_parameters", () => {
+test("adaptChatRequestForProvider keeps Solar's reasoning effort with tools", () => {
   const adapted = adaptChatRequestForProvider({
-    model: "poolside/laguna-s-2.1",
+    model: "upstage/solar-pro4",
     messages: [{ role: "user", content: "hi" }],
     reasoning_effort: "high",
     tools: [{ type: "function", function: { name: "web_search" } }]
   }, "openrouter");
 
-  assert.deepEqual(adapted.models, [
-    "poolside/laguna-s-2.1",
-    "deepseek/deepseek-v4-flash-0731"
-  ]);
-  assert.deepEqual(adapted.reasoning, { enabled: true, exclude: false });
+  assert.deepEqual(adapted.reasoning, { effort: "medium", exclude: false });
   assert.equal(adapted.provider.require_parameters, true);
 });
 
@@ -478,7 +474,7 @@ test("streamChatCompletion enables Ling reasoning without effort", async () => {
   }
 });
 
-test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
+test("streamChatCompletion adds Solar → DeepSeek fallback", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody;
   globalThis.fetch = async (_url, options = {}) => {
@@ -496,7 +492,7 @@ test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
       baseUrl: "https://openrouter.ai/api/v1",
       providerId: "openrouter",
       body: {
-        model: "poolside/laguna-s-2.1",
+        model: "upstage/solar-pro4",
         messages: [{ role: "user", content: "hi" }],
         reasoning_effort: "high",
         tools: [{ type: "function", function: { name: "web_search" } }]
@@ -505,7 +501,7 @@ test("streamChatCompletion adds Laguna S → DeepSeek fallback", async () => {
     });
 
     assert.deepEqual(requestBody.models, [
-      "poolside/laguna-s-2.1",
+      "upstage/solar-pro4",
       "deepseek/deepseek-v4-flash-0731"
     ]);
   } finally {

@@ -227,7 +227,7 @@ export function createStreamReducer({
     if (type === "council:peer:start") {
       council.stage1Status = "done";
       council.stage2Status = "active";
-      council.peerStatus = "Peers are evaluating each response…";
+      council.peerStatus = "The judge is ranking the answers…";
       return null;
     }
 
@@ -270,24 +270,24 @@ export function createStreamReducer({
 
     if (type === "council:peer:error") {
       council.stage2Status = "error";
-      council.peerStatus = `Peer review failed: ${event.error || "Unknown error."}`;
+      council.peerStatus = `Ranking failed: ${event.error || "Unknown error."}`;
       for (const panelist of council.panelists || []) {
         if (!panelist.metadata) panelist.metadata = { council: {} };
         if (!panelist.metadata.council) panelist.metadata.council = {};
         panelist.metadata.council.peerReviewStatus = "error";
-        panelist.metadata.council.peerReviewReason = event.error || "Peer review failed.";
+        panelist.metadata.council.peerReviewReason = event.error || "Ranking failed.";
       }
       return null;
     }
 
     if (type === "council:peer:skipped") {
       council.stage2Status = "done";
-      council.peerStatus = event.reason || "Peer review skipped.";
+      council.peerStatus = event.reason || "Ranking skipped.";
       for (const panelist of council.panelists || []) {
         if (!panelist.metadata) panelist.metadata = { council: {} };
         if (!panelist.metadata.council) panelist.metadata.council = {};
         panelist.metadata.council.peerReviewStatus = "skipped";
-        panelist.metadata.council.peerReviewReason = event.reason || "Peer review skipped.";
+        panelist.metadata.council.peerReviewReason = event.reason || "Ranking skipped.";
       }
       return null;
     }

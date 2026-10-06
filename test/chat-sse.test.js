@@ -15,15 +15,16 @@ import { filterCurrentTurnMessages, normalizeSourceScope } from "../server/chat/
  * and billing calls observed by the fake DB are asserted alongside.
  *
  * Covered: single chat with a web-search tool call, two-model compare,
- * council through chairman synthesis, temporary chat, empty-response
+ * council through the judge, temporary chat, empty-response
  * errors, aborts, and usage/cost events. Phases 1 and 4 must not
  * change any expectation here.
  */
 
 const TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 const VISION_MODEL = "xiaomi/mimo-v2.6-flash";
-const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, "poolside/laguna-s-2.1"];
-const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "poolside/laguna-s-2.1"];
+const DEFAULT_COMPARE_MODELS = [TEXT_MODEL, "upstage/solar-pro4"];
+const DEFAULT_COUNCIL_MODELS = [TEXT_MODEL, "tencent/hy3", VISION_MODEL, "upstage/solar-pro4"];
+const JUDGE_MODEL = "openai/gpt-6-luna";
 
 const CONFIG_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
@@ -739,26 +740,20 @@ test("voice turns answer with Mercury, and image turns keep Think's vision model
 
 /* ── (c) council through chairman synthesis ── */
 
-test("council: panel, anonymized peer review, and chairman synthesis transcript", async (t) => {
+test("council: panel answers, then the judge ranks them and writes the final answer", async (t) => {
   t.after(restoreFetch);
   const streamedBodies = [];
   installProviderFetch({
     streamFor: (body) => {
       streamedBodies.push(body);
-      const isChairman = body.messages.some((message) =>
-        typeof message.content === "string" && message.content.includes("You are the Chairman"));
-      if (isChairman) return [contentDelta("Synthesized final answer."), usageChunk()];
+      const judgePrompt = body.messages.find((message) =>
+        typeof message.content === "string" && message.content.includes("You are the judge of an AI council"));
+      if (judgePrompt) {
+        const tags = [...judgePrompt.content.matchAll(/<response-([a-f0-9]{8})>/g)].map((match) => match[1]);
+        const ranking = tags.map((tag, i) => `${i + 1}. response-${tag} — note ${i + 1}`).join("\n");
+        return [contentDelta(`<ranking>\n${ranking}\n</ran`), contentDelta("king>\n\nSynthesized "), contentDelta("final answer."), usageChunk()];
+      }
       return [contentDelta(`Panel answer from ${body.model}`), usageChunk()];
-    },
-    completionFor: (body) => {
-      /* Peer-review ballot: rank the nonce-tagged responses in prompt order. */
-      const prompt = body.messages[0].content;
-      const nonces = [...prompt.matchAll(/<response-([a-f0-9]{4,})>/g)].map((match) => match[1]);
-      const ranking = nonces.map((nonce, i) => `${i + 1}. response-${nonce} — solid reasoning`).join("\n");
-      return {
-        choices: [{ message: { content: `RANKING:\n${ranking}` } }],
-        usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10, cost: 0.0005 }
-      };
     }
   });
 
@@ -798,67 +793,52 @@ test("council: panel, anonymized peer review, and chairman synthesis transcript"
     assert.equal(laneContent, `Panel answer from ${model}`);
   }
 
-  /* Stage 2: peer review over all four reviewers, then aggregate. */
-  const peerStart = events.find((event) => event.type === "council:peer:start");
-  assert.deepEqual(peerStart.reviewers, DEFAULT_COUNCIL_MODELS);
+  /* Stage 2: one judge ranks all four answers with a note on each. */
+  assert.deepEqual(events.find((event) => event.type === "council:peer:start").reviewers, [JUDGE_MODEL]);
   const ballots = events.filter((event) => event.type === "council:peer:ballot");
-  assert.equal(ballots.length, 4);
-  for (const ballot of ballots) {
-    assert.equal(ballot.valid, true);
-    assert.equal(ballot.ranking.length, 3, "each reviewer ranks the other three panelists");
-    assert.equal(ballot.error, null);
-  }
+  assert.equal(ballots.length, 1);
+  assert.equal(ballots[0].reviewerModel, JUDGE_MODEL);
+  assert.deepEqual([...ballots[0].ranking].sort(), [...DEFAULT_COUNCIL_MODELS].sort());
+  assert.deepEqual(ballots[0].ranking.map((modelId) => ballots[0].justifications[modelId]), ["note 1", "note 2", "note 3", "note 4"]);
   const peerDone = events.find((event) => event.type === "council:peer:done");
-  assert.deepEqual(
-    peerDone.borda.map((row) => row.modelId).sort(),
-    [...DEFAULT_COUNCIL_MODELS].sort()
-  );
-  for (const row of peerDone.borda) {
-    assert.deepEqual(Object.keys(row).sort(), ["ballotCount", "bordaScore", "modelId", "rank"]);
-  }
+  assert.deepEqual(peerDone.borda.map((row) => row.rank), [1, 2, 3, 4]);
 
-  /* Stage 3: chairman synthesis streams and completes. */
+  /* The same call streams the final answer, without the ranking text. */
   const chairmanStart = events.find((event) => event.type === "council:chairman:start");
-  assert.ok(DEFAULT_COUNCIL_MODELS.includes(chairmanStart.chairmanModel));
+  assert.equal(chairmanStart.chairmanModel, JUDGE_MODEL);
   assert.equal(chairmanStart.assistantMessageId, "<id>");
-  assert.equal(chairmanStart.sessionId, "<id>");
   const chairmanContent = events
     .filter((event) => event.type === "council:chairman:delta")
-    .map((event) => event.event.content)
+    .map((event) => event.event.content || "")
     .join("");
   assert.equal(chairmanContent, "Synthesized final answer.");
   assert.equal(events.at(-1).type, "council:chairman:done");
-  assert.equal(streamedBodies.length, 5, "four panelists and the chairman stream");
+  assert.equal(streamedBodies.length, 5, "four panelists and one judge call");
+  assert.equal(streamedBodies.at(-1).model, JUDGE_MODEL);
   assert.ok(streamedBodies.every((body) => /Writing style skill \(formal\)/.test(body.messages[0].content)));
-  // The chairman gets them in its system prompt, the panelists next to the message.
+  // The judge gets them in its system prompt, the panelists next to the message.
   assert.ok(streamedBodies.every((body) => /<klui_composer_skill id="humanizer">/.test(body.messages.map((message) => message.content).join("\n"))));
   assert.ok(streamedBodies.every((body) => !("skillIds" in body)));
 
-  /* Stage ordering is frozen. */
-  const order = [
-    "council:start",
-    "council:peer:start",
-    "council:peer:done",
-    "council:chairman:start",
-    "council:chairman:done"
-  ].map((type) => types.indexOf(type));
+  const order = ["council:start", "council:peer:start", "council:chairman:start", "council:peer:done", "council:chairman:done"]
+    .map((type) => types.indexOf(type));
   assert.deepEqual([...order].sort((a, b) => a - b), order, "council stages emit in order");
-  assert.ok(types.indexOf("council:peer:start") > types.lastIndexOf("done"), "peer review starts after all panel lanes finish");
+  assert.ok(types.indexOf("council:peer:start") > types.lastIndexOf("done"), "the judge starts after all panel lanes finish");
 
-  /* Persistence: 4 panelist rows + 1 chairman row + peer metadata updates. */
+  /* Persistence: 4 panelist rows + 1 judge row; each panelist saves its rank and note. */
   const assistantInserts = db.calls.filter((call) => call.op === "insertMessage" && call.message.role === "assistant");
   assert.equal(assistantInserts.length, 5);
-  const chairmanInsert = assistantInserts.at(-1);
-  assert.equal(chairmanInsert.message.metadata.council.role, "chairman");
-  const peerMetadataUpdates = db.calls.filter((call) =>
-    call.op === "updateMessage" && call.patch.metadata?.council?.peerReviewStatus);
-  assert.equal(peerMetadataUpdates.length, 4);
+  assert.equal(assistantInserts.at(-1).message.metadata.council.role, "chairman");
+  const rankUpdates = db.calls.filter((call) =>
+    call.op === "updateMessage" && call.patch.metadata?.council?.peerReviewStatus === "done");
+  assert.equal(rankUpdates.length, 4);
+  assert.deepEqual(rankUpdates.map((call) => call.patch.metadata.council.peerRank).sort(), [1, 2, 3, 4]);
+  const judgeUpdate = db.calls.filter((call) => call.op === "updateMessage" && call.patch.content).at(-1);
+  assert.equal(judgeUpdate.patch.content, "Synthesized final answer.");
 
-  /* Billing: every model call (4 panel + 4 ballots + 1 chairman) is metered. */
-  const checks = db.calls.filter((call) => call.op === "checkApiBudget").length;
-  const records = db.calls.filter((call) => call.op === "recordApiUsageCost").length;
-  assert.equal(checks, 9);
-  assert.equal(records, 9);
+  /* Billing: every model call (4 panel + 1 judge) is metered. */
+  assert.equal(db.calls.filter((call) => call.op === "checkApiBudget").length, 5);
+  assert.equal(db.calls.filter((call) => call.op === "recordApiUsageCost").length, 5);
 });
 
 /* ── (d) temporary chat ── */

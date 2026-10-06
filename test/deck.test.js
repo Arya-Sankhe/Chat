@@ -183,7 +183,7 @@ test("deck writer always uses Pro and falls back to DeepSeek only when Pro fails
       return sseResponse(models.length === 1 ? "Sorry, I cannot." : DECK_JSON);
     }
   };
-  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "openai/gpt-6-sol", deckAuditModel: "openai/gpt-6-sol" } };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "vendor/new-model", deckAuditModel: "vendor/new-model" } };
   const result = await writeDeck({ config, modelClient, signal: new AbortController().signal, brief: { title: "Churn" } });
   assert.equal(models.length, 2);
   assert.deepEqual(models, [OPENROUTER_PRO_MODEL, OPENROUTER_TEXT_MODEL]);
@@ -363,7 +363,7 @@ test("deck editor plans operations with the model and applies them", async () =>
       ] }));
     }
   };
-  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "openai/gpt-6-sol" } };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "vendor/new-model" } };
   const result = await editDeck({ config, modelClient, deck: JSON.parse(DECK_JSON), instructions: "Page 2 title should say 8.4%; remove the footer." });
   assert.match(prompt, /"page":2/);
   assert.equal(result.deck.slides[1].title, "Churn hit **8.4%**");

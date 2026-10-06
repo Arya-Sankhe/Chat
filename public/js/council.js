@@ -41,8 +41,8 @@ export function createCouncilController({
   function renderCouncilStages(council) {
     const stages = [
       { key: "stage1", label: "Panel", status: council.stage1Status || "active" },
-      { key: "stage2", label: "Peer review", status: council.stage2Status || "pending" },
-      { key: "stage3", label: "Chairman", status: council.stage3Status || "pending" }
+      { key: "stage2", label: "Judge ranks", status: council.stage2Status || "pending" },
+      { key: "stage3", label: "Final answer", status: council.stage3Status || "pending" }
     ];
     return `<div class="council-stages">${stages.map((stage, index) => `
     <span class="council-stage ${stage.status}">
@@ -65,6 +65,9 @@ export function createCouncilController({
     if (stage3 === "done") {
       label = "Council complete";
       percent = 100;
+    } else if (stage2 === "active") {
+      label = "The judge is ranking the answers";
+      percent = 68;
     } else if (stage3 === "active") {
       label = "Final answer is being written";
       percent = 88;
@@ -83,7 +86,7 @@ export function createCouncilController({
 
     const sub = stage1 === "active"
       ? `${Math.min(completePanelists, total)}/${total} model${total === 1 ? "" : "s"} answered`
-      : (stage3 === "done" ? "Final answer ready" : "Reviewing panel answers");
+      : (stage3 === "done" ? "Final answer ready" : "The judge is reading every answer");
     return { label, sub, percent: Math.max(0, Math.min(100, percent)) };
   }
 
@@ -123,11 +126,14 @@ export function createCouncilController({
     const rankBadge = showRank
       ? `<span class="council-rank-badge rank-${rank}">#${rank}${rank === 1 ? " · Top" : ""}</span>`
       : (peerReviewActive && msg.finishReason && !msg.error ? `<span class="council-rank-pending">Ranking…</span>` : "");
+    // Newer councils have one note, from the judge (not a panelist); older ones have peer notes.
+    const judged = Object.keys(justifications).length === 1 && !panelists.some((panelist) => panelist.model in justifications);
     const justKeys = Object.keys(justifications).filter((reviewerId) => !isPlaceholderPeerReason(justifications[reviewerId]));
     const justBlock = justKeys.length ? `
     <div class="council-justifications">
-      <div class="council-justifications-title">Peer notes</div>
+      <div class="council-justifications-title">${judged ? "Judge's note" : "Peer notes"}</div>
       ${justKeys.map((reviewerId) => {
+        if (judged) return `<div class="council-justification">${escapeHtml(justifications[reviewerId] || "")}</div>`;
         const reviewer = councilModelAlias(reviewerId, panelists.findIndex((panelist) => panelist.model === reviewerId));
         return `<div class="council-justification"><strong>${escapeHtml(reviewer)}:</strong> ${escapeHtml(justifications[reviewerId] || "")}</div>`;
       }).join("")}
@@ -159,14 +165,16 @@ export function createCouncilController({
     const msg = normalizeMessage(chairman);
     const modelId = msg.model || "";
     const rawText = rawTextContent(msg.content);
-    const modelName = councilModelAlias(modelId, panelists.findIndex((panelist) => panelist.model === modelId));
+    const chairIndex = panelists.findIndex((panelist) => panelist.model === modelId);
+    const judgedByJudge = chairIndex < 0;
+    const modelName = councilModelAlias(modelId, chairIndex);
     const idAttr = msg.id ? ` data-message-id="${escapeHtml(String(msg.id))}"` : "";
 
     return `
     <div class="council-synthesis"${idAttr} data-raw-text="${escapeHtml(rawText)}">
       <div class="council-synthesis-head">
         <span>Final answer</span>
-        <span class="council-synthesis-model">Chaired by ${escapeHtml(modelName)}</span>
+        <span class="council-synthesis-model">${judgedByJudge ? "Written by the judge" : `Chaired by ${escapeHtml(modelName)}`}</span>
         ${rawText.trim() ? `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy synthesis" title="Copy synthesis"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>` : ""}
       </div>
       <div class="council-synthesis-body message-content">${renderAssistantMessageContent(msg)}</div>
@@ -245,7 +253,7 @@ export function createCouncilController({
 
   function councilHeaderSub(panelists, council) {
     const count = panelists.length || DEFAULT_COUNCIL_MODELS.length;
-    return `${count} models${council.chairman ? " · 1 chair" : ""}`;
+    return `${count} models${council.chairman ? " · 1 judge" : ""}`;
   }
 
   function renderCouncilMessage(council) {
@@ -272,7 +280,7 @@ export function createCouncilController({
         <details class="council-details"${detailsOpen} data-council-id="${escapeHtml(councilId)}">
           <summary>
             <span>How the council got there</span>
-            <small>${hasAnyRank ? `${panelists.length} answers, peer ranked` : `${panelists.length} individual answers`}</small>
+            <small>${hasAnyRank ? `${panelists.length} answers, ranked` : `${panelists.length} individual answers`}</small>
           </summary>
           <div class="council-details-body">
             ${renderCouncilStages(council)}

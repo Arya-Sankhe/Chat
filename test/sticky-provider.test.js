@@ -69,23 +69,23 @@ test("a model answered by its backup sends the rest of the turn to the backup, o
     db: meterDb(),
     userId: "user-1",
     plan: { id: "pro", monthlyApiCreditLimit: 10 },
-    stickyProviders: { "poolside/laguna-s-2.1": "Poolside" },
+    stickyProviders: { "upstage/solar-pro4": "Upstage" },
     streamChatCompletionFn: async (params) => {
       bodies.push(params.body);
       return sse([{ id: "gen-2", model: OPENROUTER_TEXT_MODEL, provider: "DeepInfra", choices: [{ delta: { content: "x" } }] }]);
     }
   });
   const call = async () => {
-    const response = await meter.streamChatCompletion({ apiKey: "k", baseUrl: "https://or.test", providerId: "openrouter", body: { model: "poolside/laguna-s-2.1", messages: [] } });
+    const response = await meter.streamChatCompletion({ apiKey: "k", baseUrl: "https://or.test", providerId: "openrouter", body: { model: "upstage/solar-pro4", messages: [] } });
     await response.text();
   };
   await call();
   await call();
-  assert.equal(bodies[0].model, "poolside/laguna-s-2.1");
-  assert.equal(bodies[0].sticky_provider, "Poolside");
+  assert.equal(bodies[0].model, "upstage/solar-pro4");
+  assert.equal(bodies[0].sticky_provider, "Upstage");
   assert.equal(bodies[1].model, OPENROUTER_TEXT_MODEL);
   assert.equal(bodies[1].sticky_provider, "DeepInfra");
-  assert.deepEqual(meter.pinnedProviders(), { "poolside/laguna-s-2.1": "Poolside", [OPENROUTER_TEXT_MODEL]: "DeepInfra" });
+  assert.deepEqual(meter.pinnedProviders(), { "upstage/solar-pro4": "Upstage", [OPENROUTER_TEXT_MODEL]: "DeepInfra" });
 });
 
 test("a chat's next message within five minutes starts on the hosts its last message used", async (t) => {

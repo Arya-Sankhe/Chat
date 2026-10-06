@@ -16,7 +16,8 @@ export const OPENROUTER_VISION_L3 = "qwen/qwen3.8-flash";
 export const OPENROUTER_MIMO_V25_MODEL = "xiaomi/mimo-v2.5";
 export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
 export const OPENROUTER_TITLE_MODEL = "poolside/laguna-xs-2.1";
-export const OPENROUTER_LAGUNA_S = "poolside/laguna-s-2.1";
+// The second model in text Compare and a Council panelist.
+export const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
 export const OPENROUTER_IMAGE_MODEL = "krea/krea-2-medium-turbo";
 // Voice mode's text model: a fast diffusion LLM, falling back to DeepSeek Flash (Think).
 export const OPENROUTER_VOICE_MODEL = "inception/mercury-2.5";
@@ -26,7 +27,7 @@ export const ALLOWED_CHAT_MODELS = Object.freeze([
   OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL, OPENROUTER_PRO_FALLBACK_MODEL, OPENROUTER_VISION_L2,
   OPENROUTER_VISION_L3, OPENROUTER_MIMO_V25_MODEL, OPENROUTER_NITRO_MODEL,
-  OPENROUTER_TITLE_MODEL, OPENROUTER_LAGUNA_S, OPENROUTER_VOICE_MODEL
+  OPENROUTER_TITLE_MODEL, OPENROUTER_SOLAR_PRO, OPENROUTER_VOICE_MODEL
 ]);
 
 export function assertAllowedChatModels(body) {
@@ -93,13 +94,14 @@ export function resolveOpenRouterReasoningEffort(value) {
 
 /**
  * OpenRouter only accepts `reasoning.effort` when the model exposes
- * supported efforts (DeepSeek, Luna, and HY3). Ling / Laguna / MiniMax / MiMo expose
+ * supported efforts (DeepSeek, Luna, HY3 and Solar). Ling / Laguna / MiniMax / MiMo expose
  * on/off reasoning only — sending `effort` with `require_parameters`
  * yields "No endpoints found that can handle the requested parameters."
  */
 export function openRouterModelSupportsReasoningEffort(model) {
   const id = String(model || "").trim().toLowerCase();
-  return id.startsWith("deepseek/") || id === OPENROUTER_PRO_MODEL || id === OPENROUTER_COUNCIL_HY3_MODEL;
+  return id.startsWith("deepseek/") || id === OPENROUTER_PRO_MODEL || id === OPENROUTER_COUNCIL_HY3_MODEL
+    || id === OPENROUTER_SOLAR_PRO;
 }
 
 /** Poolside Laguna endpoints omit top_p; with require_parameters that 404s. */
@@ -364,31 +366,17 @@ export function adaptChatRequestForProvider(body, providerId) {
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
   const modelId = String(rest.model || "").trim().toLowerCase();
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
-  const isLagunaS = modelId === OPENROUTER_LAGUNA_S;
   const isProModel = modelId === OPENROUTER_PRO_MODEL;
   const isHy3 = modelId === OPENROUTER_COUNCIL_HY3_MODEL;
-  // Laguna only supports on/off. L2 adds a DeepSeek Flash fallback that shares
-  // this reasoning object — pin medium effort for the compare/council slot. With
-  // tools + require_parameters, effort would 404 Laguna, so keep enabled-only.
+  const isSolar = modelId === OPENROUTER_SOLAR_PRO;
   let reasoning;
   if (rest.reasoning && typeof rest.reasoning === "object") {
-    if (!openRouterModelSupportsReasoningEffort(rest.model) && rest.reasoning.effort) {
-      // Laguna shares this object with its DeepSeek fallback, so allow an
-      // explicit low/medium/high when there are no tools. With tools +
-      // require_parameters, effort would 404 Laguna, so keep enabled-only.
-      const requested = String(rest.reasoning.effort || "").trim().toLowerCase();
-      if (isLagunaS && !hasTools && (requested === "low" || requested === "medium" || requested === "high")) {
-        reasoning = { effort: requested, exclude: rest.reasoning.exclude ?? false };
-      } else {
-        reasoning = { enabled: rest.reasoning.enabled !== false, exclude: rest.reasoning.exclude ?? false };
-      }
-    } else {
-      reasoning = rest.reasoning;
-    }
+    reasoning = !openRouterModelSupportsReasoningEffort(rest.model) && rest.reasoning.effort
+      ? { enabled: rest.reasoning.enabled !== false, exclude: rest.reasoning.exclude ?? false }
+      : rest.reasoning;
   } else if (openRouterModelSupportsReasoningEffort(rest.model)) {
-    reasoning = { effort: isProModel ? "xhigh" : isHy3 ? "high" : effort, exclude: false };
-  } else if (isLagunaS && !hasTools) {
-    reasoning = { effort: "medium", exclude: false };
+    // Solar has reasoning off unless asked; medium keeps its Compare and Council answers quick.
+    reasoning = { effort: isProModel ? "xhigh" : isHy3 ? "high" : isSolar ? "medium" : effort, exclude: false };
   } else {
     reasoning = { enabled: true, exclude: false };
   }
@@ -413,9 +401,9 @@ export function adaptChatRequestForProvider(body, providerId) {
     delete adapted.top_p;
   }
 
-  if (isLagunaS) {
-    // ponytail: S is often rate-limited; one fallback to DeepSeek Flash.
-    adapted.models = [OPENROUTER_LAGUNA_S, OPENROUTER_TEXT_MODEL];
+  if (isSolar) {
+    // Solar has one host; if it is down or rate-limited, DeepSeek Flash answers instead.
+    adapted.models = [OPENROUTER_SOLAR_PRO, OPENROUTER_TEXT_MODEL];
   }
   if (modelId === OPENROUTER_NITRO_MODEL) {
     adapted.models = [OPENROUTER_TEXT_MODEL];

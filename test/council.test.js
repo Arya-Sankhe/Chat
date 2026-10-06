@@ -1,25 +1,45 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { adaptChatRequestForProvider } from "../server/providers.js";
 import {
-  OPENROUTER_TEXT_MODEL,
-  OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_VISION_MODEL,
-  OPENROUTER_MIMO_V25_MODEL,
-  adaptChatRequestForProvider
-} from "../server/providers.js";
-import {
-  aggregateBordaCount,
-  buildChairmanPrompt,
-  buildPeerReviewPrompt,
-  buildReviewerAssignments,
+  buildJudgePrompt,
+  COUNCIL_JUDGE_MODEL,
   COUNCIL_STAGE1_SYSTEM_PROMPT,
+  createJudgeStreamSplitter,
   generateNonce,
-  parseRanking,
-  runPeerReview,
-  selectChairman,
+  judgeAnswerText,
+  parseJudgeRanking,
+  runCouncilJudge,
   withCouncilSystemPrompt
 } from "../server/saas/council.js";
 import { filterCouncilHistory } from "../server/saas/messages.js";
+
+const PANEL = [
+  { modelId: "alpha", responseText: "Answer alpha." },
+  { modelId: "beta", responseText: "Answer beta." },
+  { modelId: "gamma", responseText: "Answer gamma." },
+  { modelId: "delta", responseText: "Answer delta." }
+];
+
+function streamOf(chunks) {
+  return {
+    body: new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        for (const chunk of chunks) {
+          const delta = typeof chunk === "string" ? { content: chunk } : chunk;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`));
+        }
+        controller.close();
+      }
+    })
+  };
+}
+
+function rankingFor(prompt, notes = ["clear and correct; a little long", "good example; misses a caveat", "partly wrong", "too vague"]) {
+  const tags = [...prompt.matchAll(/<response-([a-f0-9]{8})>/g)].map((match) => match[1]);
+  return `<ranking>\n${tags.map((tag, i) => `${i + 1}. response-${tag} — ${notes[i]}`).join("\n")}\n</ranking>\n\n`;
+}
 
 test("withCouncilSystemPrompt prepends the council system text", () => {
   assert.equal(withCouncilSystemPrompt(""), COUNCIL_STAGE1_SYSTEM_PROMPT);
@@ -35,285 +55,103 @@ test("generateNonce returns short unique hex strings", () => {
   assert.notEqual(a, b);
 });
 
-test("buildReviewerAssignments excludes self and produces unique nonces per reviewer", () => {
-  const panelists = [
-    { modelId: "alpha", responseText: "Answer alpha." },
-    { modelId: "beta", responseText: "Answer beta." },
-    { modelId: "gamma", responseText: "Answer gamma." }
-  ];
-  const assignments = buildReviewerAssignments(panelists);
+test("the judge is Luna, routed like Pro between flex and standard", () => {
+  assert.equal(COUNCIL_JUDGE_MODEL, "openai/gpt-6-luna");
+  const adapted = adaptChatRequestForProvider({ model: COUNCIL_JUDGE_MODEL, messages: [] }, "openrouter");
+  assert.deepEqual(adapted.provider.order, ["openai/flex", "openai"]);
+  assert.equal(adapted.provider.allow_fallbacks, true);
+});
 
-  assert.equal(assignments.length, 3);
-  for (const assignment of assignments) {
-    assert.equal(assignment.labels.length, panelists.length - 1, "reviewer sees N-1 responses");
-    const reviewedIds = assignment.labels.map((l) => l.modelId);
-    assert.ok(!reviewedIds.includes(assignment.reviewerModelId), "reviewer never sees its own response");
-    const nonces = Object.keys(assignment.nonceToModelId);
-    assert.equal(nonces.length, new Set(nonces).size, "nonces unique within a ballot");
+test("buildJudgePrompt tags every answer anonymously and asks for a ranking, then a combined answer", () => {
+  const { prompt, tagToModelId } = buildJudgePrompt({ originalUserPrompt: "What is X?", panelists: PANEL });
+  assert.match(prompt, /What is X\?/);
+  assert.deepEqual(Object.values(tagToModelId).sort(), ["alpha", "beta", "delta", "gamma"]);
+  for (const [tag, modelId] of Object.entries(tagToModelId)) {
+    const answer = PANEL.find((panelist) => panelist.modelId === modelId).responseText;
+    assert.ok(prompt.includes(`<response-${tag}>\n${answer}\n</response-${tag}>`));
   }
-
-  // Anti-bias: nonce sets differ between reviewers (extremely unlikely to collide otherwise)
-  const reviewerANonces = new Set(Object.keys(assignments[0].nonceToModelId));
-  const reviewerBNonces = new Set(Object.keys(assignments[1].nonceToModelId));
-  assert.notDeepEqual([...reviewerANonces].sort(), [...reviewerBNonces].sort(), "nonces differ per reviewer");
+  assert.ok(!/alpha|beta|gamma|delta/.test(prompt.replace(/Answer (alpha|beta|gamma|delta)\./g, "")), "model ids stay hidden");
+  assert.match(prompt, /<ranking>/);
+  assert.match(prompt, /one or two short sentences/);
+  assert.match(prompt, /best parts of all the answers, not just the top-ranked one/);
+  assert.match(prompt, /one correct result/);
 });
 
-test("buildPeerReviewPrompt wraps each response in its nonce tag", () => {
-  const prompt = buildPeerReviewPrompt({
-    originalUserPrompt: "What is 2+2?",
-    labels: [
-      { responseNonce: "deadbeef", responseText: "Four.", letter: "A", modelId: "x" },
-      { responseNonce: "feedface", responseText: "Five.", letter: "B", modelId: "y" }
-    ]
-  });
-  assert.match(prompt, /<response-deadbeef>\s*Four\.\s*<\/response-deadbeef>/);
-  assert.match(prompt, /<response-feedface>\s*Five\.\s*<\/response-feedface>/);
-  assert.match(prompt, /RANKING:/);
-  assert.match(prompt, /What is 2\+2\?/);
-  assert.match(prompt, /reason briefly and do not overthink/i);
-  assert.match(prompt, /concise review in 1-2 sentences/i);
+test("parseJudgeRanking reads ranks and notes, skipping unknown and repeated tags", () => {
+  const map = { aaaa1111: "alpha", bbbb2222: "beta", cccc3333: "gamma" };
+  const parsed = parseJudgeRanking([
+    "1. response-bbbb2222 — Clear and correct.",
+    "2) **response-aaaa1111**: Good example, misses a caveat.",
+    "3. response-dddd4444 — unknown",
+    "4. response-bbbb2222 — duplicate",
+    "5. response-cccc3333"
+  ].join("\n"), map);
+  assert.deepEqual(parsed.ranking, ["beta", "alpha", "gamma"]);
+  assert.deepEqual(parsed.notes, { beta: "Clear and correct.", alpha: "Good example, misses a caveat." });
+  assert.equal(parseJudgeRanking("no ranking here", map), null);
 });
 
-test("parseRanking extracts ordered modelIds from a well-formed ballot", () => {
-  const raw = `RANKING:
-1. response-deadbeef — clearest reasoning and complete answer.
-2. response-feedface — partially correct but glosses over the calculation.
-3. response-abcdef01 — confidently wrong.`;
-  const parsed = parseRanking(raw, {
-    deadbeef: "alpha",
-    feedface: "beta",
-    abcdef01: "gamma"
-  });
-
-  assert.ok(parsed, "well-formed output parses");
-  assert.deepEqual(parsed.ranking, ["alpha", "beta", "gamma"]);
-  assert.equal(parsed.justifications.alpha, "clearest reasoning and complete answer.");
-  assert.equal(parsed.justifications.beta, "partially correct but glosses over the calculation.");
+test("judgeAnswerText keeps only what follows the ranking", () => {
+  assert.equal(judgeAnswerText("<ranking>\n1. response-aaaa — ok\n</ranking>\n\nThe answer."), "The answer.");
+  assert.equal(judgeAnswerText("Just an answer."), "Just an answer.");
 });
 
-test("parseRanking does not persist placeholder reason text", () => {
-  const raw = `RANKING:
-1. response-deadbeef — <reason>
-2. response-feedface — actually useful note.`;
-  const parsed = parseRanking(raw, {
-    deadbeef: "alpha",
-    feedface: "beta"
-  });
-
-  assert.ok(parsed);
-  assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
-  assert.equal(parsed.justifications.alpha, undefined);
-  assert.equal(parsed.justifications.beta, "actually useful note.");
+test("the judge stream splitter holds back the ranking and passes on the answer and reasoning", () => {
+  const rankings = [];
+  const out = [];
+  const splitter = createJudgeStreamSplitter({ onRanking: (text) => rankings.push(text), onEvent: (event) => out.push(event.choices[0].delta) });
+  const push = (delta) => splitter.push({ choices: [{ index: 0, delta }] });
+  push({ reasoning: "thinking" });
+  push({ content: "<rank" });
+  push({ content: "ing>\n1. response-aaaa — good\n</ran" });
+  push({ content: "king>\n\nFinal " });
+  push({ content: "answer." });
+  splitter.end();
+  assert.deepEqual(rankings, ["\n1. response-aaaa — good\n"]);
+  assert.equal(out.map((delta) => delta.content || "").join(""), "Final answer.");
+  assert.equal(out[0].reasoning, "thinking");
 });
 
-test("parseRanking returns null when the output has no RANKING: header", () => {
-  const raw = "I think response A is best. Response B is OK.";
-  assert.equal(parseRanking(raw, { aaaa: "alpha" }), null);
+test("the judge stream splitter streams an answer that skips the ranking", () => {
+  const rankings = [];
+  const out = [];
+  const splitter = createJudgeStreamSplitter({ onRanking: (text) => rankings.push(text), onEvent: (event) => out.push(event.choices[0].delta.content || "") });
+  splitter.push({ choices: [{ delta: { content: "Here is " } }] });
+  splitter.push({ choices: [{ delta: { content: "the answer." } }] });
+  splitter.end();
+  assert.deepEqual(rankings, [null]);
+  assert.equal(out.join(""), "Here is the answer.");
 });
 
-test("parseRanking tolerates 1) numbering and stray text", () => {
-  const raw = `Some preamble that should not break parsing.
-
-RANKING:
-1) response-aaaa - top response, very clear.
-2) response-bbbb - decent attempt.
-
-Trailing notes I want to ignore.`;
-  const parsed = parseRanking(raw, { aaaa: "alpha", bbbb: "beta" });
-  assert.ok(parsed);
-  assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
-});
-
-test("parseRanking skips unknown nonces and duplicates", () => {
-  const raw = `RANKING:
-1. response-aaaa — first place.
-2. response-aaaa — accidental duplicate.
-3. response-cccc — unknown nonce, ignored.
-4. response-bbbb — runner up.`;
-  const parsed = parseRanking(raw, { aaaa: "alpha", bbbb: "beta" });
-  assert.ok(parsed);
-  assert.deepEqual(parsed.ranking, ["alpha", "beta"]);
-});
-
-test("runPeerReview gives real council models a 32k output budget and formats reasoning correctly", async () => {
+test("runCouncilJudge makes one Luna call, reports the ranking, and returns only the answer", async () => {
   const bodies = [];
-  const panelists = [
-    { modelId: OPENROUTER_TEXT_MODEL, responseText: "Answer DeepSeek." },
-    { modelId: OPENROUTER_COUNCIL_HY3_MODEL, responseText: "Answer Hy3." },
-    { modelId: OPENROUTER_VISION_MODEL, responseText: "Answer MiMo." },
-    { modelId: OPENROUTER_MIMO_V25_MODEL, responseText: "Answer MiMo v2.5." }
-  ];
-  const result = await runPeerReview({
-    panelists,
-    originalUserPrompt: "Which answer is best?",
-    provider: { apiKey: "key", baseUrl: "https://example.test" },
-    chatCompletionFn: async ({ body }) => {
+  let ranked;
+  const streamed = [];
+  const result = await runCouncilJudge({
+    originalUserPrompt: "Compare A and B.",
+    panelists: PANEL,
+    context: "Web sources here.",
+    systemPrompt: "User style.",
+    provider: { apiKey: "k", baseUrl: "https://or.test", id: "openrouter" },
+    signal: new AbortController().signal,
+    onRanking: (value) => { ranked = value; },
+    onEvent: (event) => streamed.push(event.choices[0].delta.content || ""),
+    streamChatCompletionFn: async ({ body }) => {
       bodies.push(body);
-      const nonce = [...body.messages[0].content.matchAll(/<response-([a-f0-9]{4,})>/g)].map((match) => match[1]);
-      return `RANKING:\n${nonce.map((tag, index) => `${index + 1}. response-${tag} — useful`).join("\n")}`;
+      const ranking = rankingFor(body.messages[1].content);
+      return streamOf([ranking.slice(0, 20), ranking.slice(20), "The combined ", "answer."]);
     }
   });
 
-  assert.equal(result.ballots.filter((ballot) => ballot.valid).length, 4);
-  assert.equal(bodies.length, 4);
-  assert.ok(bodies.every((body) => body.max_tokens === 32_000));
-
-  // DeepSeek and Hy3 support effort -> low
-  const deepseekBody = bodies.find((b) => b.model === OPENROUTER_TEXT_MODEL);
-  assert.deepEqual(deepseekBody.reasoning, { effort: "low", exclude: false });
-
-  const hy3Body = bodies.find((b) => b.model === OPENROUTER_COUNCIL_HY3_MODEL);
-  assert.deepEqual(hy3Body.reasoning, { effort: "low", exclude: false });
-
-  // MiMo models only support on/off reasoning -> must NOT carry effort
-  const mimoBody = bodies.find((b) => b.model === OPENROUTER_VISION_MODEL);
-  assert.deepEqual(mimoBody.reasoning, { enabled: true, exclude: false });
-  assert.equal("effort" in mimoBody.reasoning, false);
-
-  const mimoV25Body = bodies.find((b) => b.model === OPENROUTER_MIMO_V25_MODEL);
-  assert.deepEqual(mimoV25Body.reasoning, { enabled: true, exclude: false });
-  assert.equal("effort" in mimoV25Body.reasoning, false);
-
-  // When adapted for OpenRouter provider, verify none of the MiMo requests contain effort
-  for (const b of bodies) {
-    const adapted = adaptChatRequestForProvider(b, "openrouter");
-    if (b.model === OPENROUTER_VISION_MODEL || b.model === OPENROUTER_MIMO_V25_MODEL) {
-      assert.equal("effort" in adapted.reasoning, false);
-      assert.equal(adapted.reasoning.enabled, true);
-    }
-  }
-});
-
-test("aggregateBordaCount computes mean Borda points per model", () => {
-  // 3 models, 3 ballots
-  // Each ballot gives top rank (n-1)=2 points, mid 1, last 0
-  const ballots = [
-    { ranking: ["a", "b", "c"] },
-    { ranking: ["a", "c", "b"] },
-    { ranking: ["b", "a", "c"] }
-  ];
-  const borda = aggregateBordaCount(ballots, ["a", "b", "c"]);
-
-  const a = borda.find((row) => row.modelId === "a");
-  const b = borda.find((row) => row.modelId === "b");
-  const c = borda.find((row) => row.modelId === "c");
-
-  // a: 2 + 2 + 1 = 5, mean 5/3 ≈ 1.67
-  // b: 1 + 0 + 2 = 3, mean 1.0
-  // c: 0 + 1 + 0 = 1, mean 1/3 ≈ 0.33
-  assert.equal(borda[0].modelId, "a");
-  assert.equal(borda[1].modelId, "b");
-  assert.equal(borda[2].modelId, "c");
-  assert.ok(Math.abs(a.bordaScore - 5 / 3) < 1e-6);
-  assert.equal(b.bordaScore, 1);
-  assert.ok(Math.abs(c.bordaScore - 1 / 3) < 1e-6);
-  assert.equal(a.rank, 1);
-  assert.equal(b.rank, 2);
-  assert.equal(c.rank, 3);
-});
-
-test("aggregateBordaCount ignores invalid/empty ballots gracefully", () => {
-  const borda = aggregateBordaCount([
-    { ranking: ["a", "b"] },
-    { ranking: [] },
-    null,
-    { ranking: ["b", "a"] }
-  ], ["a", "b"]);
-
-  // Two valid ballots; each ranks both models, so ballotCount is 2 for each.
-  // a: 1 (rank 0) + 0 (rank 1) = 1 → mean 0.5
-  // b: 0 (rank 1) + 1 (rank 0) = 1 → mean 0.5
-  const a = borda.find((row) => row.modelId === "a");
-  const b = borda.find((row) => row.modelId === "b");
-  assert.equal(a.ballotCount, 2);
-  assert.equal(b.ballotCount, 2);
-  assert.equal(a.bordaScore, 0.5);
-  assert.equal(b.bordaScore, 0.5);
-});
-
-test("aggregateBordaCount handles a model that received zero ballots", () => {
-  const borda = aggregateBordaCount([{ ranking: ["a", "b"] }], ["a", "b", "c"]);
-  const c = borda.find((row) => row.modelId === "c");
-  assert.equal(c.ballotCount, 0);
-  assert.equal(c.bordaScore, 0);
-});
-
-test("selectChairman prefers an explicit override that is on the panel", () => {
-  const panelists = [{ modelId: "alpha" }, { modelId: "beta" }];
-  const chairman = selectChairman({
-    override: "beta",
-    borda: [],
-    panelists
-  });
-  assert.equal(chairman, "beta");
-});
-
-test("selectChairman falls back to the Borda winner when no override is given", () => {
-  const panelists = [{ modelId: "alpha" }, { modelId: "beta" }];
-  const chairman = selectChairman({
-    borda: [
-      { modelId: "beta", bordaScore: 1.5, ballotCount: 1 },
-      { modelId: "alpha", bordaScore: 0.5, ballotCount: 1 }
-    ],
-    panelists
-  });
-  assert.equal(chairman, "beta");
-});
-
-test("selectChairman falls back to the user's preferred model when Borda is empty", () => {
-  const panelists = [{ modelId: "alpha" }, { modelId: "beta" }];
-  const chairman = selectChairman({
-    borda: [
-      { modelId: "alpha", bordaScore: 0, ballotCount: 0 },
-      { modelId: "beta", bordaScore: 0, ballotCount: 0 }
-    ],
-    defaultModel: "alpha",
-    panelists
-  });
-  assert.equal(chairman, "alpha");
-});
-
-test("selectChairman returns the first panelist when nothing else applies", () => {
-  const panelists = [{ modelId: "alpha" }, { modelId: "beta" }];
-  const chairman = selectChairman({ borda: [], panelists });
-  assert.equal(chairman, "alpha");
-});
-
-test("buildChairmanPrompt embeds the original question, ranked responses, and synthesis rules", () => {
-  const prompt = buildChairmanPrompt({
-    originalUserPrompt: "Capital of France?",
-    panelists: [
-      { modelId: "alpha", responseText: "Paris." },
-      { modelId: "beta", responseText: "Lyon." }
-    ],
-    borda: [
-      { modelId: "alpha", bordaScore: 1, ballotCount: 1, rank: 1 },
-      { modelId: "beta", bordaScore: 0, ballotCount: 1, rank: 2 }
-    ]
-  });
-
-  assert.match(prompt, /Capital of France\?/);
-  assert.match(prompt, /\[RANK 1.*\]\s*\nParis\./);
-  assert.match(prompt, /\[RANK 2.*\]\s*\nLyon\./);
-  assert.match(prompt, /Chairman of an AI council/);
-  assert.match(prompt, /Be authoritative/);
-  // The chairman should be reminded NOT to write meta-commentary
-  assert.match(prompt, /Do not say "Response A said/);
-});
-
-test("buildChairmanPrompt gracefully degrades when peer review failed (no borda)", () => {
-  const prompt = buildChairmanPrompt({
-    originalUserPrompt: "Hello?",
-    panelists: [
-      { modelId: "alpha", responseText: "Hi." },
-      { modelId: "beta", responseText: "Hey." }
-    ],
-    borda: []
-  });
-
-  assert.match(prompt, /could not produce reliable peer rankings/i);
-  assert.match(prompt, /\[RANK 1.*Hi\./s);
-  assert.match(prompt, /\[RANK 2.*Hey\./s);
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].model, "openai/gpt-6-luna");
+  assert.deepEqual(bodies[0].reasoning, { effort: "high", exclude: false });
+  assert.equal(bodies[0].messages[0].content, "User style.");
+  assert.match(bodies[0].messages[1].content, /^Web sources here\.\n\nYou are the judge/);
+  assert.equal(ranked.ranking.length, 4);
+  assert.deepEqual(Object.values(ranked.notes), ["clear and correct; a little long", "good example; misses a caveat", "partly wrong", "too vague"]);
+  assert.equal(streamed.join(""), "The combined answer.");
+  assert.equal(result.content, "The combined answer.");
 });
 
 test("filterCouncilHistory drops Stage 1 panelist messages when chairman succeeded", () => {

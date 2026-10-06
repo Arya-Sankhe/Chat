@@ -1,10 +1,9 @@
 import { HttpError } from "../http/responses.js";
 import {
-  buildChairmanPrompt,
+  COUNCIL_JUDGE_MODEL,
   generateNonce,
-  runChairmanSynthesis,
-  runPeerReview,
-  selectChairman
+  judgeAnswerText,
+  runCouncilJudge
 } from "../saas/council.js";
 import {
   reasoningDurationMetadata,
@@ -32,7 +31,6 @@ export async function handleCouncilConversationMessage({
   panelModels,
   originalPrompt,
   settings,
-  chairmanOverride,
   modelClient,
   provider,
   webSearch,
@@ -160,7 +158,7 @@ export async function handleCouncilConversationMessage({
     }
   }));
 
-  /* ── Stage 2 — anonymized peer review ── */
+  /* ── Stage 2 — the judge ranks the answers and writes the final one ── */
   const validPanelists = panelistResults
     .filter((entry) => !entry.error && entry.accumulated?.content?.trim())
     .map((entry) => ({
@@ -169,133 +167,45 @@ export async function handleCouncilConversationMessage({
       assistantMessageId: entry.message.id
     }));
 
-  let stage2 = { ballots: [], borda: [] };
-  let peerReviewStatus = "pending";
-  let peerReviewReason = "";
-  async function persistPeerReviewMetadata() {
-    const justificationsByModel = {};
-    for (const ballot of stage2.ballots) {
-      if (!ballot.valid) continue;
-      for (const [modelId, reason] of Object.entries(ballot.justifications || {})) {
-        if (!justificationsByModel[modelId]) justificationsByModel[modelId] = {};
-        justificationsByModel[modelId][ballot.reviewerModelId] = reason;
-      }
-    }
-
-    await Promise.all(validPanelists.map(async (panelist) => {
-      const bordaRow = stage2.borda.find((row) => row.modelId === panelist.modelId);
-      const hasBallot = Boolean(bordaRow && bordaRow.ballotCount > 0);
-      const webMeta = sharedWebsearchMetadata(sharedSearch);
-      const documentMeta = sharedDocumentMetadata(documentSearch);
-      const panelEntry = panelistResults.find((entry) => entry.message.id === panelist.assistantMessageId);
-      const durationMeta = panelEntry?.accumulated
-        ? reasoningDurationMetadata(panelEntry.message.metadata, panelEntry.accumulated)
-        : null;
-      const meta = {
-        ...(durationMeta || {}),
-        ...(webMeta ? { websearch: webMeta } : {}),
-        ...(documentMeta ? { documents: documentMeta } : {}),
-        council: {
-          sessionId,
-          role: "panelist",
-          stage: 1,
-          peerReviewStatus,
-          peerReviewReason,
-          bordaScore: hasBallot ? bordaRow.bordaScore : null,
-          ballotCount: bordaRow ? bordaRow.ballotCount : 0,
-          peerRank: hasBallot ? bordaRow.rank : null,
-          peerJustifications: justificationsByModel[panelist.modelId] || {}
-        }
-      };
-      await updateAssistantOutputMessage(context, panelist.assistantMessageId, {
-        metadata: meta
-      }, { signal: req.signal, turnRun }).catch(() => {});
-    }));
-  }
-
-  if (validPanelists.length >= 2) {
-    writeSse(res, {
-      type: "council:peer:start",
-      reviewers: validPanelists.map((p) => p.modelId)
-    });
-
-    try {
-      stage2 = await runPeerReview({
-        panelists: validPanelists,
-        originalUserPrompt: originalPrompt,
-        provider,
-        signal: controller.signal,
-        chatCompletionFn: modelClient.chatCompletion,
-        onBallot: (ballot) => {
-          writeSse(res, {
-            type: "council:peer:ballot",
-            reviewerModel: ballot.reviewerModelId,
-            valid: ballot.valid,
-            ranking: ballot.ranking,
-            justifications: ballot.justifications,
-            error: ballot.error || null
-          });
-        }
-      });
-
-      if (stage2.ballots.some((ballot) => ballot.valid)) {
-        peerReviewStatus = "done";
-      } else {
-        peerReviewStatus = "skipped";
-        peerReviewReason = "Peer review could not produce reliable rankings.";
-        stage2 = { ...stage2, borda: [] };
-      }
-
-      if (peerReviewStatus === "skipped") {
-        writeSse(res, { type: "council:peer:skipped", reason: peerReviewReason });
-      } else {
-        writeSse(res, {
-          type: "council:peer:done",
-          borda: stage2.borda.map((row) => ({
-            modelId: row.modelId,
-            bordaScore: row.bordaScore,
-            ballotCount: row.ballotCount,
-            rank: row.rank
-          }))
-        });
-      }
-    } catch (error) {
-      peerReviewStatus = "error";
-      if (error?.name === "AbortError") {
-        peerReviewReason = "Stopped by user.";
-      } else {
-        peerReviewReason = error?.message || "Peer review failed.";
-      }
-      writeSse(res, { type: "council:peer:error", error: peerReviewReason });
-      stage2 = { ballots: [], borda: [] };
-    }
-
-    /* Persist peer review metadata onto each panelist message so the UI can
-       reload council results without re-running peer review. */
-    await persistPeerReviewMetadata();
-  } else if (validPanelists.length === 1) {
-    peerReviewStatus = "skipped";
-    peerReviewReason = "Only one valid panelist response.";
-    writeSse(res, { type: "council:peer:skipped", reason: peerReviewReason });
-    await persistPeerReviewMetadata();
-  } else {
-    writeSse(res, { type: "council:peer:skipped", reason: "No valid panelist responses." });
-  }
-
-  /* ── Stage 3 — chairman synthesis ── */
   if (!validPanelists.length) {
+    writeSse(res, { type: "council:peer:skipped", reason: "No valid panelist responses." });
     writeSse(res, { type: "council:chairman:skipped", reason: "No responses to synthesize." });
     await context.db.updateConversation(context.user.id, conversation.id, { updated_at: new Date().toISOString() }, { signal: req.signal });
     if (!turnRun?.id) res.end();
     return;
   }
 
-  const chairmanModel = selectChairman({
-    override: chairmanOverride,
-    borda: stage2.borda,
-    defaultModel: settings?.preferredModel || panelModels[0],
-    panelists: validPanelists
-  });
+  // Saved on each panelist so a reloaded chat shows the judge's rank and note.
+  async function saveRanking(ranked, status, reason = "") {
+    const webMeta = sharedWebsearchMetadata(sharedSearch);
+    const documentMeta = sharedDocumentMetadata(documentSearch);
+    await Promise.all(validPanelists.map(async (panelist) => {
+      const index = ranked ? ranked.ranking.indexOf(panelist.modelId) : -1;
+      const entry = panelistResults.find((result) => result.message.id === panelist.assistantMessageId);
+      const durationMeta = entry?.accumulated ? reasoningDurationMetadata(entry.message.metadata, entry.accumulated) : null;
+      const note = ranked?.notes?.[panelist.modelId];
+      await updateAssistantOutputMessage(context, panelist.assistantMessageId, {
+        metadata: {
+          ...(durationMeta || {}),
+          ...(webMeta ? { websearch: webMeta } : {}),
+          ...(documentMeta ? { documents: documentMeta } : {}),
+          council: {
+            sessionId,
+            role: "panelist",
+            stage: 1,
+            peerReviewStatus: status,
+            peerReviewReason: reason,
+            judgeModel: COUNCIL_JUDGE_MODEL,
+            peerRank: index >= 0 ? index + 1 : null,
+            ballotCount: index >= 0 ? 1 : 0,
+            peerJustifications: note ? { [COUNCIL_JUDGE_MODEL]: note } : {}
+          }
+        }
+      }, { signal: req.signal, turnRun }).catch(() => {});
+    }));
+  }
+
+  writeSse(res, { type: "council:peer:start", reviewers: [COUNCIL_JUDGE_MODEL] });
 
   const chairmanWebMeta = sharedWebsearchMetadata(sharedSearch);
   const chairmanDocumentMeta = sharedDocumentMetadata(documentSearch);
@@ -303,7 +213,7 @@ export async function handleCouncilConversationMessage({
     user_id: context.user.id,
     conversation_id: conversation.id,
     role: "assistant",
-    model: chairmanModel,
+    model: COUNCIL_JUDGE_MODEL,
     content: "",
     reasoning: "",
     tool_calls: [],
@@ -312,7 +222,7 @@ export async function handleCouncilConversationMessage({
         sessionId,
         role: "chairman",
         stage: 3,
-        chairmanModel,
+        chairmanModel: COUNCIL_JUDGE_MODEL,
         panel: panelModels
       },
       ...(chairmanWebMeta ? { websearch: chairmanWebMeta } : {}),
@@ -322,40 +232,58 @@ export async function handleCouncilConversationMessage({
 
   writeSse(res, {
     type: "council:chairman:start",
-    chairmanModel,
+    chairmanModel: COUNCIL_JUDGE_MODEL,
     assistantMessageId: chairmanMessage.id,
     sessionId
   });
 
+  let rankingSaved = null;
+  const rankingDone = (ranked) => {
+    if (ranked) {
+      writeSse(res, {
+        type: "council:peer:ballot",
+        reviewerModel: COUNCIL_JUDGE_MODEL,
+        valid: true,
+        ranking: ranked.ranking,
+        justifications: ranked.notes,
+        error: null
+      });
+      writeSse(res, {
+        type: "council:peer:done",
+        borda: ranked.ranking.map((modelId, index) => ({
+          modelId,
+          bordaScore: ranked.ranking.length - 1 - index,
+          ballotCount: 1,
+          rank: index + 1
+        }))
+      });
+      rankingSaved = saveRanking(ranked, "done");
+    } else {
+      const reason = "The judge's ranking couldn't be read.";
+      writeSse(res, { type: "council:peer:skipped", reason });
+      rankingSaved = saveRanking(null, "skipped", reason);
+    }
+  };
+
   try {
-    const chairmanPrompt = buildChairmanPrompt({
+    const accumulated = await runCouncilJudge({
       originalUserPrompt: originalPrompt,
       panelists: validPanelists,
-      borda: stage2.borda
-    });
-
-    const sharedContexts = [sharedSearch.contextMessage, documentSearch?.contextMessage].filter(Boolean).join("\n\n");
-    const chairmanPromptWithContext = sharedContexts
-      ? `${sharedContexts}\n\n${chairmanPrompt}`
-      : chairmanPrompt;
-    const chairmanSystemPrompt = withModelSystemPrompt(settings?.systemPrompt, chairmanModel);
-
-    const accumulated = await runChairmanSynthesis({
-      chairmanModel,
-      prompt: chairmanPromptWithContext,
-      systemPrompt: chairmanSystemPrompt,
+      context: [sharedSearch.contextMessage, documentSearch?.contextMessage].filter(Boolean).join("\n\n"),
+      systemPrompt: withModelSystemPrompt(settings?.systemPrompt, COUNCIL_JUDGE_MODEL),
       provider,
       signal: controller.signal,
-      reasoningEffort: settings?.reasoning_effort,
       maxTokens: settings?.max_tokens,
       streamChatCompletionFn: modelClient.streamChatCompletion,
+      onRanking: rankingDone,
       onEvent: (event) => {
         writeSse(res, { type: "council:chairman:delta", event: sanitizeProviderEvent(event, { includeReasoning }) });
       }
     });
+    await rankingSaved;
 
     if (!hasAssistantOutput(accumulated)) {
-      throw new HttpError(502, "Chairman returned an empty response.");
+      throw new HttpError(502, "The council judge returned an empty answer.");
     }
 
     const chairmanDurationMeta = reasoningDurationMetadata(chairmanMessage.metadata, accumulated);
@@ -368,14 +296,20 @@ export async function handleCouncilConversationMessage({
       ...(chairmanDurationMeta ? { metadata: chairmanDurationMeta } : {})
     }, { signal: req.signal, turnRun });
 
-    writeSse(res, { type: "council:chairman:done", chairmanModel });
+    writeSse(res, { type: "council:chairman:done", chairmanModel: COUNCIL_JUDGE_MODEL });
   } catch (error) {
     const aborted = error?.name === "AbortError";
-    const message = aborted ? "Stopped by user." : error?.message || "Chairman synthesis failed.";
+    const message = aborted ? "Stopped by user." : error?.message || "The council judge failed.";
     const partial = aborted ? error.partial : null;
+    if (!rankingSaved) {
+      writeSse(res, { type: "council:peer:error", error: message });
+      await saveRanking(null, "error", message);
+    } else {
+      await rankingSaved;
+    }
     await updateAssistantOutputMessage(context, chairmanMessage.id, {
       ...(aborted ? {
-        content: partial?.content || "",
+        content: judgeAnswerText(partial?.content),
         reasoning: partial?.reasoning || ""
       } : {}),
       error: message,

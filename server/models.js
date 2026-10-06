@@ -1,7 +1,7 @@
 import {
   assertAllowedChatModels,
   OPENROUTER_COUNCIL_HY3_MODEL,
-  OPENROUTER_LAGUNA_S,
+  OPENROUTER_SOLAR_PRO,
   OPENROUTER_MIMO_V25_MODEL,
   OPENROUTER_NITRO_MODEL,
   OPENROUTER_PRO_FALLBACK_MODEL,
@@ -36,7 +36,7 @@ export const MODEL_ROUTES = Object.freeze({
   compare: {
     label: "Compare",
     group: "multi",
-    models: [OPENROUTER_TEXT_MODEL, OPENROUTER_LAGUNA_S],
+    models: [OPENROUTER_TEXT_MODEL, OPENROUTER_SOLAR_PRO],
     mediaModels: [OPENROUTER_VISION_MODEL, OPENROUTER_VISION_L2]
   },
   council: {
@@ -46,7 +46,7 @@ export const MODEL_ROUTES = Object.freeze({
       { model: OPENROUTER_TEXT_MODEL, label: "DeepSeek" },
       { model: OPENROUTER_COUNCIL_HY3_MODEL, label: "Hy3" },
       { model: OPENROUTER_VISION_MODEL, label: "MiMo" },
-      { model: OPENROUTER_LAGUNA_S, label: "Laguna S" }
+      { model: OPENROUTER_SOLAR_PRO, label: "Solar Pro" }
     ],
     mediaModels: [
       OPENROUTER_VISION_MODEL,

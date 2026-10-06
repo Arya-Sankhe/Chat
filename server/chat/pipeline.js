@@ -1261,10 +1261,8 @@ async function executeConversationMessage(req, res, config, conversationId, {
         settings: {
           systemPrompt: [settings.systemPrompt, messageInstructions].filter(Boolean).join("\n\n"),
           reasoning_effort: settings.reasoning_effort,
-          max_tokens: settings.max_tokens,
-          preferredModel: body.model
+          max_tokens: settings.max_tokens
         },
-        chairmanOverride: typeof body.chairmanModel === "string" ? body.chairmanModel.trim() : "",
         modelClient,
         provider,
         webSearch: sharedSearch,
@@ -1608,9 +1606,6 @@ function persistedTurnRequest(body, conversation, config, { hasMedia = false } =
       ...(Object.keys(sourcePages).length ? { sourcePages } : {}),
       ...(models.length ? { models } : {}),
       ...(council ? { council: true } : {}),
-      ...(typeof body.chairmanModel === "string" && body.chairmanModel.trim()
-        ? { chairmanModel: body.chairmanModel.trim() }
-        : {}),
       ...(body.describeImages ? { describeImages: true } : {}),
       ...(body.voice === true && !models.length ? { voice: true } : {})
     }

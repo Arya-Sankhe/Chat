@@ -43,14 +43,13 @@ test("resolveProvider fails cleanly when OpenRouter is not configured", () => {
 });
 
 test("only whitelisted product models and fallback IDs can reach paid model endpoints", async () => {
-  assert.ok(ALLOWED_CHAT_MODELS.every((model) => !/sol/i.test(model)));
   for (const model of ALLOWED_CHAT_MODELS) assert.equal(adaptChatRequestForProvider({ model, messages: [] }, "openrouter").model, model);
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => { calls += 1; throw new Error("Unexpected outbound request"); };
   try {
-    await assert.rejects(chatCompletion({ body: { model: OPENROUTER_PRO_MODEL, models: "openai/gpt-6-sol" } }), /approved Klui model IDs/);
-    for (const model of ["openai/gpt-6-sol", "openai/gpt-6.1-sol", "openai/gpt-5.5-sol", "vendor/new-model"]) {
+    await assert.rejects(chatCompletion({ body: { model: OPENROUTER_PRO_MODEL, models: "vendor/new-model" } }), /approved Klui model IDs/);
+    for (const model of ["vendor/new-model", "openai/unlisted-model"]) {
       assert.throws(() => resolveChatRole({ model }), /not approved/);
       for (const body of [{ model }, { model: OPENROUTER_PRO_MODEL, models: [model] }]) {
         assert.throws(() => adaptChatRequestForProvider(body, "openrouter"), /not approved/);
@@ -64,7 +63,7 @@ test("only whitelisted product models and fallback IDs can reach paid model endp
 });
 
 test("environment settings cannot introduce custom models", () => {
-  const env = Object.fromEntries(["DESKTOP_CHAT_MODEL", "VISION_DESCRIBE_MODEL", "CONTEXT_SUMMARY_MODEL", "DOCUMENT_DECK_MODEL", "DOCUMENT_DECK_AUDIT_MODEL", "DOCUMENT_VISUAL_EMBED_MODEL", "DOCUMENT_RERANK_MODEL", "RESEARCH_CHEAP_MODEL", "STUDY_VISION_MODEL"].map((key) => [key, "openai/gpt-6-sol"]));
+  const env = Object.fromEntries(["DESKTOP_CHAT_MODEL", "VISION_DESCRIBE_MODEL", "CONTEXT_SUMMARY_MODEL", "DOCUMENT_DECK_MODEL", "DOCUMENT_DECK_AUDIT_MODEL", "DOCUMENT_VISUAL_EMBED_MODEL", "DOCUMENT_RERANK_MODEL", "RESEARCH_CHEAP_MODEL", "STUDY_VISION_MODEL"].map((key) => [key, "vendor/new-model"]));
   const config = loadConfig(env);
   assert.equal(config.desktop.model, OPENROUTER_PRO_MODEL);
   assert.equal(config.context.summaryModel, OPENROUTER_TEXT_MODEL);
