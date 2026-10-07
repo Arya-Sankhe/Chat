@@ -29,32 +29,31 @@ test("memory is clearly delimited as context, never instructions", () => {
   assert.match(prompt, /may be incomplete or outdated/);
 });
 
-test("memory keeps durable context, not social small talk", () => {
-  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /## Relevant Context/);
-  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Greetings, small talk, weather/);
-  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /One-off factual or how-to questions/);
-  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /full-rewrite merge/);
-  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /already been processed into memory/);
-  assert.doesNotMatch(MEMORY_PROFILE_INSTRUCTIONS, /relationships/i);
+test("memory saves who the user is, not what they asked for", () => {
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /## About, ## Projects, ## Preferences/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Save who the user is, not what they asked for/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Requests and tasks/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Instructions for one reply/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Say each fact once/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /Apply all these rules to <current_memory> too/);
+  assert.match(MEMORY_PROFILE_INSTRUCTIONS, /No dates/);
   assert.doesNotMatch(MEMORY_PROFILE_INSTRUCTIONS, /Conversation titles/);
 });
 
-test("extraction prompt requires dated bullets with today's date injected", () => {
-  const today = "2026-08-27";
-  const prompt = buildMemoryProfileInstructions(today);
-  assert.match(prompt, new RegExp(`Today's date is ${today}`));
-  assert.match(prompt, /prefixed with a date/);
-  assert.match(prompt, new RegExp(`- \\[${today}\\]`));
-  assert.match(prompt, /Existing dated facts keep their original date/);
+test("extraction prompt injects today's date and the input tags", () => {
+  const prompt = buildMemoryProfileInstructions("2026-08-27");
+  assert.match(prompt, /Today's date is 2026-08-27/);
   assert.match(prompt, /<new_user_messages_by_conversation>/);
-  assert.match(prompt, /extract new facts primarily from the new messages/);
-  assert.doesNotMatch(prompt, /Conversation titles in the input are auto-generated/);
+  assert.match(prompt, /return exactly NONE/);
 });
 
-test("memory profile validation rejects provider prose and malformed bullets", () => {
+test("memory profile validation accepts short undated bullets only", () => {
   assert.equal(isValidMemoryProfile("I cannot update memory."), false);
-  assert.equal(isValidMemoryProfile("## Relevant Context\n- User likes Dubai."), false);
-  assert.equal(isValidMemoryProfile("## Relevant Context\n- [2026-08-27] User likes Dubai."), true);
+  assert.equal(isValidMemoryProfile("- Lives near Sharjah, UAE."), false, "bullet needs a heading");
+  assert.equal(isValidMemoryProfile("## Relevant Context\n- Lives near Sharjah, UAE."), false);
+  assert.equal(isValidMemoryProfile("## About\n- [2026-08-27] User lives near Sharjah."), false);
+  assert.equal(isValidMemoryProfile(`## About\n${"- Fact.\n".repeat(16)}`), false, "too many bullets");
+  assert.equal(isValidMemoryProfile("## About\n- Lives near Sharjah, UAE.\n\n## Preferences\n- Wants short answers."), true);
 });
 
 test("new user messages are grouped by conversation with opaque ordinal labels", () => {
@@ -191,7 +190,7 @@ test("invalid extraction still advances last_dreamed_at without clearing content
     async getUserMemory() {
       return {
         enabled: true,
-        content: "## Preferences & Goals\n- [2026-08-01] User prefers short answers.",
+        content: "## Preferences\n- Wants short answers.",
         version: 3,
         last_dreamed_at: "2026-08-19T00:00:00.000Z",
         enabled_at: "2026-08-01T00:00:00.000Z"
@@ -230,7 +229,7 @@ test("non-empty extraction writes content and advances last_dreamed_at", async (
     conversation_id: "conv-1",
     created_at: `2026-08-21T1${index}:00:00.000Z`
   }));
-  const updated = "## Preferences & Goals\n- [2026-08-27] User prefers dark mode and short answers.";
+  const updated = "## Preferences\n- Prefers dark mode and short answers.";
   let capturedBody;
   const db = {
     async getUserMemory() {
@@ -261,7 +260,7 @@ test("non-empty extraction writes content and advances last_dreamed_at", async (
     }
   });
 
-  assert.equal(capturedBody.max_tokens, 1600);
+  assert.equal(capturedBody.max_tokens, 800);
   assert.equal(capturedBody.temperature, 0.1);
   assert.match(capturedBody.messages[1].content, /<new_user_messages_by_conversation>/);
   assert.match(capturedBody.messages[0].content, /Today's date is \d{4}-\d{2}-\d{2}/);
@@ -321,7 +320,7 @@ test("prior context merges into the prompt and cursor still uses newest new-wind
     async getUserMemory() {
       return {
         enabled: true,
-        content: "## Relevant Context\n- [2026-08-18] User asked about Dubai hotels.",
+        content: "## Projects\n- Planning a trip to Dubai.",
         version: 2,
         last_dreamed_at: cursor,
         enabled_at: "2026-08-01T00:00:00.000Z"
@@ -350,7 +349,7 @@ test("prior context merges into the prompt and cursor still uses newest new-wind
     config: { providers: { openrouter: { apiKey: "test-key", baseUrl: "https://example.test" } } },
     completeChat: async (args) => {
       capturedUserContent = args.body.messages[1].content;
-      return "## Relevant Context\n- [2026-08-21] User is planning a Dubai trip and asked about September timing.";
+      return "## Projects\n- Planning a trip to Dubai in September.";
     }
   });
 
@@ -401,7 +400,7 @@ test("refresh still works when listConversationUserMessagesBefore is absent", as
     config: { providers: { openrouter: { apiKey: "test-key", baseUrl: "https://example.test" } } },
     completeChat: async (args) => {
       capturedUserContent = args.body.messages[1].content;
-      return "## Preferences & Goals\n- [2026-08-27] User has durable preferences.";
+      return "## Preferences\n- Has durable preferences.";
     }
   });
 
@@ -419,7 +418,7 @@ test("refresh threshold ignores prior-context message count", async () => {
     async getUserMemory() {
       return {
         enabled: true,
-        content: "## Preferences & Goals\n- [2026-08-01] User prefers short answers.",
+        content: "## Preferences\n- Wants short answers.",
         version: 1,
         last_dreamed_at: after,
         enabled_at: "2026-08-01T00:00:00.000Z"
@@ -459,4 +458,46 @@ test("refresh threshold ignores prior-context message count", async () => {
   });
 
   assert.equal(completeCalls, 0);
+});
+
+function refreshDb(row, messages, patches) {
+  return {
+    async getUserMemory() { return row; },
+    async listUserMemoryMessages() { return messages; },
+    async updateUserMemory(userId, version, patch) {
+      patches.push(patch);
+      return { ...patch, version: version + 1 };
+    }
+  };
+}
+
+const refreshConfig = { providers: { openrouter: { apiKey: "test-key", baseUrl: "https://example.test" } } };
+const recentRow = (content) => ({
+  enabled: true,
+  content,
+  version: 1,
+  last_dreamed_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  enabled_at: "2026-08-01T00:00:00.000Z"
+});
+const oneMessage = (content) => [{ id: "m1", content, conversation_id: "c1", created_at: new Date().toISOString() }];
+
+test("an old dated profile is cleaned up on the next message", async () => {
+  const patches = [];
+  const db = refreshDb(recentRow("## Working Style\n- [2026-09-25] User wants concise responses."), oneMessage("hi"), patches);
+  await maybeRefreshUserMemory({ db, userId: "legacy", config: refreshConfig, completeChat: async () => "## Preferences\n- Wants concise answers." });
+  assert.equal(patches[0].content, "## Preferences\n- Wants concise answers.");
+});
+
+test("an explicit remember request refreshes right away", async () => {
+  const patches = [];
+  const db = refreshDb(recentRow("## About\n- Student."), oneMessage("Remember that I'm vegetarian."), patches);
+  await maybeRefreshUserMemory({ db, userId: "explicit", config: refreshConfig, completeChat: async () => "## About\n- Student.\n\n## Preferences\n- Vegetarian." });
+  assert.match(patches[0].content, /Vegetarian/);
+});
+
+test("NONE clears a profile that has nothing worth keeping", async () => {
+  const patches = [];
+  const db = refreshDb(recentRow("## Relevant Context\n- [2026-09-23] User wants a mind map."), oneMessage("thanks"), patches);
+  await maybeRefreshUserMemory({ db, userId: "none", config: refreshConfig, completeChat: async () => "NONE" });
+  assert.equal(patches[0].content, "");
 });
