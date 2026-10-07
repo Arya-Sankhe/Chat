@@ -8102,6 +8102,16 @@ function queueStreamRenderForEvent(message, event) {
   queueRenderMessages();
 }
 
+// Compare and council lanes stream side by side. Repaint only the lane that changed,
+// never the whole chat, or every hidden reasoning chunk makes all lanes flicker.
+function queueLaneStreamRender(message, event) {
+  const choice = event.event?.choices?.[0];
+  // Reasoning hidden from this user arrives as empty chunks: nothing on screen changes.
+  if (choice && !isStreamDeltaEvent(event) && !choice.finish_reason && !choice.delta?.tool_calls) return;
+  if (patchKluiThinkingInPlace(message)) return;
+  queueStreamingMessageRender(message);
+}
+
 /* ─── API data loading ─── */
 
 async function loadMe() {
@@ -8543,12 +8553,12 @@ async function resumePendingDocumentTurn(run) {
         if (council) {
           const target = applyCouncilStreamEvent(localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
-          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
           else queueRenderMessages();
         } else if (compareModels.length) {
           const target = applyCompareStreamEvent(localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
-          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
           else queueRenderMessages();
         } else {
           applyStreamEvent(localAssistant, event);
@@ -9704,7 +9714,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
           trackPendingTurnEvent(event, activeRun);
           const target = applyCouncilStreamEvent(localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
-          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
           else queueRenderMessages();
         }
       });
@@ -9717,7 +9727,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
           trackPendingTurnEvent(event, activeRun);
           const target = applyCompareStreamEvent(localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
-          if (target && isStreamDeltaEvent(event)) queueStreamingMessageRender(target);
+          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
           else queueRenderMessages();
         }
       });
