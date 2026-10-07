@@ -317,10 +317,10 @@ test("compare and council finish by patching live cards instead of requiring a r
   const compareJs = readPublic("js/compare.js");
   const councilJs = readPublic("js/council.js");
   const appJs = readPublic("js/app.js");
-  assert.match(compareJs, /function patchCompareMessage\(article, messages\)/);
+  assert.match(compareJs, /function patchCompareMessage\(article, messages, \{ streaming = false \} = \{\}\)/);
   assert.match(compareJs, /if \(!article\?\.classList\.contains\("compare-message"\)\) return false/);
   assert.match(compareJs, /lanes\.length !== messages\.length/);
-  assert.match(councilJs, /function patchCouncilMessage\(article, council\)/);
+  assert.match(councilJs, /function patchCouncilMessage\(article, council, \{ streaming = false \} = \{\}\)/);
   assert.match(councilJs, /if \(!article\?\.classList\.contains\("council-message"\) \|\| !council\) return false/);
   assert.match(councilJs, /lanes\.length !== panelists\.length/);
   assert.match(councilJs, /synthesis\.outerHTML = renderCouncilSynthesis\(council\.chairman, panelists\)/);

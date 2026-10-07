@@ -224,7 +224,7 @@ export function createCompareController({
     head.insertAdjacentHTML("beforeend", `<button class="msg-copy-btn compare-copy-btn" type="button" data-copy-msg aria-label="Copy response" title="Copy response"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button>`);
   }
 
-  function patchCompareMessage(article, messages) {
+  function patchCompareMessage(article, messages, { streaming = false } = {}) {
     if (!article?.classList.contains("compare-message")) return false;
     const lanes = [...article.querySelectorAll(".compare-grid > .compare-response")];
     if (!messages?.length || lanes.length !== messages.length) return false;
@@ -234,9 +234,9 @@ export function createCompareController({
       const lane = lanes[i];
       const rawText = rawTextContent(msg.content);
       if (msg.id) lane.dataset.messageId = String(msg.id);
-      lane.dataset.rawText = rawText;
+      if (!streaming) lane.dataset.rawText = rawText;
       ensureCompareCopyButton(lane.querySelector(".compare-response-head"), rawText);
-      lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+      if (!streaming) lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
       lane.querySelector(":scope > .compare-response-sources")?.remove();
       lane.insertAdjacentHTML("beforeend", laneSources(msg, citations));
     }

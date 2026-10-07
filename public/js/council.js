@@ -11,6 +11,7 @@ export function createCouncilController({
   compareModelAlias,
   renderCompareControls,
   renderResearchMode,
+  updateKluiBar,
   renderKluiThinkingStatus = null
 }) {
   let councilDetailsOpenIds = new Set();
@@ -203,15 +204,25 @@ export function createCouncilController({
     return true;
   }
 
-  function patchCouncilMessage(article, council) {
+  function patchCouncilMessage(article, council, { streaming = false } = {}) {
     if (!article?.classList.contains("council-message") || !council) return false;
     const panelists = council.panelists || [];
     const lanes = [...article.querySelectorAll(".council-panel-grid > .council-panelist")];
     if (lanes.length !== panelists.length) return false;
+    const ranked = panelists.some((p) => p.metadata?.council?.peerRank != null && Number(p.metadata?.council?.ballotCount || 0) > 0);
 
     const progress = article.querySelector(":scope .council-progress");
     if (!progress) return false;
-    progress.outerHTML = renderCouncilProgress(council);
+    const bar = progress.querySelector(".klui-bar");
+    const errored = [council.stage1Status, council.stage2Status, council.stage3Status].includes("error");
+    if (streaming && bar && !errored && council.stage3Status !== "done") {
+      const next = councilProgressState(council);
+      updateKluiBar(bar, { label: next.label, active: true });
+      progress.querySelector(".council-progress-steps").innerHTML = `${renderCouncilStages(council)}<small>${escapeHtml(next.sub)}</small>`;
+      progress.querySelector(".council-progress-track > span").style.width = `${next.percent}%`;
+    } else {
+      progress.outerHTML = renderCouncilProgress(council);
+    }
 
     const stages = article.querySelector(".council-details-body > .council-stages");
     if (stages) stages.outerHTML = renderCouncilStages(council);
@@ -220,6 +231,10 @@ export function createCouncilController({
     const details = article.querySelector("details.council-details");
     const councilId = String(council.sessionId || council.id || "");
     if (details && councilId) details.dataset.councilId = councilId;
+    if (streaming && details) {
+      const summary = details.querySelector("summary small");
+      if (summary) summary.textContent = `${panelists.length} ${ranked ? "answers, ranked" : "individual answers"}`;
+    }
 
     const sub = article.querySelector(".council-header-sub");
     if (sub) sub.textContent = councilHeaderSub(panelists, council);
@@ -234,9 +249,9 @@ export function createCouncilController({
     if (council.chairman) {
       const rawText = rawTextContent(council.chairman.content);
       if (council.chairman.id) synthesis.dataset.messageId = String(council.chairman.id);
-      synthesis.dataset.rawText = rawText;
+      if (!streaming) synthesis.dataset.rawText = rawText;
       ensureCouncilCopyButton(synthesis.querySelector(".council-synthesis-head"), rawText, "Copy synthesis");
-      synthesis.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+      if (!streaming) synthesis.querySelectorAll(".thinking-status").forEach((node) => node.remove());
     }
 
     for (let i = 0; i < panelists.length; i += 1) {
@@ -244,9 +259,19 @@ export function createCouncilController({
       const lane = lanes[i];
       const rawText = rawTextContent(msg.content);
       if (msg.id) lane.dataset.messageId = String(msg.id);
-      lane.dataset.rawText = rawText;
+      if (!streaming) lane.dataset.rawText = rawText;
       ensureCouncilCopyButton(lane.querySelector(".council-panelist-head"), rawText, "Copy response");
-      lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+      if (!streaming) lane.querySelectorAll(".thinking-status").forEach((node) => node.remove());
+      if (streaming) {
+        // Ranking changes only the lane chrome; its live content stays mounted.
+        const next = document.createElement("div");
+        next.innerHTML = renderCouncilPanelist(msg, i, ranked ? panelists.length : 0, council.stage2Status === "active", panelists);
+        lane.classList.toggle("rank-1", next.firstElementChild.classList.contains("rank-1"));
+        lane.querySelector(".council-panelist-head").innerHTML = next.querySelector(".council-panelist-head").innerHTML;
+        lane.querySelector(".council-justifications")?.remove();
+        const notes = next.querySelector(".council-justifications");
+        if (notes) lane.append(notes);
+      }
     }
     return true;
   }

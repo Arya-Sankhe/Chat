@@ -6470,7 +6470,8 @@ function renderStreamingMessageSurface(message) {
     if (stripOpenEmailFence(rawText) === stripOpenEmailFence(previousRawText) && addedCharacters > 0) {
       return;
     }
-    const statusEl = contentEl.querySelector(".thinking-status");
+    const reasoningEl = contentEl.querySelector("details.reasoning");
+    const statusEl = message.error || isStoppedMessage(message) ? null : contentEl.querySelector(".thinking-status");
     const hasContent = rawText.trim().length > 0;
     const provisional = isProvisionalToolProse(message);
 
@@ -6528,7 +6529,16 @@ function renderStreamingMessageSurface(message) {
       const keptFrame = appendOnly && adoptLiveVisualizeFrame(contentEl, tmp);
       if (!adoptLiveVisualizeBuilding(contentEl, tmp)) {
         if (!keptFrame) collapseExpandedVisualize();
-        contentEl.replaceChildren(...tmp.childNodes);
+        if (reasoningEl && tmp.querySelector("details.reasoning")) {
+          patchReasoningInPlace(reasoningEl, message);
+          tmp.querySelector("details.reasoning").remove();
+          for (const node of [...contentEl.childNodes]) {
+            if (node !== reasoningEl) node.remove();
+          }
+          contentEl.append(...tmp.childNodes);
+        } else {
+          contentEl.replaceChildren(...tmp.childNodes);
+        }
         hydrateKluiBars(contentEl);
       }
     }
@@ -8069,13 +8079,32 @@ function isStreamDeltaEvent(event) {
   );
 }
 
+function patchReasoningInPlace(reasoning, message) {
+  const streaming = isAssistantMessageStreaming(message);
+  const stillThinking = streaming && !isFinalFinishReason(message?.finishReason) && !message?.reasoningEndedAt;
+  reasoning.classList.toggle("is-streaming", stillThinking);
+  reasoning.classList.toggle("is-done", !stillThinking && Boolean(message?.reasoning?.trim() || message?.reasoningEndedAt));
+  const summary = reasoning.querySelector("summary");
+  const label = reasoningSummaryLabel(message, { streaming });
+  if (summary.textContent !== label) summary.textContent = label;
+  const body = reasoning.querySelector("div");
+  const html = message?.reasoning?.trim() ? renderContent(message.reasoning) : "";
+  if (body.innerHTML !== html) body.innerHTML = html;
+}
+
 function patchKluiThinkingInPlace(message) {
   const id = message?.id ? String(message.id) : "";
-  if (!id || isVisualizeRepairing(message)) return false;
+  if (!id || message.error || isStoppedMessage(message) || isVisualizeRepairing(message)) return false;
   if (rawTextContent(message?.content).trim() && !isProvisionalToolProse(message)) return false;
   const surface = els.messages.querySelector(`[data-message-id="${cssString(id)}"]`);
   const contentEl = surface?.querySelector(".message-content");
   if (!contentEl) return false;
+  if (isAdminUser() && state.settings.showModelReasoning) {
+    const reasoning = contentEl.querySelector("details.reasoning");
+    if (!reasoning) return false;
+    patchReasoningInPlace(reasoning, message);
+    return true;
+  }
   const label = currentThinkingStatus(message, { streaming: true });
   if (!label) return false;
   const active = !isFinalFinishReason(message?.finishReason);
@@ -8110,6 +8139,40 @@ function queueLaneStreamRender(message, event) {
   if (choice && !isStreamDeltaEvent(event) && !choice.finish_reason && !choice.delta?.tool_calls) return;
   if (patchKluiThinkingInPlace(message)) return;
   queueStreamingMessageRender(message);
+}
+
+// Lifecycle/stage events must not rebuild the sibling lanes or restart their bars.
+function applyLaneStreamEvent(group, event, council, runKey) {
+  const previous = council
+    ? (event.type?.startsWith("council:chairman:") ? group.chairman : group.panelists?.[Number(event.index)])
+    : group.compareResponses?.[Number(event.index)];
+  const previousId = previous?.id;
+  const target = council ? applyCouncilStreamEvent(group, event) : applyCompareStreamEvent(group, event);
+  if (!isRunKeyActive(runKey)) return;
+  const anchorId = previousId || (council ? group.panelists?.[0]?.id : group.compareResponses?.[0]?.id);
+  const surface = els.messages.querySelector(`[data-message-id="${cssString(anchorId)}"]`);
+  const article = surface?.closest("article.message");
+  if (previousId && target && surface) {
+    surface.dataset.messageId = String(target.id);
+    const reasoning = surface.querySelector("details.reasoning");
+    if (reasoning) reasoning.dataset.messageId = String(target.id);
+  }
+  if (target && /(^|:)delta$/.test(event.type)) {
+    queueLaneStreamRender(target, event);
+    return;
+  }
+  let patched = false;
+  preserveMessageScroll(() => {
+    patched = council
+      ? councilController.patchCouncilMessage(article, group, { streaming: true })
+      : compareController.patchCompareMessage(article, group.compareResponses, { streaming: true });
+  });
+  if (!patched) {
+    queueRenderMessages();
+    return;
+  }
+  hydrateKluiBars(article);
+  if (target) queueStreamingMessageRender(target);
 }
 
 /* ─── API data loading ─── */
@@ -8551,15 +8614,9 @@ async function resumePendingDocumentTurn(run) {
       onEvent: (event) => {
         trackPendingTurnEvent(event, activeRun);
         if (council) {
-          const target = applyCouncilStreamEvent(localAssistant, event);
-          if (!isRunKeyActive(runKey)) return;
-          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
-          else queueRenderMessages();
+          applyLaneStreamEvent(localAssistant, event, true, runKey);
         } else if (compareModels.length) {
-          const target = applyCompareStreamEvent(localAssistant, event);
-          if (!isRunKeyActive(runKey)) return;
-          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
-          else queueRenderMessages();
+          applyLaneStreamEvent(localAssistant, event, false, runKey);
         } else {
           applyStreamEvent(localAssistant, event);
           if (!isRunKeyActive(runKey)) return;
@@ -9712,10 +9769,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         signal: abortController.signal,
         onEvent: (event) => {
           trackPendingTurnEvent(event, activeRun);
-          const target = applyCouncilStreamEvent(localAssistant, event);
-          if (!isRunKeyActive(runKey)) return;
-          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
-          else queueRenderMessages();
+          applyLaneStreamEvent(localAssistant, event, true, runKey);
         }
       });
     } else if (compareModels.length) {
@@ -9725,10 +9779,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
         signal: abortController.signal,
         onEvent: (event) => {
           trackPendingTurnEvent(event, activeRun);
-          const target = applyCompareStreamEvent(localAssistant, event);
-          if (!isRunKeyActive(runKey)) return;
-          if (target && /(^|:)delta$/.test(event.type)) queueLaneStreamRender(target, event);
-          else queueRenderMessages();
+          applyLaneStreamEvent(localAssistant, event, false, runKey);
         }
       });
     } else {
