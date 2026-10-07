@@ -94,6 +94,18 @@ test("parseJudgeRanking reads ranks and notes, skipping unknown and repeated tag
 test("judgeAnswerText keeps only what follows the ranking", () => {
   assert.equal(judgeAnswerText("<ranking>\n1. response-aaaa — ok\n</ranking>\n\nThe answer."), "The answer.");
   assert.equal(judgeAnswerText("Just an answer."), "Just an answer.");
+  assert.equal(judgeAnswerText("<ranking>\n1. response-aaaa — cut off"), "");
+  assert.equal(judgeAnswerText("<rank"), "");
+});
+
+test("the judge stream splitter streams a short answer that skips the ranking", () => {
+  const rankings = [];
+  const out = [];
+  const splitter = createJudgeStreamSplitter({ onRanking: (text) => rankings.push(text), onEvent: (event) => out.push(event.choices[0].delta.content || "") });
+  splitter.push({ choices: [{ delta: { content: "42." } }] });
+  splitter.end();
+  assert.deepEqual(rankings, [null]);
+  assert.equal(out.join(""), "42.");
 });
 
 test("the judge stream splitter holds back the ranking and passes on the answer and reasoning", () => {

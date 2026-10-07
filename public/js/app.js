@@ -7114,17 +7114,18 @@ function closeAuthDialog() {
 }
 
 // Once per account, on desktop web, right after the account loads: a thank-you for joining the beta.
-let betaWelcomeTried = false;
+let betaWelcomeTriedFor = "";
 let stopBetaWelcome = null;
 
 function maybeShowBetaWelcome() {
-  if (betaWelcomeTried || !els.betaWelcome || !state.session || isNative()) return;
-  if (state.me?.user?.betaWelcomeSeen !== false) return;
+  const userId = state.me?.user?.id;
+  if (!userId || betaWelcomeTriedFor === userId || !els.betaWelcome || !state.session || isNative()) return;
+  if (state.me.user.betaWelcomeSeen !== false) return;
   if (!matchMedia("(min-width: 721px)").matches || !els.overlay.hidden) return;
-  betaWelcomeTried = true;
-  markBetaWelcomeSeen(state.config, state.session).catch(() => {});
+  betaWelcomeTriedFor = userId;
   import("./betaWelcome.js").then(({ mountBetaWelcome }) => {
-    if (!els.overlay.hidden) return;
+    if (!els.overlay.hidden || state.me?.user?.id !== userId) return;
+    markBetaWelcomeSeen(state.config, state.session).catch(() => {});
     stopBetaWelcome = mountBetaWelcome(els.betaWelcome.querySelector("canvas"));
     els.betaWelcome.classList.add("open");
     els.betaWelcome.setAttribute("aria-hidden", "false");

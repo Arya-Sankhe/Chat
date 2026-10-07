@@ -95,12 +95,19 @@ export function parseJudgeRanking(text, tagToModelId = {}) {
 
 const RANKING_OPEN = "<ranking>";
 const RANKING_CLOSE = "</ranking>";
+// The text is a ranking block, or the start of one that got cut off.
+const startsRanking = (text) => {
+  const start = text.trimStart();
+  return start.startsWith(RANKING_OPEN) || (start.length > 0 && RANKING_OPEN.startsWith(start));
+};
 
 /** The final answer: whatever the judge wrote after its ranking block. */
 export function judgeAnswerText(content) {
   const text = String(content || "");
   const end = text.indexOf(RANKING_CLOSE);
-  return end < 0 ? text : text.slice(end + RANKING_CLOSE.length).replace(/^\s+/, "");
+  if (end >= 0) return text.slice(end + RANKING_CLOSE.length).replace(/^\s+/, "");
+  // Cut off inside the ranking: there is no answer yet.
+  return startsRanking(text) ? "" : text;
 }
 
 function withContent(event, content) {
@@ -139,9 +146,12 @@ export function createJudgeStreamSplitter({ onRanking, onEvent }) {
       if (start.length >= RANKING_OPEN.length && !start.startsWith(RANKING_OPEN)) return finishRanking(null, head, event);
       onEvent(withContent(event, ""));
     },
-    // An unfinished ranking block at the end of the stream: read what there is.
+    // An unfinished ranking block at the end of the stream: read what there is. A short answer
+    // with no ranking never reached the length check above, so it is flushed as the answer.
     end() {
-      if (!split && head) finishRanking(head.replace(RANKING_OPEN, ""), "", null);
+      if (split || !head) return;
+      if (startsRanking(head)) finishRanking(head.replace(RANKING_OPEN, ""), "", null);
+      else finishRanking(null, head, null);
     }
   };
 }

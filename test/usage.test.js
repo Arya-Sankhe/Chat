@@ -75,3 +75,45 @@ test("provider streaming finishes after the browser response disconnects", async
   assert.equal(result.content, "Still working");
   assert.equal(result.finishReason, "stop");
 });
+
+test("pipeProviderStreamAndAccumulate forwards whole frames so extra events never split one", async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"reasoning":"Thinking."}}]}\n\ndata: {"choices":[{"del',
+    'ta":{"content":"Hi"}}]}\n\n'
+  ];
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+        controller.close();
+      }
+    })
+  };
+  let written = "";
+  const res = { destroyed: false, writableEnded: false, write(text) { written += String(text); } };
+  const onEvent = () => res.write('data: {"type":"status:thought"}\n\n');
+
+  const result = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning: true, onEvent });
+
+  assert.equal(result.content, "Hi");
+  for (const frame of written.split("\n\n").filter(Boolean)) JSON.parse(frame.slice("data: ".length));
+});
+
+test("pipeProviderStreamAndAccumulate handles CRLF split across chunks", async () => {
+  const chunks = ['data: {"choices":[{"delta":{"content":"Hi"}}]}\r\n\r', '\ndata: [DONE]\r\n\r\n'];
+  const upstream = {
+    body: new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+        controller.close();
+      }
+    })
+  };
+  let written = "";
+  const res = { destroyed: false, writableEnded: false, write(text) { written += String(text); } };
+
+  const result = await pipeProviderStreamAndAccumulate(upstream, res, { includeReasoning: true });
+
+  assert.equal(result.content, "Hi");
+  assert.match(written, /"content":"Hi"[\s\S]*\[DONE\]/);
+});

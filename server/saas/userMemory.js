@@ -14,7 +14,8 @@ const MEMORY_HEADINGS = new Set(["## About", "## Projects", "## Preferences"]);
 const EMPTY_PROFILE = "NONE";
 // Profiles saved before the rewrite were dated logs; any new message is enough to clean them up.
 const LEGACY_PROFILE = /^- \[\d{4}-\d{2}-\d{2}\]/m;
-const EXPLICIT_REQUEST = /\b(?:remember|forget)\s+(?:that|this|about|me|my|i|i'm|im)\b/i;
+// Any mention is enough: a false alarm costs one cheap refresh, and the prompt decides what to keep.
+const EXPLICIT_REQUEST = /\b(?:remember|forget)\b/i;
 const running = new Set();
 
 export function buildMemoryProfileInstructions(today = new Date().toISOString().slice(0, 10)) {

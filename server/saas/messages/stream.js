@@ -163,8 +163,10 @@ export async function pipeProviderStreamAndAccumulate(upstream, res, { includeRe
       const { done, value } = await reader.read();
       if (done) break;
 
-      if (includeReasoning && !res.destroyed && !res.writableEnded) res.write(Buffer.from(value));
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
+      // Forward whole frames only, so events written by onEvent never land inside a half frame.
+      const frameEnd = buffer.lastIndexOf("\n\n");
+      if (includeReasoning && frameEnd >= 0 && !res.destroyed && !res.writableEnded) res.write(buffer.slice(0, frameEnd + 2));
       buffer = parseSseEvents(buffer, (event) => {
         applyStreamEvent(assistant, event);
         if (!includeReasoning) writeProviderEvent(res, event, { includeReasoning });
@@ -198,7 +200,7 @@ export async function streamProviderAndAccumulate(upstream, onEvent) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
       buffer = parseSseEvents(buffer, (event) => {
         applyStreamEvent(assistant, event);
         onEvent(event);

@@ -490,9 +490,16 @@ test("an old dated profile is cleaned up on the next message", async () => {
 
 test("an explicit remember request refreshes right away", async () => {
   const patches = [];
-  const db = refreshDb(recentRow("## About\n- Student."), oneMessage("Remember that I'm vegetarian."), patches);
+  const db = refreshDb(recentRow("## About\n- Student."), oneMessage("Remember: I'm vegetarian."), patches);
   await maybeRefreshUserMemory({ db, userId: "explicit", config: refreshConfig, completeChat: async () => "## About\n- Student.\n\n## Preferences\n- Vegetarian." });
   assert.match(patches[0].content, /Vegetarian/);
+});
+
+test("a forget everything request refreshes right away", async () => {
+  const patches = [];
+  const db = refreshDb(recentRow("## About\n- Student."), oneMessage("Forget everything you know about me."), patches);
+  await maybeRefreshUserMemory({ db, userId: "forget", config: refreshConfig, completeChat: async () => "NONE" });
+  assert.equal(patches[0].content, "");
 });
 
 test("NONE clears a profile that has nothing worth keeping", async () => {
