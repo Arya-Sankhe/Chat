@@ -25,9 +25,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
     <link rel="icon" href="/favicon.ico" sizes="48x48">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260825-icon">
-    <link rel="stylesheet" href="styles.css?v=20261004-site9">
-    <script src="hero.js?v=20261004-site7" defer></script>
-    <script src="page.js?v=20261004-site7" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20261007-site10">
+    <script src="hero.js?v=20261007-site10" defer></script>
+    <script src="page.js?v=20261007-site10" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -109,6 +109,9 @@
     <main id="content">
       <section class="hero" aria-labelledby="hero-title">
         <canvas class="hero-canvas" aria-hidden="true"></canvas>
+        <button class="hero-bag" type="button" aria-haspopup="dialog" aria-controls="demo">
+          <span class="hero-bag-tag"><b aria-hidden="true">▶</b> Play demo</span>
+        </button>
         <div class="hero-copy">
           <h1 id="hero-title">Locked in so you can relax</h1>
           <a class="cta" href="https://klui.ai">Join Klui <span aria-hidden="true">→</span></a>
@@ -289,6 +292,20 @@
         </div>
       </section>
     </main>
+
+    <!-- The demo video, opened from the suitcase Klui carries through the hero. The player only
+         loads once the dialog opens, and unloads again on close so it stops playing. -->
+    <dialog class="demo-modal" id="demo" aria-label="Klui demo video">
+      <div class="demo-frame">
+        <div class="term-bar">
+          <i></i><i></i><i></i><span>klui · demo</span>
+          <button class="demo-close" type="button" aria-label="Close the demo">×</button>
+        </div>
+        <div class="demo-player">
+          <iframe title="Klui demo video" data-src="https://mega.nz/embed/jzQ1QbiA#LQt_vFhgOxTiltFceFMVLZTnAB4p8sRMexf6FOKf2aw!1a" allow="autoplay; fullscreen"></iframe>
+        </div>
+      </div>
+    </dialog>
 
     <footer class="site-footer">
       <a class="footer-mark" href="#top" aria-label="Back to top"><img src="assets/klui-wordmark.webp?v=20261004-vec" width="320" height="113" alt="Klui AI"></a>

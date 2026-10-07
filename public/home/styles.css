@@ -308,6 +308,122 @@ summary:focus-visible {
 .cta:hover,
 .plan-cta:hover { transform: translate(-2px, -2px); box-shadow: 7px 7px 0 var(--ink); }
 
+/* The suitcase Klui carries is a real button laid over the canvas; hero.js moves it each frame. */
+.hero-bag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hero.is-live .hero-bag.is-placed { opacity: 1; pointer-events: auto; transition: opacity 600ms ease 400ms; }
+.hero-bag:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+.hero-bag-tag {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 2px solid var(--ink);
+  background: var(--yellow);
+  color: var(--ink);
+  font: 800 12px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 3px 3px 0 var(--ink);
+  transform: translateX(-50%);
+  animation: bag-tag 1.6s ease-in-out infinite;
+  transition: background 160ms ease;
+}
+
+.hero-bag-tag b { font-size: 10px; }
+
+/* A little pointer from the tag down to the case. */
+.hero-bag-tag::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 6px solid transparent;
+  border-top-color: var(--ink);
+  transform: translateX(-50%);
+}
+
+/* Under the plane the case hangs low, so its tag goes underneath. */
+.hero-bag[data-side="below"] .hero-bag-tag { top: calc(100% + 10px); bottom: auto; }
+.hero-bag[data-side="below"] .hero-bag-tag::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--ink); }
+
+/* Under the parachute the tag sits beside the case, clear of the canopy. */
+.hero-bag[data-side="right"] .hero-bag-tag { top: 50%; bottom: auto; left: calc(100% + 12px); transform: translateY(-50%); }
+.hero-bag[data-side="right"] .hero-bag-tag::after { top: 50%; left: auto; right: 100%; border-top-color: transparent; border-right-color: var(--ink); transform: translateY(-50%); }
+
+.hero-bag:hover .hero-bag-tag,
+.hero-bag:focus-visible .hero-bag-tag { background: var(--coral); }
+
+@keyframes bag-tag {
+  50% { translate: 0 -4px; }
+}
+
+.demo-modal {
+  width: min(960px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--night-ink);
+  overflow: visible;
+}
+
+.demo-modal::backdrop {
+  background: rgb(17 17 19 / 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.demo-modal[open] { animation: demo-in 260ms cubic-bezier(.2, 1.2, .4, 1); }
+
+@keyframes demo-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+}
+
+.demo-frame {
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--night-bg);
+  box-shadow: 8px 8px 0 var(--coral);
+}
+
+.demo-frame .term-bar { position: relative; }
+
+.demo-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--night-near);
+  font: 400 24px/1 var(--ui);
+  cursor: pointer;
+}
+
+.demo-close:hover,
+.demo-close:focus-visible { background: var(--night-far); color: var(--night-ink); }
+
+.demo-player { aspect-ratio: 16 / 9; background: #000; }
+.demo-player iframe { display: block; width: 100%; height: 100%; border: 0; }
+
 .cta:active,
 .plan-cta:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
 
@@ -1349,6 +1465,7 @@ h2 {
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .hero-bag-tag, .demo-modal[open] { animation: none; }
   .cta, .plan-cta { transition: none; }
   .cta:hover, .plan-cta:hover,
   .cta:active, .plan-cta:active { transform: none; }

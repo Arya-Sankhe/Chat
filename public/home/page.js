@@ -43,3 +43,25 @@
     if (entries[0].isIntersecting) timer = setInterval(tick, 1000);
   }).observe(clock);
 })();
+
+// The demo video dialog. The suitcase in the hero opens it; Escape, the close button or a click
+// outside the frame shuts it, and the player is unloaded so the video stops.
+(() => {
+  "use strict";
+
+  const dialog = document.getElementById("demo");
+  const open = document.querySelector(".hero-bag");
+  if (!dialog || !open || typeof dialog.showModal !== "function") return;
+  const frame = dialog.querySelector("iframe");
+
+  open.addEventListener("click", () => {
+    frame.src = frame.dataset.src;
+    dialog.showModal();
+  });
+  dialog.querySelector(".demo-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => {
+    frame.removeAttribute("src");
+    open.focus({ preventScroll: true });
+  });
+})();

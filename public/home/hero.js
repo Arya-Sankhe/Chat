@@ -821,7 +821,12 @@
   const SUN = { f: "#ffd43b", t: "#ffe98a", s: "#b8901a" };
   const PERCH = 4.6; // how far above the ground a hop lands Klui on the saddle
   const CORD = { f: "#9aa4b8", s: "rgba(0,0,0,0)" };
+  // The demo case Klui hauls through every scene: an amber suitcase with a play button on the front.
+  const CASE = { f: "#ffb02e", t: "#ffd27a", s: "#a8650c" };
+  const BAG_W = 7, BAG_H = 5;
+  const CANOPY = -15.8; // bottom edge of the open parachute, high enough to clear the case
   const list = [];
+  let bagAt = null;
 
   const box = (x, y, w, h, pal, d = 1) => list.push({ k: 0, x, y, w, h, pal, d });
   const flat = (x, y, w, h, colour) => list.push({ k: 1, x, y, w, h, colour });
@@ -866,6 +871,27 @@
     list.length = 0;
   }
 
+  // The suitcase with its top-left corner at (x, y) and the handle above. It notes where it went so
+  // the play button laid over the canvas can follow it.
+  // side says where its "Play demo" tag goes: above, below or right.
+  function suitcase(x, y, side = "above") {
+    const hx = x + BAG_W / 2 - 1.1;
+    box(hx, y - 1.1, 2.2, 0.5, INK, 0.4);
+    box(hx, y - 1.1, 0.5, 1.1, INK, 0.4);
+    box(hx + 1.7, y - 1.1, 0.5, 1.1, INK, 0.4);
+    box(x, y, BAG_W, BAG_H, CASE, 0.8);
+    flat(x + 0.7, y, 0.5, BAG_H, CASE.s);
+    flat(x + BAG_W - 1.2, y, 0.5, BAG_H, CASE.s);
+    const cx = x + BAG_W / 2, cy = y + BAG_H / 2;
+    flat(cx - 1.2, cy - 1.9, 2.4, 3.8, CREAM.f);
+    flat(cx - 1.9, cy - 1.2, 3.8, 2.4, CREAM.f);
+    for (let i = 0; i < 7; i++) {
+      const h = 1.15 * (1 - i / 7);
+      flat(cx - 0.8 + i * 0.3, cy - h, 0.32, h * 2, INK.f);
+    }
+    bagAt = { x, y: y - 1.1, w: BAG_W, h: BAG_H + 1.1, side };
+  }
+
   // Klui in sprite blocks. With legs, (ox, oy) is where its feet touch down; without, the body's
   // bottom sits 2.5 blocks above oy. The body is 10 x 6 blocks.
   function klui(ox, oy, k) {
@@ -891,6 +917,8 @@
       box(ox - 1.8, bot - 7.5, 2.2, 1.6, { f: "#79cfff", t: "#c9efff", s: "#7a4a2a" }, 0.4);
       box(ox + 2.2, bot - 7.5, 2.2, 1.6, { f: "#79cfff", t: "#c9efff", s: "#7a4a2a" }, 0.4);
     }
+    // On foot, the case rides on Klui's head.
+    if (k.bag) suitcase(ox - BAG_W / 2, bot - 6 - (k.goggles ? 1.5 : 0.1) - BAG_H, k.bag);
   }
 
   // A striped canopy whose bottom edge sits at y = by. Returns its width in blocks.
@@ -914,29 +942,30 @@
   function drawMode(g, mode, X, Y, t, o = {}) {
     const u = G.u;
     const blink = t < state.blinkUntil, rider = o.rider !== false;
+    bagAt = null;
     let sx = o.sx || 1, sy = o.sy || 1;
     if (mode === "walk") {
       // Quick little steps: a hop of the body on every footfall and a squash as each foot lands.
       const s = Math.sin(state.walkPh), c = Math.cos(state.walkPh), a = state.walkAmp;
       const sq = 0.06 * a * c ** 4;
       sx *= 1 + sq; sy *= 1 - sq;
-      klui(0, 0, { legs: true, blink, bob: Math.abs(s) * 0.75 * a, armFront: c * 0.7 * a, armBack: -c * 0.7 * a,
+      klui(0, 0, { legs: true, blink, bag: "above", bob: Math.abs(s) * 0.75 * a, armFront: -1.5 + c * 0.35 * a, armBack: -1.5 - c * 0.35 * a,
         legA: { x: c * 0.75 * a, y: Math.max(0, s) * 0.85 * a }, legB: { x: -c * 0.75 * a, y: Math.max(0, -s) * 0.85 * a } });
     } else if (mode === "hop") {
-      klui(0, 0, { legs: true, blink, bob: 0, armFront: -1.8, armBack: -1.8, goggles: o.goggles,
+      klui(0, 0, { legs: true, blink, bag: "above", bob: 0, armFront: -1.8, armBack: -1.8, goggles: o.goggles,
         legA: { x: -0.3, y: 0.6 }, legB: { x: 0.3, y: 0.6 } });
     } else if (mode === "fall") {
       const sw = o.sway || 0, open = o.open ?? 1;
       if (open > 0.02) {
-        const w = chute(-sw * 0.3, -12.2, open);
+        const w = chute(-sw * 0.3, CANOPY, open);
         // Cords from the canopy's rim to Klui's raised hands.
-        line(-sw * 0.3 - w / 2 + 0.4, -12.2, sw - 6, -7.4, CORD, 0.3);
-        line(-sw * 0.3 - w / 6, -12.2, sw - 5.6, -7.4, CORD, 0.3);
-        line(-sw * 0.3 + w / 6, -12.2, sw + 5.6, -7.4, CORD, 0.3);
-        line(-sw * 0.3 + w / 2 - 0.4, -12.2, sw + 6, -7.4, CORD, 0.3);
+        line(-sw * 0.3 - w / 2 + 0.4, CANOPY, sw - 6, -7.4, CORD, 0.3);
+        line(-sw * 0.3 - w / 6, CANOPY, sw - 5.6, -7.4, CORD, 0.3);
+        line(-sw * 0.3 + w / 6, CANOPY, sw + 5.6, -7.4, CORD, 0.3);
+        line(-sw * 0.3 + w / 2 - 0.4, CANOPY, sw + 6, -7.4, CORD, 0.3);
       }
       const kick = Math.sin(t * 5) * 0.35;
-      klui(sw, 0, { legs: true, blink, bob: 0, armFront: -2.2, armBack: -2.2, goggles: o.goggles,
+      klui(sw, 0, { legs: true, blink, bag: "right", bob: 0, armFront: -2.2, armBack: -2.2, goggles: o.goggles,
         legA: { x: kick, y: 0.1 }, legB: { x: -kick, y: 0.3 } });
     } else if (mode === "bike") {
       // A small bike, so Klui sits low on it with the same stubby legs it walks on.
@@ -954,6 +983,10 @@
       line(5, -7.6, 5.6, -9.6, CREAM, 0.8);
       box(4.6, -10.3, 2.8, 0.9, SUN, 0.5);
       box(-3.4, -8.3 - bump, 3.6, 1, SUN, 0.6);
+      // A rear rack over the back wheel, with the case strapped on when Klui is riding.
+      line(-6, -3, -9.2, -7.3, CORD, 0.4);
+      box(-15.2, -7.5, 8, 0.5, INK, 0.4);
+      if (rider) suitcase(-14.8, -7.5 - BAG_H);
       const p1 = { x: bx + Math.cos(ph * 1.4) * 0.9, y: by + Math.sin(ph * 1.4) * 0.9 };
       const p2 = { x: bx - Math.cos(ph * 1.4) * 0.9, y: by - Math.sin(ph * 1.4) * 0.9 };
       if (rider) {
@@ -993,6 +1026,7 @@
       box(-6, y(0.2), 13, 0.9, WOOD, 0.6);
       flat(-9.5, y(-1.45), 20, 0.25, "#9b5226");
       flat(-3, y(-2.6), 1, 1, "#ffd43b");
+      if (rider) suitcase(-14.2, y(-4.3) - BAG_H);
     } else if (mode === "plane") {
       const bob = Math.sin(t * 1.3) * 1.2;
       const y = (v) => v + bob;
@@ -1015,7 +1049,15 @@
       const blade = Math.floor(t * 30) % 2 ? 9 : 4;
       flat(15, y(-2.2 - blade / 2), 0.8, blade, "rgba(22,32,46,.75)");
       flat(14.6, y(-2.8), 1.4, 1.4, "#ffd43b");
+      if (rider) {
+        // The case, airlifted on a line under the plane and swinging a little behind it.
+        const sw = Math.sin(t * 1.7) * 0.5 - 0.4;
+        line(-2.5, y(1.6), -2.5 + sw, y(4.7), CORD, 0.3);
+        suitcase(-2.5 + sw - BAG_W / 2, y(5.8), "below");
+      }
     }
+    // Where the case landed on screen, padded for its extruded side and top.
+    if (bagAt) state.bag = { x: X + (bagAt.x - 1) * u * sx, y: Y + (bagAt.y - 0.8) * u * sy, w: (bagAt.w + 1.2) * u * sx, h: (bagAt.h + 0.9) * u * sy, side: bagAt.side };
     render(g, X, Y, sx, sy);
   }
 
@@ -1236,7 +1278,7 @@
       draw(g, t) {
         const e = clamp((t - born) / 1.2, 0, 1);
         const x = screenX(wx);
-        chute(-e * 4, lerp(-12.2, -0.2, e * e), 1 + e * 0.25, e);
+        chute(-e * 4, lerp(CANOPY, -0.2, e * e), 1 + e * 0.25, e);
         g.globalAlpha = 1 - e * e;
         render(g, x, groundY(scene, state.camX, x));
         g.globalAlpha = 1;
@@ -1470,6 +1512,7 @@
     drawParts(ctx, dt);
     if (tr && tr.under) tr.under(ctx, tr.t);
     drawMode(ctx, pose.mode, pose.x, pose.y, s.t, pose.o);
+    placeBag();
     if (pose.mode === "boat") waterline(ctx, pose.x, pose.y, s.t);
     if (tr && tr.over) tr.over(ctx, tr.t);
     if (dt) emit(pose, dt, s.t);
@@ -1478,6 +1521,25 @@
       ctx.fillStyle = `rgba(255,248,233,${clamp(s.flash / 0.22, 0, 1) * 0.35})`;
       ctx.fillRect(0, 0, G.W, G.H);
     }
+  }
+
+  // The real button for the case sits over the canvas and follows it around, so the demo is one
+  // click (or tab) away in every scene.
+  const bagBtn = hero.querySelector(".hero-bag");
+  let bagKey = "";
+  function placeBag() {
+    const b = state.bag;
+    if (!bagBtn || !b) return;
+    const d = G.dpr, w = Math.max(44, b.w / d), h = Math.max(44, b.h / d);
+    const x = canvas.offsetLeft + (b.x + b.w / 2) / d - w / 2, y = canvas.offsetTop + (b.y + b.h / 2) / d - h / 2;
+    const key = `${x.toFixed(1)},${y.toFixed(1)},${w.toFixed(1)},${h.toFixed(1)},${b.side}`;
+    if (key === bagKey) return;
+    bagKey = key;
+    bagBtn.dataset.side = b.side;
+    bagBtn.style.width = `${w}px`;
+    bagBtn.style.height = `${h}px`;
+    bagBtn.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    bagBtn.classList.add("is-placed");
   }
 
   // Lap a little water over the hull so the boat sits in the lake rather than on it.
