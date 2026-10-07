@@ -228,7 +228,7 @@ const FEED_ICONS = {
   search: `<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>`,
   read: `<svg viewBox="0 0 16 16"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M6.2 8h3.6M6.2 10.5h3.6"/></svg>`,
   sources: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5C6.4 11.9 5.7 10.1 5.7 8S6.4 4.1 8 2.5"/></svg>`,
-  thought: `<svg viewBox="0 0 16 16"><path d="M8 2.2c.4 2.9 1.9 4.4 4.8 4.8-2.9.4-4.4 1.9-4.8 4.8-.4-2.9-1.9-4.4-4.8-4.8 2.9-.4 4.4-1.9 4.8-4.8z"/></svg>`,
+  thought: pixelKluiMarkup(),
   step: `<svg viewBox="0 0 16 16"><path d="m10.4 3 2.6 2.6-6.9 6.9-3.2.6.6-3.2z"/></svg>`,
   error: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.2 6.2l3.6 3.6M9.8 6.2l-3.6 3.6"/></svg>`
 };

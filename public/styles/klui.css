@@ -294,7 +294,7 @@
 }
 
 .klui-feed-row[data-kind="thought"] .klui-feed-icon svg {
-  fill: currentColor;
+  height: auto;
   stroke: none;
 }
 

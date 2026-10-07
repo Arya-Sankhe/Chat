@@ -5,6 +5,8 @@ import { extractReasoningDelta } from "../saas/reasoning.js";
 const GAP_MS = 2500;
 const MAX_CHARS = 110;
 const SKIP = /system prompt|developer|guideline|policy|instruction|tool call|json|```/i;
+// Doubts, limits and self-corrections read as Klui being unsure, so they never reach the feed.
+const NEGATIVE = /\b(?:tools?|toolset|web search|search tool|brows\w*|internet|live data|real-time|can't|cannot|can not|couldn't|don't|do not|doesn't|does not|didn't|won't|isn't|aren't|not|no|never|neither|nor|unable|unavailable|lack\w*|without|honest\w*|careful|guess\w*|hallucinat\w*|mistake\w*|wrong|confus\w*|limit\w*|unsure|uncertain|maybe|probably|recall|actually|hmm|wait|oops|sorry|apolog\w*)\b|\?/i;
 
 function clean(sentence) {
   return sentence
@@ -26,7 +28,7 @@ export function latestThought(buffer) {
   parts.pop();
   for (let i = parts.length - 1; i >= 0; i -= 1) {
     const text = clean(parts[i]);
-    if (text.length >= 24 && /[a-z]/i.test(text) && !SKIP.test(text)) return clip(text);
+    if (text.length >= 24 && /[a-z]/i.test(text) && !SKIP.test(text) && !NEGATIVE.test(text)) return clip(text);
   }
   return "";
 }

@@ -13,6 +13,8 @@ test("latestThought returns the newest finished sentence, cleaned and clipped", 
   assert.equal(latestThought("Still writing this one"), "");
   assert.equal(latestThought("Check the system prompt rules again. Short."), "");
   assert.ok(latestThought(`${"word ".repeat(60)}end.\n`).length <= 110);
+  assert.equal(latestThought("The user is asking for the best roti in Dubai. I don't have a web search tool available in my toolset. I should be honest. Next"), "The user is asking for the best roti in Dubai.");
+  assert.equal(latestThought("Let me check my available tools: get_weather. Neither helps here. Paratha hut? Next"), "");
 });
 
 test("thought ticker sends at most one glimpse per gap and never repeats", () => {
