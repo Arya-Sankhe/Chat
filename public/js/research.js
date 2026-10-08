@@ -168,7 +168,6 @@ export function createResearchController({
   }
 
   const REPORT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"/><path d="M14 3v5h5"/><path d="M8.75 12.5h6.5M8.75 16h4.5"/></svg>`;
-  const DOWNLOAD_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>`;
 
   // A finished run reads like any other answer: a quiet status line, the report as a
   // compact file row, then the summary as normal message text.
@@ -191,13 +190,6 @@ export function createResearchController({
             <span>${research.partial ? "Partial research report" : "Deep research report"}</span>
           </span>
         </button>
-        <div class="research-artifact-download">
-          <button class="research-artifact-action" type="button" data-research-card-download="${runId}" aria-label="Download report" aria-haspopup="menu" aria-expanded="false">${DOWNLOAD_ICON}</button>
-          <div class="document-download-menu hidden" role="menu">
-            <button type="button" role="menuitem" data-research-card-export="pdf" data-run-id="${runId}"><span>PDF</span><small>.pdf</small></button>
-            <button type="button" role="menuitem" data-research-card-export="docx" data-run-id="${runId}"><span>Word</span><small>.docx</small></button>
-          </div>
-        </div>
       </div>` : "";
     return `
     <div class="research-result ${complete ? "is-complete" : "is-stopped"}" data-research-run="${runId}">
@@ -505,75 +497,6 @@ export function createResearchController({
     }
   }
 
-  function closeCardDownloadMenus(except = null) {
-    elements.messages?.querySelectorAll(".research-artifact-download").forEach((wrap) => {
-      if (wrap === except) return;
-      wrap.querySelector(".document-download-menu")?.classList.add("hidden");
-      wrap.querySelector("[data-research-card-download]")?.setAttribute("aria-expanded", "false");
-    });
-  }
-
-  // The chat card exports in place; the report view keeps its own header menu.
-  async function downloadFromCard(button) {
-    const runId = button.dataset.runId;
-    const toggle = button.closest(".research-artifact-download")?.querySelector("[data-research-card-download]");
-    // aria-disabled (not disabled) keeps keyboard focus on the toggle while it works.
-    if (!runId || toggle?.getAttribute("aria-disabled") === "true") return;
-    if (!state.session?.access_token) return showToast("Please sign in to download.");
-    toggle?.setAttribute("aria-busy", "true");
-    toggle?.setAttribute("aria-disabled", "true");
-    showToast("Preparing download…");
-    try {
-      await exportReportFile(runId, button.dataset.researchCardExport);
-    } catch (error) {
-      showToast(error.message || "Download failed.");
-    } finally {
-      toggle?.removeAttribute("aria-busy");
-      toggle?.removeAttribute("aria-disabled");
-    }
-  }
-
-  elements.messages?.addEventListener("click", (event) => {
-    const exportButton = event.target.closest("[data-research-card-export]");
-    if (exportButton) {
-      const toggle = exportButton.closest(".research-artifact-download")?.querySelector("[data-research-card-download]");
-      closeCardDownloadMenus();
-      toggle?.focus();
-      void downloadFromCard(exportButton);
-      return;
-    }
-    const toggle = event.target.closest("[data-research-card-download]");
-    if (!toggle) return;
-    const wrap = toggle.closest(".research-artifact-download");
-    const menu = wrap?.querySelector(".document-download-menu");
-    if (!menu || toggle.getAttribute("aria-disabled") === "true") return;
-    closeCardDownloadMenus(wrap);
-    const open = menu.classList.toggle("hidden") === false;
-    toggle.setAttribute("aria-expanded", String(open));
-    if (open) menu.querySelector("[role=menuitem]")?.focus();
-  });
-
-  // Menu keys: arrows move between items, Escape closes and hands focus back to the toggle.
-  elements.messages?.addEventListener("keydown", (event) => {
-    const wrap = event.target.closest?.(".research-artifact-download");
-    const menu = wrap?.querySelector(".document-download-menu");
-    if (!menu || menu.classList.contains("hidden")) return;
-    const items = [...menu.querySelectorAll("[role=menuitem]")];
-    const index = items.indexOf(event.target);
-    if (event.key === "Escape" || event.key === "Tab") {
-      closeCardDownloadMenus();
-      if (event.key === "Escape") {
-        event.preventDefault();
-        wrap.querySelector("[data-research-card-download]")?.focus();
-      }
-      return;
-    }
-    const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-    if (!step || !items.length) return;
-    event.preventDefault();
-    items[(index + step + items.length) % items.length].focus();
-  });
-
   elements.researchDownload?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!elements.researchDownloadMenu || elements.researchDownload.disabled) return;
@@ -591,7 +514,6 @@ export function createResearchController({
     }
   });
   globalThis.document?.addEventListener("pointerdown", (event) => {
-    if (!event.target?.closest?.(".research-artifact-download")) closeCardDownloadMenus();
     if (!elements.researchDownloadMenu || elements.researchDownloadMenu.classList.contains("hidden")) return;
     if (elements.researchDownload?.contains(event.target) || elements.researchDownloadMenu.contains(event.target)) return;
     closeDownloadMenu();

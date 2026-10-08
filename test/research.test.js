@@ -427,8 +427,8 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(html, /data-research-export="docx"/);
   assert.doesNotMatch(html, />Print</);
   assert.match(researchJs, /class="research-artifact"/);
-  assert.match(researchJs, /data-research-card-export="pdf"/);
-  assert.match(researchJs, /data-research-card-export="docx"/);
+  // Downloads live only inside the opened report, not on the chat card.
+  assert.doesNotMatch(researchJs, /data-research-card-export/);
   assert.match(researchJs, /is-active.*is-complete.*is-stopped/);
   assert.match(app, /flashCopySuccess\(els\.researchCopy\)/);
   assert.match(app, /researchReportView\.scrollTo/);
