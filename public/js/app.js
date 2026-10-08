@@ -1131,7 +1131,8 @@ async function maybeRequestClarifications(text, paste) {
   updateSendButton();
   try {
     const payload = await requestClarifications(state.session, {
-      query: text
+      query: text,
+      ...(state.activeConversationId ? { conversationId: state.activeConversationId } : {})
     });
     if (requestId !== state.clarificationRequestId) return true;
     const questions = Array.isArray(payload?.questions) ? payload.questions : [];

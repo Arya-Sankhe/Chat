@@ -25,7 +25,7 @@ export function normalizeClarifications(value) {
   });
 }
 
-export async function generateClarifications({ query, modelClient, config, signal }) {
+export async function generateClarifications({ query, conversation = "", modelClient, config, signal }) {
   const provider = config?.providers?.openrouter;
   if (!provider?.apiKey || !modelClient?.chatCompletion) return [];
   const callSignal = signal
@@ -46,9 +46,15 @@ export async function generateClarifications({ query, modelClient, config, signa
 Return JSON only: {"questions":[{"question":"...","options":["recommended first","alternative"]}]}.
 Ask 1-3 short, decision-changing questions with 2-4 mutually exclusive, concise options each. Put the safest useful default first.
 Usually ask about scope, timeframe, geography, audience, or desired comparison—but only where the request leaves it open.
-Never ask for information already present. Never ask cosmetic preferences the assistant can infer.`
+Never ask for information already present. Never ask cosmetic preferences the assistant can infer.
+The request may come from inside an ongoing chat. Treat the earlier conversation as already-known context: never ask about anything it settles, and resolve references like "this" from it. Ignore conversation turns unrelated to the request.`
         },
-        { role: "user", content: String(query || "").slice(0, 6000) }
+        {
+          role: "user",
+          content: conversation
+            ? `Earlier conversation:\n<conversation>\n${conversation}\n</conversation>\n\nDeep Research request:\n${String(query || "").slice(0, 6000)}`
+            : String(query || "").slice(0, 6000)
+        }
       ],
       temperature: 0.1,
       max_tokens: 420

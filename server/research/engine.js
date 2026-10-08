@@ -5,11 +5,13 @@ import { isDeniedUrl, mergeDenyDomains } from "../websearch/deny-domains.js";
 import {
   RESEARCH_CATEGORIES,
   RESEARCH_SYSTEM,
+  briefPrompt,
   categoryPrompt,
   extractPrompt,
   finalReportPrompt,
   planPrompt,
   queryPrompt,
+  researchQuestion,
   stopPrompt,
   synthesizePrompt
 } from "./prompts.js";
@@ -114,9 +116,20 @@ function reportMeta(markdown, question) {
     .filter((line) => line.trim() && !line.startsWith("#") && !line.startsWith("-"))
     .slice(0, 2)
     .join(" ")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .slice(0, 500);
-  return { title, summary };
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  return { title, summary: clipSummary(summary, 500) };
+}
+
+// Ends on a full sentence when one fits, so the chat never shows a half-cut thought.
+export function clipSummary(text, maxChars) {
+  const value = String(text || "").trim();
+  if (value.length <= maxChars) return value;
+  const window = value.slice(0, maxChars);
+  const sentenceEnd = Math.max(...[". ", "! ", "? "].map((mark) => window.lastIndexOf(mark)));
+  if (sentenceEnd >= maxChars * 0.4) return window.slice(0, sentenceEnd + 1);
+  const room = window.slice(0, maxChars - 1);
+  const wordEnd = room.lastIndexOf(" ");
+  return `${room.slice(0, wordEnd > 0 ? wordEnd : room.length).replace(/[\s,;:—-]+$/, "")}…`;
 }
 
 function formatFindings(findings) {
@@ -145,8 +158,34 @@ export function partialReport(question, findings, sources, reason = "Research st
   return validateReportLinks(`# Partial research: ${question}\n\n> ${reason}\n\n${body}`, sources);
 }
 
+const MAX_BRIEF_CHARS = 2_000;
+const MAX_BRIEF_CONTEXT_CHARS = 4_000;
+
+// Folds the relevant part of the chat into a standalone brief so every later
+// stage researches the user's actual situation, not just the literal request.
+export async function resolveResearchBrief({ request, conversation, callModel, model, now }) {
+  const fallback = { brief: request, context: "", contextual: false };
+  if (!String(conversation || "").trim()) return fallback;
+  const raw = await callModel({
+    model,
+    system: RESEARCH_SYSTEM,
+    prompt: briefPrompt({ request, conversation, now }),
+    maxTokens: 5000,
+    temperature: 0
+  }).catch(() => "");
+  const parsed = parseJsonObject(raw);
+  const brief = typeof parsed?.brief === "string" ? parsed.brief.trim().slice(0, MAX_BRIEF_CHARS) : "";
+  if (!brief) return fallback;
+  const contextual = parsed.uses_context === true;
+  const context = contextual && typeof parsed.context === "string"
+    ? parsed.context.trim().slice(0, MAX_BRIEF_CONTEXT_CHARS)
+    : "";
+  return { brief, context, contextual };
+}
+
 export async function runDeepResearch({
   run,
+  conversationContext = "",
   config,
   callModel,
   onProgress = async () => {},
@@ -181,12 +220,23 @@ export async function runDeepResearch({
     return Math.min(88, Math.round(10 + (round - 1) * step + step * fraction));
   }
 
+  // BRIEF: decide what from the chat matters before anything is searched.
+  await checkpoint("planning", { label: conversationContext ? "Reading the conversation" : "Planning research", percent: 3 });
+  const { brief, context, contextual } = await resolveResearchBrief({
+    request: run.query,
+    conversation: conversationContext,
+    callModel,
+    model: cheapModel,
+    now
+  });
+  const question = researchQuestion({ brief, context });
+
   // PLAN
   await checkpoint("planning", { label: "Planning research", percent: 5 });
   const planRaw = await callModel({
     model: cheapModel,
     system: RESEARCH_SYSTEM,
-    prompt: planPrompt(run.query, now),
+    prompt: planPrompt(question, now),
     maxTokens: 5000
   }).catch(() => "");
   const plan = planSummary(parseJsonObject(planRaw)) || stripCodeFence(planRaw);
@@ -194,7 +244,7 @@ export async function runDeepResearch({
   const categoryRaw = await callModel({
     model: cheapModel,
     system: RESEARCH_SYSTEM,
-    prompt: categoryPrompt(run.query),
+    prompt: categoryPrompt(brief),
     maxTokens: 5000,
     temperature: 0
   }).catch(() => "");
@@ -216,12 +266,12 @@ export async function runDeepResearch({
     const queryRaw = await callModel({
       model: cheapModel,
       system: RESEARCH_SYSTEM,
-      prompt: queryPrompt({ question: run.query, plan, report, round, count, now }),
+      prompt: queryPrompt({ question, plan, report, round, count, now }),
       maxTokens: 5000,
       temperature: 0.5
     }).catch(() => "");
     let queries = parseJsonArray(queryRaw).filter((query) => !queriesUsed.has(query)).slice(0, count);
-    if (!queries.length && round === 1) queries = fallbackQueries(run.query, count);
+    if (!queries.length && round === 1) queries = fallbackQueries(brief, count);
     if (!queries.length) break;
     queries.forEach((query) => queriesUsed.add(query));
 
@@ -256,7 +306,7 @@ export async function runDeepResearch({
         const raw = await callModel({
           model: cheapModel,
           system: RESEARCH_SYSTEM,
-          prompt: `${extractPrompt(run.query)}\n\n${untrustedSourceBlock({ url: page.url, text: body })}`,
+          prompt: `${extractPrompt(question)}\n\n${untrustedSourceBlock({ url: page.url, text: body })}`,
           maxTokens: settings.extractMaxTokens
         });
         const parsed = parseJsonObject(raw);
@@ -296,7 +346,7 @@ export async function runDeepResearch({
       report = await callModel({
         model: cheapModel,
         system: RESEARCH_SYSTEM,
-        prompt: synthesizePrompt(run.query, report, formatFindings(window)),
+        prompt: synthesizePrompt(question, report, formatFindings(window)),
         maxTokens: settings.synthesisMaxTokens
       }).catch(() => report);
       onSnapshot({ findings: report, sources });
@@ -309,7 +359,7 @@ export async function runDeepResearch({
       const decision = await callModel({
         model: cheapModel,
         system: RESEARCH_SYSTEM,
-        prompt: stopPrompt(run.query, report, round, settings.maxRounds),
+        prompt: stopPrompt(question, report, round, settings.maxRounds),
         maxTokens: 5000,
         temperature: 0
       }).catch(() => "");
@@ -327,7 +377,7 @@ export async function runDeepResearch({
   const reportRaw = await callModel({
     model: run.model,
     system: RESEARCH_SYSTEM,
-    prompt: finalReportPrompt({ question: run.query, report, sources, category, now }),
+    prompt: finalReportPrompt({ question, request: run.query, contextual, report, sources, category, now }),
     maxTokens: settings.finalMaxTokens,
     reasoningEffort: "high"
   });
@@ -336,7 +386,7 @@ export async function runDeepResearch({
     finalReport = validateReportLinks(report, sources);
   }
   if (finalReport.trim().length < 100) throw new Error("The research model returned an incomplete report.");
-  const meta = reportMeta(finalReport, run.query);
+  const meta = reportMeta(finalReport, brief);
   return {
     ...meta,
     report: finalReport,

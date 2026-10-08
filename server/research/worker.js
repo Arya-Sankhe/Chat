@@ -4,6 +4,7 @@ import { SupabaseRest } from "../db/supabaseRest.js";
 import { getCurrentEntitlement } from "../saas/entitlements.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { resolveProvider } from "../providers.js";
+import { researchConversationContext } from "./context.js";
 import { partialReport, runDeepResearch } from "./engine.js";
 
 const config = validateRuntimeConfig(loadConfig());
@@ -92,8 +93,17 @@ async function processRun(run) {
       }
     });
 
+    // Earlier turns let the research build on the chat; a failed read just means none.
+    const conversationContext = run.conversation_id && run.user_message_id
+      ? researchConversationContext(
+        await db.listMessages(run.user_id, run.conversation_id, { signal: controller.signal }).catch(() => []),
+        { userMessageId: run.user_message_id }
+      )
+      : "";
+
     const result = await runDeepResearch({
       run,
+      conversationContext,
       config,
       callModel,
       signal: controller.signal,

@@ -94,6 +94,14 @@ export function createResearchController({
       .trim();
   }
 
+  // Older runs stored summaries hard-cut mid-sentence; end them on the last full one.
+  function wholeSentences(text) {
+    const value = String(text || "").trim();
+    if (!value || /[.!?…:]["')\]*]?$/.test(value)) return value;
+    const end = Math.max(value.lastIndexOf(". "), value.lastIndexOf("! "), value.lastIndexOf("? "));
+    return end >= value.length * 0.4 ? value.slice(0, end + 1) : `${value.replace(/\s+\S*$/, "")}…`;
+  }
+
   function reportMasthead(payload, theme, meta) {
     const fallbackTitle = (String(payload?.report || "").match(/^\s*#\s+(.+)$/m)?.[1] || "Research report").trim();
     const title = (payload?.run?.title || fallbackTitle).trim();
@@ -159,34 +167,68 @@ export function createResearchController({
     return meta.map((part) => `<span>${escapeHtml(part)}</span>`).join("");
   }
 
+  const REPORT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8Z"/><path d="M14 3v5h5"/><path d="M8.75 12.5h6.5M8.75 16h4.5"/></svg>`;
+  const DOWNLOAD_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>`;
+
+  // A finished run reads like any other answer: a quiet status line, the report as a
+  // compact file row, then the summary as normal message text.
+  function renderResearchResult(msg, { research, complete, label, meta }) {
+    const runId = escapeHtml(research.runId || "");
+    const elapsed = research.elapsedMs ? formatElapsed(research.elapsedMs) : "";
+    const sources = research.sourceCount ? `${research.sourceCount} source${research.sourceCount === 1 ? "" : "s"}` : "";
+    const finished = complete && !research.partial;
+    const status = finished ? (elapsed ? `Researched ${elapsed}` : "Researched") : label;
+    const details = finished ? [sources] : meta.filter((part) => part !== "Partial report");
+    const summary = wholeSentences(cleanReportSummary(research.summary));
+    const note = summary || msg.error || "";
+    const title = research.title || "Research report";
+    const artifact = complete && research.runId ? `
+      <div class="research-artifact">
+        <button class="research-artifact-open" type="button" data-open-research="${runId}" aria-label="Open report: ${escapeHtml(title)}">
+          <span class="research-artifact-icon">${REPORT_ICON}</span>
+          <span class="research-artifact-info">
+            <strong>${escapeHtml(title)}</strong>
+            <span>${research.partial ? "Partial research report" : "Deep research report"}</span>
+          </span>
+        </button>
+        <div class="research-artifact-download">
+          <button class="research-artifact-action" type="button" data-research-card-download="${runId}" aria-label="Download report" aria-haspopup="menu" aria-expanded="false">${DOWNLOAD_ICON}</button>
+          <div class="document-download-menu hidden" role="menu">
+            <button type="button" role="menuitem" data-research-card-export="pdf" data-run-id="${runId}"><span>PDF</span><small>.pdf</small></button>
+            <button type="button" role="menuitem" data-research-card-export="docx" data-run-id="${runId}"><span>Word</span><small>.docx</small></button>
+          </div>
+        </div>
+      </div>` : "";
+    return `
+    <div class="research-result ${complete ? "is-complete" : "is-stopped"}" data-research-run="${runId}">
+      <p class="research-result-status">${escapeHtml(status)}${details.filter(Boolean).map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</p>
+      ${artifact}
+      ${note ? `<div class="message-content research-result-summary${summary ? "" : " is-error"}"><p>${escapeHtml(note)}</p></div>` : ""}
+    </div>`;
+  }
+
   function renderResearchCard(msg) {
-    const { research, active, complete, label, percent, meta, status } = researchCardModel(msg);
-    const icon = complete
-      ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 10.2 2.8 2.8 6.2-6.2"/></svg>`
-      : "";
+    const model = researchCardModel(msg);
+    const { research, active, label, percent, meta, status } = model;
+    if (!active) return renderResearchResult(msg, model);
     const summary = cleanReportSummary(research.summary);
     // While it runs, Klui narrates the current phase; the title waits until the plan names it.
-    const live = active && renderKluiThinkingStatus
+    const live = renderKluiThinkingStatus
       ? renderKluiThinkingStatus({ id: `research-${research.runId || msg.id || "run"}` }, { label, active: true })
       : "";
     return `
     <div class="research-card ${status}" data-research-run="${escapeHtml(research.runId || "")}">
       <div class="research-card-main">
         <div class="research-card-heading">
-          <span class="research-card-icon" aria-hidden="true">${icon}</span>
+          <span class="research-card-icon" aria-hidden="true">${REPORT_ICON}</span>
           <span class="research-card-kicker">Deep research</span>
           <span class="research-card-meta">${researchMetaMarkup(meta)}</span>
+          <button class="research-card-cancel" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>
         </div>
-        ${research.title ? `<strong class="research-card-title">${escapeHtml(research.title)}</strong>` : active ? "" : `<strong class="research-card-title">${escapeHtml(label)}</strong>`}
+        ${research.title ? `<strong class="research-card-title">${escapeHtml(research.title)}</strong>` : ""}
         ${live ? `<div class="research-card-live">${live}</div>` : ""}
         ${summary ? `<p>${escapeHtml(summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
-        ${active ? `<div class="research-card-progress" role="progressbar" aria-label="Research progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="--research-progress:${percent / 100}"></span></div>` : ""}
-        <div class="research-card-footer">
-          <div class="research-card-actions">
-            ${complete ? `<button type="button" data-open-research="${escapeHtml(research.runId || "")}">Open report <span aria-hidden="true">→</span></button>` : ""}
-            ${active ? `<button class="secondary" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>` : ""}
-          </div>
-        </div>
+        <div class="research-card-progress" role="progressbar" aria-label="Research progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="--research-progress:${percent / 100}"></span></div>
       </div>
     </div>`;
   }
@@ -444,20 +486,93 @@ export function createResearchController({
     throw new Error("Download is still processing. Try again shortly.");
   }
 
+  async function exportReportFile(runId, format) {
+    const result = await exportResearchReport(state.session, runId, format);
+    const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
+    if (!artifact?.attachment_id) throw new Error("Download did not return a file.");
+    await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `research.${format}`);
+  }
+
   async function downloadReport(format) {
     const runId = state.researchReport?.run?.id;
     if (!runId) return;
     if (!state.session?.access_token) return showToast("Please sign in to download.");
     setDownloadBusy(true);
     try {
-      const result = await exportResearchReport(state.session, runId, format);
-      const artifact = result.artifact || (result.jobId ? await waitForExport(result.jobId) : null);
-      if (!artifact?.attachment_id) throw new Error("Download did not return a file.");
-      await downloadAttachment(state.session, artifact.attachment_id, artifact.file_name || `research.${format}`);
+      await exportReportFile(runId, format);
     } finally {
       setDownloadBusy(false);
     }
   }
+
+  function closeCardDownloadMenus(except = null) {
+    elements.messages?.querySelectorAll(".research-artifact-download").forEach((wrap) => {
+      if (wrap === except) return;
+      wrap.querySelector(".document-download-menu")?.classList.add("hidden");
+      wrap.querySelector("[data-research-card-download]")?.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  // The chat card exports in place; the report view keeps its own header menu.
+  async function downloadFromCard(button) {
+    const runId = button.dataset.runId;
+    const toggle = button.closest(".research-artifact-download")?.querySelector("[data-research-card-download]");
+    // aria-disabled (not disabled) keeps keyboard focus on the toggle while it works.
+    if (!runId || toggle?.getAttribute("aria-disabled") === "true") return;
+    if (!state.session?.access_token) return showToast("Please sign in to download.");
+    toggle?.setAttribute("aria-busy", "true");
+    toggle?.setAttribute("aria-disabled", "true");
+    showToast("Preparing download…");
+    try {
+      await exportReportFile(runId, button.dataset.researchCardExport);
+    } catch (error) {
+      showToast(error.message || "Download failed.");
+    } finally {
+      toggle?.removeAttribute("aria-busy");
+      toggle?.removeAttribute("aria-disabled");
+    }
+  }
+
+  elements.messages?.addEventListener("click", (event) => {
+    const exportButton = event.target.closest("[data-research-card-export]");
+    if (exportButton) {
+      const toggle = exportButton.closest(".research-artifact-download")?.querySelector("[data-research-card-download]");
+      closeCardDownloadMenus();
+      toggle?.focus();
+      void downloadFromCard(exportButton);
+      return;
+    }
+    const toggle = event.target.closest("[data-research-card-download]");
+    if (!toggle) return;
+    const wrap = toggle.closest(".research-artifact-download");
+    const menu = wrap?.querySelector(".document-download-menu");
+    if (!menu || toggle.getAttribute("aria-disabled") === "true") return;
+    closeCardDownloadMenus(wrap);
+    const open = menu.classList.toggle("hidden") === false;
+    toggle.setAttribute("aria-expanded", String(open));
+    if (open) menu.querySelector("[role=menuitem]")?.focus();
+  });
+
+  // Menu keys: arrows move between items, Escape closes and hands focus back to the toggle.
+  elements.messages?.addEventListener("keydown", (event) => {
+    const wrap = event.target.closest?.(".research-artifact-download");
+    const menu = wrap?.querySelector(".document-download-menu");
+    if (!menu || menu.classList.contains("hidden")) return;
+    const items = [...menu.querySelectorAll("[role=menuitem]")];
+    const index = items.indexOf(event.target);
+    if (event.key === "Escape" || event.key === "Tab") {
+      closeCardDownloadMenus();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        wrap.querySelector("[data-research-card-download]")?.focus();
+      }
+      return;
+    }
+    const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+    if (!step || !items.length) return;
+    event.preventDefault();
+    items[(index + step + items.length) % items.length].focus();
+  });
 
   elements.researchDownload?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -476,6 +591,7 @@ export function createResearchController({
     }
   });
   globalThis.document?.addEventListener("pointerdown", (event) => {
+    if (!event.target?.closest?.(".research-artifact-download")) closeCardDownloadMenus();
     if (!elements.researchDownloadMenu || elements.researchDownloadMenu.classList.contains("hidden")) return;
     if (elements.researchDownload?.contains(event.target) || elements.researchDownloadMenu.contains(event.target)) return;
     closeDownloadMenu();

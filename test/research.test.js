@@ -6,7 +6,9 @@ import { readStylesheet } from "./helpers/styles.js";
 
 import { loadConfig } from "../server/config.js";
 import { untrustedSourceBlock } from "../server/research/extract.js";
-import { partialReport, runDeepResearch, validateReportLinks } from "../server/research/engine.js";
+import { clipSummary, partialReport, resolveResearchBrief, runDeepResearch, validateReportLinks } from "../server/research/engine.js";
+import { researchConversationContext } from "../server/research/context.js";
+import { generateClarifications } from "../server/saas/clarifications.js";
 import { searchResearchQueries } from "../server/research/search.js";
 import { sanitizeResearchPublicView } from "../server/research/public.js";
 import { filterDeniedDomains, mergeDenyDomains } from "../server/websearch/deny-domains.js";
@@ -424,7 +426,9 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(html, /data-research-export="pdf"/);
   assert.match(html, /data-research-export="docx"/);
   assert.doesNotMatch(html, />Print</);
-  assert.match(researchJs, /research-card-footer/);
+  assert.match(researchJs, /class="research-artifact"/);
+  assert.match(researchJs, /data-research-card-export="pdf"/);
+  assert.match(researchJs, /data-research-card-export="docx"/);
   assert.match(researchJs, /is-active.*is-complete.*is-stopped/);
   assert.match(app, /flashCopySuccess\(els\.researchCopy\)/);
   assert.match(app, /researchReportView\.scrollTo/);
@@ -442,7 +446,8 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(html, /aria-label="Back to chat"/);
   assert.match(styles, /@media \(max-width:\s*720px\)\s*\{[\s\S]*?\.research-report-icon \{ display: block/);
   assert.doesNotMatch(styles, /\.research-report-tabs \{ grid-row: 2/);
-  assert.match(styles, /\.research-card\.is-complete \.research-card-icon/);
+  assert.match(styles, /\.research-artifact \{/);
+  assert.match(styles, /\.research-report-header button:not\(\[role="menuitem"\]\):not\(\[role="tab"\]\) \{ display: inline-flex/);
   assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
   assert.match(schema, /enable row level security/i);
@@ -789,4 +794,146 @@ test("stopped research poll ignores in-flight status and queued timer continuati
     globalThis.setTimeout = realSetTimeout;
     globalThis.clearTimeout = realClearTimeout;
   }
+});
+
+test("research context keeps only turns before the research request, newest first under budget", () => {
+  const messages = [
+    { id: "1", role: "user", content: "Old unrelated question about soup" },
+    { id: "2", role: "assistant", content: "Soup answer" },
+    { id: "3", role: "user", content: [{ type: "text", text: "We are building Klui, a chat app" }] },
+    { id: "4", role: "assistant", content: "", error: "Model failed" },
+    { id: "5", role: "assistant", content: "Summary", metadata: { research: { runId: "r1", title: "Sandbox stacks" } } },
+    { id: "6", role: "user", content: "deep research the best way to do this" },
+    { id: "7", role: "assistant", content: "" }
+  ];
+  const context = researchConversationContext(messages, { userMessageId: "6" });
+  assert.match(context, /^User: Old unrelated question/);
+  assert.match(context, /User: We are building Klui/);
+  assert.match(context, /Assistant: \[Earlier deep research report: Sandbox stacks\]\nSummary/);
+  assert.doesNotMatch(context, /Model failed|best way to do this/);
+
+  const tight = researchConversationContext(messages, { userMessageId: "6", maxMessages: 2 });
+  assert.doesNotMatch(tight, /soup/i);
+  assert.match(tight, /Klui/);
+
+  const clipped = researchConversationContext([{ id: "a", role: "user", content: "x".repeat(10_000) }], { maxMessageChars: 200 });
+  assert.ok(clipped.length < 260);
+  assert.match(clipped, /\[…\]/);
+});
+
+test("research brief folds relevant chat context into every research stage", async () => {
+  const prompts = [];
+  const config = loadConfig({
+    RESEARCH_INITIAL_QUERIES: "1",
+    RESEARCH_MAX_ROUNDS: "1",
+    RESEARCH_MIN_ROUNDS: "1",
+    RESEARCH_MIN_SOURCES: "1"
+  });
+  const callModel = async (call) => {
+    prompts.push(call.prompt);
+    if (call.prompt.includes("standalone research brief")) {
+      return JSON.stringify({
+        uses_context: true,
+        brief: "Best browser-only code sandbox stack for the Klui chat app",
+        context: "- Klui runs code previews with zero servers"
+      });
+    }
+    if (call.prompt.includes("research strategist")) return "{}";
+    if (call.prompt.startsWith("Classify this research question")) return "general";
+    if (call.prompt.includes("planning web searches")) return JSON.stringify(["q"]);
+    if (call.prompt.includes("Research goal:")) return JSON.stringify({ relevant: true, summary: "Useful.", evidence: "Quote." });
+    if (call.prompt.includes("updating an evolving research report")) return "Report citing [src](https://example.com/a).";
+    return "# Sandbox report\n\nDetailed body that cites the [src](https://example.com/a) and is long enough to pass validation.";
+  };
+  await runDeepResearch({
+    run: { query: "deep research the best way to do this", model: "user/model" },
+    conversationContext: "User: Klui needs code previews with zero servers",
+    config,
+    callModel,
+    searchFn: async () => [{ title: "A", url: "https://example.com/a", snippet: "" }],
+    readPage: async (url) => ({ provider: "test", url, title: "Page", content: "Text. ".repeat(80) })
+  });
+  const stage = (marker) => prompts.find((prompt) => prompt.includes(marker));
+  assert.match(stage("standalone research brief"), /Klui needs code previews/);
+  for (const marker of ["research strategist", "planning web searches", "Research goal:", "Write a long, detailed"]) {
+    assert.match(stage(marker), /browser-only code sandbox stack for the Klui chat app/);
+    assert.match(stage(marker), /zero servers/);
+  }
+  const final = stage("Write a long, detailed");
+  assert.match(final, /The user's original words: deep research the best way to do this/);
+  assert.match(final, /Tailor the analysis/);
+});
+
+test("research brief is skipped without context and falls back on bad output", async () => {
+  let calls = 0;
+  const countingModel = async () => { calls += 1; return "not json"; };
+  assert.deepEqual(
+    await resolveResearchBrief({ request: "Fresh question", conversation: "", callModel: countingModel, model: "m" }),
+    { brief: "Fresh question", context: "", contextual: false }
+  );
+  assert.equal(calls, 0);
+  assert.deepEqual(
+    await resolveResearchBrief({ request: "Fresh question", conversation: "User: hi", callModel: countingModel, model: "m" }),
+    { brief: "Fresh question", context: "", contextual: false }
+  );
+  const unrelated = await resolveResearchBrief({
+    request: "Best espresso grinder",
+    conversation: "User: tell me about soup",
+    model: "m",
+    callModel: async () => JSON.stringify({ uses_context: false, brief: "Best espresso grinder in 2026", context: "soup talk" })
+  });
+  assert.deepEqual(unrelated, { brief: "Best espresso grinder in 2026", context: "", contextual: false });
+});
+
+test("research summaries end on a whole sentence", () => {
+  const text = `${"First sentence is here. ".repeat(20)}Trailing words that run past the limit without stopping`;
+  const clipped = clipSummary(text, 500);
+  assert.ok(clipped.length <= 500);
+  assert.match(clipped, /here\.$/);
+  assert.equal(clipSummary("Short.", 500), "Short.");
+  assert.match(clipSummary("word ".repeat(200), 100), /word…$/);
+  assert.equal(clipSummary("A".repeat(600), 500).length, 500);
+});
+
+test("research context never exceeds its budget and never widens past a missing boundary", () => {
+  const long = (id, role) => ({ id, role, content: "y".repeat(50_000) });
+  const messages = Array.from({ length: 12 }, (_, index) => long(String(index), index % 2 ? "assistant" : "user"));
+  for (const maxChars of [1, 4, 5, 6, 250, 12_000]) {
+    const context = researchConversationContext(messages, { maxChars, maxMessageChars: 3_000 });
+    assert.ok(context.length <= maxChars, `${context.length} > ${maxChars}`);
+  }
+  // A small final turn still fits when it is whole; a too-small slice of a long turn is dropped.
+  const mixed = [{ id: "a", role: "user", content: "short note" }, long("b", "assistant")];
+  assert.equal(researchConversationContext(mixed, { maxChars: 3_020, maxMessageChars: 3_000 }).includes("short note"), false);
+
+  const chat = [
+    { id: "1", role: "user", content: "before" },
+    { id: "3", role: "user", content: "after the deleted request" }
+  ];
+  assert.equal(researchConversationContext(chat, { userMessageId: "2" }), "");
+  assert.match(researchConversationContext(chat), /before[\s\S]*after the deleted request/);
+});
+
+test("research brief tailors the report whenever it used the conversation", async () => {
+  const brief = await resolveResearchBrief({
+    request: "best way to build this",
+    conversation: "User: I am building Klui",
+    model: "m",
+    callModel: async () => JSON.stringify({ uses_context: true, brief: "Best way to build the Klui chat app", context: "" })
+  });
+  assert.deepEqual(brief, { brief: "Best way to build the Klui chat app", context: "", contextual: true });
+});
+
+test("Deep Research clarifications see the earlier conversation", async () => {
+  let body;
+  await generateClarifications({
+    query: "deep research this",
+    conversation: "User: We are building Klui on Expo",
+    config: { providers: { openrouter: { apiKey: "k", baseUrl: "https://example.test" } } },
+    modelClient: { chatCompletion: async (call) => { body = call.body; return "{\"questions\":[]}"; } }
+  });
+  const user = body.messages.find((message) => message.role === "user").content;
+  assert.match(user, /<conversation>\nUser: We are building Klui on Expo\n<\/conversation>/);
+  assert.match(user, /Deep Research request:\ndeep research this/);
+  assert.match(body.messages[0].content, /never ask about anything it settles/);
 });

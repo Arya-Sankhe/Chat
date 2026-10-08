@@ -3,36 +3,49 @@
 .research-mode-chip.hidden { display: none; }
 .research-mode-chip .research-mode-mark.hidden { display: none; }
 .research-mode-chip button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 0 2px; font: inherit; }
-/* Research card: one soft sheet. Klui narrates while it runs; the finished card reads like a cover. */
-.research-card { position: relative; width: min(760px, 100%); padding: 20px 22px 18px; border: 1px solid var(--border-light); border-radius: 18px; background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: research-card-in 380ms var(--ease-out) both; }
-.research-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 9px; margin-bottom: 10px; }
-.research-card-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; color: var(--text-secondary); }
-.research-card.is-active .research-card-icon { display: none; }
-.research-card.is-complete .research-card-icon { background: var(--text); color: var(--bg); }
-.research-card.is-complete .research-card-icon svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.research-card.is-stopped .research-card-icon { width: 8px; height: 8px; margin-inline: 5px; background: var(--text-tertiary); }
+/* Research card: compact while Klui works; a finished run reads like an answer with a file row. */
+.research-card { position: relative; width: min(560px, 100%); padding: 14px 16px; border: 1px solid var(--border-light); border-radius: 16px; background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: research-card-in 380ms var(--ease-out) both; }
+.research-card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.research-card-icon { display: inline-flex; flex: 0 0 auto; width: 16px; height: 16px; color: var(--text-secondary); }
+.research-card-icon svg, .research-artifact-icon svg, .research-artifact-action svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes research-card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .research-card-main { min-width: 0; }
-.research-card-kicker { color: var(--text-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.research-card-meta { display: inline-flex; flex-wrap: wrap; gap: 4px 9px; color: var(--text-tertiary); font-size: 12px; }
-.research-card-meta span::before { content: "·"; margin-right: 9px; }
-.research-card-main .research-card-title { display: block; font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; font-size: 21px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; }
-.research-card-live { margin-top: 12px; }
+.research-card-kicker { color: var(--text); font-size: 13px; font-weight: 600; }
+.research-card-meta { display: inline-flex; flex-wrap: wrap; gap: 4px 7px; color: var(--text-tertiary); font-size: 12.5px; }
+.research-card-meta span::before { content: "·"; margin-right: 7px; }
+.research-card-cancel { margin-left: auto; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.research-card-cancel:hover { background: var(--bg-secondary); color: var(--text); }
+.research-card-main .research-card-title { contain: inline-size; display: block; margin-top: 8px; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.research-card-live { margin-top: 10px; }
 .research-card-live .thinking-status.klui-bar { margin: 0; }
-.research-card-main p { display: -webkit-box; margin: 10px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 14.5px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.research-card-progress { position: relative; height: 2px; margin-top: 16px; overflow: hidden; border-radius: var(--radius-full); background: var(--border-light); }
+.research-card-main p { display: -webkit-box; margin: 8px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 13.5px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.research-card-progress { position: relative; height: 2px; margin-top: 12px; overflow: hidden; border-radius: var(--radius-full); background: var(--border-light); }
 .research-card-progress span { position: relative; display: block; height: 100%; overflow: hidden; background: var(--text); transform: scaleX(var(--research-progress, 0)); transform-origin: left center; transition: transform 600ms var(--ease-out); }
 .research-card-progress span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg) 70%, transparent), transparent); animation: research-shimmer 1.6s linear infinite; }
 @keyframes research-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-.research-card-footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 14px; }
-.research-card.is-active .research-card-footer { margin-top: 8px; margin-bottom: -6px; }
-.research-card-footer:not(:has(button)) { display: none; }
-.research-card-actions { display: flex; flex: 0 0 auto; gap: 7px; }
-.research-card-actions button.secondary { border-color: transparent; background: transparent; color: var(--text-secondary); }
-.research-card-actions button.secondary:hover { color: var(--text); background: var(--bg-secondary); }
-.research-card-actions button:not(.secondary) { border-radius: var(--radius-full); padding-inline: 16px; background: var(--text); color: var(--bg); border-color: var(--text); transition: transform 140ms var(--ease-out); }
-.research-card-actions button:not(.secondary):hover { transform: translateX(2px); }
-.research-card-actions button, .research-report-header button:not([role="menuitem"]):not([role="tab"]) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
+.research-result { width: min(720px, 100%); animation: research-card-in 380ms var(--ease-out) both; }
+.research-result-status { margin: 0 0 10px; color: var(--text-tertiary); font-size: 13.5px; }
+.research-result-status span::before { content: "·"; margin: 0 7px; }
+/* contain: the nowrap title must ellipsize, not widen the message column. */
+.research-artifact { contain: inline-size; --artifact-bg: #ffffff; --artifact-border: #e3e3e3; --artifact-bg-hover: #f7f7f8; display: flex; align-items: center; gap: 2px; max-width: 480px; padding: 4px; border: 1px solid var(--artifact-border); border-radius: 14px; background: var(--artifact-bg); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+body[data-mode="dark"] .research-artifact { --artifact-bg: #1e1e1e; --artifact-border: #333333; --artifact-bg-hover: #262626; box-shadow: none; }
+.research-artifact-open { display: flex; flex: 1 1 auto; align-items: center; gap: 12px; min-width: 0; padding: 7px 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background-color var(--motion-fast, 150ms) var(--ease-out); }
+.research-artifact-open:hover, .research-artifact-action:hover, .research-artifact-action[aria-expanded="true"] { background: var(--artifact-bg-hover); }
+.research-artifact-open:focus-visible, .research-artifact-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.research-artifact-icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 9px; border-radius: 9px; background: var(--bg-secondary); color: var(--text-secondary); }
+.research-artifact-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.research-artifact-info strong { overflow: hidden; font-size: 14px; font-weight: 600; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.research-artifact-info span { color: var(--text-secondary); font-size: 12.5px; line-height: 1.35; }
+.research-artifact-download { position: relative; flex: 0 0 auto; }
+.research-artifact-action { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 9px; border: 0; border-radius: 9px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.research-artifact-action:hover { color: var(--text); }
+.research-artifact-action[aria-busy="true"] { cursor: progress; animation: research-download-pulse 1.1s ease-in-out infinite; }
+@keyframes research-download-pulse { 50% { opacity: .4; } }
+.research-artifact-download .document-download-menu { top: calc(100% + 6px); right: 0; left: auto; width: 170px; border-radius: 10px; }
+.research-result-summary { margin-top: 14px; }
+.research-result-summary p { margin: 0; }
+.research-result-summary.is-error { color: var(--text-secondary); font-size: 15px; }
+.research-report-header button:not([role="menuitem"]):not([role="tab"]) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 7px 12px; font: inherit; font-size: 13px; font-weight: 650; cursor: pointer; }
 .research-report-header #researchCopy.copy-flash { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
 .research-report-view { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: var(--bg); color: var(--text); }
 .research-report-view.hidden { display: none; }
@@ -143,10 +156,7 @@
 @keyframes report-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 720px) {
-  .research-card { padding: 16px 16px 14px; border-radius: 16px; }
-  .research-card-main .research-card-title { font-size: 18px; }
-  .research-card-actions { width: 100%; }
-  .research-card-actions button { flex: 1; }
+  .research-artifact { max-width: 100%; }
   .research-report-header { gap: 8px; padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
   .research-report-icon { display: block; }
   .research-report-back span,
@@ -172,6 +182,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .research-card,
+  .research-result,
+  .research-artifact-action[aria-busy="true"],
   .research-card-progress span::after { animation: none; }
   .composer-tool,
   .send-btn,
@@ -184,7 +196,7 @@
   .profile-menu-item,
   .composer-action-menu-item,
   .model-option,
-  .research-card-actions button,
+  .research-artifact-open,
   .research-report-header button,
   .confirm-actions button,
   .rename-actions button,
