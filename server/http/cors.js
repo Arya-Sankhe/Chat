@@ -1,5 +1,6 @@
 const METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
 const HEADERS = "Authorization, Content-Type, Accept";
+const EXPOSED = "X-Speech-Engine";
 
 export function normalizeAllowedOrigins(values = []) {
   return [...new Set((values || [])
@@ -15,6 +16,7 @@ export function applyApiCors(req, res, allowedOrigins = []) {
     res.setHeader?.("Access-Control-Allow-Origin", origin);
     res.setHeader?.("Access-Control-Allow-Methods", METHODS);
     res.setHeader?.("Access-Control-Allow-Headers", HEADERS);
+    res.setHeader?.("Access-Control-Expose-Headers", EXPOSED);
     res.setHeader?.("Access-Control-Max-Age", "86400");
   }
   return { origin, allowed };

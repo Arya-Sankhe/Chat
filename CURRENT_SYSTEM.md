@@ -2,7 +2,7 @@
 
 > **HISTORICAL DOCUMENT — do not rely on this file.** This is the
 > May 28 2026 post-Stripe-removal snapshot, kept for history only. It
-> is stale in several places: web search is now SearXNG-primary (this
+> is stale in several places: web search is now TinyFish-primary (this
 > file still says Jina-primary / Brave-fallback), and it predates
 > `server/research/`, `server/documents/`, and `server/providers.js`.
 > For current architecture see `ARCHITECTURE.md` and

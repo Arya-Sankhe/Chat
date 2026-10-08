@@ -1043,7 +1043,8 @@ test("editable document revise returns replacement markdown without a chat messa
       R2_ACCOUNT_ID: "account-1",
       R2_ACCESS_KEY_ID: "r2-key",
       R2_SECRET_ACCESS_KEY: "r2-secret",
-      R2_BUCKET: "uploads"
+      R2_BUCKET: "uploads",
+      TINYFISH_API_KEY: "tinyfish-key"
     });
     const overrides = stubbedDeps({
       db: {

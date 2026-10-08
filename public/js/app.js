@@ -7804,11 +7804,12 @@ function saveVoicePrefs({ voice, speed }) {
   updateSetting("voiceChosen", true);
 }
 
-function pickVoiceMode({ first = false } = {}) {
+function pickVoiceMode({ first = false, engine } = {}) {
   const { voice, speed } = voicePrefs();
   return openVoicePicker({
     voice,
     speed,
+    engine,
     first,
     onSave: saveVoicePrefs,
     onError: showToast,
@@ -7842,7 +7843,7 @@ async function openVoiceMode() {
     },
     sendTurn: (text, hooks) => executeSend({ text, images: [], compareModels: [], voice: hooks }),
     prefs: voicePrefs,
-    pickVoice: () => pickVoiceMode(),
+    pickVoice: (options) => pickVoiceMode(options),
     escapeHtml,
     reducedMotion: prefersReducedMotion(),
     onToast: showToast,

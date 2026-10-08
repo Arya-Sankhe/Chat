@@ -14,17 +14,12 @@ services:
       ONLYOFFICE_PUBLIC_URL: ${ONLYOFFICE_PUBLIC_URL:-http://localhost:8082}
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-klui-local-onlyoffice-change-me}
       WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
-      SEARXNG_BASE_URL: http://searxng:8080
-      SEARXNG_ENGINES: ${SEARXNG_ENGINES:-duckduckgo,bing}
-      # Tor-backed DDG can take longer than a direct upstream request.
-      WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
+      # Speech: Pocket TTS first, Kokoro when both workers are busy. Empty = Kokoro only.
+      POCKET_TTS_URLS: ${POCKET_TTS_URLS-http://pocket-tts-1:8000,http://pocket-tts-2:8000}
       RESEARCH_QUEUE: ${RESEARCH_QUEUE:-local}
       TRANSCRIBE_QUEUE: ${TRANSCRIBE_QUEUE:-local}
       DOCUMENT_QUEUE: ${DOCUMENT_QUEUE:-local}
-    depends_on:
-      searxng:
-        condition: service_healthy
     restart: unless-stopped
 
   # Self-hosted Jina Reader for read_url. Private-only: no published ports;
@@ -46,6 +41,32 @@ services:
     cpus: "1.0"
     restart: unless-stopped
 
+  # Self-hosted Pocket TTS (Kyutai, int8, CPU) for voice mode and tutor calls. A model runs one
+  # generation at a time, so there are two workers, each with 2 threads; klui-chat queues between
+  # them and falls back to Kokoro when both are taken. Private-only: no published ports.
+  pocket-tts-1: &pocket-tts
+    build:
+      context: ./ops/pocket-tts
+    init: true
+    expose:
+      - "8000"
+    environment:
+      TTS_THREADS: "2"
+    volumes:
+      - pocket-tts-cache:/root/.cache
+    cpus: "2.0"
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  pocket-tts-2: *pocket-tts
+
   onlyoffice:
     image: onlyoffice/documentserver:9.3.1
     ports:
@@ -55,45 +76,6 @@ services:
       JWT_ENABLED: "true"
       # R2/S3 signed URLs break if DS attaches Authorization: Bearer on download.
       JWT_HEADER: AuthorizationJwt
-    restart: unless-stopped
-
-  searxng:
-    # Pin the known engine bundle; latest can silently change upstream
-    # request behavior and reintroduce bot-block regressions.
-    image: searxng/searxng:2026.8.22-9fea41204
-    depends_on:
-      tor:
-        condition: service_healthy
-    expose:
-      - "8080"
-    volumes:
-      - ./ops/searxng:/etc/searxng
-    environment:
-      SEARXNG_BASE_URL: http://searxng:8080/
-      SEARXNG_SECRET: ${SEARXNG_SECRET:-klui-local-searxng-change-me}
-    mem_limit: 512m
-    cpus: "0.75"
-    healthcheck:
-      test: ["CMD-SHELL", "wget --header='X-Forwarded-For: 127.0.0.1' --header='X-Real-IP: 127.0.0.1' -qO- 'http://127.0.0.1:8080/' >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-
-  # Private egress used only by SearXNG's DuckDuckGo engine. It has no
-  # published port; the application never talks to Tor directly.
-  tor:
-    build:
-      context: ./ops/tor
-    expose:
-      - "9050"
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 9050 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     restart: unless-stopped
 
   document-worker:
@@ -159,17 +141,11 @@ services:
         required: false
     environment:
       WEBSEARCH_PRIMARY_PROVIDER: ${WEBSEARCH_PRIMARY_PROVIDER:-tinyfish}
-      SEARXNG_BASE_URL: http://searxng:8080
-      SEARXNG_ENGINES: ${SEARXNG_ENGINES:-duckduckgo,bing}
-      WEBSEARCH_FETCH_TIMEOUT_MS: "20000"
       JINA_READER_BASE_URL: http://jina-reader:8081
       RESEARCH_WORKER_CONCURRENCY: ${RESEARCH_WORKER_CONCURRENCY:-3}
       RESEARCH_WORKER_POLL_MS: ${RESEARCH_WORKER_POLL_MS:-5000}
       RESEARCH_WORKER_MAX_POLL_MS: ${RESEARCH_WORKER_MAX_POLL_MS:-10000}
       RESEARCH_QUEUE: ${RESEARCH_QUEUE:-local}
-    depends_on:
-      searxng:
-        condition: service_healthy
     mem_limit: 512m
     cpus: "0.75"
     healthcheck:
@@ -187,3 +163,4 @@ services:
 
 volumes:
   transcriber-work:
+  pocket-tts-cache:

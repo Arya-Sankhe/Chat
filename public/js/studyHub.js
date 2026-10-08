@@ -3188,14 +3188,16 @@ export function createStudyHubController({
     voicePreview = { id, audio };
     els.studyCreateDialog.querySelectorAll(`[data-voice-preview="${CSS.escape(id)}"]`).forEach((node) => node.classList.add("is-playing"));
     audio.addEventListener("ended", () => { if (voicePreview?.audio === audio) stopVoicePreview(); });
+    // Tutor calls speak with Pocket TTS; podcasts are recorded with Kokoro. Same personas, different voices.
+    const url = createType === "tutor" ? `/audio/voices/pocket/${id}.mp3` : `/audio/voices/${id}.mp3`;
     try {
-      if (!voiceClips.has(id)) {
-        const response = await fetch(`/audio/voices/${id}.mp3`);
+      if (!voiceClips.has(url)) {
+        const response = await fetch(url);
         if (!response.ok) throw new Error("missing");
-        voiceClips.set(id, URL.createObjectURL(await response.blob()));
+        voiceClips.set(url, URL.createObjectURL(await response.blob()));
       }
       if (voicePreview?.audio !== audio) return;
-      audio.src = voiceClips.get(id);
+      audio.src = voiceClips.get(url);
       await audio.play();
     } catch {
       if (voicePreview?.audio === audio) stopVoicePreview();

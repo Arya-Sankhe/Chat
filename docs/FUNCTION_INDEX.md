@@ -444,7 +444,7 @@ regex substitutions) are deliberately not listed.
 
 ### `class WebSearchOrchestrator`, `readWebPage`, `formatResultsForModel`, `citationsFromResults` ← mixed
 - **Path**: `server/websearch/index.js`
-- **Responsibility**: The provider chain (TinyFish → SearXNG → Brave)
+- **Responsibility**: The provider chain (TinyFish → Brave)
   with per-provider circuit breaker, and `readUrl` / `readWebPage` for
   direct page reads (TinyFetch, then self-hosted Jina Reader, then
   hosted `r.jina.ai`). Exposes a normalized `{ok, results}` shape
@@ -456,7 +456,7 @@ regex substitutions) are deliberately not listed.
   `server/research/search.js`.
 - **Major dependencies**: `server/websearch/brave.js`,
   `server/websearch/deny-domains.js`, `server/websearch/jina.js`,
-  `server/websearch/searxng.js`, `server/websearch/tinyfetch.js`,
+  `server/websearch/relevance.js`, `server/websearch/tinyfetch.js`,
   `server/websearch/tinyfish.js`.
 
 ### `BUILTIN_ADULT_DENY_DOMAINS`, `mergeDenyDomains`, `filterDeniedDomains`, `isDeniedUrl`, `hostnameMatchesDenied`, `normalizeDenyDomain` ← pure
@@ -495,16 +495,13 @@ regex substitutions) are deliberately not listed.
 - **Major dependencies**: `server/websearch/jina.js` (for
   `WebSearchError`).
 
-### `searxngSearch`
-- **Path**: `server/websearch/searxng.js`
-- **Responsibility**: SearXNG `/search?format=json` caller with a
-  chat-tuned relevance re-ranker (tokenization, stopword filter,
-  host quality bonus, noise blacklist, GitHub-generic filter,
-  "restaurants"-term filter). Supports `raw: true` for deep
-  research.
-- **Callers**: `server/websearch/index.js`, `server/research/search.js`.
-- **Major dependencies**: `server/websearch/jina.js` (for
-  `WebSearchError`).
+### `selectRelevantResults`
+- **Path**: `server/websearch/relevance.js`
+- **Responsibility**: Provider-neutral relevance filter: drops results
+  that match too few query terms, ranks the rest by query and question
+  overlap, and keeps at most two per host.
+- **Callers**: `server/websearch/index.js`.
+- **Major dependencies**: none.
 
 ### `hashKey`, `class SearchCache`
 - **Path**: `server/websearch/cache.js`

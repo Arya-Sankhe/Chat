@@ -15,7 +15,7 @@ import {
   formatResultsForModel,
   readWebPage
 } from "../server/websearch/index.js";
-import { searxngSearch, selectRelevantResults } from "../server/websearch/searxng.js";
+import { selectRelevantResults } from "../server/websearch/relevance.js";
 import { tinyfishSearch } from "../server/websearch/tinyfish.js";
 import { tinyfetchRead } from "../server/websearch/tinyfetch.js";
 import { isPrivateHostname, jinaRead } from "../server/websearch/jina.js";
@@ -114,7 +114,6 @@ const baseConfig = {
   fetchTimeoutMs: 5000,
   maxToolCallsPerTurn: 3,
   denyDomains: [],
-  searxng: { baseUrl: "http://searxng:8080", engines: ["duckduckgo", "bing"] },
   tinyfish: { apiKey: "", apiKeys: [] },
   jina: { apiKey: "test-jina-key", backend: "google", engine: "direct" },
   brave: { apiKey: "test-brave-key" }
@@ -322,11 +321,13 @@ describe("deny domains", () => {
 describe("WebSearchOrchestrator", () => {
   after(() => restoreFetch());
 
-  test("config defaults to TinyFish-first with internal SearXNG fallback", () => {
+  test("config defaults to TinyFish-first, then Brave, then Jina when it has a key", () => {
     const config = loadConfig({});
     assert.equal(config.websearch.primaryProvider, "tinyfish");
-    assert.equal(config.websearch.searxng.baseUrl, "http://searxng:8080");
-    assert.deepEqual(config.websearch.searxng.engines, ["duckduckgo"]);
+    assert.equal(config.websearch.searxng, undefined);
+    assert.deepEqual(new WebSearchOrchestrator({ config: config.websearch }).resolveChain(), ["tinyfish", "brave", "jina"]);
+    // SearXNG was removed; an old env value falls back to the default.
+    assert.equal(loadConfig({ WEBSEARCH_PRIMARY_PROVIDER: "searxng" }).websearch.primaryProvider, "tinyfish");
     assert.equal(config.websearch.fetchTimeoutMs, 20_000);
     assert.equal(config.websearch.pageContentChars, 15_000);
     assert.equal(config.websearch.totalContextChars, 45_000);
@@ -375,38 +376,22 @@ describe("WebSearchOrchestrator", () => {
     });
   });
 
-  test("SearXNG failure uses free TinyFish before paid Brave", async () => {
-    const calls = [];
-    installFetch(async (url) => {
-      calls.push(String(url));
-      if (String(url).includes("searxng:8080")) return new Response("down", { status: 502 });
-      if (String(url).includes("api.search.tinyfish.ai")) {
-        return jsonResponse({ results: [{ title: "Tiny result", url: "https://example.com/tiny", snippet: "tiny query" }] });
-      }
-      throw new Error("Brave must not be called");
-    });
-
-    const config = { ...baseConfig, primaryProvider: "searxng", tinyfish: { apiKey: "test-tinyfish-key" } };
-    const result = await new WebSearchOrchestrator({ config }).search({ query: "tiny query" });
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, "tinyfish");
-    assert.equal(calls.length, 2);
-    assert.equal(calls.some((url) => url.includes("api.search.brave.com")), false);
-  });
-
-  test("TinyFish rate limiting falls back to SearXNG", async () => {
+  test("TinyFish rate limiting falls back to Brave", async () => {
     installFetch(async (url) => {
       if (String(url).includes("api.search.tinyfish.ai")) return new Response("rate limited", { status: 429 });
-      return jsonResponse({ results: [{ title: "SearX result", url: "https://example.com/searx", content: "fallback query" }] });
+      return jsonResponse({
+        grounding: { generic: [{ title: "Brave result", url: "https://example.com/brave", snippets: ["fallback query"] }] },
+        sources: {}
+      });
     });
 
     const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" } };
     const result = await new WebSearchOrchestrator({ config }).search({ query: "fallback query" });
     assert.equal(result.ok, true);
-    assert.equal(result.provider, "searxng");
+    assert.equal(result.provider, "brave");
   });
 
-  test("TinyFish retries the second key before falling back to SearXNG", async () => {
+  test("TinyFish retries the second key before falling back to Brave", async () => {
     const keys = [];
     installFetch(async (url, options) => {
       if (String(url).includes("api.search.tinyfish.ai")) {
@@ -414,7 +399,7 @@ describe("WebSearchOrchestrator", () => {
         if (keys.length === 1) return new Response("rate limited", { status: 429 });
         return jsonResponse({ results: [{ title: "Tiny result", url: "https://example.com/tiny", snippet: "fallback key" }] });
       }
-      throw new Error("SearXNG must not be called when the second TinyFish key works");
+      throw new Error("Brave must not be called when the second TinyFish key works");
     });
 
     const config = {
@@ -428,13 +413,10 @@ describe("WebSearchOrchestrator", () => {
     assert.deepEqual(keys, ["primary-key", "secondary-key"]);
   });
 
-  test("irrelevant TinyFish and SearXNG results fall through to Brave", async () => {
+  test("irrelevant TinyFish results fall through to Brave", async () => {
     installFetch(async (url) => {
       if (String(url).includes("api.search.tinyfish.ai")) {
         return jsonResponse({ results: [{ title: "Weather", url: "https://example.com/weather", snippet: "Rain tomorrow" }] });
-      }
-      if (String(url).includes("searxng:8080")) {
-        return jsonResponse({ results: [{ title: "Dictionary", url: "https://example.com/dictionary", content: "Word definition" }] });
       }
       return jsonResponse({
         grounding: { generic: [{ title: "Dubai restaurants", url: "https://example.com/food", snippets: ["Best places to eat in Dubai"] }] },
@@ -448,107 +430,38 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(result.provider, "brave");
   });
 
-  test("SearXNG search success returns normalized snippet-only results", async () => {
-    let capturedUrl;
-    let capturedOptions;
-    installFetch(async (url, options) => {
-      capturedUrl = new URL(String(url));
-      capturedOptions = options;
-      return jsonResponse({
-        results: [
-          {
-            url: "https://example.com/news",
-            title: "Latest AI News",
-            content: "A relevant search snippet about artificial intelligence.",
-            publishedDate: "2026-06-01"
-          },
-          {
-            url: "https://example.com/news",
-            title: "Duplicate",
-            content: "duplicate"
-          },
-          {
-            url: "https://example.org/other",
-            title: "Other AI News Result",
-            content: "Another artificial intelligence news snippet."
-          }
-        ]
-      });
-    });
-
-    const config = { ...baseConfig, primaryProvider: "searxng" };
-    const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({ query: "latest ai news", freshness: "week" });
-
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, "searxng");
-    assert.equal(result.results.length, 2);
-    assert.equal(result.results[0].title, "Latest AI News");
-    assert.equal(result.results[0].snippet, "A relevant search snippet about artificial intelligence.");
-    assert.equal(result.results[0].content, "");
-    assert.equal(result.results[0].publishedAt, "2026-06-01");
-    assert.equal(capturedUrl.origin, "http://searxng:8080");
-    assert.equal(capturedUrl.pathname, "/search");
-    assert.equal(capturedUrl.searchParams.get("format"), "json");
-    assert.equal(capturedUrl.searchParams.get("engines"), "duckduckgo,bing");
-    assert.equal(capturedUrl.searchParams.get("time_range"), "week");
-    assert.equal(capturedUrl.searchParams.get("safesearch"), "2");
-    assert.equal(capturedOptions.headers["x-forwarded-for"], "127.0.0.1");
-    assert.equal(capturedOptions.headers["x-real-ip"], "127.0.0.1");
-  });
-
-  test("SearXNG sends the query through unchanged with safesearch=2", async () => {
-    let capturedUrl;
-    installFetch(async (input) => {
-      capturedUrl = new URL(String(input));
-      return jsonResponse({ results: [] });
-    });
-    try {
-      await searxngSearch({
-        query: "deep research query about climate",
-        baseUrl: "http://searxng:8080",
-        engines: ["duckduckgo"]
-      });
-      assert.equal(capturedUrl.searchParams.get("safesearch"), "2");
-      assert.equal(capturedUrl.searchParams.get("format"), "json");
-      assert.equal(capturedUrl.searchParams.get("q"), "deep research query about climate");
-    } finally {
-      restoreFetch();
-    }
-  });
-
-  test("SearXNG filters generic retail and dictionary noise from local intent searches", async () => {
+  test("Search filters generic retail and dictionary noise from local intent searches", async () => {
     installFetch(async () => jsonResponse({
       results: [
         {
           url: "https://www.cntravellerme.com/story/best-beachfront-restaurants-dubai",
           title: "The 23 best beachfront restaurants in Dubai",
-          content: "Seafood spots, beach clubs, and restaurants around Dubai."
+          snippet: "Seafood spots, beach clubs, and restaurants around Dubai."
         },
         {
           url: "https://www.bestbuy.com/",
           title: "Best Buy | Official Online Store | Shop Now & Save",
-          content: "Shop electronics, appliances, and deals."
+          snippet: "Shop electronics, appliances, and deals."
         },
         {
           url: "https://dictionary.cambridge.org/dictionary/english/best",
           title: "BEST | English meaning - Cambridge Dictionary",
-          content: "Meaning of best in English."
+          snippet: "Meaning of best in English."
         },
         {
           url: "https://seafoodslurps.com/best-seafood-buffet-dubai",
           title: "2026 Ranked: Best Seafood Buffet in Dubai",
-          content: "A Dubai seafood buffet guide with restaurant picks."
+          snippet: "A Dubai seafood buffet guide with restaurant picks."
         },
         {
           url: "https://wordreference.com/definition/best",
           title: "best - WordReference.com Dictionary of English",
-          content: "Dictionary entry."
+          snippet: "Dictionary entry."
         }
       ]
     }));
 
-    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" }, brave: { apiKey: "" } };
     const orchestrator = new WebSearchOrchestrator({ config });
     const result = await orchestrator.search({ query: "best seafood restuarents dubai?", numResults: 5 });
 
@@ -560,43 +473,43 @@ describe("WebSearchOrchestrator", () => {
     assert.deepEqual(result.results.map((entry) => entry.index), [1, 2]);
   });
 
-  test("SearXNG keeps Reddit-style results while dropping generic shopping noise", async () => {
+  test("Search keeps Reddit-style results while dropping generic shopping noise", async () => {
     installFetch(async () => jsonResponse({
       results: [
         {
           url: "https://www.bestbuy.com/",
           title: "Best Buy | Official Online Store | Shop Now & Save",
-          content: "Shop electronics."
+          snippet: "Shop electronics."
         },
         {
           url: "https://www.reddit.com/r/fragrance/comments/cheap_perfume/",
           title: "What is your best cheap perfume that gets so many compliments?",
-          content: "Reddit users discuss budget fragrances for men."
+          snippet: "Reddit users discuss budget fragrances for men."
         },
         {
           url: "https://dictionary.cambridge.org/dictionary/english/top",
           title: "TOP | English meaning - Cambridge Dictionary",
-          content: "Meaning of top in English."
+          snippet: "Meaning of top in English."
         },
         {
           url: "https://shop.topsmarkets.com/",
           title: "Tops Markets Delivery or Pickup Near Me",
-          content: "Grocery delivery."
+          snippet: "Grocery delivery."
         },
         {
           url: "https://www.reddit.com/r/AskMen/comments/affordable_fragrance/",
           title: "Which perfumes smell great but aren't expensive?",
-          content: "Men recommend affordable perfume and fragrance options."
+          snippet: "Men recommend affordable perfume and fragrance options."
         },
         {
           url: "https://www.canva.com/",
           title: "Canva: Visual Suite for Everyone",
-          content: "Design anything."
+          snippet: "Design anything."
         }
       ]
     }));
 
-    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" }, brave: { apiKey: "" } };
     const orchestrator = new WebSearchOrchestrator({ config });
     const result = await orchestrator.search({
       query: "can u give me a quick top 5 cheap perfumes, tell me based on what real people are saying on stuff like reddit for men",
@@ -610,94 +523,80 @@ describe("WebSearchOrchestrator", () => {
     ]);
   });
 
-  test("SearXNG prefers relevant app-development sources over generic GitHub and word noise", async () => {
-    let capturedUrl;
-    installFetch(async (url) => {
-      capturedUrl = new URL(String(url));
-      return jsonResponse({
-        results: [
+  test("relevance filter prefers app-development sources over generic GitHub and word noise", () => {
+    const candidates = [
           {
             url: "https://restaurantji.com/ga/chatsworth/",
             title: "THE 15 BEST Restaurants in Chatsworth, GA - With Menus, Reviews",
-            content: "Restaurant menus and local food reviews."
+            snippet: "Restaurant menus and local food reviews."
           },
           {
             url: "https://fontawesome.com/",
             title: "Font Awesome",
-            content: "Icon library and toolkit."
+            snippet: "Icon library and toolkit."
           },
           {
             url: "https://mrmrsenglish.com/100-synonyms-for-awesome/",
             title: "100 Synonyms for Awesome in English with their Pictures",
-            content: "Vocabulary examples."
+            snippet: "Vocabulary examples."
           },
           {
             url: "https://cdnjs.com/libraries/font-awesome",
             title: "font-awesome - Libraries - cdnjs - The #1 free and open source CDN",
-            content: "CDN assets for Font Awesome."
+            snippet: "CDN assets for Font Awesome."
           },
           {
             url: "https://github.com/",
             title: "GitHub · Change is constant. GitHub keeps you ahead.",
-            content: "GitHub homepage."
+            snippet: "GitHub homepage."
           },
           {
             url: "https://www.linkedin.com/company/github",
             title: "GitHub - LinkedIn",
-            content: "Company profile."
+            snippet: "Company profile."
           },
           {
             url: "https://github.dev/",
             title: "github.dev - Visual Studio Code for the Web",
-            content: "Open GitHub repositories in a browser editor."
+            snippet: "Open GitHub repositories in a browser editor."
           },
           {
             url: "https://github.com/capacitor-community/awesome-capacitor",
             title: "GitHub - capacitor-community/awesome-capacitor: A curated list of Capacitor plugins",
-            content: "A repository for Capacitor plugins and resources for Android, iOS, and mobile app development."
+            snippet: "A repository for Capacitor plugins and resources for Android, iOS, and mobile app development."
           },
           {
             url: "https://github.com/topics/mobile-app-development",
             title: "mobile-app-development · GitHub Topics",
-            content: "GitHub repositories for Android, iOS, React Native, Flutter, Expo, and mobile app development."
+            snippet: "GitHub repositories for Android, iOS, React Native, Flutter, Expo, and mobile app development."
           },
           {
             url: "https://docs.expo.dev/",
             title: "Expo Documentation",
-            content: "Build native Android and iOS apps with React Native, Expo, and app development tools."
+            snippet: "Build native Android and iOS apps with React Native, Expo, and app development tools."
           },
           {
             url: "https://capacitorjs.com/docs",
             title: "Capacitor Documentation",
-            content: "Capacitor lets web developers build native iOS and Android apps from one codebase."
+            snippet: "Capacitor lets web developers build native iOS and Android apps from one codebase."
           }
-        ]
-      });
-    });
+    ];
+    const query = "Can you find me the best skills on a GitHub repo for making an Android app or iOS app, just like an app in general? The best GitHub skills to have the best design and code quality for making and building apps through AI agents.";
+    const results = selectRelevantResults(candidates, query, query, 8);
 
-    const config = { ...baseConfig, primaryProvider: "searxng" };
-    const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({
-      query: "Can you find me the best skills on a GitHub repo for making an Android app or iOS app, just like an app in general? The best GitHub skills to have the best design and code quality for making and building apps through AI agents.",
-      numResults: 10
-    });
-
-    assert.equal(result.ok, true);
-    assert.equal(capturedUrl.searchParams.get("q"), "Can you find me the best skills on a GitHub repo for making an Android app or iOS app, just like an app in general? The best GitHub skills to have the best design and code quality for making and building apps through AI agents.");
-    assert.deepEqual(new Set(result.results.map((entry) => entry.url)), new Set([
+    assert.deepEqual(new Set(results.map((entry) => entry.url)), new Set([
       "https://github.com/capacitor-community/awesome-capacitor",
       "https://github.com/topics/mobile-app-development",
       "https://docs.expo.dev/",
       "https://capacitorjs.com/docs",
-      // Kept: with the query sent unchanged, github.dev genuinely matches github+repo+code.
-      // The word noise (restaurants, synonyms, font icons) and generic GitHub/LinkedIn
-      // landing pages are still rejected. Excluding github.dev would need a reranker (skipped).
+      // Kept: github.dev genuinely matches github+repo+code. The word noise (restaurants,
+      // synonyms, font icons) and generic GitHub/LinkedIn landing pages are still rejected.
       "https://github.dev/"
     ]));
-    assert.equal(result.results.length, 5);
+    assert.equal(results.length, 5);
   });
 
-  test("SearXNG rejects filler that matches too few query terms instead of returning it", async () => {
+  test("Search rejects filler that matches too few query terms instead of returning it", async () => {
     installFetch(async () => jsonResponse({
       results: [
         { url: "https://example.com/a", title: "Kettle overview", content: "Product page." },
@@ -707,7 +606,7 @@ describe("WebSearchOrchestrator", () => {
       ]
     }));
 
-    const config = { ...baseConfig, primaryProvider: "searxng" };
+    const config = { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" }, brave: { apiKey: "" } };
     const orchestrator = new WebSearchOrchestrator({ config });
     const result = await orchestrator.search({
       query: "kettle thermostat warranty manual",
@@ -718,22 +617,6 @@ describe("WebSearchOrchestrator", () => {
     // a 4-term query), so the filter returns nothing rather than filler.
     assert.equal(result.ok, true);
     assert.deepEqual(result.results, []);
-  });
-
-  test("empty SearXNG results skip Jina and reach the final fallback", async () => {
-    const calls = [];
-    installFetch(async (url) => {
-      calls.push(String(url));
-      return jsonResponse({ results: [] });
-    });
-
-    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
-    const result = await orchestrator.search({ query: "best places to eat in Dubai", numResults: 5 });
-
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, "brave");
-    assert.deepEqual(result.results, []);
-    assert.equal(calls.filter((url) => url.includes("s.jina.ai/search")).length, 0);
   });
 
   test("Jina search success returns normalized results", async () => {
@@ -800,100 +683,6 @@ describe("WebSearchOrchestrator", () => {
     assert.equal(stage, "brave");
     assert.equal(result.results[0].title, "Brave A");
     assert.equal(result.results[0].publishedAt, "2026-05-22");
-  });
-
-  test("SearXNG errors skip Jina and use Brave only as paid fallback", async () => {
-    const calls = [];
-    installFetch(async (url) => {
-      calls.push(String(url));
-      if (String(url).includes("searxng:8080")) {
-        return new Response("upstream busy", { status: 502 });
-      }
-      return jsonResponse({
-        grounding: {
-          generic: [{ url: "https://b.example/1", title: "Brave A", snippets: ["brave snippet"] }],
-          map: []
-        },
-        sources: { "https://b.example/1": { title: "Brave A", hostname: "b.example" } }
-      });
-    });
-
-    const config = { ...baseConfig, primaryProvider: "searxng" };
-    const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({ query: "jina" });
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, "brave");
-    assert.equal(calls.length, 2);
-    assert.equal(calls.some((url) => url.includes("s.jina.ai/search")), false);
-    assert.equal(calls.some((url) => url.includes("api.search.brave.com")), true);
-  });
-
-  test("SearXNG all-unresponsive JSON uses Brave fallback", async () => {
-    installFetch(async (url) => {
-      if (String(url).includes("searxng:8080")) {
-        return jsonResponse({
-          results: [],
-          unresponsive_engines: [["duckduckgo", "Suspended"], ["bing", "Suspended"]]
-        });
-      }
-      return jsonResponse({
-        grounding: {
-          generic: [{ url: "https://b.example/1", title: "Brave A", snippets: ["brave snippet"] }],
-          map: []
-        },
-        sources: { "https://b.example/1": { title: "Brave A", hostname: "b.example" } }
-      });
-    });
-
-    const result = await new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } }).search({ query: "jina" });
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, "brave");
-  });
-
-  test("SearXNG 403 surfaces a JSON-format configuration error", async () => {
-    installFetch(async () => new Response("json disabled", { status: 403 }));
-    const config = {
-      ...baseConfig,
-      primaryProvider: "searxng",
-      jina: { ...baseConfig.jina, apiKey: "" },
-      brave: { apiKey: "" }
-    };
-    const orchestrator = new WebSearchOrchestrator({ config });
-    const result = await orchestrator.search({ query: "json disabled" });
-    assert.equal(result.ok, false);
-    assert.equal(result.error.provider, "searxng");
-    assert.equal(result.error.status, 403);
-    assert.match(result.error.message, /Enable `search\.formats/);
-  });
-
-  test("SearXNG web_search does not auto-read pages; readUrl still uses Jina Reader", async () => {
-    const called = [];
-    installFetch(async (url) => {
-      called.push(String(url));
-      if (String(url).includes("searxng:8080")) {
-        return jsonResponse({
-          results: [{ url: "https://example.com/a", title: "A", content: "snippet A" }]
-        });
-      }
-      if (String(url).startsWith("https://r.jina.ai/")) {
-        return jsonResponse({ data: { title: "Read A", content: "full page A" } });
-      }
-      throw new Error(`unexpected URL ${url}`);
-    });
-
-    const config = { ...baseConfig, primaryProvider: "searxng" };
-    const orchestrator = new WebSearchOrchestrator({ config });
-    const search = await orchestrator.search({ query: "snippet only" });
-    assert.equal(search.ok, true);
-    assert.equal(search.provider, "searxng");
-    assert.equal(called.length, 1);
-    assert.equal(called.some((url) => url.startsWith("https://r.jina.ai/")), false);
-
-    const read = await orchestrator.readUrl({ url: "https://example.com/a" });
-    assert.equal(read.ok, true);
-    assert.equal(read.provider, "jina");
-    assert.equal(read.content, "full page A");
-    assert.equal(called.some((url) => url === "https://r.jina.ai/https://example.com/a"), true);
   });
 
   test("Brave current LLM Context schema returns normalized context", async () => {
@@ -1574,7 +1363,7 @@ describe("tool", () => {
       config: { websearch: { maxToolCallsPerTurn: 1 } },
       signal: new AbortController().signal,
       websearch: {
-        search: async () => ({ ok: true, provider: "searxng", query: "latest", results: [] })
+        search: async () => ({ ok: true, provider: "tinyfish", query: "latest", results: [] })
       },
       onUpstreamEvent: () => {},
       onToolEvent: (event) => toolEvents.push(event)
@@ -1889,7 +1678,7 @@ describe("tool", () => {
       websearch: {
         search: async () => {
           searchCalls += 1;
-          return { ok: true, provider: "searxng", query: "latest", results: [] };
+          return { ok: true, provider: "tinyfish", query: "latest", results: [] };
         }
       },
       onUpstreamEvent: () => {}
@@ -1928,7 +1717,7 @@ describe("tool", () => {
       websearch: {
         search: async () => ({
           ok: true,
-          provider: "searxng",
+          provider: "tinyfish",
           query: "latest",
           results: [{
             index: 1,
@@ -2272,7 +2061,7 @@ describe("tool", () => {
 describe("Phase 5 relevance and reader regression", () => {
   after(() => restoreFetch());
 
-  const searxngPayload = (results) => jsonResponse({ results });
+  const tinyfishPayload = (results) => jsonResponse({ results });
 
   test("original-question relevance outranks a query-only match", () => {
     const candidates = [
@@ -2553,18 +2342,18 @@ describe("Phase 5 relevance and reader regression", () => {
 
   test("acceptance: durasol/facade query rejects CNKI, speakers, and YouTube filler", async () => {
     installFetch(async (url) => {
-      if (String(url).includes("searxng:8080")) {
-        return searxngPayload([
-          { url: "https://www.jotun.com/durasol-pvdf-facade", title: "Durasol PVDF vs SDF coatings for aluminium facades", content: "Comparison of PVDF, SDF and Durasol coil coatings for aluminium facade cladding." },
-          { url: "https://coatings.example/durasol-4003-tds", title: "Jotun Durasol 4003 TDS", content: "Durasol 4003 PVDF facade coating technical data sheet for aluminium." },
-          { url: "https://kns.cnki.net/kcms/detail/123", title: "PVDF ultrafiltration membrane study", content: "Academic research paper on PVDF separation membranes." },
-          { url: "https://audiogear.example/pvdf-tweeters", title: "PVDF piezo speakers and tweeters", content: "Best PVDF film speaker drivers for home audio in 2026." },
-          { url: "https://support.google.com/youtube/answer/123", title: "Fix YouTube playback issues", content: "Troubleshoot streaming and video quality on YouTube." }
+      if (String(url).includes("api.search.tinyfish.ai")) {
+        return tinyfishPayload([
+          { url: "https://www.jotun.com/durasol-pvdf-facade", title: "Durasol PVDF vs SDF coatings for aluminium facades", snippet: "Comparison of PVDF, SDF and Durasol coil coatings for aluminium facade cladding." },
+          { url: "https://coatings.example/durasol-4003-tds", title: "Jotun Durasol 4003 TDS", snippet: "Durasol 4003 PVDF facade coating technical data sheet for aluminium." },
+          { url: "https://kns.cnki.net/kcms/detail/123", title: "PVDF ultrafiltration membrane study", snippet: "Academic research paper on PVDF separation membranes." },
+          { url: "https://audiogear.example/pvdf-tweeters", title: "PVDF piezo speakers and tweeters", snippet: "Best PVDF film speaker drivers for home audio in 2026." },
+          { url: "https://support.google.com/youtube/answer/123", title: "Fix YouTube playback issues", snippet: "Troubleshoot streaming and video quality on YouTube." }
         ]);
       }
       throw new Error(`unexpected URL ${url}`);
     });
-    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
+    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" }, brave: { apiKey: "" } } });
     const result = await orchestrator.search({ query: "pvdf vs sdf vs durasol for alu, imiu, facade" });
     const urls = result.results.map((r) => r.url);
     assert.equal(result.ok, true);
@@ -2575,17 +2364,17 @@ describe("Phase 5 relevance and reader regression", () => {
 
   test("acceptance: Jotun Durasol 4003 TDS query returns the data sheet, not academic or video noise", async () => {
     installFetch(async (url) => {
-      if (String(url).includes("searxng:8080")) {
-        return searxngPayload([
-          { url: "https://www.jotun.com/durasol-4003", title: "Jotun Durasol 4003 Technical Data Sheet", content: "Durasol 4003 PVDF coating TDS from Jotun for aluminium facades." },
-          { url: "https://kns.cnki.net/durasol-study", title: "Durasol coating academic study", content: "Research on coil coating durability." },
-          { url: "https://support.google.com/youtube/answer/999", title: "YouTube help", content: "Fix playback issues." },
-          { url: "https://audiogear.example/4003-amp", title: "Model 4003 stereo amplifier", content: "4003 series speaker amplifier review." }
+      if (String(url).includes("api.search.tinyfish.ai")) {
+        return tinyfishPayload([
+          { url: "https://www.jotun.com/durasol-4003", title: "Jotun Durasol 4003 Technical Data Sheet", snippet: "Durasol 4003 PVDF coating TDS from Jotun for aluminium facades." },
+          { url: "https://kns.cnki.net/durasol-study", title: "Durasol coating academic study", snippet: "Research on coil coating durability." },
+          { url: "https://support.google.com/youtube/answer/999", title: "YouTube help", snippet: "Fix playback issues." },
+          { url: "https://audiogear.example/4003-amp", title: "Model 4003 stereo amplifier", snippet: "4003 series speaker amplifier review." }
         ]);
       }
       throw new Error(`unexpected URL ${url}`);
     });
-    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "searxng" } });
+    const orchestrator = new WebSearchOrchestrator({ config: { ...baseConfig, primaryProvider: "tinyfish", tinyfish: { apiKey: "test-tinyfish-key" }, brave: { apiKey: "" } } });
     const result = await orchestrator.search({ query: "Jotun Durasol 4003 TDS" });
     const urls = result.results.map((r) => r.url);
     assert.equal(result.ok, true);
@@ -2877,4 +2666,17 @@ test("a call that hangs before its headers or mid-answer is stopped and retried"
   });
   assert.equal(result.accumulated.content, "done");
   assert.equal(bodies.length, 2);
+});
+
+test("a secondary TinyFish key alone enables web search and Deep Research", async () => {
+  const { configuredServices } = await import("../server/config.js");
+  const services = configuredServices(loadConfig({
+    TINYFISH_API_KEY_2: "second-key",
+    OPENROUTER_API_KEY: "or-key",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "service",
+    RESEARCH_ENABLED: "true"
+  }));
+  assert.equal(services.websearch, true);
+  assert.equal(services.research, true);
 });

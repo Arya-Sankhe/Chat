@@ -7,6 +7,7 @@ import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { resolveProvider } from "../providers.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
+import { createSessionStore, createSpeechSession, pocketPool } from "../speech/engine.js";
 import { normalizeVoiceModeSpeed, normalizeVoiceModeVoice } from "../speech/voices.js";
 import { TTS_CREDITS_PER_CHAR, TTS_MODEL, speakable, synthesizeSpeech } from "../study/podcast.js";
 import { requireChatContext } from "./context.js";
@@ -19,8 +20,21 @@ const CONTEXT_TTL_MS = 60_000;
 const CONTEXT_CACHE_MAX = 500;
 const contextCache = new Map();
 
+const speechSessions = createSessionStore();
+
 export function clearVoiceContextCache() {
   contextCache.clear();
+  speechSessions.clear();
+}
+
+// The browser hanging up (the user interrupted) cancels the synthesis, including a queued one.
+// Set up before the first await, so a hang-up during sign-in checks is not missed.
+function closeSignal(req, res) {
+  const controller = new AbortController();
+  const abort = () => { if (!res.writableEnded) controller.abort(new Error("client_closed")); };
+  if (res.destroyed || req.destroyed) abort();
+  else res.on?.("close", abort);
+  return req.signal ? AbortSignal.any([req.signal, controller.signal]) : controller.signal;
 }
 
 function voiceContext(req, config) {
@@ -58,8 +72,9 @@ export async function handleVoiceTranscribe(req, res, config) {
   sendJson(res, 200, { text });
 }
 
-export async function handleVoiceSpeech(req, res, config, { tts = synthesizeSpeech } = {}) {
+export async function handleVoiceSpeech(req, res, config, { tts = synthesizeSpeech, pool = pocketPool(config) } = {}) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const signal = closeSignal(req, res);
   const context = await voiceContext(req, config);
   enforceRateLimit(req, "voice-tts", 240, 60_000, context.user.id);
   const body = await parseJsonBody(req, 16 * 1024);
@@ -68,32 +83,50 @@ export async function handleVoiceSpeech(req, res, config, { tts = synthesizeSpee
   if (text.length > VOICE_SPEECH_MAX_CHARS) throw new HttpError(413, "That is too much to say at once.");
   const voice = normalizeVoiceModeVoice(body.voice);
   const speed = normalizeVoiceModeSpeed(body.speed);
+  // Clients that predate Pocket send no session and keep Kokoro, which matches their bundled previews.
+  const sessionId = typeof body.session === "string" && /^[\w-]{8,64}$/.test(body.session) ? body.session : "";
+  const speech = sessionId
+    ? speechSessions.get(`${context.user.id}:${sessionId}`, () => createSpeechSession({ pool, kokoro: tts }))
+    : createSpeechSession({ pool: null, kokoro: tts });
+  const reply = Number.isSafeInteger(body.reply) ? body.reply : 0;
+  // Requests of one reply share its number. A request from an older reply comes from speech the
+  // user already cut off; it must not touch the current reply's engine state.
+  if (reply < (speech.clientReply ?? -1)) throw new HttpError(409, "That reply was interrupted.");
+  if (reply > (speech.clientReply ?? -1)) {
+    speech.clientReply = reply;
+    speech.beginReply();
+  }
+  if (signal.aborted) return; // hung up during the checks: nothing to say, nothing to bill
   const provider = resolveProvider("openrouter", config);
   const meter = createModelUsageMeter({
     db: context.db,
     userId: context.user.id,
     subscription: context.subscription,
     plan: context.plan,
-    signal: req.signal,
+    signal,
     meteringMode: config.desktop.meteringMode,
     reservationCredits: VOICE_SPEECH_RESERVATION
   });
-  await meter.runReserved({ apiKey: provider.apiKey, baseUrl: provider.baseUrl, providerId: "openrouter", body: { model: TTS_MODEL }, signal: req.signal }, async () => {
+  await meter.runReserved({ apiKey: provider.apiKey, baseUrl: provider.baseUrl, providerId: "openrouter", body: { model: TTS_MODEL }, signal }, async () => {
     let audio;
+    let engine;
     try {
-      audio = await tts({ config, text, voice, speed, signal: req.signal });
+      ({ audio, engine } = await speech.speak({ config, text, voice, speed, signal }));
     } catch (error) {
-      if (req.signal?.aborted) throw error;
+      if (signal.aborted) throw error;
       throw new HttpError(502, "Could not speak that. Try again.");
     }
+    if (signal.aborted) throw signal.reason; // nobody is listening any more: release, do not bill
     // The audio goes out before the usage settles, so playback never waits on metering.
     res.writeHead(200, {
       "content-type": "audio/mpeg",
       "content-length": audio.length,
-      "cache-control": "no-store"
+      "cache-control": "no-store",
+      // Which voice set this conversation uses, so the voice picker previews the right one.
+      "x-speech-engine": engine
     });
     res.end(audio);
-    return { result: null, usage: { cost: text.length * TTS_CREDITS_PER_CHAR, characters: text.length } };
+    return { result: null, usage: { cost: text.length * TTS_CREDITS_PER_CHAR, characters: text.length, engine } };
   }).catch((error) => {
     if (!res.headersSent) throw error; // a late metering failure cannot take back sent audio
   });

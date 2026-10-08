@@ -2,7 +2,7 @@
  * Shared hostname deny-list for web search and Deep Research.
  *
  * Layered adult filtering (defense in depth):
- *   1. Engine safe-search (SearXNG safesearch=2 / Brave safesearch=strict)
+ *   1. Engine safe-search (Brave safesearch=strict)
  *   2. Heuristic hostname classifier (TLDs + token patterns below)
  *   3. Curated BUILTIN_ADULT_DENY_DOMAINS (backstop for misses like spankbang.com)
  *   4. WEBSEARCH_DENY_DOMAINS / caller extras (additive — never a replacement)

@@ -67,7 +67,7 @@ function readSearchMode(value) {
 
 function readSearchProvider(value) {
   const provider = clean(value || "tinyfish").toLowerCase();
-  if (["searxng", "tinyfish", "jina", "brave"].includes(provider)) return provider;
+  if (["tinyfish", "jina", "brave"].includes(provider)) return provider;
   return "tinyfish";
 }
 
@@ -143,6 +143,10 @@ export function loadConfig(env = process.env) {
       deepinfra: {
         apiKey: clean(env.DEEPINFRA_API_KEY)
       }
+    },
+    speech: {
+      // Self-hosted Pocket TTS workers (ops/pocket-tts), tried before Kokoro. Empty = Kokoro only.
+      pocketUrls: readList(env.POCKET_TTS_URLS, []).map(cleanUrl).filter(Boolean)
     },
     desktop: {
       oauthEnabled: readBoolean(env.DESKTOP_OAUTH_ENABLED, false),
@@ -310,12 +314,6 @@ export function loadConfig(env = process.env) {
         .split(",")
         .map((entry) => entry.trim().toLowerCase())
         .filter(Boolean),
-      searxng: {
-        baseUrl: cleanUrl(env.SEARXNG_BASE_URL) || "http://searxng:8080",
-        // Keyless engines are the paid-search-free primary path. Individual
-        // upstream failures are isolated by SearXNG; TinyFish is free fallback.
-        engines: readList(env.SEARXNG_ENGINES, ["duckduckgo"])
-      },
       tinyfish: {
         apiKey: clean(env.TINYFISH_API_KEY),
         apiKeys: [clean(env.TINYFISH_API_KEY), clean(env.TINYFISH_API_KEY_2), clean(env.TINYFISH_API_KEY_3)].filter(Boolean)
@@ -384,6 +382,11 @@ export function loadConfig(env = process.env) {
   };
 }
 
+// Any key the search chain can use (TinyFish keys 2 and 3 count on their own).
+function hasSearchProvider(websearch) {
+  return Boolean(websearch?.tinyfish?.apiKeys?.length || websearch?.tinyfish?.apiKey || websearch?.jina?.apiKey || websearch?.brave?.apiKey);
+}
+
 export function configuredServices(config) {
   return {
     openrouter: Boolean(config.providers?.openrouter?.apiKey),
@@ -391,10 +394,10 @@ export function configuredServices(config) {
     supabase: Boolean(config.supabase.url && config.supabase.anonKey && config.supabase.serviceRoleKey),
     access: config.access.mode === "testing" || config.access.mode === "subscription",
     r2: Boolean(config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
-    websearch: Boolean(config.websearch.searxng?.baseUrl || config.websearch.tinyfish?.apiKey || config.websearch.jina?.apiKey || config.websearch.brave?.apiKey),
+    websearch: hasSearchProvider(config.websearch),
     weather: Boolean(config.weather?.apiKey),
     documents: Boolean(config.documents.enabled && config.supabase.url && config.supabase.serviceRoleKey && config.r2.endpoint && config.r2.accessKeyId && config.r2.secretAccessKey && config.r2.bucket),
-    research: Boolean(config.research?.enabled && config.websearch?.searxng?.baseUrl && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)
+    research: Boolean(config.research?.enabled && hasSearchProvider(config.websearch) && config.supabase.url && config.supabase.serviceRoleKey && config.providers?.openrouter?.apiKey)
   };
 }
 

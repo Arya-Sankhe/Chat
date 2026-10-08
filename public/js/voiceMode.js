@@ -1,7 +1,7 @@
 // Chat voice mode: a hands-free conversation with Klui.
 // The browser records each turn (Grok transcribes it), the reply streams through the normal
-// chat pipeline with the short voice prompt, and it is spoken sentence by sentence with Kokoro
-// while the model is still writing. Turn-taking and the orb come from the AI tutor call.
+// chat pipeline with the short voice prompt, and it is spoken sentence by sentence (Pocket TTS,
+// or Kokoro when Pocket is full) while the model is still writing. Turn-taking and the orb come from the AI tutor call.
 import { CHIMES, createOrb, endOfTurnSilence, looksComplete, playChime } from "./studyTutor.js";
 import { createSatellites } from "./voiceSatellites.js";
 
@@ -13,7 +13,7 @@ export const VOICE_OPTIONS = [
   { id: "am_puck", name: "Spark", tone: "Upbeat and lively", palette: { a: [244, 196, 56], b: [255, 228, 128], c: [255, 244, 190], glow: [250, 216, 108] } },
   { id: "af_bella", name: "Velvet", tone: "Smooth, expressive", palette: { a: [158, 134, 240], b: [210, 196, 255], c: [234, 226, 255], glow: [188, 170, 248] } },
   { id: "am_fenrir", name: "Ember", tone: "Deep, grounded", palette: { a: [238, 110, 112], b: [255, 178, 174], c: [255, 214, 210], glow: [244, 150, 148] } },
-  { id: "bf_emma", name: "Willow", tone: "Calm, British", palette: { a: [118, 200, 118], b: [184, 236, 166], c: [218, 246, 206], glow: [158, 220, 148] } },
+  { id: "bf_emma", name: "Willow", tone: "Calm and clear", palette: { a: [118, 200, 118], b: [184, 236, 166], c: [218, 246, 206], glow: [158, 220, 148] } },
   { id: "am_michael", name: "Harbor", tone: "Steady and clear", palette: { a: [108, 170, 240], b: [174, 214, 255], c: [214, 234, 255], glow: [148, 196, 246] } }
 ];
 export const VOICE_SPEEDS = [
@@ -181,13 +181,18 @@ export function previewLine(voice) {
 }
 
 // The picker's previews are fixed, so they are recorded once (scripts/generate-voice-previews.mjs)
-// and served as static files instead of being synthesized on every pick.
-export function voicePreviewUrl(voice, speed) {
-  return `/audio/voice-mode/${normalizeVoiceId(voice)}-${Math.round(normalizeVoiceSpeed(speed) * 100)}.mp3`;
+// and served as static files instead of being synthesized on every pick. Each persona sounds
+// different on Pocket TTS (the default) and Kokoro (the fallback), so there is a set for each and
+// a call previews the engine it is actually using.
+export const DEFAULT_SPEECH_ENGINE = "pocket";
+
+export function voicePreviewUrl(voice, speed, engine = DEFAULT_SPEECH_ENGINE) {
+  const folder = engine === "kokoro" ? "voice-mode" : "voice-mode/pocket";
+  return `/audio/${folder}/${normalizeVoiceId(voice)}-${Math.round(normalizeVoiceSpeed(speed) * 100)}.mp3`;
 }
 
-async function fetchVoicePreview(voice, speed) {
-  const response = await fetch(voicePreviewUrl(voice, speed));
+async function fetchVoicePreview(voice, speed, engine) {
+  const response = await fetch(voicePreviewUrl(voice, speed, engine));
   if (!response.ok) throw new Error("Could not play the preview.");
   return response.arrayBuffer();
 }
@@ -222,7 +227,7 @@ function paintSpeedThumb(root) {
  * arrow keys or a swipe. Previews play the prerecorded clips (`loadPreview(voice, speed)` resolves to
  * MP3 bytes); `onChange({ voice, speed })` fires on every pick. Returns { value, step, preview, stopPreview, destroy }.
  */
-export function bindVoicePicker(root, { voice, speed, loadPreview = fetchVoicePreview, onChange, onError, reducedMotion = false }) {
+export function bindVoicePicker(root, { voice, speed, engine = DEFAULT_SPEECH_ENGINE, loadPreview = (id, pace) => fetchVoicePreview(id, pace, engine), onChange, onError, reducedMotion = false }) {
   let state = { voice: normalizeVoiceId(voice), speed: normalizeVoiceSpeed(speed) };
   const orb = createOrb(root.querySelector("[data-vp-orb] canvas"), { calm: reducedMotion });
   orb.setPalette(voiceOption(state.voice).palette, { instant: true });
@@ -422,7 +427,7 @@ export function bindVoicePicker(root, { voice, speed, loadPreview = fetchVoicePr
  * Resolves when closed; `onSave({ voice, speed })` fires only when confirmed. Esc or a tap
  * outside dismisses it.
  */
-export function openVoicePicker({ voice, speed, first = false, onSave, onError, reducedMotion = false }) {
+export function openVoicePicker({ voice, speed, engine, first = false, onSave, onError, reducedMotion = false }) {
   const shell = document.createElement("div");
   shell.className = "voice-picker-dialog";
   shell.innerHTML = `<div class="voice-picker-backdrop" data-voice-cancel></div>
@@ -435,6 +440,7 @@ export function openVoicePicker({ voice, speed, first = false, onSave, onError, 
   const picker = bindVoicePicker(shell.querySelector(".voice-picker"), {
     voice,
     speed,
+    engine,
     onError,
     reducedMotion,
     onChange: ({ voice: next }) => voiceTint(card, next)
@@ -497,9 +503,9 @@ export function voiceModeSupported() {
 /**
  * One voice conversation.
  * - api.transcribe(blob, { signal }) -> { text }
- * - api.speak(text, voice, speed, { signal }) -> ArrayBuffer (MP3)
+ * - api.speak(text, voice, speed, { signal, session, reply }) -> { audio: ArrayBuffer (MP3), engine }
  * - sendTurn(text, { onStart(abort), onText(fullText), onTool() }) -> { ok, aborted, error } | null when busy
- * - prefs() -> { voice, speed }; pickVoice() opens the picker and resolves when it closes.
+ * - prefs() -> { voice, speed }; pickVoice({ engine }) opens the picker and resolves when it closes.
  */
 export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml, reducedMotion = false, onClose, onToast }) {
   const root = document.createElement("div");
@@ -570,6 +576,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   let current = null;
   let speechGen = 0;
   let speechAbort = new AbortController();
+  // The server keeps one speech engine per conversation (so the voice never changes mid-reply);
+  // this id names the conversation and `engine` is what it is using, for the picker's previews.
+  const speechSession = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let engine;
   let jobs = [];
   let activeJobs = 0;
   let chain = Promise.resolve();
@@ -705,8 +715,11 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       const job = jobs.shift();
       activeJobs += 1;
       const { voice, speed } = prefs();
-      api.speak(job.speech, voice, speed, { signal: speechAbort.signal })
-        .then((bytes) => ctx.decodeAudioData(bytes))
+      api.speak(job.speech, voice, speed, { signal: speechAbort.signal, session: speechSession, reply: gen })
+        .then((spoken) => {
+          if (spoken.engine) engine = spoken.engine;
+          return ctx.decodeAudioData(spoken.audio);
+        })
         .catch(() => null)
         .then((buffer) => {
           if (gen !== speechGen) return;
@@ -1112,7 +1125,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     if (event.target.closest("[data-voice-end]")) { void close(); return; }
     if (event.target.closest("[data-voice-mute]")) { setMuted(!muted); return; }
     if (event.target.closest("[data-voice-pick]")) {
-      await pickVoice?.();
+      await pickVoice?.({ engine });
       if (!closed) paintChip();
       return;
     }

@@ -1,5 +1,5 @@
-// Chat voice mode voices: Kokoro's best-rated English voices under abstract names (never
-// people's names). Mirrored in public/js/voiceMode.js.
+// Chat voice mode voices under abstract names (never people's names). Ids are Kokoro voice ids;
+// each also has a Pocket TTS voice (server/speech/engine.js). Mirrored in public/js/voiceMode.js.
 export const VOICE_MODE_VOICES = [
   { id: "af_heart", name: "Solar" },
   { id: "am_puck", name: "Spark" },

@@ -71,13 +71,16 @@ test("spoken replies drop citation markers", () => {
   assert.equal(spokenText("It is 72 degrees [1] in Paris [2, 3]."), "It is 72 degrees in Paris.");
 });
 
-test("every voice has a prerecorded preview at every speed", () => {
-  assert.equal(voicePreviewUrl("af_bella", 1.15), "/audio/voice-mode/af_bella-115.mp3");
-  assert.equal(voicePreviewUrl("nope", 9), "/audio/voice-mode/af_heart-100.mp3");
-  for (const voice of VOICE_OPTIONS) {
-    for (const { value } of VOICE_SPEEDS) {
-      const file = new URL(`../public${voicePreviewUrl(voice.id, value)}`, import.meta.url);
-      assert.ok(existsSync(file), `missing ${file.pathname}; run scripts/generate-voice-previews.mjs`);
+test("every voice has a prerecorded preview at every speed on both engines", () => {
+  assert.equal(voicePreviewUrl("af_bella", 1.15), "/audio/voice-mode/pocket/af_bella-115.mp3");
+  assert.equal(voicePreviewUrl("af_bella", 1.15, "kokoro"), "/audio/voice-mode/af_bella-115.mp3");
+  assert.equal(voicePreviewUrl("nope", 9), "/audio/voice-mode/pocket/af_heart-100.mp3");
+  for (const engine of ["pocket", "kokoro"]) {
+    for (const voice of VOICE_OPTIONS) {
+      for (const { value } of VOICE_SPEEDS) {
+        const file = new URL(`../public${voicePreviewUrl(voice.id, value, engine)}`, import.meta.url);
+        assert.ok(existsSync(file), `missing ${file.pathname}; run scripts/generate-voice-previews.mjs`);
+      }
     }
   }
 });

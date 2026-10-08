@@ -30,7 +30,8 @@ const CONFIG_ENV = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
-  OPENROUTER_API_KEY: "or-key"
+  OPENROUTER_API_KEY: "or-key",
+  TINYFISH_API_KEY: "tinyfish-key"
 };
 
 /* ── request/response fakes ── */
@@ -233,12 +234,12 @@ function installProviderFetch({ streamFor, completionFor = null, imageFor = null
       if (completionFor) return jsonResponse(completionFor(body));
       throw new Error(`Unexpected non-stream completion call for ${body.model}`);
     }
-    if (href.includes("searxng:8080")) {
+    if (href.includes("api.search.tinyfish.ai")) {
       return jsonResponse({
         results: [{
           url: "https://example.com/ai",
           title: "AI News",
-          content: "The latest in AI"
+          snippet: "The latest in AI"
         }]
       });
     }
@@ -489,7 +490,7 @@ test("single chat with a web-search tool call: canonical transcript, persistence
       toolCallId: "<id>",
       name: "web_search",
       query: "latest ai news",
-      provider: "searxng",
+      provider: "tinyfish",
       cached: false,
       /* The SSE event carries the raw tool citations; marker/provider
          enrichment happens only on the persisted metadata copy. */

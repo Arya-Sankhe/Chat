@@ -543,7 +543,7 @@ export async function runSharedPreSearch({ websearch, userText, mode, signal }) 
     return { contextMessage: "", citations: [], providers: [], detection };
   }
 
-  /* SERP providers (SearXNG) return empty `content`; deep-read the top
+  /* Snippet-only providers return empty `content`; deep-read the top
      results so the model has the actual page text — same outcome as the
      single-agent path's `read_url` follow-up. Skip providers (Jina/Brave)
      that already returned body content. */

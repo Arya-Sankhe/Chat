@@ -270,17 +270,20 @@ export async function transcribeVoiceTurn(session, audio, { signal } = {}) {
   return response.json();
 }
 
-/** Speaks one short piece of text with Kokoro; resolves to the MP3 bytes. */
-export async function synthesizeVoice(session, { text, voice, speed }, { signal } = {}) {
+/**
+ * Speaks one short piece of text; resolves to { audio (MP3 bytes), engine }. `session` names the
+ * voice conversation and `reply` numbers its replies, so the server keeps one voice per reply.
+ */
+export async function synthesizeVoice(session, { text, voice, speed }, { signal, session: speech, reply } = {}) {
   const response = await apiFetch("/api/voice/speech", {
     session,
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, voice, speed }),
+    body: JSON.stringify({ text, voice, speed, session: speech, reply }),
     signal
   });
   if (!response.ok) throw new Error(await readProblem(response));
-  return response.arrayBuffer();
+  return { audio: await response.arrayBuffer(), engine: response.headers.get("x-speech-engine") || "" };
 }
 
 export async function listConversations(session) {

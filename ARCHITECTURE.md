@@ -12,8 +12,7 @@ OpenAI-compatible `/chat/completions` API. The user
 experience is a focused single-page web client served from `public/`,
 with an Android Capacitor build, a Node server in `server/`, a research
 worker process, a Python document worker container, Supabase Postgres +
-Auth, Cloudflare R2 object storage, and an internal SearXNG instance for
-web search.
+Auth, Cloudflare R2 object storage, and self-hosted Pocket TTS for speech.
 
 The product surface is one branded chat product, with a deliberate,
 in-house feature set:
@@ -30,8 +29,7 @@ in-house feature set:
   budget per plan.
 - Compare mode (2–4 models streaming in parallel) and Council mode
   (panel → anonymized peer review → chairman synthesis).
-- Web search backed by self-hosted SearXNG, free TinyFish Search, and paid
-  Brave fallback, invoked through OpenAI-style tool calls. Jina remains
+- Web search backed by free TinyFish Search and a paid Brave fallback, invoked through OpenAI-style tool calls. Jina remains
   available for direct page reads.
 - Deep Research: long-running Node worker that plans, searches, fetches,
   extracts, and synthesizes a long-form report with citation validation.
@@ -115,7 +113,6 @@ so they are searchable; there is no general OCR feature.)
 | Node web server | `server/index.js` | `npm start` or `node server/index.js` (the Docker image default) |
 | Research worker | `server/research/worker.js` | `npm run research:worker` (a separate container in `docker-compose.yml`) |
 | Document worker | `worker/worker.py` (Python) | `python -m worker.worker` (the `document-worker` service in `docker-compose.yml`) |
-| Internal SearXNG | `searxng/searxng:2026.8.22-9fea41204` | the `searxng` service in `docker-compose.yml` |
 | Android APK | `android/app/...` | built by `npm run mobile:apk:release` and shipped via `public/downloads/android/` (the download landing page is `public/download/android/index.html`) |
 
 ## 3. Module ownership and dependency direction
@@ -150,9 +147,8 @@ so they are searchable; there is no general OCR feature.)
 | `server/documents/skillRegistry.js` | The long prompt strings ("skills") for the model: BASE_SKILLS (`artifact-planner`, `document-read`, `pdf-read`, `document-edit`, `document-export`) and SPECIALIZED_SKILLS (`pdf-create`, `word-create`, `excel-create`, `presentation-create`). | — |
 | `server/documents/skills.js` | Heuristic-based tool/skill selection from the user prompt. Returns `{enabled, skills, toolNames, ready}`. | `./skillRegistry.js` |
 | `server/documents/tool.js` | The six OpenAI-style tool schemas (`search_document`, `read_document`, `query_spreadsheet`, `create_document`, `edit_document`, `export_document`) and the `executeDocumentToolCall` executor. Emits "pending artifact card" output so the UI can show a "Generating…" card while the worker is still processing. | `./http/responses.js` (implicit via `documents/index.js`) |
-| `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → SearXNG → paid Brave fallback) with per-provider circuit breaker. `readUrl` reads through TinyFetch, then the self-hosted Jina Reader, then hosted `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./searxng.js`, `./tinyfetch.js`, `./tinyfish.js` |
+| `server/websearch/index.js` | `WebSearchOrchestrator` — default provider chain (TinyFish → paid Brave fallback) with per-provider circuit breaker. `readUrl` reads through TinyFetch, then the self-hosted Jina Reader, then hosted `r.jina.ai`. Failures, rate limits, and empty/irrelevant results advance through the chain. Always-on adult deny list from `deny-domains.js`; `WEBSEARCH_DENY_DOMAINS` is additive. | `./brave.js`, `./deny-domains.js`, `./jina.js`, `./relevance.js`, `./tinyfetch.js`, `./tinyfish.js` |
 | `server/websearch/deny-domains.js` | Shared hostname deny list for web search and Deep Research. Built-in adult domains are always enforced; `WEBSEARCH_DENY_DOMAINS` (and any caller-supplied list) is additive via `mergeDenyDomains`. | — |
-| `server/websearch/searxng.js` | SearXNG `/search?format=json` caller with a chat-tuned relevance re-ranker (tokenization, stopword filter, host quality bonus, noise blacklist, GitHub-generic filter, "restaurants"-term filter) and a `raw` mode for deep research. | `./jina.js` (for `WebSearchError`) |
 | `server/websearch/jina.js` | `jinaSearch` calls `https://s.jina.ai/search` (returns search results + extracted markdown in one call), `jinaRead` calls `https://r.jina.ai/<url>` for a single URL. | `./http/responses.js` |
 | `server/websearch/tinyfetch.js` | TinyFetch reader (`POST https://api.fetch.tinyfish.ai`). Primary page reader for `read_url` and Deep Research; empty or failed reads fall through to `jinaRead`. | `./jina.js` |
 | `server/websearch/brave.js` | Brave LLM Context API (`https://api.search.brave.com/res/v1/llm/context`) fallback. | `./jina.js` |
@@ -338,7 +334,6 @@ granted `ALL`; authenticated users have `SELECT` policies scoped to
 | TinyFetch (`api.fetch.tinyfish.ai`) | `server/websearch/tinyfetch.js` `tinyfetchRead`. Primary `read_url` / Deep Research page reader. |
 | Jina Reader (`r.jina.ai/<url>`) | `server/websearch/jina.js` `jinaRead`. Fallback reader after TinyFetch; works anonymously. |
 | Brave Search LLM Context (`api.search.brave.com/res/v1/llm/context`) | `server/websearch/brave.js`. |
-| Internal SearXNG (`http://searxng:8080/search?format=json` in compose, `http://localhost:8080/…` standalone) | `server/websearch/searxng.js`. Deep Research search goes through `WebSearchOrchestrator`. |
 | Document worker (Python container) | Decoupled through `document_jobs` table. The Node server `enqueueAndWait` inserts a job; the worker `claim`s it; the server polls `GET /api/documents/jobs/:id/status` for the artifact. |
 | Research worker (separate Node process) | Decoupled through `research_runs` table. The web tier `POST /api/research` inserts a row; the worker `claim`s it; the web tier polls `GET /api/research/:id/status`. |
 | Android deep link (`tech.klui.app://auth/callback`) | `public/js/platform/index.js` `parseAuthCallbackUrl`, `listenForAuthCallback`. |
@@ -499,7 +494,7 @@ distinguishes the two via the SSE envelope (`type: "council:start"`,
 sequenceDiagram
     participant API as runChatWithToolLoop
     participant ORCH as WebSearchOrchestrator
-    participant SX as SearXNG
+    participant SX as TinyFish
     participant J as Jina
     participant BR as Brave
     participant SB as Supabase (search_cache)
@@ -511,7 +506,7 @@ sequenceDiagram
         SB-->>ORCH: {results, …}
         ORCH-->>API: {ok, cached: true, …}
     else miss
-        ORCH->>SX: GET /search?format=json  (primary)
+        ORCH->>SX: GET api.search.tinyfish.ai  (primary)
         alt SX ok
             SX-->>ORCH: results
         else SX 5xx / 429
@@ -583,7 +578,7 @@ sequenceDiagram
     participant SB as Supabase
     participant W as server/research/worker.js
     participant E as server/research/engine.js
-    participant SX as SearXNG
+    participant SX as TinyFish
     participant OR as OpenRouter
 
     U->>B: click "Deep Research"
@@ -848,14 +843,14 @@ and explains the timeline.
 
 - `README.md` mentions the in-house product name and feature list.
   Its web-search section was stale (Jina-primary / Brave-fallback)
-  until the Phase-0 docs pass corrected it to SearXNG-primary; treat
+  until the Phase-0 docs pass corrected it; treat
   `server/config.js` and `server/websearch/index.js` as the source of
   truth for provider order.
 - `CURRENT_SYSTEM.md` is from May 28 2026 (the post-Stripe-removal
   snapshot) and is marked historical at the top of the file. It is
   stale on web search — it still describes Jina-primary /
-  Brave-fallback, while the current code defaults to SearXNG-primary /
-  Jina-fallback / Brave-fallback — and it omits `server/research/`,
+  Brave-fallback, while the current code defaults to TinyFish-primary /
+  Brave-fallback — and it omits `server/research/`,
   `server/documents/`, and `server/providers.js` entirely. The current
   authoritative description of web search is `server/websearch/index.js`
   and `server/research/search.js`.

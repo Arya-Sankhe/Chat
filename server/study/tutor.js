@@ -1,12 +1,14 @@
 // AI tutor: a live voice call that teaches from a course's sources.
 // Before the call we write a lesson plan and compact notes once, so every live turn is one small
 // streamed model call over a stable, cacheable prompt. Replies are spoken sentence by sentence
-// with Kokoro while the model is still writing, so the first audio starts within a second or two.
+// (Pocket TTS, or Kokoro when Pocket is full) while the model is still writing, so the first
+// audio starts within a second or two.
 import { HttpError } from "../http/responses.js";
 import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { loadGenerationSourceText, parseStudyJson, sourceFallbackTitle, streamComplete } from "./generate.js";
+import { createSessionStore, createSpeechSession, pocketPool } from "../speech/engine.js";
 import { PODCAST_VOICES, TTS_CREDITS_PER_CHAR, TTS_MODEL, speakable, synthesizeSpeech } from "./podcast.js";
 
 export const TUTOR_MAX_SECONDS = 30 * 60;
@@ -18,9 +20,12 @@ const PLAN_SOURCE_CHARS = 120_000;
 const CALL_SOURCE_CHARS = 30_000;
 const TURN_MAX_TOKENS = 1500; // includes the low-effort reasoning
 const TTS_PARALLEL = 3;
-// Speech latency through OpenRouter swings from about 1 s to 15 s. Chunks play in order, so one
+// Kokoro latency through OpenRouter swings from about 1 s to 15 s. Chunks play in order, so one
 // slow chunk leaves the tutor silent mid-reply; after this long a second request races the first.
+// Pocket is never hedged: a duplicate would only queue behind the original on the same workers.
 const TTS_HEDGE_MS = 3500;
+// One speech engine per call, so the tutor's voice stays the same for the whole call.
+const callSpeech = createSessionStore({ ttlMs: 2 * 60 * 60_000 });
 
 export const TUTOR_STYLES = {
   teacher: {
@@ -303,8 +308,9 @@ export function hedgedSpeech(tts, { hedgeMs = TTS_HEDGE_MS } = {}) {
 
 // Speaks chunks with limited parallelism and hands them back in order. Never rejects:
 // a chunk that fails to record is delivered as text only, so the call keeps going.
-export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = Promise.resolve(true), hedgeMs }) {
-  const speak = hedgedSpeech(tts, { hedgeMs });
+export function createSpeechQueue({ config, voice, signal, tts, speech = null, onAudio, gate = Promise.resolve(true), hedgeMs }) {
+  const hedged = speech ? null : hedgedSpeech(tts, { hedgeMs });
+  const speak = speech ? (args) => speech.speak(args) : async (args) => ({ audio: await hedged(args), engine: "kokoro" });
   const pending = [];
   const ready = new Map();
   let active = 0;
@@ -329,18 +335,19 @@ export function createSpeechQueue({ config, voice, signal, tts, onAudio, gate = 
       active += 1;
       (async () => {
         let audio = null;
+        let engine = null;
         const spoken = speakable(job.text);
         // Nothing is synthesized until the turn's speech reservation has been granted.
         if (spoken && !signal?.aborted && await gate && !signal?.aborted) {
           try {
-            audio = await speak({ config, text: spoken, voice, signal });
+            ({ audio, engine } = await speak({ config, text: spoken, voice, signal }));
             characters += spoken.length;
           } catch {
             audio = null;
           }
         }
         active -= 1;
-        ready.set(job.seq, { seq: job.seq, text: job.text, audio: audio && !signal?.aborted ? audio.toString("base64") : null });
+        ready.set(job.seq, { seq: job.seq, text: job.text, audio: audio && !signal?.aborted ? audio.toString("base64") : null, ...(engine ? { engine } : {}) });
         flush();
         pump();
       })();
@@ -384,7 +391,7 @@ export function tutorTurnGuard(session, { mode, elapsed }) {
  * streamed text plus in-order audio chunks. The transcript is saved even when the student
  * interrupts, so the next turn continues from what was actually said.
  */
-export async function runTutorTurn({ context, config, session, mode = "reply", text = "", elapsed = 0, signal, emit, tts = synthesizeSpeech }) {
+export async function runTutorTurn({ context, config, session, mode = "reply", text = "", elapsed = 0, signal, emit, tts = synthesizeSpeech, pool = pocketPool(config) }) {
   const seconds = tutorTurnGuard(session, { mode, elapsed });
   const said = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4000);
   if (mode === "reply" && !said) throw new HttpError(400, "Say something first.");
@@ -414,11 +421,14 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   const delivered = [];
   let openGate;
   const gate = new Promise((resolve) => { openGate = resolve; });
+  const engine = callSpeech.get(`${session.id}`, () => createSpeechSession({ pool, kokoro: hedgedSpeech(tts) }));
+  engine.beginReply();
   const queue = createSpeechQueue({
     config,
     voice: session.voice,
     signal,
     tts,
+    speech: engine,
     gate,
     onAudio: (item) => {
       if (signal?.aborted) return; // the student cut in; nothing more reaches them

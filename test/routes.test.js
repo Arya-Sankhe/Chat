@@ -250,7 +250,7 @@ test("runSharedPreSearch searches in auto mode even when heuristic score is zero
       calls.push({ type: "search", ...args });
       return {
         ok: true,
-        provider: "searxng",
+        provider: "tinyfish",
         query: args.query,
         results: [{
           index: 1,
@@ -286,7 +286,7 @@ test("runSharedPreSearch searches in auto mode even when heuristic score is zero
   assert.equal(calls[0].type, "search");
   assert.equal(calls[1].type, "readUrl");
   assert.equal(calls[1].url, "https://example.com/minimax-m3");
-  assert.ok(result.providers.includes("searxng"));
+  assert.ok(result.providers.includes("tinyfish"));
   assert.ok(result.providers.includes("jina"));
   assert.equal(result.citations.length, 1);
   assert.match(result.contextMessage, /MiniMax M3 reviews/);

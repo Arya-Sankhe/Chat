@@ -215,13 +215,13 @@ test("runDeepResearch passes read options into readPage", async () => {
 });
 
 test("searchResearchQueries applies shared deny filtering before returning candidates", async () => {
-  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test" });
+  const config = loadConfig({ WEBSEARCH_DENY_DOMAINS: "blocked.test", TINYFISH_API_KEY: "deny-test-key" });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
     results: [
-      { title: "Adult", url: "https://www.xvideos.tube/a", content: "a" },
-      { title: "Blocked", url: "https://blocked.test/b", content: "b" },
-      { title: "WHO", url: "https://www.who.int/news", content: "c" }
+      { title: "Adult", url: "https://www.xvideos.tube/a", snippet: "a" },
+      { title: "Blocked", url: "https://blocked.test/b", snippet: "b" },
+      { title: "WHO", url: "https://www.who.int/news", snippet: "c" }
     ]
   }), { status: 200, headers: { "content-type": "application/json" } });
   try {
@@ -232,8 +232,8 @@ test("searchResearchQueries applies shared deny filtering before returning candi
   }
 });
 
-test("searchResearchQueries falls back to TinyFish Search when SearXNG finds nothing", async () => {
-  const config = loadConfig({ WEBSEARCH_PRIMARY_PROVIDER: "searxng", TINYFISH_API_KEY: "test-key" });
+test("searchResearchQueries searches through TinyFish", async () => {
+  const config = loadConfig({ TINYFISH_API_KEY: "test-key" });
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url) => {
