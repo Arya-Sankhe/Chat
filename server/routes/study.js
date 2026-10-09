@@ -518,7 +518,7 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
   if (req.method !== "GET") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   const course = await requireCourse(context, courseId, req.signal);
-  const [documents, notes, cards, quizzes, podcasts, tutors] = await Promise.all([
+  const [documents, notes, cards, quizzes, podcasts, tutors, whiteboards] = await Promise.all([
     context.db.listProjectDocuments(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyNotes(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyCards(context.user.id, course.id, {
@@ -527,7 +527,12 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
     }),
     context.db.listStudyQuizzes(context.user.id, course.id, { signal: req.signal }),
     context.db.listStudyPodcasts(context.user.id, course.id, { signal: req.signal }),
-    context.db.listStudyTutorSessions?.(context.user.id, course.id, { signal: req.signal })
+    context.db.listStudyTutorSessions?.(context.user.id, course.id, { signal: req.signal }),
+    // Boards are listed best-effort, so the rest of the collection still loads if their tables are missing.
+    context.db.listStudyWhiteboards?.(context.user.id, course.id, { signal: req.signal })?.catch((error) => {
+      if (req.signal?.aborted) throw error;
+      return [];
+    })
   ]);
   const docTitles = new Map((documents || []).map((doc) => [doc.id, documentTitle(doc)]));
   const noteTitles = new Map((notes || []).map((note) => [note.id, note.title || "Note"]));
@@ -589,6 +594,12 @@ export async function handleStudyCoursePractice(req, res, config, courseId) {
       status: session.status,
       activeSeconds: Number(session.active_seconds) || 0,
       createdAt: session.created_at
+    })),
+    whiteboards: (whiteboards || []).map((board) => ({
+      id: board.id,
+      title: board.title || "",
+      createdAt: board.created_at,
+      updatedAt: board.updated_at
     }))
   });
 }

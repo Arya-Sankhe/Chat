@@ -17,6 +17,7 @@ import * as research from "./rest/research.js";
 import * as study from "./rest/study.js";
 import * as subscriptions from "./rest/subscriptions.js";
 import * as turns from "./rest/turns.js";
+import * as whiteboards from "./rest/whiteboards.js";
 
 function queryString(params = {}) {
   const query = new URLSearchParams();
@@ -333,6 +334,78 @@ export class SupabaseRest {
 
   async deleteStudyTutorSession(userId, id, options) {
     return study.deleteStudyTutorSession(this, userId, id, options);
+  }
+
+  async listStudyWhiteboards(userId, projectId, options) {
+    return whiteboards.listStudyWhiteboards(this, userId, projectId, options);
+  }
+
+  async getStudyWhiteboard(userId, id, options) {
+    return whiteboards.getStudyWhiteboard(this, userId, id, options);
+  }
+
+  async createStudyWhiteboard(userId, board, options) {
+    return whiteboards.createStudyWhiteboard(this, userId, board, options);
+  }
+
+  async saveStudyWhiteboard(userId, id, expectedRevision, patch, options) {
+    return whiteboards.saveStudyWhiteboard(this, userId, id, expectedRevision, patch, options);
+  }
+
+  async renameStudyWhiteboard(userId, id, title, options) {
+    return whiteboards.renameStudyWhiteboard(this, userId, id, title, options);
+  }
+
+  async markStudyWhiteboardDeleting(userId, id, revision, options) {
+    return whiteboards.markStudyWhiteboardDeleting(this, userId, id, revision, options);
+  }
+
+  async restoreStudyWhiteboard(userId, id, revision, options) {
+    return whiteboards.restoreStudyWhiteboard(this, userId, id, revision, options);
+  }
+
+  async deleteStudyWhiteboard(userId, id, options) {
+    return whiteboards.deleteStudyWhiteboard(this, userId, id, options);
+  }
+
+  async listStudyWhiteboardFiles(userId, boardId, options) {
+    return whiteboards.listStudyWhiteboardFiles(this, userId, boardId, options);
+  }
+
+  async getStudyWhiteboardFile(userId, boardId, fileId, options) {
+    return whiteboards.getStudyWhiteboardFile(this, userId, boardId, fileId, options);
+  }
+
+  async createStudyWhiteboardFile(userId, file, options) {
+    return whiteboards.createStudyWhiteboardFile(this, userId, file, options);
+  }
+
+  async isWhiteboardAttachment(userId, attachmentId, options) {
+    return whiteboards.isWhiteboardAttachment(this, userId, attachmentId, options);
+  }
+
+  async listStudyWhiteboardTurns(userId, boardId, options) {
+    return whiteboards.listStudyWhiteboardTurns(this, userId, boardId, options);
+  }
+
+  async listStudyWhiteboardThread(userId, boardId, threadId, options) {
+    return whiteboards.listStudyWhiteboardThread(this, userId, boardId, threadId, options);
+  }
+
+  async getStudyWhiteboardTurn(userId, boardId, id, options) {
+    return whiteboards.getStudyWhiteboardTurn(this, userId, boardId, id, options);
+  }
+
+  async findStudyWhiteboardTurnByRequest(userId, boardId, clientRequestId, options) {
+    return whiteboards.findStudyWhiteboardTurnByRequest(this, userId, boardId, clientRequestId, options);
+  }
+
+  async createStudyWhiteboardTurn(userId, turn, options) {
+    return whiteboards.createStudyWhiteboardTurn(this, userId, turn, options);
+  }
+
+  async updateStudyWhiteboardTurn(userId, id, patch, options) {
+    return whiteboards.updateStudyWhiteboardTurn(this, userId, id, patch, options);
   }
 
   async createConversation(userId, conversation, options) {

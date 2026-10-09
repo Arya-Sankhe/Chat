@@ -1078,6 +1078,9 @@ export async function handleAttachmentDelete(req, res, config, attachmentId) {
   if (attachment.conversation_id || attachment.message_id) {
     throw new HttpError(409, "Attached chat files can only be removed by deleting the message or chat.");
   }
+  if (await context.db.isWhiteboardAttachment?.(context.user.id, attachment.id, { signal: req.signal })) {
+    throw new HttpError(409, "This image is on a whiteboard. Remove it by deleting the board.");
+  }
 
   const keys = await attachmentStorageKeys(context, attachment, config, req.signal);
   await context.r2.deleteObjects(keys, { signal: req.signal });

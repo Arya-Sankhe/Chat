@@ -1179,3 +1179,94 @@ export async function fetchStudyAudio(session, documentFileId) {
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
+
+// Whiteboards. Errors carry the HTTP status and the server's code (e.g. revision_conflict).
+async function boardProblem(response) {
+  let body = null;
+  try { body = await response.json(); } catch { /* not JSON */ }
+  const error = new Error(body?.error || response.statusText || "Request failed.");
+  error.status = response.status;
+  error.code = body?.details?.code || "";
+  error.details = body?.details || null;
+  return error;
+}
+
+export async function createWhiteboard(session, courseId, { title } = {}) {
+  const response = await apiFetch(`/api/study/courses/${encodeURIComponent(courseId)}/whiteboards`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title })
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboard(session, boardId, { signal } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, { session, signal });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function saveWhiteboard(session, boardId, body, { signal } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, {
+    session,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function deleteWhiteboard(session, boardId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}`, { session, method: "DELETE" });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardTurns(session, boardId, { before = "" } = {}) {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/turns${query}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardTurn(session, boardId, turnId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/turns/${encodeURIComponent(turnId)}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function uploadWhiteboardFile(session, boardId, fileId, blob) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/files/${encodeURIComponent(fileId)}`, {
+    session,
+    method: "POST",
+    headers: { "content-type": blob.type || "application/octet-stream" },
+    body: blob
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return response.json();
+}
+
+export async function fetchWhiteboardFile(session, boardId, fileId) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/files/${encodeURIComponent(fileId)}`, { session });
+  if (!response.ok) throw await boardProblem(response);
+  return response.blob();
+}
+
+/** Streams an ask; resolves when the stream ends. Throws a status-carrying error for HTTP failures. */
+export async function streamWhiteboardAsk(session, boardId, body, { signal, onEvent } = {}) {
+  const response = await apiFetch(`/api/study/whiteboards/${encodeURIComponent(boardId)}/ask`, {
+    session,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal
+  });
+  if (!response.ok) throw await boardProblem(response);
+  return readSseStream(response, (event) => {
+    if (event && typeof event === "object") onEvent?.(event);
+  });
+}

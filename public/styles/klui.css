@@ -787,7 +787,7 @@ body.study-session-open .chat-wallpaper-outline {
 
 /* Let the print run under the collapsed rail like the home wallpaper does. */
 @media (min-width: 901px) {
-  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar {
+  body:not(.chat-empty):not(.temporary-chat):not([data-wallpaper="none"]):not(.study-open):not(.study-session-open):not(.sidebar-expanded):not(.guest-mode) .sidebar:where(aside) {
     background: transparent;
     border-right-color: color-mix(in srgb, var(--border-light) 40%, transparent);
     border-bottom-color: color-mix(in srgb, var(--border-light) 40%, transparent);
@@ -937,7 +937,7 @@ body[data-mode="dark"][data-wallpaper="valley"] .home-wallpaper {
 }
 
 @media (min-width: 901px) {
-  body.chat-empty:not(.sidebar-expanded):not(.guest-mode) .sidebar {
+  body.chat-empty:not(.sidebar-expanded):not(.guest-mode) .sidebar:where(aside) {
     background: transparent;
     border-right-color: color-mix(in srgb, var(--border-light) 14%, transparent);
     -webkit-backdrop-filter: none;
@@ -955,8 +955,8 @@ body[data-mode="dark"][data-wallpaper="valley"] .home-wallpaper {
     border-radius: inherit;
   }
 
-  body.chat-empty.sidebar-expanded .sidebar,
-  body.chat-empty.guest-mode .sidebar {
+  body.chat-empty.sidebar-expanded .sidebar:where(aside),
+  body.chat-empty.guest-mode .sidebar:where(aside) {
     background: color-mix(in srgb, var(--bg) 66%, transparent);
     border-right-color: color-mix(in srgb, var(--border-light) 35%, transparent);
     -webkit-backdrop-filter: blur(16px) saturate(0.8);

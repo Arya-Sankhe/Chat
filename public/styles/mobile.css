@@ -46,7 +46,7 @@ body.capacitor-native a,
 
 body.capacitor-native [role="button"],
 
-body.capacitor-native .sidebar,
+body.capacitor-native .sidebar:where(aside),
 
 body.capacitor-native .native-mobile-bar,
 
@@ -382,7 +382,7 @@ body.capacitor-native .composer-action-menu[data-page="root"] .mobile-camera-act
 
 }
 
-body.capacitor-native .sidebar {
+body.capacitor-native .sidebar:where(aside) {
 
   z-index: 80;
 
@@ -402,7 +402,7 @@ body.capacitor-native .sidebar {
 
 }
 
-body.capacitor-native.sidebar-open .sidebar {
+body.capacitor-native.sidebar-open .sidebar:where(aside) {
 
   width: min(88vw, 360px);
 
@@ -945,9 +945,9 @@ body.chat-empty .composer-area {
 
   }
 
-  .sidebar,
+  .sidebar:where(aside),
 
-  body.guest-mode .sidebar {
+  body.guest-mode .sidebar:where(aside) {
 
     position: fixed;
 
@@ -1073,9 +1073,9 @@ body.chat-empty .composer-area {
 
   }
 
-  body.sidebar-open .sidebar,
+  body.sidebar-open .sidebar:where(aside),
 
-  body.guest-mode.sidebar-open .sidebar {
+  body.guest-mode.sidebar-open .sidebar:where(aside) {
 
     width: min(320px, 86vw);
 
@@ -1289,7 +1289,7 @@ body.chat-empty .composer-area {
 
   }
 
-  .sidebar {
+  .sidebar:where(aside) {
 
     position: fixed;
 
@@ -1307,7 +1307,7 @@ body.chat-empty .composer-area {
 
   }
 
-  body.sidebar-open .sidebar {
+  body.sidebar-open .sidebar:where(aside) {
 
     width: min(320px, 86vw);
 
@@ -1315,7 +1315,7 @@ body.chat-empty .composer-area {
 
   }
 
-  body.guest-mode .sidebar {
+  body.guest-mode .sidebar:where(aside) {
 
     width: min(320px, 86vw);
 
@@ -1323,7 +1323,7 @@ body.chat-empty .composer-area {
 
   }
 
-  body.guest-mode.sidebar-open .sidebar {
+  body.guest-mode.sidebar-open .sidebar:where(aside) {
 
     width: min(320px, 86vw);
 
@@ -1606,9 +1606,9 @@ body.chat-empty .composer-area {
 
 /* Keep native app rules authoritative after the website breakpoints above. */
 
-body.capacitor-native.guest-mode .sidebar,
+body.capacitor-native.guest-mode .sidebar:where(aside),
 
-body.capacitor-native .sidebar {
+body.capacitor-native .sidebar:where(aside) {
 
   width: min(88vw, 360px);
 
@@ -1624,9 +1624,9 @@ body.capacitor-native .sidebar {
 
 }
 
-body.capacitor-native.guest-mode.sidebar-open .sidebar,
+body.capacitor-native.guest-mode.sidebar-open .sidebar:where(aside),
 
-body.capacitor-native.sidebar-open .sidebar {
+body.capacitor-native.sidebar-open .sidebar:where(aside) {
 
   width: min(88vw, 360px);
 
@@ -1702,7 +1702,7 @@ body.capacitor-native.sidebar-open .native-nav-backdrop {
 
 }
 
-body.capacitor-native.sidebar-open .sidebar {
+body.capacitor-native.sidebar-open .sidebar:where(aside) {
 
   z-index: 80;
 
@@ -3449,13 +3449,13 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
     transform: scale(.96);
   }
 
-  body:not(.capacitor-native) .sidebar,
-  body:not(.capacitor-native).guest-mode .sidebar {
+  body:not(.capacitor-native) .sidebar:where(aside),
+  body:not(.capacitor-native).guest-mode .sidebar:where(aside) {
     transition: transform 260ms cubic-bezier(.32, .72, 0, 1), visibility 0s linear 260ms;
   }
 
-  body:not(.capacitor-native).sidebar-open .sidebar,
-  body:not(.capacitor-native).guest-mode.sidebar-open .sidebar {
+  body:not(.capacitor-native).sidebar-open .sidebar:where(aside),
+  body:not(.capacitor-native).guest-mode.sidebar-open .sidebar:where(aside) {
     transition: transform 220ms cubic-bezier(.32, .72, 0, 1), visibility 0s;
   }
 
@@ -3482,8 +3482,8 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
 }
 
 @media (max-width: 860px) and (prefers-reduced-motion: reduce) {
-  body:not(.capacitor-native) .sidebar,
-  body:not(.capacitor-native).guest-mode .sidebar {
+  body:not(.capacitor-native) .sidebar:where(aside),
+  body:not(.capacitor-native).guest-mode .sidebar:where(aside) {
     transition-duration: 0ms;
   }
 
@@ -3493,8 +3493,8 @@ body.capacitor-native.chat-empty .composer:not(.compact) {
 }
 
 /* Native navigation is a full-screen sheet. */
-body.capacitor-native .sidebar,
-body.capacitor-native.sidebar-open .sidebar {
+body.capacitor-native .sidebar:where(aside),
+body.capacitor-native.sidebar-open .sidebar:where(aside) {
   inset: 0;
   width: 100vw;
   max-width: none;

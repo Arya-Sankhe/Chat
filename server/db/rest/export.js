@@ -28,7 +28,9 @@ export async function exportAccountData(client, userId, { signal } = {}) {
     subscriptions,
     payments,
     usage,
-    projects
+    projects,
+    whiteboards,
+    whiteboardTurns
   ] = await Promise.all([
     pages(client, "conversations", {
       ...scoped,
@@ -68,6 +70,16 @@ export async function exportAccountData(client, userId, { signal } = {}) {
       ...scoped,
       select: "id,name,kind,instructions,created_at,updated_at",
       order: "created_at.asc"
+    }, signal),
+    pages(client, "study_whiteboards", {
+      ...scoped,
+      select: "id,project_id,title,scene,revision,created_at,updated_at",
+      order: "created_at.asc"
+    }, signal),
+    pages(client, "study_whiteboard_turns", {
+      ...scoped,
+      select: "id,board_id,thread_id,parent_turn_id,mode,question,answer,proposal,citations,status,created_at,finished_at",
+      order: "created_at.asc"
     }, signal)
   ]);
 
@@ -80,6 +92,8 @@ export async function exportAccountData(client, userId, { signal } = {}) {
       || payments.truncated
       || usage.truncated
       || projects.truncated
+      || whiteboards.truncated
+      || whiteboardTurns.truncated
     ),
     conversations: conversations.rows,
     messages: messages.rows,
@@ -88,6 +102,8 @@ export async function exportAccountData(client, userId, { signal } = {}) {
     subscriptions: subscriptions.rows,
     payments: payments.rows,
     usage: usage.rows,
-    projects: projects.rows
+    projects: projects.rows,
+    whiteboards: whiteboards.rows,
+    whiteboardTurns: whiteboardTurns.rows
   };
 }

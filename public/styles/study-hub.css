@@ -42,7 +42,7 @@ body.study-open .home-wallpaper, body.study-session-open .home-wallpaper { visib
 body.study-open .app-shell, body.study-open .chat-panel { background: var(--study-board); }
 body.study-open .chat-panel { min-width: 0; }
 body.study-open .chat-topbar, body.study-open .temporary-chat-toggle { display: none; }
-body.study-open .sidebar { background: var(--study-board); }
+body.study-open .sidebar:where(aside) { background: var(--study-board); }
 .sidebar-nav-item.active { background: var(--bg-secondary); }
 .study-svg-defs { display: none; }
 .study-view, .study-session { color: var(--study-ink); font-family: var(--study-font); }
@@ -204,6 +204,8 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
 .dojo-tool--quiz { --tool-ink: var(--study-purple); }
 .dojo-tool--podcast { --tool-ink: var(--dojo-podcast); }
 .dojo-tool--tutor { --tool-ink: var(--dojo-tutor); }
+.dojo-tool--whiteboard { --tool-ink: #1971c2; }
+body[data-mode="dark"] .dojo-tool--whiteboard { --tool-ink: #74c0fc; }
 .dojo-tool.dojo-tool--tutor { border-color: color-mix(in srgb, var(--dojo-tutor-sky) 40%, transparent); background: linear-gradient(120deg, color-mix(in srgb, var(--dojo-tutor-grass) 14%, var(--dojo-surface)), color-mix(in srgb, var(--dojo-tutor-sky) 18%, var(--dojo-surface))); }
 .dojo-tool--tutor .dojo-tool-icon { background: transparent; }
 .dojo-tool--tutor svg.tutor-orb-icon, .dojo-artifact-icon.dojo-tool--tutor svg.tutor-orb-icon { width: calc(22 * var(--dojo-u)); height: calc(22 * var(--dojo-u)); filter: drop-shadow(0 2px 3px rgba(80, 170, 220, .35)); }
@@ -213,11 +215,12 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
 }
 /* Three pills a row while each label fits whole, otherwise two (never one); the fit grows with the pills. */
 .dojo-collection .dojo-tools { grid-template-columns: repeat(auto-fit, minmax(max(min(calc(108 * var(--dojo-u)), calc((100% - 6 * var(--dojo-u)) / 2)), calc((100% - 12 * var(--dojo-u)) / 3)), 1fr)); }
-.study-practice-card { position: relative; padding: calc(14 * var(--dojo-u)) calc(24 * var(--dojo-u)) calc(14 * var(--dojo-u)) calc(10 * var(--dojo-u)); border: 1px solid var(--border-light); border-radius: calc(12 * var(--dojo-u)); margin-bottom: calc(8 * var(--dojo-u)); background: var(--bg-secondary); }
+.study-practice-card { position: relative; padding: calc(8 * var(--dojo-u)) 40px calc(8 * var(--dojo-u)) calc(10 * var(--dojo-u)); border: 1px solid var(--border-light); border-radius: calc(12 * var(--dojo-u)); margin-bottom: calc(6 * var(--dojo-u)); background: var(--bg-secondary); }
+.study-practice-card > .study-card-menu-wrap { top: calc(50% - 15px); right: 5px; }
 .study-practice-open { display: flex; align-items: center; gap: calc(12 * var(--dojo-u)); width: 100%; text-align: left; border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer; font: inherit; }
 .study-practice-open > span:last-child { min-width: 0; }
 .study-practice-open strong { display: block; font-size: calc(12 * var(--dojo-u)); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.study-practice-open small { display: block; font-size: calc(10 * var(--dojo-u)); color: var(--study-muted); margin-top: calc(5 * var(--dojo-u)); }
+.study-practice-open small { display: block; font-size: calc(10 * var(--dojo-u)); color: var(--study-muted); margin-top: calc(3 * var(--dojo-u)); }
 .dojo-artifact-icon { display: grid; place-items: center; width: calc(30 * var(--dojo-u)); height: calc(34 * var(--dojo-u)); border-radius: calc(8 * var(--dojo-u)); background: color-mix(in srgb, var(--tool-ink) 12%, transparent); color: var(--tool-ink); flex-shrink: 0; }
 .dojo-artifact-icon svg { width: calc(17 * var(--dojo-u)); }
 .study-empty { color: var(--study-muted); padding: 36px 12px; text-align: center; }
@@ -228,6 +231,7 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
 .study-menu { position: absolute; right: 0; top: 32px; min-width: 140px; padding: 5px; border: 1px solid var(--study-stroke); border-radius: 10px; background: var(--study-paper); box-shadow: 0 6px 24px #00000012; z-index: 6; }
 .study-menu-item { display: block; padding: 9px 12px; width: 100%; text-align: left; color: var(--study-ink); font: 12px var(--study-font); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .study-menu-danger { color: var(--study-red); }
+.study-menu-item:focus-visible, .study-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--study-ink) 10%, var(--study-paper)); }
 /* Placed by floatOpenMenu() against its button, clear of any clipping list. */
 .study-menu.is-floating { position: fixed; right: auto; z-index: 60; max-height: calc(100vh - 16px); overflow-y: auto; }
 .study-primary-btn, .study-chip-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 14px; border: 1px solid var(--study-stroke); border-radius: 8px; color: var(--study-ink); background: var(--dojo-soft); font: 12px var(--study-font); cursor: pointer; }
@@ -277,7 +281,8 @@ body.capacitor-native.study-open .study-composer-slot .composer:not(.compact) { 
   .study-course-new:hover .dojo-folder-sheet--two { transform: rotate(3deg); }
   .study-course-new:hover .dojo-folder-sheet--three { transform: rotate(-1deg); }
   .study-course-new:hover .dojo-folder-badge { fill-opacity: .45; }
-  .study-icon-btn:hover, .study-menu-item:hover { background: var(--dojo-soft); }
+  .study-icon-btn:hover, .study-menu-item:hover { background: color-mix(in srgb, var(--study-ink) 10%, var(--bg-secondary)); }
+  .study-menu-danger:hover { background: color-mix(in srgb, var(--study-red) 14%, var(--bg-secondary)); }
   .dojo-prompts button:hover { color: var(--study-green); }
 }
 @media (max-width: 1150px) and (min-width: 761px) {

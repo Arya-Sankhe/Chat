@@ -7,7 +7,8 @@ import { createPanelResizer, panelResizeHandles } from "./dojoPanelResize.js";
 import { clearDeckProgress, deckBuckets, deckProgressSummary, readDeckProgress, writeDeckProgress } from "./deckProgress.js";
 import { deleteSavedRecording } from "./studyRecorder.js";
 import { extractAudioTrack, isVideoFile } from "./videoAudio.js";
-import { completeCourseAudio, fetchCourseTranscriptions, fetchStudyAudio, presignCourseAudio, putCourseAudio, retryCourseTranscription } from "./api.js";
+import { completeCourseAudio, createWhiteboard, deleteWhiteboard, fetchCourseTranscriptions, fetchStudyAudio, fetchWhiteboard, fetchWhiteboardFile, fetchWhiteboardTurn, fetchWhiteboardTurns, presignCourseAudio, putCourseAudio, retryCourseTranscription, saveWhiteboard, streamWhiteboardAsk, synthesizeVoice, transcribeVoiceTurn, uploadWhiteboardFile } from "./api.js";
+import { createWhiteboardController } from "./studyWhiteboard.js";
 import { DECK_LAYOUTS, citePills, deckBodyMarkup, deckViewMarkup, noteViewMarkup, quizViewMarkup, typingCardMarkup, visibleDeckCards } from "./studyStudio.js";
 import { answeredCount, dictationButton, formatClock, isAnswered, sessionElapsed, testMarkup } from "./studyTest.js";
 import { PLAYER_ICONS, activeLine, createPodcastAudio, formatTime, lengthOf, podcastMeta, podcastOptionsMarkup, podcastViewMarkup, styleOf, syncSpeedMenu, voiceOf } from "./studyPodcast.js";
@@ -240,7 +241,7 @@ export function createStudyHubController({
     collectionScrollTop = 0;
   }
 
-  const COLLECTION_GROUPS = { flashcards: "Flashcards", mindmap: "Mind maps", notes: "Notes", quiz: "Practice tests", podcast: "Podcasts", tutor: "AI tutor sessions" };
+  const COLLECTION_GROUPS = { flashcards: "Flashcards", mindmap: "Mind maps", notes: "Notes", quiz: "Practice tests", podcast: "Podcasts", tutor: "AI tutor sessions", whiteboard: "Whiteboards" };
 
   const sound = createSounds(reducedMotion);
 
@@ -347,11 +348,11 @@ export function createStudyHubController({
     const toggle = kind === "deck"
       ? `data-toggle-deck-menu="${escapeHtml(id)}"`
       : `data-toggle-quiz-menu="${escapeHtml(key)}"`;
-    const rename = kind === "deck" ? `data-rename-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-rename-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-rename-tutor="${escapeHtml(id)}"` : `data-rename-quiz="${escapeHtml(id)}"`;
-    const del = kind === "deck" ? `data-delete-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-delete-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-delete-tutor="${escapeHtml(id)}"` : `data-delete-quiz="${escapeHtml(id)}"`;
+    const rename = kind === "deck" ? `data-rename-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-rename-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-rename-tutor="${escapeHtml(id)}"` : kind === "whiteboard" ? `data-rename-whiteboard="${escapeHtml(id)}"` : `data-rename-quiz="${escapeHtml(id)}"`;
+    const del = kind === "deck" ? `data-delete-deck="${escapeHtml(id)}"` : kind === "podcast" ? `data-delete-podcast="${escapeHtml(id)}"` : kind === "tutor" ? `data-delete-tutor="${escapeHtml(id)}"` : kind === "whiteboard" ? `data-delete-whiteboard="${escapeHtml(id)}"` : `data-delete-quiz="${escapeHtml(id)}"`;
     return `
       <div class="study-card-menu-wrap">
-        <button class="study-icon-btn" type="button" ${toggle} aria-label="${kind === "deck" ? "Deck options" : kind === "podcast" ? "Podcast options" : kind === "tutor" ? "Session options" : "Quiz options"}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
+        <button class="study-icon-btn" type="button" ${toggle} aria-label="${kind === "deck" ? "Deck options" : kind === "podcast" ? "Podcast options" : kind === "tutor" ? "Session options" : kind === "whiteboard" ? "Board options" : "Quiz options"}" aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}">
           ${kebabIcon()}
         </button>
         <div class="study-menu${open ? "" : " hidden"}" role="menu">
@@ -402,7 +403,8 @@ export function createStudyHubController({
       sort: '<path d="M4 6h16M4 12h10M4 18h4"/>',
       sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m7-11-3 3 3 3"/>',
       expand: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m4-11 3 3-3 3"/>',
-      arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>'
+      arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+      whiteboard: '<rect x="3" y="4" width="18" height="13" rx="2.5"/><path d="M7 13c1.6-3 3-3 4-1s2.4 2 4-2M9 21l3-4 3 4"/>'
     };
     if (name === "tutor") return tutorOrbIcon();
     return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
@@ -537,6 +539,7 @@ export function createStudyHubController({
     if (type === "notes") return "Notes";
     if (type === "podcast") return "Podcast";
     if (type === "tutor") return "AI tutor";
+    if (type === "whiteboard") return "Whiteboard";
     return "Generation";
   }
 
@@ -1444,12 +1447,14 @@ export function createStudyHubController({
     const notes = state.studyMaterials?.notes || [];
     const podcasts = state.studyPractice?.podcasts || [];
     const tutors = state.studyPractice?.tutors || [];
-    const tools = [["flashcards", "Flashcards", "Flashcards"], ["mindmap", "Mind map", "Mind map"], ["notes", "Notes", "Notes"], ["quiz", "Test", "Practice test"], ["podcast", "Podcast", "Podcast"], ["tutor", "Tutor", "AI tutor"]];
+    const whiteboards = state.studyPractice?.whiteboards || [];
+    const tools = [["flashcards", "Flashcards", "Flashcards"], ["mindmap", "Mind map", "Mind map"], ["notes", "Notes", "Notes"], ["quiz", "Test", "Practice test"], ["podcast", "Podcast", "Podcast"], ["tutor", "Tutor", "AI tutor"], ["whiteboard", "Board", "Whiteboard"]];
     const artifacts = [
       ...decks.map(d => ({ ...d, pinKind: "deck", type: "flashcards", action: "data-open-deck", meta: `${d.cardCount || 0} cards`, menu: practiceMenu("deck", d.id) })),
       ...quizzes.map(q => ({ ...q, pinKind: "quiz", type: "quiz", action: "data-open-quiz", meta: `${q.questionCount || 0} questions`, menu: practiceMenu("quiz", q.id) })),
       ...podcasts.map(p => ({ ...p, pinKind: "podcast", type: "podcast", action: "data-open-podcast", meta: podcastMeta(p), menu: practiceMenu("podcast", p.id) })),
       ...tutors.map(t => ({ ...t, pinKind: "tutor", type: "tutor", action: "data-open-tutor", meta: tutorMeta(t), menu: t.status === "preparing" ? "" : practiceMenu("tutor", t.id) })),
+      ...whiteboards.map(b => ({ ...b, pinKind: "whiteboard", type: "whiteboard", action: "data-open-whiteboard", meta: whiteboardMeta(b), menu: practiceMenu("whiteboard", b.id) })),
       ...notes.map(n => ({ ...n, pinKind: "note", type: isMindMap(n) ? "mindmap" : "notes", action: "data-open-note", meta: isMindMap(n) ? "Mind map" : noteKindLabel(n), menu: materialMenu("note", n.id) }))
     ];
     // Newest first; an item still being made has no date yet and counts as the newest.
@@ -1477,7 +1482,7 @@ export function createStudyHubController({
       <div class="dojo-tools">${tools.map(([type, label, name]) => `<button class="dojo-tool dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${name.toLowerCase()}" title="${name}"><span class="dojo-tool-icon">${icon(type)}</span><strong>${label}</strong></button>`).join("")}</div>
       ${generationCardsMarkup()}
       <div class="dojo-source-caption">Your collection <span>${artifacts.length}</span></div>
-      <div class="dojo-artifacts">${ordered.map(groupMarkup).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, and tutor sessions will find a home here.")}</div>
+      <div class="dojo-artifacts">${ordered.map(groupMarkup).join("") || emptyState("Good things take practice", "Your flashcards, maps, notes, tests, podcasts, tutor sessions, and whiteboards will find a home here.")}</div>
     </div>`;
   }
 
@@ -1492,7 +1497,7 @@ export function createStudyHubController({
       <section class="dojo-panel dojo-sources" aria-label="Sources">${sourcesRailMarkup()}<div class="dojo-sources-expanded">${sourcesHeaderMarkup()}${materialsMarkup()}</div></section>
       <section class="dojo-panel dojo-chat" aria-label="Ask"><header class="dojo-panel-header"><h2>Ask</h2><div class="dojo-chat-actions"><button class="study-icon-btn" type="button" data-dojo-new-chat aria-label="New course chat" title="New chat">${icon("plus")}</button>${recentChatsMarkup()}</div></header>${chatMarkup()}</section>
       <section class="dojo-panel dojo-studio" aria-label="Create">
-        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
+        <div class="dojo-studio-rail"><button class="study-icon-btn" type="button" data-collapse-studio aria-expanded="false" aria-label="Expand create" title="Expand create">${icon("sidebar")}</button><span class="dojo-rail-label">Create</span><div class="dojo-rail-files">${["flashcards", "mindmap", "notes", "quiz", "podcast", "tutor", "whiteboard"].map(type => `<button class="dojo-artifact-icon dojo-tool--${type}" type="button" data-practice-create="${type}" aria-label="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}" title="Create ${type === "tutor" ? "an AI tutor session" : type === "whiteboard" ? "a whiteboard" : jobTypeLabel(type).toLowerCase()}">${icon(type)}</button>`).join("")}</div></div>
         <div class="dojo-studio-expanded"><header class="dojo-panel-header"><h2>Create</h2><button class="study-icon-btn dojo-collapse-studio" type="button" data-collapse-studio aria-expanded="${!studioCollapsed}" aria-label="Collapse create" title="Collapse create">${icon("expand")}</button></header>${practiceMarkup()}</div>
       </section>
       ${panelResizeHandles()}
@@ -1978,6 +1983,7 @@ export function createStudyHubController({
   }
 
   function resetCourseCaches() {
+    void whiteboards.close();
     sourceDialog.close();
     if (audioViewer.id) audioViewer.close(null, { silent: true });
     clearTimeout(transcriptionTimer);
@@ -2509,6 +2515,106 @@ export function createStudyHubController({
       studioView.session = ended || { ...studioView.session, status: "ended" };
     }
     render();
+  }
+
+  // ---------- Whiteboards ----------
+
+  const whiteboards = createWhiteboardController({
+    api: { createWhiteboard, fetchWhiteboard, saveWhiteboard, deleteWhiteboard, fetchWhiteboardTurns, fetchWhiteboardTurn, uploadWhiteboardFile, fetchWhiteboardFile, streamWhiteboardAsk, transcribeVoiceTurn, synthesizeVoice },
+    getSession: () => state.session,
+    getUserId: () => state.session?.user?.id || "me",
+    voicePrefs: () => ({ voice: state.settings?.voiceId, speed: state.settings?.voiceSpeed }),
+    voiceEnabled: () => Boolean(speechEnabled?.()),
+    renderContent,
+    escapeHtml,
+    showToast,
+    onRenamed: (id, title) => {
+      patchPracticeTitle("whiteboards", id, title);
+      render();
+    },
+    onCreated: (board) => {
+      // A copy saved from the board ("Save mine as a new board") joins the course's list.
+      if (!state.studyPractice || board.courseId !== state.activeCourseId) return;
+      const item = { id: board.id, title: board.title, createdAt: board.createdAt, updatedAt: board.updatedAt };
+      state.studyPractice = { ...state.studyPractice, whiteboards: [item, ...(state.studyPractice.whiteboards || []).filter((entry) => entry.id !== board.id)] };
+      render();
+    },
+    onClosed: ({ id }) => {
+      // Closing saved the board; show it as just edited.
+      if (!state.studyPractice?.whiteboards) return;
+      state.studyPractice = {
+        ...state.studyPractice,
+        whiteboards: state.studyPractice.whiteboards.map((item) => item.id === id ? { ...item, updatedAt: new Date().toISOString() } : item)
+      };
+      render();
+    }
+  });
+
+  function findWhiteboard(id) {
+    return (state.studyPractice?.whiteboards || []).find((item) => item.id === id) || null;
+  }
+
+  function whiteboardMeta(board) {
+    const at = Date.parse(board.updatedAt || board.createdAt || "");
+    return Number.isFinite(at) ? `Edited ${new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Whiteboard";
+  }
+
+  function openWhiteboard(id) {
+    const board = findWhiteboard(id);
+    if (!board) return;
+    return whiteboards.open({ id, title: board.title, courseId: state.activeCourseId, courseName: courseName() });
+  }
+
+  async function newWhiteboard() {
+    if (!state.activeCourseId || !requireAuth()) return;
+    try {
+      const { board } = await createWhiteboard(state.session, state.activeCourseId, { title: "Untitled board" });
+      const item = { id: board.id, title: board.title, createdAt: board.createdAt, updatedAt: board.updatedAt };
+      state.studyPractice = { ...(state.studyPractice || {}), whiteboards: [item, ...(state.studyPractice?.whiteboards || [])] };
+      render();
+      await openWhiteboard(board.id);
+    } catch (error) {
+      showToast(error.message || "Could not make a whiteboard.");
+    }
+  }
+
+  function openRenameWhiteboardDialog(id) {
+    const board = findWhiteboard(id);
+    if (!board) return;
+    quizMenuKey = "";
+    render();
+    openTitleRename({
+      title: "Rename board",
+      value: board.title || "",
+      onSave: async (title) => {
+        const payload = await saveWhiteboard(state.session, id, { title });
+        patchPracticeTitle("whiteboards", id, payload?.title || title);
+        render();
+        showToast("Board renamed.");
+      }
+    });
+  }
+
+  function confirmDeleteWhiteboard(id) {
+    const board = findWhiteboard(id);
+    if (!board) return;
+    quizMenuKey = "";
+    render();
+    openDeleteConfirm({
+      title: "Delete whiteboard?",
+      body: `Delete "${board.title || "this board"}" with its drawings, images, and Klui's answers?`,
+      onConfirm: async () => {
+        try {
+          await deleteWhiteboard(state.session, id);
+          await leavePracticeCard(practiceCardEl("data-open-whiteboard", id));
+          dropPractice("whiteboards", id);
+          render();
+          showToast("Board deleted.");
+        } catch (error) {
+          showToast(error.message || "Board could not be deleted.");
+        }
+      }
+    });
   }
 
   function openRenameTutorDialog(sessionId) {
@@ -3332,6 +3438,8 @@ export function createStudyHubController({
     closeSessionLayer();
     closeSideChat?.();
     closeNote();
+    // Leaving the course view (Back, another route, sign-out) takes the whiteboard down with it.
+    void whiteboards.close();
     if (reviewed) render();
     // Full-screen review can star, edit, or delete cards; refresh the open deck.
     if (reviewed && studioView?.kind === "deck") void loadStudioCards();
@@ -4703,7 +4811,7 @@ export function createStudyHubController({
       return;
     }
     const pin = event.target.closest("[data-collection-pin-kind]");
-    if (pin && ["deck", "quiz", "note", "podcast", "tutor"].includes(pin.dataset.collectionPinKind)) {
+    if (pin && ["deck", "quiz", "note", "podcast", "tutor", "whiteboard"].includes(pin.dataset.collectionPinKind)) {
       event.stopPropagation();
       return toggleCollectionPin(pin.dataset.collectionPinKind, pin.dataset.collectionPinId);
     }
@@ -4730,6 +4838,8 @@ export function createStudyHubController({
     if (podcast) return openStudioView("podcast", podcast.dataset.openPodcast, event);
     const tutor = event.target.closest("[data-open-tutor]");
     if (tutor) return openStudioView("tutor", tutor.dataset.openTutor, event);
+    const board = event.target.closest("[data-open-whiteboard]");
+    if (board) return void openWhiteboard(board.dataset.openWhiteboard);
     if (event.target.closest("[data-study-add-files]")) {
       sourceDialog.open(event);
       return;
@@ -4739,6 +4849,7 @@ export function createStudyHubController({
     const practiceCreate = event.target.closest("[data-practice-create]");
     if (practiceCreate) {
       event.stopPropagation();
+      if (practiceCreate.dataset.practiceCreate === "whiteboard") return void newWhiteboard();
       return openCreatePicker(practiceCreate.dataset.practiceCreate, event);
     }
     const gen = event.target.closest("[data-study-generate]");
@@ -4783,6 +4894,10 @@ export function createStudyHubController({
     if (renameDeck) return openRenameDeckDialog(renameDeck.dataset.renameDeck);
     const removeDeck = event.target.closest("[data-delete-deck]");
     if (removeDeck) return confirmDeleteDeck(removeDeck.dataset.deleteDeck);
+    const renameBoard = event.target.closest("[data-rename-whiteboard]");
+    if (renameBoard) return openRenameWhiteboardDialog(renameBoard.dataset.renameWhiteboard);
+    const removeBoard = event.target.closest("[data-delete-whiteboard]");
+    if (removeBoard) return confirmDeleteWhiteboard(removeBoard.dataset.deleteWhiteboard);
     const renameTutor = event.target.closest("[data-rename-tutor]");
     if (renameTutor) return openRenameTutorDialog(renameTutor.dataset.renameTutor);
     const removeTutor = event.target.closest("[data-delete-tutor]");
@@ -5025,6 +5140,7 @@ export function createStudyHubController({
     bindEvents,
     handleEscape,
     closeSession,
+    closeWhiteboard: () => whiteboards.close(),
     loadCourse,
     resetCourseCaches,
     chatSources: contextPicker.sources,

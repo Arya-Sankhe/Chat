@@ -9882,6 +9882,8 @@ function voiceStreamEvent(voice, message, event) {
 }
 
 async function signOutAndReset() {
+  // Save and close an open whiteboard while the session can still save it.
+  await Promise.resolve(studyHub.closeWhiteboard?.()).catch(() => {});
   await signOut(state.config, state.session);
   stopExtractedModulePollers();
   clearGuestSend();
@@ -9973,6 +9975,7 @@ async function bootstrap() {
         void saveSession(session);
       },
       onExpired: () => {
+        studyHub.closeSession();
         void clearSession();
         stopExtractedModulePollers();
         state.session = null;

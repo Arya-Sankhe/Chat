@@ -62,6 +62,7 @@ import { handleTemporaryChat } from "./chat/temporary.js";
 import { handleEmailRevise } from "./chat/emailRevise.js";
 import { handleSpeechToText } from "./routes/speech.js";
 import { handleVoiceSpeech, handleVoiceTranscribe, handleVoiceWarm } from "./routes/voice.js";
+import { handleCourseWhiteboards, handleWhiteboardAsk, handleWhiteboardById, handleWhiteboardFiles, handleWhiteboardTurn, handleWhiteboardTurns } from "./routes/whiteboards.js";
 import { handleStudyCourseTutor, handleStudyTutorById, handleStudyTutorEnd, handleStudyTutorTranscribe, handleStudyTutorTurn } from "./routes/tutor.js";
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
@@ -362,6 +363,19 @@ export async function handleApiRequest(req, res, url, config) {
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "tutor" && !parts[5]) {
       await handleStudyCourseTutor(req, res, config, parts[3]);
       return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "courses" && parts[3] && parts[4] === "whiteboards" && !parts[5]) {
+      await handleCourseWhiteboards(req, res, config, parts[3]);
+      return;
+    }
+
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "whiteboards" && parts[3]) {
+      if (!parts[4]) return await handleWhiteboardById(req, res, config, parts[3]);
+      if (parts[4] === "turns" && !parts[5]) return await handleWhiteboardTurns(req, res, config, parts[3]);
+      if (parts[4] === "turns" && parts[5] && !parts[6]) return await handleWhiteboardTurn(req, res, config, parts[3], parts[5]);
+      if (parts[4] === "ask" && !parts[5]) return await handleWhiteboardAsk(req, res, config, parts[3]);
+      if (parts[4] === "files" && parts[5] && !parts[6]) return await handleWhiteboardFiles(req, res, config, parts[3], parts[5]);
     }
 
     if (parts[0] === "api" && parts[1] === "study" && parts[2] === "tutor" && parts[3] && !parts[4]) {

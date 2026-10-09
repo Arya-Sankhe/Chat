@@ -464,7 +464,7 @@ test("narrow browser layout uses a drawer header and unclipped model menu", asyn
   const source = readStylesheet();
   assert.match(source, /@media \(max-width: 860px\)/);
   assert.match(source, /body:not\(\.capacitor-native\) \.native-mobile-menu \{[\s\S]*display: inline-flex !important/);
-  assert.match(source, /body:not\(\.capacitor-native\) \.sidebar,[\s\S]*transition: transform 260ms cubic-bezier\(\.32, \.72, 0, 1\), visibility 0s linear 260ms/);
+  assert.match(source, /body:not\(\.capacitor-native\) \.sidebar:where\(aside\),[\s\S]*transition: transform 260ms cubic-bezier\(\.32, \.72, 0, 1\), visibility 0s linear 260ms/);
   assert.match(source, /body:not\(\.capacitor-native\) \.native-nav-backdrop \{[\s\S]*transition: opacity 160ms var\(--ease-out\)/);
   assert.match(source, /body\.sidebar-open \.native-nav-backdrop/);
   assert.match(source, /body\.sidebar-open \.sidebar-nav-label/);
@@ -791,7 +791,7 @@ test("capacitor native backdrop z-index sits below the sidebar when sidebar is o
   // Sidebar in capacitor-native is at z-index: 80.
   // The backdrop uses z-index: 79 so it stays behind the sidebar.
   assert.match(source, /body\.capacitor-native\.sidebar-open \.native-nav-backdrop\s*\{[\s\S]*z-index:\s*79/);
-  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*z-index:\s*80/);
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar:where\(aside\)\s*\{[\s\S]*z-index:\s*80/);
 });
 
 test("profile menu handlers close the mobile sidebar before opening drawers", async () => {
@@ -838,7 +838,7 @@ test("capacitor native sidebar overflow does not clip conversation menus when op
   // The closed sidebar keeps overflow: hidden to prevent content leak during
   // slide-out animation; the open sidebar must use overflow: visible so
   // absolutely-positioned conversation menus are not clipped.
-  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*?overflow:\s*visible/);
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar:where\(aside\)\s*\{[\s\S]*?overflow:\s*visible/);
 });
 
 test("capacitor conversation menu z-index sits above the native nav backdrop", async () => {
@@ -847,7 +847,7 @@ test("capacitor conversation menu z-index sits above the native nav backdrop", a
   // context), so the menu renders above the backdrop (z-index: 79). Verify the
   // sidebar itself is always above the backdrop.
   assert.match(source, /body\.capacitor-native\.sidebar-open \.native-nav-backdrop\s*\{[\s\S]*?z-index:\s*79/);
-  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar\s*\{[\s\S]*?z-index:\s*80/);
+  assert.match(source, /body\.capacitor-native\.sidebar-open \.sidebar:where\(aside\)\s*\{[\s\S]*?z-index:\s*80/);
 });
 
 test("openConversation closes the mobile sidebar", async () => {

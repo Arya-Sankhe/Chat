@@ -510,12 +510,16 @@ function wrapMessageTables(html) {
   return String(html).replace(/<table\b[\s\S]*?<\/table>/gi, (table) => `<div class="table-scroll">${table}</div>`);
 }
 
-function renderRichText(raw, { holdVisualize = false, emailCards = false, visualizeLabel = "" } = {}) {
+// artifacts: false renders visualize fences as plain code (no scripted frames), for surfaces like
+// whiteboard answers that only show text.
+function renderRichText(raw, { holdVisualize = false, emailCards = false, visualizeLabel = "", artifacts = true } = {}) {
   const text = String(raw ?? "");
   if (!text) return "";
 
   const emails = emailCards ? extractEmails(text, { streaming: holdVisualize }) : { text, slots: [] };
-  const visualizations = extractVisualizations(emails.text, { holdCompleted: holdVisualize, buildingLabel: visualizeLabel });
+  const visualizations = artifacts
+    ? extractVisualizations(emails.text, { holdCompleted: holdVisualize, buildingLabel: visualizeLabel })
+    : { text: emails.text, slots: [] };
 
   const m = globalThis.marked;
   if (!m || typeof m.parse !== "function") {
@@ -579,11 +583,11 @@ export function fileTypeIcon(fileName = "") {
 
 /* Public content renderer */
 
-export function renderContent(content, { holdVisualize = false, emailCards = false, visualizeLabel = "" } = {}) {
+export function renderContent(content, { holdVisualize = false, emailCards = false, visualizeLabel = "", artifacts = true } = {}) {
   if (Array.isArray(content)) {
     return content
       .map((part) => {
-        if (part.type === "text") return renderRichText(part.text, { holdVisualize, emailCards, visualizeLabel });
+        if (part.type === "text") return renderRichText(part.text, { holdVisualize, emailCards, visualizeLabel, artifacts });
         if (part.type === "image_url") {
           const url = safeImageUrl(part.image_url?.url);
           return url ? `<img class="message-image" src="${escapeHtml(url)}" data-preview-src="${escapeHtml(url)}" alt="User supplied image" role="button" tabindex="0">` : "";
@@ -606,7 +610,7 @@ export function renderContent(content, { holdVisualize = false, emailCards = fal
       })
       .join("");
   }
-  return renderRichText(content, { holdVisualize, emailCards, visualizeLabel });
+  return renderRichText(content, { holdVisualize, emailCards, visualizeLabel, artifacts });
 }
 
 /**

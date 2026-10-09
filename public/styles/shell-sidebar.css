@@ -25,7 +25,7 @@ body.sidebar-expanded {
 }
 
 body:not(.sidebar-expanded):not(.guest-mode) .app-shell,
-body:not(.sidebar-expanded):not(.guest-mode) .sidebar {
+body:not(.sidebar-expanded):not(.guest-mode) .sidebar:where(aside) {
 
   transition-duration: 260ms;
 
@@ -45,7 +45,7 @@ body.document-viewer-open .app-shell {
 
 /* ─── Sidebar ─── */
 
-.sidebar {
+.sidebar:where(aside) {
 
   display: flex;
 
@@ -73,7 +73,7 @@ body.document-viewer-open .app-shell {
 
 }
 
-body.sidebar-expanded .sidebar {
+body.sidebar-expanded .sidebar:where(aside) {
 
   width: var(--sidebar-active-w);
 
@@ -85,14 +85,14 @@ body.guest-mode .app-shell {
 
 }
 
-body.guest-mode .sidebar {
+body.guest-mode .sidebar:where(aside) {
 
   width: var(--sidebar-active-w);
 
 }
 
 @media (min-width: 901px) {
-  body:not(.sidebar-expanded):not(.guest-mode) .sidebar {
+  body:not(.sidebar-expanded):not(.guest-mode) .sidebar:where(aside) {
     align-self: start;
     height: auto;
     min-height: 0;
