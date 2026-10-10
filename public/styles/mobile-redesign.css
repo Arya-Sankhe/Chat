@@ -449,6 +449,9 @@ body.mobile-ui.mobile-ui[data-mode="dark"] .native-mobile-mode-btn[data-mode="co
 /* Keep the mobile navigation flush with the recents, without nested padding. */
 body.mobile-ui.mobile-ui .sidebar-nav { padding-inline: 0; }
 body.mobile-ui.mobile-ui .sidebar-nav .sidebar-nav-item { padding-inline: 0; }
+body.mobile-ui.mobile-ui .sidebar-quick { padding-inline: 0; }
+body.mobile-ui.mobile-ui .sidebar-search-item { padding-left: 0 !important; border: 0; }
+body.mobile-ui.mobile-ui .sidebar-search-item .sidebar-nav-icon { width: 36px; height: 36px; }
 /* Cards use the panel width; headings retain their existing text inset. */
 body.mobile-ui.mobile-ui .dojo-studio-content { padding-inline: 0; }
 body.mobile-ui.mobile-ui .dojo-studio-content > .dojo-source-caption { margin-inline: 16px; }

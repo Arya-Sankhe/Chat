@@ -7,11 +7,11 @@
   "releaseNotes": [
     "Faster 500 ms launch with Klui visible immediately.",
     "Smoother keyboard and composer; the ten latest chats load first.",
-    "Wider Dojo cards and left-aligned Dojo and Pinned navigation.",
+    "Wider Dojo cards; Search, Dojo and Pinned align on the left.",
     "Model colours now match the website, including Council in light and dark mode.",
     "Web search clearly shows when it is on; Dojo removed from the add menu."
   ],
-  "sizeBytes": 20204646,
-  "sha256": "a3ab62aa590a41007258ee1b0226fce04e77005b640d507b99da1b5a77071d23",
-  "releasedAt": "2026-10-10T17:27:42.076Z"
+  "sizeBytes": 20204686,
+  "sha256": "5febfff7e296c3cad8d068bddcc1db6cb499a3780d082599edc98fbeb39cc4c3",
+  "releasedAt": "2026-10-10T17:34:21.397Z"
 }
