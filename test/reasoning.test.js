@@ -143,7 +143,7 @@ test("adaptChatRequestForProvider pins OpenRouter routing to tool-capable endpoi
     tool_choice: "auto"
   }, "openrouter");
 
-  assert.deepEqual(adapted.provider, { require_parameters: true });
+  assert.deepEqual(adapted.provider, { require_parameters: true, ignore: ["io-net"] });
   assert.equal(adapted.tool_choice, "auto");
 });
 
@@ -153,7 +153,7 @@ test("adaptChatRequestForProvider does not force require_parameters without tool
     messages: [{ role: "user", content: "hi" }]
   }, "openrouter");
 
-  assert.equal(adapted.provider, undefined);
+  assert.deepEqual(adapted.provider, { ignore: ["io-net"] });
 });
 
 test("adaptChatRequestForProvider prefers DeepSeek provider with auto fallback", () => {
@@ -298,7 +298,7 @@ test("adaptChatRequestForProvider preserves caller provider routing alongside re
     provider: { order: ["Xiaomi"] }
   }, "openrouter");
 
-  assert.deepEqual(adapted.provider, { order: ["Xiaomi"], require_parameters: true });
+  assert.deepEqual(adapted.provider, { order: ["Xiaomi"], require_parameters: true, ignore: ["io-net"] });
 });
 
 test("adaptChatRequestForProvider defaults OpenRouter effort to high", () => {

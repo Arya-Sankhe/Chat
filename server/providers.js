@@ -319,6 +319,9 @@ export function resetThinkFlexCache() {
   thinkFlexRefresh = null;
 }
 
+// Hosts a model must never use: io.net lists MiMo V2.6 Flash at about twice every other host's price.
+const IGNORED_PROVIDERS = new Map([[OPENROUTER_VISION_MODEL, ["io-net"]]]);
+
 function providerSlug(name) {
   return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -448,10 +451,16 @@ export function adaptChatRequestForProvider(body, providerId) {
     providerPrefs.require_parameters = true;
   }
 
+  const ignored = IGNORED_PROVIDERS.get(modelId) || [];
+  if (ignored.length) {
+    providerPrefs.ignore = [...new Set([...(Array.isArray(providerPrefs.ignore) ? providerPrefs.ignore : []), ...ignored])];
+  }
+
   // Keep every request in a turn on the host that served its first request, so the provider's
   // prompt cache stays warm. Fallbacks stay on: an outage costs a cache miss, not the turn.
   if (stickyProvider && !isProModel && !providerPrefs.only) {
-    const pinned = stickyProviderTags(modelId, stickyProvider, providerPrefs.order);
+    const pinned = stickyProviderTags(modelId, stickyProvider, providerPrefs.order)
+      .filter((tag) => !ignored.includes(String(tag).toLowerCase().split("/")[0]));
     if (pinned.length) {
       const keys = new Set(pinned.map((tag) => tag.toLowerCase()));
       providerPrefs.order = [...pinned, ...(providerPrefs.order || []).filter((tag) => !keys.has(String(tag).toLowerCase()))];
