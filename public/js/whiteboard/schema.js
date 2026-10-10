@@ -409,10 +409,14 @@ function proposalStyle(op, fields) {
  * Validates a propose_diagram tool call. Returns the clean proposal; throws SceneError.
  * Diagrams keep their boxes apart; drawings (`overlap: true`) may layer shapes, like a face or a cell.
  */
-export function validateProposal(proposal, { overlap = false, area = null } = {}) {
+export function validateProposal(proposal, { overlap = false, area = null, spill = false } = {}) {
   // Voice commands draw in the student's view, which can be bigger than a diagram's space.
   const maxWidth = Math.min(LIMITS.size, Math.max(LIMITS.proposalWidth, area?.width || 0));
   const maxHeight = Math.min(LIMITS.size, Math.max(LIMITS.proposalHeight, area?.height || 0));
+  // With `spill`, parts may go up to one view beyond each edge (a full view has no room left);
+  // the board then moves to show them. Sizes stay within one view.
+  const [minX, minY] = spill ? [-maxWidth, -maxHeight] : [0, 0];
+  const [maxX, maxY] = spill ? [maxWidth * 2, maxHeight * 2] : [maxWidth, maxHeight];
   if (!isObject(proposal)) fail("The diagram is not valid.");
   onlyKeys(proposal, ["summary", "ops"]);
   if (!Array.isArray(proposal.ops) || !proposal.ops.length || proposal.ops.length > LIMITS.proposalOps) fail(`A diagram has 1 to ${LIMITS.proposalOps} parts.`);
@@ -422,8 +426,8 @@ export function validateProposal(proposal, { overlap = false, area = null } = {}
     if (!isObject(op)) fail("A diagram part is not valid.");
     // Shapes can be small details (a doorknob, an eye); text needs room for a word.
     const box = (withHeight, least = withHeight ? 4 : 20) => ({
-      x: finite(op.x, "Diagram position", { min: 0, max: maxWidth }),
-      y: finite(op.y, "Diagram position", { min: 0, max: maxHeight }),
+      x: finite(op.x, "Diagram position", { min: minX, max: maxX }),
+      y: finite(op.y, "Diagram position", { min: minY, max: maxY }),
       width: finite(op.width, "Diagram size", { min: least, max: maxWidth }),
       ...(withHeight ? { height: finite(op.height, "Diagram size", { min: least, max: maxHeight }) } : {})
     });
@@ -436,14 +440,14 @@ export function validateProposal(proposal, { overlap = false, area = null } = {}
     if (op.op === "shape") {
       onlyKeys(op, ["op", "key", "shape", "x", "y", "width", "height", "text", "color", "fill", "behind"]);
       const out = { op: "shape", key: key(op.key), shape: oneOf(PROPOSAL_SHAPES, op.shape, "Diagram shape"), ...box(true), text: proposalText(op.text, "Shape label", budget), ...proposalStyle(op, ["color", "fill"]), ...(op.behind === true ? { behind: true } : {}) };
-      if (out.x + out.width > maxWidth || out.y + out.height > maxHeight) fail("The diagram is too big.");
+      if (out.x + out.width > maxX || out.y + out.height > maxY) fail("The diagram is too big.");
       return out;
     }
     if (op.op === "text") {
       onlyKeys(op, ["op", "key", "x", "y", "width", "text", "color", "size"]);
       const out = { op: "text", key: key(op.key ?? `text-${keys.size}`), ...box(false), text: proposalText(op.text, "Diagram text", budget), ...proposalStyle(op, ["color", "size"]) };
       if (!out.text) fail("Diagram text is empty.");
-      if (out.x + out.width > maxWidth) fail("The diagram is too big.");
+      if (out.x + out.width > maxX) fail("The diagram is too big.");
       return out;
     }
     if (op.op === "line") {
@@ -453,7 +457,7 @@ export function validateProposal(proposal, { overlap = false, area = null } = {}
       if (!Array.isArray(op.points) || op.points.length < 2 || op.points.length > 64) fail("A line needs 2 to 64 points.");
       const points = op.points.map((point) => {
         if (!Array.isArray(point) || point.length !== 2) fail("A line point is not valid.");
-        return [finite(point[0], "Line point", { min: 0, max: maxWidth }), finite(point[1], "Line point", { min: 0, max: maxHeight })];
+        return [finite(point[0], "Line point", { min: minX, max: maxX }), finite(point[1], "Line point", { min: minY, max: maxY })];
       });
       const closed = op.closed === true;
       // A name per point (a triangle's A, B and C), drawn just outside it.
@@ -535,7 +539,7 @@ export function proposalToSkeletons(proposal) {
         const width = Math.max(20, name.length * 11);
         skeletons.push({
           type: "text", id: `klui-${op.key}-label-${index}`, text: name, width, fontSize: 20, fontFamily: 5, strokeColor: ink,
-          x: Math.max(0, px + dx * 26 - width / 2), y: Math.max(0, py + dy * 26 - 12)
+          x: px + dx * 26 - width / 2, y: py + dy * 26 - 12
         });
       });
     }

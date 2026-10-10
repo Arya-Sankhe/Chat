@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { darkPixels, seenColor, storedColor, storedProposal } from '../public/js/whiteboard/colors.js';
 import { createVoiceActivity } from '../public/js/whiteboard/voice-activity.js';
+import { validateProposal } from '../public/js/whiteboard/schema.js';
 import { describeForCommand, salvageVoiceProposal, validateVoiceProposal, voiceTargetsUnchanged } from '../public/js/whiteboard/voice-command.js';
 
 test('pause detection ignores silence and brief noise, sends only after a sustained utterance', () => {
@@ -109,4 +110,19 @@ test('dark boards: Klui sees and picks colours as they look on screen', () => {
   assert.ok(near(`#${[...pixels.slice(0, 3)].map((v) => v.toString(16).padStart(2, '0')).join('')}`, '#da9e73'));
   const line = describeForCommand([{ id: 'w', type: 'rectangle', x: 0, y: 0, width: 10, height: 10, strokeColor: '#cce6ff', backgroundColor: '#8b4513' }], { x: 0, y: 0 }, { theme: 'dark' });
   assert.match(line, new RegExp(`outline ${seenColor('#cce6ff', 'dark')}, fill ${seenColor('#8b4513', 'dark')}`));
+});
+
+test('a full view lets a spoken drawing go past its edge, up to one view beyond', () => {
+  const frame = { x: 500, y: 200, width: 1700, height: 980 };
+  const below = { op: 'shape', key: 'next', shape: 'rectangle', x: 100, y: 1100, width: 220, height: 100, text: 'Next' };
+  const kept = salvageVoiceProposal({ say: 'ok', ops: [below], edits: [] }, [], frame);
+  assert.equal(kept.ops.length, 1);
+  assert.equal(kept.ops[0].y, 1100);
+  const left = { op: 'line', key: 'path', points: [[-200, 50], [-40, 80]] };
+  assert.equal(salvageVoiceProposal({ ops: [left], edits: [] }, [], frame).ops.length, 1);
+  // A view smaller than a diagram's space (1600×1200) still gets that space to spill into.
+  const tooFar = { ...below, key: 'far', y: 1200 * 2 - 50 };
+  assert.equal(salvageVoiceProposal({ ops: [tooFar], edits: [] }, [], frame), null);
+  // Diagrams placed by the editor keep their local space.
+  assert.throws(() => validateProposal({ ops: [{ ...below, y: -20 }] }), /out of range/);
 });

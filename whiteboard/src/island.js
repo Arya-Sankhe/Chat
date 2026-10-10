@@ -22,6 +22,7 @@ import "@excalidraw/excalidraw/index.css";
 import "./whiteboard.css";
 import { Find } from "./find.js";
 import { ImagePlacementPreview } from "./image-placement.js";
+import { clearOf, revealView } from "./make-room.js";
 import { darkPixels } from "../../public/js/whiteboard/colors.js";
 
 // Element types a board may hold; frames, embeds and iframes are switched off.
@@ -277,6 +278,19 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     frame();
   }
 
+  /** Pans the view (keeping its zoom) just far enough to show `box`; too big to fit, it zooms out to fit. */
+  function showBox(box) {
+    const state = api.getAppState();
+    const zoom = state.zoom.value;
+    const view = { x: -state.scrollX, y: -state.scrollY, width: state.width / zoom, height: state.height / zoom };
+    const to = revealView(box, view, 60 / zoom);
+    if (!to) return;
+    const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Centring on a view-sized frame at the new spot pans there; the student can interrupt it.
+    const target = to === "fit" ? box : { ...view, x: to.x, y: to.y };
+    api.scrollToContent(convertToExcalidrawElements([{ type: "rectangle", ...target }]), { animate, ...(to === "fit" ? { fitToViewport: true, viewportZoomFactor: 0.9 } : {}) });
+  }
+
   const controller = {
     get api() { return api; },
     /** The durable drawing: all elements (including deleted, so undo survives reloads) and the background. */
@@ -427,10 +441,20 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
      * Runs a voice command as one undo step: draws `skeletons` with their coordinates taken from
      * `origin` (the top-left of the view the command was given) and applies `edits` to elements by
      * id. Edit x/y are view coordinates of the element's box; a shape's label follows its shape.
-     * Returns the new element ids.
+     * Returns the ids of what it drew and of the elements it was asked to change.
      */
-    command({ skeletons = [], origin, edits = [], transforms = [] }) {
-      const made = kluiParts(convertToExcalidrawElements(skeletons, { regenerateIds: true }), origin.x, origin.y);
+    command({ skeletons = [], origin, edits = [], transforms = [], seen = null, reveal = false }) {
+      let made = kluiParts(convertToExcalidrawElements(skeletons, { regenerateIds: true }), origin.x, origin.y);
+      // A new drawing past the edge of the view moves clear of anything Klui couldn't see. Parts
+      // added on or beside what it saw (a window on a house) stay where they were put.
+      const drawn = boundsOf(made);
+      if (drawn && seen) {
+        const known = new Set(seen);
+        const live = api.getSceneElements();
+        const boxes = (keep) => live.filter((element) => known.has(element.id) === keep).map((element) => boundsOf([element]));
+        const { dx, dy } = clearOf(drawn, origin, boxes(false), boxes(true));
+        if (dx || dy) made = kluiParts(made, dx, dy);
+      }
       const all = api.getSceneElementsIncludingDeleted();
       const byId = new Map(all.map((element) => [element.id, element]));
       // A transform moves or scales a whole drawing about its shared centre: each part gets the
@@ -546,7 +570,16 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
       // What Klui drew or changed glows for a moment instead of being selected, so the board stays clean.
       const changed = [...patches].filter(([id, change]) => !change.isDeleted && !byId.get(id)?.containerId).map(([id]) => id);
       commit({ added: made, behind, patches, glow: [...made.filter((element) => !element.containerId).map((element) => element.id), ...changed] });
-      return made.map((element) => element.id);
+      // What Klui was asked to draw or change, without arrows that only followed a moved shape.
+      const asked = new Set(edits.filter((edit) => !edit.delete).map((edit) => edit.id));
+      const focus = [...made.filter((element) => !element.containerId).map((element) => element.id), ...changed.filter((id) => asked.has(id))];
+      // The view moves just enough to show it when it ended up off screen.
+      if (reveal && focus.length) {
+        // Where everything ends up, not the animation's first frame.
+        const ids = new Set(focus);
+        showBox(boundsOf([...made.filter((element) => ids.has(element.id)), ...changed.filter((id) => ids.has(id)).map((id) => ({ ...byId.get(id), ...patches.get(id) }))]));
+      }
+      return focus;
     },
     navigate(direction) {
       const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;

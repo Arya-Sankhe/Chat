@@ -444,17 +444,19 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       return { left: a.x - stage.left, top: a.y - stage.top, width: b.x - a.x, height: b.y - a.y, stage };
     }
 
-    /** Where a thread's anchor is now: its surviving elements, or the frozen area. */
+    /**
+     * Where a thread's anchor is now: what Klui drew or changed for it, its selected elements, or
+     * the frozen area.
+     */
     function threadRect(thread) {
-      if (thread.captureMode === "selection" && thread.elementIds?.length && editor) {
-        const ids = new Set(thread.elementIds);
-        const live = editor.api.getSceneElements().filter((element) => ids.has(element.id));
-        if (live.length) {
-          const box = boundsOf(live);
-          if (box) return box;
-        }
-      }
-      return thread.rect;
+      return anchorRect(thread) || thread.rect;
+    }
+
+    function anchorRect(thread) {
+      const anchor = thread.anchorIds?.length ? thread.anchorIds : thread.captureMode === "selection" ? thread.elementIds : null;
+      if (!anchor?.length || !editor) return null;
+      const ids = new Set(anchor);
+      return boundsOf(editor.api.getSceneElements().filter((element) => ids.has(element.id)));
     }
 
     function boundsOf(elements) {
@@ -470,10 +472,12 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       const stage = $(".wb-stage").getBoundingClientRect();
       // Outline + mascot for each shown thread.
       for (const thread of threads.values()) {
-        const rect = threadRect(thread);
+        const anchor = anchorRect(thread);
+        const rect = anchor || thread.rect;
         if (!rect) continue;
         const box = clientRect(rect);
-        const showOutline = thread.status === "working" || openThread === thread.id;
+        // A whole view is no anchor worth outlining: the screen's own edges already frame it.
+        const showOutline = (thread.status === "working" || openThread === thread.id) && (thread.captureMode !== "view" || Boolean(anchor));
         if (thread.outline) {
           thread.outline.hidden = !showOutline;
           Object.assign(thread.outline.style, { left: `${box.left - 6}px`, top: `${box.top - 6}px`, width: `${box.width + 12}px`, height: `${box.height + 12}px` });
@@ -905,7 +909,13 @@ export function createWhiteboardController({ api, getSession, getUserId, voicePr
       if (proposal.frame) {
         // Commands are drawn where Klui saw them: its coordinates are the view it was given.
         const edits = proposal.edits.map(({ size, ...edit }) => (size ? { ...edit, fontSize: TEXT_SIZES[size] } : edit));
-        editor.command({ skeletons: proposalToSkeletons(proposal), origin: proposal.frame, edits, transforms: proposal.transforms || [] });
+        // Spoken navigation decides where the view goes; otherwise it follows what Klui drew.
+        const focus = editor.command({
+          skeletons: proposalToSkeletons(proposal), origin: proposal.frame, edits, transforms: proposal.transforms || [],
+          seen: (found.thread.context?.elements || []).map((element) => element.id), reveal: !proposal.navigation
+        });
+        // The thread's outline hugs what Klui drew or changed, not the whole view it looked at.
+        if (focus.length) found.thread.anchorIds = focus;
       } else if (proposal.ops.length || proposal.edits?.length) {
         editor.insert(proposalToSkeletons(proposal), { x: rect.x + rect.width + 80, y: rect.y }, proposal.edits || [], voiceMode && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
       }

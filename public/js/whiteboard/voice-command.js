@@ -27,7 +27,7 @@ export function validateVoiceProposal(value, elements) {
   if (!Array.isArray(value.ops) || !Array.isArray(value.edits) || value.edits.length > VOICE_EDITS) fail();
   const frame = frameOf(value.frame);
   const proposal = value.ops.length
-    ? validateProposal({ summary: value.summary, ops: value.ops }, { overlap: true, area: frame })
+    ? validateProposal({ summary: value.summary, ops: value.ops }, { overlap: true, area: frame, spill: Boolean(frame) })
     : { summary: String(value.summary || '').trim().slice(0, 200), ops: [] };
   const byId = new Map(elements.map(element => [element.id, element]));
   const labelled = new Set(elements.filter(element => element.type === 'text' && element.containerId).map(element => element.containerId));
@@ -112,7 +112,7 @@ export function salvageVoiceProposal(value, elements, frame = null) {
   const kept = [];
   const fits = (op) => {
     try {
-      validateProposal({ summary: '', ops: [...kept, op] }, { overlap: true, area: frame });
+      validateProposal({ summary: '', ops: [...kept, op] }, { overlap: true, area: frame, spill: Boolean(frame) });
       return true;
     } catch {
       return false;
