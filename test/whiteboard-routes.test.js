@@ -4,7 +4,7 @@ import { loadConfig } from "../server/config.js";
 import { API_DEPENDENCIES } from "../server/routes/context.js";
 import { handleAttachmentDelete } from "../server/routes/uploads.js";
 import { handleCourseWhiteboards, handleWhiteboardAsk, handleWhiteboardById, handleWhiteboardFiles, handleWhiteboardTurn } from "../server/routes/whiteboards.js";
-import { imageInfo, normalizeAsk, whiteboardMessages } from "../server/study/whiteboard.js";
+import { groundInCourse, imageInfo, normalizeAsk, whiteboardMessages } from "../server/study/whiteboard.js";
 
 const USER = "00000000-0000-4000-8000-000000000001";
 const OTHER = "00000000-0000-4000-8000-000000000002";
@@ -473,4 +473,57 @@ test("a voice command keeps its valid parts: bad arrows and foreign edits are dr
     assert.equal(h.db.turns.at(-1).status, "complete");
     assert.equal(requests.length, 1, "nothing is paid for twice");
   } finally { restore(); }
+});
+
+test("a voice reply that skips respond is asked for once more, and its loose text is never streamed or spoken", async () => {
+  const h = harness();
+  const board = await newBoard(h);
+  const requests = [];
+  const dump = ["[1] Recording · Sep 27\n[0:00] Okay.\n\n", "[2] Recording · Sep 27\n[0:00] Okay.\n\n"];
+  const restore = stubModel({ content: dump, toolName: "respond", requests, toolArgsSequence: [null, { say: "I'm here. What should we draw?", ops: [], edits: [], navigation: "none" }] });
+  try {
+    const res = response();
+    await handleWhiteboardAsk(request("POST", askBody({ voice: true })), res, h.config, board.id);
+    const events = res.events();
+    assert.equal(events.filter(event => event.type === "text").length, 0, "no loose text reaches the student");
+    assert.equal(events.find(event => event.type === "done").turn.answer, "I'm here. What should we draw?");
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].messages.at(-1).content, /Call respond/);
+  } finally { restore(); }
+});
+
+test("when the retry still skips respond, Klui asks to hear it again instead of reading out the text", async () => {
+  const h = harness();
+  const board = await newBoard(h);
+  const requests = [];
+  const restore = stubModel({ content: ["[1] Recording · Sep 27\n[0:00] Okay."], toolName: "respond", requests, toolArgsSequence: [null, null] });
+  try {
+    const res = response();
+    await handleWhiteboardAsk(request("POST", askBody({ voice: true })), res, h.config, board.id);
+    const done = res.events().find(event => event.type === "done");
+    assert.equal(done.turn.answer, "Sorry, I didn't catch that. Could you say it again?");
+    assert.equal(done.turn.proposal, null);
+    assert.equal(requests.length, 2, "one retry, no more");
+  } finally { restore(); }
+});
+
+test("repeated source passages are given to Klui once", async () => {
+  const same = "[0:00] Okay. [0:03] Yeah, I'll give you Right.";
+  const db = {
+    async listProjectDocuments() { return [{ id: "rec", text_ready_at: "x", source_title: "Recording" }]; },
+    async searchDocumentChunks() { return [same, `  ${same} `, "Something else."].map((text) => ({ document_file_id: "rec", text, metadata: {} })); }
+  };
+  const grounding = await groundInCourse({ context: { db, user: { id: "u" } }, course: { id: "c" }, query: "okay" });
+  assert.deepEqual(grounding.passages.map((p) => [p.index, p.text]), [[1, same], [2, "Something else."]]);
+});
+
+test("a long stored voice answer is cut short when replayed into the next turn", () => {
+  const messages = whiteboardMessages({
+    course: { name: "C" },
+    request: { mode: "answer", voice: true, question: "Hi", image: null },
+    context: { captureMode: "view", rect: { x: 0, y: 0, width: 100, height: 100 }, elements: [] },
+    history: [{ question: "Q", answer: "x".repeat(5000), voice: true, proposal: null }],
+    grounding: { passages: [], status: "none" }
+  });
+  assert.equal(messages[2].content.length, 800);
 });

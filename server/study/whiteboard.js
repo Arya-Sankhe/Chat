@@ -18,6 +18,10 @@ const DIAGRAM_MAX_TOKENS = 2400;
 const GROUNDING_PASSAGES = 6;
 const GROUNDING_CHARS = 7000;
 const THREAD_TURNS = 10;
+// Spoken replies are short; a longer stored one is not replayed whole into the next turn.
+const VOICE_HISTORY_CHARS = 800;
+const VOICE_RETRY = "Call respond now, once. Put everything you say in its say field; write nothing outside it, and never copy the board or the course sources.";
+const VOICE_UNHEARD = "Sorry, I didn't catch that. Could you say it again?";
 const IMAGE_MAX_SIDE = 4096;
 const IMAGE_MAX_PIXELS = 16_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -125,11 +129,16 @@ export async function groundInCourse({ context, course, query, signal }) {
     }, { signal });
     const passages = [];
     const citations = [];
+    const seen = new Set();
     let used = 0;
     for (const hit of hits || []) {
       if (passages.length >= GROUNDING_PASSAGES) break;
       const text = String(hit.text || "").replace(/\s+/g, " ").trim();
       if (!text || !titles.has(hit.document_file_id)) continue;
+      // Repeated recordings say the same thing; one copy is enough, and a list of copies invites the model to continue it.
+      const same = text.toLowerCase();
+      if (seen.has(same)) continue;
+      seen.add(same);
       const piece = text.slice(0, Math.max(0, Math.min(1600, GROUNDING_CHARS - used)));
       if (!piece) break;
       used += piece.length;
@@ -349,7 +358,7 @@ export function whiteboardMessages({ course, request, context, history = [], gro
   const messages = [{ role: "system", content: whiteboardSystemPrompt({ course, mode: request.mode, voice: request.voice, grounding: grounding.status }) }];
   for (const turn of history) {
     if (turn.question) messages.push({ role: "user", content: turn.question });
-    if (turn.answer) messages.push({ role: "assistant", content: turn.answer + (turn.voice ? changesNote(turn.proposal) : "") });
+    if (turn.answer) messages.push({ role: "assistant", content: turn.voice ? turn.answer.slice(0, VOICE_HISTORY_CHARS) + changesNote(turn.proposal) : turn.answer });
   }
   const question = request.question || "Draw a small diagram that explains this.";
   const text = `${boardBlock(context, request.voice)}\n\n${sourcesBlock(grounding.passages)}\n\nStudent's question: ${question}`;
@@ -503,7 +512,8 @@ export async function runWhiteboardAsk({ context, config, course, board, request
 
       return assistant;
     };
-    let assistant = await generate(body);
+    // A spoken reply comes only from respond, so loose text is never streamed, shown or spoken.
+    let assistant = await generate(body, !request.voice);
     let proposal = null;
     if (request.mode === "diagram") {
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -530,16 +540,21 @@ export async function runWhiteboardAsk({ context, config, course, board, request
     }
     if (request.voice && request.mode === "answer") {
       // Keep the valid parts of a command; a bad arrow shouldn't cost the whole answer.
-      const reply = parseToolArguments(assistant.toolCalls, "respond");
+      let reply = parseToolArguments(assistant.toolCalls, "respond");
+      if (!reply) {
+        // It wrote text instead of calling respond (or ran out mid-call); ask once more for the call.
+        answer = "";
+        assistant = await generate({ ...body, messages: [...body.messages, { role: "user", content: VOICE_RETRY }] }, false);
+        reply = parseToolArguments(assistant.toolCalls, "respond");
+      }
       proposal = salvageVoiceProposal(reply, frozen.elements || [], frozen.rect);
       const asked = (reply?.ops?.length || 0) + (reply?.edits?.length || 0) + (reply?.transforms?.length || 0);
       const kept = (proposal?.ops?.length || 0) + (proposal?.edits?.length || 0) + (proposal?.transforms?.length || 0);
       // Never let Klui claim a change that didn't survive validation.
       answer = asked && !kept ? "I couldn't make that change. Try saying it a little differently."
-        : String(reply?.say || answer || "").replace(/<\/?[a-z_]+>/gi, "").trim() || (proposal ? "Done. You can undo that." : "");
+        : String(reply?.say || "").replace(/<\/?[a-z_]+>/gi, "").trim() || (proposal ? "Done. You can undo that." : VOICE_UNHEARD);
       // say is checked before it is spoken: it can't promise a part that failed validation.
       if (kept && kept < asked) answer = `${answer} Part of that didn't work, so tell me if something's missing.`.trim();
-      if (!answer) throw new HttpError(502, "Klui came back empty. Try again.", { code: "empty_answer" });
       if (proposal) emit({ type: "proposal", proposal });
     }
     const usedCitations = grounding.citations.filter((cite) => answer.includes(`[${cite.index}]`));
