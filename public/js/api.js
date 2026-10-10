@@ -1096,6 +1096,13 @@ export async function endStudyTutor(session, sessionId, body = {}) {
   return response.json();
 }
 
+// The lesson's whiteboard, made the first time a call opens it.
+export async function openTutorBoard(session, sessionId) {
+  const response = await apiFetch(`/api/study/tutor/${encodeURIComponent(sessionId)}/board`, { session, method: "POST" });
+  if (!response.ok) throw new Error(await readProblem(response));
+  return response.json();
+}
+
 /* ---------- Dojo audio sources ---------- */
 
 export async function presignCourseAudio(session, courseId, body, { signal } = {}) {

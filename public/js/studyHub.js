@@ -74,6 +74,7 @@ export function createStudyHubController({
   speechEnabled,
   streamTutorTurn,
   endStudyTutor,
+  openTutorBoard,
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote,
@@ -1300,6 +1301,12 @@ export function createStudyHubController({
     if (event.target.closest("[data-studio-back]")) { closeStudioView(event); return true; }
     if (studioView.kind === "podcast" && handlePodcastClick(event)) return true;
     if (studioView.kind === "tutor" && event.target.closest("[data-tutor-start]")) { void startTutorCall(); return true; }
+    const lessonBoard = studioView.kind === "tutor" && event.target.closest("[data-tutor-board-open]");
+    if (lessonBoard) {
+      const session = studioView.session;
+      void whiteboards.open({ id: lessonBoard.dataset.tutorBoardOpen, title: findWhiteboard(lessonBoard.dataset.tutorBoardOpen)?.title || `${session?.title || "Lesson"} · board`, courseId: state.activeCourseId, courseName: courseName() });
+      return true;
+    }
     if (studioView.kind === "deck" && event.target.closest("[data-deck-fresh]")) {
       clearDeckProgress(deckProgressKey(studioView.id));
       void startReview(findDeck(studioView.id), { fresh: true });
@@ -2415,7 +2422,7 @@ export function createStudyHubController({
     const placeholder = { id: `preparing-${newGenerationId()}`, title: "New tutor session", style: options.style, status: "preparing", createdAt: new Date().toISOString() };
     upsertTutor(placeholder);
     openStudioView("tutor", placeholder.id);
-    Object.assign(studioView, { preparing: true, stage: "reading", placeholder });
+    Object.assign(studioView, { preparing: true, stage: "reading", placeholder, board: options.board === "on" });
     patchStudio({ keepScroll: false });
     const isMine = () => studioView?.kind === "tutor" && studioView.id === placeholder.id;
     try {
@@ -2424,7 +2431,8 @@ export function createStudyHubController({
         style: options.style,
         format: options.format,
         voice: options.voice,
-        instructions: options.instructions || ""
+        instructions: options.instructions || "",
+        board: options.board === "on"
       }, {
         onEvent: (event) => {
           if (event.type !== "status" || !isMine()) return;
@@ -2499,6 +2507,10 @@ export function createStudyHubController({
         transcribe: (id, blob, options) => transcribeTutorAudio(state.session, id, blob, options),
         end: (id, body) => endStudyTutor(state.session, id, body)
       },
+      boardApi: {
+        open: () => openTutorBoard(state.session, session.id),
+        save: (boardId, body) => saveWhiteboard(state.session, boardId, body)
+      },
       onFinished: (ended) => finishTutorCall(session.id, ended),
       onFullscreenExit: () => mountTutorCall()
     });
@@ -2511,6 +2523,11 @@ export function createStudyHubController({
     tutorCall = null;
     tutorCallSession = null;
     if (ended) upsertTutor(tutorListItem(ended));
+    // The lesson board joins the course's whiteboards.
+    if (ended?.boardId && state.studyPractice && !(state.studyPractice.whiteboards || []).some((item) => item.id === ended.boardId)) {
+      const now = new Date().toISOString();
+      state.studyPractice = { ...state.studyPractice, whiteboards: [{ id: ended.boardId, title: `${ended.title || "Lesson"} · board`, createdAt: now, updatedAt: now }, ...(state.studyPractice.whiteboards || [])] };
+    }
     if (studioView?.kind === "tutor" && studioView.id === id) {
       studioView.session = ended || { ...studioView.session, status: "ended" };
     }
@@ -4706,6 +4723,8 @@ export function createStudyHubController({
   }
 
   function handleEscape() {
+    // Escape on the lesson board belongs to the drawing (deselect, close a menu), not the call.
+    if (tutorCall?.fullscreen && document.activeElement?.closest?.(".tutor-call-board")) return false;
     if (tutorCall?.fullscreen && !confirmOpen()) {
       tutorCall.setFullscreen(false);
       return true;

@@ -2,18 +2,24 @@ import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import { enforceRateLimit } from "../http/rateLimit.js";
 import { startSse, writeSse } from "../chat/shared.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
-import { endTutorSession, prepareTutorSession, publicTutorSession, runTutorTurn } from "../study/tutor.js";
+import { endTutorSession, normalizeTutorBoard, prepareTutorSession, publicTutorSession, runTutorTurn } from "../study/tutor.js";
+import { cleanTitle } from "../../public/js/whiteboard/schema.js";
+import { publicBoard } from "./whiteboards.js";
 import { requireChatContext } from "./context.js";
 import { transcribeLiveRecording } from "./speech.js";
 import { cleanDeckTitle, endStudySse, requireCourse, requireCourseSource } from "./study.js";
 
 const TURN_TIMEOUT_MS = 90_000;
 const PREPARE_TIMEOUT_MS = 5 * 60_000;
+// A turn can carry a picture of what the student drew (at most 1.5 MB, base64).
+const TURN_BODY_BYTES = 3 * 1024 * 1024;
 
 // ponytail: in-process only, like study generation locks. One turn per call at a time; a new turn
 // waits for the previous one (possibly interrupted) to save its transcript first. The wait never
 // times out into overlap: every turn is bounded by TURN_TIMEOUT_MS and always releases.
 const turnChains = new Map();
+// One board per lesson: opening it twice at once must not make two.
+const boardOpens = new Map();
 
 function afterPrevious(previous, signal) {
   if (!previous) return Promise.resolve();
@@ -115,8 +121,9 @@ export async function handleStudyTutorTurn(req, res, config, sessionId) {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
   const context = await requireChatContext(req, config);
   enforceRateLimit(req, "study-tutor-turn", 40, 60_000, context.user.id);
-  const body = await parseJsonBody(req);
+  const body = await parseJsonBody(req, TURN_BODY_BYTES);
   const mode = ["start", "reply", "nudge", "closing"].includes(body.mode) ? body.mode : "reply";
+  const board = normalizeTutorBoard(body.board);
 
   const previous = turnChains.get(sessionId) || null;
   let release;
@@ -135,6 +142,7 @@ export async function handleStudyTutorTurn(req, res, config, sessionId) {
       mode,
       text: body.text,
       elapsed: body.elapsed,
+      board,
       signal: run.signal,
       emit: (event) => writeSse(res, event)
     });
@@ -178,4 +186,38 @@ export async function handleStudyTutorEnd(req, res, config, sessionId) {
   }
   const ended = await endTutorSession({ context, config, session, elapsed: body.elapsed, signal: req.signal });
   sendJson(res, 200, { session: publicTutorSession(ended || session) });
+}
+
+/**
+ * The lesson's whiteboard, made the first time a call opens it: a normal board in the course, so
+ * the student keeps everything the tutor drew (and they drew) after the call.
+ */
+export async function handleStudyTutorBoard(req, res, config, sessionId) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  const context = await requireChatContext(req, config);
+  enforceRateLimit(req, "study-tutor-board", 30, 60 * 60_000, context.user.id);
+  const key = `${context.user.id}:${sessionId}`;
+  const previous = boardOpens.get(key) || Promise.resolve();
+  const opening = previous.catch(() => {}).then(async () => {
+    const session = await requireTutorSession(context, sessionId, req.signal);
+    if (!session.plan?.board) throw new HttpError(409, "This lesson doesn't have a whiteboard.");
+    if (session.plan.boardId) {
+      const existing = await context.db.getStudyWhiteboard(context.user.id, session.plan.boardId, { signal: req.signal });
+      if (existing && Number(existing.revision) >= 0) return existing;
+    }
+    if (session.status === "ended") throw new HttpError(409, "This tutor session has ended.");
+    const board = await context.db.createStudyWhiteboard(context.user.id, {
+      project_id: session.project_id,
+      title: cleanTitle(`${session.title || "Lesson"} · board`, "Lesson board")
+    }, { signal: req.signal });
+    await context.db.updateStudyTutorSession(context.user.id, session.id, { plan: { ...session.plan, boardId: board.id } }, { signal: req.signal });
+    return board;
+  });
+  boardOpens.set(key, opening);
+  try {
+    const board = await opening;
+    sendJson(res, 200, { board: publicBoard(board) });
+  } finally {
+    if (boardOpens.get(key) === opening) boardOpens.delete(key);
+  }
 }

@@ -4,12 +4,15 @@
 // (Pocket TTS, or Kokoro when Pocket is full) while the model is still writing, so the first
 // audio starts within a second or two.
 import { HttpError } from "../http/responses.js";
-import { OPENROUTER_TEXT_MODEL, resolveProvider } from "../providers.js";
+import { OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, resolveProvider } from "../providers.js";
 import { streamProviderAndAccumulate } from "../saas/messages/stream.js";
 import { createModelUsageMeter } from "../saas/usageMeter.js";
 import { loadGenerationSourceText, parseStudyJson, sourceFallbackTitle, streamComplete } from "./generate.js";
 import { createSessionStore, createSpeechSession, pocketPool } from "../speech/engine.js";
 import { PODCAST_VOICES, TTS_CREDITS_PER_CHAR, TTS_MODEL, speakable, synthesizeSpeech } from "./podcast.js";
+import { assertRaster } from "./whiteboard.js";
+import { LIMITS } from "../../public/js/whiteboard/schema.js";
+import { BOARD_LIMITS, blockNames, boardNames, cleanLessonBlock, cleanLessonBoard, cleanText, describeBlock, parseBoardCue } from "../../public/js/whiteboard/lesson.js";
 
 export const TUTOR_MAX_SECONDS = 30 * 60;
 // Wall-clock allowance for a call, so pauses cannot keep a session open forever.
@@ -20,6 +23,10 @@ const PLAN_SOURCE_CHARS = 120_000;
 const CALL_SOURCE_CHARS = 30_000;
 const TURN_MAX_TOKENS = 1500; // includes the low-effort reasoning
 const TTS_PARALLEL = 3;
+const BOARD_SOURCE_CHARS = 24_000;
+// A sketch the tutor asks for mid-reply is drawn alongside the speech; the reply waits this long for it.
+const DRAW_WAIT_MS = 15_000;
+const PART_NAME = /^[\w-]{1,40}$/;
 // Kokoro latency through OpenRouter swings from about 1 s to 15 s. Chunks play in order, so one
 // slow chunk leaves the tutor silent mid-reply; after this long a second request races the first.
 // Pocket is never hedged: a duplicate would only queue behind the original on the same workers.
@@ -79,7 +86,9 @@ export function normalizeTutorOptions(body = {}) {
   const format = Object.hasOwn(TUTOR_FORMATS, body.format) ? body.format : "quiz";
   const voice = PODCAST_VOICES.some((item) => item.id === body.voice) ? body.voice : PODCAST_VOICES[0].id;
   const instructions = typeof body.instructions === "string" ? body.instructions.trim().slice(0, 1000) : "";
-  return { style, format, voice, instructions };
+  // The whiteboard is on unless the student turned it off.
+  const board = body.board !== false;
+  return { style, format, voice, instructions, board };
 }
 
 /* ---------- Lesson plan ---------- */
@@ -117,6 +126,50 @@ function cleanPlan(value, fallbackTitle) {
   };
 }
 
+/* ---------- Whiteboard plan ---------- */
+
+const BLOCK_GUIDE = `Block types. Every block and every part has a short, unique, lowercase kebab-case key such as "heart-atria"; the tutor points at things by key, so make keys descriptive and never reuse one.
+- {"type": "note", "key", "text"}: one key sentence, at most 15 words.
+- {"type": "formula", "key", "text", "caption"}: an equation or rule in plain symbols (× ÷ → ² √ Δ ≈ ≤), caption optional.
+- {"type": "flow", "key", "title", "direction": "right" | "down", "cycle": false, "nodes": [{"key", "text"}], "labels": ["<label on arrow 1>", ...]}: 2 to 6 steps of a process or a chain of cause and effect. Use "cycle": true for a loop of 3 to 6 nodes. title and labels are optional.
+- {"type": "tree", "key", "root": {"key", "text"}, "children": [{"key", "text", "children": [{"key", "text"}]}]}: a breakdown or classification; up to 4 children, each with up to 3 leaves.
+- {"type": "table", "key", "columns": ["..."], "rows": [["..."]]}: 2 to 4 columns and up to 6 rows. Rows are pointed at as "<key>-r1", "<key>-r2" and so on.
+- {"type": "timeline", "key", "events": [{"key", "label", "text"}]}: 2 to 6 dated or ordered events.
+- {"type": "compare", "key", "left": {"key", "title", "points": ["..."]}, "right": {"key", "title", "points": ["..."]}}: two things side by side, up to 5 short points each.
+- {"type": "plot", "key", "title", "x": {"label", "min", "max"}, "y": {"label", "min", "max"}, "curves": [{"key", "label", "fn": "<expression in x>"} or {"key", "label", "points": [[x, y], ...]}], "marks": [{"key", "x", "y", "label"}]}: a graph. fn may use x, numbers, + - * / ^, brackets, sin cos tan exp ln log sqrt abs, pi and e. Up to 3 curves and 4 marked points; pick ranges that show the interesting part.
+- {"type": "sketch", "key", "title", "ops": [...]}: a labelled drawing (a cell, a circuit, a lever, a triangle) inside 900 wide by 560 tall. ops are {"op": "shape", "key", "shape": "rectangle" | "ellipse" | "diamond", "x", "y", "width", "height", "text", "color", "fill"}, {"op": "text", "key", "x", "y", "width", "text"}, {"op": "line", "key", "points": [[x, y], ...], "closed", "arrow", "smooth", "labels": ["A", "B", ...]} and {"op": "connect", "from": "<shape key>", "to": "<shape key>", "label"}. Up to 16 ops; text, color, fill, closed, arrow, smooth and labels are optional. Label the parts that matter.
+Keep every label short (one to five words): a board is read at a glance.`;
+
+function boardPrompt() {
+  return `You are sketching the whiteboard for a one-to-one spoken tutoring call. While talking, the tutor reveals these blocks piece by piece, like a teacher drawing on a board, so each block should show what is worth seeing: the structure, process, comparison, formula or graph behind the step, not a copy of the explanation.
+
+For each lesson step give one to three blocks (four at most). Prefer visual blocks (flow, tree, table, timeline, compare, plot, sketch) to notes; use a note only for a definition or rule worth writing down.
+
+${BLOCK_GUIDE}
+
+Return ONLY valid JSON, no markdown: {"steps": [{"blocks": [...]}, ...]} with exactly one entry per lesson step, in order. Only use facts supported by the material.`;
+}
+
+function planForBoard(plan) {
+  const steps = plan.steps.map((step, index) => `Step ${index + 1}: ${step.title}\n${step.points.map((point) => `- ${point}`).join("\n")}`).join("\n\n");
+  return `Session goal: ${plan.goal}\n\nLesson plan:\n${steps}\n\nTutor notes:\n${plan.notes}`;
+}
+
+/** The planned board for a lesson, or null when nothing usable came back. */
+export async function planLessonBoard({ context, config, plan, text, signal, complete = streamComplete }) {
+  const streamed = await complete({
+    context,
+    config,
+    signal,
+    maxTokens: 8000,
+    temperature: 0.3,
+    system: boardPrompt(),
+    user: `${planForBoard(plan)}\n\n<material>\n${String(text || "").slice(0, BOARD_SOURCE_CHARS)}\n</material>`,
+    expect: "json"
+  });
+  return cleanLessonBoard(parseStudyJson(streamed.content).value, plan.steps.length);
+}
+
 export async function prepareTutorSession({ context, config, course, source, options = {}, signal, onStage, onWarning, complete = streamComplete }) {
   const settings = normalizeTutorOptions(options);
   onStage?.("reading");
@@ -137,6 +190,17 @@ export async function prepareTutorSession({ context, config, course, source, opt
     expect: "json"
   });
   const plan = cleanPlan(parseStudyJson(streamed.content).value, sourceFallbackTitle(source) || "Tutor session");
+  let board = null;
+  if (settings.board) {
+    onStage?.("drawing");
+    try {
+      board = await planLessonBoard({ context, config, plan, text, signal, complete });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      board = null;
+    }
+    if (!board) onWarning?.("The whiteboard couldn't be sketched, so this lesson is voice only.");
+  }
   onStage?.("saving");
   return context.db.createStudyTutorSession(context.user.id, {
     project_id: course.id,
@@ -145,7 +209,7 @@ export async function prepareTutorSession({ context, config, course, source, opt
     voice: settings.voice,
     instructions: settings.instructions,
     // The format lives in the plan so no schema change is needed; older sessions have none (quiz).
-    plan: { goal: plan.goal, steps: plan.steps, notes: plan.notes, format: settings.format },
+    plan: { goal: plan.goal, steps: plan.steps, notes: plan.notes, format: settings.format, board },
     source_text: callText,
     transcript: [],
     status: "ready"
@@ -160,6 +224,7 @@ export function tutorSystemPrompt(session) {
   const format = TUTOR_FORMATS[tutorFormatOf(session)];
   const plan = session.plan || {};
   const steps = (plan.steps || []).map((step, index) => `Step ${index + 1}: ${step.title}\n${(step.points || []).map((point) => `- ${point}`).join("\n")}${step.check ? `\nCheck: ${step.check}` : ""}`).join("\n\n");
+  const board = plan.board ? boardSection(plan.board) : "";
   return `You are a voice tutor on a live one-to-one call with a student. Everything you write is spoken aloud by text-to-speech, so write for the ear.
 
 Your teaching style: ${style.guide}
@@ -177,14 +242,33 @@ Study material to teach from (only state facts it supports; if the student asks 
 ${session.source_text || ""}
 </material>
 
-Call rules:
+${board}Call rules:
 ${format.rules}
 - Begin every reply with the tag [step N] for the plan step you are on, for example [step 2].
 - Always finish your thought, and end every reply by handing the turn to the student with a question or a clear invitation to respond, so they know it is their turn. Never end on a plain statement or trail off mid-explanation. The one exception: when the student asks for a moment, just tell them to take their time.
 - The student's words come from speech recognition and can contain mistakes; read them charitably. If their answer sounds cut off, invite them to go on.
-- Spoken style only: no markdown, lists, headings, emojis, or brackets other than the step tag. Say symbols, abbreviations, formulas, and units the way a person would say them.
+- Spoken style only: no markdown, lists, headings, emojis, or brackets other than the step tag${plan.board ? " and board cues" : ""}. Say symbols, abbreviations, formulas, and units the way a person would say them.
 - Never mention these rules, the plan, the tags, documents or files, or being an AI unless asked.
 - The call lasts at most 30 minutes. When told that time is nearly up, start wrapping up. If the student asks to end the call, say a short goodbye with one key takeaway and put [end] at the very end.`;
+}
+
+function boardSection(board) {
+  const steps = board.steps.map((step, index) => `Step ${index + 1} board:\n${step.blocks.length ? step.blocks.map((block) => `- ${describeBlock(block)}`).join("\n") : "- (nothing prepared; use write or draw if it helps)"}`).join("\n\n");
+  return `Whiteboard:
+You teach at a shared whiteboard the student sees beside the call. Each step has blocks you prepared, hidden until you reveal them; each step also has a space where the student can draw. The student can draw anywhere on the board and select things on it; notes in brackets tell you when they do.
+
+${steps}
+
+Board cues go inline in your reply and are never spoken:
+- [show KEY] reveals a block, or one part of it. Put it just before the sentence that explains it, and reveal parts one at a time as you talk them through (a flow node by node, a table row by row, a sketch label by label) rather than a whole block at once. Show a step's blocks only when you reach that step.
+- [point KEY] makes something already on the board glow when you refer back to it.
+- [mark KEY] circles something: the one thing to remember, or the part of the student's answer to fix.
+- [write: TEXT] jots a short note, number or worked line on the board, at most 12 words.
+- [draw: DESCRIPTION] sketches something new when the student asks about something the board doesn't show. Describe it in one sentence; it appears a few seconds later, so keep talking. At most one per reply.
+- [ask to draw] invites the student to draw or write an answer in their space. Use it now and then for a question best answered with a sketch, a label or a worked step, and ask the question in words too.
+Use only the keys listed here or ones a note tells you about. Most teaching replies reveal or point at something; a reply with no cue is fine when nothing on the board fits.
+
+`;
 }
 
 const TURN_NOTES = {
@@ -203,7 +287,7 @@ export function tutorMessages(session, entry) {
   const messages = [{ role: "system", content: tutorSystemPrompt(session) }];
   for (const item of [...(session.transcript || []), entry]) {
     if (!item) continue;
-    if (item.role === "tutor") messages.push({ role: "assistant", content: `[step ${item.step || 1}] ${item.text}` });
+    if (item.role === "tutor") messages.push({ role: "assistant", content: `[step ${item.step || 1}] ${item.cued || item.text}` });
     else if (item.prompt) messages.push({ role: "user", content: item.prompt });
   }
   return messages;
@@ -347,15 +431,16 @@ export function createSpeechQueue({ config, voice, signal, tts, speech = null, o
           }
         }
         active -= 1;
-        ready.set(job.seq, { seq: job.seq, text: job.text, audio: audio && !signal?.aborted ? audio.toString("base64") : null, ...(engine ? { engine } : {}) });
+        ready.set(job.seq, { seq: job.seq, text: job.text, audio: audio && !signal?.aborted ? audio.toString("base64") : null, ...(engine ? { engine } : {}), ...job.meta });
         flush();
         pump();
       })();
     }
   };
   return {
-    add(text) {
-      pending.push({ seq: count, text });
+    // `meta` travels with the chunk to onAudio (where the chunk sits in the reply, for board cues).
+    add(text, meta = {}) {
+      pending.push({ seq: count, text, meta });
       count += 1;
       pump();
     },
@@ -386,20 +471,160 @@ export function tutorTurnGuard(session, { mode, elapsed }) {
   return seconds;
 }
 
+/* ---------- Whiteboard during the call ---------- */
+
+/**
+ * What the student did on the board, from a turn request: the parts of the tutor's drawing they
+ * selected (by name), what they typed on the board, and a picture of what they drew since the
+ * last turn. Throws HttpError for an image that is not a small PNG, JPEG or WebP.
+ */
+export function normalizeTutorBoard(value) {
+  if (!value || typeof value !== "object") return null;
+  const pointing = [...new Set((Array.isArray(value.pointing) ? value.pointing : []).filter((name) => typeof name === "string" && PART_NAME.test(name)))].slice(0, 8);
+  const writing = cleanText(value.writing, 1000);
+  let image = null;
+  if (value.image) {
+    const data = String(value.image.data || "");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length > Math.ceil(LIMITS.contextImageBytes / 3) * 4) throw new HttpError(413, "The board snapshot is too large.");
+    const info = assertRaster(Buffer.from(data, "base64"), { maxBytes: LIMITS.contextImageBytes, types: ["image/png", "image/jpeg", "image/webp"] });
+    image = { mime: info.mime, data };
+  }
+  return pointing.length || writing || image ? { pointing, writing, image } : null;
+}
+
+/** A few words on what the student drew, for a tutor who can't see the board. Metered like any model call. */
+export async function describeStudentDrawing({ context, config, session, image, writing = "", step = 1, signal }) {
+  const provider = resolveProvider("openrouter", config);
+  const meter = createModelUsageMeter({
+    db: context.db,
+    userId: context.user.id,
+    subscription: context.subscription,
+    plan: context.plan,
+    signal,
+    meteringMode: config.desktop.meteringMode,
+    reservationCredits: 0.03
+  });
+  const topic = session.plan?.steps?.[step - 1]?.title || session.title || "";
+  const upstream = await meter.streamChatCompletion({
+    apiKey: provider.apiKey,
+    baseUrl: provider.baseUrl,
+    providerId: provider.id,
+    signal,
+    body: {
+      model: OPENROUTER_VISION_MODEL,
+      reasoning: { enabled: false },
+      temperature: 0.2,
+      max_tokens: 400,
+      messages: [
+        { role: "system", content: "You describe a student's whiteboard work to their tutor, who cannot see it. Transcribe words, numbers and formulas exactly; describe any diagram (shapes, arrows, labels and how they connect); and say which parts of the tutor's blue drawing they circled, crossed out or wrote on, if any. Do not judge whether it is right. Plain sentences, at most 80 words. If it is blank or unreadable, say so." },
+        { role: "user", content: [
+          { type: "text", text: `Lesson topic: ${topic}${writing ? `\nText the student typed on the board: ${writing}` : ""}\nDescribe what the student drew.` },
+          { type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}` } }
+        ] }
+      ]
+    }
+  });
+  const result = await streamProviderAndAccumulate(upstream, () => {});
+  return cleanText(result.content, 700);
+}
+
+function improvisePrompt() {
+  return `You draw one block on a tutor's whiteboard, in the middle of a spoken lesson, to show what the tutor just described. Draw only what was asked, small and clear.
+
+${BLOCK_GUIDE}
+
+Return ONLY valid JSON, no markdown: one block object. Only use facts supported by the tutor notes, or well-established general knowledge.`;
+}
+
+/** One block for a [draw: …] cue, cleaned against the names already on the board; null when unusable. */
+export async function improviseBlock({ context, config, session, description, step = 1, used, signal, complete = streamComplete }) {
+  const lesson = session.plan?.steps?.[step - 1];
+  const streamed = await complete({
+    context,
+    config,
+    signal,
+    maxTokens: 1800,
+    temperature: 0.3,
+    system: improvisePrompt(),
+    user: `Lesson step: ${lesson?.title || session.title || ""}\n${(lesson?.points || []).map((point) => `- ${point}`).join("\n")}\n\nTutor notes:\n${String(session.plan?.notes || "").slice(0, 2000)}\n\nDraw: ${description}`,
+    expect: "json"
+  });
+  return cleanLessonBlock(parseStudyJson(streamed.content).value, used);
+}
+
+/** The tag a cue was written as, for replaying the tutor's own reply to it on later turns. */
+function cueTag(cue) {
+  if (cue.op === "write") return `[write: ${cue.text}]`;
+  if (cue.op === "add") return `[draw: ${cue.text}]`;
+  if (cue.op === "ask") return "[ask to draw]";
+  return `[${cue.op} ${cue.key}]`;
+}
+
+/** `text` (the spoken reply) with its board cues put back where they were, up to `end`. */
+export function withCues(text, cues, end = text.length) {
+  let out = "";
+  let at = 0;
+  for (const { at: offset, cue } of [...cues].sort((a, b) => a.at - b.at)) {
+    if (offset > end || cue.op === "step") continue;
+    out += `${text.slice(at, offset)}${cueTag(cue)} `;
+    at = offset;
+  }
+  return `${out}${text.slice(at, end)}`.replace(/\s+/g, " ").trim();
+}
+
+/** Where `chunk` sits in `text`, searching from `from`; chunks are trimmed slices, so this is near exact. */
+export function chunkSpan(text, chunk, from) {
+  const head = chunk.slice(0, 24);
+  const tail = chunk.slice(-24);
+  const startAt = text.indexOf(head, from);
+  const start = startAt >= 0 ? startAt : from;
+  const tailAt = text.indexOf(tail, Math.max(start, start + chunk.length - tail.length - 8));
+  const end = tailAt >= 0 ? tailAt + tail.length : Math.min(text.length, start + chunk.length);
+  return { start, end: Math.max(start, end) };
+}
+
 /**
  * Runs one exchange: the student's words (already transcribed) in, the tutor's reply out as
  * streamed text plus in-order audio chunks. The transcript is saved even when the student
- * interrupts, so the next turn continues from what was actually said.
+ * interrupts, so the next turn continues from what was actually said. With a whiteboard, the
+ * reply's board cues go out as `board` events placed by their offset in the spoken text, and
+ * each audio chunk carries its own start and end offsets, so the browser draws in time with speech.
  */
-export async function runTutorTurn({ context, config, session, mode = "reply", text = "", elapsed = 0, signal, emit, tts = synthesizeSpeech, pool = pocketPool(config) }) {
+export async function runTutorTurn({
+  context, config, session, mode = "reply", text = "", elapsed = 0, board: studentBoard = null, signal, emit,
+  tts = synthesizeSpeech, pool = pocketPool(config), describe = describeStudentDrawing, improvise = improviseBlock
+}) {
   const seconds = tutorTurnGuard(session, { mode, elapsed });
   const said = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4000);
   if (mode === "reply" && !said) throw new HttpError(400, "Say something first.");
   const remaining = TUTOR_MAX_SECONDS - seconds;
+  const plannedBoard = session.plan?.board || null;
+  const previous = [...(session.transcript || [])].reverse().find((item) => item.role === "tutor") || null;
   let prompt = said;
   if (mode === "start" || mode === "nudge") prompt = TURN_NOTES[mode](session);
   else if (mode === "closing") prompt = said ? `${said}\n\n${TURN_NOTES.closing}` : TURN_NOTES.closing;
   else if (remaining <= WRAP_UP_SECONDS) prompt = `${said}\n\n${wrapUpNote(remaining)}`;
+
+  if (said) emit({ type: "heard", text: said });
+  // Board notes come first, so the tutor reads what is on the board before what was said.
+  const notes = [];
+  if (plannedBoard) {
+    for (const item of previous?.drawn || []) {
+      const parts = (item.parts || []).slice(0, 12);
+      notes.push(`(Your sketch "${item.text}" is now on the board as ${item.key}${parts.length ? `, with parts ${parts.join(", ")}` : ""}.)`);
+    }
+    if (studentBoard?.pointing?.length) notes.push(`(On the board, the student has selected: ${studentBoard.pointing.join(", ")}.)`);
+    if (studentBoard?.image) {
+      let seen = "";
+      try {
+        seen = await describe({ context, config, session, image: studentBoard.image, writing: studentBoard.writing, step: previous?.step || 1, signal });
+      } catch (error) {
+        if (signal?.aborted) throw error;
+      }
+      notes.push(seen ? `(The student just drew on the whiteboard: ${seen})` : "(The student drew something on the whiteboard, but it couldn't be read.)");
+    } else if (studentBoard?.writing) notes.push(`(The student wrote on the whiteboard: ${studentBoard.writing})`);
+  }
+  if (notes.length) prompt = `${notes.join("\n")}\n\n${prompt}`;
   const entry = said
     ? { role: "student", text: said, prompt, at: Math.round(seconds) }
     : { role: "cue", prompt, at: Math.round(seconds) };
@@ -416,9 +641,9 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
     stickyProviders: session.provider_pin ? { [OPENROUTER_TEXT_MODEL]: session.provider_pin } : null
   });
 
-  if (said) emit({ type: "heard", text: said });
   const chunker = createSpeechChunker();
   const delivered = [];
+  let deliveredEnd = 0;
   let openGate;
   const gate = new Promise((resolve) => { openGate = resolve; });
   const engine = callSpeech.get(`${session.id}`, () => createSpeechSession({ pool, kokoro: hedgedSpeech(tts) }));
@@ -433,6 +658,7 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
     onAudio: (item) => {
       if (signal?.aborted) return; // the student cut in; nothing more reaches them
       delivered.push(item.text);
+      deliveredEnd = Math.max(deliveredEnd, item.end || 0);
       emit({ type: "audio", ...item });
     }
   });
@@ -443,29 +669,88 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
     if (characters) await markSubmitted();
     return { result: characters, usage: { cost: characters * TTS_CREDITS_PER_CHAR, characters } };
   }).catch(() => {}).finally(() => openGate(false)); // no reservation, no paid speech: the reply stays text-only
+
+  // Names a cue may use: the planned board's, and sketches drawn earlier in the call.
+  const known = plannedBoard ? boardNames(plannedBoard) : new Set();
+  const drawnBefore = (session.transcript || []).flatMap((item) => item.drawn || []);
+  for (const item of drawnBefore) for (const name of [item.key, ...(item.parts || [])]) known.add(name);
+  const cues = []; // { at, cue } sent this turn, by offset in the spoken text
+  const drawn = [];
+  const draws = [];
+  let writes = (session.transcript || []).reduce((sum, item) => sum + (item.writes || 0), 0);
+
   let raw = "";
   let shown = "";
+  let placed = 0; // how far into `shown` the speech chunks reach
   let step = 0;
   let ended = false;
   let failure = null;
-  // Hold back the start of the reply until the step tag is resolved, then stream the rest.
-  const release = (final) => {
-    let body = raw;
-    if (!step) {
-      const tag = body.match(STEP_TAG);
-      if (tag) step = Number(tag[1]) || 0;
-      else if (!final && /^\s*\[?\s*(s(t(e(p\s*\d*\s*\]?)?)?)?)?$/i.test(body)) return;
+  let tagsSeen = 0;
+  const sendCue = (at, cue) => {
+    cues.push({ at, cue });
+    emit({ type: "board", at, cue });
+  };
+  const onTag = (inner, at) => {
+    const stepTag = inner.match(/^\s*step\s*(\d+)\s*$/i);
+    if (stepTag) {
+      step = Number(stepTag[1]) || step;
+      if (plannedBoard && step) sendCue(at, { op: "step", n: Math.min(step, plannedBoard.steps.length) });
+      return;
     }
-    body = body
-      .replace(/\[\s*step\s*(\d+)\s*\]\s*/gi, (_, n) => { step = Number(n) || step; return ""; })
-      .replace(/\[\s*end\s*\]/gi, () => { ended = true; return ""; })
-      .replace(/\[[^\]]*\]\s*/g, "");
-    if (!final) body = body.replace(/\[[^\]]*$/, ""); // an unfinished tag
+    if (/^\s*end\s*$/i.test(inner)) { ended = true; return; }
+    if (!plannedBoard) return;
+    const cue = parseBoardCue(inner);
+    if (!cue) return;
+    if (cue.op === "show" || cue.op === "point" || cue.op === "mark") {
+      if (known.has(cue.key)) sendCue(at, cue);
+    } else if (cue.op === "write") {
+      if (writes >= BOARD_LIMITS.extras * 2) return;
+      writes += 1;
+      sendCue(at, { op: "write", text: cue.text });
+    } else if (cue.op === "ask") {
+      sendCue(at, cue);
+    } else if (cue.op === "draw" && !draws.length && drawnBefore.length + drawn.length < BOARD_LIMITS.extras) {
+      const description = cue.text;
+      const used = new Set(known);
+      draws.push(improvise({ context, config, session, description, step: step || lastStep(session), used, signal: AbortSignal.any([signal, AbortSignal.timeout(DRAW_WAIT_MS)].filter(Boolean)) })
+        .then((block) => {
+          if (!block || signal?.aborted) return;
+          for (const name of used) known.add(name);
+          drawn.push({ key: block.key, text: description, parts: blockNames(block).filter((name) => name !== block.key) });
+          sendCue(at, { op: "add", block, text: description });
+        })
+        .catch(() => {})); // a sketch that fails just isn't drawn; the reply goes on
+    }
+  };
+  // Hold back the start of the reply until the step tag is resolved, then stream the rest.
+  // Every bracketed tag is cut out of the spoken text; board cues keep their place as an offset.
+  const release = (final) => {
+    if (!step) {
+      const tag = raw.match(STEP_TAG);
+      if (!tag && !final && /^\s*\[?\s*(s(t(e(p\s*\d*\s*\]?)?)?)?)?$/i.test(raw)) return;
+    }
+    let body = "";
+    let last = 0;
+    let index = 0;
+    for (const match of raw.matchAll(/\[([^\]]*)\]\s*/g)) {
+      body += raw.slice(last, match.index);
+      last = match.index + match[0].length;
+      if (index >= tagsSeen) onTag(match[1], body.length);
+      index += 1;
+    }
+    tagsSeen = index;
+    // An unfinished tag is held back while streaming, and never spoken at the end.
+    body += raw.slice(last).replace(/\[[^\]]*$/, "");
     const delta = body.slice(shown.length);
     if (!delta) return;
     shown = body;
     emit({ type: "text", delta });
-    for (const chunk of chunker.push(delta)) queue.add(chunk);
+    for (const chunk of chunker.push(delta)) addChunk(chunk);
+  };
+  const addChunk = (chunk) => {
+    const span = chunkSpan(shown, chunk, placed);
+    placed = span.end;
+    queue.add(chunk, span);
   };
 
   try {
@@ -494,8 +779,8 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
   } catch (error) {
     failure = error;
   }
-  if (!signal?.aborted) for (const chunk of chunker.flush()) queue.add(chunk);
-  await queue.close();
+  if (!signal?.aborted) for (const chunk of chunker.flush()) addChunk(chunk);
+  await Promise.all([queue.close(), Promise.allSettled(draws)]);
   await speech;
 
   // When the student cut in, keep only what reached them as speech.
@@ -512,7 +797,22 @@ export async function runTutorTurn({ context, config, session, mode = "reply", t
     throw failure instanceof HttpError ? failure : new HttpError(502, "The tutor could not answer. Try again.");
   }
   const transcript = [...(session.transcript || []), entry];
-  if (reply) transcript.push({ role: "tutor", text: reply, step: step || lastStep(session), at: Math.round(seconds), ...(interrupted ? { interrupted: true } : {}) });
+  if (reply) {
+    const end = interrupted ? deliveredEnd : shown.length;
+    const kept = cues.filter((item) => item.at <= end && item.cue.op !== "step");
+    // Sketches that landed after the student cut in were never shown, so they aren't remembered.
+    const keptDrawn = interrupted ? drawn.filter((item) => kept.some((cue) => cue.cue.op === "add" && cue.cue.block.key === item.key)) : drawn;
+    transcript.push({
+      role: "tutor",
+      text: reply,
+      step: step || lastStep(session),
+      at: Math.round(seconds),
+      ...(interrupted ? { interrupted: true } : {}),
+      ...(kept.length ? { cued: withCues(shown, kept, end) } : {}),
+      ...(keptDrawn.length ? { drawn: keptDrawn } : {}),
+      ...(kept.some((item) => item.cue.op === "write") ? { writes: kept.filter((item) => item.cue.op === "write").length } : {})
+    });
+  }
   const pin = meter.pinnedProviders()[OPENROUTER_TEXT_MODEL] || session.provider_pin || null;
   const patch = {
     transcript,
@@ -612,7 +912,8 @@ export function publicTutorSession(session) {
     format: tutorFormatOf(session),
     voice: session.voice,
     instructions: session.instructions || "",
-    plan: { goal: session.plan?.goal || "", steps: (session.plan?.steps || []).map((step) => ({ title: step.title, check: step.check || "" })) },
+    plan: { goal: session.plan?.goal || "", steps: (session.plan?.steps || []).map((step) => ({ title: step.title, check: step.check || "" })), board: session.plan?.board || null },
+    boardId: session.plan?.boardId || null,
     transcript: (Array.isArray(session.transcript) ? session.transcript : [])
       .filter((item) => item.role === "tutor" || item.role === "student")
       .map((item) => ({ role: item.role, text: item.text, at: item.at || 0, ...(item.step ? { step: item.step } : {}), ...(item.interrupted ? { interrupted: true } : {}) })),

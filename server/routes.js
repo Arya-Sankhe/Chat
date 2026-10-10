@@ -63,7 +63,7 @@ import { handleEmailRevise } from "./chat/emailRevise.js";
 import { handleSpeechToText } from "./routes/speech.js";
 import { handleVoiceSpeech, handleVoiceTranscribe, handleVoiceWarm } from "./routes/voice.js";
 import { handleCourseWhiteboards, handleWhiteboardAsk, handleWhiteboardById, handleWhiteboardFiles, handleWhiteboardTurn, handleWhiteboardTurns } from "./routes/whiteboards.js";
-import { handleStudyCourseTutor, handleStudyTutorById, handleStudyTutorEnd, handleStudyTutorTranscribe, handleStudyTutorTurn } from "./routes/tutor.js";
+import { handleStudyCourseTutor, handleStudyTutorBoard, handleStudyTutorById, handleStudyTutorEnd, handleStudyTutorTranscribe, handleStudyTutorTurn } from "./routes/tutor.js";
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
   handleDesktopChat,
@@ -383,8 +383,8 @@ export async function handleApiRequest(req, res, url, config) {
       return;
     }
 
-    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "tutor" && parts[3] && !parts[5] && ["turn", "transcribe", "end"].includes(parts[4])) {
-      const handler = { turn: handleStudyTutorTurn, transcribe: handleStudyTutorTranscribe, end: handleStudyTutorEnd }[parts[4]];
+    if (parts[0] === "api" && parts[1] === "study" && parts[2] === "tutor" && parts[3] && !parts[5] && ["turn", "transcribe", "end", "board"].includes(parts[4])) {
+      const handler = { turn: handleStudyTutorTurn, transcribe: handleStudyTutorTranscribe, end: handleStudyTutorEnd, board: handleStudyTutorBoard }[parts[4]];
       await handler(req, res, config, parts[3]);
       return;
     }

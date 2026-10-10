@@ -16,13 +16,14 @@ import {
   exportToCanvas,
   exportToSvg,
   getCommonBounds,
+  reconcileElements,
   restoreElements
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import "./whiteboard.css";
 import { Find } from "./find.js";
 import { ImagePlacementPreview } from "./image-placement.js";
-import { clearOf, revealView } from "./make-room.js";
+import { clearOf, deletedElsewhere, replayGuard, revealView } from "./make-room.js";
 import { darkPixels } from "../../public/js/whiteboard/colors.js";
 
 // Element types a board may hold; frames, embeds and iframes are switched off.
@@ -31,11 +32,24 @@ const BLOCKED_TOOLS = new Set(["frame", "magicframe", "embeddable"]);
 const CAPTURE_MAX_PX = 1024;
 const CAPTURE_MAX_BYTES = 1_400_000;
 
-function Board({ host, initial, theme, onApi, onChange, onPointerUp, onPaste }) {
+/**
+ * Text is measured when it's made, and words measured in a fallback face get cut off once
+ * Excalifont arrives. Excalidraw registers its faces only after it mounts and loads them on first
+ * paint, so wait for them to appear and load the Latin one (never more than a few seconds).
+ */
+async function handwriting() {
+  if (!document.fonts) return;
+  const registered = () => [...document.fonts].some((face) => face.family.replace(/["']/g, "") === "Excalifont");
+  for (let tries = 0; tries < 30 && !registered(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  await document.fonts.load("20px Excalifont", "Aa").catch(() => {});
+}
+
+function Board({ host, initial, theme, allowImages, find, onApi, onChange, onPointerUp, onPaste }) {
   const apiRef = useRef(null);
   const [findOpen, setFindOpen] = useState(false);
   const closeFind = useCallback(() => setFindOpen(false), []);
   useEffect(() => {
+    if (!find) return undefined;
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -45,7 +59,7 @@ function Board({ host, initial, theme, onApi, onChange, onPointerUp, onPaste }) 
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [find]);
   useEffect(() => () => { apiRef.current = null; }, []);
   return createElement(
     Excalidraw,
@@ -55,7 +69,7 @@ function Board({ host, initial, theme, onApi, onChange, onPointerUp, onPaste }) 
       excalidrawAPI: (api) => { apiRef.current = api; onApi(api); },
       onChange,
       renderTopRightUI: () => createPortal(createElement(Fragment, null,
-        createElement(Find, { api: apiRef.current, open: findOpen, onOpen: () => setFindOpen(true), onClose: closeFind }),
+        find && createElement(Find, { api: apiRef.current, open: findOpen, onOpen: () => setFindOpen(true), onClose: closeFind }),
         createElement(ImagePlacementPreview, { api: apiRef.current })), host),
       onPointerUp,
       onPaste,
@@ -73,7 +87,7 @@ function Board({ host, initial, theme, onApi, onChange, onPointerUp, onPaste }) 
           changeViewBackgroundColor: true,
           toggleTheme: null
         },
-        tools: { image: true }
+        tools: { image: allowImages }
       }
     },
     createElement(
@@ -145,7 +159,8 @@ function entrance(element, t) {
     const ys = points.map((point) => point[1]);
     return { opacity, points, width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
   }
-  if (element.type === "text") return { opacity };
+  // Text writes itself on, a few letters at a time, the way a hand would.
+  if (element.type === "text") return { opacity: element.opacity * Math.min(1, t * 6), text: element.text.slice(0, Math.ceil(element.text.length * Math.min(1, t * 1.1))) };
   const scale = lerp(0.35, 1, easeBack(t));
   return {
     opacity,
@@ -160,14 +175,16 @@ function entrance(element, t) {
  * Mounts the editor into `host`. Resolves to a controller once Excalidraw is ready.
  * scene: { elements, appState: { viewBackgroundColor } }; files: BinaryFileData[] for images.
  */
-export function mountBoard(host, { scene = {}, files = [], theme = "light", onChange, onSelectionSettled, onPaste } = {}) {
+export function mountBoard(host, { scene = {}, files = [], theme = "light", allowImages = true, find = true, onChange, onSelectionSettled, onPaste } = {}) {
+  // A board that can't hold images (the tutor call's) loses any that slip in by paste or drop.
+  const allowed = allowImages ? ALLOWED : new Set([...ALLOWED].filter((type) => type !== "image"));
   const root = createRoot(host);
   let api = null;
   let resolveReady;
   const ready = new Promise((resolve) => { resolveReady = resolve; });
 
   const initial = {
-    elements: restoreElements((scene.elements || []).filter((element) => ALLOWED.has(element.type)), null),
+    elements: restoreElements((scene.elements || []).filter((element) => allowed.has(element.type)), null),
     appState: {
       viewBackgroundColor: scene.appState?.viewBackgroundColor || "#ffffff",
       currentItemFontFamily: 5, // Excalifont, the handwritten face
@@ -186,6 +203,11 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
   }
 
   let playing = null;
+  // The student reaching for the board finishes any replay first, so what they grab or start
+  // editing is the finished drawing, never a half-written frame.
+  const settle = () => playing?.finish();
+  host.addEventListener("pointerdown", settle, { capture: true });
+  host.addEventListener("keydown", settle, { capture: true });
 
   /**
    * Applies Klui's change as one undo step: `added` new elements (those in `behind` go under
@@ -216,7 +238,10 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     }
   }
 
-  function commit({ added = [], behind = new Set(), patches = new Map(), select = [], glow = [] }) {
+  // `capture` NEVER keeps a change out of the student's undo history (the tutor's drawing is like
+  // a collaborator's); `select: null` leaves their selection alone; `pace` spreads the parts over
+  // that many milliseconds, so a drawing keeps time with the sentence that explains it.
+  function commit({ added = [], behind = new Set(), patches = new Map(), select = [], glow = [], capture = CaptureUpdateAction.IMMEDIATELY, pace = 0 }) {
     playing?.finish();
     const known = new Set(added.map((element) => element.id));
     const originals = new Map(api.getSceneElementsIncludingDeleted().filter((element) => patches.has(element.id)).map((element) => [element.id, element]));
@@ -224,8 +249,8 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     const rest = api.getSceneElementsIncludingDeleted().map((element) => (patches.has(element.id) ? newElementWith(element, patches.get(element.id)) : element));
     api.updateScene({
       elements: [...added.filter((element) => behind.has(element.id)), ...rest, ...added.filter((element) => !behind.has(element.id))],
-      appState: { selectedElementIds: Object.fromEntries(select.map((id) => [id, true])) },
-      captureUpdate: CaptureUpdateAction.IMMEDIATELY
+      ...(select ? { appState: { selectedElementIds: Object.fromEntries(select.map((id) => [id, true])) } } : {}),
+      captureUpdate: capture
     });
     if (motionOff() || (!added.length && !patches.size)) {
       flash(glow);
@@ -234,17 +259,24 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     const landed = new Map(api.getSceneElementsIncludingDeleted().filter((element) => known.has(element.id) || patches.has(element.id)).map((element) => [element.id, element]));
     // Labels enter with their shape; everything else takes its turn.
     const order = added.filter((element) => !element.containerId);
-    const gap = Math.min(110, 900 / Math.max(1, order.length));
+    const gap = pace ? Math.min(700, pace / Math.max(1, order.length)) : Math.min(110, 900 / Math.max(1, order.length));
     const startOf = new Map(order.map((element, index) => [element.id, index * gap]));
     for (const element of added) if (element.containerId) startOf.set(element.id, startOf.get(element.containerId) ?? 0);
-    const lengthOf = (element) => (Array.isArray(element.points) ? 520 : 420);
+    const lengthOf = (element) => (element.type === "text" ? Math.min(1600, 260 + 28 * element.text.length) : Array.isArray(element.points) ? 520 + (pace ? 8 * element.points.length : 0) : 420);
     const EDIT_MS = 560;
+    const ANIMATED = ["x", "y", "width", "height", "fontSize", "opacity", "strokeColor", "backgroundColor", "points", "isDeleted", "text"];
     const total = Math.max(EDIT_MS, ...added.map((element) => startOf.get(element.id) + lengthOf(element)));
-    // Frames are never recorded, so they can't touch undo; the student's own edits meanwhile stay.
+    // Frames are never recorded, so they can't touch undo; an element the student edits meanwhile
+    // is theirs from then on, and the replay stops touching it.
+    const guard = replayGuard([...landed.values()], ANIMATED);
     const show = (pick) => api.updateScene({
       elements: api.getSceneElementsIncludingDeleted().map((element) => {
-        const change = landed.has(element.id) && pick(element.id);
-        return change ? newElementWith(element, change) : element;
+        if (!landed.has(element.id) || !guard.owns(element)) return element;
+        const change = pick(element.id);
+        if (!change) return element;
+        const next = newElementWith(element, change);
+        guard.wrote(next);
+        return next;
       }),
       captureUpdate: CaptureUpdateAction.NEVER
     });
@@ -262,15 +294,17 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
       });
       frameId = requestAnimationFrame(frame);
     };
-    const ANIMATED = ["x", "y", "width", "height", "fontSize", "opacity", "strokeColor", "backgroundColor", "points", "isDeleted"];
+    const final = (id) => Object.fromEntries(ANIMATED.filter((key) => landed.get(id)[key] !== undefined).map((key) => [key, landed.get(id)[key]]));
     const run = {
       finish() {
         if (playing !== run) return;
         playing = null;
         cancelAnimationFrame(frameId);
-        show((id) => Object.fromEntries(ANIMATED.filter((key) => landed.get(id)[key] !== undefined).map((key) => [key, landed.get(id)[key]])));
+        show(final);
         flash(glow);
-      }
+      },
+      // An element as it will be once the replay ends (what gets saved, never a half-drawn frame).
+      settled(element) { return landed.has(element.id) && guard.owns(element) ? { ...element, ...final(element.id) } : element; }
     };
     playing = run;
     // Frames can stall (the tab is hidden mid-animation); the change still lands.
@@ -279,15 +313,19 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
   }
 
   /** Pans the view (keeping its zoom) just far enough to show `box`; too big to fit, it zooms out to fit. */
+  // A pan or page turn still gliding: reveals right after it start from where it's going.
+  let turning = null;
   function showBox(box) {
     const state = api.getAppState();
-    const zoom = state.zoom.value;
-    const view = { x: -state.scrollX, y: -state.scrollY, width: state.width / zoom, height: state.height / zoom };
+    const settled = !turning || performance.now() > turning.until;
+    const zoom = settled ? state.zoom.value : turning.zoom;
+    const view = settled ? { x: -state.scrollX, y: -state.scrollY, width: state.width / zoom, height: state.height / zoom } : turning.view;
     const to = revealView(box, view, 60 / zoom);
     if (!to) return;
     const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Centring on a view-sized frame at the new spot pans there; the student can interrupt it.
     const target = to === "fit" ? box : { ...view, x: to.x, y: to.y };
+    turning = to === "fit" ? null : { view: target, zoom, until: performance.now() + 900 };
     api.scrollToContent(convertToExcalidrawElements([{ type: "rectangle", ...target }]), { animate, ...(to === "fit" ? { fitToViewport: true, viewportZoomFactor: 0.9 } : {}) });
   }
 
@@ -296,7 +334,7 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     /** The durable drawing: all elements (including deleted, so undo survives reloads) and the background. */
     scene() {
       return {
-        elements: api.getSceneElementsIncludingDeleted(),
+        elements: api.getSceneElementsIncludingDeleted().map((element) => (playing ? playing.settled(element) : element)),
         appState: { viewBackgroundColor: api.getAppState().viewBackgroundColor }
       };
     },
@@ -581,6 +619,56 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
       }
       return focus;
     },
+    /**
+     * The tutor's drawing: adds `skeletons` at their own places with their own ids, outside the
+     * student's undo history and without touching their selection, written on over `pace` ms.
+     * With `follow`, the view glides just far enough to show it. Returns the new element ids.
+     */
+    draw(skeletons, { pace = 900, follow = true } = {}) {
+      const known = new Set(api.getSceneElementsIncludingDeleted().map((element) => element.id));
+      const fresh = skeletons.filter((skeleton) => !known.has(skeleton.id));
+      if (!fresh.length) return [];
+      const made = convertToExcalidrawElements(fresh, { regenerateIds: false }).map((element) => ({ ...element, customData: { klui: true, ...element.customData } }));
+      commit({ added: made, select: null, capture: CaptureUpdateAction.NEVER, pace, glow: [] });
+      if (follow) showBox(boundsOf(made));
+      return made.map((element) => element.id);
+    },
+    /** Live elements Klui named `names`, with their shapes' labels. */
+    named(names) {
+      const wanted = new Set(names);
+      const live = api.getSceneElements();
+      const hit = live.filter((element) => wanted.has(element.customData?.name));
+      const ids = new Set(hit.map((element) => element.id));
+      return [...hit, ...live.filter((element) => element.containerId && ids.has(element.containerId) && !ids.has(element.id))];
+    },
+    /** A short glow around what the tutor is talking about, panning to it when `follow`. */
+    point(names, { follow = true } = {}) {
+      const found = controller.named(names).filter((element) => !element.containerId);
+      if (!found.length) return false;
+      flash(found.map((element) => element.id));
+      if (follow) showBox(boundsOf(found));
+      return true;
+    },
+    /** Pans just far enough to show a scene box. */
+    reveal(box) { if (box) showBox(box); },
+    /**
+     * Turns to `box` like a page: its top a little below the toolbar and centred across, zoomed
+     * out just enough to fit its width (never zoomed in past 100%).
+     */
+    frame(box) {
+      if (!box) return;
+      const state = api.getAppState();
+      const pad = 48;
+      const zoom = Math.min(1, state.width / (box.width + pad * 2));
+      const width = state.width / zoom;
+      const height = state.height / zoom;
+      const target = { x: box.x + box.width / 2 - width / 2, y: box.y - 96 / zoom, width, height };
+      const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      turning = { view: target, zoom, until: performance.now() + 900 };
+      api.scrollToContent(convertToExcalidrawElements([{ type: "rectangle", ...target }]), { animate, fitToViewport: true, viewportZoomFactor: 1 });
+    },
+    /** Re-reads the editor's place on the page after it moved or was hidden. */
+    refresh() { api.refresh(); },
     navigate(direction) {
       const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (direction === "fit") {
@@ -599,18 +687,31 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     /** Replaces the whole drawing without touching undo history (loading a saved copy). */
     load(sceneData) {
       api.updateScene({
-        elements: restoreElements((sceneData.elements || []).filter((element) => ALLOWED.has(element.type)), null),
+        elements: restoreElements((sceneData.elements || []).filter((element) => allowed.has(element.type)), null),
         appState: { viewBackgroundColor: sceneData.appState?.viewBackgroundColor || "#ffffff" },
         captureUpdate: CaptureUpdateAction.NEVER
       });
       api.history.clear();
     },
+    /**
+     * Folds in a newer copy of the board saved elsewhere: per element, the later edit wins.
+     * `known` holds the ids the server had when this copy last synced: one of those missing from
+     * the newer copy was deleted elsewhere, so it goes here too rather than coming back.
+     */
+    merge(sceneData, known = new Set()) {
+      playing?.finish();
+      const all = sceneData?.elements || [];
+      const local = deletedElsewhere(api.getSceneElementsIncludingDeleted(), all, known, (element) => newElementWith(element, { isDeleted: true }));
+      const remote = restoreElements(all.filter((element) => allowed.has(element.type)), null);
+      api.updateScene({ elements: reconcileElements(local, remote, api.getAppState()), captureUpdate: CaptureUpdateAction.NEVER });
+    },
     addFiles(list) { if (list.length) api.addFiles(list); },
     /** Drops element types boards do not allow (e.g. a frame added from the shape menu). */
     dropDisallowed() {
       const all = api.getSceneElementsIncludingDeleted();
-      if (all.every((element) => ALLOWED.has(element.type))) return false;
-      api.updateScene({ elements: all.filter((element) => ALLOWED.has(element.type)), captureUpdate: CaptureUpdateAction.NEVER });
+      if (all.every((element) => allowed.has(element.type))) return false;
+      if (!allowImages && all.some((element) => element.type === "image" && !element.isDeleted)) controller.toast("Images can't go on this board.");
+      api.updateScene({ elements: all.filter((element) => allowed.has(element.type)), captureUpdate: CaptureUpdateAction.NEVER });
       return true;
     },
     clearSelection() {
@@ -619,7 +720,12 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
     setTool(type) { api.setActiveTool({ type }); },
     setTheme(next) { render(next); },
     toast(message) { api.setToast({ message, closable: true, duration: 3000 }); },
-    destroy() { root.unmount(); }
+    destroy() {
+      playing?.finish();
+      host.removeEventListener("pointerdown", settle, { capture: true });
+      host.removeEventListener("keydown", settle, { capture: true });
+      root.unmount();
+    }
   };
 
   function render(currentTheme) {
@@ -627,10 +733,12 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
       host,
       initial,
       theme: currentTheme,
+      allowImages,
+      find,
       onApi: (next) => {
         if (api) return;
         api = next;
-        resolveReady(controller);
+        Promise.race([handwriting(), new Promise((resolve) => setTimeout(resolve, 4000))]).then(() => resolveReady(controller));
       },
       onChange: (elements, appState) => {
         const shell = host.closest(".wb-shell");
@@ -643,7 +751,7 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
           api.setActiveTool({ type: "selection" });
           controller.toast("Frames and embeds aren't available on boards.");
         }
-        if (api && elements.some((element) => !ALLOWED.has(element.type))) {
+        if (api && elements.some((element) => !allowed.has(element.type))) {
           setTimeout(() => controller.dropDisallowed(), 0);
           return;
         }
@@ -652,7 +760,13 @@ export function mountBoard(host, { scene = {}, files = [], theme = "light", onCh
       onPointerUp: (activeTool) => {
         if (activeTool.type === "selection") setTimeout(() => onSelectionSettled?.(), 0);
       },
-      onPaste: (data, event) => (onPaste ? onPaste(data, event) : true)
+      onPaste: (data, event) => {
+        if (!allowImages && data?.files && Object.keys(data.files).length) {
+          controller.toast("Images can't go on this board.");
+          return false;
+        }
+        return onPaste ? onPaste(data, event) : true;
+      }
     }));
   }
   render(theme);

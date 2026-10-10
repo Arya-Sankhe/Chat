@@ -66,7 +66,7 @@ function stubFetch({ deltas, provider = "DeepInfra", hang = false, requests = []
 test("options keep only known styles and voices and cap instructions", () => {
   assert.deepEqual(normalizeTutorOptions({ style: "nope", voice: "zz", instructions: "x".repeat(900) }).style, "teacher");
   const picked = normalizeTutorOptions({ style: "socratic", voice: "am_puck", instructions: "  Be quick.  " });
-  assert.deepEqual(picked, { style: "socratic", format: "quiz", voice: "am_puck", instructions: "Be quick." });
+  assert.deepEqual(picked, { style: "socratic", format: "quiz", voice: "am_puck", instructions: "Be quick.", board: true });
   assert.equal(normalizeTutorOptions({ format: "teach" }).format, "teach");
   assert.equal(normalizeTutorOptions({ format: "lecture" }).format, "quiz");
 });

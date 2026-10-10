@@ -85,6 +85,7 @@ import {
   transcribeTutorAudio,
   streamTutorTurn,
   endStudyTutor,
+  openTutorBoard,
   submitStudyQuizAttempt,
   exportStudyNote,
   deleteStudyNote
@@ -7614,6 +7615,7 @@ async function loadStudyHub() {
         speechEnabled: () => Boolean(state.config?.services?.speech),
         streamTutorTurn,
         endStudyTutor,
+        openTutorBoard,
         submitStudyQuizAttempt,
         exportStudyNote,
         deleteStudyNote,

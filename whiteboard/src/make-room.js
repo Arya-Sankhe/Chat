@@ -44,3 +44,32 @@ export function revealView(box, view, margin) {
   const y = Math.min(Math.max(view.y, box.y + box.height + margin - view.height), box.y - margin);
   return x === view.x && y === view.y ? null : { x, y };
 }
+
+/**
+ * Before folding a newer copy of a board saved elsewhere into this one: ids the server had at the
+ * last sync (`known`) that the newer copy lacks were deleted elsewhere, so they're returned marked
+ * deleted (via `markDeleted`) instead of surviving as if they were new here.
+ */
+export function deletedElsewhere(local, remote, known, markDeleted) {
+  const there = new Set(remote.map((element) => element.id));
+  return local.map((element) => (known.has(element.id) && !there.has(element.id) && !element.isDeleted ? markDeleted(element) : element));
+}
+
+/**
+ * Keeps a replayed change from fighting the student: it remembers the animated fields of each
+ * element as the replay last wrote them, and an element that no longer matches was edited by
+ * someone else, so the replay leaves it alone from then on.
+ */
+export function replayGuard(elements, keys) {
+  const sign = (element) => keys.map((key) => JSON.stringify(element[key] ?? null)).join("|");
+  const written = new Map(elements.map((element) => [element.id, sign(element)]));
+  return {
+    owns(element) {
+      if (!written.has(element.id)) return false;
+      if (written.get(element.id) === sign(element)) return true;
+      written.delete(element.id);
+      return false;
+    },
+    wrote(element) { if (written.has(element.id)) written.set(element.id, sign(element)); }
+  };
+}

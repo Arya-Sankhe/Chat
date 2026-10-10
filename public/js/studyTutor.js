@@ -2,6 +2,7 @@
 // The call keeps one long-lived root element (with its canvas orb and audio graph); studyHub
 // re-renders around it and moves that element into the view's slot, so repaints never cut a call.
 import { PODCAST_VOICES, formatDurationLabel, voiceOf } from "./studyPodcast.js";
+import { createTutorBoard } from "./tutorBoard.js";
 
 export const TUTOR_MAX_SECONDS = 30 * 60;
 
@@ -52,7 +53,9 @@ const ICONS = {
   spark: svg('<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>', 14),
   check: svg('<path d="m5 12.5 4.2 4.2L19 7"/>', 14, 2),
   target: svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".6"/>', 14),
-  replay: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/>', 14)
+  replay: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/>', 14),
+  board: svg('<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21l4-4 4 4"/><path d="M7 13l3-3 2 2 4-4"/>', 18),
+  boardSmall: svg('<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21l4-4 4 4"/><path d="M7 13l3-3 2 2 4-4"/>', 14)
 };
 
 // Mirrors TUTOR_FORMATS in server/study/tutor.js: how the call runs, whatever the style.
@@ -98,7 +101,7 @@ export function tutorMeta(item) {
 
 /* ---------- Create dialog ---------- */
 
-export function tutorOptionsMarkup({ escapeHtml, style = "teacher", format = "teach", voice = "af_heart" }) {
+export function tutorOptionsMarkup({ escapeHtml, style = "teacher", format = "teach", voice = "af_heart", board = true }) {
   const styles = TUTOR_STYLES.map((item) => `<label class="dojo-tutor-style is-${item.value}">
       <input type="radio" name="style" value="${item.value}"${item.value === style ? " checked" : ""}>
       <span class="dojo-tutor-style-face">
@@ -125,6 +128,14 @@ export function tutorOptionsMarkup({ escapeHtml, style = "teacher", format = "te
     <fieldset class="dojo-option-group dojo-tutor-formats is-${picked.value}" data-tutor-formats><legend>Session</legend>
       <div class="dojo-tutor-format-grid">${formats}</div>
     </fieldset>
+    <label class="dojo-tutor-board-toggle">
+      <input type="checkbox" name="board" value="on"${board ? " checked" : ""}>
+      <span class="dojo-tutor-board-face">
+        <span class="dojo-tutor-format-icon">${ICONS.board}</span>
+        <span class="dojo-tutor-format-copy"><strong>Whiteboard</strong><small>Your tutor draws and explains on a shared board as it teaches, and can look at what you draw.</small></span>
+        <i class="dojo-switch" aria-hidden="true"></i>
+      </span>
+    </label>
     <fieldset class="dojo-option-group dojo-voices is-tutor"><legend>Voice <small data-tutor-voice-note>${escapeHtml(sound ? `${sound.tone} · ${sound.accent}` : "")}</small></legend>
       <div class="dojo-voice-list" role="radiogroup" aria-label="Tutor voice">${voices}</div>
     </fieldset>
@@ -149,6 +160,7 @@ export function syncTutorOptions(root) {
 const PREP_STAGES = [
   ["reading", "Reading your sources"],
   ["planning", "Planning the lesson"],
+  ["drawing", "Sketching the whiteboard"],
   ["saving", "Getting your tutor ready"]
 ];
 
@@ -195,7 +207,7 @@ function planMarkup(session, escapeHtml) {
       <div class="dojo-tutor-hero">${staticOrb(" is-ready")}<span class="dojo-tutor-kicker">${ICONS.check}Lesson plan ready</span>${session.plan?.goal ? `<p>${escapeHtml(session.plan.goal)}</p>` : ""}</div>
       <ol class="dojo-tutor-plan">${steps.map((step, index) => `<li style="--i: ${index}"><span class="dojo-tutor-plan-num">${index + 1}</span><span>${escapeHtml(step.title)}</span></li>`).join("")}</ol>
       <div class="dojo-tutor-launch">
-        <span class="dojo-tutor-who"><span class="dojo-voice-avatar is-${escapeHtml(voice.id)}" aria-hidden="true">${escapeHtml(voice.name[0])}</span><span><strong>${escapeHtml(style.title)}</strong><small>${escapeHtml(tutorFormatOf(session.format).title)} · ${escapeHtml(voice.name)}'s voice · up to 30 minutes</small></span></span>
+        <span class="dojo-tutor-who"><span class="dojo-voice-avatar is-${escapeHtml(voice.id)}" aria-hidden="true">${escapeHtml(voice.name[0])}</span><span><strong>${escapeHtml(style.title)}</strong><small>${escapeHtml(tutorFormatOf(session.format).title)} · ${escapeHtml(voice.name)}'s voice${session.plan?.board ? " · whiteboard" : ""} · up to 30 minutes</small></span></span>
         <button class="dojo-tutor-start" type="button" data-tutor-start>${ICONS.play.replace('width="22" height="22"', 'width="15" height="15"')}Start call</button>
         <small class="dojo-tutor-mic-note">Uses your microphone. Pause whenever you need a moment.</small>
       </div>
@@ -220,12 +232,13 @@ export function tutorViewMarkup(view, item, { escapeHtml, callActive }) {
     return wrap(`<div class="dojo-view-body"><div class="study-empty"><strong>${view.preparing ? "Could not plan this lesson" : "Could not load this session"}</strong><p>${escapeHtml(view.error)}</p></div></div>`);
   }
   if (view.preparing) {
-    const at = Math.max(0, PREP_STAGES.findIndex(([key]) => key === view.stage));
+    const stages = PREP_STAGES.filter(([key]) => key !== "drawing" || view.board !== false);
+    const at = Math.max(0, stages.findIndex(([key]) => key === view.stage));
     return wrap(`<div class="dojo-view-body dojo-tutor-prep" role="status">
         ${staticOrb(" is-thinking")}
         <h4>Preparing your lesson</h4>
         <p>Your tutor is reading the material and planning a session around what matters most.</p>
-        <ol class="dojo-tutor-stages">${PREP_STAGES.map(([key, label], index) => `<li class="${index < at ? "is-done" : index === at ? "is-now" : ""}"><span>${index < at ? ICONS.check : ""}</span>${label}</li>`).join("")}</ol>
+        <ol class="dojo-tutor-stages">${stages.map(([key, label], index) => `<li class="${index < at ? "is-done" : index === at ? "is-now" : ""}"><span>${index < at ? ICONS.check : ""}</span>${label}</li>`).join("")}</ol>
       </div>`);
   }
   if (!session) return wrap('<div class="dojo-view-body"><div class="study-empty" role="status"><span class="study-spin" aria-hidden="true"></span><p>Loading session…</p></div></div>');
@@ -235,6 +248,7 @@ export function tutorViewMarkup(view, item, { escapeHtml, callActive }) {
     return wrap(`<div class="dojo-view-body dojo-tutor-prep" role="status">${staticOrb(" is-thinking")}<h4>Wrapping up</h4><p>Writing a recap of your call…</p></div>`);
   }
   return wrap(`<div class="dojo-view-body dojo-tutor-review">
+      ${session.boardId ? `<button class="dojo-tutor-board-open" type="button" data-tutor-board-open="${escapeHtml(session.boardId)}">${ICONS.boardSmall}<span><strong>Lesson board</strong><small>Everything you and your tutor drew</small></span></button>` : ""}
       ${recapMarkup(session, escapeHtml)}
       ${session.transcript?.length ? `<div class="dojo-tutor-log-head"><span>Conversation</span><small>${session.transcript.length} turns</small></div><div class="dojo-tutor-log">${transcriptMarkup(session, escapeHtml)}</div>` : ""}
     </div>`);
@@ -487,13 +501,21 @@ function base64Bytes(value) {
  * and end(id, body). The call moves through: thinking (waiting on the tutor), speaking, listening,
  * paused, and finishing (writing the recap).
  */
-export function createTutorCall({ session, api, escapeHtml, reducedMotion = false, onFinished, onToast, onFullscreenExit }) {
+export function createTutorCall({ session, api, boardApi = null, escapeHtml, reducedMotion = false, onFinished, onToast, onFullscreenExit }) {
   const style = tutorStyleOf(session.style);
   const steps = session.plan?.steps || [];
   const root = document.createElement("div");
   root.className = "tutor-call";
   root.dataset.phase = "idle";
-  root.innerHTML = `
+  // With a whiteboard, the board takes the stage and the call moves to a rail beside it.
+  let board = session.plan?.board && boardApi ? createTutorBoard({
+    session,
+    api: boardApi,
+    onToast,
+    onSend: () => sendTyped("I've drawn my answer on the board. Can you take a look?"),
+    onActivity: () => boardActivity()
+  }) : null;
+  const rail = `
     <div class="tutor-call-top">
       <span class="tutor-chip">${svg(STYLE_ICONS[style.value], 14)}${escapeHtml(style.title)}</span>
       <span class="tutor-timer" title="Time left in this call"><span class="tutor-timer-bar"><i data-tutor-bar></i></span><b data-tutor-clock>${formatClock(TUTOR_MAX_SECONDS)}</b></span>
@@ -518,6 +540,11 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       <button class="tutor-btn is-end" type="button" data-tutor-end aria-label="End call" title="End call">${ICONS.hangup}</button>
       <button class="tutor-btn is-ghost" type="button" data-tutor-full aria-label="Full screen" title="Full screen" aria-pressed="false">${ICONS.expand}</button>
     </div>`;
+  if (board) {
+    root.classList.add("has-board");
+    root.innerHTML = `<div class="tutor-call-board" data-tutor-board></div><div class="tutor-rail">${rail}</div>`;
+    root.querySelector("[data-tutor-board]").append(board.root);
+  } else root.innerHTML = rail;
   const $ = (selector) => root.querySelector(selector);
   const canvas = $("canvas");
   const orb = createOrb(canvas, { calm: reducedMotion });
@@ -560,6 +587,13 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   let parked = null;
   let compact = false;
   let fullscreenLayer = null;
+  // Board cues for the reply being spoken: each fires when the speech reaches its offset.
+  let cues = []; // board cues not yet tied to speech
+  let timed = []; // …and tied to it: { due (audio clock, ms), cue, pace }
+  let speaking = null; // the chunk of speech playing: its text span and when it began
+  let cueTicker = 0;
+  let heardTo = 0;
+  let drawAsked = false;
 
   /* Timer */
   const elapsed = () => elapsedBase + (runningSince ? (performance.now() - runningSince) / 1000 : 0);
@@ -666,6 +700,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     button.title = on ? "Exit full screen" : "Full screen";
     if (!finished) orb.start();
     if (stick) captions.scrollTop = captions.scrollHeight;
+    // The board was hidden or moved; the editor re-reads where it is once laid out.
+    if (board) requestAnimationFrame(() => board?.refresh());
   }
 
   /* Captions */
@@ -748,12 +784,75 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     current?.stop();
     current = null;
     queue = [];
+    clearCues();
+  }
+
+  /* Board cues */
+  // Cues keep the audio's time, which stands still while the call is paused.
+  const audioNow = () => (ctx ? ctx.currentTime * 1000 : performance.now());
+  function clearCues() {
+    clearInterval(cueTicker);
+    cueTicker = 0;
+    cues = [];
+    timed = [];
+    speaking = null;
+    heardTo = 0;
+  }
+  function fireCue(item, pace) {
+    if (!board || finished) return;
+    // Paused: the cue waits, and goes as soon as the call resumes.
+    if (paused) {
+      timed.push({ ...item, due: audioNow(), pace });
+      if (!cueTicker) cueTicker = setInterval(tickCues, 50);
+      return;
+    }
+    if (item.cue.op === "ask") drawAsked = true;
+    board.apply(item.cue, { pace });
+  }
+  function tickCues() {
+    if (paused) return;
+    const now = audioNow();
+    const due = timed.filter((item) => item.due <= now);
+    timed = timed.filter((item) => item.due > now);
+    for (const item of due) fireCue(item, item.pace);
+    if (!timed.length) {
+      clearInterval(cueTicker);
+      cueTicker = 0;
+    }
+  }
+  // A cue fires part way through the chunk that says its words, in step with them.
+  function timeCue(item) {
+    const span = Math.max(1, speaking.end - speaking.start);
+    const into = Math.min(1, Math.max(0, item.at - speaking.start) / span);
+    timed.push({ ...item, due: speaking.began + speaking.duration * into, pace: Math.max(700, Math.min(2600, speaking.duration * (1 - into))) });
+    if (!cueTicker) cueTicker = setInterval(tickCues, 50);
+  }
+  function scheduleCues(item, durationMs) {
+    if (!board || !Number.isFinite(item.end)) return;
+    speaking = { start: item.start, end: item.end, began: audioNow(), duration: durationMs };
+    const due = cues.filter((cue) => cue.at < item.end);
+    cues = cues.filter((cue) => cue.at >= item.end);
+    due.forEach(timeCue);
+    heardTo = item.end;
+    tickCues();
+  }
+  // Cues placed after the last spoken words, or for words already said, go now.
+  function flushCues(upTo = Infinity) {
+    const due = [...timed, ...cues.filter((cue) => cue.at <= upTo)];
+    cues = cues.filter((cue) => cue.at > upTo);
+    timed = [];
+    for (const { due: _due, ...cue } of due) fireCue(cue, cue.pace || 1100);
+  }
+  function boardActivity() {
+    // Drawing counts as taking a turn: the tutor doesn't nudge someone who is busy at the board.
+    if (listen && !listen.heard) listen.startedAt = performance.now();
   }
   function pump() {
     if (current || paused || !queue.length) return;
     const item = queue.shift();
     setPhase("speaking");
     markSpoken(tutorLine, item.text);
+    scheduleCues(item, item.buffer ? item.buffer.duration * 1000 : Math.min(6000, 300 * item.text.split(/\s+/).length));
     const next = () => {
       current = null;
       pump();
@@ -786,14 +885,27 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     decodeChain = Promise.resolve();
     turnDone = false;
     asked = false;
+    drawAsked = false;
     tutorLine = addLine("tutor", "", true);
     setPhase("thinking");
     const line = tutorLine;
     try {
-      await api.turn(session.id, { mode, text, elapsed: Math.round(elapsed()) }, {
+      // What the student did on the board since the tutor last looked travels with their turn.
+      let boardContext = null;
+      if (board?.ready && (mode === "reply" || mode === "closing")) {
+        boardContext = await board.turnContext().catch(() => null);
+        if (seq !== turnSeq) return;
+      }
+      await api.turn(session.id, { mode, text, elapsed: Math.round(elapsed()), ...(boardContext ? { board: boardContext } : {}) }, {
         signal: controller.signal,
         onEvent: (event) => {
           if (seq !== turnSeq) return;
+          // The board work is the tutor's once the turn is sure to be saved: the server keeps
+          // every turn that got as far as speech (or finished), and none that didn't.
+          if (boardContext && (event.type === "audio" || event.type === "done")) {
+            board?.acknowledge();
+            boardContext = null;
+          }
           if (event.type === "error") {
             const error = new Error(event.error || "The tutor could not answer.");
             error.code = event.code;
@@ -809,9 +921,20 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
                 try { buffer = await ctx.decodeAudioData(base64Bytes(event.audio)); } catch { buffer = null; }
               }
               if (seq !== turnSeq) return;
-              queue.push({ buffer, text: event.text || "" });
+              queue.push({ buffer, text: event.text || "", start: Number(event.start), end: Number(event.end) });
               pump();
             });
+          } else if (event.type === "board") {
+            if (!board || !event.cue) return;
+            const item = { at: Number(event.at) || 0, cue: event.cue };
+            // A cue that arrives late (a sketch takes a moment): words still being spoken keep
+            // their timing, words already said get it straight away.
+            if (speaking && item.at < heardTo && item.at >= speaking.start) timeCue(item);
+            else if (heardTo && item.at < heardTo) fireCue(item, 1100);
+            else {
+              cues.push(item);
+              cues.sort((a, b) => a.at - b.at);
+            }
           } else if (event.type === "done") {
             if (event.step) step = event.step;
             paintStep();
@@ -840,6 +963,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
   // Called whenever playback or the stream advances; hands the floor back once all is spoken.
   function settleTutorTurn() {
     if (!turnDone || current || queue.length || finished) return;
+    flushCues();
     if (tutorLine) {
       tutorLine.spoken = tutorLine.full.length;
       tutorLine.node.classList.remove("is-live");
@@ -925,7 +1049,7 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       return;
     }
     const now = performance.now();
-    listen = { startedAt: now, heard: false, voicedRun: 0, voicedMs: 0, firstVoiceAt: 0, lastVoiceAt: 0, spec: null, answering: asked, nudged: false, line: null };
+    listen = { startedAt: now, heard: false, voicedRun: 0, voicedMs: 0, firstVoiceAt: 0, lastVoiceAt: 0, spec: null, answering: asked || drawAsked, drawing: drawAsked, nudged: false, line: null };
     startRecorder(listen);
   }
   async function restartRecorder(state) {
@@ -977,11 +1101,15 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       }
       // After a question the student gets time to think; after anything else, a shorter wait,
       // so a reply that forgot to hand over the turn is never left hanging in silence.
-      if (!state.nudged && now - state.startedAt > (state.answering ? 28_000 : 20_000)) {
+      if (!state.nudged && now - state.startedAt > (state.drawing ? 45_000 : state.answering ? 28_000 : 20_000)) {
         state.nudged = true;
         void stopRecorder(state);
         listen = null;
-        void sendTurn("nudge");
+        // Quiet but done drawing: the drawing is the answer.
+        if (board?.hasNewWork()) {
+          addLine("student", "I've drawn my answer on the board.");
+          void sendTurn("reply", "I've drawn my answer on the board.");
+        } else void sendTurn("nudge");
         return;
       }
       // Drop long silences from the recording so the eventual clip stays short.
@@ -1227,6 +1355,8 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     const chimeDone = new Promise((resolve) => setTimeout(resolve, tail * 1000));
     setPhase("finishing");
     root.classList.add("is-finishing");
+    clearCues();
+    await board?.close();
     let result = null;
     try {
       result = await api.end(session.id, { elapsed: seconds });
@@ -1238,6 +1368,17 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
     ctx?.close().catch(() => {});
     setFullscreen(false);
     onFinished?.(result?.session || null);
+  }
+
+  // The board couldn't open: the call carries on by voice, laid out as a plain call.
+  function dropBoard() {
+    if (!board) return;
+    const failed = board;
+    board = null;
+    void failed.close();
+    root.querySelector("[data-tutor-board]")?.remove();
+    root.classList.remove("has-board");
+    onToast?.("The whiteboard couldn't open, so this call is voice only.");
   }
 
   /* Events */
@@ -1271,8 +1412,14 @@ export function createTutorCall({ session, api, escapeHtml, reducedMotion = fals
       started = true;
       paintStep();
       setPhase("connecting");
+      if (board) setFullscreen(true);
       orb.start();
+      const boardReady = board ? Promise.race([
+        board.mount(),
+        new Promise((resolve, reject) => setTimeout(() => reject(new Error("timeout")), 15_000))
+      ]).catch(() => dropBoard()) : null;
       await openAudio();
+      await boardReady;
       if (finished) return;
       // Call connected: a soft rising three-note chime.
       playChime(ctx, CHIMES.start);

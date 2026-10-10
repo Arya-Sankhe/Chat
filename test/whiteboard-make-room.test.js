@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clearOf, revealView } from "../whiteboard/src/make-room.js";
+import { clearOf, deletedElsewhere, replayGuard, revealView } from "../whiteboard/src/make-room.js";
 
 const view = { x: 0, y: 0, width: 1000, height: 600 };
 
@@ -37,4 +37,29 @@ test("the view moves only as far as needed to show the drawing", () => {
   assert.deepEqual(revealView({ x: 1050, y: 100, width: 200, height: 100 }, view, 60), { x: 310, y: 0 });
   assert.deepEqual(revealView({ x: -300, y: -50, width: 200, height: 100 }, view, 60), { x: -360, y: -110 });
   assert.equal(revealView({ x: 900, y: 0, width: 1200, height: 100 }, view, 60), "fit");
+});
+
+test("merging a board saved elsewhere keeps its deletions and this copy's additions", () => {
+  const local = [{ id: "kept" }, { id: "gone-there" }, { id: "new-here" }, { id: "already-deleted", isDeleted: true }];
+  const remote = [{ id: "kept" }, { id: "new-there" }];
+  const known = new Set(["kept", "gone-there", "already-deleted"]);
+  const merged = deletedElsewhere(local, remote, known, (element) => ({ ...element, isDeleted: true }));
+  assert.deepEqual(merged.filter((element) => !element.isDeleted).map((element) => element.id), ["kept", "new-here"]);
+  assert.equal(merged.find((element) => element.id === "gone-there").isDeleted, true);
+});
+
+test("a replay stops touching an element the student edits while it plays", () => {
+  const keys = ["text", "opacity"];
+  const note = { id: "note", text: "Original tutor note", opacity: 100 };
+  const guard = replayGuard([note], keys);
+  // A frame writes a half-written note; the next frame still owns it.
+  const frame = { ...note, text: "Original", opacity: 40 };
+  assert.equal(guard.owns(note), true);
+  guard.wrote(frame);
+  assert.equal(guard.owns(frame), true);
+  // The student corrects it: the replay lets go for good, so the correction stays.
+  const corrected = { ...frame, text: "Student correction" };
+  assert.equal(guard.owns(corrected), false);
+  assert.equal(guard.owns({ ...corrected, text: "Original" }), false);
+  assert.equal(guard.owns({ id: "unrelated", text: "x" }), false);
 });

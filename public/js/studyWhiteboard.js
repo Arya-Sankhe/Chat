@@ -18,7 +18,8 @@ const SHOWN_THREADS = 30;
 const NOTE_LINE = 46;
 
 let bundle = null;
-function loadEditor() {
+// The editor bundle, loaded once and shared with the tutor call's board.
+export function loadEditor() {
   if (!bundle) {
     globalThis.EXCALIDRAW_ASSET_PATH = new URL("../vendor/whiteboard/", import.meta.url).href;
     if (!document.querySelector("link[data-wb-styles]")) {
