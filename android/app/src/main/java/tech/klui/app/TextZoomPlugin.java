@@ -71,6 +71,7 @@ public class TextZoomPlugin extends Plugin {
   }
 
   private int keyboardHeight = -1;
+  private boolean keyboardUpdatePending;
   private boolean imeAnimating;
   private WindowInsetsCompat targetInsets;
 
@@ -78,11 +79,21 @@ public class TextZoomPlugin extends Plugin {
     int bottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
     if (keyboardHeight == bottom) return;
     keyboardHeight = bottom;
+    if (!keyboardUpdatePending) sendKeyboardInsets(webView);
+  }
+
+  private void sendKeyboardInsets(WebView webView) {
+    keyboardUpdatePending = true;
+    int bottom = keyboardHeight;
     float cssHeight = bottom / webView.getResources().getDisplayMetrics().density;
     webView.evaluateJavascript(
         "document.documentElement.style.setProperty('--native-keyboard-height','" + cssHeight + "px');"
             + "if(document.body){document.body.classList.toggle('keyboard-open'," + (bottom > 0) + ");}",
-        null);
+        ignored -> {
+          keyboardUpdatePending = false;
+          // A busy WebView gets the latest IME position, not a queue of old frames.
+          if (keyboardHeight != bottom) sendKeyboardInsets(webView);
+        });
   }
 
   @PluginMethod

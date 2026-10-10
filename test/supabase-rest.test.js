@@ -1218,3 +1218,17 @@ test("listMessagesPage does not collapse an assistant-only page to one row", asy
     assert.deepEqual(page.cursor, { createdAt: "2026-01-01T00:00:02.000Z", id: "m2" });
   });
 });
+
+test("recent conversation query limits titles without loading message bodies", async () => {
+  await withStubbedFetch(async (url) => {
+    const query = new URL(url).searchParams;
+    assert.equal(query.get("user_id"), "eq.user_1");
+    assert.equal(query.get("limit"), "10");
+    assert.equal(query.get("order"), "updated_at.desc");
+    assert.equal(query.get("select"), "id,title,project_id,created_at,updated_at");
+    return jsonResponse([{ id: "chat_1", title: "Recent chat" }]);
+  }, async () => {
+    const db = new SupabaseRest(FAKE_CONFIG);
+    assert.deepEqual(await db.listConversations("user_1", { limit: 10 }), [{ id: "chat_1", title: "Recent chat" }]);
+  });
+});

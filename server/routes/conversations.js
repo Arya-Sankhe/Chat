@@ -36,7 +36,12 @@ export async function purgeMessageStorage(context, messageId, config, signal) {
 export async function handleConversations(req, res, config) {
   const context = await requireChatContext(req, config);
   if (req.method === "GET") {
-    const conversations = await context.db.listConversations(context.user.id, { signal: req.signal });
+    const rawLimit = new URL(req.url, "http://localhost").searchParams.get("limit");
+    const limit = rawLimit === null ? undefined : Number(rawLimit);
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
+      throw new HttpError(400, "Conversation limit must be between 1 and 100.");
+    }
+    const conversations = await context.db.listConversations(context.user.id, { signal: req.signal, limit });
     sendJson(res, 200, { conversations });
     return;
   }

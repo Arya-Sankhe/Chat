@@ -69,8 +69,20 @@
   </head>
   <body>
     <script>
-      if (window.matchMedia("(max-width: 860px)").matches) {
-        document.body.classList.add("capacitor-native");
+      if (window.androidBridge || window.matchMedia("(max-width: 860px)").matches) {
+        document.body.classList.add("capacitor-native", "mobile-ui");
+        try {
+          const appearance = JSON.parse(localStorage.getItem("klui.chat.controls.v1") || "{}").appearance || "system";
+          document.body.dataset.mode = appearance === "dark" || (appearance === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+        } catch {}
+        const kluiLaunchMascot = '<svg viewBox="1 3.5 14 8.5" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g fill="#8fd3fb"><path d="M3 3.5h10v6H3zM1 5.5h2v2H1zM13 5.5h2v2h-2zM5 9.5h1V12H5zM10 9.5h1V12h-1z"/></g><path fill="#16202e" d="M5 5h1v1.5H5zM10 5h1v1.5h-1z"/></svg>';
+        const launch = document.createElement("div");
+        launch.id = "mobileLaunchScreen";
+        launch.setAttribute("aria-label", "Klui is loading");
+        launch.innerHTML = kluiLaunchMascot + '<span>Klui</span>';
+        document.body.append(launch);
+        setTimeout(() => launch.remove(), 500);
+        window.__kluiLaunchMascot = kluiLaunchMascot;
       }
     </script>
     <div id="app">
@@ -1101,8 +1113,8 @@
       if (window.androidBridge || window.matchMedia("(max-width: 860px)").matches) {
         document.querySelector("#sidebarButton")?.insertAdjacentHTML("afterend", sidebarCloseButton);
       }
-      if (window.androidBridge) {
-        document.body.classList.add("capacitor-native", "chat-empty");
+      if (window.androidBridge || window.matchMedia("(max-width: 860px)").matches) {
+        document.body.classList.add("capacitor-native", "mobile-ui", "chat-empty");
         document.querySelector("#homeWallpaper").decoding = "sync";
         if (window.location.pathname === "/") {
           const greetings = [
@@ -1112,8 +1124,9 @@
           ];
           const greeting = greetings[Math.floor(Math.random() * greetings.length)];
           window.__kluiLaunchGreeting = greeting;
-          document.querySelector("#messages").innerHTML = `<div class="empty-state">
+          document.querySelector("#messages").innerHTML = `<div class="empty-state mobile-home-greeting">
             <div class="hero-line${greeting.length > 22 ? " is-long" : ""}">
+              <div class="klui" aria-hidden="true">${window.__kluiLaunchMascot}</div>
               <p class="type-line"><span class="type-text">${greeting}</span><span class="caret"></span></p>
             </div>
           </div>`;

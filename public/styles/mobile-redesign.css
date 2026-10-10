@@ -422,3 +422,34 @@ body.mobile-ui #app .composer-prompt.is-multiline {
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px);
   mask-image: linear-gradient(to bottom, transparent, #000 14px);
 }
+
+/* Launch branding is painted before the app module; never waits for network. */
+#mobileLaunchScreen {
+  position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center;
+  justify-content: center; gap: 16px; background: var(--bg, #111); color: var(--text, #fff);
+  font: 600 38px/1 var(--font-sans, sans-serif);
+}
+#mobileLaunchScreen svg { width: 64px; height: 40px; }
+body.mobile-ui.mobile-ui .sidebar:where(aside) { border-right: 0; box-shadow: none; }
+body.mobile-ui.mobile-ui .sidebar-nav-item { justify-content: flex-start; text-align: left; }
+body.mobile-ui.mobile-ui #webSearchToggle[aria-pressed="true"] { color: #4f9eff; }
+body.mobile-ui.mobile-ui #webSearchToggle[aria-pressed="false"] { color: var(--text); }
+/* Keyboard motion is already driven by Android; do not ease it a second time. */
+body.mobile-ui.mobile-ui #app .composer-area { transition: none !important; }
+body.mobile-ui.mobile-ui .native-mobile-mode-btn {
+  font-family: "Korataki", "Orbitron", sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+}
+body.mobile-ui.mobile-ui .native-mobile-mode-btn[data-mode="nitro"] { background: #83c98e !important; color: #123c20 !important; }
+body.mobile-ui.mobile-ui .native-mobile-mode-btn[data-mode="thinking"] { background: linear-gradient(90deg, #93c5fd, #2563eb) !important; color: #fff !important; }
+body.mobile-ui.mobile-ui .native-mobile-mode-btn[data-mode="pro"] { background: linear-gradient(90deg, #e9d5ff, #c084fc, #9333ea, #6b21a8) !important; color: #fff !important; }
+body.mobile-ui.mobile-ui .native-mobile-mode-btn[data-mode="compare"] { background: linear-gradient(90deg, hsl(16 72% 68%), hsl(44 70% 70%)) !important; color: #fff !important; }
+body.mobile-ui.mobile-ui .native-mobile-mode-btn[data-mode="council"] { background: #0b0b0c !important; color: #fff !important; }
+body.mobile-ui.mobile-ui[data-mode="dark"] .native-mobile-mode-btn[data-mode="council"] { background: #fff !important; color: #0b0b0c !important; }
+
+/* Keep the mobile navigation flush with the recents, without nested padding. */
+body.mobile-ui.mobile-ui .sidebar-nav { padding-inline: 0; }
+body.mobile-ui.mobile-ui .sidebar-nav .sidebar-nav-item { padding-inline: 0; }
+/* Cards use the panel width; headings retain their existing text inset. */
+body.mobile-ui.mobile-ui .dojo-studio-content { padding-inline: 0; }
+body.mobile-ui.mobile-ui .dojo-studio-content > .dojo-source-caption { margin-inline: 16px; }
+body.mobile-ui.mobile-ui .dojo-studio-content .dojo-group-head { padding-left: 22px; padding-right: 24px; }

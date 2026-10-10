@@ -130,7 +130,7 @@ test("narrow viewports use the existing native mobile layout before app boot", a
   );
   const mobileQuery = /window\.matchMedia\("\(max-width: 860px\)"\)\.matches/;
   assert.match(source, mobileQuery);
-  assert.match(source, /classList\.add\("capacitor-native"\)/);
+  assert.match(source, /classList\.add\("capacitor-native", "mobile-ui"\)/);
   assert.match(appJs, mobileQuery);
 });
 
@@ -1112,4 +1112,57 @@ test("cold startup requests editor and keyboard focus before any async bootstrap
   };
   runInNewContext(helpers + startup, context);
   assert.deepEqual(events, ["focus", "keyboard", "bootstrap"]);
+});
+
+test("mobile first paint has a mascot and a bounded launch screen without network waits", async () => {
+  const source = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const script = source.match(/<body>\s*<script>([\s\S]*?)<\/script>/)[1];
+  const classes = new Set();
+  let screen, timer;
+  const window = { matchMedia: () => ({ matches: true }) };
+  runInNewContext(script, {
+    window,
+    document: {
+      body: { classList: { add: (...names) => names.forEach(name => classes.add(name)) }, append: node => { screen = node; } },
+      createElement: () => ({ setAttribute() {}, remove() { screen = null; } })
+    },
+    setTimeout(fn, delay) { timer = { fn, delay }; }
+  });
+  assert.ok(classes.has("mobile-ui"));
+  assert.match(screen.innerHTML, /<svg/);
+  assert.match(screen.innerHTML, /<span>Klui<\/span>/);
+  assert.equal(timer.delay, 500);
+  assert.match(source, /class="klui" aria-hidden="true">\$\{window\.__kluiLaunchMascot\}/);
+  timer.fn();
+  assert.equal(screen, null);
+});
+
+test("mobile home paints ten recents before the rest without disturbing an opened chat", async () => {
+  const source = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const fn = source.match(/async function loadChatApp\(\) {[\s\S]*?\n}/)[0];
+  const first = Array.from({ length: 10 }, (_, i) => ({ id: `chat-${i}`, title: `Recent ${i}` }));
+  let finishRest;
+  const remaining = new Promise(resolve => { finishRest = resolve; });
+  const state = { session: {}, me: { user: { id: "user-1" } }, conversations: [], projects: [] };
+  let paints = 0;
+  const context = {
+    state, mobileRecentChats: Promise.resolve({ conversations: first }), pendingNativeConversationId: "",
+    isMobileLayout: () => true, conversationIdFromLocation: () => "",
+    studyRouteFromLocation: () => false, projectsRouteFromLocation: () => false,
+    listConversations: () => remaining, loadProjects: async () => {},
+    renderConversations: () => { paints++; }, renderShell: () => {}
+  };
+  runInNewContext(fn + '\nthis.load = loadChatApp;', context);
+  await context.load();
+  assert.equal(state.conversations.length, 10);
+  assert.equal(paints, 1);
+  state.activeConversationId = "chat-3";
+  state.conversations[3] = { id: "chat-3", title: "Renamed while loading" };
+  finishRest({ conversations: [...first, { id: "older", title: "Older chat" }] });
+  await remaining;
+  await Promise.resolve();
+  assert.equal(state.conversations.length, 11);
+  assert.equal(state.activeConversationId, "chat-3");
+  assert.equal(state.conversations.find(chat => chat.id === "chat-3").title, "Renamed while loading");
+  assert.equal(paints, 2);
 });

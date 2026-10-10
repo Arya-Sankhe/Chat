@@ -2160,6 +2160,7 @@ function nativeTopBarModeLabel(mode = currentNativeTopBarMode()) {
 
 function syncNativeTopBarMode() {
   const mode = currentNativeTopBarMode();
+  if (els.nativeMobileModeButton) els.nativeMobileModeButton.dataset.mode = mode;
   if (els.nativeMobileModeLabel) els.nativeMobileModeLabel.textContent = nativeTopBarModeLabel(mode);
   els.nativeMobileModeDropdown?.querySelectorAll(".native-mobile-mode-item").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.mode === mode);
@@ -8654,7 +8655,29 @@ async function resumePendingDocumentTurn(run) {
 }
 
 async function loadChatApp() {
-  await Promise.all([loadConversations(), loadProjects()]);
+  const mobileHome = isMobileLayout() && !conversationIdFromLocation()
+    && !studyRouteFromLocation() && !projectsRouteFromLocation() && !pendingNativeConversationId;
+  if (mobileHome) {
+    const session = state.session;
+    const userId = state.me?.user?.id;
+    const payload = await (mobileRecentChats || listConversations(session, { limit: 10 })).catch(() => ({ conversations: [] }));
+    mobileRecentChats = null;
+    state.conversations = payload.conversations || [];
+    renderConversations();
+    // The complete list only updates navigation, never a chat opened while it loads.
+    void listConversations(session).then((all) => {
+      if (state.me?.user?.id !== userId || !state.session) return;
+      const current = new Map(state.conversations.map(chat => [chat.id, chat]));
+      for (const chat of all.conversations || []) {
+        if (!current.has(chat.id)) current.set(chat.id, chat);
+      }
+      state.conversations = [...current.values()];
+      renderConversations();
+    }).catch(() => {});
+    await loadProjects();
+  } else {
+    await Promise.all([loadConversations(), loadProjects()]);
+  }
   if (studyRouteFromLocation()) {
     await loadStudyHub();
     state.studyOpen = true;
@@ -9951,6 +9974,8 @@ async function hydrateNativeSettings() {
   state.settings = loadSettings();
 }
 
+let mobileRecentChats = null;
+
 async function bootstrap() {
   await hydrateNativeSettings();
   applyAppearance();
@@ -9998,6 +10023,9 @@ async function bootstrap() {
     }
     if (state.session) {
       try {
+        if (isMobileLayout()) {
+          mobileRecentChats = listConversations(state.session, { limit: 10 }).catch(() => ({ conversations: [] }));
+        }
         await withTimeout(loadMe(), 8000, "Account load");
       } catch {
         await clearSession();
@@ -10229,7 +10257,6 @@ function setupMobileLayout() {
   });
   els.imageToggle.addEventListener("click", () => { els.imageFileInput.accept = isMobileLayout() ? documentAccept : originalAccept; }, true);
   addAction("mobileSlidesAction", "Slides", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M12 16v5m-4 0h8M8 7v5m4-3v3m4-5v5"/></svg>', () => homeModesController.selectMode("slides"));
-  addAction("mobileStudyAction", "Dojo", '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 9 10-5 10 5-10 5-10-5Zm4 2v6c4 3 8 3 12 0v-6m4-2v7"/></svg>', () => homeModesController.selectMode("study"));
   // A single horizontal gesture dismisses the top surface. Ignore controls that
   // own horizontal dragging (sliders, input, carousels and slide galleries).
   // Tables, code blocks and other wide content scroll sideways; dragging them
@@ -10420,6 +10447,7 @@ function bindEvents() {
       compactBottomSettleTimer = null;
     };
     const expandCompactAtSettledBottom = () => {
+      if (isMobileLayout() && compactBottomSettleTimer) return;
       clearCompactBottomSettleTimer();
       compactBottomSettleTimer = setTimeout(() => {
         compactBottomSettleTimer = null;
@@ -10451,7 +10479,8 @@ function bindEvents() {
   const expandCompactComposer = () => {
     if (!els.composer?.classList.contains("compact")) return;
     els.composer.classList.remove("compact");
-    requestAnimationFrame(() => {
+    if (isMobileLayout()) focusPromptInput();
+    else requestAnimationFrame(() => {
       els.composer?.classList.remove("compact");
       focusPromptInput();
     });

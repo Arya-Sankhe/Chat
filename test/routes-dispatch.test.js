@@ -3093,3 +3093,19 @@ test("podcasts return signed audio links and delete through their attachment", a
   assert.deepEqual(deleted.keys, ["users/user-1/x/Enzymes.mp3"]);
   assert.deepEqual(deleted.attachments, ["att-9"]);
 });
+
+
+test("conversation startup limit is bounded and forwarded to the database", async () => {
+  const calls = [];
+  const overrides = stubbedDeps({ db: {
+    async listConversations(userId, options) { calls.push(options); return []; }
+  } });
+  const first = await dispatch(authReadyConfig, { path: "/api/conversations?limit=10", overrides });
+  assert.equal(first.statusCode, 200);
+  assert.equal(calls[0].limit, 10);
+  for (const limit of ["0", "101", "1.5", "nope", ""]) {
+    const res = await dispatch(authReadyConfig, { path: `/api/conversations?limit=${limit}`, overrides });
+    assert.equal(res.statusCode, 400);
+  }
+  assert.equal(calls.length, 1);
+});

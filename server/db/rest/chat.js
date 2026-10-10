@@ -1,12 +1,13 @@
 import { single } from "./helpers.js";
 
-export async function listConversations(client, userId, { signal } = {}) {
+export async function listConversations(client, userId, { signal, limit } = {}) {
   return client.request("conversations", {
     query: {
       user_id: `eq.${userId}`,
       deleted_at: "is.null",
       select: "id,title,project_id,created_at,updated_at",
-      order: "updated_at.desc"
+      order: "updated_at.desc",
+      ...(limit ? { limit: String(limit) } : {})
     },
     signal
   });

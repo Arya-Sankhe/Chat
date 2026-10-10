@@ -286,8 +286,8 @@ export async function synthesizeVoice(session, { text, voice, speed }, { signal,
   return { audio: await response.arrayBuffer(), engine: response.headers.get("x-speech-engine") || "" };
 }
 
-export async function listConversations(session) {
-  const response = await apiFetch("/api/conversations", { session });
+export async function listConversations(session, { limit } = {}) {
+  const response = await apiFetch(`/api/conversations${limit ? `?limit=${limit}` : ""}`, { session });
   if (!response.ok) throw new Error(await readProblem(response));
   return response.json();
 }
