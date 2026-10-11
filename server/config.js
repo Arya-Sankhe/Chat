@@ -156,6 +156,11 @@ export function loadConfig(env = process.env) {
       meteringMode: readMeteringMode(env.API_USAGE_METERING_MODE),
       privacyPolicyVersion: clean(env.DESKTOP_PRIVACY_POLICY_VERSION) || "2026-08-11",
       model: OPENROUTER_PRO_MODEL,
+      macosGoogleEnabled: readBoolean(env.DESKTOP_MACOS_GOOGLE_ENABLED, true),
+      macosModel: "anthropic/claude-haiku-5.5",
+      macosBackupModel: "openai/gpt-5.6-luna",
+      macosMaxPromptPricePerMillion: 0.50,
+      macosMaxCompletionPricePerMillion: 2.50,
       maxCompletionTokens: Math.min(readInt(env.DESKTOP_MAX_COMPLETION_TOKENS, 8192), 8192),
       // These are enforceable OpenRouter routing ceilings, not pricing
       // estimates. If an endpoint becomes more expensive, OpenRouter rejects

@@ -9,7 +9,7 @@ import { loadConfig, validateRuntimeConfig } from "../server/config.js";
 import { HttpError } from "../server/http/responses.js";
 import { handleDesktopOAuthFacade } from "../server/routes/desktopOAuth.js";
 import { API_DEPENDENCIES, desktopAuthContext } from "../server/routes/context.js";
-import { desktopBetaAllowed, fundDesktopChat, sendDesktopProblem, validatedChatBody } from "../server/routes/desktop.js";
+import { desktopBetaAllowed, fundDesktopChat, handleDesktopMe, sendDesktopProblem, validatedChatBody } from "../server/routes/desktop.js";
 import { createModelUsageMeter } from "../server/saas/usageMeter.js";
 import { MAX_AUDIO_SECONDS, validatedAudioDuration } from "../server/speech/audio.js";
 
@@ -509,8 +509,23 @@ test("message search builds without blocking writes and headlines only deduplica
 });
 
 test("the Windows beta explicitly disables the server-advertised computer-use capability", async () => {
-  const source = await readFile(new URL("../server/routes/desktop.js", import.meta.url), "utf8");
-  assert.match(source, /computerUse:\s*false/);
+  const config = desktopConfig();
+  config.desktop.chatEnabled = true;
+  config.desktop.betaAccountIds = ["*"];
+  const accountId = "00000000-0000-4000-8000-000000000001";
+  config[API_DEPENDENCIES] = {
+    createDb: () => ({
+      getAccountIdentity: async () => ({ account_id: accountId }),
+      getProfile: async () => ({ id: accountId }),
+      getDesktopPrivacyConsent: async () => ({ accepted: true }),
+      getApiWeeklyUsage: async () => ({ api_credit_used: 0.2, api_credit_limit: 1 })
+    }),
+    createR2: () => ({}),
+    verifyDesktopUser: async () => ({ id: accountId, email: "user@klui.ai", identityProvider: "supabase", oauthClientId: "klui-desktop-windows" })
+  };
+  const response = responseRecorder();
+  await handleDesktopMe({ method: "GET", headers: { "x-klui-client-version": "0.1.0" }, signal: new AbortController().signal }, response, config);
+  assert.equal(JSON.parse(response.body).capabilities.computerUse, false);
 });
 
 test("the Windows release publisher fails closed and keeps large installers outside Git", async () => {

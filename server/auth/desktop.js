@@ -21,6 +21,19 @@ export async function requireDesktopUser(req, config) {
   const token = extractBearerToken(req.headers);
   const provider = desktopAuthProvider(config);
   const { user, claims } = await provider.verifyAccessToken(req, token);
+  // The macOS app uses the same Google PKCE session as mobile. The header
+  // chooses the surface, never the identity: requireUser above verifies the
+  // token with this Supabase project before any claims or metadata are used.
+  if (req.headers["x-klui-client"] === "klui-desktop-macos" && !claims.client_id && config.desktop.macosGoogleEnabled) {
+    // providers lists every linked login; amr says how this session signed in.
+    const providers = user.raw?.app_metadata?.providers || [];
+    const viaOAuth = Array.isArray(claims.amr) && claims.amr.some((entry) => entry?.method === "oauth");
+    if (claims.sub !== user.id || !claims.session_id || !viaOAuth || !Array.isArray(providers) || !providers.includes("google")) {
+      throw new HttpError(401, "A verified Google session is required for macOS.");
+    }
+    return { ...user, identityProvider: "supabase", identityMode: "direct_supabase",
+      oauthClientId: "klui-desktop-macos", surface: "desktop_macos" };
+  }
   // Client identity is read only after the provider has cryptographically verified the token.
   const client = desktopClientByProviderId(config, String(claims.client_id || ""));
   if (!client) throw new HttpError(401, "A Klui desktop session is required.");

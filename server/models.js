@@ -1,5 +1,6 @@
 import {
   assertAllowedChatModels,
+  assertWebChatModel,
   OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_SOLAR_PRO,
   OPENROUTER_MIMO_V25_MODEL,
@@ -138,6 +139,7 @@ export function resolveChatRole({
   if (rawModel) {
     const modelId = LEGACY_MODEL_IDS[rawModel] || rawModel;
     assertAllowedChatModels({ model: modelId });
+    assertWebChatModel(modelId);
     return {
       role: null,
       models: [modelId],

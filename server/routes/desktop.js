@@ -221,12 +221,41 @@ export function desktopBetaAllowed(config, accountId) {
 }
 
 function requireDesktopBetaAccess(context, config) {
+  if (context.user.identityMode === "direct_supabase" && config.desktop.macosGoogleEnabled) return;
   if (!desktopBetaAllowed(config, context.user.id)) {
     throw new HttpError(403, "This account is not enabled for the Klui Anything beta yet.", {
       code: "desktop_beta_not_enabled",
       retryable: false
     });
   }
+}
+
+export async function handleDesktopConsent(req, res, config) {
+  if (req.method !== "POST") throw new HttpError(405, "Method not allowed.");
+  requireDesktopFeature(config, "oauthEnabled");
+  requireClientHeaders(req, config, { requestId: true });
+  const context = await desktopAuthContext(req, config);
+  if (context.user.identityMode !== "direct_supabase" || context.user.oauthClientId !== "klui-desktop-macos") {
+    throw new HttpError(403, "This consent route is for macOS Google sessions.");
+  }
+  const body = await parseJsonBody(req, 4096);
+  if (body.privacyConsent !== true || body.policyVersion !== config.desktop.privacyPolicyVersion) {
+    throw new HttpError(400, "Review the current desktop privacy notice first.");
+  }
+  await context.db.acceptDesktopPrivacy({ accountId: context.user.id,
+    oauthClientId: context.user.oauthClientId, policyVersion: config.desktop.privacyPolicyVersion }, { signal: req.signal });
+  sendJson(res, 200, { ok: true });
+}
+
+export function desktopChatConfig(context, req, config) {
+  if (context.user.oauthClientId !== "klui-desktop-macos") return config;
+  const requested = header(req, "x-klui-model") || config.desktop.macosModel;
+  if (![config.desktop.macosModel, config.desktop.macosBackupModel].includes(requested)) {
+    throw new HttpError(400, "Unknown macOS desktop model.");
+  }
+  return { ...config, desktop: { ...config.desktop, model: requested,
+    maxPromptPricePerMillion: config.desktop.macosMaxPromptPricePerMillion,
+    maxCompletionPricePerMillion: config.desktop.macosMaxCompletionPricePerMillion } };
 }
 
 export async function handleDesktopMe(req, res, config) {
@@ -247,7 +276,7 @@ export async function handleDesktopMe(req, res, config) {
   }
   const eligible = Boolean(entitlement.active && entitlement.plan);
   const consented = Boolean(consent);
-  const betaAllowed = desktopBetaAllowed(config, context.user.id);
+  const betaAllowed = context.user.identityMode === "direct_supabase" && config.desktop.macosGoogleEnabled || desktopBetaAllowed(config, context.user.id);
   sendJson(res, 200, {
     account: { id: context.user.id, email: context.user.email },
     subscription: entitlement.subscription ? {
@@ -263,7 +292,7 @@ export async function handleDesktopMe(req, res, config) {
       voice: betaAllowed && eligible && consented && config.desktop.sttEnabled,
       // Windows beta intentionally ships without the CUA driver. Keep the
       // capability explicit so a stale or modified client cannot advertise it.
-      computerUse: false,
+      computerUse: context.user.oauthClientId === "klui-desktop-macos" && betaAllowed && eligible && consented && config.desktop.chatEnabled,
       maxAgentIterations: 20,
       maxCompletionTokens: config.desktop.maxCompletionTokens
     },
@@ -283,8 +312,9 @@ export async function handleDesktopChat(req, res, config) {
   const context = await requireDesktopContext(req, config);
   requireDesktopBetaAccess(context, config);
   await requirePrivacy(context, config, req.signal);
-  const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), config);
-  const reservationCredits = fundDesktopChat(body, config);
+  const chatConfig = desktopChatConfig(context, req, config);
+  const body = validatedChatBody(await parseJsonBody(req, MAX_CHAT_BYTES), chatConfig);
+  const reservationCredits = fundDesktopChat(body, chatConfig);
   const provider = resolveProvider("openrouter", config);
   const meter = createModelUsageMeter({
     db: context.db,
@@ -371,6 +401,12 @@ export async function handleDesktopLogout(req, res, config) {
   const context = await desktopAuthContext(req, config);
   const token = extractBearerToken(req.headers);
   const provider = desktopAuthProvider(config);
+  if (context.user.identityMode === "direct_supabase") {
+    const { response } = await provider.logoutSession(token);
+    if (!response.ok) throw new HttpError(503, "Klui could not revoke this session. Try again.");
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   const [grant] = await Promise.allSettled([
     provider.revokeClientGrant(token, context.user.providerClientId),
     provider.logoutSession(token)

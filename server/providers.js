@@ -21,14 +21,25 @@ export const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
 export const OPENROUTER_IMAGE_MODEL = "krea/krea-2-medium-turbo";
 // Voice mode's text model: a fast diffusion LLM, falling back to DeepSeek Flash (Think).
 export const OPENROUTER_VOICE_MODEL = "inception/mercury-2.5";
+// Klui Anything on macOS: a tool-calling computer-use model and its user-selectable backup.
+export const OPENROUTER_MACOS_MODEL = "anthropic/claude-haiku-5.5";
+export const OPENROUTER_MACOS_BACKUP_MODEL = "openai/gpt-5.6-luna";
 
 // Product models only: configuration, saved chats and fallback lists cannot add models.
 export const ALLOWED_CHAT_MODELS = Object.freeze([
   OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_COUNCIL_HY3_MODEL,
   OPENROUTER_PRO_MODEL, OPENROUTER_PRO_FALLBACK_MODEL, OPENROUTER_VISION_L2,
   OPENROUTER_VISION_L3, OPENROUTER_MIMO_V25_MODEL, OPENROUTER_NITRO_MODEL,
-  OPENROUTER_TITLE_MODEL, OPENROUTER_SOLAR_PRO, OPENROUTER_VOICE_MODEL
+  OPENROUTER_TITLE_MODEL, OPENROUTER_SOLAR_PRO, OPENROUTER_VOICE_MODEL,
+  OPENROUTER_MACOS_MODEL, OPENROUTER_MACOS_BACKUP_MODEL
 ]);
+
+// Reachable only through the macOS desktop route, never from website or mobile chat.
+export const DESKTOP_ONLY_MODELS = Object.freeze([OPENROUTER_MACOS_MODEL, OPENROUTER_MACOS_BACKUP_MODEL]);
+
+export function assertWebChatModel(model) {
+  if (DESKTOP_ONLY_MODELS.includes(model)) throw new HttpError(400, `Model is not approved for Klui: ${model}`);
+}
 
 export function assertAllowedChatModels(body) {
   if (body?.models != null && !Array.isArray(body.models)) throw new HttpError(400, "Fallback models must be an array of approved Klui model IDs.");

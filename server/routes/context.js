@@ -49,6 +49,10 @@ export async function requireChatContext(req, config) {
 export async function desktopAuthContext(req, config) {
   const services = bearerContext(config);
   const identity = await apiDependencies(config).verifyDesktopUser(req, config);
+  if (identity.identityMode === "direct_supabase" && identity.oauthClientId === "klui-desktop-macos") {
+    const profile = await services.db.upsertProfile(identity, { signal: req.signal });
+    return { ...services, user: identity, profile };
+  }
   const mapping = await services.db.getAccountIdentity({
     provider: identity.identityProvider,
     providerSubject: identity.id

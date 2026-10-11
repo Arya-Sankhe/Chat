@@ -67,6 +67,7 @@ import { handleStudyCourseTutor, handleStudyTutorBoard, handleStudyTutorById, ha
 import { handleDesktopAuthorizationDecision, handleDesktopAuthorizationDetails } from "./routes/desktopOAuth.js";
 import {
   handleDesktopChat,
+  handleDesktopConsent,
   handleDesktopLogout,
   handleDesktopMe,
   handleDesktopSpeech,
@@ -232,6 +233,11 @@ export async function handleApiRequest(req, res, url, config) {
 
     if (url.pathname === "/api/desktop/v1/me") {
       await handleDesktopMe(req, res, config);
+      return;
+    }
+
+    if (url.pathname === "/api/desktop/v1/consent") {
+      await handleDesktopConsent(req, res, config);
       return;
     }
 
