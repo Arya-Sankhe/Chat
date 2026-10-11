@@ -133,12 +133,14 @@ test("the saved usage names the host next to its cached tokens", async () => {
   assert.equal(saved[0].usage.prompt_tokens_details.cached_tokens, 800);
 });
 
-test("MiMo V2.6 Flash never routes to io.net, even when a turn was pinned there", () => {
+test("MiMo V2.6 Flash excludes io.net and Venice, even when a turn was pinned there", () => {
   const plain = adaptChatRequestForProvider({ model: OPENROUTER_VISION_MODEL, messages: [] }, "openrouter");
-  assert.deepEqual(plain.provider.ignore, ["io-net"]);
-  const pinned = adaptChatRequestForProvider({ model: OPENROUTER_VISION_MODEL, messages: [], sticky_provider: "io.net", provider: { ignore: ["other"] } }, "openrouter");
-  assert.deepEqual(pinned.provider.ignore, ["other", "io-net"]);
-  assert.equal(pinned.provider.order, undefined);
-  const text = adaptChatRequestForProvider({ model: OPENROUTER_TEXT_MODEL, messages: [] }, "openrouter");
-  assert.equal(text.provider.ignore, undefined);
+  assert.deepEqual(plain.provider.ignore, ["io-net", "venice"]);
+  for (const host of ["io.net", "Venice"]) {
+    const pinned = adaptChatRequestForProvider({ model: OPENROUTER_VISION_MODEL, messages: [], sticky_provider: host, provider: { ignore: ["other"] } }, "openrouter");
+    assert.deepEqual(pinned.provider.ignore, ["other", "io-net", "venice"]);
+    assert.equal(pinned.provider.order, undefined);
+    const text = adaptChatRequestForProvider({ model: OPENROUTER_TEXT_MODEL, messages: [], sticky_provider: host }, "openrouter");
+    assert.equal(text.provider.ignore, undefined);
+  }
 });

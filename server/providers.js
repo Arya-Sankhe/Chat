@@ -330,8 +330,8 @@ export function resetThinkFlexCache() {
   thinkFlexRefresh = null;
 }
 
-// Hosts a model must never use: io.net lists MiMo V2.6 Flash at about twice every other host's price.
-const IGNORED_PROVIDERS = new Map([[OPENROUTER_VISION_MODEL, ["io-net"]]]);
+// Exclude these hosts only for MiMo V2.6 Flash.
+const IGNORED_PROVIDERS = new Map([[OPENROUTER_VISION_MODEL, ["io-net", "venice"]]]);
 
 function providerSlug(name) {
   return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
