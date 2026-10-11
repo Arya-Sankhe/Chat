@@ -265,6 +265,15 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
   assert.equal(oauth.status, 200);
   assert.equal(oauth.headers.location, undefined);
   assert.match(oauth.body, /consent/i);
+
+  const macos = await get(server, { host: "klui.ai", path: "/oauth/macos/?code=abc" });
+  assert.equal(macos.status, 200);
+  assert.equal(macos.headers.location, undefined);
+  assert.match(macos.body, /You can close this tab now/);
+  assert.equal(macos.headers["referrer-policy"], "no-referrer");
+  assert.equal(macos.headers["cache-control"], "no-store");
+  assert.match(macos.headers["content-security-policy"], /script-src 'self';/);
+  assert.equal(macos.headers.etag, undefined);
 });
 
 test("chat document and marketing page keep distinct canonicals and the moved notice", () => {

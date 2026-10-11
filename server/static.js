@@ -396,7 +396,9 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
   const stat = await fs.promises.stat(filePath);
   const etag = `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
   const variesByEncoding = stat.size >= 1024 && compressibleTypes.some((value) => type.startsWith(value));
-  if (etagMatches(req, etag)) {
+  // The Mac sign-in return page carries a one-time code; never answer it from a cache.
+  const macReturn = pathname.startsWith("/oauth/macos");
+  if (!macReturn && etagMatches(req, etag)) {
     res.writeHead(304, {
       "cache-control": cacheControl,
       etag,
@@ -415,11 +417,16 @@ export async function serveStatic(req, res, url, { allowedOrigins = [], supabase
     "content-security-policy": `default-src 'self'; script-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; connect-src 'self' ${supabaseUrl}; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     "referrer-policy": "no-referrer",
     "x-frame-options": "DENY"
+  } : macReturn ? {
+    "content-security-policy": "default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "referrer-policy": "no-referrer",
+    "x-frame-options": "DENY",
+    "cache-control": "no-store"
   } : {};
   res.writeHead(200, {
     "content-type": type,
     "cache-control": cacheControl,
-    etag,
+    ...(macReturn ? {} : { etag }),
     ...(encoding ? { "content-encoding": encoding } : {}),
     ...(variesByEncoding ? { vary: "Accept-Encoding" } : {}),
     ...consentHeaders

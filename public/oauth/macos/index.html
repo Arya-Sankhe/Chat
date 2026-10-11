@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex">
+    <meta name="theme-color" content="#0a0d24">
+    <title>Signed in to Klui Anything</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        background: linear-gradient(180deg, #0a0d24 0%, #1a1c4d 55%, #33387a 100%);
+      }
+      main { width: min(420px, 100%); text-align: center; }
+      .klui { width: 112px; height: 72px; margin: 0 auto 28px; image-rendering: pixelated; }
+      h1 { margin: 0 0 12px; font: 600 34px/1.15 ui-serif, Georgia, serif; }
+      p { margin: 0 auto; max-width: 340px; color: rgba(255, 255, 255, 0.7); font-size: 15px; line-height: 1.5; }
+      a.button {
+        display: inline-block;
+        margin-top: 28px;
+        padding: 12px 22px;
+        border-radius: 999px;
+        background: #fff;
+        color: #000;
+        font-weight: 600;
+        font-size: 14px;
+        text-decoration: none;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="klui" viewBox="0 0 14 9" aria-hidden="true">
+        <rect x="2" y="0" width="10" height="5" fill="#a8cdf5"/>
+        <rect x="0" y="1" width="14" height="2" fill="#a8cdf5"/>
+        <rect x="2" y="5" width="10" height="1" fill="#8fb6e6"/>
+        <rect x="4" y="6" width="1" height="3" fill="#8fb6e6"/>
+        <rect x="9" y="6" width="1" height="3" fill="#8fb6e6"/>
+        <rect x="4" y="2" width="1" height="1" fill="#0a0d24"/>
+        <rect x="9" y="2" width="1" height="1" fill="#0a0d24"/>
+        <rect x="3" y="3" width="1" height="1" fill="#f2a0b4"/>
+        <rect x="10" y="3" width="1" height="1" fill="#f2a0b4"/>
+      </svg>
+      <section id="done">
+        <h1>You're signed in.</h1>
+        <p>You can close this tab now and head back to Klui Anything on your Mac.</p>
+        <a class="button" id="open" href="#">Open Klui Anything</a>
+      </section>
+      <section id="failed" hidden>
+        <h1>That didn't finish.</h1>
+        <p>Go back to Klui Anything on your Mac and try signing in again.</p>
+      </section>
+    </main>
+    <script src="/oauth/macos/macos.js"></script>
+  </body>
+</html>

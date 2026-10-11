@@ -565,6 +565,14 @@ test("desktop consent stays friendly and leaves a reliable browser handoff fallb
   assert.doesNotMatch(page, /You’re all synced!/);
 });
 
+test("macOS sign-in return page forwards only the PKCE result to the app", async () => {
+  const script = await readFile(new URL("../public/oauth/macos/macos.js", import.meta.url), "utf8");
+  assert.match(script, /\["code", "error", "error_description", "error_code"\]/);
+  assert.match(script, /tech\.klui\.anything\.macos:\/\/oauth\/callback\?/);
+  assert.match(script, /history\.replaceState\(null, "", "\/oauth\/macos\/"\)/);
+  assert.doesNotMatch(script, /fetch\(|XMLHttpRequest|localStorage|sessionStorage/);
+});
+
 test("backend identity-sensitive RPCs are service-role only", async () => {
   const source = await readFile(new URL("../supabase/migrations/20260811185500_harden_backend_rpc_permissions.sql", import.meta.url), "utf8");
   for (const name of ["klui_search_document_chunks", "klui_search_document_pages", "smartyfy_consume_usage"]) {
