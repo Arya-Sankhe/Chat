@@ -105,14 +105,14 @@ export function resolveOpenRouterReasoningEffort(value) {
 
 /**
  * OpenRouter only accepts `reasoning.effort` when the model exposes
- * supported efforts (DeepSeek, Luna, HY3 and Solar). Ling / Laguna / MiniMax / MiMo expose
+ * supported efforts (DeepSeek, Luna, HY3, Solar and the Mac app's Haiku/Luna 5.6). Ling / Laguna / MiniMax / MiMo expose
  * on/off reasoning only — sending `effort` with `require_parameters`
  * yields "No endpoints found that can handle the requested parameters."
  */
 export function openRouterModelSupportsReasoningEffort(model) {
   const id = String(model || "").trim().toLowerCase();
   return id.startsWith("deepseek/") || id === OPENROUTER_PRO_MODEL || id === OPENROUTER_COUNCIL_HY3_MODEL
-    || id === OPENROUTER_SOLAR_PRO;
+    || id === OPENROUTER_SOLAR_PRO || id === OPENROUTER_MACOS_MODEL || id === OPENROUTER_MACOS_BACKUP_MODEL;
 }
 
 /** Poolside Laguna endpoints omit top_p; with require_parameters that 404s. */

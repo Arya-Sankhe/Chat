@@ -5,6 +5,7 @@ services:
       - "3000:3000"
     volumes:
       - ${WINDOWS_DOWNLOADS_DIR:-./public/downloads/windows}:/app/public/downloads/windows:ro
+      - ${MACOS_DOWNLOADS_DIR:-./public/downloads/macos}:/app/public/downloads/macos:ro
     env_file:
       - path: .env
         required: false

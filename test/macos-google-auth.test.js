@@ -4,7 +4,7 @@ import { loadConfig } from '../server/config.js';
 import { requireDesktopUser } from '../server/auth/desktop.js';
 import { API_DEPENDENCIES, desktopAuthContext } from '../server/routes/context.js';
 import { resolveChatRole } from '../server/models.js';
-import { DESKTOP_ONLY_MODELS } from '../server/providers.js';
+import { DESKTOP_ONLY_MODELS, adaptChatRequestForProvider } from '../server/providers.js';
 import { desktopChatConfig, handleDesktopConsent, handleDesktopMe, validatedChatBody, fundDesktopChat } from '../server/routes/desktop.js';
 
 const userID='00000000-0000-4000-8000-000000000001';
@@ -65,6 +65,10 @@ test('macOS Haiku and explicit Luna testing retain funded ceilings; Windows stay
   const body=validatedChatBody({model:'klui-desktop-agent',stream:true,messages:[{role:'user',content:'Hello'}]},selected);
   assert.equal(body.model,'anthropic/claude-haiku-5.5');
   assert.deepEqual(body.provider.max_price,{prompt:0.5,completion:2.5});
+  assert.equal(body.reasoning_effort,'medium');
+  assert.deepEqual(adaptChatRequestForProvider(body,'openrouter').reasoning,{effort:'medium',exclude:false});
+  assert.deepEqual(adaptChatRequestForProvider({...body,model:'openai/gpt-5.6-luna'},'openrouter').reasoning,{effort:'medium',exclude:false});
+  assert.equal(validatedChatBody({model:'klui-desktop-agent',stream:true,messages:[{role:'user',content:'Hello'}]},cfg).reasoning_effort,'high');
   assert.ok(fundDesktopChat(body,selected)>0);
   assert.equal(desktopChatConfig(mac,{headers:{'x-klui-model':'openai/gpt-5.6-luna'}},cfg).desktop.model,'openai/gpt-5.6-luna');
   assert.throws(()=>desktopChatConfig(mac,{headers:{'x-klui-model':'arbitrary-expensive-model'}},cfg),/Unknown macOS/);

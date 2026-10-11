@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07111f">
+    <meta name="robots" content="noindex">
+    <title>Klui Anything for Mac</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1c2430;
+        --muted: #526072;
+        --quiet: #718093;
+        --line: rgba(28, 36, 48, .13);
+        --mint: #94e7a7;
+        --mint-hot: #a4eeb6;
+        --mint-ink: #08130b;
+        --ease-out: cubic-bezier(.22, 1, .36, 1);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; }
+      body {
+        min-height: 100dvh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background:
+          linear-gradient(180deg, rgba(3, 11, 25, .08), rgba(3, 11, 25, .18)),
+          url("/images/home-valley.webp") center bottom / cover no-repeat,
+          #07111f;
+        color: var(--ink);
+        font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      }
+
+      main {
+        width: min(460px, 100%);
+        padding: 30px 30px 24px;
+        overflow: hidden;
+        position: relative;
+        text-align: center;
+        border: 1px solid rgba(255, 255, 255, .8);
+        border-radius: 28px;
+        background: linear-gradient(180deg, #f8fafc 0%, #f0f5f8 58%, #e8f0ea 100%);
+        box-shadow: 0 28px 90px rgba(0, 7, 18, .42), inset 0 1px #fff;
+        animation: rise 520ms var(--ease-out) both;
+      }
+
+      main::before,
+      main::after {
+        content: "";
+        position: absolute;
+        left: -18%;
+        right: -18%;
+        bottom: -60px;
+        height: 132px;
+        border-radius: 50% 50% 0 0;
+        background: #d2e4d6;
+        transform: rotate(-3deg);
+        pointer-events: none;
+      }
+      main::after {
+        bottom: -88px;
+        left: -10%;
+        right: -25%;
+        background: #c4dcca;
+        transform: rotate(4deg);
+      }
+
+      .beta {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        min-height: 27px;
+        padding: 0 11px;
+        border: 1px solid #82ba9a;
+        border-radius: 999px;
+        background: rgba(123, 217, 143, .14);
+        color: #206c3a;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .mascot {
+        position: relative;
+        z-index: 1;
+        width: 92px;
+        height: 92px;
+        margin: 24px auto 18px;
+        filter: drop-shadow(0 12px 18px rgba(69, 105, 166, .2));
+        animation: bob 4.8s ease-in-out infinite;
+      }
+      .mascot img { display: block; width: 100%; height: 100%; }
+      .eyes { transform-origin: center; animation: blink 5.2s infinite; }
+
+      h1 {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        font-size: clamp(29px, 8vw, 38px);
+        line-height: 1.02;
+        letter-spacing: -.045em;
+      }
+      .lead {
+        position: relative;
+        z-index: 1;
+        max-width: 340px;
+        margin: 13px auto 22px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .download {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        width: 100%;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid #7ed492;
+        border-radius: 14px;
+        background: var(--mint);
+        color: var(--mint-ink);
+        box-shadow: 0 8px 20px rgba(95, 196, 120, .22);
+        font-size: 15px;
+        font-weight: 750;
+        text-decoration: none;
+        transition: transform 160ms var(--ease-out), background-color 160ms ease;
+      }
+      .download[aria-disabled="true"] {
+        pointer-events: none;
+        background: #cfead6;
+        border-color: #b7dcc2;
+        color: #355743;
+        box-shadow: none;
+      }
+
+      .requirements,
+      #version {
+        position: relative;
+        z-index: 1;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+      .requirements { margin: 13px 0 0; }
+
+      ol {
+        position: relative;
+        z-index: 1;
+        margin: 22px 0 0;
+        padding: 18px 0 0;
+        border-top: 1px solid var(--line);
+        list-style: none;
+        counter-reset: step;
+        text-align: left;
+      }
+      ol li {
+        counter-increment: step;
+        position: relative;
+        padding: 0 0 13px 34px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      ol li::before {
+        content: counter(step);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: rgba(123, 217, 143, .22);
+        color: #206c3a;
+        font-size: 12px;
+        font-weight: 750;
+      }
+      ol b { color: var(--ink); }
+      kbd {
+        padding: 1px 6px;
+        border: 1px solid var(--line);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        background: #fff;
+        color: var(--ink);
+        font: 600 12px/1.4 Inter, system-ui, sans-serif;
+      }
+      code {
+        display: block;
+        margin-top: 6px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(28, 36, 48, .06);
+        color: var(--ink);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      #version { min-height: 18px; margin: 5px 0 0; }
+
+      details {
+        position: relative;
+        z-index: 1;
+        margin-top: 14px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        text-align: left;
+      }
+      summary {
+        padding: 14px 2px 4px;
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      details p { margin: 8px 2px 0; font-size: 12px; line-height: 1.55; }
+      #trust { color: var(--quiet); }
+
+      @media (hover: hover) and (pointer: fine) {
+        .download:hover { transform: translateY(-1px); background: var(--mint-hot); }
+      }
+      .download:active { transform: scale(.98); }
+      .download:focus-visible,
+      summary:focus-visible { outline: 3px solid #94e7a766; outline-offset: 3px; }
+
+      @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+      @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-3px) rotate(1deg); } }
+      @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
+      @media (max-width: 520px) { body { padding: 14px; } main { padding: 25px 20px 20px; border-radius: 24px; } }
+      @media (prefers-reduced-motion: reduce) { main, .mascot, .eyes, .download { animation: none; transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="beta" id="channel">Klui Anything for Mac</span>
+      <div class="mascot" aria-hidden="true">
+        <img src="/home/assets/klui-icon.svg?v=20260912-motion-2" alt="" width="92" height="92">
+      </div>
+      <h1>Let’s put Klui on your Mac.</h1>
+      <p class="lead" id="lead">The Mac beta is invite-only for now. Open the link you were sent to download it.</p>
+      <a class="download" id="download" aria-disabled="true" download>Checking your invite…</a>
+      <p class="requirements">Apple silicon Mac (M1 or newer) · macOS 14 Sonoma or newer</p>
+      <p id="version" aria-live="polite"></p>
+      <ol id="steps" hidden>
+        <li><b>Install.</b> Open the downloaded file and drag KluiAnything into Applications.</li>
+        <li><b>Open it once by hand.</b> This early beta isn’t verified by Apple yet, so macOS will refuse the first time. Click <b>Done</b>, open <b>System Settings → Privacy &amp; Security</b>, scroll down and click <b>Open Anyway</b> next to KluiAnything.
+          <code>Or paste this in Terminal: xattr -dr com.apple.quarantine /Applications/KluiAnything.app</code></li>
+        <li><b>Sign in with Google</b> using the account you use on Klui. Your plan and weekly usage come with you. If macOS ever asks to let KluiAnything use your keychain, enter your Mac password and click <b>Always Allow</b>.</li>
+        <li><b>Give it permissions.</b> Turn on Accessibility and Screen Recording when Klui asks (microphone too if you want to talk). It relaunches once.</li>
+        <li><b>Say hi.</b> Double-tap <kbd>⌃</kbd> from any app and ask something, or hold <kbd>⌃</kbd> <kbd>⌥</kbd> and talk.</li>
+      </ol>
+      <details id="note" hidden>
+        <summary>A little beta note</summary>
+        <p>This is a very early build, so expect rough edges. Klui only looks at your screen when you ask. Letting it click and type for you is the newest part; if it gets something wrong, tell whoever sent you this link. Usage comes from the same weekly Klui allowance as the website.</p>
+      </details>
+    </main>
+    <script type="module">
+      const button = document.querySelector("#download");
+      const version = document.querySelector("#version");
+      const channel = document.querySelector("#channel");
+      const lead = document.querySelector("#lead");
+      const betaToken = new URLSearchParams(location.search).get("beta") || "";
+
+      if (!/^[a-f0-9]{32}$/i.test(betaToken)) {
+        button.textContent = "Invite only for now";
+      } else {
+        const prefix = `/downloads/macos/private/${betaToken}/`;
+        try {
+          const response = await fetch(`${prefix}latest.json`, { cache: "no-store" });
+          const release = response.ok ? await response.json() : null;
+          if (release?.published && release.dmgUrl?.startsWith(prefix)) {
+            channel.textContent = "Private Mac beta";
+            lead.textContent = "Download it, open it once by hand, sign in with Google, and you’re set.";
+            button.href = release.dmgUrl;
+            button.textContent = "Download for Mac";
+            button.removeAttribute("aria-disabled");
+            version.textContent = `Version ${release.version}`;
+            document.querySelector("#steps").hidden = false;
+            document.querySelector("#note").hidden = false;
+          } else {
+            button.textContent = "This invite link has expired";
+            version.textContent = "Ask whoever sent it for a new one.";
+          }
+        } catch {
+          button.textContent = "Couldn’t check your invite";
+          version.textContent = "Refresh the page and try again.";
+        }
+      }
+    </script>
+  </body>
+</html>

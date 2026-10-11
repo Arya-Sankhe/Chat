@@ -38,7 +38,8 @@ const contentTypes = new Map([
   [".xml", "application/xml; charset=utf-8"],
   [".webmanifest", "application/manifest+json"],
   [".apk", "application/vnd.android.package-archive"],
-  [".exe", "application/vnd.microsoft.portable-executable"]
+  [".exe", "application/vnd.microsoft.portable-executable"],
+  [".dmg", "application/x-apple-diskimage"]
 ]);
 
 const directoryIndexes = new Map([
@@ -46,6 +47,8 @@ const directoryIndexes = new Map([
   ["/download/android/", "/download/android/index.html"],
   ["/download/windows", "/download/windows/index.html"],
   ["/download/windows/", "/download/windows/index.html"],
+  ["/download/macos", "/download/macos/index.html"],
+  ["/download/macos/", "/download/macos/index.html"],
   ["/home", "/home/index.html"],
   ["/home/", "/home/index.html"]
 ]);
@@ -331,7 +334,7 @@ async function sendAppShell(req, res) {
 }
 
 // A missing script, stylesheet, font or image must not get the app page back with a 200.
-const ASSET_EXTENSION = /\.(?:m?js|css|map|woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|wasm|json|webmanifest)$/i;
+const ASSET_EXTENSION = /\.(?:m?js|css|map|woff2?|ttf|otf|eot|png|jpe?g|gif|webp|avif|svg|ico|mp3|mp4|webm|wasm|json|webmanifest|dmg)$/i;
 
 function sendMissingAsset(res) {
   res.writeHead(404, {

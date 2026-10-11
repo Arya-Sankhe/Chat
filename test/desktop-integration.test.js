@@ -549,6 +549,19 @@ test("the Windows download page keeps unsigned beta artifacts behind an unlisted
   assert.match(page, /["']\/downloads\/windows\/latest\.json["']/);
 });
 
+test("the Mac download page only offers the beta behind an unlisted token", async () => {
+  const page = await readFile(new URL("../public/download/macos/index.html", import.meta.url), "utf8");
+  const compose = await readFile(new URL("../docker-compose.yml", import.meta.url), "utf8");
+  const metadata = JSON.parse(await readFile(new URL("../public/downloads/macos/latest.json", import.meta.url), "utf8"));
+  assert.match(page, /\^\[a-f0-9\]\{32\}\$/);
+  assert.match(page, /\/downloads\/macos\/private\/\$\{betaToken\}\//);
+  assert.match(page, /release\.dmgUrl\?\.startsWith\(prefix\)/);
+  assert.match(page, /Open Anyway/);
+  assert.doesNotMatch(page, /["']\/downloads\/macos\/latest\.json["']/);
+  assert.match(compose, /MACOS_DOWNLOADS_DIR[^\n]+:\/app\/public\/downloads\/macos:ro/);
+  assert.equal(metadata.published, false);
+});
+
 test("desktop consent stays friendly and leaves a reliable browser handoff fallback", async () => {
   const page = await readFile(new URL("../public/oauth/consent/index.html", import.meta.url), "utf8");
   const script = await readFile(new URL("../public/oauth/consent/consent.js", import.meta.url), "utf8");

@@ -196,7 +196,7 @@ export function validatedChatBody(body, config) {
     ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
     stream: true,
     max_tokens: config.desktop.maxCompletionTokens,
-    reasoning_effort: "high",
+    reasoning_effort: config.desktop.reasoningEffort || "high",
     provider: {
       max_price: {
         prompt: config.desktop.maxPromptPricePerMillion,
@@ -253,7 +253,8 @@ export function desktopChatConfig(context, req, config) {
   if (![config.desktop.macosModel, config.desktop.macosBackupModel].includes(requested)) {
     throw new HttpError(400, "Unknown macOS desktop model.");
   }
-  return { ...config, desktop: { ...config.desktop, model: requested,
+  // The Mac agent runs short, tool-heavy turns; medium thinking keeps it quick.
+  return { ...config, desktop: { ...config.desktop, model: requested, reasoningEffort: "medium",
     maxPromptPricePerMillion: config.desktop.macosMaxPromptPricePerMillion,
     maxCompletionPricePerMillion: config.desktop.macosMaxCompletionPricePerMillion } };
 }
