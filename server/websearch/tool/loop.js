@@ -118,7 +118,7 @@ export function buildWebSearchTools({ maxResults = 5 } = {}) {
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the live web. Use it whenever it would make the answer more accurate or complete: current events, prices, scores, recent releases, niche or specialist facts, figures you are not sure of, or when the user asks you to search. Search as many times as the task needs. Results may only include snippets; call read_url on a result when you need the exact page content. Skip it when you already know the answer reliably (definitions, code help, math, well-established facts).",
+        description: "Search the live web. Use it whenever it would make the answer more accurate or complete: current events, prices, scores, recent releases, niche or specialist facts, figures you are not sure of, how to do something in a specific app, tool, library or service (its own docs come first), any name you are not sure you recognize, or when the user asks you to search. Search as many times as the task needs. Results may only include snippets; call read_url on a result when you need the exact page content. Skip it when you already know the answer reliably (definitions, general programming concepts, math, well-established facts).",
         parameters: {
           type: "object",
           properties: {

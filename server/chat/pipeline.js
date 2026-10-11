@@ -413,7 +413,12 @@ export function normalizeSourcePages(value, sources = []) {
 }
 
 // The model always gets web search when the user has it on; it decides when a turn needs it.
-const WEB_SEARCH_HINT = "Use web_search when the answer depends on current, niche, or uncertain facts, and read_url to open links the user shares or pages found by search. Skip them when the conversation already has what you need.";
+const WEB_SEARCH_HINT = [
+  "Use web_search when the answer depends on current, niche, or uncertain facts, and read_url to open links the user shares or pages found by search. Skip them when the conversation already has what you need.",
+  "When the user asks how to do something in a named product, app, library or service, search its docs and lead with its built-in way before general workarounds. If you are unsure what a name refers to, search instead of guessing.",
+  "If the user says your answer is wrong, too generic, or not specific to what they named, search before answering again.",
+  "A request for short replies limits length, not checking: verify first, then answer briefly."
+].join(" ");
 
 // Every message in a chat sends the same tools in the same order, and the main system prompt
 // does not change between messages, so the provider's prompt cache survives the whole chat.
