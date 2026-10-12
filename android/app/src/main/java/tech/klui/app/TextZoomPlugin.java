@@ -30,6 +30,7 @@ public class TextZoomPlugin extends Plugin {
     View container = (View) webView.getParent();
     ViewCompat.setOnApplyWindowInsetsListener(container, (view, insets) -> {
       targetInsets = insets;
+      applySystemBarInsets(webView, insets);
       if (!imeAnimating) applyKeyboardInsets(webView, insets);
       // Consume these before Chromium so it cannot apply a second resize.
       return new WindowInsetsCompat.Builder(insets)
@@ -75,6 +76,25 @@ public class TextZoomPlugin extends Plugin {
   private boolean imeAnimating;
   private WindowInsetsCompat targetInsets;
 
+  private int systemBarTop = -1;
+  private int systemBarBottom = -1;
+
+  // Status and navigation bars overlay the page. The page reads their heights
+  // from --safe-area-inset-top/bottom, which also works on WebViews that do
+  // not report env(safe-area-inset-*).
+  private void applySystemBarInsets(WebView webView, WindowInsetsCompat insets) {
+    Insets bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+    if (bars.top == systemBarTop && bars.bottom == systemBarBottom) return;
+    systemBarTop = bars.top;
+    systemBarBottom = bars.bottom;
+    float density = webView.getResources().getDisplayMetrics().density;
+    webView.evaluateJavascript(
+        "document.documentElement.style.setProperty('--safe-area-inset-top','" + (bars.top / density) + "px');"
+            + "document.documentElement.style.setProperty('--safe-area-inset-bottom','" + (bars.bottom / density) + "px');",
+        null);
+  }
+
   private void applyKeyboardInsets(WebView webView, WindowInsetsCompat insets) {
     int bottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
     if (keyboardHeight == bottom) return;
@@ -104,6 +124,29 @@ public class TextZoomPlugin extends Plugin {
     final int clamped = percent;
     getBridge().executeOnMainThread(() -> {
       getBridge().getWebView().getSettings().setTextZoom(clamped);
+      call.resolve();
+    });
+  }
+
+  // The StatusBar plugin only styles the status bar; keep the gesture
+  // handle / nav buttons readable on light and dark surfaces too.
+  @PluginMethod
+  public void setNavigationBarStyle(PluginCall call) {
+    boolean dark = Boolean.TRUE.equals(call.getBoolean("dark", true));
+    getBridge().executeOnMainThread(() -> {
+      WindowCompat.getInsetsController(getActivity().getWindow(), getActivity().getWindow().getDecorView())
+          .setAppearanceLightNavigationBars(!dark);
+      call.resolve();
+    });
+  }
+
+  // The first inset pass can land before the page exists; resend on request.
+  @PluginMethod
+  public void syncSystemBarInsets(PluginCall call) {
+    getBridge().executeOnMainThread(() -> {
+      systemBarTop = -1;
+      systemBarBottom = -1;
+      ViewCompat.requestApplyInsets((View) getBridge().getWebView().getParent());
       call.resolve();
     });
   }

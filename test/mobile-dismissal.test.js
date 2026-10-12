@@ -60,10 +60,11 @@ test('no open surface leaves normal native navigation available', () => {
 });
 
 const backSource = source.slice(source.indexOf('async function handleNativeBack()'), source.indexOf('async function setupNativeLifecycle()'));
-async function backAction({ surfaceOpen = false, keyboard = false, conversation = null } = {}) {
+async function backAction({ surfaceOpen = false, keyboard = false, conversation = null, temporaryHome = false } = {}) {
   const calls = [];
   await runInNewContext(`${backSource}; handleNativeBack()`, {
     closeTopNativeSurface: () => surfaceOpen,
+    onTemporaryChatHome: () => temporaryHome, setTemporaryChatMode: (on) => calls.push(`temporary:${on}`),
     document: { body: surface(...(keyboard ? ['keyboard-open'] : [])) },
     state: { activeConversationId: conversation }, window: { location: { pathname: '/' } },
     exitApp: async () => calls.push('exit'), dismissComposerKeyboard: () => calls.push('keyboard'),
@@ -76,6 +77,10 @@ test('one native back or right swipe exits from home without a second-back toast
   assert.deepEqual(await backAction({ surfaceOpen: true }), []);
   assert.deepEqual(await backAction({ keyboard: true }), ['keyboard']);
   assert.deepEqual(await backAction({ conversation: 'chat' }), ['home']);
+});
+test('back on the temporary chat home leaves the mode instead of closing its composer', async () => {
+  assert.deepEqual(await backAction({ temporaryHome: true, keyboard: true }), ['temporary:false']);
+  assert.deepEqual(await backAction({ temporaryHome: true, surfaceOpen: true }), []);
 });
 test('a swipe and its duplicate Android back callback perform only one action', async () => {
   let callback, calls = 0;

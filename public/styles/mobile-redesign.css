@@ -456,3 +456,72 @@ body.mobile-ui.mobile-ui .sidebar-search-item .sidebar-nav-icon { width: 36px; h
 body.mobile-ui.mobile-ui .dojo-studio-content { padding-inline: 0; }
 body.mobile-ui.mobile-ui .dojo-studio-content > .dojo-source-caption { margin-inline: 16px; }
 body.mobile-ui.mobile-ui .dojo-studio-content .dojo-group-head { padding-left: 22px; padding-right: 24px; }
+
+/* ── Android app only (html.native-app; the mobile website is unchanged) ── */
+/* System bars stay visible over the page. Android reports their heights as
+   --safe-area-inset-top/bottom; the chat ends above the navigation bar. */
+html.native-app {
+  --native-viewport-height: calc(100dvh - max(var(--native-keyboard-height), var(--safe-area-inset-bottom, 0px)));
+}
+html.native-app body.mobile-ui.mobile-ui .settings-panel > .drawer-header {
+  height: calc(64px + var(--safe-area-inset-top, env(safe-area-inset-top)));
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top));
+}
+html.native-app body.mobile-ui.mobile-ui .settings-nav { padding-bottom: calc(28px + var(--safe-area-inset-bottom, 0px)) !important; }
+html.native-app body.mobile-ui.mobile-ui :is(.native-mobile-mode-dropdown, .composer-action-menu, #deckPickerPop) {
+  padding-bottom: calc(18px + var(--safe-area-inset-bottom, 0px)) !important;
+}
+html.native-app #mobileCameraSheet .camera-controls { bottom: max(22px, calc(var(--safe-area-inset-bottom, 0px) + 12px)); }
+
+/* The temporary chat icon already shows the mode; no label beside it. */
+html.native-app #temporaryChatLabel { display: none !important; }
+
+/* Temporary chat home: the composer stays open over the line art, so give it
+   a soft halo that reads as "nothing here is saved". */
+html.native-app body.mobile-ui.chat-empty.temporary-chat[data-mode="dark"] #app .composer:not(.compact) {
+  border-color: color-mix(in srgb, var(--text) 16%, transparent) !important;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--text) 4%, transparent),
+    0 18px 48px color-mix(in srgb, #000 34%, transparent) !important;
+}
+
+/* Scrolling pill ⇄ composer: one continuous morph of the outline (size,
+   radius, padding, fill) with the contents fading out first and back in once
+   the box has mostly opened. Transitions run over the !important sizes. */
+html.native-app body.mobile-ui {
+  --composer-morph-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+html.native-app body.mobile-ui #app .composer {
+  interpolate-size: allow-keywords;
+  margin-inline: auto !important;
+  transition:
+    width 460ms var(--composer-morph-ease),
+    height 460ms var(--composer-morph-ease),
+    min-height 460ms var(--composer-morph-ease),
+    padding 460ms var(--composer-morph-ease),
+    border-radius 460ms var(--composer-morph-ease),
+    border-color 320ms ease,
+    background-color 320ms ease,
+    box-shadow 320ms ease !important;
+}
+html.native-app body.mobile-ui #app .composer.compact {
+  border: 1px solid transparent !important;
+  /* Half the pill height: same shape as 999px, but the corners ease evenly. */
+  border-radius: 7px !important;
+  transition-duration: 380ms, 380ms, 380ms, 380ms, 380ms, 240ms, 240ms, 240ms !important;
+}
+html.native-app body.mobile-ui #app .composer.is-morphing { overflow: clip !important; }
+html.native-app body.mobile-ui #app .composer > * {
+  transition: opacity 220ms ease 170ms, display 0s allow-discrete;
+}
+html.native-app body.mobile-ui #app .composer.compact > * {
+  opacity: 0 !important;
+  transition: opacity 120ms ease, display 120ms allow-discrete;
+}
+@starting-style {
+  html.native-app body.mobile-ui #app .composer:not(.compact) > * { opacity: 0 !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.native-app body.mobile-ui #app .composer,
+  html.native-app body.mobile-ui #app .composer > * { transition: none !important; }
+}

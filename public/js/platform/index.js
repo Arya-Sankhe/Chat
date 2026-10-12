@@ -357,6 +357,15 @@ export async function configureNativeChrome({ dark = false, background = "#fffff
     StatusBar.setOverlaysWebView({ overlay: true }),
     Keyboard.setResizeMode({ mode: KeyboardResize.App })
   ]).catch(() => {});
+  try {
+    const plugin = await nativeTextZoomPlugin();
+    await Promise.all([
+      plugin.setNavigationBarStyle({ dark }),
+      plugin.syncSystemBarInsets()
+    ]);
+  } catch {
+    // Older Android builds keep the default bar styling.
+  }
 }
 
 // Fallback for signed storage links the WebView (https://localhost) cannot
@@ -372,6 +381,14 @@ export async function fetchNativeBytes(url) {
 }
 
 let textZoomPlugin = null;
+
+async function nativeTextZoomPlugin() {
+  if (!textZoomPlugin) {
+    const { registerPlugin } = await import("@capacitor/core");
+    textZoomPlugin = registerPlugin("TextZoom");
+  }
+  return textZoomPlugin;
+}
 
 export async function setTextZoom(percent) {
   if (!isNative()) return;

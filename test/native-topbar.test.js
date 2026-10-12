@@ -173,7 +173,7 @@ test("the temporary chat toggle clears the press highlight synchronously when to
     "click handler should clear the .pressed class"
   );
   assert.match(clickBlock[0], /if \(!isNative\(\)\) els\.promptInput\?\.focus\(\)/, "website temporary chat must refocus the composer");
-  assert.doesNotMatch(clickBlock[0], /focusPromptInput\(\)/, "Android temporary chat must not refocus the composer");
+  assert.match(clickBlock[0], /else if \(state\.temporaryChat\) focusPromptInput\(\)/, "Android temporary chat opens its composer");
 });
 
 test("website-only controls and greeting stay separate from the APK", () => {

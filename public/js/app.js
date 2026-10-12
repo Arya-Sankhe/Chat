@@ -8318,6 +8318,11 @@ function closeTopNativeSurface() {
 
 async function handleNativeBack() {
   if (closeTopNativeSurface()) return;
+  // The temporary chat home cannot close its composer; back leaves the mode.
+  if (onTemporaryChatHome()) {
+    setTemporaryChatMode(false);
+    return;
+  }
   if (document.body.classList.contains("keyboard-open")) {
     dismissComposerKeyboard();
     return;
@@ -8331,6 +8336,8 @@ async function handleNativeBack() {
 
 async function setupNativeLifecycle() {
   if (!isNative()) return;
+  setupTemporaryComposerPin();
+  setupComposerMorph();
   await listenForNativeAuth(state.config, {
     onSession: handleAuthenticatedSession,
     onError: (error) => {
@@ -10095,6 +10102,7 @@ function showNativeKeyboard() {
 
 async function hideNativeKeyboard() {
   if (!isNative()) return;
+  intentionalKeyboardHideAt = Date.now();
   try {
     const { Keyboard } = await import("@capacitor/keyboard");
     await Keyboard.hide();
@@ -10114,6 +10122,51 @@ function focusPromptInput() {
   els.composer?.classList.remove("compact");
   els.promptInput.focus({ preventScroll: true });
   if (!document.body.classList.contains("keyboard-open")) void showNativeKeyboard();
+}
+
+// The temporary chat home keeps its composer open. Menus, sheets and
+// navigation still close the keyboard through hideNativeKeyboard; any other
+// dismissal (the IME's own hide key, back, a stray tap) reopens it.
+let intentionalKeyboardHideAt = 0;
+
+function onTemporaryChatHome() {
+  return state.temporaryChat && !state.messages.length && !state.projectsOpen && !state.studyOpen;
+}
+
+function keepTemporaryComposerOpen() {
+  if (!isNative() || !onTemporaryChatHome()) return;
+  if (document.body.classList.contains("keyboard-open")) return;
+  if (document.visibilityState !== "visible" || document.body.classList.contains("sidebar-open")) return;
+  if (Date.now() - intentionalKeyboardHideAt < 800) return;
+  focusPromptInput();
+}
+
+// Mark the composer while it morphs between the full box and the scrolling
+// pill so its contents stay clipped inside the moving outline.
+function setupComposerMorph() {
+  const composer = els.composer;
+  if (!composer) return;
+  let wasCompact = composer.classList.contains("compact");
+  let settleTimer = null;
+  new MutationObserver(() => {
+    const compact = composer.classList.contains("compact");
+    if (compact === wasCompact) return;
+    wasCompact = compact;
+    composer.classList.add("is-morphing");
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => composer.classList.remove("is-morphing"), 520);
+  }).observe(composer, { attributes: true, attributeFilter: ["class"] });
+}
+
+function setupTemporaryComposerPin() {
+  let keyboardWasOpen = document.body.classList.contains("keyboard-open");
+  new MutationObserver(() => {
+    const keyboardOpen = document.body.classList.contains("keyboard-open");
+    if (keyboardOpen === keyboardWasOpen) return;
+    keyboardWasOpen = keyboardOpen;
+    // Let a tap that opened a menu finish before deciding the hide was stray.
+    if (!keyboardOpen) setTimeout(keepTemporaryComposerOpen, 120);
+  }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 }
 
 function focusPromptInputSoon() {
@@ -10964,6 +11017,7 @@ function bindEvents() {
     // gap that the user noticed.)
     els.temporaryChatToggle?.classList.remove("pressed");
     if (!isNative()) els.promptInput?.focus();
+    else if (state.temporaryChat) focusPromptInput();
   });
 
   // ── Mode chip dropdown (APK only) ──────────────────────────────────

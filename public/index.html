@@ -7,6 +7,8 @@
     <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)">
     <title>Klui AI</title>
     <script>
+      // Styles meant only for the packaged app (not the mobile website) key off this class.
+      if (window.androidBridge || window.Capacitor) document.documentElement.classList.add("native-app");
       // Start the app's two boot requests with the page rather than after its scripts load.
       // api.js takes each response once; the packaged app ignores them and asks its API origin.
       if (/^https?:$/.test(location.protocol) && !window.androidBridge && !window.Capacitor) {
