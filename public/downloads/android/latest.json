@@ -1,17 +1,17 @@
 {
   "published": true,
-  "versionName": "1.1.0-beta.12",
-  "versionCode": 22,
+  "versionName": "1.1.0-beta.13",
+  "versionCode": 23,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.12.apk",
+  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.13.apk",
   "releaseNotes": [
-    "Faster 500 ms launch with Klui visible immediately.",
-    "Smoother keyboard and composer; the ten latest chats load first.",
-    "Wider Dojo cards; Search, Dojo and Pinned align on the left.",
-    "Model colours now match the website, including Council in light and dark mode.",
-    "Web search clearly shows when it is on; Dojo removed from the add menu."
+    "Android status and navigation bars are visible; temporary chat keeps its composer open.",
+    "Smoother composer-to-pill animation and reliable background replies.",
+    "Pinch and double-tap to zoom document previews.",
+    "Camera starts only when selected, with a fading Klui pixel mascot while loading.",
+    "Offline launch stays on the Klui screen until connected."
   ],
-  "sizeBytes": 20204686,
-  "sha256": "5febfff7e296c3cad8d068bddcc1db6cb499a3780d082599edc98fbeb39cc4c3",
-  "releasedAt": "2026-10-10T17:34:21.397Z"
+  "sizeBytes": 20220710,
+  "sha256": "06931de7fbbc30f3bc913af225ebf5ee8c75667b17c0a62c670d946a57a10fb4",
+  "releasedAt": "2026-10-12T18:40:57.373Z"
 }
