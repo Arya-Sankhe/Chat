@@ -69,6 +69,7 @@ import { handleCompareConversationMessage } from "./compare.js";
 import { handleCouncilConversationMessage } from "./council.js";
 import { buildUntrustedWebContext, insertBeforeLatestUserMessage, withVoiceReasoning } from "./shared.js";
 import { createThoughtTicker } from "./thoughtTicker.js";
+import { liveTurnStream, openTurnStream } from "./turnStream.js";
 import {
   createAssistantOutputMessage,
   hasAssistantOutput,
@@ -1785,7 +1786,28 @@ async function chosenSourceDocuments(context, conversation, sources, signal) {
   };
 }
 
-async function streamPersistedDocumentTurn({ req, res, config, context, conversation, run, userMessage }) {
+async function streamPersistedDocumentTurn(options) {
+  const { res, run, userMessage } = options;
+  /* A reconnecting client joins the turn this server is still running. */
+  const live = liveTurnStream(run.id);
+  if (live) {
+    startSse(res, {
+      "x-klui-user-message-id": userMessage.id,
+      "x-klui-turn-run-id": run.id
+    });
+    await live.follow(res);
+    if (!res.writableEnded) res.end();
+    return;
+  }
+  const turnStream = openTurnStream(run.id, res);
+  try {
+    await runPersistedDocumentTurn({ ...options, res: turnStream.stream });
+  } finally {
+    turnStream.release();
+  }
+}
+
+async function runPersistedDocumentTurn({ req, res, config, context, conversation, run, userMessage }) {
   startSse(res, {
     "x-klui-user-message-id": userMessage.id,
     "x-klui-turn-run-id": run.id

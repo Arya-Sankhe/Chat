@@ -7501,6 +7501,7 @@ function setRunning(running) {
 
 function trackPendingTurnEvent(event, run = getConversationRun()) {
   if (!run) return;
+  run.lastEventAt = Date.now();
   if (event?.type === "turn:submitted") {
     run.turnRunId = event.turnRunId || "";
   } else if (event?.type === "turn:waiting" || event?.type === "turn:claimed") {
@@ -8213,6 +8214,7 @@ async function refreshAfterMamoReturn() {
 }
 
 async function refreshAccountAfterResume() {
+  if (state.session?.access_token) rejoinTurnsAfterResume();
   if (state.session?.access_token) {
     try {
       await Promise.all([loadMe(), loadPaymentRequests()]);
@@ -8593,6 +8595,60 @@ function restoreCancelledTurnDraft(result, run = getConversationRun()) {
   return true;
 }
 
+/* A saved turn keeps running on the server when the app goes to the
+   background or the connection drops, so the chat rejoins it instead of
+   showing an error. Rejoining replays the reply so far and follows it live. */
+const MAX_TURN_REJOINS = 5;
+const turnRejoins = new Map();
+const CONNECTION_LOST_MESSAGE = "Connection lost. Your reply is still being written. Open this chat again to see it.";
+
+function isDroppedConnection(error) {
+  return error?.name === "TypeError" && /fetch|network|load failed|connection/i.test(error?.message || "");
+}
+
+function shouldRejoinTurn(run, error) {
+  if (!run?.turnRunId || run.cancelRequested) return false;
+  if (!run.reattaching && !isDroppedConnection(error)) return false;
+  const attempts = (turnRejoins.get(run.turnRunId) || 0) + 1;
+  turnRejoins.set(run.turnRunId, attempts);
+  return attempts <= MAX_TURN_REJOINS;
+}
+
+/* Reloads the chat; a turn still running comes back through pendingTurns. */
+async function rejoinConversationTurn(conversationId, assistant) {
+  for (const delay of [0, 1000, 2500, 5000]) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (state.activeConversationId !== conversationId || state.temporaryChat) return;
+    if (await loadActiveConversation().catch(() => false)) return;
+  }
+  assistant.error = CONNECTION_LOST_MESSAGE;
+  assistant.connectionLost = true;
+}
+
+/* Back from the background: a stream that went quiet while the app was away
+   is rejoined, and a chat that lost its connection is reloaded. */
+function rejoinTurnsAfterResume() {
+  const run = getConversationRun();
+  if (run) {
+    if (!run.turnRunId || !run.abortController || run.cancelRequested) return;
+    const resumedAt = Date.now();
+    setTimeout(() => {
+      if (conversationRuns.get(run.key) !== run || run.cancelRequested) return;
+      if ((run.lastEventAt || 0) >= resumedAt) return;
+      run.reattaching = true;
+      run.abortController.abort();
+    }, 5000);
+    return;
+  }
+  const conversationId = state.activeConversationId;
+  if (!conversationId || state.temporaryChat || !state.messages.some((message) => message?.connectionLost)) return;
+  const pinned = state.autoScroll && isNearBottom(els.messages, 120);
+  const scrollTop = els.messages.scrollTop;
+  void loadActiveConversation().then((loaded) => {
+    if (loaded === "applied" && state.activeConversationId === conversationId) settleLiveMessages({ pinned, scrollTop });
+  }).catch(() => {});
+}
+
 async function resumePendingDocumentTurn(run) {
   if (!run?.id || !state.activeConversationId) return;
   const conversationId = run.conversation_id || state.activeConversationId;
@@ -8619,6 +8675,7 @@ async function resumePendingDocumentTurn(run) {
   syncActiveRunningUi();
   renderMessages();
   pinMessagesToBottom();
+  let rejoin = false;
 
   try {
     await streamConversationMessage(state.session, conversationId, { turnRunId: run.id }, {
@@ -8638,15 +8695,19 @@ async function resumePendingDocumentTurn(run) {
     });
     markAssistantActivityDoneTree(localAssistant);
   } catch (error) {
-    if (error.name === "AbortError") localAssistant.stopped = true;
+    if (shouldRejoinTurn(activeRun, error)) rejoin = true;
+    else if (error.name === "AbortError") localAssistant.stopped = true;
     else localAssistant.error = error.message || "The pending turn could not resume.";
   } finally {
     state.resumingTurnId = "";
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
-    endConversationRun(runKey, { completed: !localAssistant.stopped && !localAssistant.error });
+    endConversationRun(runKey, { completed: !rejoin && !localAssistant.stopped && !localAssistant.error });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    if (state.activeConversationId === conversationId) {
+    if (rejoin && state.activeConversationId === conversationId) {
+      await rejoinConversationTurn(conversationId, localAssistant);
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (state.activeConversationId === conversationId) {
       const refreshed = await fetchConversation(state.session, conversationId).catch(() => null);
       if (refreshed) {
         state.messages = refreshed.messages || state.messages;
@@ -9729,6 +9790,7 @@ async function executeSend({ text, images, compareModels, council = false, descr
   pinMessagesToBottom();
   let shouldReloadConversation = false;
   let wasAborted = false;
+  let rejoinTurn = false;
   const sentPreviewUrls = images
     .filter((img) => img.category === "image" && img.previewUrl)
     .map((img) => img.previewUrl);
@@ -9834,7 +9896,9 @@ async function executeSend({ text, images, compareModels, council = false, descr
     await (temporaryChat ? loadMe() : Promise.all([loadMe(), loadConversations()]));
     shouldReloadConversation = true;
   } catch (err) {
-    if (err.name === "AbortError") {
+    if (shouldRejoinTurn(activeRun, err)) {
+      rejoinTurn = true;
+    } else if (err.name === "AbortError") {
       wasAborted = true;
       if (activeRun.cancelRequested && activeRun.turnWaiting && !activeRun.cancelResult) {
         if (isRunKeyActive(runKey)) {
@@ -9872,7 +9936,10 @@ async function executeSend({ text, images, compareModels, council = false, descr
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
-    if (shouldReloadConversation && !temporaryChat && stillActive) {
+    if (rejoinTurn && stillActive) {
+      await rejoinConversationTurn(conversationId, localAssistant);
+      settleLiveMessages({ pinned, scrollTop });
+    } else if (shouldReloadConversation && !temporaryChat && stillActive) {
       const reloaded = await loadActiveConversation().catch(() => false);
       if (reloaded === "applied") {
         for (const url of sentPreviewUrls) URL.revokeObjectURL(url);

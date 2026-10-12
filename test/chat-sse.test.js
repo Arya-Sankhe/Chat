@@ -1995,3 +1995,118 @@ test("normalizeSourceScope keeps unique source ids and drops junk", () => {
   assert.deepEqual(normalizeSourceScope("not-a-list"), []);
   assert.deepEqual(normalizeSourceScope(undefined), []);
 });
+
+/* A persisted turn whose provider stream is held open until `release()`. */
+function backgroundTurnFixture() {
+  const encoder = new TextEncoder();
+  let streamController = null;
+  let providerStarted;
+  const started = new Promise((resolve) => { providerStarted = resolve; });
+  installProviderFetch({
+    streamFor: () => new Response(new ReadableStream({
+      start(controller) {
+        streamController = controller;
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "Hello" } }] })}\n\n`));
+        providerStarted();
+      }
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })
+  });
+
+  const turnId = "00000000-0000-4000-8000-000000000201";
+  const storedMessages = [];
+  let run = null;
+  const db = makeDb({ conversation: conversationRow });
+  const calls = db.calls;
+  db.upsertProfile = async (user) => ({ id: user.id, role: "user" });
+  db.listMessages = async () => storedMessages.map((message) => ({ ...message }));
+  db.submitDocumentTurn = async (payload) => {
+    const userMessage = { id: "msg-bg-user", user_id: "user-1", conversation_id: "conv-1", role: "user", content: payload.userContent, metadata: payload.messageMetadata };
+    storedMessages.push(userMessage);
+    run = { id: turnId, user_id: "user-1", conversation_id: "conv-1", user_message_id: userMessage.id, mode: "single", request_payload: payload.requestPayload, status: "waiting_documents", provider_started_at: null };
+    return { run, user_message: userMessage, created: true };
+  };
+  db.getPendingDocumentTurn = async () => run;
+  db.claimPendingDocumentTurn = async ({ claimedBy }) => {
+    run = { ...run, status: "running", claimed_by: claimedBy, claim_token: "00000000-0000-4000-8000-000000000202", lease_until: futureIso(120_000) };
+    return run;
+  };
+  db.heartbeatPendingDocumentTurn = async () => run;
+  db.markPendingTurnProviderStarted = async () => run;
+  db.finishPendingDocumentTurn = async ({ status }) => {
+    run = { ...run, status };
+    calls.push({ op: "finishPendingDocumentTurn", status });
+    return run;
+  };
+  db.upsertTurnOutputMessage = async (row) => {
+    const message = { id: "msg-bg-assistant", ...row };
+    storedMessages.push(message);
+    return message;
+  };
+
+  return {
+    db,
+    turnId,
+    started,
+    release() {
+      streamController.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: " world" }, finish_reason: "stop" }] })}\n\n`));
+      streamController.enqueue(encoder.encode("data: [DONE]\n\n"));
+      streamController.close();
+    }
+  };
+}
+
+test("a persisted turn keeps running and saves its answer after the client disconnects", async (t) => {
+  t.after(restoreFetch);
+  const fixture = backgroundTurnFixture();
+  const config = loadConfig(CONFIG_ENV);
+  const handler = createApiHandler(config, overridesFor(fixture.db));
+  const path = "/api/conversations/conv-1/messages";
+  const req = makeReq({ path, body: { text: "Hi", model: TEXT_MODEL, clientTurnKey: "00000000-0000-4000-8000-000000000203" } });
+  const res = makeRes();
+  const pending = handler(req, res, new URL(path, "http://test.local"));
+
+  await fixture.started;
+  req.aborted = true;
+  req.emit("aborted");
+  res.emitClose();
+  const bodyAtDisconnect = res.body;
+  fixture.release();
+  await pending;
+
+  const saved = fixture.db.calls.filter((call) => call.op === "updatePendingTurnOutput").at(-1);
+  assert.equal(saved.patch.content, "Hello world");
+  assert.equal(saved.patch.error, null);
+  assert.equal(fixture.db.calls.find((call) => call.op === "finishPendingDocumentTurn").status, "done");
+  assert.equal(res.body, bodyAtDisconnect, "nothing is written to the closed connection");
+});
+
+test("a reconnecting client replays the running turn and follows it to the end", async (t) => {
+  t.after(restoreFetch);
+  const fixture = backgroundTurnFixture();
+  const config = loadConfig(CONFIG_ENV);
+  const handler = createApiHandler(config, overridesFor(fixture.db));
+  const path = "/api/conversations/conv-1/messages";
+  const firstReq = makeReq({ path, body: { text: "Hi", model: TEXT_MODEL, clientTurnKey: "00000000-0000-4000-8000-000000000204" } });
+  const firstRes = makeRes();
+  const first = handler(firstReq, firstRes, new URL(path, "http://test.local"));
+
+  await fixture.started;
+  while (!firstRes.body.includes("Hello")) await new Promise((resolve) => setTimeout(resolve, 5));
+  firstReq.aborted = true;
+  firstReq.emit("aborted");
+  firstRes.emitClose();
+
+  const resumedRes = makeRes();
+  const resumed = handler(makeReq({ path, body: { turnRunId: fixture.turnId } }), resumedRes, new URL(path, "http://test.local"));
+  while (!resumedRes.body.includes("Hello")) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(resumedRes.headers["x-klui-turn-run-id"], fixture.turnId);
+
+  fixture.release();
+  await Promise.all([first, resumed]);
+
+  const content = parseSse(resumedRes.body)
+    .map((event) => event?.choices?.[0]?.delta?.content || "")
+    .join("");
+  assert.equal(content, "Hello world");
+  assert.equal(resumedRes.writableEnded, true);
+});
