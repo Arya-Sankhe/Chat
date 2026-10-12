@@ -2,8 +2,8 @@
 // a permission request that resolves after the sheet has already been closed.
 //
 // The camera (and its permission prompt) starts only when the sheet opens.
-// Until the first frame plays, a small spinner sits on the dark sheet and the
-// preview fades in over it; the status line is only for real failures.
+// Until the first frame plays, the Klui pixel mascot breathes on the dark sheet
+// and the preview fades in over it; the status line is only for real failures.
 export function createCameraSheet({ onPhoto, onError }) {
   const sheet = document.createElement("section");
   sheet.id = "mobileCameraSheet";
@@ -12,7 +12,7 @@ export function createCameraSheet({ onPhoto, onError }) {
   sheet.setAttribute("aria-modal", "true");
   sheet.setAttribute("aria-label", "Camera");
   sheet.innerHTML = `<video autoplay muted playsinline></video>
-    <span class="camera-loader" aria-hidden="true"></span>
+    <span class="camera-loader" aria-hidden="true"><svg viewBox="1 3.5 14 8.5" shape-rendering="crispEdges"><path fill="#8fd3fb" d="M3 3.5h10v6H3zM1 5.5h2v2H1zM13 5.5h2v2h-2zM5 9.5h1V12H5zM10 9.5h1V12h-1z"/><path fill="#16202e" d="M5 5h1v1.5H5zM10 5h1v1.5h-1z"/></svg></span>
     <p class="camera-status" role="status" hidden></p>
     <div class="camera-controls">
       <button type="button" class="camera-close" aria-label="Close camera"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
