@@ -430,6 +430,18 @@ body.mobile-ui #app .composer-prompt.is-multiline {
   font: 600 38px/1 var(--font-sans, sans-serif);
 }
 #mobileLaunchScreen svg { width: 64px; height: 40px; }
+/* Offline at launch: the brand stays centred and a quiet status sits below. */
+#mobileLaunchScreen .launch-status {
+  position: absolute; top: calc(50% + 44px); left: 0; right: 0; margin: 0; text-align: center;
+  font: 500 14px/1.4 var(--font-sans, sans-serif); color: var(--text-secondary, #8a8a8a);
+  animation: launch-status-in .3s ease both, launch-status-pulse 2s ease-in-out .3s infinite;
+}
+#mobileLaunchScreen.leaving { opacity: 0; transition: opacity .2s ease; }
+@keyframes launch-status-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes launch-status-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  #mobileLaunchScreen .launch-status { animation: none; }
+}
 body.mobile-ui.mobile-ui .sidebar:where(aside) { border-right: 0; box-shadow: none; }
 body.mobile-ui.mobile-ui .sidebar-nav-item { justify-content: flex-start; text-align: left; }
 body.mobile-ui.mobile-ui #webSearchToggle[aria-pressed="true"] { color: #4f9eff; }

@@ -83,7 +83,7 @@
         launch.setAttribute("aria-label", "Klui is loading");
         launch.innerHTML = kluiLaunchMascot + '<span>Klui</span>';
         document.body.append(launch);
-        setTimeout(() => launch.remove(), 500);
+        setTimeout(() => { if (!launch.classList.contains("waiting")) launch.remove(); }, 500);
         window.__kluiLaunchMascot = kluiLaunchMascot;
       }
     </script>

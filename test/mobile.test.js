@@ -575,7 +575,8 @@ test("web startup loads Markdown and defers heavier rich text tools and Study Hu
     readFile(new URL("../public/index.html", import.meta.url), "utf8")
   ]);
   const bootstrap = app.slice(app.indexOf("async function bootstrap()"), app.indexOf("/* ─── Event binding ─── */"));
-  assert.match(bootstrap, /Promise\.all\(\[\s*fetchConfig\(\),\s*fetchPlans\(\),/);
+  assert.match(app, /Promise\.all\(\[fetchConfig\(\), fetchPlans\(\), session\]\)/);
+  assert.match(bootstrap, /await loadBootData\(\)/);
   assert.match(app, /import\("\.\/studyHub\.js"\)/);
   assert.doesNotMatch(app, /^import .*studyHub\.js/m);
   assert.match(html, /marked\.umd\.js/);
@@ -1124,7 +1125,7 @@ test("mobile first paint has a mascot and a bounded launch screen without networ
     window,
     document: {
       body: { classList: { add: (...names) => names.forEach(name => classes.add(name)) }, append: node => { screen = node; } },
-      createElement: () => ({ setAttribute() {}, remove() { screen = null; } })
+      createElement: () => ({ setAttribute() {}, classList: { names: new Set(), add(n) { this.names.add(n); }, delete(n) { this.names.delete(n); }, contains(n) { return this.names.has(n); } }, remove() { screen = null; } })
     },
     setTimeout(fn, delay) { timer = { fn, delay }; }
   });
@@ -1133,8 +1134,43 @@ test("mobile first paint has a mascot and a bounded launch screen without networ
   assert.match(screen.innerHTML, /<span>Klui<\/span>/);
   assert.equal(timer.delay, 500);
   assert.match(source, /class="klui" aria-hidden="true">\$\{window\.__kluiLaunchMascot\}/);
+  const launch = screen;
+  launch.classList.add("waiting");
+  timer.fn();
+  assert.equal(screen, launch, "a launch screen waiting for the network stays up");
+  launch.classList.delete("waiting");
   timer.fn();
   assert.equal(screen, null);
+});
+
+test("the app waits on the launch screen while offline instead of showing setup", async () => {
+  const source = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const fn = source.match(/async function loadBootData\(\) {[\s\S]*?\n}/)[0];
+  let calls = 0;
+  const waits = [];
+  const context = {
+    parseSessionFromUrl: () => null,
+    loadSession: async () => ({ user: "u" }),
+    fetchConfig: async () => {
+      calls += 1;
+      if (calls < 3) throw new TypeError("Failed to fetch");
+      return { services: {} };
+    },
+    fetchPlans: async () => ({ plans: [] }),
+    isNative: () => true,
+    showLaunchScreenWaiting: () => waits.push("shown"),
+    waitForConnection: async (delay) => waits.push(delay)
+  };
+  runInNewContext(`${fn}; globalThis.loadBootData = loadBootData;`, context);
+  const [config, plans, session] = await context.loadBootData();
+  assert.deepEqual(config, { services: {} });
+  assert.deepEqual(plans, { plans: [] });
+  assert.deepEqual(session, { user: "u" });
+  assert.deepEqual(waits, ["shown", 1000, "shown", 2000]);
+
+  context.isNative = () => false;
+  calls = 0;
+  await assert.rejects(context.loadBootData(), /Failed to fetch/, "the website keeps its normal error path");
 });
 
 test("mobile home paints ten recents before the rest without disturbing an opened chat", async () => {

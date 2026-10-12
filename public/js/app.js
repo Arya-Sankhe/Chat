@@ -10052,16 +10052,70 @@ async function hydrateNativeSettings() {
 
 let mobileRecentChats = null;
 
+/* The Android app ships its own pages, so it opens with no network. Instead
+   of a "Setup required" page with every service missing, it keeps the launch
+   screen up and retries until the server answers. */
+async function loadBootData() {
+  const session = parseSessionFromUrl() || loadSession();
+  const load = () => Promise.all([fetchConfig(), fetchPlans(), session]);
+  if (!isNative()) return load();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await load();
+    } catch {
+      showLaunchScreenWaiting();
+      await waitForConnection(Math.min(1000 * 2 ** attempt, 8000));
+    }
+  }
+}
+
+function showLaunchScreenWaiting() {
+  let launch = document.getElementById("mobileLaunchScreen");
+  if (!launch) {
+    launch = document.createElement("div");
+    launch.id = "mobileLaunchScreen";
+    launch.innerHTML = `${window.__kluiLaunchMascot || ""}<span>Klui</span>`;
+    document.body.append(launch);
+  }
+  launch.classList.add("waiting");
+  let status = launch.querySelector(".launch-status");
+  if (!status) {
+    status = document.createElement("p");
+    status.className = "launch-status";
+    status.setAttribute("role", "status");
+    launch.append(status);
+  }
+  status.textContent = navigator.onLine ? "Connecting…" : "No internet connection";
+}
+
+function hideLaunchScreenWaiting() {
+  const launch = document.getElementById("mobileLaunchScreen");
+  if (!launch?.classList.contains("waiting")) return;
+  launch.classList.add("leaving");
+  setTimeout(() => launch.remove(), 200);
+}
+
+function waitForConnection(delay) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      window.removeEventListener("online", done);
+      document.removeEventListener("visibilitychange", onVisible);
+      resolve();
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") done(); };
+    const timer = setTimeout(done, delay);
+    window.addEventListener("online", done);
+    document.addEventListener("visibilitychange", onVisible);
+  });
+}
+
 async function bootstrap() {
   await hydrateNativeSettings();
   applyAppearance();
   applyTextScale();
   try {
-    const [config, plansPayload, session] = await Promise.all([
-      fetchConfig(),
-      fetchPlans(),
-      parseSessionFromUrl() || loadSession()
-    ]);
+    const [config, plansPayload, session] = await loadBootData();
     state.config = config;
     state.buildId = String(config?.buildId || "");
     state.plans = plansPayload.plans || [];
@@ -10109,6 +10163,7 @@ async function bootstrap() {
       }
     }
     renderShell();
+    hideLaunchScreenWaiting();
     // Math and code highlighting (~390 KB of script) only matter once there are messages;
     // renderMessages() asks for them then, and an idle home screen fetches them in the background.
     whenIdle(() => {
@@ -10135,6 +10190,7 @@ async function bootstrap() {
     state.conversations = [];
     state.messages = [];
     renderShell();
+    hideLaunchScreenWaiting();
     showToast(err.message);
   }
 }
