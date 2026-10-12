@@ -205,6 +205,101 @@ export function createDocumentViewer({
     }).observe(elements.documentViewerBody);
   }
 
+  // Pinch to zoom: the pages follow the fingers, then redraw sharp at the new size.
+  // A double tap toggles between fitting the width and a closer read.
+  const MAX_PDF_ZOOM = 4;
+  const pdfBody = elements.documentViewerBody;
+  let pinch = null;
+  let tapStart = null;
+  let lastTap = null;
+  const touchMid = touches => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 });
+  const touchGap = touches => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY) || 1;
+
+  // The page under a screen point, and where on that page it falls.
+  function pdfAnchorAt(x, y) {
+    const pages = [...pdfBody.querySelectorAll("[data-page]")];
+    const page = pages.find(item => item.getBoundingClientRect().bottom >= y) || pages.at(-1);
+    if (!page) return null;
+    const rect = page.getBoundingClientRect();
+    return { page: page.dataset.page, x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
+  }
+
+  function zoomPdfTo(zoom, anchor, x, y, shownScale = 1) {
+    const next = Math.max(1, Math.min(MAX_PDF_ZOOM, zoom));
+    const settle = shownScale * pdfZoom / next;
+    if (Math.abs(next - pdfZoom) > 0.01) {
+      pdfZoom = next;
+      resetPdf({ destroy: false });
+      void renderPdfPages(null, state.viewer.url, pdfRenderToken, pdfDocument);
+    }
+    const page = anchor && pdfBody.querySelector(`[data-page="${anchor.page}"]`);
+    if (page) {
+      const rect = page.getBoundingClientRect();
+      pdfBody.scrollLeft += rect.left + anchor.x * rect.width - x;
+      pdfBody.scrollTop += rect.top + anchor.y * rect.height - y;
+    }
+    // Ease from what the fingers left on screen to the new layout.
+    const container = pdfBody.querySelector("[data-pdf-pages]");
+    if (container && Math.abs(settle - 1) > 0.01 && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      const rect = container.getBoundingClientRect();
+      const origin = `${x - rect.left}px ${y - rect.top}px`;
+      container.animate?.([
+        { transform: `scale(${settle})`, transformOrigin: origin },
+        { transform: "scale(1)", transformOrigin: origin }
+      ], { duration: 200, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    }
+  }
+
+  pdfBody?.addEventListener("touchstart", (event) => {
+    tapStart = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: performance.now() } : null;
+    if (event.touches.length !== 2 || !pdfDocument) return;
+    const container = pdfBody.querySelector("[data-pdf-pages]");
+    if (!container) return;
+    const mid = touchMid(event.touches);
+    const rect = container.getBoundingClientRect();
+    pinch = { container, gap: touchGap(event.touches), start: mid, mid, scale: 1, anchor: pdfAnchorAt(mid.x, mid.y) };
+    container.style.transformOrigin = `${mid.x - rect.left}px ${mid.y - rect.top}px`;
+    container.style.willChange = "transform";
+    lastTap = null;
+  }, { passive: true });
+  pdfBody?.addEventListener("touchmove", (event) => {
+    if (!pinch || event.touches.length !== 2) return;
+    if (event.cancelable) event.preventDefault();
+    const raw = touchGap(event.touches) / pinch.gap;
+    // Past the limits the pages give a little, so the edge is felt rather than hit.
+    const min = 1 / pdfZoom;
+    const max = MAX_PDF_ZOOM / pdfZoom;
+    pinch.scale = raw < min ? min * (raw / min) ** 0.3 : raw > max ? max * (raw / max) ** 0.3 : raw;
+    pinch.mid = touchMid(event.touches);
+    pinch.container.style.transform = `translate(${pinch.mid.x - pinch.start.x}px, ${pinch.mid.y - pinch.start.y}px) scale(${pinch.scale})`;
+  }, { passive: false });
+  const endPinch = (event) => {
+    if (!pinch || event.touches.length >= 2) return;
+    const { container, anchor, mid, scale } = pinch;
+    pinch = null;
+    container.style.transform = "";
+    container.style.transformOrigin = "";
+    container.style.willChange = "";
+    if (container.isConnected && pdfDocument) zoomPdfTo(pdfZoom * scale, anchor, mid.x, mid.y, scale);
+  };
+  pdfBody?.addEventListener("touchend", endPinch);
+  pdfBody?.addEventListener("touchcancel", endPinch);
+  pdfBody?.addEventListener("touchend", (event) => {
+    const touch = event.changedTouches[0];
+    if (pinch || event.touches.length || !touch || !pdfDocument || !event.target.closest?.(".pdf-page")) return;
+    const now = performance.now();
+    const tap = { x: touch.clientX, y: touch.clientY, at: now };
+    const start = tapStart;
+    tapStart = null;
+    // Only quick, still touches count as taps; the end of a scroll does not.
+    if (!start || now - start.at > 250 || Math.hypot(tap.x - start.x, tap.y - start.y) > 10) { lastTap = null; return; }
+    if (lastTap && now - lastTap.at < 300 && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < 30) {
+      lastTap = null;
+      if (event.cancelable) event.preventDefault();
+      zoomPdfTo(pdfZoom > 1.05 ? 1 : 2.25, pdfAnchorAt(tap.x, tap.y), tap.x, tap.y);
+    } else lastTap = tap;
+  });
+
 
   function findPendingArtifacts() {
     const out = [];
@@ -786,6 +881,8 @@ export function createDocumentViewer({
     pdfDocument = pdf;
     syncPageControls();
     const bodyWidth = Math.max(160, elements.documentViewerBody.clientWidth - 28) * pdfZoom;
+    // A redraw (resize or zoom) keeps each drawn page, stretched, until its sharp copy is ready.
+    const drawn = new Map([...container.querySelectorAll("[data-page] > canvas")].map(canvas => [canvas.parentElement.dataset.page, canvas]));
     container.style.width = `${bodyWidth}px`;
     container.style.minWidth = "100%";
     container.innerHTML = "";
@@ -796,7 +893,12 @@ export function createDocumentViewer({
       pageEl.dataset.page = String(pageNumber);
       pageEl.style.width = `${bodyWidth}px`;
       pageEl.style.minHeight = `${pdfPlaceholderHeight(bodyWidth)}px`;
-      pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
+      const previous = drawn.get(String(pageNumber));
+      if (previous) {
+        previous.style.width = `${bodyWidth}px`;
+        pageEl.style.minHeight = "";
+        pageEl.append(previous);
+      } else pageEl.innerHTML = `<div class="pdf-page-placeholder"><span class="artifact-spinner" aria-hidden="true"></span></div>`;
       container.appendChild(pageEl);
       placeholders.push(pageEl);
       if (pagePicker) {
@@ -821,7 +923,8 @@ export function createDocumentViewer({
       const base = page.getViewport({ scale: 1 });
       const scale = bodyWidth / base.width;
       const viewport = page.getViewport({ scale });
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      // Zoomed pages get big; cap each canvas near 12 megapixels so phones keep memory.
+      const dpr = Math.min(2, window.devicePixelRatio || 1, Math.sqrt(12e6 / (viewport.width * viewport.height)));
       const canvas = document.createElement("canvas");
       canvas.width = Math.floor(viewport.width * dpr);
       canvas.height = Math.floor(viewport.height * dpr);

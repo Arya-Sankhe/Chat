@@ -6,7 +6,7 @@ import { runInNewContext } from 'node:vm';
 const source = readFileSync(new URL('../public/js/cameraSheet.js', import.meta.url), 'utf8').replace('export function', 'function');
 function setup(getUserMedia) {
   const controls = Object.fromEntries(['video', '.camera-status', '.camera-shutter', '.camera-close', '.camera-switch'].map(key => [key, { classList: { toggle() {} }, setAttribute() {}, addEventListener() {}, focus() {}, play: async () => {} }]));
-  const sheet = { hidden: true, setAttribute() {}, querySelector: key => controls[key], addEventListener() {} };
+  const sheet = { hidden: true, classList: { toggle() {} }, setAttribute() {}, querySelector: key => controls[key], addEventListener() {} };
   const context = { document: { createElement: () => sheet, getElementById: () => null, body: { append() {} }, addEventListener() {} }, navigator: { mediaDevices: { getUserMedia } } };
   const camera = runInNewContext(`${source}; createCameraSheet({ onPhoto() {}, onError() {} })`, context);
   return { camera, controls, sheet };
@@ -39,4 +39,23 @@ test('closing an active camera stops all tracks and clears the video', async () 
   camera.close();
   assert.equal(stopped, 1);
   assert.equal(controls.video.srcObject, null);
+});
+test('the camera starts only when the sheet opens and shows a spinner until the preview plays', async () => {
+  let calls = 0, resolve;
+  const { camera, sheet } = setup(() => { calls++; return new Promise(done => { resolve = done; }); });
+  const loading = new Set();
+  sheet.classList = { toggle: (name, on) => (on ? loading.add(name) : loading.delete(name)) };
+  assert.equal(calls, 0);
+  assert.equal('preload' in camera, false);
+  const opening = camera.open();
+  assert.equal(calls, 1);
+  assert.equal(loading.has('is-loading'), true);
+  resolve({ getTracks: () => [] });
+  await opening;
+  assert.equal(loading.has('is-loading'), false);
+  camera.close();
+});
+test('opening the attachment menu does not touch the camera', async () => {
+  const app = readFileSync(new URL('../public/js/app.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /cameraSheet\??\.preload/);
 });

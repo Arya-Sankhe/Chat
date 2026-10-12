@@ -4092,10 +4092,6 @@ function isMobileLayout() {
 }
 
 // A phone or tablet, not just a narrow desktop window.
-function isTouchDevice() {
-  return isNative() || window.matchMedia("(pointer: coarse)").matches;
-}
-
 function closeMobileModeSheet() {
   els.nativeMobileModeButton?.setAttribute("aria-expanded", "false");
   els.nativeMobileModeDropdown?.classList.add("hidden");
@@ -4110,8 +4106,6 @@ function toggleActionMenu() {
   els.writingStyleMenu?.classList.add("hidden");
   els.actionMenuButton.setAttribute("aria-expanded", String(open));
   els.composerActionMenuWrap.classList.toggle("is-open", open);
-  // Warming the camera asks for permission, so only phones and tablets do it.
-  if (open && isTouchDevice()) cameraSheet?.preload?.();
 }
 
 function openWritingStyleMenu() {

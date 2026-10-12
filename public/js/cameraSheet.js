@@ -1,9 +1,9 @@
 // Camera stays inside the app. Every dismissal releases the camera, including
 // a permission request that resolves after the sheet has already been closed.
 //
-// The sheet opens without a visible "Opening camera…" loader: the status line
-// stays hidden unless getUserMedia actually fails, and the stream is pre-warmed
-// while the attachment sheet is open so the preview is already live on tap.
+// The camera (and its permission prompt) starts only when the sheet opens.
+// Until the first frame plays, a small spinner sits on the dark sheet and the
+// preview fades in over it; the status line is only for real failures.
 export function createCameraSheet({ onPhoto, onError }) {
   const sheet = document.createElement("section");
   sheet.id = "mobileCameraSheet";
@@ -12,6 +12,7 @@ export function createCameraSheet({ onPhoto, onError }) {
   sheet.setAttribute("aria-modal", "true");
   sheet.setAttribute("aria-label", "Camera");
   sheet.innerHTML = `<video autoplay muted playsinline></video>
+    <span class="camera-loader" aria-hidden="true"></span>
     <p class="camera-status" role="status" hidden></p>
     <div class="camera-controls">
       <button type="button" class="camera-close" aria-label="Close camera"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>
@@ -26,9 +27,7 @@ export function createCameraSheet({ onPhoto, onError }) {
   let generation = 0;
   let facing = "environment";
   let previousFocus = null;
-  let warmupStream = null;
-  let warmupFacing = "";
-  let warmupPromise = null;
+  const setLoading = on => sheet.classList.toggle("is-loading", on);
   const stop = () => {
     stream?.getTracks().forEach(track => track.stop());
     stream = null;
@@ -39,6 +38,7 @@ export function createCameraSheet({ onPhoto, onError }) {
     generation++;
     stop();
     sheet.hidden = true;
+    setLoading(false);
     previousFocus?.focus({ preventScroll: true });
     return true;
   };
@@ -52,19 +52,11 @@ export function createCameraSheet({ onPhoto, onError }) {
     const request = ++generation;
     stop();
     shutter.disabled = true;
-    // No loading text: the sheet itself is the preview surface. Errors only.
     status.hidden = true;
     status.textContent = "";
+    setLoading(true);
     try {
-      let incoming = null;
-      if (warmupStream && warmupFacing === facing && warmupStream.active !== false) {
-        incoming = warmupStream;
-        warmupStream = null;
-        warmupFacing = "";
-      } else {
-        warmupStream = null;
-        incoming = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facing } } });
-      }
+      const incoming = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facing } } });
       if (sheet.hidden || request !== generation) {
         incoming.getTracks().forEach(track => track.stop());
         return;
@@ -74,37 +66,19 @@ export function createCameraSheet({ onPhoto, onError }) {
       video.classList.toggle("camera-selfie", facing === "user");
       await video.play();
       if (request !== generation) return;
+      setLoading(false);
       status.hidden = true;
       shutter.disabled = false;
     } catch (error) {
       if (request !== generation) return;
       stop();
+      setLoading(false);
       showError(error);
     }
-  };
-  // Pre-warm the camera while the attachment sheet is open so tapping
-  // Camera shows a live preview instantly with no loader flash.
-  const preload = () => {
-    if (warmupStream || warmupPromise || (stream && !sheet.hidden)) return;
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const wanted = facing;
-    warmupPromise = navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: wanted } } })
-      .then((incoming) => {
-        warmupPromise = null;
-        if (sheet.hidden === false && stream) {
-          incoming.getTracks().forEach(track => track.stop());
-          return;
-        }
-        warmupStream = incoming;
-        warmupFacing = wanted;
-      })
-      .catch(() => { warmupPromise = null; });
   };
   sheet.querySelector(".camera-close").addEventListener("click", close);
   sheet.querySelector(".camera-switch").addEventListener("click", () => {
     facing = facing === "environment" ? "user" : "environment";
-    warmupStream?.getTracks().forEach(track => track.stop());
-    warmupStream = null;
     void start();
   });
   shutter.addEventListener("click", async () => {
@@ -130,7 +104,7 @@ export function createCameraSheet({ onPhoto, onError }) {
       if (document.activeElement === edge) { event.preventDefault(); (event.shiftKey ? buttons.at(-1) : buttons[0]).focus(); }
     }
   });
-  return { close, preload, async open() {
+  return { close, async open() {
     if (!sheet.hidden) return;
     previousFocus = document.getElementById("actionMenuButton") || document.activeElement;
     facing = "environment";
