@@ -163,10 +163,15 @@ export function resetCodeSourceStore() {
   codeSourceCounter = 0;
 }
 
+// Quiet defaults under every visual, so a document that writes little CSS still looks like Klui.
+// Everything sits in :where() (zero specificity), so any rule the document writes wins.
+// Kept on one line: runtime errors report document line numbers, which must not shift.
+const VISUALIZE_BASE_STYLE = `<style>:root{color-scheme:light dark;--k-fg:#17191e;--k-muted:#646b76;--k-line:#e3e5e9;--k-surface:#f5f6f8;--k-bg:#fff;--k-accent:#2b7bd6;--k-accent-fg:#fff;--k-good:#1d9a68;--k-warn:#c27c12;--k-bad:#d24b4b;--k-radius:10px;--k-font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--k-mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}@media(prefers-color-scheme:dark){:root{--k-fg:#eceef1;--k-muted:#9aa1ab;--k-line:#2c2f35;--k-surface:#202227;--k-bg:#17181b;--k-accent:#76bdf2;--k-accent-fg:#0d1620;--k-good:#4cc795;--k-warn:#e2a54a;--k-bad:#f07878}}:where(*,*::before,*::after){box-sizing:border-box}:where(html){font:15px/1.5 var(--k-font);color:var(--k-fg);-webkit-text-size-adjust:100%;text-rendering:optimizeLegibility}:where(body){margin:0;padding:clamp(14px,3vw,22px)}:where(h1,h2,h3,h4){margin:0 0 .45em;font-weight:650;line-height:1.2;letter-spacing:-.012em}:where(h1){font-size:1.3rem}:where(h2){font-size:1.1rem}:where(h3,h4){font-size:1rem}:where(p){margin:0 0 .7em}:where(small,figcaption,.k-muted){color:var(--k-muted)}:where(button){font:600 13.5px/1.2 var(--k-font);padding:.55em 1em;border:1px solid var(--k-line);border-radius:999px;background:var(--k-surface);color:var(--k-fg);cursor:pointer;transition:background-color .15s,border-color .15s,transform .1s}:where(button:hover){border-color:color-mix(in srgb,var(--k-fg) 22%,var(--k-line))}:where(button:active){transform:scale(.97)}:where(button:disabled){opacity:.5;cursor:default;transform:none}:where(button.primary,button[data-primary]){background:var(--k-accent);border-color:transparent;color:var(--k-accent-fg)}:where(input:not([type=range],[type=checkbox],[type=radio]),select,textarea){font:inherit;padding:.45em .65em;border:1px solid var(--k-line);border-radius:8px;background:var(--k-bg);color:var(--k-fg)}:where(input[type=range],input[type=checkbox],input[type=radio],progress){accent-color:var(--k-accent)}:where(label){font-size:13.5px}:where(details>summary){cursor:pointer;color:var(--k-muted);font-size:13.5px}:where(table){width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}:where(th,td){padding:.5em .7em;border-bottom:1px solid var(--k-line);text-align:left}:where(th){color:var(--k-muted);font-weight:600}:where(svg text){fill:currentColor;font-family:var(--k-font)}:where(svg,canvas,img){max-width:100%}:where(:focus-visible){outline:2px solid var(--k-accent);outline-offset:2px}:where(.k-row){display:flex;flex-wrap:wrap;align-items:center;gap:10px}:where(.k-stack){display:grid;gap:12px}:where(.k-num){font-variant-numeric:tabular-nums}</style>`;
+
 function visualizeDocument(source, id) {
-  const bridge = `<script>(()=>{const post=(type,data={})=>parent.postMessage({type,id:"${id}",...data},"*");let p=false;const send=()=>{if(p)return;p=true;requestAnimationFrame(()=>{p=false;const d=document.documentElement,b=document.body;post("klui:visualize:resize",{height:Math.max(d?.scrollHeight||0,b?.scrollHeight||0,b?.getBoundingClientRect?.().height||0)})})};addEventListener("message",e=>{if(e.source!==parent||e.data?.type!=="klui:visualize:expanded")return;document.documentElement.dataset.kluiExpanded=String(Boolean(e.data.expanded));send()});addEventListener("error",e=>post("klui:visualize:error",{message:String(e.message||"Runtime error").slice(0,160)}));addEventListener("unhandledrejection",e=>post("klui:visualize:error",{message:String(e.reason?.message||e.reason||"Promise failed").slice(0,160)}));addEventListener("DOMContentLoaded",send);addEventListener("load",send);addEventListener("resize",send);new ResizeObserver(send).observe(document.documentElement)})();</script>`;
+  const bridge = `<script>(()=>{const post=(type,data={})=>parent.postMessage({type,id:"${id}",...data},"*");let p=false;const send=()=>{if(p)return;p=true;requestAnimationFrame(()=>{p=false;const d=document.documentElement,b=document.body;post("klui:visualize:resize",{height:Math.max(d?.scrollHeight||0,b?.scrollHeight||0,b?.getBoundingClientRect?.().height||0)})})};addEventListener("message",e=>{if(e.source!==parent||e.data?.type!=="klui:visualize:expanded")return;document.documentElement.dataset.kluiExpanded=String(Boolean(e.data.expanded));send()});addEventListener("error",e=>post("klui:visualize:error",{message:(String(e.message||"Runtime error").slice(0,200)+(e.lineno>1?" (line "+e.lineno+")":""))}));addEventListener("unhandledrejection",e=>post("klui:visualize:error",{message:String(e.reason?.message||e.reason||"Promise failed").slice(0,200)}));addEventListener("DOMContentLoaded",send);addEventListener("load",send);addEventListener("resize",send);new ResizeObserver(send).observe(document.documentElement)})();</script>`;
   const expanded = `<style>@media (min-width:900px){html[data-klui-expanded="true"]{zoom:1.2}html[data-klui-expanded="true"] body>*{max-width:min(1120px,92vw)!important}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto!important}}</style>`;
-  const policy = `<meta http-equiv="Content-Security-Policy" content="${VISUALIZE_CSP}"><base href="about:srcdoc">${expanded}${bridge}`;
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${VISUALIZE_CSP}"><base href="about:srcdoc">${VISUALIZE_BASE_STYLE}${expanded}${bridge}`;
   let html = String(source || "")
     .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?Content-Security-Policy)[^>]*>/gi, "")
     .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, "")
@@ -196,7 +201,7 @@ function visualizeCard(source, id, error = "") {
     <div class="visualize-stage">
       <iframe data-visualize-id="${id}" title="Interactive visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" csp="${escapeHtml(VISUALIZE_CSP)}" srcdoc="${escapeHtml(srcdoc)}"></iframe>
     </div>
-    <div class="visualize-runtime-error" role="alert" hidden></div>
+    <div class="visualize-runtime-error" role="alert" hidden><span></span><button type="button" data-visualize-fix>Fix it</button></div>
   </section>`;
 }
 
@@ -218,13 +223,16 @@ function extractVisualizations(text, { holdCompleted = false, buildingLabel = ""
   const processed = String(text || "").replace(/```visualize[ \t]*\r?\n([\s\S]*?)\r?\n```/gi, (_, raw) => {
     const source = String(raw || "").trim();
     const token = `KLUIVISUALHOLD${slots.length}END`;
-    if (!source) {
+    // While the turn is still running the server may be repairing this document,
+    // so even an invalid one stays in the building state until the turn settles.
+    if (holdCompleted) {
+      slots.push({ token, source, building: true, label: buildingLabel });
+    } else if (!source) {
       slots.push({ token, error: "The generated document was empty." });
     } else if (new TextEncoder().encode(source).byteLength > MAX_VISUALIZE_BYTES) {
       slots.push({ token, error: "The generated document exceeded the 120 KiB limit." });
     } else {
-      const id = `v${++codeSourceCounter}`;
-      slots.push({ token, source, id, building: holdCompleted, label: buildingLabel });
+      slots.push({ token, source, id: `v${++codeSourceCounter}` });
     }
     return token;
   });
@@ -388,17 +396,23 @@ export function applyVisualizeFrameMessage(event, root = globalThis.document, { 
   if (!frame) return false;
   const card = frame.closest(".visualize-card");
   if (data.type === "klui:visualize:error") {
-    const message = String(data.message || "The visualization could not run.").slice(0, 160);
-    const error = card?.querySelector(".visualize-runtime-error");
-    if (error) {
-      error.textContent = message;
-      error.hidden = false;
-    }
+    const message = String(data.message || "The visualization could not run.").slice(0, 240);
+    if (card?.dataset) card.dataset.runtimeError = message;
     const firstReport = !card?.classList?.contains?.("has-error");
     card?.classList.add("has-error");
+    // A repair that starts silently replaces the card, so the reader never sees
+    // the error; the bar only appears when no repair could start.
+    let repairing = false;
     if (firstReport && typeof onRuntimeError === "function") {
       const article = card?.closest?.("[data-message-id]");
-      onRuntimeError({ messageId: article?.dataset?.messageId || "", message, card });
+      repairing = onRuntimeError({ messageId: article?.dataset?.messageId || "", message, card }) === true;
+    }
+    const error = card?.querySelector(".visualize-runtime-error");
+    if (error && !repairing) {
+      const text = error.querySelector?.("span") || error;
+      text.textContent = "Part of this visual didn't load.";
+      if ("title" in error) error.title = message;
+      error.hidden = false;
     }
     return true;
   }

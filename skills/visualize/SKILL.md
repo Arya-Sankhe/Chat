@@ -5,62 +5,73 @@ description: Turn ideas into interactive visuals.
 
 # Visualize
 
-Turn the user's subject and relevant conversation context into one useful visual experience. The visual should carry the explanation, not decorate it.
+Turn the user's subject and the relevant conversation into one visual that explains it. The visual carries the explanation; it is not decoration.
 
-## Creative authority
+Pick the form that fits: a chart, diagram, timeline, map, comparison, step-through, small simulation, calculator, or annotated scene. Not everything is a dashboard. Follow any direction the user gave; otherwise decide and proceed. Ask a question only when nothing in the conversation says what to visualize.
 
-Choose the form, composition, visual language, hierarchy, and interaction that best fit the subject. You may create a chart, diagram, map, timeline, comparison, explorable model, calculator, simulation, annotated scene, or another form you judge more effective. Do not force every request into a dashboard or card grid.
+## Output
 
-Preserve explicit user direction. Otherwise make the design decisions yourself and proceed. Ask a question only when the conversation does not identify what to visualize.
-
-## Output contract
-
-Return at most one short introductory sentence followed by exactly one fenced block labeled `visualize`:
+At most one short sentence, then exactly one fenced block labeled `visualize` holding one complete HTML document:
 
 ````text
 ```visualize
 <!doctype html>
-<html>...</html>
+<html>
+<head><meta charset="utf-8"><style>…</style></head>
+<body>
+  …markup…
+  <script>…</script>
+</body>
+</html>
 ```
 ````
 
-The block must contain one complete, standalone HTML document. Put all HTML, CSS, SVG, canvas code, and JavaScript inside it. Do not add source-code commentary or another fence after it. On a follow-up visualization request, return a complete replacement document rather than a patch.
+Nothing after the fence. A follow-up request gets a complete replacement document, not a patch.
 
-## Runtime boundary
+## Sandbox
 
-The document runs offline in a sandboxed iframe with JavaScript enabled and network access disabled.
+The document runs offline in a sandboxed iframe: inline HTML, CSS, SVG, canvas, and JavaScript only. No imports, modules, CDNs, `fetch`, sockets, external fonts or images, storage, cookies, clipboard, popups, navigation, forms that submit, or permission prompts. Data URLs are fine. Stay well under 120 KiB; most good visuals are under 15 KiB.
 
-- Use only browser-native HTML, CSS, SVG, canvas, and JavaScript.
-- Keep styles and scripts inline. Do not use imports, packages, CDNs, fetch, WebSocket, EventSource, external fonts, or remote images.
-- Do not read cookies, storage, credentials, clipboard, the host page, or parent-frame content.
-- Do not open windows, navigate the top page, submit data, request device permissions, or imitate authentication, payment, or system dialogs.
-- Data URLs and programmatically generated blobs are available for local visual assets.
-- Keep the document comfortably below 120 KiB.
+## Built-in styles
 
-## Design behavior
+The host already styles plain elements, so write only the CSS your layout needs:
 
-- Fit the chat first: responsive from 320 px wide, useful at ordinary message width, and still composed when expanded.
-- Fit the entire experience on one screen: the complete document, including the demo and its explanation, must be fully visible within 640 px of height with no vertical scrolling. Place panels side by side, keep copy short, and move anything that overflows into the `Advanced` disclosure instead of stacking sections.
-- Scale the composition when the viewport grows. Use fluid type and spacing (`clamp`, `rem`, flexible grids) rather than locking the main experience inside a narrow fixed-width wrapper.
-- Set `color-scheme: light dark` and provide intentional light and dark colors with strong contrast.
-- Use the system font stack unless the subject specifically benefits from another locally available generic family.
-- Prefer one coherent focal surface over a wall of cards. Group with spacing and hierarchy before adding borders or containers.
-- Keep one restrained accent color, one consistent radius system, subtle borders, and clear type hierarchy. Avoid generic dashboard chrome, excessive uppercase labels, neon glows, and decorative gradients.
-- Use interaction only when it reveals relationships, changes assumptions, filters detail, or lets the user test a scenario. A clear static visual is better than decorative controls.
-- Make the first state immediately meaningful. Do not begin with an empty screen or require setup before anything can be understood.
-- Include one prominent `Run demo` button visible without scrolling. It must play a complete representative walkthrough with immediate feedback and explain the changing state. For a static subject, make it reveal or step through a guided explanation.
-- Put optional expert controls inside a closed `<details>` disclosure labeled `Advanced`. The demo must work without opening it; advanced settings should let curious users change meaningful assumptions and rerun the same model.
-- Label controls visibly, support keyboard use, keep focus states, and use semantic elements.
-- Give buttons instant press feedback and make state changes interruptible. Use motion to explain cause and effect, not as decoration.
-- Respect `prefers-reduced-motion`. Avoid autoplay, perpetual motion, scroll hijacking, and animation that does not communicate state.
-- Keep text concise and readable. The artifact is embedded in a conversation, not a marketing page.
+- System font, readable sizes, light and dark colors that follow the app.
+- `button` is a quiet pill; `button.primary` is the accent button. Inputs, selects, ranges, tables, `details`, and focus rings are styled.
+- Color variables: `--k-fg`, `--k-muted`, `--k-line`, `--k-surface`, `--k-bg`, `--k-accent`, `--k-good`, `--k-warn`, `--k-bad`, `--k-radius`, `--k-mono`. Use them instead of hard-coded colors so dark mode works.
+- Helpers: `.k-row` (wrapping flex row), `.k-stack` (vertical grid), `.k-muted`, `.k-num` (tabular numbers).
+- SVG `<text>` inherits the text color.
+
+## Code that runs the first time
+
+Most failures are small JavaScript mistakes. Write plain, boring code:
+
+- One classic `<script>` as the last element in `<body>`, so every element exists when it runs.
+- Every `getElementById` / `querySelector` target must exist in the markup with exactly that id or class. Do not look up elements you never wrote.
+- Declare a variable or function before code that runs immediately uses it. No top-level `await`, no `import`/`export`.
+- Size canvases from their element (`canvas.clientWidth`) and redraw on `resize`. Never assume a fixed viewport.
+- Guard every state change so pressing a button twice or mid-animation cannot break it.
+
+## Playback
+
+When the subject has a process, sequence, or change over time, add one `Play` button (`button.primary`) visible without scrolling. Build playback as a list of steps that each set the full state and a one-line caption, advanced by one `setTimeout` chain that `Play` restarts and `Pause`/`Reset` clears. Each step must render on its own, so the visual never depends on an earlier animation finishing.
+
+With `prefers-reduced-motion: reduce`, still step through every state; just skip the tweening. Never skip the playback itself.
+
+A static subject (a comparison, a structure, a single chart) does not need a Play button. Show the full picture immediately, and use hover/tap or a small control only where it reveals something.
+
+## Look
+
+- Fit the chat: works from 320 px wide, aims to fit in about 640 px of height. Use `clamp()` and flexible grids so it also scales up when expanded.
+- One focal surface. Group with spacing before adding borders or cards. One accent color; status colors only for status.
+- Sentence-case labels, short captions, real numbers with units. No emoji, gradients, glows, glassmorphism, drop-shadow stacks, or title banners. The chat already shows the title, so start with the content.
+- Optional expert settings go in a closed `<details>` labeled `Advanced`.
+- Label controls, keep them keyboard-usable, and make the first state meaningful, never an empty canvas.
 
 ## Information integrity
 
-Use facts and values from the conversation. Do not invent measurements, statistics, citations, or precision. When illustrative values are necessary, label them clearly as examples. Distinguish observed data from an inference or scenario.
+Use facts and values from the conversation. Do not invent measurements, statistics, or citations. When illustrative values are necessary, label them as examples. Keep observed data visibly separate from scenarios.
 
-When the request contains too much information for one view, choose the strongest explanatory model and reveal secondary detail progressively. When a visual would not improve understanding, create the smallest useful representation rather than adding spectacle.
+## Before answering
 
-## Final check
-
-Before answering, mentally run the document without a network connection. Confirm that it has no external dependency, no console-breaking syntax, no clipped essential content, no unusable mobile layout, and no interaction that requires a mouse. The final response must satisfy the output contract exactly.
+Read the script once as the browser would: top to bottom, with every lookup resolving and every function defined before it is called. Then return the fence and nothing after it.

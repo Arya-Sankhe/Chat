@@ -77,12 +77,13 @@ import {
   updateAssistantOutputMessage,
   writeSse
 } from "./shared.js";
+import { streamSingleChat } from "./single.js";
 import {
   ensureVisualizeResponse,
   normalizeVisualizeRuntimeError,
-  streamSingleChat,
+  repairVisualizeRuntime,
   withVisualizeRepairSystemPrompt
-} from "./single.js";
+} from "./visualize.js";
 import {
   PENDING_TURN_LEASE_SECONDS,
   documentHasUsableCapability,
@@ -218,7 +219,9 @@ export async function loadUploadedAttachments(context, attachmentIds, req, plan,
   return attachments;
 }
 
-async function resolveMessageRetry({ db, userId, conversationId, retryAssistantMessageId, signal }) {
+// `keepOriginal` (visual repairs) leaves the old answer in place until the replacement is
+// saved, so a failed repair loses nothing.
+async function resolveMessageRetry({ db, userId, conversationId, retryAssistantMessageId, keepOriginal = false, signal }) {
   const id = String(retryAssistantMessageId || "").trim();
   if (!id) return null;
 
@@ -234,7 +237,7 @@ async function resolveMessageRetry({ db, userId, conversationId, retryAssistantM
     throw new HttpError(400, "Could not find the user message to retry.");
   }
 
-  await db.deleteMessage(userId, id, { signal });
+  if (!keepOriginal) await db.deleteMessage(userId, id, { signal });
   const trimmedMessages = existingMessages.filter((message) => message.id !== id);
   const attachmentRows = await db.listMessageAttachments(userId, userMessage.id, { signal });
 
@@ -243,6 +246,7 @@ async function resolveMessageRetry({ db, userId, conversationId, retryAssistantM
     userMessage,
     userContent: userMessage.content,
     assistantContent: contentText(failedAssistant.content),
+    keptAssistantId: keepOriginal ? id : "",
     attachmentIds: attachmentRows.map((attachment) => attachment.id)
   };
 }
@@ -760,6 +764,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
   let isRetry = false;
   let isEdit = false;
   let retryAssistantContent = "";
+  let keptAssistantId = "";
 
   if (turnRun) {
     if (!persistedUserMessage) throw new HttpError(409, "The pending turn no longer has a user message.");
@@ -773,8 +778,10 @@ async function executeConversationMessage(req, res, config, conversationId, {
       userId: context.user.id,
       conversationId: conversation.id,
       retryAssistantMessageId,
+      keepOriginal: Boolean(visualizeRuntimeError),
       signal: req.signal
     });
+    keptAssistantId = retryContext.keptAssistantId;
     existingMessages = retryContext.existingMessages;
     userMessage = retryContext.userMessage;
     userContent = retryContext.userContent;
@@ -1394,6 +1401,7 @@ async function executeConversationMessage(req, res, config, conversationId, {
     });
   }
 
+  let answerSaved = false;
   try {
     startSse(res, {
       "x-klui-user-message-id": userMessage.id,
@@ -1404,7 +1412,21 @@ async function executeConversationMessage(req, res, config, conversationId, {
     const allCitations = [];
     const thought = createThoughtTicker((event) => writeSse(res, event));
     if (documents) documents.onProgress = (text) => writeSse(res, { type: "status:step", text });
-    let response = augmented
+    // A visual that threw in the browser is patched by the fast model first; only if that
+    // fails does the full model regenerate it.
+    const patchedVisual = visualizing && visualizeRuntimeError
+      ? await repairVisualizeRuntime({
+          previous: retryAssistantContent,
+          runtimeError: visualizeRuntimeError,
+          modelClient,
+          provider,
+          signal: controller.signal
+        })
+      : null;
+    if (patchedVisual) writeSse(res, { choices: [{ delta: { content: patchedVisual } }] });
+    let response = patchedVisual
+      ? { accumulated: { content: patchedVisual, reasoning: "", toolCalls: [], finishReason: "stop", usage: null, generationId: "" }, citations: [], providers: [], toolCallCount: 0 }
+      : augmented
       ? await runChatWithToolLoop({
           chatRequest: equippedRequest,
           modelClient,
@@ -1518,6 +1540,11 @@ async function executeConversationMessage(req, res, config, conversationId, {
       error: null,
       ...(finalMetadata ? { metadata: finalMetadata } : {})
     }, { signal: req.signal, turnRun });
+    // The answer is saved; later bookkeeping failures must not mark it failed or drop it.
+    answerSaved = true;
+    const replacedAssistantId = keptAssistantId;
+    keptAssistantId = "";
+    if (replacedAssistantId) await context.db.deleteMessage(context.user.id, replacedAssistantId).catch(() => {});
     if (accumulated.usage) {
       writeSse(res, { type: "usage", usage: accumulated.usage });
     }
@@ -1533,14 +1560,23 @@ async function executeConversationMessage(req, res, config, conversationId, {
     /* Drop req.signal on abort: installStableRequestSignal aborts it on
        client disconnect, and updateMessage would otherwise reject before
        the partial row can be written. */
-    await updateAssistantOutputMessage(context, assistantMessage.id, {
-      ...(aborted ? {
-        content: partial?.content || "",
-        reasoning: partial?.reasoning || ""
-      } : {}),
-      error: message,
-      finish_reason: "error"
-    }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
+    if (answerSaved) {
+      if (!res.writableEnded && !turnRun?.id) res.end();
+      return { status: "done" };
+    }
+    if (keptAssistantId) {
+      // A failed visual repair drops its draft; the original answer is still there.
+      await context.db.deleteMessage(context.user.id, assistantMessage.id).catch(() => {});
+    } else {
+      await updateAssistantOutputMessage(context, assistantMessage.id, {
+        ...(aborted ? {
+          content: partial?.content || "",
+          reasoning: partial?.reasoning || ""
+        } : {}),
+        error: message,
+        finish_reason: "error"
+      }, { ...(aborted ? {} : { signal: req.signal }), turnRun }).catch(() => {});
+    }
     if (res.headersSent) {
       writeSse(res, { type: "error", error: message });
       if (!turnRun?.id) res.end();

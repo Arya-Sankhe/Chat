@@ -438,7 +438,7 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.match(researchJs, /researchDownloadStatus[\s\S]*classList\.toggle\("hidden", !busy\)/);
   assert.match(styles, /\.research-download-status \{/);
   assert.doesNotMatch(app, /window\.print\(\)/);
-  assert.match(researchJs, /renderKluiThinkingStatus\(\{ id: `research-/);
+  assert.match(researchJs, /class="research-walk"/);
   assert.match(researchJs, /function patchResearchCard\(msg\)/);
   assert.match(styles, /research-report-tabs button\[aria-selected="true"\]/);
   assert.doesNotMatch(researchJs, /researchVisualTab\.classList\.toggle\("active"/);
@@ -448,7 +448,7 @@ test("research path uses the shared search chain and exposes both report modes",
   assert.doesNotMatch(styles, /\.research-report-tabs \{ grid-row: 2/);
   assert.match(styles, /\.research-artifact \{/);
   assert.match(styles, /\.research-report-header button:not\(\[role="menuitem"\]\):not\(\[role="tab"\]\) \{ display: inline-flex/);
-  assert.match(styles, /transform: scaleX\(var\(--research-progress, 0\)\)/);
+  assert.match(styles, /left: calc\(\(100% - var\(--rk-w\)\) \* var\(--research-progress, 0\)\)/);
   assert.match(styles, /prefers-reduced-motion: reduce/);
   assert.match(schema, /enable row level security/i);
   assert.match(schema, /auth\.uid\(\).*user_id/i);

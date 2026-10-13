@@ -567,7 +567,6 @@ function endConversationRun(key, { completed = false } = {}) {
   if (completed && !run.temporary && run.conversationId && run.conversationId !== state.activeConversationId) {
     unreadDoneChats.add(run.conversationId);
   }
-  if (completed && !run.temporary && run.conversationId) armVisualizeAutoRepair(run.conversationId);
   if (isRunKeyActive(key) || state.abortController === run?.abortController) {
     syncActiveRunningUi();
   }
@@ -7468,7 +7467,7 @@ function syncComposerKlui() {
   if (!composerKlui) phoneLayout.addEventListener("change", syncComposerKlui);
   composerKlui ||= createComposerKlui({
     host: els.composer,
-    findTarget: () => [...els.messages.querySelectorAll(".klui-bar.is-active .klui")].at(-1) || null
+    findTarget: () => [...els.messages.querySelectorAll(".klui-bar.is-active .klui, .research-card.is-active .rk-sprite")].at(-1) || null
   });
   const home = document.body.classList.contains("chat-empty");
   const phone = phoneLayout.matches || document.body.classList.contains("capacitor-native");
@@ -7549,9 +7548,7 @@ researchController = createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages,
-  renderKluiThinkingStatus,
-  updateKluiBar
+  renderImages
 });
 
 async function loadStudyHub() {
@@ -9426,23 +9423,42 @@ async function editUserMessage(id) {
 }
 
 /* Visualize auto-repair: the server can only compile a document, so runtime
-   failures surface here via the sandbox bridge. Repair only the turn that just
-   finished in this tab (armed for a short window after the run completes) and
-   cap attempts per user prompt so a stubborn bug cannot loop. */
-const VISUALIZE_AUTO_REPAIR_WINDOW_MS = 45_000;
+   failures surface here via the sandbox bridge. Only the latest visualize turn
+   is repaired, silently, and attempts are capped per user prompt so a stubborn
+   bug cannot loop. Returns true when a repair started. */
 const VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS = 2;
-const visualizeAutoRepair = { armed: new Map(), attempts: new Map() };
+const VISUALIZE_AUTO_REPAIR_STORE = "klui:visualize-repairs";
 
-function armVisualizeAutoRepair(conversationId) {
-  if (!conversationId) return;
-  visualizeAutoRepair.armed.set(String(conversationId), Date.now());
+const visualizeRepairCounts = new Map();
+
+// Attempts live in localStorage so a reload or a second tab cannot reset the cap; the
+// in-memory map keeps the cap when storage is unavailable.
+function storedVisualizeRepairs() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VISUALIZE_AUTO_REPAIR_STORE) || "{}");
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  } catch {
+    return {};
+  }
 }
 
-async function maybeAutoRepairVisualization({ messageId, message } = {}) {
+function visualizeRepairCount(key) {
+  return Math.max(visualizeRepairCounts.get(key) || 0, Number(storedVisualizeRepairs()[key]) || 0);
+}
+
+function setVisualizeRepairCount(key, count) {
+  visualizeRepairCounts.set(key, count);
+  const stored = storedVisualizeRepairs();
+  delete stored[key];
+  const entries = [...Object.entries(stored), [key, count]].slice(-100);
+  try {
+    localStorage.setItem(VISUALIZE_AUTO_REPAIR_STORE, JSON.stringify(Object.fromEntries(entries)));
+  } catch {}
+}
+
+function maybeAutoRepairVisualization({ messageId, message } = {}) {
   const conversationId = state.activeConversationId;
   if (!conversationId || state.temporaryChat || state.running || !messageId) return false;
-  const armedAt = visualizeAutoRepair.armed.get(String(conversationId)) || 0;
-  if (!armedAt || Date.now() - armedAt > VISUALIZE_AUTO_REPAIR_WINDOW_MS) return false;
 
   const index = state.messages.findIndex((item) => String(item?.id) === String(messageId));
   if (index <= 0 || index !== state.messages.length - 1) return false;
@@ -9450,22 +9466,18 @@ async function maybeAutoRepairVisualization({ messageId, message } = {}) {
   const userMsg = state.messages[index - 1];
   if (assistant?.role !== "assistant" || userMsg?.role !== "user" || !canRetryAssistant(assistant)) return false;
   if (!normalizeClientSkillIds(userMsg?.metadata?.skillIds).includes("visualize")) return false;
+  if (!visualizeSourceFromContent(assistant.content)) return false;
 
   const attemptKey = `${conversationId}:${userMsg.id}`;
-  const attempts = visualizeAutoRepair.attempts.get(attemptKey) || 0;
+  const attempts = visualizeRepairCount(attemptKey);
   if (attempts >= VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS) return false;
-  visualizeAutoRepair.attempts.set(attemptKey, attempts + 1);
-  visualizeAutoRepair.armed.delete(String(conversationId));
+  setVisualizeRepairCount(attemptKey, attempts + 1);
 
   // Silent by design: the panel stays put and switches to "Getting it ready".
-  try {
-    await retryFailedAssistant(String(assistant.id), "", {
-      visualizeRuntimeError: String(message || "The visualization could not run.").slice(0, 300)
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  void retryFailedAssistant(String(assistant.id), "", {
+    visualizeRuntimeError: String(message || "The visualization could not run.").slice(0, 300)
+  }).catch(() => {});
+  return true;
 }
 
 async function retryFailedAssistant(assistantMessageId, responseAdjustment = "", { visualizeRuntimeError = "" } = {}) {
@@ -9508,6 +9520,8 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
   pinMessagesToBottom();
   let wasAborted = false;
   let shouldReloadConversation = false;
+  // A visual repair never shows its own failure: the original visual comes back instead.
+  let repairErrored = false;
 
   try {
     await streamConversationMessage(state.session, conversationId, {
@@ -9522,6 +9536,10 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
     }, {
       signal: abortController.signal,
       onEvent: (event) => {
+        if (repairSource && event?.type === "error") {
+          repairErrored = true;
+          return;
+        }
         applyStreamEvent(localAssistant, event);
         if (!isRunKeyActive(runKey)) return;
         queueStreamRenderForEvent(localAssistant, event);
@@ -9529,8 +9547,8 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
     });
 
     markAssistantActivityDoneTree(localAssistant);
-    await Promise.all([loadMe(), loadConversations()]);
-    shouldReloadConversation = true;
+    shouldReloadConversation = !repairErrored;
+    await Promise.all([loadMe(), loadConversations()]).catch(() => {});
   } catch (err) {
     if (err.name === "AbortError") {
       wasAborted = true;
@@ -9546,7 +9564,17 @@ async function retryFailedAssistant(assistantMessageId, responseAdjustment = "",
     const pinned = state.autoScroll && isNearBottom(els.messages, 120);
     const scrollTop = els.messages.scrollTop;
     endConversationRun(runKey, { completed: !wasAborted && shouldReloadConversation });
-    if (shouldReloadConversation && stillActive) {
+    // A silent visual repair that fails puts the previous visual back instead of an error;
+    // if it breaks again, the attempt cap decides between another repair and the fallback bar.
+    // Stopping a repair by hand also ends automatic repairs for this prompt.
+    const repairFailed = Boolean(repairSource) && !shouldReloadConversation;
+    if (repairFailed && wasAborted) setVisualizeRepairCount(`${conversationId}:${userMsg.id}`, VISUALIZE_AUTO_REPAIR_MAX_ATTEMPTS);
+    // Find the draft by identity: loading older messages mid-repair shifts indexes.
+    const draftIndex = repairFailed ? (activeRun.messages?.indexOf(localAssistant) ?? -1) : -1;
+    if (draftIndex >= 0) {
+      activeRun.messages[draftIndex] = failed;
+      if (stillActive) renderMessages();
+    } else if (shouldReloadConversation && stillActive) {
       await loadActiveConversation().catch(() => {});
       settleLiveMessages({ pinned, scrollTop });
     } else if (!stillActive) {
@@ -11522,6 +11550,14 @@ function bindEvents() {
       }
       return;
     }
+    const visualizeFix = e.target.closest("[data-visualize-fix]");
+    if (visualizeFix) {
+      const card = visualizeFix.closest(".visualize-card");
+      const messageId = card?.closest("[data-message-id]")?.dataset.messageId || "";
+      if (card?.dataset.runtimeError && maybeAutoRepairVisualization({ messageId, message: card.dataset.runtimeError })) return;
+      showToast("Retry the message to rebuild this visual.");
+      return;
+    }
     const visualizeExpand = e.target.closest("[data-visualize-expand]");
     if (visualizeExpand) {
       const card = visualizeExpand.closest(".visualize-card");
@@ -11779,7 +11815,7 @@ function bindEvents() {
   });
 
   window.addEventListener("message", (event) => applyVisualizeFrameMessage(event, document, {
-    onRuntimeError: (report) => { void maybeAutoRepairVisualization(report); }
+    onRuntimeError: (report) => maybeAutoRepairVisualization(report)
   }));
 
   els.sendButton.addEventListener("pointerdown", (event) => {

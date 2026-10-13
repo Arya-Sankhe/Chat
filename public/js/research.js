@@ -22,9 +22,7 @@ export function createResearchController({
   syncConversationUrl,
   selectedModelMode,
   applyComposerHeight,
-  renderImages,
-  renderKluiThinkingStatus = null,
-  updateKluiBar = null
+  renderImages
 }) {
   let researchPollTimer = null;
   let researchPollGeneration = 0;
@@ -199,36 +197,63 @@ export function createResearchController({
     </div>`;
   }
 
+  // The pixel Klui walks along the progress track while the run works, holding something for
+  // each phase: a thought while planning, a magnifier while searching, a book while reading,
+  // sparkles while analyzing and a pencil while writing. Colors match the composer mascot.
+  const RESEARCH_PHASES = ["planning", "searching", "reading", "analyzing", "writing"];
+  const rect = (x, y, w, h, fill, extra = "") => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"${extra}/>`;
+  const RESEARCH_KLUI = `<svg class="rk-svg" viewBox="-2 -1 22 13" shape-rendering="crispEdges" aria-hidden="true">
+      <g class="rk-prop rk-think" fill="currentColor">${rect(14, 0, 1, 1, "inherit", ' class="rk-dot"')}${rect(16, 0, 1, 1, "inherit", ' class="rk-dot"')}${rect(18, 0, 1, 1, "inherit", ' class="rk-dot"')}</g>
+      <g class="rk-prop rk-spark" fill="#f2c14e">
+        <g class="rk-star">${rect(2, 0, 0.5, 1.5, "inherit")}${rect(1.5, 0.5, 1.5, 0.5, "inherit")}</g>
+        <g class="rk-star">${rect(15.5, -0.5, 0.5, 1.5, "inherit")}${rect(15, 0, 1.5, 0.5, "inherit")}</g>
+        <g class="rk-star">${rect(18, 2.5, 0.5, 1.5, "inherit")}${rect(17.5, 3, 1.5, 0.5, "inherit")}</g>
+      </g>
+      <g class="rk-body" fill="#8fd3fb">
+        <g class="rk-leg rk-leg-a">${rect(5, 9.5, 1, 2.5, "inherit")}</g>
+        <g class="rk-leg rk-leg-b">${rect(10, 9.5, 1, 2.5, "inherit")}</g>
+        ${rect(3, 3.5, 10, 6, "inherit")}${rect(1, 5.5, 2, 2, "inherit")}${rect(13, 5.5, 2, 2, "inherit")}
+        <g class="rk-eyes" fill="#16202e">${rect(5, 5, 1, 1.5, "inherit")}${rect(10, 5, 1, 1.5, "inherit")}</g>
+      </g>
+      <g class="rk-prop rk-lens">${rect(16, 1.5, 2, 2, "#bfe6ff", ' opacity=".7"')}<g fill="#56637f">${rect(16, 0.5, 2, 1, "inherit")}${rect(15, 1.5, 1, 2, "inherit")}${rect(18, 1.5, 1, 2, "inherit")}${rect(16, 3.5, 2, 1, "inherit")}${rect(14.5, 4.5, 1, 1, "inherit")}</g></g>
+      <g class="rk-prop rk-book">${rect(3.5, 7, 4.5, 2.5, "#f4efe4")}${rect(8, 7, 4.5, 2.5, "#e9e2d2")}${rect(7.75, 7, 0.5, 2.5, "#b9ad95")}<g fill="#cfc5b0">${rect(4.5, 7.75, 2.5, 0.4, "inherit")}${rect(4.5, 8.5, 2, 0.4, "inherit")}${rect(9, 7.75, 2.5, 0.4, "inherit")}${rect(9, 8.5, 1.5, 0.4, "inherit")}</g></g>
+      <g class="rk-prop rk-pencil">${rect(15.5, 3, 1, 1, "#e98c8c")}${rect(15.5, 4, 1, 4, "#f2c14e")}${rect(15.5, 8, 1, 1, "#56637f")}</g>
+    </svg>`;
+
+  function researchPhase(research) {
+    const phase = String(research.phase || "");
+    if (RESEARCH_PHASES.includes(phase)) return phase;
+    return research.status === "queued" ? "planning" : "searching";
+  }
+
   function renderResearchCard(msg) {
     const model = researchCardModel(msg);
     const { research, active, label, percent, meta, status } = model;
     if (!active) return renderResearchResult(msg, model);
     const summary = cleanReportSummary(research.summary);
-    // While it runs, Klui narrates the current phase; the title waits until the plan names it.
-    const live = renderKluiThinkingStatus
-      ? renderKluiThinkingStatus({ id: `research-${research.runId || msg.id || "run"}` }, { label, active: true })
-      : "";
+    const note = summary || msg.error || "";
+    const progress = Math.max(0.02, percent / 100);
     return `
-    <div class="research-card ${status}" data-research-run="${escapeHtml(research.runId || "")}">
-      <div class="research-card-main">
-        <div class="research-card-heading">
-          <span class="research-card-icon" aria-hidden="true">${REPORT_ICON}</span>
-          <span class="research-card-kicker">Deep research</span>
-          <span class="research-card-meta">${researchMetaMarkup(meta)}</span>
-          <button class="research-card-cancel" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>
-        </div>
-        ${research.title ? `<strong class="research-card-title">${escapeHtml(research.title)}</strong>` : ""}
-        ${live ? `<div class="research-card-live">${live}</div>` : ""}
-        ${summary ? `<p>${escapeHtml(summary)}</p>` : msg.error ? `<p>${escapeHtml(msg.error)}</p>` : ""}
-        <div class="research-card-progress" role="progressbar" aria-label="Research progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="--research-progress:${percent / 100}"></span></div>
+    <div class="research-card ${status}" data-research-run="${escapeHtml(research.runId || "")}" data-phase="${researchPhase(research)}" style="--research-progress:${progress}">
+      <div class="research-card-heading">
+        <span class="research-card-kicker">Deep research</span>
+        <span class="research-card-meta">${researchMetaMarkup(meta)}</span>
+        <button class="research-card-cancel" type="button" data-cancel-research="${escapeHtml(research.runId || "")}">Cancel</button>
       </div>
+      ${research.title ? `<strong class="research-card-title">${escapeHtml(research.title)}</strong>` : ""}
+      <div class="research-walk" role="progressbar" aria-label="Research progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
+        <span class="research-walk-track" aria-hidden="true"><span></span></span>
+        <span class="research-klui" aria-hidden="true"><span class="rk-sprite">${RESEARCH_KLUI}</span></span>
+      </div>
+      <p class="research-card-status" aria-live="polite"><span class="research-card-label" data-label="${escapeHtml(label)}">${escapeHtml(label)}</span></p>
+      ${note ? `<p class="research-card-note">${escapeHtml(note)}</p>` : ""}
     </div>`;
   }
 
-  // Polls refresh the running card in place, so Klui keeps animating instead of remounting every 2s.
+  // Polls refresh the running card in place, so Klui keeps walking instead of remounting every 2s.
   function patchResearchCard(msg) {
     const id = msg?.id ? String(msg.id) : "";
-    if (!id || !updateKluiBar) return false;
+    if (!id || !elements.messages) return false;
     const article = [...elements.messages.querySelectorAll("article.message[data-message-id]")]
       .find((node) => node.dataset.messageId === id);
     const card = article?.querySelector(".research-card.is-active");
@@ -238,16 +263,27 @@ export function createResearchController({
     if (Boolean(title) !== Boolean(model.research.title)) return false;
     // Summary or error text appearing mid-run changes the layout; let the full render handle it.
     const note = cleanReportSummary(model.research.summary) || msg.error || "";
-    if ((card.querySelector(".research-card-main > p")?.textContent || "") !== note) return false;
+    if ((card.querySelector(".research-card-note")?.textContent || "") !== note) return false;
     if (title && title.textContent !== model.research.title) title.textContent = model.research.title;
     const meta = card.querySelector(".research-card-meta");
     const metaHtml = researchMetaMarkup(model.meta);
     if (meta && meta.innerHTML !== metaHtml) meta.innerHTML = metaHtml;
-    const progress = card.querySelector(".research-card-progress");
-    progress?.setAttribute("aria-valuenow", String(model.percent));
-    progress?.querySelector("span")?.style.setProperty("--research-progress", String(model.percent / 100));
-    const bar = card.querySelector(".klui-bar");
-    if (bar) updateKluiBar(bar, { label: model.label, active: true });
+    card.dataset.phase = researchPhase(model.research);
+    const labelEl = card.querySelector(".research-card-label");
+    if (labelEl && labelEl.textContent !== model.label) {
+      labelEl.textContent = model.label;
+      labelEl.dataset.label = model.label;
+    }
+    const walk = card.querySelector(".research-walk");
+    const progress = Math.max(0.02, model.percent / 100);
+    if (walk && Number(card.style.getPropertyValue("--research-progress")) < progress) {
+      // Klui only walks while it is actually moving forward.
+      card.style.setProperty("--research-progress", String(progress));
+      card.classList.add("is-walking");
+      clearTimeout(card._walkTimer);
+      card._walkTimer = setTimeout(() => card.classList.remove("is-walking"), 900);
+    }
+    walk?.setAttribute("aria-valuenow", String(model.percent));
     return true;
   }
 

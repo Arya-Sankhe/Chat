@@ -1505,6 +1505,9 @@ test("visualize retry with a sandbox runtime error asks for a targeted repair of
   assert.match(system, /<previous_response>[\s\S]*toLocaleString\('en US'\)[\s\S]*<\/previous_response>/);
   const finalUpdate = db.calls.filter((call) => call.op === "updateMessage").at(-1);
   assert.equal(finalUpdate.patch.content, fixed);
+  // The broken original is only removed once the repaired answer is saved.
+  const removeOriginal = db.calls.findIndex((call) => call.op === "deleteMessage" && call.id === "asst-visualize");
+  assert.ok(removeOriginal > db.calls.indexOf(finalUpdate));
 
   const noRetry = await dispatchChat(config, db, {
     path: "/api/conversations/conv-1/messages",
@@ -1512,6 +1515,44 @@ test("visualize retry with a sandbox runtime error asks for a targeted repair of
   });
   assert.equal(noRetry.statusCode, 400);
   assert.match(noRetry.body, /requires an assistant message to retry/);
+});
+
+test("a failed visual repair keeps the original answer and drops its draft", async (t) => {
+  t.after(restoreFetch);
+  const broken = "```visualize\n<!doctype html><html><body><script>(1).toLocaleString('en US')</script></body></html>\n```";
+  installProviderFetch({
+    completionFor: () => ({ choices: [{ message: { content: "no patch here" } }] }),
+    streamFor: () => new Response("upstream down", { status: 500 })
+  });
+  const history = [
+    { id: "user-visualize", role: "user", content: "Explain compounding.", metadata: { skillIds: ["visualize"] } },
+    { id: "asst-visualize", role: "assistant", content: broken, finish_reason: "stop" }
+  ];
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: history });
+  await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { retryAssistantMessageId: "asst-visualize", visualizeRuntimeError: "RangeError: bad locale", model: TEXT_MODEL, agentMode: true }
+  });
+  const deleted = db.calls.filter((call) => call.op === "deleteMessage").map((call) => call.id);
+  assert.equal(deleted.includes("asst-visualize"), false);
+  assert.equal(deleted.length, 1);
+});
+
+test("a bookkeeping failure after the answer is saved leaves the answer intact", async (t) => {
+  t.after(restoreFetch);
+  installProviderFetch({ streamFor: () => [contentDelta("Saved answer."), usageChunk()] });
+  const config = loadConfig(CONFIG_ENV);
+  const db = makeDb({ conversation: conversationRow, messages: [] });
+  db.updateConversation = async () => { throw new Error("db hiccup"); };
+  const res = await dispatchChat(config, db, {
+    path: "/api/conversations/conv-1/messages",
+    body: { text: "hi", model: TEXT_MODEL }
+  });
+  assert.doesNotMatch(res.body, /"type":"error"/);
+  const updates = db.calls.filter((call) => call.op === "updateMessage");
+  assert.equal(updates.at(-1).patch.content, "Saved answer.");
+  assert.equal(updates.some((call) => call.patch.finish_reason === "error"), false);
 });
 
 test("longer retry rewrites the existing answer without adding a user message", async (t) => {

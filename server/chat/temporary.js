@@ -32,7 +32,8 @@ import {
   withAvailableTools
 } from "./pipeline.js";
 import { hasAssistantOutput, withVoiceReasoning, writeSse } from "./shared.js";
-import { ensureVisualizeResponse, streamSingleChat } from "./single.js";
+import { streamSingleChat } from "./single.js";
+import { ensureVisualizeResponse } from "./visualize.js";
 import { createThoughtTicker } from "./thoughtTicker.js";
 
 function normalizeTemporaryHistory(messages) {

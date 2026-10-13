@@ -115,7 +115,7 @@ test("visualize resize messages require the matching iframe window and clamp hei
 test("visualize runtime errors stay inside the matching card", () => {
   const sourceWindow = {};
   const classes = new Set();
-  const error = { textContent: "", hidden: true };
+  const error = { textContent: "", hidden: true, title: "" };
   const card = {
     classList: { add(value) { classes.add(value); } },
     querySelector() { return error; }
@@ -127,15 +127,33 @@ test("visualize runtime errors stay inside the matching card", () => {
   };
   const root = { querySelectorAll() { return [frame]; } };
   assert.equal(applyVisualizeFrameMessage({ data: { type: "klui:visualize:error", id: "v7", message: "Bad syntax" }, source: sourceWindow }, root), true);
-  assert.equal(error.textContent, "Bad syntax");
+  assert.equal(error.textContent, "Part of this visual didn't load.");
+  assert.equal(error.title, "Bad syntax");
   assert.equal(error.hidden, false);
   assert.ok(classes.has("has-error"));
+});
+
+test("visualize runtime errors stay hidden while a silent repair starts", () => {
+  const sourceWindow = {};
+  const classes = new Set();
+  const error = { textContent: "", hidden: true, title: "" };
+  const card = {
+    dataset: {},
+    classList: { add(value) { classes.add(value); }, contains(value) { return classes.has(value); } },
+    querySelector() { return error; },
+    closest() { return { dataset: { messageId: "msg-1" } }; }
+  };
+  const frame = { dataset: { visualizeId: "v9" }, contentWindow: sourceWindow, closest() { return card; } };
+  const root = { querySelectorAll() { return [frame]; } };
+  applyVisualizeFrameMessage({ data: { type: "klui:visualize:error", id: "v9", message: "x is not defined" }, source: sourceWindow }, root, { onRuntimeError: () => true });
+  assert.equal(error.hidden, true);
+  assert.equal(card.dataset.runtimeError, "x is not defined");
 });
 
 test("visualize runtime errors report the owning message once for auto-repair", () => {
   const sourceWindow = {};
   const classes = new Set();
-  const error = { textContent: "", hidden: true };
+  const error = { textContent: "", hidden: true, title: "" };
   const article = { dataset: { messageId: "msg-9" } };
   const card = {
     classList: { add(value) { classes.add(value); }, contains(value) { return classes.has(value); } },

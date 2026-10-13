@@ -79,7 +79,7 @@ test("catalog lists Visualize as an exclusive prompt skill", () => {
   assert.equal(visualize.exclusive, true);
   assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /```visualize/);
   assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /output contract is mandatory/);
-  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /Run demo/);
+  assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /`Play` button/);
   assert.match(withComposerSkillsSystemPrompt("Base", ["visualize"]), /Advanced/);
   assert.deepEqual(normalizeComposerSkillIds(["humanizer", "visualize"]), ["visualize"]);
   assert.ok(existsSync(new URL("../skills/visualize/COMPOSER.json", import.meta.url)));
