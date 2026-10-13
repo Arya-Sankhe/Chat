@@ -211,6 +211,7 @@ async function runModel({ config, modelClient, provider, websearch = null, sourc
       messages: [{ role: "system", content: system }, ...messages],
       temperature: 0.45,
       max_tokens: maxTokens,
+      document_writer: true,
       ...(reasoning ? { reasoning } : { reasoning: { enabled: false } })
     }
   });
@@ -261,7 +262,9 @@ export async function writeDoc({ config, modelClient, websearch = null, signal, 
   const sources = [];
   const evidence = [];
   const search = { config, websearch, sources, evidence };
-  const limit = Math.max(30_000, Number(timeoutMs || config?.documents?.docWriterTimeoutMs || 240_000));
+  // A backstop only: the stall watchdog stops hung calls, and a slow flex call that is still
+  // streaming must not be thrown away and paid for twice.
+  const limit = Math.max(30_000, Number(timeoutMs || config?.documents?.docWriterTimeoutMs || 900_000));
   const fallback = { title: brief?.title || "", style: brief?.style || "", hint: `${brief?.userRequest || ""} ${brief?.title || ""} ${brief?.instructions || ""}` };
   for (const model of DOC_MODELS) {
     const reasoning = model === OPENROUTER_PRO_MODEL ? { effort: "low", exclude: true } : null;

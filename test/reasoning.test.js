@@ -391,6 +391,27 @@ test("website and desktop Luna requests share smart OpenAI tier routing", () => 
   });
 });
 
+test("deck and document writers wait longer for Luna flex than chat does", () => {
+  const writer = adaptChatRequestForProvider({
+    model: "openai/gpt-6-luna",
+    messages: [{ role: "user", content: "write the deck" }],
+    document_writer: true
+  }, "openrouter");
+  assert.equal(writer.document_writer, undefined);
+  assert.deepEqual(writer.provider, {
+    order: ["openai/flex", "openai"],
+    allow_fallbacks: true,
+    preferred_max_latency: 10,
+    preferred_min_throughput: 25
+  });
+  const chat = adaptChatRequestForProvider({ model: "openai/gpt-6-luna", messages: [{ role: "user", content: "hi" }] }, "openrouter");
+  assert.equal(chat.provider.preferred_max_latency, 6);
+  // The flag only changes Luna's tier routing; other models drop it.
+  const deepseek = adaptChatRequestForProvider({ model: "deepseek/deepseek-v4-flash-0731", messages: [{ role: "user", content: "hi" }], document_writer: true }, "openrouter");
+  assert.equal(deepseek.document_writer, undefined);
+  assert.equal(deepseek.provider.preferred_max_latency, undefined);
+});
+
 test("normalizeMessageSettings accepts thinkingEffort as reasoning_effort alias", async () => {
   const { normalizeMessageSettings } = await import("../server/saas/messages.js");
   assert.deepEqual(

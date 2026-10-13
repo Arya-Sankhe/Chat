@@ -330,6 +330,9 @@ export function resetThinkFlexCache() {
   thinkFlexRefresh = null;
 }
 
+// Seconds to first token that Pro may take on flex for document writing before standard is preferred.
+const DOCUMENT_WRITER_MAX_LATENCY_S = 10;
+
 // Exclude these hosts only for MiMo V2.6 Flash.
 const IGNORED_PROVIDERS = new Map([[OPENROUTER_VISION_MODEL, ["io-net", "venice"]]]);
 
@@ -376,7 +379,7 @@ export function adaptChatRequestForProvider(body, providerId) {
   if (!body || normalizeProviderId(providerId) !== "openrouter") return body;
   assertAllowedChatModels(body);
 
-  const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, flex_only: flexOnly, ...rest } = body;
+  const { reasoning_effort: reasoningEffort, sticky_provider: stickyProvider, flex_only: flexOnly, document_writer: documentWriter, ...rest } = body;
   const effort = resolveOpenRouterReasoningEffort(reasoningEffort);
   const modelId = String(rest.model || "").trim().toLowerCase();
   const hasTools = Array.isArray(rest.tools) && rest.tools.length > 0;
@@ -454,7 +457,9 @@ export function adaptChatRequestForProvider(body, providerId) {
     delete adapted.service_tier;
     providerPrefs.order = [LUNA_FLEX_TAG, "openai"];
     providerPrefs.allow_fallbacks = true;
-    providerPrefs.preferred_max_latency = 6;
+    // Deck and document writers run in the background, so they wait longer for half-price flex
+    // before OpenRouter moves them to standard; chat keeps the tighter limit.
+    providerPrefs.preferred_max_latency = documentWriter === true ? DOCUMENT_WRITER_MAX_LATENCY_S : 6;
     providerPrefs.preferred_min_throughput = 25;
   }
 

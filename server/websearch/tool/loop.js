@@ -11,6 +11,7 @@ import { executeStudyPreviewTool } from "../../study/chatTool.js";
 import { OPENROUTER_TEXT_MODEL } from "../../providers.js";
 import { estimateContextTokens } from "../../saas/messages.js";
 import { applyToolFallback, isToolsUnsupportedError } from "./unsupported.js";
+import { AnswerStallError, callWatchdog, stallLimits as watchdogLimits } from "./watchdog.js";
 import { prepareVisualPagesForModel, visualDocumentMessage, visualImageInputLimit } from "./visual.js";
 import { lookupWeather } from "../../weather.js";
 
@@ -461,38 +462,6 @@ function retainToolImages(messages, toolImageMessages, limit) {
   }
 }
 
-function positiveMs(value) {
-  const ms = Number(value);
-  return Number.isFinite(ms) && ms > 0 ? ms : 0;
-}
-
-class AnswerStallError extends Error {}
-
-
-/* Watches one model call from the request until its stream ends. Before the answer starts
-   (headers, reasoning) the call gets `startMs`; once answer text or a tool call arrives,
-   every gap between stream events gets `idleMs`. A miss aborts the call as stalled. */
-function callWatchdog(controller, { startMs, idleMs }) {
-  let answering = false;
-  let timer = null;
-  const watch = { stalled: false };
-  const arm = (ms) => {
-    clearTimeout(timer);
-    timer = ms ? setTimeout(() => {
-      watch.stalled = true;
-      controller.abort(new AnswerStallError("answer stalled"));
-    }, ms) : null;
-  };
-  watch.event = (event) => {
-    const delta = event?.choices?.[0]?.delta;
-    if ((typeof delta?.content === "string" && delta.content) || delta?.tool_calls?.length) answering = true;
-    if (answering) arm(idleMs);
-  };
-  watch.stop = () => clearTimeout(timer);
-  arm(startMs);
-  return watch;
-}
-
 const PROMISED_LOOKUP = /^(?:(?:ok(?:ay)?|sure|alright|got it)[,.!]?\s+)?(?:(?:one|just a) sec(?:ond)?|just a moment|give me a (?:sec(?:ond)?|moment)|hang on|hold on)?[,.!]?\s*(?:let me|i'll|i will|i'm going to|i am going to|let's)\s+(?:quickly\s+|just\s+)?(?:check|look|search|find|pull|get|grab|see|open|read)\b/i;
 
 // A short reply that only announces a lookup ("One sec, let me check the score.").
@@ -518,6 +487,8 @@ export async function runChatWithToolLoop({
   // False when the user's message only reads documents: a reply about a document is then
   // just an answer, never a missed create/edit/export to correct.
   artifactRequested = true,
+  // Stop searching after this many tool rounds and answer (0: only the tool-call stop applies).
+  maxToolRounds = 0,
   onUpstreamEvent,
   onToolEvent = () => {},
   onIterationStart = () => {}
@@ -543,6 +514,7 @@ export async function runChatWithToolLoop({
   const providers = new Set();
   const activityStartedAt = Date.now();
   let toolCallCount = 0;
+  let toolRounds = 0;
   let lastAccumulated = null;
   let forceFinalWithoutTools = false;
   let limitEventSent = false;
@@ -557,10 +529,7 @@ export async function runChatWithToolLoop({
   const inlineImageCache = new Map();
   const toolImageMessages = [];
   let stallRetrySent = false;
-  const stallLimits = {
-    startMs: positiveMs(config?.context?.answerStallMs),
-    idleMs: positiveMs(config?.context?.answerIdleMs) || positiveMs(config?.context?.answerStallMs)
-  };
+  const stallLimits = watchdogLimits(config);
   const originalQuestion = latestUserText(chatRequest.messages);
   const artifactNames = new Set(["create_document", "edit_document", "export_document"]);
 
@@ -894,7 +863,8 @@ export async function runChatWithToolLoop({
       retainToolImages(messages, toolImageMessages, visualImageInputLimit(config));
     }
 
-    if (toolCallCount >= maxToolCalls) {
+    toolRounds += 1;
+    if (toolCallCount >= maxToolCalls || (maxToolRounds > 0 && toolRounds >= maxToolRounds)) {
       forceFinalWithoutTools = true;
       if (!finalInstructionSent) {
         finalInstructionSent = true;

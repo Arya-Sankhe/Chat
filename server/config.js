@@ -290,7 +290,8 @@ export function loadConfig(env = process.env) {
       maxToolCallsPerTurn: readInt(env.DOCUMENT_MAX_TOOL_CALLS_PER_TURN, 75),
       jobWaitMs: readInt(env.DOCUMENT_TOOL_JOB_WAIT_MS, 20_000),
       queue: readResearchQueue(env.DOCUMENT_QUEUE),
-      deckWriterTimeoutMs: readInt(env.DOCUMENT_DECK_WRITER_TIMEOUT_MS, 150_000)
+      // A backstop per writer call; stalls are caught by MODEL_ANSWER_STALL_MS / MODEL_ANSWER_IDLE_MS.
+      deckWriterTimeoutMs: readInt(env.DOCUMENT_DECK_WRITER_TIMEOUT_MS, 900_000)
     },
     // Dojo audio sources: lectures uploaded or recorded in the browser, transcribed by
     // the transcriber service. Only a compact speech copy is kept once transcribed.

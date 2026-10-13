@@ -10,7 +10,7 @@ import { deckFromMarkdown, prepareDeck, renderDeck } from "../worker/deck/render
 import { alignDeck, normalizeDeck } from "../worker/deck/spec.js";
 import { THEME_NAMES, chooseTheme } from "../worker/deck/themes.js";
 import { buildDeckWriterUser, deckLooksUsable, parseDeckJson, writeDeck, DECK_AUDIT_SYSTEM } from "../server/documents/deckWriter.js";
-import { applyDeckOperations, deckForEditor, editDeck } from "../server/documents/deckEditor.js";
+import { applyDeckOperations, deckForEditor, editDeck, DECK_EDITOR_SYSTEM } from "../server/documents/deckEditor.js";
 import { reviewDeck } from "../server/documents/deckReview.js";
 import { inspectDeck } from "../worker/deck/inspect.js";
 import { niceTicks } from "../worker/deck/charts.js";
@@ -208,22 +208,28 @@ test("prices the deck writer looked up reach its review, fact check and revision
       { type: "bullets", title: "Which plan fits", points: [{ body: "Solo users start on Starter at **$17**; teams pick Team at **$29** or Business at **$41**." }] }
     ]
   });
-  const seen = { audit: [], revision: [] };
+  const seen = { audit: [], revision: [], writer: [] };
   let writes = 0;
   const sse = (chunk) => new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
   const modelClient = {
     async streamChatCompletion({ body }) {
-      const last = body.messages.at(-1);
-      if (last.role === "tool") return sseResponse(body.messages[0].content.startsWith(DECK_AUDIT_SYSTEM) ? '{"issues":[{"severity":"warning","note":"Slide 3: tighten the wording."}]}' : PRICED);
-      if (body.messages[0].content.startsWith(DECK_AUDIT_SYSTEM)) {
-        seen.audit.push(last.content);
-        return sseResponse('{"issues":[{"severity":"warning","note":"Slide 3: tighten the wording."}]}');
+      const system = body.messages[0].content;
+      // Only the writer researches; checks and patches work from what it found.
+      if (system === DECK_AUDIT_SYSTEM || system === DECK_EDITOR_SYSTEM) assert.equal(body.tools, undefined);
+      assert.equal(body.document_writer, true);
+      if (system === DECK_AUDIT_SYSTEM) {
+        seen.audit.push(body.messages.at(-1).content);
+        return sseResponse(seen.audit.length === 1 ? '{"issues":[{"severity":"warning","note":"Slide 3: tighten the wording."}]}' : '{"issues":[]}');
+      }
+      if (system === DECK_EDITOR_SYSTEM) {
+        seen.revision.push(body.messages[1].content);
+        return sseResponse(JSON.stringify({ summary: "Tightened slide 3", operations: [{ op: "set", path: "slides.3.title", value: "Pick the plan by team size" }] }));
       }
       writes += 1;
+      seen.writer.push(body);
       if (writes === 1) {
         return sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "official plan prices" }) } }] }, finish_reason: "tool_calls" }] });
       }
-      seen.revision.push(body.messages[1].content);
       return sseResponse(PRICED);
     }
   };
@@ -237,10 +243,51 @@ test("prices the deck writer looked up reach its review, fact check and revision
   assert.ok(seen.audit.length >= 1);
   assert.match(seen.audit[0], /<evidence>[\s\S]*Starter \$17, Team \$29, Business \$41/);
   assert.equal(seen.revision.length, 1);
-  assert.match(seen.revision[0], /<evidence>[\s\S]*Starter \$17, Team \$29, Business \$41/);
+  assert.match(seen.revision[0], /<deck_material>[\s\S]*<evidence>[\s\S]*Starter \$17, Team \$29, Business \$41/);
+  assert.match(seen.revision[0], /REVIEW NOTES:[\s\S]*tighten the wording/);
+  // The re-check after the patch only looks at what changed.
+  assert.match(seen.audit[1], /RE-CHECK AFTER A REVISION[\s\S]*Changed: pages 3/);
+  assert.equal(writes, 2, "the writer wrote once, after one search round");
+  assert.equal(result.deck.slides[2].title, "Pick the plan by team size");
   // The deterministic review sees the looked-up prices as supported material.
   assert.ok(!result.review.some((note) => /\$?(17|29|41)\b/.test(note) && /unsupported|not in the material|absent/i.test(note)), result.review.join(" | "));
   assert.equal(result.citations[0].url, "https://example.com/pricing");
+});
+
+test("the deck writer's own research stops after five search rounds", async () => {
+  let searches = 0;
+  const sse = (chunk) => new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+  const modelClient = {
+    async streamChatCompletion({ body }) {
+      if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}');
+      if (/budget is complete/.test(String(body.messages.at(-1).content))) return sseResponse(DECK_JSON);
+      return sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: `call_${body.messages.length}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `q${body.messages.length}` }) } }] }, finish_reason: "tool_calls" }] });
+    }
+  };
+  const websearch = { async search({ query }) { searches += 1; return { ok: true, provider: "test", query, results: [] }; } };
+  const config = { providers: { openrouter: { apiKey: "test" } }, websearch: { maxToolCallsPerTurn: 75 } };
+  const result = await writeDeck({ config, modelClient, websearch, signal: new AbortController().signal, brief: { title: "Churn" } });
+  assert.equal(searches, 5);
+  assert.equal(result.deck.title, "Churn review");
+});
+
+test("a document model call that never starts answering is stopped as stalled", async () => {
+  const { runEditorModel } = await import("../server/documents/editorModel.js");
+  const modelClient = {
+    async streamChatCompletion({ signal }) {
+      return new Response(new ReadableStream({
+        start(controller) { signal.addEventListener("abort", () => controller.error(signal.reason), { once: true }); }
+      }), { headers: { "content-type": "text/event-stream" } });
+    }
+  };
+  await assert.rejects(runEditorModel({ config: { context: { answerStallMs: 20, answerIdleMs: 20 } }, modelClient, provider: {}, signal: new AbortController().signal,
+    body: { model: "test/model", messages: [{ role: "system", content: "s" }, { role: "user", content: "u" }] } }), /stopped responding/);
+  // A cancelled turn is reported as the cancellation, not as a stall.
+  const controller = new AbortController();
+  const pending = runEditorModel({ config: { context: { answerStallMs: 1000 } }, modelClient, provider: {}, signal: controller.signal,
+    body: { model: "test/model", messages: [{ role: "user", content: "u" }] } });
+  controller.abort(new Error("turn cancelled"));
+  await assert.rejects(pending, /turn cancelled/);
 });
 
 test("DocumentService writes a deck spec before queuing a PPTX job", async () => {
@@ -732,33 +779,36 @@ test("the layout dry run reports text and rows that will not fit", () => {
   assert.match(problems[0].warnings.join(" "), /table rows dropped/);
 });
 
-test("deck writer sends a flawed draft back once with the review notes and keeps the better deck", async () => {
+test("deck writer patches a flawed draft once with the review notes and keeps the better deck", async () => {
   const calls = [];
-  const good = JSON.stringify({ plan: { question: "price vs intelligence" }, title: "Sol vs Luna", slides: [
+  const good = { plan: { question: "price vs intelligence" }, title: "Sol vs Luna", slides: [
     { type: "cover", title: "Sol vs Luna" },
     { type: "bignumber", title: "Luna 6 is the value pick", value: "3", unit: "x", label: "cheaper than Sol 6.1", body: "Per 1M output tokens." },
     { type: "cards", title: "When to use which", cards: [{ title: "Sol 6.1", body: "Use it for the hardest reasoning tasks, where accuracy matters more than cost per request." }, { title: "Luna 6", body: "Use it for high-volume work such as tagging and summaries, where cost per request dominates." }] }
-  ] });
+  ] };
   const modelClient = {
     async streamChatCompletion({ body }) {
       if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}');
       calls.push(body.messages);
-      return sseResponse(calls.length === 1 ? JSON.stringify(FILLER_DECK) : good);
+      if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+        return sseResponse(JSON.stringify({ summary: "Rebuilt the deck", operations: [{ op: "set", path: "title", value: good.title }, { op: "set", path: "slides", value: good.slides }] }));
+      }
+      return sseResponse(JSON.stringify(FILLER_DECK));
     }
   };
   const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "first/model" } };
   const result = await writeDeck({ config, modelClient, signal: new AbortController().signal, brief: { userRequest: "pricing for Sol and Luna" } });
   assert.equal(calls.length, 2);
   const revise = calls[1];
-  assert.equal(revise.at(-2).role, "assistant");
-  assert.match(revise.at(-1).content, /REVIEW NOTES:[\s\S]*placeholders/);
+  assert.equal(revise[0].content, DECK_EDITOR_SYSTEM);
+  assert.match(revise.at(-1).content, /REVIEW NOTES:[\s\S]*is a word, not a figure/);
   assert.equal(result.deck.title, "Sol vs Luna");
   assert.equal(result.deck.plan, undefined, "the writer's plan is not stored with the deck");
   assert.deepEqual(result.review, []);
 
   // A clean first draft ships without a second call.
   calls.length = 0;
-  const once = { async streamChatCompletion({ body }) { if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}'); calls.push(body.messages); return sseResponse(good); } };
+  const once = { async streamChatCompletion({ body }) { if (body.messages[0].content === DECK_AUDIT_SYSTEM) return sseResponse('{"issues":[]}'); calls.push(body.messages); return sseResponse(JSON.stringify(good)); } };
   await writeDeck({ config, modelClient: once, signal: new AbortController().signal, brief: { userRequest: "pricing" } });
   assert.equal(calls.length, 1);
 });
@@ -786,9 +836,13 @@ test("deck audit catches a mispaired cost even when both figures exist in the ev
     if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
       audited += 1;
       assert.match(body.messages[1].content, /RETRIEVED EVIDENCE[\s\S]*A high: 75.2%, \$0.65/);
+      assert.equal(body.reasoning.effort, audited === 1 ? "medium" : "low");
       return sseResponse(JSON.stringify({ issues: audited === 1 ? [{ severity: "error", note: "Slide 2 pairs the high score with the max cost. Use $0.65 for A high." }] : [] }));
     }
-    return sseResponse(JSON.stringify(make(body.messages.length === 2 ? "1.57" : "0.65")));
+    if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+      return sseResponse(JSON.stringify({ summary: "Fixed the cost", operations: [{ op: "set", path: "slides.2.table.rows.1.3", value: "$0.65" }] }));
+    }
+    return sseResponse(JSON.stringify(make("1.57")));
   } };
   const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } }, modelClient: client,
     brief: { userRequest: "Create a 3-slide PPT", evidence, content: evidence } });
@@ -924,7 +978,9 @@ test("fact errors outrank editorial scores, editorial notes get one revision, an
   const make = (title) => ({ title, slides: [{ type: "cover", title },
     { type: "statement", title: "Mechanism", statement: "Verified mechanism." },
     { type: "statement", title: "Recap", statement: "Recall the mechanism." }] });
-  let writes = 0, audits = 0;
+  let writes = 0, patches = 0, audits = 0;
+  const retitle = () => sseResponse(JSON.stringify({ summary: "Fixed", operations: [
+    { op: "set", path: "title", value: `Patch ${patches}` }, { op: "set", path: "slides.1.title", value: `Patch ${patches}` }] }));
   const client = { async streamChatCompletion({ body }) {
     if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
       audits += 1;
@@ -932,29 +988,119 @@ test("fact errors outrank editorial scores, editorial notes get one revision, an
         : audits === 2 ? Array.from({ length: 4 }, () => ({ severity: "warning", note: "Shorten a repeated sentence." })) : [];
       return sseResponse(JSON.stringify({ issues }));
     }
+    if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+      patches += 1;
+      return retitle();
+    }
     writes += 1;
     return sseResponse(JSON.stringify(make(`Draft ${writes}`)));
   } };
   const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } };
   const result = await writeDeck({ config, modelClient: client, brief: { userRequest: "Create a 3-slide PPT" } });
-  // The revision fixed the error; its editorial warnings do not cost a second round.
-  assert.equal(writes, 2);
-  assert.equal(result.deck.title, "Draft 2");
+  // The patch fixed the error; its editorial warnings do not cost a second round.
+  assert.equal(writes, 1);
+  assert.equal(patches, 1);
+  assert.equal(result.deck.title, "Patch 1");
   assert.equal(result.review.length, 4);
   assert.deepEqual(result.unresolved, []);
   const stuck = { async streamChatCompletion({ body }) {
+    if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+      patches += 1;
+      return sseResponse(JSON.stringify({ summary: "Tried", operations: [{ op: "set", path: "slides.2.statement", value: `Attempt ${patches}` }] }));
+    }
     return sseResponse(body.messages[0].content === DECK_AUDIT_SYSTEM
       ? JSON.stringify({ issues: [{ severity: "error", note: "Unsupported core score." }] }) : JSON.stringify(make("Wrong")));
   } };
-  // Still wrong after two corrections: the deck ships and the chat is told what to double-check.
+  // Still wrong after a patch and its re-check: one more patch, no third audit; the deck ships
+  // and the chat is told what to double-check.
   let calls = 0;
   const counted = { streamChatCompletion: (args) => { calls += 1; return stuck.streamChatCompletion(args); } };
   const shipped = await writeDeck({ config, modelClient: counted, brief: {} });
-  assert.equal(calls, 6);
+  assert.equal(calls, 5);
   assert.deepEqual(shipped.unresolved, ["Unsupported core score."]);
   // A missed slide count is a requirement the chat reply must mention too.
   const short = await writeDeck({ config, modelClient: stuck, brief: { userRequest: "Create a 4-slide PPT" } });
   assert.ok(short.unresolved.some((note) => /asked for 4-slide/.test(note)));
+});
+
+test("the unaudited second patch keeps the audit's open issues and builds on the better version", async () => {
+  const make = () => ({ title: "Deck", slides: [{ type: "cover", title: "Deck" },
+    { type: "statement", title: "Mechanism", statement: "Original mechanism." },
+    { type: "statement", title: "Recap", statement: "Original recap." }] });
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } };
+  const run = async (auditIssues) => {
+    let audits = 0, patches = 0;
+    const client = { async streamChatCompletion({ body }) {
+      if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+        const reply = auditIssues[audits++];
+        return sseResponse(typeof reply === "string" ? reply : JSON.stringify({ issues: reply }));
+      }
+      if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+        patches += 1;
+        return sseResponse(JSON.stringify({ summary: "Fixed", operations: [{ op: "set", path: `slides.${patches + 1}.statement`, value: `Patch ${patches}.` }] }));
+      }
+      return sseResponse(JSON.stringify(make()));
+    } };
+    return writeDeck({ config, modelClient: client, brief: {} });
+  };
+  const error = (note) => ({ severity: "error", note });
+  // The first patch fixed one of two errors; the second, never audited, may not have fixed the other.
+  const partly = await run([[error("Wrong price."), error("Wrong date.")], [error("Wrong date.")]]);
+  assert.equal(partly.deck.slides[1].statement, "Patch 1.");
+  assert.equal(partly.deck.slides[2].statement, "Patch 2.");
+  assert.deepEqual(partly.unresolved, ["Wrong date."]);
+  // A first patch that made things worse is dropped, and the second patch starts from the original.
+  const worse = await run([[error("Wrong price.")], [error("Wrong price."), error("New wrong claim.")]]);
+  assert.equal(worse.deck.slides[1].statement, "Original mechanism.");
+  assert.equal(worse.deck.slides[2].statement, "Patch 2.");
+  assert.deepEqual(worse.unresolved, ["Wrong price."]);
+  // A re-check cut off after one complete issue checked only part of the deck: the other issue stands.
+  const cut = await run([[error("Wrong price."), error("Wrong date.")], `{"issues":[{"severity":"error","note":"Wrong price."},{"severity":"error","note":"Wrong da`]);
+  // It ranks below the fully checked original, so the second patch builds on that one.
+  assert.equal(cut.deck.slides[1].statement, "Original mechanism.");
+  assert.deepEqual(cut.unresolved, ["Wrong price.", "Wrong date."]);
+  // Prose around a complete reply is still a complete check.
+  const chatty = await run([[error("Wrong price.")], `Here is the result: {"issues":[]} Done.`]);
+  assert.deepEqual(chatty.unresolved, []);
+  const wrapped = await run([`Here is the result: {"issues":[{"severity":"error","note":"Wrong price."}]} Done.`, []]);
+  assert.equal(wrapped.deck.slides[1].statement, "Patch 1.");
+  assert.deepEqual(wrapped.unresolved, []);
+  // A bare issue object is not the issues list: the other open issue still stands.
+  const bare = await run([[error("Wrong price."), error("Wrong date.")], `Issue found: {"severity":"error","note":"Wrong price."}`]);
+  assert.deepEqual(bare.unresolved, ["Wrong price.", "Wrong date."]);
+  // A clean re-check covers only the patched pages: a full audit that was cut off stays unverified.
+  const unfinished = await run([`{"issues":[{"severity":"error","note":"Wrong price."},{"severity":"error","note":"Wr`, []]);
+  assert.equal(unfinished.deck.slides[1].statement, "Patch 1.");
+  assert.equal(unfinished.unresolved.length, 1);
+  assert.match(unfinished.unresolved[0], /fact check did not complete/);
+});
+
+test("a re-check that fails keeps the open issue, and a removed slide re-checks every shifted page", async () => {
+  const deck = { title: "Deck", slides: [{ type: "cover", title: "Deck" },
+    { type: "statement", title: "Mechanism", statement: "Original mechanism." },
+    { type: "statement", title: "Market", statement: "Original market." },
+    { type: "statement", title: "Recap", statement: "Original recap." }] };
+  const config = { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } };
+  let audits = 0, patches = 0;
+  const audited = [];
+  const client = { async streamChatCompletion({ body }) {
+    if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+      audits += 1;
+      audited.push(body.messages.at(-1).content);
+      return sseResponse(audits === 2 ? "I could not check this." : JSON.stringify({ issues: [{ severity: "error", note: "Wrong price." }] }));
+    }
+    if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+      patches += 1;
+      return sseResponse(JSON.stringify({ summary: "Removed", operations: patches === 1
+        ? [{ op: "remove", path: "slides.2" }] : [{ op: "set", path: "slides.2.statement", value: "Fixed market." }] }));
+    }
+    return sseResponse(JSON.stringify(deck));
+  } };
+  const result = await writeDeck({ config, modelClient: client, brief: {} });
+  assert.match(audited[1], /Changed: pages 2, 3; slide count 4 -> 3/);
+  // The re-check never ran, so the issue it was meant to confirm still stands and earns the second patch.
+  assert.equal(patches, 2);
+  assert.ok(result.unresolved.includes("Wrong price."));
 });
 
 test("currency is a prefix and parallel fact cards have no invented index", async () => {
@@ -982,19 +1128,22 @@ test("an unchanged hero uses one value rather than an identical comparison rail"
 
 test("fact audit verifies literal source headings instead of relabelling a summary price", async () => {
   const deck = { title: "Cost", slides: [{ type: "cover", title: "Cost" },
-    { type: "bignumber", title: "Measured cost", value: "1.05", unit: "$", label: "per task" },
+    { type: "bignumber", title: "Measured cost", value: "1.50", unit: "$", label: "per task" },
     { type: "statement", title: "Scope", statement: "One measured workload." }] };
-  let writes = 0;
+  let audits = 0;
   const evidence = "Source: https://example.org/model. Summary Price $1.50; Cost per benchmark task $1.05. Same model and effort.";
   const client = { async streamChatCompletion({ body }) {
     if (body.messages[0].content === DECK_AUDIT_SYSTEM) {
+      audits += 1;
       assert.equal(body.model, OPENROUTER_PRO_MODEL);
       assert.match(body.messages[0].content, /metric relabelled as a different metric/);
       assert.match(body.messages[0].content, /the user did not request/);
-      return sseResponse(JSON.stringify({ issues: writes === 1 ? [{ severity: "error", note: "Summary Price is not cost per task; use the explicit $1.05 section." }] : [] }));
+      return sseResponse(JSON.stringify({ issues: audits === 1 ? [{ severity: "error", note: "Summary Price is not cost per task; use the explicit $1.05 section." }] : [] }));
     }
-    writes += 1;
-    return sseResponse(JSON.stringify({ ...deck, slides: deck.slides.map((s) => s.type === "bignumber" ? { ...s, value: writes === 1 ? "1.50" : "1.05" } : s) }));
+    if (body.messages[0].content === DECK_EDITOR_SYSTEM) {
+      return sseResponse(JSON.stringify({ summary: "Used the per-task cost", operations: [{ op: "set", path: "slides.2.value", value: "1.05" }] }));
+    }
+    return sseResponse(JSON.stringify(deck));
   } };
   const result = await writeDeck({ config: { providers: { openrouter: { apiKey: "test" } }, documents: { deckModel: "test/model" } }, modelClient: client, brief: { evidence, userRequest: "Compare measured cost" } });
   assert.equal(result.deck.slides[1].value, "1.05");
