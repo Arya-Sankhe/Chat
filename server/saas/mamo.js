@@ -551,3 +551,45 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
   if (!charging) return "pending";
   return chargeCoupon(charging, link, email, context);
 }
+
+// Applies one Mamo payment from its canonical provider record. Webhooks and the recovery sweep
+// both land here; the database ignores replays and payments older than the one it already has.
+export async function processMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate } = {}) {
+  // Read the provider's current payment state: redirects and callback fields cannot grant access.
+  const payment = await mamoFetch(config, `/payments/${encodeURIComponent(paymentId)}`, { signal });
+  const link = await db.getMamoPaymentLink(payment?.payment_link_id, { signal });
+  if (!link) throw new HttpError(409, "Payment link is not registered with this app.");
+  // A coupon's discounted first month is a separate saved-card charge; renewals are full price.
+  const couponCharge = Boolean(link.coupon_code) && payment?.external_id === couponChargeExternalId(link.id);
+  if (payment?.id !== paymentId || payment.amount_currency !== "AED"
+    || Number(payment.amount) !== Number(couponCharge ? link.initial_amount_aed : link.amount_aed)
+    || (link.subscription_id && payment.subscription_id && payment.subscription_id !== link.subscription_id)
+    || (link.subscription_id && !payment.subscription_id && !couponCharge)) {
+    throw new HttpError(400, "Payment does not match the registered checkout.");
+  }
+  const context = { db, plans, config, signal };
+  if (payment.status === "card_verified") {
+    if (link.coupon_code) await startCouponPeriod(payment, link, context);
+    return;
+  }
+  const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
+  if (couponCharge && !fullRefund) {
+    await settleCouponCharge(payment, link, context);
+    return;
+  }
+  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return;
+  await applyWebhookToSubscription({
+    ...payment,
+    event_type: fullRefund ? "payment.refunded"
+      : ["captured", "succeeded"].includes(payment.status) ? "payment.succeeded" : "subscription.failed",
+    payment_link_id: link.id,
+    subscription_id: payment.subscription_id || link.subscription_id,
+    next_payment_date: payment.next_payment_date || nextPaymentDate,
+    custom_data: { userId: link.user_id, planId: link.plan_id }, external_id: link.user_id
+  }, context);
+  // A refunded checkout must not charge again next month. Each link has its own schedule.
+  if (fullRefund) {
+    await deactivateLink(config, link.id, { signal });
+    await unsubscribeEmail(config, link.subscription_id, payment.customer_details?.email, { signal });
+  }
+}

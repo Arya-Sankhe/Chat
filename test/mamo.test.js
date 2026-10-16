@@ -415,10 +415,15 @@ test("webhooks use verified provider state and immutable checkout ownership", as
         amount: scenario === "tampered" ? 1 : 30, amount_currency: "AED",
         subscription_id: "MPB-SUB-PRO", created_date: "2026-10-04-00-00-00",
         refund_amount: scenario === "refund" ? 30 : scenario === "partial" ? 5 : 0,
-        next_payment_date: "04/11/2026", custom_data: {}, external_id: null
+        next_payment_date: "04/11/2026", custom_data: {}, external_id: null,
+        customer_details: { email: "student@example.com" }
       };
-      globalThis.fetch = async (url) => {
-        assert.equal(String(url), `${LIVE_BASE}/payments/PAY-TEST`);
+      const calls = [];
+      globalThis.fetch = async (url, init = {}) => {
+        calls.push(`${init.method || "GET"} ${String(url).slice(LIVE_BASE.length)}`);
+        if (String(url).endsWith("/subscribers")) {
+          return Response.json([{ id: "SUBR-1", status: "Active", customer: { email: "student@example.com" } }]);
+        }
         return Response.json(payment);
       };
       const res = await dispatch(config, {
@@ -431,7 +436,7 @@ test("webhooks use verified provider state and immutable checkout ownership", as
           ...webhookDb(upserts),
           async getMamoPaymentLink(id) {
             assert.equal(id, "MB-LINK-TEST");
-            return scenario === "unmapped" ? null : { user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PRO" };
+            return scenario === "unmapped" ? null : { id: "MB-LINK-TEST", user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PRO" };
           }
         } })
       });
@@ -447,6 +452,11 @@ test("webhooks use verified provider state and immutable checkout ownership", as
         // Access lasts through the whole Dubai renewal day (ends 20:00 UTC).
         assert.equal(upserts[0].current_period_end, "2026-11-04T20:00:00.000Z");
       }
+      // Only a full refund closes the checkout and stops its renewal schedule.
+      assert.deepEqual(calls.filter((call) => !call.startsWith("GET")), scenario !== "refund" ? [] : [
+        "PATCH /links/MB-LINK-TEST",
+        "DELETE /subscriptions/MPB-SUB-PRO/subscribers/SUBR-1"
+      ]);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -1162,5 +1172,31 @@ test("deleting an account before the payment webhook still stops the checkout's 
     });
     assert.ok(calls.includes("PATCH /links/LINK-A"));
     assert.ok(calls.includes("DELETE /subscriptions/SUB-A/subscribers/SUBSCRIBER-SUB-A"), `status ${res.statusCode}`);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the recovery sweep applies payments whose webhook never arrived, once, after a grace period", async () => {
+  const originalFetch = globalThis.fetch;
+  const { createMamoReconciler } = await import("../server/saas/mamoReconciler.js");
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRSTFREE:100" }));
+  const calls = [];
+  const recent = new Date(Date.now() - 60_000).toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const verified = { ...VERIFIED, created_date: recent };
+  const foreign = { ...verified, id: "PAY-OTHER", payment_link_id: "MB-LINK-NOT-KLUI" };
+  try {
+    globalThis.fetch = mamoStub(calls, { charges: [foreign, verified], payments: { "PAY-VERIFY": verified, "PAY-OTHER": foreign } });
+    const { state, db } = couponDb({ link: { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } });
+    db.getMamoPaymentLink = async (id) => (id === COUPON_LINK.id ? { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } : null);
+    let clock = Date.now();
+    const reconciler = createMamoReconciler(config, { db, now: () => clock });
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    assert.equal(state.upserts.length, 0, "a fresh payment is left to its own webhook");
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 2, applied: 1, failed: 0 });
+    assert.equal(state.upserts.at(-1).status, "trialing");
+    assert.equal(state.redemption.status, "active");
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    assert.equal(calls.filter((call) => call === "GET /payments/PAY-VERIFY").length, 1);
   } finally { globalThis.fetch = originalFetch; }
 });

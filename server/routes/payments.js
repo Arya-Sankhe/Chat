@@ -2,17 +2,13 @@ import { timingSafeEqual } from "node:crypto";
 import { generateNonce } from "../saas/council.js";
 import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import {
-  applyWebhookToSubscription,
-  couponChargeExternalId,
   couponAccountHashes,
   couponPrice,
   createPaymentLink,
   mamoCharges,
-  mamoFetch,
+  processMamoPayment,
   cancelMamoRenewal,
-  closeOtherCheckouts,
-  settleCouponCharge,
-  startCouponPeriod
+  closeOtherCheckouts
 } from "../saas/mamo.js";
 import { authContext, bearerContext, requireAdminContext } from "./context.js";
 import { clearAdminSummaryCache } from "./admin.js";
@@ -285,43 +281,9 @@ export async function handleMamoWebhook(req, res, config) {
     return;
   }
   if (!payload.id) throw new HttpError(400, "Payment ID is required.");
-  // Read the provider's current payment state: redirects and callback fields cannot grant access.
-  const payment = await mamoFetch(config, `/payments/${encodeURIComponent(payload.id)}`, { signal: req.signal });
-  const link = await db.getMamoPaymentLink(payment?.payment_link_id, { signal: req.signal });
-  if (!link) throw new HttpError(409, "Payment link is not registered with this app.");
-  // A coupon's discounted first month is a separate saved-card charge; renewals are full price.
-  const couponCharge = Boolean(link.coupon_code) && payment?.external_id === couponChargeExternalId(link.id);
-  if (payment?.id !== payload.id || payment.amount_currency !== "AED"
-    || Number(payment.amount) !== Number(couponCharge ? link.initial_amount_aed : link.amount_aed)
-    || (link.subscription_id && payment.subscription_id && payment.subscription_id !== link.subscription_id)
-    || (link.subscription_id && !payment.subscription_id && !couponCharge)) {
-    throw new HttpError(400, "Payment does not match the registered checkout.");
-  }
-  const context = { db, plans: config.plans, config, signal: req.signal };
-  if (payment.status === "card_verified") {
-    if (link.coupon_code) await startCouponPeriod(payment, link, context);
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-  const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
-  if (couponCharge && !fullRefund) {
-    await settleCouponCharge(payment, link, context);
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) {
-    sendJson(res, 200, { ok: true });
-    return;
-  }
-  await applyWebhookToSubscription({
-    ...payment,
-    event_type: fullRefund ? "payment.refunded"
-      : ["captured", "succeeded"].includes(payment.status) ? "payment.succeeded" : "subscription.failed",
-    payment_link_id: link.id,
-    subscription_id: payment.subscription_id || link.subscription_id,
-    next_payment_date: payment.next_payment_date || payload.next_payment_date,
-    custom_data: { userId: link.user_id, planId: link.plan_id }, external_id: link.user_id
-  }, context);
+  await processMamoPayment(payload.id, {
+    db, plans: config.plans, config, signal: req.signal, nextPaymentDate: payload.next_payment_date
+  });
   sendJson(res, 200, { ok: true });
 }
 
