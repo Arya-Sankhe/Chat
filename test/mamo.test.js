@@ -5,7 +5,7 @@ import test from "node:test";
 import { configuredServices, loadConfig } from "../server/config.js";
 import { createApiHandler } from "../server/routes.js";
 import { getCurrentEntitlement } from "../server/saas/entitlements.js";
-import { withProcessingFee } from "../server/saas/mamo.js";
+import { withProcessingFee, couponAccountHashes, couponCardHash } from "../server/saas/mamo.js";
 import { loadPlans, publicPlan } from "../server/saas/plans.js";
 
 const SUPABASE_ENV = {
@@ -27,6 +27,7 @@ function mamoEnv(extra = {}) {
     ...SUPABASE_ENV,
     MAMO_API_KEY: MAMO_KEY,
     MAMO_WEBHOOK_AUTH: WEBHOOK_SECRET,
+    MAMO_COUPON_IDENTITY_SECRET: "test-coupon-identity-secret-keep-stable",
     ...extra
   };
 }
@@ -97,7 +98,7 @@ function stubbedDeps({ role = "user", db = {} } = {}) {
     verifyUser: async () => ({
       id: "user-1",
       email: "user@example.com",
-      raw: { user_metadata: { full_name: "Ada" } }
+      raw: { email: "user@example.com", email_confirmed_at: "2026-01-01", user_metadata: { full_name: "Ada" } }
     })
   };
 }
@@ -640,7 +641,7 @@ function couponDb({ subscription = null, redemption = null, link } = {}) {
     state,
     db: {
       async getLatestSubscription() { return state.subscription; },
-      async getMamoCouponRedemption() { return state.redemption; },
+      async hasUsedMamoCoupon() { return Boolean(state.redemption && state.redemption.status !== "failed"); },
       async createMamoPaymentLink(row) { state.links.push(row); },
       async getMamoPaymentLink() { return link; },
       async applyMamoSubscription(row) { state.upserts.push(row); state.subscription = row; return row; },
@@ -734,6 +735,43 @@ test("MAMO_COUPONS parses first-month percentages and ignores malformed entries"
   assert.equal(coupons.get("FIRSTFREE").percentOff, 100);
 });
 
+test("coupon identities survive recreated accounts, normalize Gmail aliases, and trust verified auth only", () => {
+  const config = loadConfig(mamoEnv());
+  const user = { id: "old", raw: { email: " First.Last+offer@Googlemail.com ", email_confirmed_at: "2026-01-01",
+    identities: [{ provider: "google", identity_data: { sub: "google-person" } }] } };
+  const first = couponAccountHashes(config, user);
+  const recreated = couponAccountHashes(config, { id: "new", raw: { ...user.raw, email: "firstlast@gmail.com" } });
+  assert.equal(first.filter((key) => recreated.includes(key)).length, 2);
+  assert.ok(first.every((key) => /^[a-f0-9]{64}$/.test(key)));
+  assert.doesNotMatch(JSON.stringify(first), /gmail|google-person/);
+  assert.throws(() => couponAccountHashes(config, { id: "u", raw: { email: "unverified@example.com" } }), { status: 403 });
+  assert.throws(() => couponAccountHashes(loadConfig({}), user), { status: 503 });
+  assert.equal(couponCardHash(config, null), null);
+  assert.equal(couponCardHash(config, "CARD-1"), couponCardHash(config, "CARD-1"));
+  assert.notEqual(couponCardHash(config, "CARD-1"), couponCardHash(config, "CARD-2"));
+});
+
+test("retired Ziina beta accounts can use first-subscription coupons without reviving beta access", async () => {
+  const retired = { provider: "ziina", status: "active", plan_id: "pro", raw: { beta_retired: true } };
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50", ACCESS_MODE: "subscription" }));
+  const { db } = couponDb({ subscription: retired });
+  const entitlement = await getCurrentEntitlement({ db, userId: "user-1", plans: config.plans, access: config.access });
+  assert.equal(entitlement.active, false);
+  const res = await dispatch(config, { method: "POST", path: "/api/payments/mamo/coupon",
+    body: { coupon: "FIRST50" }, overrides: stubbedDeps({ db }) });
+  assert.equal(res.statusCode, 200);
+});
+
+test("live Mamo accounts cannot open or approve an old Ziina payment", async () => {
+  const config = loadConfig(mamoEnv());
+  const create = await dispatch(config, { method: "POST", path: "/api/payments/ziina",
+    body: { planId: "pro" }, overrides: stubbedDeps() });
+  assert.equal(create.statusCode, 410);
+  const approve = await dispatch(config, { method: "POST", path: "/api/admin/payments/old/approve", body: {},
+    overrides: stubbedDeps({ role: "admin", db: { async getPaymentRequest() { return { provider: "ziina", status: "pending" }; } } }) });
+  assert.equal(approve.statusCode, 410);
+});
+
 test("coupon checkout saves the card for a full-price subscription starting next month", async () => {
   const originalFetch = globalThis.fetch;
   const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRST50:50" }));
@@ -762,6 +800,8 @@ test("coupon checkout saves the card for a full-price subscription starting next
     assert.equal(state.links[0].initial_amount_aed, 16.65);
     assert.equal(state.links[0].amount_aed, 32.19);
     assert.equal(state.links[0].subscription_id, "MPB-SUB-NEW");
+    assert.ok(state.links[0].coupon_account_hashes.every((key) => /^[a-f0-9]{64}$/.test(key)));
+    assert.doesNotMatch(JSON.stringify(res.json()), /coupon_account_hashes|accountHashes/);
 
     for (const [db2, status] of [
       [couponDb({ subscription: { provider: "mamo", status: "canceled" } }).db, 409],
@@ -793,6 +833,27 @@ test("FIRSTFREE card verification starts a trial without charging", async () => 
     assert.equal(state.upserts.at(-1).current_period_end, "2026-11-04T20:00:00.000Z");
     assert.equal(state.redemption.status, "active");
     assert.equal(calls.filter((call) => call === "POST /payments").length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a blocked or missing-card free-trial claim never grants access or charges", async () => {
+  const originalFetch = globalThis.fetch;
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRSTFREE:100" }));
+  try {
+    for (const blocked of [true, false]) {
+      const calls = [];
+      const payment = { ...VERIFIED, payment_method: blocked ? VERIFIED.payment_method : {} };
+      globalThis.fetch = mamoStub(calls, { payments: { "PAY-VERIFY": payment } });
+      const { state, db } = couponDb({ link: { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } });
+      if (blocked) db.claimMamoCoupon = async (_link, _card, _payment, cardHash) => {
+        assert.match(cardHash, /^[a-f0-9]{64}$/); return { conflict: true, status: "ineligible" };
+      };
+      const res = await sendCouponWebhook(config, db, "PAY-VERIFY");
+      assert.equal(res.statusCode, blocked ? 200 : 503);
+      assert.equal(state.upserts.length, 0);
+      assert.ok(!calls.includes("POST /payments"));
+      if (blocked) assert.ok(calls.some((call) => call.startsWith("DELETE /subscriptions/")));
+    }
   } finally { globalThis.fetch = originalFetch; }
 });
 

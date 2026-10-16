@@ -59,20 +59,22 @@ delete from public.subscriptions where user_id = '11111111-1111-4111-8111-000000
 insert into public.mamo_payment_links (id, user_id, plan_id, amount_aed, subscription_id, coupon_code, initial_amount_aed, first_renewal_at)
 values ('LINK-C1','11111111-1111-4111-8111-000000009999','lite',10,'SUB-C1','FIRST50',5,'2099-11-04T20:00:00Z'),
        ('LINK-C2','11111111-1111-4111-8111-000000009999','lite',10,'SUB-C2','FIRSTFREE',0,'2099-11-04T20:00:00Z');
+update public.mamo_payment_links set coupon_account_hashes = array[encode(digest(user_id::text,'sha256'),'hex')]
+where id in ('LINK-C1','LINK-C2');
 do $$
 declare result jsonb;
 begin
-  if has_function_privilege('authenticated','public.klui_claim_mamo_coupon(text,text,text)','execute')
+  if has_function_privilege('authenticated','public.klui_claim_mamo_coupon(text,text,text,text)','execute')
     or has_function_privilege('anon','public.klui_advance_mamo_coupon(text,text[],text,text)','execute')
     or has_function_privilege('authenticated','public.klui_rearm_mamo_coupon(text,interval)','execute')
     or has_table_privilege('authenticated','public.mamo_coupon_redemptions','select') then
     raise exception 'Coupon privileges exposed to a client';
   end if;
-  result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V1');
+  result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V1',repeat('a',64));
   assert result->>'status' = 'claimed' and not (result->>'conflict')::boolean, 'first claim';
-  result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V1');
+  result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V1',repeat('a',64));
   assert result->>'status' = 'claimed' and not (result->>'conflict')::boolean, 'replayed claim';
-  assert (public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2')->>'conflict')::boolean, 'second coupon redeemed';
+  assert (public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2',repeat('b',64))->>'conflict')::boolean, 'second coupon redeemed';
   assert public.klui_advance_mamo_coupon('LINK-C1',array['claimed'],'charging') is not null, 'start charge';
   assert public.klui_advance_mamo_coupon('LINK-C1',array['claimed'],'charging') is null, 'charged twice';
   assert public.klui_rearm_mamo_coupon('LINK-C1','5 minutes') is null, 'fresh charge re-armed';
@@ -81,7 +83,7 @@ begin
   assert public.klui_rearm_mamo_coupon('LINK-C1','5 minutes') is null, 'stale charge re-armed twice';
   result := public.klui_advance_mamo_coupon('LINK-C1',array['claimed','charging'],'failed','PAY-M1');
   assert result->>'status' = 'failed', 'failed charge';
-  result := public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2');
+  result := public.klui_claim_mamo_coupon('LINK-C2','CARD-2','PAY-V2',repeat('b',64));
   assert not (result->>'conflict')::boolean and result->>'payment_link_id' = 'LINK-C2', 'failed coupon not released';
   -- A coupon checkout opened before the user subscribed elsewhere cannot redeem afterwards.
   begin
@@ -89,7 +91,7 @@ begin
     insert into public.subscriptions (user_id, provider, provider_subscription_id, plan_id, status, raw)
     values ('11111111-1111-4111-8111-000000009999','mamo','mamo:stale-checkout','lite','active',
       '{"payment_link_id":"LINK-OTHER"}');
-    result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V3');
+    result := public.klui_claim_mamo_coupon('LINK-C1','CARD-1','PAY-V3',repeat('a',64));
     assert (result->>'conflict')::boolean and result->>'status' = 'ineligible', 'subscribed user redeemed a stale coupon checkout';
     raise exception using errcode = 'P0042';
   exception when sqlstate 'P0042' then null;

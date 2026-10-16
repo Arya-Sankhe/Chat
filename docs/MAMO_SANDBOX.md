@@ -11,6 +11,7 @@ MAMO_API_KEY=<sandbox API key>
 MAMO_SANDBOX=true
 MAMO_API_BASE=
 MAMO_WEBHOOK_AUTH=<random secret of at most 50 characters>
+MAMO_COUPON_IDENTITY_SECRET=<stable random secret of at least 32 characters>
 APP_URL=https://<public test-app host>
 ACCESS_MODE=subscription
 SUPABASE_URL=<test project URL>
@@ -192,6 +193,31 @@ public tunnel were removed, and the isolated app/Supabase services were stopped.
 Supabase data is retained for repeat testing. Production billing remains unchanged.
 
 ## First-month coupons (FIRST50, FIRSTFREE)
+
+Coupon eligibility is recorded in the service-only `mamo_coupon_ledger`, which survives
+account deletion. Checkout stores HMAC hashes of the authenticated account ID, Google
+identity and verified email (Gmail dots/plus aliases normalize to one address). Every
+first-month coupon is held once across those identities. A canonical declined discounted
+charge releases its hold for retry; successful use remains recorded after cancellation,
+refund or deletion. The ledger stores hashes, not email addresses or usable card tokens.
+
+Set and back up `MAMO_COUPON_IDENTITY_SECRET` before enabling coupons; keep the same value
+across app instances and deployments. Losing or rotating it breaks matching to previous
+identities. Apply `20261016105614_durable_coupon_limits.sql` before deploying its callers.
+This cutover had no existing production Mamo checkouts/redemptions to backfill. Older open
+coupon links without authenticated identity hashes are rejected and unsubscribed on verification.
+
+Free first months also reserve the HMAC of Mamo's saved `card_id`; missing card or identity
+data cannot grant a trial. The **same saved-card ID** cannot receive another free month,
+including through another creator code or account. Mamo does not document a stable physical
+card fingerprint; sandbox saves of the same test-card details across emails produced different
+card IDs. New identities/new card tokens can therefore still obtain another trial. The owner
+accepted this limit and chose to retain FIRSTFREE on 2026-10-16. Do not describe it as a
+guaranteed one-trial-per-physical-card rule, and do not identify cards by last four digits.
+
+The same migration retires Ziina beta entitlements, preserving users, content and payment
+history. These explicitly marked beta rows do not block a first Mamo coupon. Production
+remains in testing mode until the owner enables paid access; testing mode still grants Pro.
 
 Set `MAMO_COUPONS=FIRST50:50,FIRSTFREE:100` to enable them; leave it empty to disable coupons.
 Apply `supabase/migrations/20261004150000_mamo_first_month_coupons.sql` after the hardening

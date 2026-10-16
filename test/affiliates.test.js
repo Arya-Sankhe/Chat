@@ -9,7 +9,8 @@ import { SupabaseRest } from "../server/db/supabaseRest.js";
 const USER = "11111111-1111-4111-8111-000000001001";
 const CREATOR = "11111111-1111-4111-8111-000000001002";
 const COUPON = "11111111-1111-4111-8111-000000001003";
-const config = loadConfig({ MAMO_API_KEY: "test", MAMO_WEBHOOK_AUTH: "secret", MAMO_COUPONS: "FIRST50:50" });
+const config = loadConfig({ MAMO_API_KEY: "test", MAMO_WEBHOOK_AUTH: "secret", MAMO_COUPONS: "FIRST50:50",
+  MAMO_COUPON_IDENTITY_SECRET: "test-coupon-identity-secret-keep-stable" });
 
 async function dispatch(path, { method = "GET", body, db = {}, role = "user", signedIn = true } = {}) {
   const req = Readable.from(body ? [Buffer.from(JSON.stringify(body))] : []);
@@ -20,7 +21,8 @@ async function dispatch(path, { method = "GET", body, db = {}, role = "user", si
   await createApiHandler(config, {
     createDb: () => ({ async upsertProfile() { return { id: USER, role }; }, ...db }),
     createR2: () => ({}),
-    verifyUser: async () => { if (!signedIn) throw new HttpError(401, "Unauthorized."); return { id: USER }; }
+    verifyUser: async () => { if (!signedIn) throw new HttpError(401, "Unauthorized.");
+      return { id: USER, raw: { email: "test@example.com", email_confirmed_at: "2026-01-01" } }; }
   })(req, res, new URL(path, "http://test.local"));
   return res;
 }
@@ -95,7 +97,7 @@ test("creator coupon validation and checkout snapshot use the backend code owner
       subscription: { identifier: "SUB" } });
     const row = { id: COUPON, code: "CREATOR30", enabled: true, percent_off: 30, affiliate_creators: { user_id: CREATOR } };
     const db = { async getAffiliateCoupon(code) { assert.equal(code, "CREATOR30"); return row; },
-      async getLatestSubscription() { return null; }, async getMamoCouponRedemption() { return null; },
+      async getLatestSubscription() { return null; }, async hasUsedMamoCoupon() { return false; },
       async createMamoPaymentLink(link) { saved = link; }, async listMamoPaymentLinks() { return []; } };
     const check = await dispatch("/api/payments/mamo/coupon", { method: "POST", body: { coupon: "creator30" }, db });
     assert.equal(check.statusCode, 200);

@@ -1890,9 +1890,6 @@ function composerPlaceholder() {
   const homeModePlaceholder = homeModesController?.placeholderOverride();
   if (homeModePlaceholder) return homeModePlaceholder;
   if (state.composerSkillIds.length) return "";
-  if (state.session && !hasChatAccess()) {
-    return isNative() ? "Subscribe on the website to start chatting" : "Choose a plan to start chatting";
-  }
   // A message sent while a reply is still coming waits in the queue.
   if (state.running) return "Queue message";
   return "Ask Klui";
@@ -2463,7 +2460,7 @@ function servicesReady() {
 }
 
 function hasChatAccess() {
-  return Boolean(state.me?.access?.active || ["active", "trialing", "testing"].includes(state.me?.subscription?.status));
+  return Boolean(state.me?.access?.active);
 }
 
 function hasUpgradePlans() {
@@ -8227,7 +8224,7 @@ async function loadMe() {
 
 async function refreshAfterMamoReturn() {
   const params = new URLSearchParams(window.location.search);
-  if (!state.session || params.get("status") !== "captured" || !params.get("transactionId")) return;
+  if (!state.session || !["captured", "card_verified"].includes(params.get("status")) || !params.get("transactionId")) return;
   const planId = params.get("planId");
   // Redirect parameters trigger polling only; access always comes from authenticated /api/me.
   for (let attempt = 0; attempt < 12; attempt += 1) {
