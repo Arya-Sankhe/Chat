@@ -655,6 +655,11 @@ function couponDb({ subscription = null, redemption = null, link } = {}) {
       async createMamoPaymentLink(row) { state.links.push(row); },
       async getMamoPaymentLink() { return link; },
       async applyMamoSubscription(row) { state.upserts.push(row); state.subscription = row; return row; },
+      async cancelMamoSubscription(userId, linkId) {
+        state.subscription = { ...state.subscription, cancel_at_period_end: true };
+        state.canceledLinks = [...(state.canceledLinks || []), linkId];
+        return state.subscription;
+      },
       async claimMamoCoupon(linkId, cardId, verificationId) {
         if (state.redemption && state.redemption.payment_link_id !== linkId && state.redemption.status !== "failed") {
           return { ...state.redemption, conflict: true };
@@ -1235,5 +1240,7 @@ test("the recovery sweep retries unsettled payments and finds refunds of older p
     assert.ok(calls.includes("GET /payments/PAY-OLD"));
     assert.ok(calls.includes("PATCH /links/MB-LINK-PLAIN"));
     assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-PLAIN/subscribers/SUBSCRIBER-1"));
+    // Renewal is marked stopped only after Mamo unsubscribed, so a new checkout needs no cancel.
+    assert.deepEqual(state.canceledLinks, ["MB-LINK-PLAIN"]);
   } finally { globalThis.fetch = originalFetch; }
 });

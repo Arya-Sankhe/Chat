@@ -1,7 +1,7 @@
 -- A refund that arrives before its payment's success was recorded used to leave nothing
 -- behind, so the late success could still grant access. Record the refund as a canceled row:
--- the same payment can never revive it, and only a newer payment replaces it. A refund also
--- marks renewal as stopped, because the app now unsubscribes the refunded checkout.
+-- the same payment can never revive it, and only a newer payment replaces it. The same holds
+-- when an older payment owns the row: a refund of a newer payment is recorded, not dropped.
 create or replace function public.klui_apply_mamo_subscription(p_subscription jsonb)
 returns jsonb language plpgsql security invoker set search_path = public as $$
 declare
@@ -25,7 +25,8 @@ begin
     same_payment := prior.raw->>'id' = incoming.raw->>'id';
     -- Refunds for old payments cannot revoke a newer paid period.
     if coalesce(incoming.raw->>'created_date','') < coalesce(prior.raw->>'created_date','')
-      or (incoming.status = 'canceled' and not same_payment)
+      or (incoming.status = 'canceled' and not same_payment
+        and incoming.raw->>'created_date' <= coalesce(prior.raw->>'created_date',''))
       or (same_payment and prior.status = 'canceled')
       or (same_payment and incoming.status <> 'canceled') then
       return to_jsonb(prior);
@@ -43,8 +44,6 @@ begin
   elsif incoming.status not in ('active','trialing','canceled') then
     return null;
   end if;
-  -- The app stops a refunded checkout's renewal, so a new checkout need not wait for a cancel.
-  if incoming.status = 'canceled' then incoming.cancel_at_period_end := true; end if;
   insert into public.subscriptions (
     user_id, provider, provider_subscription_id, provider_customer_id,
     provider_price_id, plan_id, status, cancel_at_period_end, current_period_end, raw, updated_at

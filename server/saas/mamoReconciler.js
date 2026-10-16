@@ -6,10 +6,12 @@ import { mamoFetch, processMamoPayment } from "./mamo.js";
 // each one exactly as its webhook would; the database ignores anything already applied.
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOOKBACK_MS = 4 * DAY_MS;
-// A refund can come weeks after its payment, so every hour a deeper sweep looks for refunds
-// across the last billing month (plus margin).
-const REFUND_LOOKBACK_MS = 35 * DAY_MS;
-const DEEP_EVERY = 12;
+// A refund can come long after its payment, so deeper sweeps look only for refunds: hourly
+// across the last billing month (plus margin), daily across more than a year.
+const SWEEPS = [
+  { every: 288, lookbackMs: 400 * DAY_MS },
+  { every: 12, lookbackMs: 35 * DAY_MS }
+];
 // Leave a fresh payment to its own webhook before stepping in.
 const SETTLE_MS = 5 * 60 * 1000;
 const MAX_PAGES = 200;
@@ -30,9 +32,9 @@ export function createMamoReconciler(config, { db = new SupabaseRest(config), no
   let running = false;
   let sweeps = 0;
 
-  async function recentPayments(deep, signal) {
+  async function recentPayments(refundLookbackMs, signal) {
     const cutoff = now() - LOOKBACK_MS;
-    const refundCutoff = now() - (deep ? REFUND_LOOKBACK_MS : LOOKBACK_MS);
+    const refundCutoff = now() - refundLookbackMs;
     const rows = [];
     for (let page = 1; ; page += 1) {
       const result = await mamoFetch(config, `/charges?page=${page}&per_page=50`, { signal });
@@ -54,12 +56,12 @@ export function createMamoReconciler(config, { db = new SupabaseRest(config), no
     running = true;
     const summary = { checked: 0, applied: 0, failed: 0 };
     try {
-      const deep = sweeps % DEEP_EVERY === 0;
+      const tier = SWEEPS.find(({ every }) => sweeps % every === 0);
       sweeps += 1;
       const signal = AbortSignal.timeout(120_000);
-      const rows = await recentPayments(deep, signal);
-      // Only the deep sweep sees every payment still worth tracking, so only it forgets the rest.
-      if (deep) {
+      const rows = await recentPayments(tier?.lookbackMs ?? LOOKBACK_MS, signal);
+      // Only the daily sweep sees every payment still worth tracking, so only it forgets the rest.
+      if (tier === SWEEPS[0]) {
         const current = new Set(rows.map(paymentState));
         for (const key of firstSeen.keys()) if (!current.has(key)) firstSeen.delete(key);
         for (const key of applied) if (!current.has(key)) applied.delete(key);

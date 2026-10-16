@@ -602,6 +602,12 @@ export async function processMamoPayment(paymentId, { db, plans, config, signal,
   if (fullRefund) {
     await deactivateLink(config, link.id, { signal });
     await unsubscribeAll(config, link.subscription_id, { signal });
+    // Only once Mamo has stopped the schedule may a new checkout skip the cancel step.
+    const latest = await db.getLatestSubscription(link.user_id, { signal });
+    if (latest?.provider === "mamo" && latest.status === "canceled" && !latest.cancel_at_period_end
+      && asObject(latest.raw).payment_link_id === link.id) {
+      await db.cancelMamoSubscription(link.user_id, link.id, { signal });
+    }
     return "refunded";
   }
   return "applied";
