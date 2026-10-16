@@ -1244,3 +1244,22 @@ test("the recovery sweep retries unsettled payments and finds refunds of older p
     assert.deepEqual(state.canceledLinks, ["MB-LINK-PLAIN"]);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("a refund keeps a cancellation only when it belongs to the same checkout", async () => {
+  const { applyWebhookToSubscription } = await import("../server/saas/mamo.js");
+  const config = loadConfig(mamoEnv());
+  for (const [linkId, expected] of [["LINK-A", true], ["LINK-B", false]]) {
+    const upserts = [];
+    await applyWebhookToSubscription({
+      id: "PAY-B", event_type: "payment.refunded", payment_link_id: linkId, created_date: "2026-10-16-10-00-00",
+      custom_data: { userId: "user-1", planId: "pro" }, next_payment_date: "16/11/2026"
+    }, {
+      db: { ...webhookDb(upserts), async getLatestSubscription() {
+        return { provider: "mamo", status: "active", plan_id: "pro", cancel_at_period_end: true,
+          current_period_end: "2026-11-01T20:00:00.000Z", raw: { id: "PAY-A", payment_link_id: "LINK-A" } };
+      } },
+      plans: config.plans, config
+    });
+    assert.equal(upserts[0].cancel_at_period_end, expected);
+  }
+});

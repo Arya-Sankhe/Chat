@@ -323,7 +323,9 @@ export async function applyWebhookToSubscription(payload, { db, plans, config, s
     provider_price_id: planId,
     plan_id: planId,
     status: nextStatus,
-    cancel_at_period_end: nextStatus === "active" || nextStatus === "trialing" ? false : Boolean(mamoExisting?.cancel_at_period_end),
+    // A cancellation belongs to its checkout; another checkout's event must not inherit it.
+    cancel_at_period_end: nextStatus === "active" || nextStatus === "trialing" ? false
+      : Boolean(mamoExisting?.cancel_at_period_end) && priorRaw.payment_link_id === payload.payment_link_id,
     current_period_end: currentPeriodEnd,
     raw: {
       ...priorRaw,
