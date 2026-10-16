@@ -457,11 +457,6 @@
   text-align: center;
 }
 
-.paywall-panel > .plan-payment-note {
-  margin-top: 40px;
-  font-size: 13px;
-}
-
 .paywall-coupon {
   display: flex;
   flex-direction: column;
@@ -493,8 +488,6 @@
 }
 
 .coupon-toggle:focus-visible,
-.coupon-form input:focus-visible,
-.coupon-form button:focus-visible,
 .coupon-applied button:focus-visible {
   outline: 3px solid var(--pay-coral);
   outline-offset: 2px;
@@ -504,7 +497,14 @@
   display: flex;
   width: 100%;
   max-width: 360px;
+  border: 2px solid var(--pay-ink);
+  background: var(--pay-cream);
   animation: coupon-in 180ms ease-out;
+}
+
+.coupon-form:focus-within {
+  outline: 3px solid var(--pay-coral);
+  outline-offset: 3px;
 }
 
 .coupon-form input {
@@ -512,8 +512,7 @@
   min-width: 0;
   min-height: 44px;
   padding: 0 14px;
-  border: 2px solid var(--pay-ink);
-  border-right: 0;
+  border: 0;
   border-radius: 0;
   background: var(--pay-cream);
   color: var(--pay-ink);
@@ -521,6 +520,10 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.coupon-form input:focus-visible {
+  outline: none;
 }
 
 .coupon-form input::placeholder {
@@ -532,12 +535,18 @@
 .coupon-form button {
   min-height: 44px;
   padding: 0 18px;
-  border: 2px solid var(--pay-ink);
+  border: 0;
+  border-left: 2px solid var(--pay-ink);
   border-radius: 0;
   background: var(--pay-ink);
   color: var(--pay-cream);
   font-weight: 850;
   cursor: pointer;
+}
+
+.coupon-form button:focus-visible {
+  outline: 2px solid var(--pay-cream);
+  outline-offset: -5px;
 }
 
 .coupon-form button:disabled {
