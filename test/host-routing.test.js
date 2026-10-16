@@ -279,7 +279,7 @@ test("host routing serves chat, marketing, robots, sitemap, redirects, and true 
 test("chat document and marketing page keep distinct canonicals and the moved notice", () => {
   const chat = readFileSync(resolve(publicDir, "index.html"), "utf8");
   assert.match(chat, /<title>Klui AI<\/title>/);
-  assert.match(chat, /Usage is weekly\. It resets 4 times each month\./);
+  assert.doesNotMatch(chat, /Usage is weekly\. It resets 4 times each month\./);
   assert.match(chat, /id="movedNotice"/);
   assert.match(chat, /searchParams\.get\("moved"\) !== "1"/);
   assert.match(chat, /history\.replaceState/);
