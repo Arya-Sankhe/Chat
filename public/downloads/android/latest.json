@@ -1,17 +1,16 @@
 {
   "published": true,
-  "versionName": "1.1.0-beta.13",
-  "versionCode": 23,
+  "versionName": "1.1.0-beta.14",
+  "versionCode": 24,
   "minimumVersionCode": 1,
-  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.13.apk",
+  "apkUrl": "https://klui.ai/downloads/android/klui-1.1.0-beta.14.apk",
   "releaseNotes": [
-    "Android status and navigation bars are visible; temporary chat keeps its composer open.",
-    "Smoother composer-to-pill animation and reliable background replies.",
-    "Pinch and double-tap to zoom document previews.",
-    "Camera starts only when selected, with a fading Klui pixel mascot while loading.",
-    "Offline launch stays on the Klui screen until connected."
+    "Voice mode keeps running when the app is in the background.",
+    "Coupons show as a ticket with the old price struck through.",
+    "Cleaner Deep Research card.",
+    "Chats show a faint black-and-white print of your wallpaper."
   ],
-  "sizeBytes": 20220710,
-  "sha256": "06931de7fbbc30f3bc913af225ebf5ee8c75667b17c0a62c670d946a57a10fb4",
-  "releasedAt": "2026-10-12T18:40:57.373Z"
+  "sizeBytes": 20227810,
+  "sha256": "7c1b505a013781ea61f3813849d83e8ff45e97d77d33807c40f527d3c818f4c5",
+  "releasedAt": "2026-10-16T12:27:52.884Z"
 }
