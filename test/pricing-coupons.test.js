@@ -31,7 +31,8 @@ for (const percentOff of [30, 50, 100]) {
       const offer = offers[index];
       assert.match(card, new RegExp(`<del[^>]+>${plan.amountAed} AED</del>`));
       assert.match(card, new RegExp(`<strong>${percentOff === 100 ? "FREE" : offer.initialAmountAed}</strong>`));
-      assert.ok(card.includes(`Then ${plan.amountAed} AED / month + processing fee`));
+      assert.ok(card.includes(`Then ${plan.amountAed} AED / month + processing fee</p>`));
+      assert.ok(card.includes(`plan-discount-code">TEST<`));
       assert.ok(card.includes(`then AED ${offer.renewalChargeAed}/month from month two`));
       assert.ok(card.includes(percentOff === 100 ? "Nothing charged today, card saved" : `AED ${offer.initialChargeAed} today`));
       assert.ok(card.includes(percentOff === 100 ? "First month on us" : `${percentOff}% off`));

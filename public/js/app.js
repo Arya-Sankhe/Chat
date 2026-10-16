@@ -2635,15 +2635,13 @@ function renderPlans() {
     const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
     const feeNote = fee ? " <small>+ processing fee</small>" : "";
     const price = offer
-      ? `<div class="plan-price">
-          <p class="plan-discount-label">${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</p>
-          <div class="plan-price-values">
-            <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
-            <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
-          </div>
-          <span>first month${offer.initialAmountAed ? feeNote : ""}</span>
+      ? `<div class="plan-price plan-price-offer">
+          <p class="plan-discount-label"><span class="plan-discount-code">${escapeHtml(offer.code)}</span><span>${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</span></p>
+          <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
+          <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
+          <span>first month</span>
         </div>
-        <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""} · ${escapeHtml(offer.code)}</p>`
+        <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""}</p>`
       : plan.amountAed
         ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`
         : `<p class="plan-price"><strong>${escapeHtml(plan.priceLabel || "")}</strong></p>`;
