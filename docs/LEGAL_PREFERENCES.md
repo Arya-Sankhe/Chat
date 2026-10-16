@@ -78,11 +78,15 @@ Drop any current draft line that says we require every underlying host not to re
 
 ---
 
-## 3. Expire subscriptions at `current_period_end` — Mamo expires, Ziina does not
+## 3. Subscription expiry and retired Ziina beta access
 
-**Decision:** Leave Ziina date-expiry off. Mamo rows (`provider === "mamo"`) DO expire at `current_period_end`; Ziina still does not.
+**Decision updated 2026-10-16:** Retire all Ziina beta entitlements. Keep users, chats and
+payment history; mark the old subscriptions `expired` with `raw.beta_retired=true`.
+These users must subscribe through Mamo once paid mode is enabled and may use first-month
+coupons. Retired rows never grant access and do not disqualify a first Mamo coupon.
 
-Ziina is a prepaid pass: an admin marks the payment approved, we write `status: "active"` and store `current_period_end` (now + 1 month). Entitlement only looks at `status` (`active` / `trialing`). After the month, the user stays entitled until someone changes status. `current_period_end` is used for usage-window math, not for cutting access.
+Ziina checkout and manual approvals are unavailable when Mamo is configured. Historical
+Ziina payment records remain available for account export and administration.
 
 Mamo is recurring. A `provider === "mamo"` row is entitled when status is `active` / `trialing` / `past_due` **and** `current_period_end` is in the future. Period end in the past is not entitled, even if status is still `active`.
 
@@ -90,7 +94,9 @@ Mamo is recurring. A `provider === "mamo"` row is entitled when status is `activ
 
 ## 4. No payment UI in the Android app — done in code
 
-**Decision:** Native (`isNative()` / Capacitor APK) never shows Upgrade, the paywall, or checkout. Unpaid users see “Subscribe on the website.” Website checkout is Mamo when `MAMO_API_KEY` is set, else Ziina.
+**Decision:** Native (`isNative()` / Capacitor APK) never shows Upgrade, the paywall, or checkout.
+The composer keeps its normal “Ask Klui” hint for unpaid users on web and native. Trying to
+send opens website plans or shows the native “Subscribe on the website” toast.
 
 Do not put Mamo (or any other) checkout inside the APK. Native stays “subscribe on the website.”
 

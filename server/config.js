@@ -200,6 +200,7 @@ export function loadConfig(env = process.env) {
       ),
       // ponytail: Mamo auth_header max 50.
       webhookAuth: clean(env.MAMO_WEBHOOK_AUTH).slice(0, 50),
+      couponIdentitySecret: clean(env.MAMO_COUPON_IDENTITY_SECRET),
       // Sandbox-only "test" schedules renew within minutes so renewals can be observed.
       testSchedule: readBoolean(env.MAMO_SANDBOX, false) && readBoolean(env.MAMO_TEST_SCHEDULE, false),
       coupons: parseMamoCoupons(env.MAMO_COUPONS),

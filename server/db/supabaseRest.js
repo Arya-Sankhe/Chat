@@ -135,14 +135,14 @@ export class SupabaseRest {
     return this.rpc("klui_apply_mamo_subscription", { p_subscription: subscription }, options);
   }
 
-  async getMamoCouponRedemption(userId, options) {
-    const rows = await this.request("mamo_coupon_redemptions", { query: { user_id: `eq.${userId}`, select: "*" }, ...options });
-    return rows?.[0] || null;
+  async hasUsedMamoCoupon(accountHashes, options) {
+    return this.rpc("klui_has_used_mamo_coupon", { p_account_hashes: accountHashes }, options);
   }
 
-  async claimMamoCoupon(paymentLinkId, cardId, verificationPaymentId, options) {
+  async claimMamoCoupon(paymentLinkId, cardId, verificationPaymentId, cardHash, options) {
     return this.rpc("klui_claim_mamo_coupon", {
-      p_payment_link_id: paymentLinkId, p_card_id: cardId, p_verification_payment_id: verificationPaymentId
+      p_payment_link_id: paymentLinkId, p_card_id: cardId, p_verification_payment_id: verificationPaymentId,
+      p_card_hash: cardHash
     }, options);
   }
 

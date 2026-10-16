@@ -1,4 +1,30 @@
 import { HttpError } from "../http/responses.js";
+import { createHmac } from "node:crypto";
+
+function couponIdentityHash(config, value) {
+  const secret = config.mamo?.couponIdentitySecret;
+  if (!secret || secret.length < 32) throw new HttpError(503, "Coupon verification is not configured.");
+  return createHmac("sha256", secret).update(value).digest("hex");
+}
+
+export function couponAccountHashes(config, user) {
+  const identities = (user.raw?.identities || []).filter((identity) => identity.provider === "google");
+  const keys = identities.map((identity) => identity.identity_data?.sub || identity.provider_id)
+    .filter(Boolean).map((sub) => `google:v1:${sub}`);
+  if (user.raw?.email && user.raw.email_confirmed_at) {
+    let email = user.raw.email.trim().toLowerCase();
+    const gmail = /^([^@]+)@(gmail|googlemail)\.com$/.exec(email);
+    if (gmail) email = `${gmail[1].split("+")[0].replaceAll(".", "")}@gmail.com`;
+    keys.push(`email:v1:${email}`);
+  }
+  if (!keys.length) throw new HttpError(403, "Verify your sign-in email before using a coupon.");
+  return [...new Set([`account:v1:${user.id}`, ...keys].map((key) => couponIdentityHash(config, key)))].sort();
+}
+
+export function couponCardHash(config, cardId) {
+  // shortcut: Mamo IDs may change on re-save; use a physical-card fingerprint when Mamo exposes one.
+  return cardId ? couponIdentityHash(config, `card:v1:${cardId}`) : null;
+}
 
 function addMonths(date, months) {
   const next = new Date(date);
@@ -501,7 +527,8 @@ async function recoverCouponCharge(claim, link, email, context) {
 export async function startCouponPeriod(payment, link, { db, plans, config, signal }) {
   const context = { db, plans, config, signal };
   const email = payment?.customer_details?.email;
-  const claim = await db.claimMamoCoupon(link.id, payment?.payment_method?.card_id || null, payment.id, { signal });
+  const cardId = payment?.payment_method?.card_id || null;
+  const claim = await db.claimMamoCoupon(link.id, cardId, payment.id, couponCardHash(config, cardId), { signal });
   if (claim?.conflict) {
     await stopCouponCheckout(link, email, { config, signal });
     return "conflict";
@@ -513,13 +540,13 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
     return "failed";
   }
   if (claim?.status === "charging") return recoverCouponCharge(claim, link, email, context);
+  if (claim?.status !== "claimed" || !claim.card_id) throw new HttpError(503, "Coupon card verification is still pending.");
   if (Number(link.initial_amount_aed) === 0) {
     await applyWebhookToSubscription(couponSubscriptionEvent(payment, link, "payment.card_verified"), context);
     await db.advanceMamoCoupon(link.id, ["claimed"], "active", null, { signal });
     return "active";
   }
   // Compare-and-set: only one callback may ever request the discounted charge.
-  if (!claim?.card_id) return "pending";
   const charging = await db.advanceMamoCoupon(link.id, ["claimed"], "charging", null, { signal });
   if (!charging) return "pending";
   return chargeCoupon(charging, link, email, context);

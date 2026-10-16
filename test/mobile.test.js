@@ -825,13 +825,41 @@ test("native clients do not show checkout; unpaid users are sent to the website"
     source,
     /function hasUpgradePlans\(\) \{\s*return state\.me\?\.access\?\.mode !== "testing" && Array\.isArray\(state\.plans\) && state\.plans\.length > 0;/
   );
-  assert.match(
-    source,
-    /isNative\(\) \? "Subscribe on the website to start chatting" : "Choose a plan to start chatting"/
-  );
+  assert.doesNotMatch(source, /Subscribe on the website to start chatting|Choose a plan to start chatting/);
   assert.match(source, /Pay with Ziina/);
   assert.match(source, /data-start-mamo="\$\{escapeHtml\(plan.id\)\}">Get \$\{escapeHtml\(plan.name\)\}</);
   assert.match(source, /data-start-mamo/);
+});
+
+test("expired subscriptions use the server access decision and the composer keeps its normal hint", async () => {
+  const source = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const access = source.match(/function hasChatAccess\(\) \{[\s\S]*?\n\}/)[0];
+  const placeholder = source.match(/function composerPlaceholder\(\) \{[\s\S]*?\n\}/)[0];
+  const context = { state: { session: {}, composerSkillIds: [], running: false,
+    me: { access: { active: false }, subscription: { status: "active" } } },
+    homeModesController: { placeholderOverride: () => null } };
+  runInNewContext(access + placeholder, context);
+  assert.equal(context.hasChatAccess(), false);
+  assert.equal(context.composerPlaceholder(), "Ask Klui");
+  context.state.me.access.active = true;
+  assert.equal(context.hasChatAccess(), true);
+  context.state.running = true;
+  assert.equal(context.composerPlaceholder(), "Queue message");
+});
+
+test("saved-card coupon returns poll for server confirmation without trusting the redirect for access", async () => {
+  const source = await readFile(new URL("../public/js/app.js", import.meta.url), "utf8");
+  const fn = source.match(/async function refreshAfterMamoReturn\(\) \{[\s\S]*?\n\}/)[0];
+  for (const status of ["card_verified", "captured", "failed"]) {
+    let reads = 0;
+    const context = { URLSearchParams, window: { location: { search: `?status=${status}&transactionId=PAY` } },
+      state: { session: {}, me: { access: { active: false } } },
+      showToast() {}, renderShell() {}, setTimeout: (callback) => callback(), withTimeout: (p) => p,
+      loadMe: async () => { reads++; context.state.me.access.active = true; } };
+    runInNewContext(fn, context);
+    await context.refreshAfterMamoReturn();
+    assert.equal(reads, status === "failed" ? 0 : 1);
+  }
 });
 
 test("capacitor native sidebar overflow does not clip conversation menus when open", async () => {

@@ -4,6 +4,7 @@ import { HttpError, parseJsonBody, sendJson } from "../http/responses.js";
 import {
   applyWebhookToSubscription,
   couponChargeExternalId,
+  couponAccountHashes,
   couponPrice,
   createPaymentLink,
   mamoCharges,
@@ -51,6 +52,7 @@ function publicPaymentRequest(row) {
 
 export async function handleCreateZiinaPaymentRequest(req, res, config) {
   const context = await authContext(req, config);
+  if (config.mamo?.apiKey) throw new HttpError(410, "Ziina checkout has been retired. Choose a plan with Mamo.");
   const body = await parseJsonBody(req, 16 * 1024);
   const planId = String(body.planId || "").trim();
   const plan = config.plans.find((candidate) => candidate.id === planId);
@@ -109,6 +111,9 @@ export async function handleAdminUpdatePaymentRequest(req, res, config, id, acti
     }, { signal: req.signal });
     sendJson(res, 200, { paymentRequest: publicPaymentRequest(rejected) });
     return;
+  }
+  if (config.mamo?.apiKey && payment.provider === "ziina") {
+    throw new HttpError(410, "Ziina beta access has been retired. Use Mamo for a new subscription.");
   }
 
   const plan = config.plans.find((candidate) => candidate.id === payment.plan_id);
@@ -185,14 +190,16 @@ async function eligibleCoupon(context, config, code, signal) {
     }
   }
   if (!coupon) throw new HttpError(400, "That coupon code isn't valid.");
-  const [current, redemption] = await Promise.all([
+  const accountHashes = couponAccountHashes(config, context.user);
+  const [current, used] = await Promise.all([
     context.db.getLatestSubscription(context.user.id, { signal }),
-    context.db.getMamoCouponRedemption(context.user.id, { signal })
+    context.db.hasUsedMamoCoupon(accountHashes, { signal })
   ]);
-  if (current || (redemption && redemption.status !== "failed")) {
+  const retiredBeta = current?.provider === "ziina" && current.raw?.beta_retired === true;
+  if ((current && !retiredBeta) || used) {
     throw new HttpError(409, "This coupon is only for your first Klui subscription.");
   }
-  return coupon;
+  return { ...coupon, accountHashes };
 }
 
 // Prices are before Mamo's processing fee; charges are what the card is billed.
@@ -242,6 +249,7 @@ export async function handleCreateMamoPayment(req, res, config) {
     id: link.id, user_id: context.user.id, plan_id: plan.id,
     amount_aed: link.renewalAmount, subscription_id: link.subscriptionId,
     ...(coupon ? { coupon_code: coupon.code, initial_amount_aed: link.initialAmount, first_renewal_at: link.firstRenewalAt,
+      coupon_account_hashes: coupon.accountHashes,
       affiliate_coupon_id: coupon.affiliateCouponId || null } : {})
   }, { signal: req.signal });
   if (!await closeOtherCheckouts(context.db, context.user.id, link.id, { config, signal: req.signal })) {
