@@ -107,6 +107,7 @@ import {
   copyText,
   exitApp,
   isNative,
+  keepVoiceSessionAlive,
   listenForDeepLinks,
   onResume,
   openExternal,
@@ -7831,7 +7832,8 @@ async function openVoiceMode() {
   if (!state.settings.voiceChosen && !await pickVoiceMode({ first: true })) return;
   if (voiceSession?.active) return;
   document.body.classList.add("voice-mode-open");
-  voiceSession = createVoiceSession({
+  let releaseKeepAlive = () => {};
+  const session = createVoiceSession({
     api: {
       transcribe: (blob, options) => transcribeVoiceTurn(state.session, blob, options),
       speak: (text, voice, speed, options) => synthesizeVoice(state.session, { text, voice, speed }, options)
@@ -7841,15 +7843,50 @@ async function openVoiceMode() {
     pickVoice: (options) => pickVoiceMode(options),
     escapeHtml,
     reducedMotion: prefersReducedMotion(),
+    // The Android app keeps talking with the screen off or another app open.
+    keepRunningHidden: isNative(),
+    onLive: () => { releaseKeepAlive = keepVoiceRunning(session); },
     onToast: showToast,
     onClose: () => {
+      releaseKeepAlive();
+      // A newer conversation may already be open; only this one's state is cleared.
+      if (voiceSession !== session) return;
       voiceSession = null;
       document.body.classList.remove("voice-mode-open");
       updateSendButton();
     }
   });
-  document.body.append(voiceSession.root);
-  await voiceSession.start();
+  voiceSession = session;
+  document.body.append(session.root);
+  await session.start();
+}
+
+/* Holds the Android background service for one voice conversation and returns
+   its release. If Android refuses (Klui left the screen while voice mode was
+   starting), it tries again when Klui is back on screen. */
+function keepVoiceRunning(session) {
+  let released = false;
+  let hold = null;
+  const retry = () => {
+    if (document.hidden || released) return;
+    document.removeEventListener("visibilitychange", retry);
+    hold?.stop();
+    void acquire();
+  };
+  const acquire = async () => {
+    const next = await keepVoiceSessionAlive({ onEnd: () => void session.close() });
+    if (released || !session.active) { next.stop(); return; }
+    hold = next;
+    if (next.running) return;
+    if (document.hidden) document.addEventListener("visibilitychange", retry);
+    else showToast("Voice mode will pause if you leave Klui.");
+  };
+  void acquire();
+  return () => {
+    released = true;
+    document.removeEventListener("visibilitychange", retry);
+    hold?.stop();
+  };
 }
 
 function renderVoiceSettings() {

@@ -84,3 +84,80 @@ test("every voice has a prerecorded preview at every speed on both engines", () 
     }
   }
 });
+
+test("the Android app keeps voice mode running in the background", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [manifest, activity] = await Promise.all([
+    readFile(new URL("../android/app/src/main/AndroidManifest.xml", import.meta.url), "utf8"),
+    readFile(new URL("../android/app/src/main/java/tech/klui/app/MainActivity.java", import.meta.url), "utf8")
+  ]);
+  // Android only lets a background app hear the microphone from a microphone foreground service.
+  assert.match(manifest, /android:name="\.VoiceSessionService"[^>]*android:foregroundServiceType="microphone\|mediaPlayback"/);
+  for (const permission of ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE", "FOREGROUND_SERVICE_MEDIA_PLAYBACK"]) {
+    assert.match(manifest, new RegExp(`android\\.permission\\.${permission}"`));
+  }
+  assert.match(activity, /registerPlugin\(VoiceSessionPlugin\.class\)/);
+});
+
+test("only the newest voice conversation can stop the background service", async () => {
+  const { createVoiceKeepAlive } = await import("../public/js/platform/index.js");
+  const calls = [];
+  const ends = [];
+  let gate = Promise.resolve();
+  const plugin = {
+    addListener: async (event, listener) => { ends.push(listener); return { remove: async () => {} }; },
+    start: async () => { calls.push("start"); await gate; return { running: true }; },
+    stop: async () => { calls.push("stop"); }
+  };
+  const hold = createVoiceKeepAlive(async () => plugin);
+
+  // A conversation that closes normally starts and then stops the service.
+  const first = await hold();
+  assert.equal(first.running, true);
+  first.stop();
+  first.stop();
+  assert.deepEqual(calls, ["start", "stop"]);
+
+  // A slow start that a newer conversation overtakes neither runs nor stops the newer one.
+  let open;
+  gate = new Promise((resolve) => { open = resolve; });
+  const stale = hold();
+  const fresh = hold();
+  open();
+  const [old, current] = await Promise.all([stale, fresh]);
+  assert.equal(old.running, false);
+  assert.equal(current.running, true);
+  old.stop();
+  assert.equal(calls.filter((call) => call === "stop").length, 1);
+
+  // The notification's End only reaches the conversation that holds the service.
+  let ended = 0;
+  const latest = await createVoiceKeepAlive(async () => plugin)({ onEnd: () => { ended += 1; } });
+  ends.at(-1)();
+  assert.equal(ended, 1);
+  latest.stop();
+  ends.at(-1)();
+  assert.equal(ended, 1);
+
+  // Android refusing the service is reported, so the app can retry when it is back on screen.
+  const refused = await createVoiceKeepAlive(async () => ({ ...plugin, start: async () => ({ running: false }) }))();
+  assert.equal(refused.running, false);
+});
+
+test("holding the voice service resolves through the real Capacitor plugin proxy", async () => {
+  // The plugin proxy is thenable; returning it from an async loader would never resolve.
+  const { keepVoiceSessionAlive } = await import("../public/js/platform/index.js");
+  const previous = globalThis.Capacitor;
+  globalThis.Capacitor = { isNativePlatform: () => true };
+  try {
+    const result = await Promise.race([
+      keepVoiceSessionAlive(),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 2000))
+    ]);
+    assert.notEqual(result, "hung");
+    assert.equal(typeof result.stop, "function");
+    result.stop();
+  } finally {
+    globalThis.Capacitor = previous;
+  }
+});

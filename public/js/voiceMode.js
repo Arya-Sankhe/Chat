@@ -507,7 +507,7 @@ export function voiceModeSupported() {
  * - sendTurn(text, { onStart(abort), onText(fullText), onTool() }) -> { ok, aborted, error } | null when busy
  * - prefs() -> { voice, speed }; pickVoice({ engine }) opens the picker and resolves when it closes.
  */
-export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml, reducedMotion = false, onClose, onToast }) {
+export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml, reducedMotion = false, keepRunningHidden = false, onLive, onClose, onToast }) {
   const root = document.createElement("div");
   root.className = "voice-mode";
   root.dataset.phase = "connecting";
@@ -562,6 +562,8 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   let echo = 0;
   let barge = 0;
   let ticker = 0;
+  let lastTick = 0;
+  let pacer = null;
   let turnSeq = 0;
   let abortTurn = null;
   let streaming = false;
@@ -672,7 +674,19 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     micAnalyser = ctx.createAnalyser();
     micAnalyser.fftSize = 1024;
     micAnalyser.smoothingTimeConstant = 0.2;
-    ctx.createMediaStreamSource(stream).connect(micAnalyser);
+    const micSource = ctx.createMediaStreamSource(stream);
+    micSource.connect(micAnalyser);
+    if (keepRunningHidden && ctx.createScriptProcessor) {
+      // A hidden page's timers fire about once a second, too slow to hear the end of a turn.
+      // Audio callbacks keep their pace, so while hidden they drive the loop instead.
+      pacer = ctx.createScriptProcessor(2048, 1, 1);
+      pacer.onaudioprocess = () => { if (document.hidden) pace(); };
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
+      micSource.connect(pacer);
+      pacer.connect(silent);
+      silent.connect(ctx.destination);
+    }
   }
   function rms(analyser) {
     if (!analyser) return 0;
@@ -964,13 +978,13 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       return spec;
     })();
   }
-  function listenTick(level, now) {
+  function listenTick(level, now, step = TICK_MS) {
     const state = listen;
     if (!state) return;
     const on = Math.max(0.014, floor * 3.2);
     const off = on * 0.62;
     if (level > on) {
-      state.voicedRun += TICK_MS;
+      state.voicedRun += step;
       if (state.voicedRun >= 120) {
         if (!state.heard) {
           state.heard = true;
@@ -980,7 +994,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
           paintReply();
         }
         state.lastVoiceAt = now;
-        state.voicedMs += TICK_MS;
+        state.voicedMs += step;
         setStatus("Listening");
         setHint("");
       }
@@ -1051,8 +1065,17 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
   }
 
   /* Loop */
+  // The interval and, while hidden, the audio callbacks share one pace of about TICK_MS.
+  // Counters advance by the time that really passed, so either clock times a turn the same.
+  function pace() {
+    const now = performance.now();
+    if (now - lastTick < TICK_MS * 0.8) return;
+    const step = lastTick ? Math.min(TICK_MS * 3, now - lastTick) : TICK_MS;
+    lastTick = now;
+    tick(step);
+  }
   const bargeThreshold = () => Math.max(0.035, floor * 5, echo * 2.6);
-  function tick() {
+  function tick(step = TICK_MS) {
     if (closed) return;
     const now = performance.now();
     const mic = muted ? 0 : rms(micAnalyser);
@@ -1065,10 +1088,10 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     orb.setLevel(level);
     satellites.setLevel(level);
     root.style.setProperty("--voice-level", Math.min(1, level).toFixed(3));
-    if (phase === "listening") listenTick(mic, now);
+    if (phase === "listening") listenTick(mic, now, step);
     else if (phase === "speaking" && stream && !muted) {
       // Jumping in: clearly louder than the room and the echo, for about 0.3 seconds.
-      barge = mic > bargeThreshold() ? barge + TICK_MS : Math.max(0, barge - TICK_MS * 2);
+      barge = mic > bargeThreshold() ? barge + step : Math.max(0, barge - step * 2);
       if (barge >= 300) {
         barge = 0;
         interrupt(true);
@@ -1096,6 +1119,7 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
     // A reply still being written finishes in the chat; only the voice stops.
     resetSpeech();
     clearInterval(ticker);
+    if (pacer) pacer.onaudioprocess = null;
     document.removeEventListener("keydown", onKey, true);
     if (listen) {
       const state = listen;
@@ -1158,7 +1182,8 @@ export function createVoiceSession({ api, sendTurn, prefs, pickVoice, escapeHtml
       if (closed) return;
       // Call connected: a soft rising three-note chime.
       playChime(ctx, CHIMES.start);
-      ticker = setInterval(tick, TICK_MS);
+      ticker = setInterval(pace, TICK_MS);
+      onLive?.();
       beginListening();
       setHint("Go ahead, I'm listening");
     },

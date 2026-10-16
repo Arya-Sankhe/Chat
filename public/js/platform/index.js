@@ -381,6 +381,64 @@ export async function fetchNativeBytes(url) {
 }
 
 let textZoomPlugin = null;
+/* Voice mode holds a native foreground service while it is on, so the
+   conversation keeps listening and speaking with the app in the background.
+   Each hold resolves { running, stop }: `running` says whether Android let the
+   service start, and only the newest hold can stop it, so a late stop from an
+   earlier conversation never ends the current one. `onEnd` runs when the user
+   taps End on the notification. */
+export function createVoiceKeepAlive(loadPlugin) {
+  let owner = 0;
+  let holds = 0;
+  return async function hold({ onEnd } = {}) {
+    const id = ++holds;
+    owner = id;
+    let plugin = null;
+    let listener = null;
+    let running = false;
+    try {
+      plugin = await loadPlugin();
+      if (owner === id) {
+        listener = await plugin.addListener("end", () => { if (owner === id) onEnd?.(); });
+        running = owner === id && Boolean((await plugin.start())?.running);
+      }
+    } catch {
+      running = false;
+    }
+    return {
+      running,
+      stop() {
+        void listener?.remove();
+        listener = null;
+        if (owner !== id) return;
+        owner = 0;
+        void plugin?.stop().catch(() => {});
+      }
+    };
+  };
+}
+
+let voiceSessionPlugin = null;
+const holdVoiceSession = createVoiceKeepAlive(async () => {
+  if (!voiceSessionPlugin) {
+    const { registerPlugin } = await import("@capacitor/core");
+    const plugin = registerPlugin("VoiceSession");
+    // A plain wrapper: the plugin proxy is thenable, so an async function returning it
+    // would call VoiceSession.then() and never resolve (see secureStorage above).
+    voiceSessionPlugin = {
+      addListener: plugin.addListener.bind(plugin),
+      start: plugin.start.bind(plugin),
+      stop: plugin.stop.bind(plugin)
+    };
+  }
+  return voiceSessionPlugin;
+});
+
+/* On the web this does nothing and reports running, so callers never warn. */
+export async function keepVoiceSessionAlive(options) {
+  if (!isNative()) return { running: true, stop() {} };
+  return holdVoiceSession(options);
+}
 
 async function nativeTextZoomPlugin() {
   if (!textZoomPlugin) {
