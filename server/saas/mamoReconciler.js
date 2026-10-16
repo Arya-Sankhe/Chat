@@ -4,10 +4,15 @@ import { mamoFetch, processMamoPayment } from "./mamo.js";
 // Mamo retries webhooks, but a callback can still be lost for good (an outage longer than its
 // retries, a deploy at the wrong moment). This sweep re-reads recent Mamo payments and applies
 // each one exactly as its webhook would; the database ignores anything already applied.
-const LOOKBACK_MS = 4 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const LOOKBACK_MS = 4 * DAY_MS;
+// A refund can come weeks after its payment, so every hour a deeper sweep looks for refunds
+// across the last billing month (plus margin).
+const REFUND_LOOKBACK_MS = 35 * DAY_MS;
+const DEEP_EVERY = 12;
 // Leave a fresh payment to its own webhook before stepping in.
 const SETTLE_MS = 5 * 60 * 1000;
-const MAX_PAGES = 10;
+const MAX_PAGES = 200;
 
 function parseMamoTimestamp(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})$/.exec(String(value || ""));
@@ -23,18 +28,25 @@ export function createMamoReconciler(config, { db = new SupabaseRest(config), no
   const firstSeen = new Map();
   const applied = new Set();
   let running = false;
+  let sweeps = 0;
 
-  async function recentPayments(signal) {
+  async function recentPayments(deep, signal) {
     const cutoff = now() - LOOKBACK_MS;
+    const refundCutoff = now() - (deep ? REFUND_LOOKBACK_MS : LOOKBACK_MS);
     const rows = [];
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
+    for (let page = 1; ; page += 1) {
       const result = await mamoFetch(config, `/charges?page=${page}&per_page=50`, { signal });
       if (!Array.isArray(result?.data)) throw new Error("Mamo charge list was malformed.");
       rows.push(...result.data);
       // Newest first. Mamo's timestamps carry no zone, so the cutoff is a day wider than needed.
-      if (!result.pagination_meta?.next_page || result.data.some((row) => parseMamoTimestamp(row?.created_date) < cutoff)) break;
+      if (!result.pagination_meta?.next_page || result.data.some((row) => parseMamoTimestamp(row?.created_date) < refundCutoff)) break;
+      if (page === MAX_PAGES) throw new Error("Mamo charge list is longer than the sweep can read.");
     }
-    return rows.filter((row) => row?.id && row.payment_link_id && !(parseMamoTimestamp(row.created_date) < cutoff));
+    return rows.filter((row) => {
+      const created = parseMamoTimestamp(row?.created_date);
+      if (!row?.id || !row.payment_link_id || !(created >= refundCutoff)) return false;
+      return created >= cutoff || Number(row.refund_amount) > 0;
+    });
   }
 
   async function run() {
@@ -42,11 +54,16 @@ export function createMamoReconciler(config, { db = new SupabaseRest(config), no
     running = true;
     const summary = { checked: 0, applied: 0, failed: 0 };
     try {
-      const signal = AbortSignal.timeout(60_000);
-      const rows = await recentPayments(signal);
-      const current = new Set(rows.map(paymentState));
-      for (const key of firstSeen.keys()) if (!current.has(key)) firstSeen.delete(key);
-      for (const key of applied) if (!current.has(key)) applied.delete(key);
+      const deep = sweeps % DEEP_EVERY === 0;
+      sweeps += 1;
+      const signal = AbortSignal.timeout(120_000);
+      const rows = await recentPayments(deep, signal);
+      // Only the deep sweep sees every payment still worth tracking, so only it forgets the rest.
+      if (deep) {
+        const current = new Set(rows.map(paymentState));
+        for (const key of firstSeen.keys()) if (!current.has(key)) firstSeen.delete(key);
+        for (const key of applied) if (!current.has(key)) applied.delete(key);
+      }
       // Oldest first, so a renewal lands after the payment it renews.
       for (const row of rows.reverse()) {
         const key = paymentState(row);
@@ -55,7 +72,9 @@ export function createMamoReconciler(config, { db = new SupabaseRest(config), no
         if (now() - firstSeen.get(key) < SETTLE_MS) continue;
         summary.checked += 1;
         try {
-          await processMamoPayment(row.id, { db, plans: config.plans, config, signal: AbortSignal.timeout(30_000) });
+          const outcome = await processMamoPayment(row.id, { db, plans: config.plans, config, signal: AbortSignal.timeout(30_000) });
+          // A coupon another callback is still charging is checked again next sweep.
+          if (outcome === "pending") continue;
           applied.add(key);
           summary.applied += 1;
         } catch (error) {

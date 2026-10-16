@@ -351,6 +351,19 @@ async function unsubscribeEmail(config, subscriptionId, email, { signal }) {
   }
 }
 
+async function unsubscribeAll(config, subscriptionId, { signal }) {
+  if (!subscriptionId) return;
+  const rows = (await listSubscribers(config, subscriptionId, { signal }))
+    .filter((row) => row?.id && String(row.status).toLowerCase() === "active");
+  for (const row of rows) {
+    try {
+      await unsubscribe(config, subscriptionId, row.id, { signal });
+    } catch (error) {
+      if (error?.details?.status !== 404) throw error;
+    }
+  }
+}
+
 async function deactivateLink(config, linkId, { signal }) {
   try {
     await mamoFetch(config, `/links/${encodeURIComponent(linkId)}`, { method: "PATCH", body: { active: false }, signal });
@@ -554,6 +567,7 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
 
 // Applies one Mamo payment from its canonical provider record. Webhooks and the recovery sweep
 // both land here; the database ignores replays and payments older than the one it already has.
+// Returns "pending" while the payment (or a coupon charge it started) has not settled yet.
 export async function processMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate } = {}) {
   // Read the provider's current payment state: redirects and callback fields cannot grant access.
   const payment = await mamoFetch(config, `/payments/${encodeURIComponent(paymentId)}`, { signal });
@@ -569,15 +583,11 @@ export async function processMamoPayment(paymentId, { db, plans, config, signal,
   }
   const context = { db, plans, config, signal };
   if (payment.status === "card_verified") {
-    if (link.coupon_code) await startCouponPeriod(payment, link, context);
-    return;
+    return link.coupon_code ? startCouponPeriod(payment, link, context) : "ignored";
   }
   const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
-  if (couponCharge && !fullRefund) {
-    await settleCouponCharge(payment, link, context);
-    return;
-  }
-  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return;
+  if (couponCharge && !fullRefund) return settleCouponCharge(payment, link, context);
+  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return "pending";
   await applyWebhookToSubscription({
     ...payment,
     event_type: fullRefund ? "payment.refunded"
@@ -587,9 +597,12 @@ export async function processMamoPayment(paymentId, { db, plans, config, signal,
     next_payment_date: payment.next_payment_date || nextPaymentDate,
     custom_data: { userId: link.user_id, planId: link.plan_id }, external_id: link.user_id
   }, context);
-  // A refunded checkout must not charge again next month. Each link has its own schedule.
+  // A refunded checkout must not charge again next month. Each link has its own schedule, so
+  // every subscriber on it is this checkout's payer, whatever email the payment carries.
   if (fullRefund) {
     await deactivateLink(config, link.id, { signal });
-    await unsubscribeEmail(config, link.subscription_id, payment.customer_details?.email, { signal });
+    await unsubscribeAll(config, link.subscription_id, { signal });
+    return "refunded";
   }
+  return "applied";
 }

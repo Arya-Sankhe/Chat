@@ -1200,3 +1200,40 @@ test("the recovery sweep applies payments whose webhook never arrived, once, aft
     assert.equal(calls.filter((call) => call === "GET /payments/PAY-VERIFY").length, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("the recovery sweep retries unsettled payments and finds refunds of older payments hourly", async () => {
+  const originalFetch = globalThis.fetch;
+  const { createMamoReconciler } = await import("../server/saas/mamoReconciler.js");
+  const config = loadConfig(mamoEnv());
+  const stamp = (ms) => new Date(ms).toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  let clock = Date.now();
+  const link = { id: "MB-LINK-PLAIN", user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PLAIN" };
+  const base = { amount: 30, amount_currency: "AED", payment_link_id: link.id, subscription_id: link.subscription_id };
+  const fresh = { ...base, id: "PAY-NEW", status: "processing", created_date: stamp(clock - 60_000) };
+  // Refunded with no email on the payment: renewal still stops.
+  const old = { ...base, id: "PAY-OLD", status: "captured", refund_amount: 30, created_date: stamp(clock - 10 * 86_400_000) };
+  const calls = [];
+  try {
+    globalThis.fetch = mamoStub(calls, { charges: [fresh, old], payments: { "PAY-NEW": fresh, "PAY-OLD": old } });
+    const { state, db } = couponDb({ link });
+    db.getMamoPaymentLink = async () => link;
+    const reconciler = createMamoReconciler(config, { db, now: () => clock });
+    await reconciler.run();
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 1, applied: 0, failed: 0 }, "not settled yet, so not cached");
+    // The new state gets its own grace period before the sweep applies it.
+    fresh.status = "captured";
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 1, applied: 1, failed: 0 });
+    assert.equal(state.upserts.at(-1).status, "active");
+    assert.ok(!calls.includes("GET /payments/PAY-OLD"), "a refund older than four days waits for the hourly sweep");
+    for (let sweep = 4; sweep < 12; sweep += 1) { clock += 5 * 60_000; await reconciler.run(); }
+    clock += 5 * 60_000;
+    await reconciler.run();
+    assert.ok(calls.includes("GET /payments/PAY-OLD"));
+    assert.ok(calls.includes("PATCH /links/MB-LINK-PLAIN"));
+    assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-PLAIN/subscribers/SUBSCRIBER-1"));
+  } finally { globalThis.fetch = originalFetch; }
+});
