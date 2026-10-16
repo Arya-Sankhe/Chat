@@ -323,7 +323,9 @@ export async function applyWebhookToSubscription(payload, { db, plans, config, s
     provider_price_id: planId,
     plan_id: planId,
     status: nextStatus,
-    cancel_at_period_end: nextStatus === "active" || nextStatus === "trialing" ? false : Boolean(mamoExisting?.cancel_at_period_end),
+    // A cancellation belongs to its checkout; another checkout's event must not inherit it.
+    cancel_at_period_end: nextStatus === "active" || nextStatus === "trialing" ? false
+      : Boolean(mamoExisting?.cancel_at_period_end) && priorRaw.payment_link_id === payload.payment_link_id,
     current_period_end: currentPeriodEnd,
     raw: {
       ...priorRaw,
@@ -342,6 +344,19 @@ async function unsubscribeEmail(config, subscriptionId, email, { signal }) {
   const rows = (await listSubscribers(config, subscriptionId, { signal }))
     .filter((row) => String(row?.customer?.email || "").trim().toLowerCase() === needle
       && String(row.status).toLowerCase() === "active");
+  for (const row of rows) {
+    try {
+      await unsubscribe(config, subscriptionId, row.id, { signal });
+    } catch (error) {
+      if (error?.details?.status !== 404) throw error;
+    }
+  }
+}
+
+async function unsubscribeAll(config, subscriptionId, { signal }) {
+  if (!subscriptionId) return;
+  const rows = (await listSubscribers(config, subscriptionId, { signal }))
+    .filter((row) => row?.id && String(row.status).toLowerCase() === "active");
   for (const row of rows) {
     try {
       await unsubscribe(config, subscriptionId, row.id, { signal });
@@ -550,4 +565,52 @@ export async function startCouponPeriod(payment, link, { db, plans, config, sign
   const charging = await db.advanceMamoCoupon(link.id, ["claimed"], "charging", null, { signal });
   if (!charging) return "pending";
   return chargeCoupon(charging, link, email, context);
+}
+
+// Applies one Mamo payment from its canonical provider record. Webhooks and the recovery sweep
+// both land here; the database ignores replays and payments older than the one it already has.
+// Returns "pending" while the payment (or a coupon charge it started) has not settled yet.
+export async function processMamoPayment(paymentId, { db, plans, config, signal, nextPaymentDate } = {}) {
+  // Read the provider's current payment state: redirects and callback fields cannot grant access.
+  const payment = await mamoFetch(config, `/payments/${encodeURIComponent(paymentId)}`, { signal });
+  const link = await db.getMamoPaymentLink(payment?.payment_link_id, { signal });
+  if (!link) throw new HttpError(409, "Payment link is not registered with this app.");
+  // A coupon's discounted first month is a separate saved-card charge; renewals are full price.
+  const couponCharge = Boolean(link.coupon_code) && payment?.external_id === couponChargeExternalId(link.id);
+  if (payment?.id !== paymentId || payment.amount_currency !== "AED"
+    || Number(payment.amount) !== Number(couponCharge ? link.initial_amount_aed : link.amount_aed)
+    || (link.subscription_id && payment.subscription_id && payment.subscription_id !== link.subscription_id)
+    || (link.subscription_id && !payment.subscription_id && !couponCharge)) {
+    throw new HttpError(400, "Payment does not match the registered checkout.");
+  }
+  const context = { db, plans, config, signal };
+  if (payment.status === "card_verified") {
+    return link.coupon_code ? startCouponPeriod(payment, link, context) : "ignored";
+  }
+  const fullRefund = Number(payment.refund_amount) >= Number(payment.amount) && Number(payment.amount) > 0;
+  if (couponCharge && !fullRefund) return settleCouponCharge(payment, link, context);
+  if (!fullRefund && !["captured", "succeeded", "failed"].includes(payment.status)) return "pending";
+  await applyWebhookToSubscription({
+    ...payment,
+    event_type: fullRefund ? "payment.refunded"
+      : ["captured", "succeeded"].includes(payment.status) ? "payment.succeeded" : "subscription.failed",
+    payment_link_id: link.id,
+    subscription_id: payment.subscription_id || link.subscription_id,
+    next_payment_date: payment.next_payment_date || nextPaymentDate,
+    custom_data: { userId: link.user_id, planId: link.plan_id }, external_id: link.user_id
+  }, context);
+  // A refunded checkout must not charge again next month. Each link has its own schedule, so
+  // every subscriber on it is this checkout's payer, whatever email the payment carries.
+  if (fullRefund) {
+    await deactivateLink(config, link.id, { signal });
+    await unsubscribeAll(config, link.subscription_id, { signal });
+    // Only once Mamo has stopped the schedule may a new checkout skip the cancel step.
+    const latest = await db.getLatestSubscription(link.user_id, { signal });
+    if (latest?.provider === "mamo" && latest.status === "canceled" && !latest.cancel_at_period_end
+      && asObject(latest.raw).payment_link_id === link.id) {
+      await db.cancelMamoSubscription(link.user_id, link.id, { signal });
+    }
+    return "refunded";
+  }
+  return "applied";
 }

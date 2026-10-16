@@ -12,6 +12,7 @@ const marketingPagePaths = new Set([
   "/legal",
   "/privacy",
   "/terms",
+  "/refund",
   "/cookies",
   "/subprocessors",
   "/account-delete",

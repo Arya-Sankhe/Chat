@@ -53,6 +53,38 @@ begin
   assert (select count(*) = 1 from public.subscriptions where user_id = (event->>'user_id')::uuid), 'duplicate rows';
 end;
 $$;
+-- A refund that lands before its payment's success must stick, with or without an older row.
+do $$
+declare
+  u text := '11111111-1111-4111-8111-000000009999';
+  older jsonb;
+  refunded jsonb;
+  result jsonb;
+begin
+  delete from public.subscriptions where user_id = u::uuid;
+  refunded := jsonb_build_object('user_id',u,'provider','mamo','provider_subscription_id','mamo:'||u,
+    'plan_id','pro','status','canceled','cancel_at_period_end',false,'current_period_end','2099-11-16T20:00:00Z',
+    'updated_at','2099-10-16T00:00:00Z','raw',jsonb_build_object('id','PAY-B','created_date','2099-10-16-10-00-00','payment_link_id','LINK-B'));
+  result := public.klui_apply_mamo_subscription(refunded);
+  assert result->>'status' = 'canceled', 'refund with no row was dropped';
+  result := public.klui_apply_mamo_subscription(jsonb_set(refunded,'{status}','"active"'));
+  assert result->>'status' = 'canceled', 'late success revived a refund (no prior row)';
+
+  delete from public.subscriptions where user_id = u::uuid;
+  older := jsonb_set(jsonb_set(jsonb_set(jsonb_set(refunded,'{status}','"active"'),'{raw,id}','"PAY-A"'),
+    '{raw,created_date}','"2099-10-01-10-00-00"'),'{raw,payment_link_id}','"LINK-A"');
+  perform public.klui_apply_mamo_subscription(older);
+  result := public.klui_apply_mamo_subscription(refunded);
+  assert result->>'status' = 'canceled' and result->'raw'->>'id' = 'PAY-B', 'newer refund was dropped';
+  result := public.klui_apply_mamo_subscription(jsonb_set(refunded,'{status}','"active"'));
+  assert result->>'status' = 'canceled', 'late success revived a refund (older row)';
+
+  delete from public.subscriptions where user_id = u::uuid;
+  perform public.klui_apply_mamo_subscription(jsonb_set(refunded,'{status}','"active"'));
+  result := public.klui_apply_mamo_subscription(jsonb_set(older,'{status}','"canceled"'));
+  assert result->>'status' = 'active' and result->'raw'->>'id' = 'PAY-B', 'old refund revoked a newer payment';
+end;
+$$;
 -- First-month coupons: one redemption per user, one discounted charge, trial periods.
 -- Coupons are for a first subscription: start from a user who has never subscribed.
 delete from public.subscriptions where user_id = '11111111-1111-4111-8111-000000009999';

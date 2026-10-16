@@ -4,9 +4,11 @@ import { handleApiRequest } from "./routes.js";
 import { handleDesktopOAuthFacade } from "./routes/desktopOAuth.js";
 import { serveStatic } from "./static.js";
 import { startUsageReconciler } from "./saas/usageReconciler.js";
+import { startMamoReconciler } from "./saas/mamoReconciler.js";
 
 const config = validateRuntimeConfig(loadConfig());
 startUsageReconciler(config);
+startMamoReconciler(config);
 
 const server = http.createServer(async (req, res) => {
   try {

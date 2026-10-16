@@ -2777,6 +2777,11 @@ function formatStorageBytes(bytes) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
 }
 
+// Access runs through the end of the Dubai renewal day; Mamo charges on that day, so show it.
+function billingDay(periodEnd) {
+  return new Date(Date.parse(periodEnd) - 1).toLocaleDateString(undefined, { timeZone: "Asia/Dubai", month: "short", day: "numeric", year: "numeric" });
+}
+
 function renderSettingsAccount() {
   const signedIn = Boolean(state.session);
   els.settingsAccountFields?.classList.toggle("hidden", !signedIn);
@@ -2786,6 +2791,8 @@ function renderSettingsAccount() {
     && sub?.provider === "mamo"
     && !sub?.cancelAtPeriodEnd;
   els.settingsAccountCancelRow?.classList.toggle("hidden", !canCancel);
+  const cancelLabel = els.settingsAccountCancelRow?.querySelector("span");
+  if (cancelLabel) cancelLabel.textContent = canCancel && sub.currentPeriodEnd ? `Subscription · renews ${billingDay(sub.currentPeriodEnd)}` : "Subscription";
   if (!signedIn) return;
   const email = state.me?.user?.email || "Signed in";
   if (els.settingsAccountName) els.settingsAccountName.textContent = state.me?.user?.name || profileDisplayName(email);
@@ -3022,7 +3029,7 @@ function renderAccount() {
     <div class="account-label">${escapeHtml(state.me?.user?.email || "Signed in")}</div>
     <p class="account-detail">Plan: ${escapeHtml(plan?.name || "No active plan")}</p>
     <p class="account-detail">Access: ${escapeHtml(sub?.status || state.me?.access?.mode || "none")}</p>
-    ${sub?.currentPeriodEnd ? `<p class="account-detail">Renews: ${escapeHtml(new Date(sub.currentPeriodEnd).toLocaleDateString())}</p>` : ""}
+    ${sub?.currentPeriodEnd ? `<p class="account-detail">${sub.cancelAtPeriodEnd ? "Ends" : "Renews"}: ${escapeHtml(billingDay(sub.currentPeriodEnd))}</p>` : ""}
     ${renderAccountUsageMarkup()}
   `;
   els.adminSection.classList.toggle("hidden", state.me?.profile?.role !== "admin");

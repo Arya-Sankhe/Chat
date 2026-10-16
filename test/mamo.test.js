@@ -415,10 +415,15 @@ test("webhooks use verified provider state and immutable checkout ownership", as
         amount: scenario === "tampered" ? 1 : 30, amount_currency: "AED",
         subscription_id: "MPB-SUB-PRO", created_date: "2026-10-04-00-00-00",
         refund_amount: scenario === "refund" ? 30 : scenario === "partial" ? 5 : 0,
-        next_payment_date: "04/11/2026", custom_data: {}, external_id: null
+        next_payment_date: "04/11/2026", custom_data: {}, external_id: null,
+        customer_details: { email: "student@example.com" }
       };
-      globalThis.fetch = async (url) => {
-        assert.equal(String(url), `${LIVE_BASE}/payments/PAY-TEST`);
+      const calls = [];
+      globalThis.fetch = async (url, init = {}) => {
+        calls.push(`${init.method || "GET"} ${String(url).slice(LIVE_BASE.length)}`);
+        if (String(url).endsWith("/subscribers")) {
+          return Response.json([{ id: "SUBR-1", status: "Active", customer: { email: "student@example.com" } }]);
+        }
         return Response.json(payment);
       };
       const res = await dispatch(config, {
@@ -431,7 +436,7 @@ test("webhooks use verified provider state and immutable checkout ownership", as
           ...webhookDb(upserts),
           async getMamoPaymentLink(id) {
             assert.equal(id, "MB-LINK-TEST");
-            return scenario === "unmapped" ? null : { user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PRO" };
+            return scenario === "unmapped" ? null : { id: "MB-LINK-TEST", user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PRO" };
           }
         } })
       });
@@ -447,6 +452,11 @@ test("webhooks use verified provider state and immutable checkout ownership", as
         // Access lasts through the whole Dubai renewal day (ends 20:00 UTC).
         assert.equal(upserts[0].current_period_end, "2026-11-04T20:00:00.000Z");
       }
+      // Only a full refund closes the checkout and stops its renewal schedule.
+      assert.deepEqual(calls.filter((call) => !call.startsWith("GET")), scenario !== "refund" ? [] : [
+        "PATCH /links/MB-LINK-TEST",
+        "DELETE /subscriptions/MPB-SUB-PRO/subscribers/SUBR-1"
+      ]);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -645,6 +655,11 @@ function couponDb({ subscription = null, redemption = null, link } = {}) {
       async createMamoPaymentLink(row) { state.links.push(row); },
       async getMamoPaymentLink() { return link; },
       async applyMamoSubscription(row) { state.upserts.push(row); state.subscription = row; return row; },
+      async cancelMamoSubscription(userId, linkId) {
+        state.subscription = { ...state.subscription, cancel_at_period_end: true };
+        state.canceledLinks = [...(state.canceledLinks || []), linkId];
+        return state.subscription;
+      },
       async claimMamoCoupon(linkId, cardId, verificationId) {
         if (state.redemption && state.redemption.payment_link_id !== linkId && state.redemption.status !== "failed") {
           return { ...state.redemption, conflict: true };
@@ -1163,4 +1178,88 @@ test("deleting an account before the payment webhook still stops the checkout's 
     assert.ok(calls.includes("PATCH /links/LINK-A"));
     assert.ok(calls.includes("DELETE /subscriptions/SUB-A/subscribers/SUBSCRIBER-SUB-A"), `status ${res.statusCode}`);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the recovery sweep applies payments whose webhook never arrived, once, after a grace period", async () => {
+  const originalFetch = globalThis.fetch;
+  const { createMamoReconciler } = await import("../server/saas/mamoReconciler.js");
+  const config = loadConfig(mamoEnv({ MAMO_COUPONS: "FIRSTFREE:100" }));
+  const calls = [];
+  const recent = new Date(Date.now() - 60_000).toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const verified = { ...VERIFIED, created_date: recent };
+  const foreign = { ...verified, id: "PAY-OTHER", payment_link_id: "MB-LINK-NOT-KLUI" };
+  try {
+    globalThis.fetch = mamoStub(calls, { charges: [foreign, verified], payments: { "PAY-VERIFY": verified, "PAY-OTHER": foreign } });
+    const { state, db } = couponDb({ link: { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } });
+    db.getMamoPaymentLink = async (id) => (id === COUPON_LINK.id ? { ...COUPON_LINK, coupon_code: "FIRSTFREE", initial_amount_aed: 0 } : null);
+    let clock = Date.now();
+    const reconciler = createMamoReconciler(config, { db, now: () => clock });
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    assert.equal(state.upserts.length, 0, "a fresh payment is left to its own webhook");
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 2, applied: 1, failed: 0 });
+    assert.equal(state.upserts.at(-1).status, "trialing");
+    assert.equal(state.redemption.status, "active");
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    assert.equal(calls.filter((call) => call === "GET /payments/PAY-VERIFY").length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("the recovery sweep retries unsettled payments and finds refunds of older payments hourly", async () => {
+  const originalFetch = globalThis.fetch;
+  const { createMamoReconciler } = await import("../server/saas/mamoReconciler.js");
+  const config = loadConfig(mamoEnv());
+  const stamp = (ms) => new Date(ms).toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  let clock = Date.now();
+  const link = { id: "MB-LINK-PLAIN", user_id: "user-1", plan_id: "pro", amount_aed: 30, subscription_id: "MPB-SUB-PLAIN" };
+  const base = { amount: 30, amount_currency: "AED", payment_link_id: link.id, subscription_id: link.subscription_id };
+  const fresh = { ...base, id: "PAY-NEW", status: "processing", created_date: stamp(clock - 60_000) };
+  // Refunded with no email on the payment: renewal still stops.
+  const old = { ...base, id: "PAY-OLD", status: "captured", refund_amount: 30, created_date: stamp(clock - 10 * 86_400_000) };
+  const calls = [];
+  try {
+    globalThis.fetch = mamoStub(calls, { charges: [fresh, old], payments: { "PAY-NEW": fresh, "PAY-OLD": old } });
+    const { state, db } = couponDb({ link });
+    db.getMamoPaymentLink = async () => link;
+    const reconciler = createMamoReconciler(config, { db, now: () => clock });
+    await reconciler.run();
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 1, applied: 0, failed: 0 }, "not settled yet, so not cached");
+    // The new state gets its own grace period before the sweep applies it.
+    fresh.status = "captured";
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 0, applied: 0, failed: 0 });
+    clock += 6 * 60_000;
+    assert.deepEqual(await reconciler.run(), { checked: 1, applied: 1, failed: 0 });
+    assert.equal(state.upserts.at(-1).status, "active");
+    assert.ok(!calls.includes("GET /payments/PAY-OLD"), "a refund older than four days waits for the hourly sweep");
+    for (let sweep = 4; sweep < 12; sweep += 1) { clock += 5 * 60_000; await reconciler.run(); }
+    clock += 5 * 60_000;
+    await reconciler.run();
+    assert.ok(calls.includes("GET /payments/PAY-OLD"));
+    assert.ok(calls.includes("PATCH /links/MB-LINK-PLAIN"));
+    assert.ok(calls.includes("DELETE /subscriptions/MPB-SUB-PLAIN/subscribers/SUBSCRIBER-1"));
+    // Renewal is marked stopped only after Mamo unsubscribed, so a new checkout needs no cancel.
+    assert.deepEqual(state.canceledLinks, ["MB-LINK-PLAIN"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a refund keeps a cancellation only when it belongs to the same checkout", async () => {
+  const { applyWebhookToSubscription } = await import("../server/saas/mamo.js");
+  const config = loadConfig(mamoEnv());
+  for (const [linkId, expected] of [["LINK-A", true], ["LINK-B", false]]) {
+    const upserts = [];
+    await applyWebhookToSubscription({
+      id: "PAY-B", event_type: "payment.refunded", payment_link_id: linkId, created_date: "2026-10-16-10-00-00",
+      custom_data: { userId: "user-1", planId: "pro" }, next_payment_date: "16/11/2026"
+    }, {
+      db: { ...webhookDb(upserts), async getLatestSubscription() {
+        return { provider: "mamo", status: "active", plan_id: "pro", cancel_at_period_end: true,
+          current_period_end: "2026-11-01T20:00:00.000Z", raw: { id: "PAY-A", payment_link_id: "LINK-A" } };
+      } },
+      plans: config.plans, config
+    });
+    assert.equal(upserts[0].cancel_at_period_end, expected);
+  }
 });

@@ -457,6 +457,7 @@ test("legal URLs live on home.klui.ai and never load the chat app", async (t) =>
     ["/legal/", "Terms &amp; policies"],
     ["/privacy/", "Privacy policy"],
     ["/terms/", "Terms of use"],
+    ["/refund/", "Refund policy"],
     ["/cookies/", "Cookie policy"],
     ["/subprocessors/", "Subprocessors"],
     ["/account-delete/", "Delete your account"],
