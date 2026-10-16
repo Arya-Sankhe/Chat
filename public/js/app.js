@@ -2635,7 +2635,14 @@ function renderPlans() {
     const fee = mamo && Number(plan.chargeAed) > Number(plan.amountAed);
     const feeNote = fee ? " <small>+ processing fee</small>" : "";
     const price = offer
-      ? `<p class="plan-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "Free"}</strong>${offer.initialAmountAed ? " AED" : ""} <span>first month${offer.initialAmountAed ? feeNote : ""}</span></p>
+      ? `<div class="plan-price">
+          <p class="plan-discount-label">${offer.initialAmountAed ? `${escapeHtml(state.mamoCoupon.coupon.percentOff)}% off` : "First month on us"}</p>
+          <div class="plan-price-values">
+            <del class="plan-original-price" aria-label="Original price: ${escapeHtml(aed(plan.amountAed))} AED">${escapeHtml(aed(plan.amountAed))} AED</del>
+            <div class="plan-new-price"><strong>${offer.initialAmountAed ? escapeHtml(aed(offer.initialAmountAed)) : "FREE"}</strong>${offer.initialAmountAed ? " AED" : ""}</div>
+          </div>
+          <span>first month${offer.initialAmountAed ? feeNote : ""}</span>
+        </div>
         <p class="plan-offer">Then ${escapeHtml(aed(plan.amountAed))} AED / month${fee ? " + processing fee" : ""} · ${escapeHtml(offer.code)}</p>`
       : plan.amountAed
         ? `<p class="plan-price"><strong>${escapeHtml(aed(plan.amountAed))}</strong> AED <span>/ month${feeNote}</span></p>`

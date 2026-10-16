@@ -389,6 +389,42 @@
   margin: -8px 0 18px;
 }
 
+.plan-discount-label {
+  display: table;
+  margin: 0 0 18px;
+  padding: 4px 8px;
+  border: 2px solid var(--pay-ink);
+  background: var(--pay-coral);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.plan-price-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.plan-original-price {
+  font-size: 23px;
+  font-weight: 650;
+  text-decoration-color: var(--pay-coral);
+  text-decoration-thickness: 3px;
+  white-space: nowrap;
+}
+
+.plan-new-price {
+  white-space: nowrap;
+}
+
+.plan-new-price strong {
+  font-size: 4rem;
+  background: linear-gradient(transparent 72%, var(--pay-coral) 72% 90%, transparent 90%);
+}
+
 .plan-copy {
   min-height: 54px;
   margin: 0;
@@ -657,6 +693,10 @@
 
   .plan-price strong {
     font-size: 3.8rem;
+  }
+
+  .plan-new-price strong {
+    font-size: 3.2rem;
   }
 }
 
