@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { COLOR_PRESETS } from "@klui/shared";
 import { session } from "../app/runtime";
 import { closeSettings, setSettingsTab, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
@@ -25,6 +26,32 @@ function SettingsHeader() {
   );
 }
 
+function formatStorageBytes(bytes: unknown) {
+  const value = Math.max(0, Number(bytes || 0));
+  if (value < 1024 * 1024) return `${Math.max(0, Math.round(value / 1024))} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 * 1024 ? 0 : 1)} GB`;
+}
+
+type StorageMeter = { value: string; left: string; percent: number; valueText?: string; fill?: { width: string } };
+const STORAGE_LOADING: StorageMeter = { value: "0 KB used", left: "Loading storage...", percent: 0 };
+
+/** renderSettingsStorage(): drawn once the plan's limit is known, and kept as last drawn otherwise. */
+function useStorageMeter() {
+  const signedIn = useApp((s) => s.signedIn);
+  const me = useApp((s) => s.me);
+  const last = useRef(STORAGE_LOADING);
+  const storage = me?.usage?.storage || {};
+  const maxBytes = Number(storage.maxBytes || (me?.plan as any)?.maxStorageBytes || 0);
+  if (signedIn && maxBytes > 0) {
+    const usedBytes = Math.max(0, Number(storage.usedBytes || 0));
+    const percent = Math.max(0, Math.min(100, Math.floor(Number(storage.percent || (usedBytes / maxBytes) * 100))));
+    const value = `${formatStorageBytes(usedBytes)} of ${formatStorageBytes(maxBytes)} used`;
+    last.current = { value, left: `${formatStorageBytes(Math.max(0, maxBytes - usedBytes))} left`, percent, valueText: value, fill: { width: `${percent}%` } };
+  }
+  return last.current;
+}
+
 function chooseAccent(accent: string) {
   const settings = useApp.getState().settings;
   useApp.setState({ settings: { ...settings, colorChosen: true } });
@@ -41,6 +68,7 @@ export function SettingsDrawer() {
   const settings = useApp((s) => s.settings);
   const appearance = settings.appearance;
   const accent = COLOR_PRESETS.has(settings.colorPreset) ? settings.colorPreset : "default";
+  const storage = useStorageMeter();
   return (
     <aside className={cx("settings-drawer", { open })} id="settingsDrawer" aria-label="Settings" aria-hidden={!open} data-mobile-page={page || undefined}>
       <div className="settings-panel">
@@ -205,13 +233,13 @@ export function SettingsDrawer() {
                 </span>
                 {" "}
                 <span className="settings-storage-copy">
-                  <strong id="settingsStorageValue">0 KB used</strong>
+                  <strong id="settingsStorageValue">{storage.value}</strong>
                   {" "}
-                  <small id="settingsStorageLeft">Loading storage...</small>
+                  <small id="settingsStorageLeft">{storage.left}</small>
                 </span>
               </div>
-              <div className="settings-storage-track" id="settingsStorageTrack" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={0}>
-                <span id="settingsStorageFill" />
+              <div className="settings-storage-track" id="settingsStorageTrack" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={storage.percent} aria-valuetext={storage.valueText}>
+                <span id="settingsStorageFill" style={storage.fill} />
               </div>
             </div>
             <div className="settings-storage-manage">

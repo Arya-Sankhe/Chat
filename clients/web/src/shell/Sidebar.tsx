@@ -93,14 +93,19 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
         <div className={cx("conversation-menu", { hidden: !menuOpen })} data-menu-id={conversation.id} role="menu" ref={menu}>
           <button className="conversation-menu-item" type="button" role="menuitem" data-pin-chat-id={conversation.id}>
             <span className="conversation-menu-item-icon"><svg {...MENU_ICON}><line x1="12" y1="17" x2="12" y2="22" /><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" /></svg></span>
+            {" "}
             <span>{pinned ? "Unpin chat" : "Pin chat"}</span>
           </button>
+          {" "}
           <button className="conversation-menu-item" type="button" role="menuitem" data-rename-chat-id={conversation.id}>
             <span className="conversation-menu-item-icon"><svg {...MENU_ICON}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg></span>
+            {" "}
             <span>Rename chat</span>
           </button>
+          {" "}
           <button className="conversation-menu-item conversation-menu-danger" type="button" role="menuitem" data-delete-chat-id={conversation.id}>
             <span className="conversation-menu-item-icon"><svg {...MENU_ICON}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5" /><path d="M14 11v5" /></svg></span>
+            {" "}
             <span>Delete chat</span>
           </button>
         </div>

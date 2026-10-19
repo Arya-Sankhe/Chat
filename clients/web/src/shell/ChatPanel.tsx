@@ -1,4 +1,4 @@
-import { useApp } from "../state/app";
+import { addConversation, toggleSidebar, useApp } from "../state/app";
 import { Composer } from "./Composer";
 import { NativeModeWrap } from "./ComposerSheets";
 import { Messages } from "./Messages";
@@ -8,7 +8,7 @@ export function ChatPanel() {
   return (
     <main className="chat-panel">
       <header className="native-mobile-bar" role="banner">
-        <button className="native-mobile-icon-btn native-mobile-menu" id="nativeMobileMenu" type="button" aria-label="Open navigation">
+        <button className="native-mobile-icon-btn native-mobile-menu" id="nativeMobileMenu" type="button" aria-label="Open navigation" onClick={toggleSidebar}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M4 7h16" />
             <path d="M4 12h16" />
@@ -30,7 +30,7 @@ export function ChatPanel() {
           </svg>
         </button>
         {" "}
-        <button className="native-mobile-icon-btn compact-new-chat" id="compactNewChatButton" type="button" aria-label="New chat" title="New chat">
+        <button className="native-mobile-icon-btn compact-new-chat" id="compactNewChatButton" type="button" aria-label="New chat" title="New chat" onClick={() => { useApp.setState({ sidebarOpen: false }); addConversation(); }}>
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />

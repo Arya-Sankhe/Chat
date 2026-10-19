@@ -82,6 +82,14 @@ async function capture(browser, site, scenario, viewport, theme, sessions) {
   await scenario.ready(page, ctx);
   if (scenario.steps) await scenario.steps(page, ctx);
   await settle(page, scenario);
+  // The two fixture users differ only in their email's domain; show one address
+  // on both sites so it isn't counted as a visual difference.
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.data.includes("@new.klui.test")) node.data = node.data.replaceAll("@new.klui.test", "@klui.test");
+    }
+  });
   const shot = await page.screenshot();
   // The settled DOM is the spec the new client's markup is checked against.
   const dom = await page.content();

@@ -13,7 +13,7 @@ const PASSWORD = "local-parity-password";
 
 export const USERS = {
   old: { id: "00000000-0000-4000-8000-0000000000a1", email: "student@klui.test", tag: "a" },
-  new: { id: "00000000-0000-4000-8000-0000000000b1", email: "student.new@klui.test", tag: "b" }
+  new: { id: "00000000-0000-4000-8000-0000000000b1", email: "student@new.klui.test", tag: "b" }
 };
 
 /** The clock both browsers are frozen at; fixture times are relative to it. */
@@ -92,7 +92,7 @@ export async function reset() {
     await ensureUser(user);
     // Everything a user owns hangs off profiles/auth.users with cascades; clearing
     // conversations and projects covers what the fixtures and scenarios create.
-    sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do nothing;
+    sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email;
          delete from public.conversations where user_id = ${lit(user.id)};
          delete from public.projects where user_id = ${lit(user.id)};
          ${fixtureSql(user)}`);

@@ -3,9 +3,10 @@
 // stylesheets, :has() rules included, depend on that exact tree.
 import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
-import { useApp } from "../state/app";
+import { closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
 import { useBodyState } from "../state/body";
 import { mountCameraSheet } from "../state/camera";
+import { installGlobalEvents } from "../state/globalEvents";
 import { homeModes, mountHomeModes } from "../state/homeModes";
 import { AccountDrawer } from "./AccountDrawer";
 import { AppUpdateDialog } from "./AppUpdateDialog";
@@ -54,6 +55,25 @@ const MOVED_NOTICE_CSS = `
         #movedNotice .moved-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
       `;
 
+/** The shared dimmer; a click closes whatever it is dimming for. Account,
+   welcome and app-update modes join with their slices. */
+function Overlay() {
+  const mode = useApp((s) => s.overlay);
+  const close = () => {
+    if (mode === "confirm") closeConfirmDialog();
+    else if (mode === "rename") closeRenameDialog();
+    else if (mode === "auth") closeAuthDialog();
+    else if (mode === "search") closeSearchDialog();
+    else closeSettings();
+  };
+  return <div className="overlay" id="overlay" hidden={!mode} data-mode={mode || undefined} onClick={close} />;
+}
+
+function Toast() {
+  const toast = useApp((s) => s.toast);
+  return <div className={cx("toast", { visible: toast.visible })} id="toast" role="status" aria-live="polite">{toast.message}</div>;
+}
+
 /** homeModesController.render() wherever the old app called it: after the
    body classes it reads (chat-empty, mobile-ui) are applied above. */
 function useHomeModes() {
@@ -73,6 +93,7 @@ export function AppRoot() {
   useBodyState();
   // After BodySheets' backdrop has been appended.
   useLayoutEffect(mountCameraSheet, []);
+  useLayoutEffect(installGlobalEvents, []);
   useHomeModes();
   const view = useApp((s) => s.view);
   const settings = useApp((s) => s.settings);
@@ -93,7 +114,7 @@ export function AppRoot() {
           <path className="temporary-chat-line temporary-chat-line-connector" pathLength="1000" vectorEffect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94" />
         </svg>
         {" "}
-        <button className="native-nav-backdrop" id="nativeNavBackdrop" type="button" aria-label="Close navigation" />
+        <button className="native-nav-backdrop" id="nativeNavBackdrop" type="button" aria-label="Close navigation" onClick={() => useApp.setState({ sidebarOpen: false })} />
         <Sidebar />
         <ChatPanel />
         <DocumentViewer />
@@ -104,7 +125,7 @@ export function AppRoot() {
         <SearchDialog />
         <AuthDialog />
         <BetaWelcome />
-        <div className="overlay" id="overlay" hidden />
+        <Overlay />
       </div>
       <ProjectCreateDialog />
       <CourseCreateDialog />
@@ -112,7 +133,7 @@ export function AppRoot() {
       <CourseRenameDialog />
       <DeckPresetDialog />
       <ResearchReportView />
-      <div className="toast" id="toast" role="status" aria-live="polite" />
+      <Toast />
       <AppUpdateToast />
       <div className="study-session hidden" id="studySession" role="dialog" aria-modal="true" aria-label="Study session" aria-hidden="true" />
       <StudyNoteOverlay />

@@ -9,6 +9,15 @@ import { applySpectrumLevel, closeActionMenu, closeModelDropdown, setWritingStyl
 import { ActionMenu, DeckPickerPop, NativeModeWrap, WritingStyleMenu } from "./ComposerSheets";
 import { cx } from "./cx";
 
+/** voiceMode.js voiceModeSupported(): recording and playback both work here. */
+function voiceModeSupported() {
+  const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+  const recordable = typeof MediaRecorder !== "undefined" && types.some((type) => MediaRecorder.isTypeSupported?.(type));
+  return Boolean(typeof navigator.mediaDevices?.getUserMedia === "function" && recordable && (window.AudioContext || (window as any).webkitAudioContext));
+}
+
+const setComposerHasText = (composerHasText: boolean) => useApp.setState({ composerHasText });
+
 const CHIP_LABELS = { research: "Deep research", compare: "Compare", council: "Council" } as const;
 type ChipMode = keyof typeof CHIP_LABELS | "";
 
@@ -50,6 +59,13 @@ export function Composer() {
   const chipLabel = lastChipLabel.current;
   const writingStyle = normalizeWritingStyle(settings.writingStyle);
   const actionMenu = useApp((s) => s.actionMenu);
+
+  // updateSendButton(): an empty composer offers voice mode where the send arrow would be.
+  // Recording, follow-ups and pending uploads join with their slices.
+  const synced = useApp((s) => s.sendButtonSynced);
+  const composerHasText = useApp((s) => s.composerHasText);
+  const speech = useApp((s) => Boolean((s.config as any)?.services?.speech));
+  const offerVoice = synced && !composerHasText && speech && !researchMode && voiceModeSupported();
   const spectrumOpen = useApp((s) => s.spectrumOpen);
 
   // paintSpectrum(): a new label blurs out, swaps on the next frame and clears on the one after.
@@ -207,7 +223,7 @@ export function Composer() {
               {mobile && <ContextWrap />}
               <div className="composer-input">
                 <div className="composer-deck-thumb hidden" id="composerDeckThumb" aria-hidden="true" />
-                <div ref={promptRef} id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
+                <div ref={promptRef} onInput={(event) => setComposerHasText(Boolean(event.currentTarget.textContent?.trim()))} id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
               </div>
               <div className="composer-bottom">
                 <div className="composer-actions">
@@ -350,7 +366,7 @@ export function Composer() {
                   {mobile && <NativeModeWrap />}
                 </div>
                 <div className="composer-send">
-                  <button className="voice-btn" id="voiceButton" type="button" aria-label="Start voice input" aria-pressed="false" title="Voice input">
+                  <button className="voice-btn" id="voiceButton" type="button" aria-label="Start voice input" aria-pressed="false" title="Voice input" disabled={synced && !speech}>
                     <svg className="voice-icon-mic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
@@ -364,7 +380,7 @@ export function Composer() {
                     <span className="voice-dot" aria-hidden="true" />
                   </button>
                   {" "}
-                  <button className="send-btn" id="sendButton" type="button" aria-label="Send">
+                  <button className={cx("send-btn", { hidden: offerVoice, active: synced && composerHasText })} id="sendButton" type="button" aria-label="Send">
                     <svg className="send-icon-arrow" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       {mobile ? <path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /> : <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />}
                     </svg>
@@ -374,7 +390,7 @@ export function Composer() {
                     </svg>
                   </button>
                   {" "}
-                  <button className="voice-mode-btn hidden" id="voiceModeButton" type="button" aria-label="Start voice mode" title="Voice mode" disabled>
+                  <button className={cx("voice-mode-btn", { hidden: !offerVoice })} id="voiceModeButton" type="button" aria-label="Start voice mode" title="Voice mode" disabled={!offerVoice}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" aria-hidden="true">
                       <path d="M4 10v4" />
                       <path d="M8 7v10" />

@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 const normalize = (html) => html
   .replace(/00000000-0000-4000-([0-9a-f]{4})-[ab](\d{11})/g, "00000000-0000-4000-$1-X$2")
   .replace(/00000000-0000-4000-8000-0000000000[ab]1/g, "USER")
-  .replace(/student(\.new)?@klui\.test/g, "EMAIL");
+  .replace(/student@(new\.)?klui\.test/g, "EMAIL");
 
 /** Runs in the page: returns a list of human-readable differences. */
 function compareInPage([a, b]) {

@@ -59,6 +59,12 @@ export interface AppState {
   composerSkillIds: string[];
   /** The skills the server offers the composer. */
   composerSkills: { id: string; name?: string }[];
+  /** updateSendButton() has run. Until then the send and voice buttons keep
+     their markup state: the old app first syncs them when a signed-in chat
+     loads, opens or resets, never on the guest home. */
+  sendButtonSynced: boolean;
+  /** The prompt has text (composerPlainText().trim()). */
+  composerHasText: boolean;
   /** The composer's + menu: closed, its two pages, or the styles submenu. */
   actionMenu: "" | "root" | "more" | "style";
   /** The phone mode sheet (top-bar mode picker). */
@@ -125,6 +131,8 @@ export const useApp = create<AppState>(() => ({
   profileMenuOpen: false,
   pinnedPopupOpen: false,
   composerSkillIds: [],
+  sendButtonSynced: false,
+  composerHasText: false,
   composerSkills: [],
   actionMenu: "",
   modeSheetOpen: false,
@@ -505,6 +513,7 @@ function syncConversationUrl({ replace = false } = {}) {
 /** openNewChat(): the parts that belong to the shell; composer and message
    state reset with their own slices. */
 export function openNewChat({ replaceUrl = false } = {}) {
+  set({ sendButtonSynced: true });
   set({ activeConversationId: "", conversationLoading: false });
   closeSearchDialog();
   closePinnedPopup();
@@ -530,6 +539,7 @@ function closeAllDrawers() {
 }
 
 export async function signOutAndReset(signOut: () => Promise<void>) {
+  set({ sendButtonSynced: true });
   await signOut();
   set({ signedIn: false, me: null, conversations: [], pinnedChatIds: [], temporaryChat: false, activeConversationId: "" });
   syncConversationUrl({ replace: true });
@@ -647,6 +657,7 @@ export async function saveRenameDialog(input: string, renameConversation: (id: s
 /** The shell half of openConversation(): select it, update the URL and show
    its loading state. Loading and rendering its messages is the message slice. */
 export function openConversation(id: string) {
+  set({ sendButtonSynced: true });
   if (!id) return;
   set({ activeConversationId: id, sidebarOpen: false, conversationLoading: true });
   closeSearchDialog();

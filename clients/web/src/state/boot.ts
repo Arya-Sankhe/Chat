@@ -159,7 +159,11 @@ export async function bootstrap() {
       if (!get().signedIn) set({ authArtLoaded: true });
     });
     if (signedIn) void loadPaymentRequests();
-    if (signedIn && get().me?.access?.active) await loadChatApp();
+    if (signedIn && get().me?.access?.active) {
+      await loadChatApp();
+      // restorePendingDocuments() ends in renderImages(), which syncs the send button.
+      set({ sendButtonSynced: true });
+    }
   } catch (error) {
     set({ signedIn: false, me: null, conversations: [] });
     renderShell();
@@ -191,7 +195,10 @@ export async function signInWithGoogleCredential(credential: string) {
     await withTimeout(loadMe(), 8000, "Account load");
     await loadPaymentRequests();
     renderShell();
-    if (hasChatAccess()) await loadChatApp();
+    if (hasChatAccess()) {
+      await loadChatApp();
+      set({ sendButtonSynced: true });
+    }
   } catch (error) {
     const notice = (error as Error)?.message || "Signed in, but your account could not be loaded.";
     set({ authNotice: notice });

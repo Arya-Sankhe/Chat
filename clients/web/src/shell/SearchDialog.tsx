@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Fragment } from "react";
 import type { ChatSearchHit } from "@klui/shared";
 import { api } from "../app/runtime";
 import { closeSearchDialog, formatChatAge, sortedConversations, useApp } from "../state/app";
@@ -84,27 +84,39 @@ export function SearchDialog() {
         <div className="search-dialog-results" id="searchChatResults" onClick={handleConversationListClick}>
           {open && (!matches.length && !bodyHits.length ? statusRow || <div className="search-dialog-empty">{emptyStatus}</div> : (
             <>
+              {/* The old template's whitespace between and inside rows is kept: the rows are inline. */}
               {matches.map((c) => (
-                <button className={`search-result-row ${c.id === activeId ? "active" : ""}`} type="button" data-open-chat-id={c.id} key={c.id}>
-                  <ChatIcon />
-                  <span className="search-result-copy">
-                    <span className="search-result-title">{c.title || "New chat"}</span>
-                  </span>
-                  <span className="search-result-meta">{formatChatAge(c.updated_at || c.created_at)}</span>
-                </button>
+                <Fragment key={c.id}>
+                  {" "}
+                  <button className={`search-result-row ${c.id === activeId ? "active" : ""}`} type="button" data-open-chat-id={c.id}>
+                    <ChatIcon />
+                    {" "}
+                    <span className="search-result-copy">
+                      <span className="search-result-title">{c.title || "New chat"}</span>
+                    </span>
+                    {" "}
+                    <span className="search-result-meta">{formatChatAge(c.updated_at || c.created_at)}</span>
+                  </button>
+                </Fragment>
               ))}
               {bodyHits.length > 0 && (
                 <>
                   <div className="search-result-section">Message matches</div>
                   {bodyHits.map((hit) => (
-                    <button className={`search-result-row ${hit.conversation_id === activeId ? "active" : ""}`} type="button" data-open-chat-id={hit.conversation_id} key={`hit-${hit.conversation_id}`}>
-                      <ChatIcon />
-                      <span className="search-result-copy">
-                        <span className="search-result-title">{hit.title || "New chat"}</span>
-                        <span className="search-result-snippet">{hit.snippet || ""}</span>
-                      </span>
-                      <span className="search-result-meta">{formatChatAge(hit.matched_at)}</span>
-                    </button>
+                    <Fragment key={`hit-${hit.conversation_id}`}>
+                      {" "}
+                      <button className={`search-result-row ${hit.conversation_id === activeId ? "active" : ""}`} type="button" data-open-chat-id={hit.conversation_id}>
+                        <ChatIcon />
+                        {" "}
+                        <span className="search-result-copy">
+                          <span className="search-result-title">{hit.title || "New chat"}</span>
+                          {" "}
+                          <span className="search-result-snippet">{hit.snippet || ""}</span>
+                        </span>
+                        {" "}
+                        <span className="search-result-meta">{formatChatAge(hit.matched_at)}</span>
+                      </button>
+                    </Fragment>
                   ))}
                 </>
               )}
