@@ -79,7 +79,8 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           onEndReachedThreshold={0.3}
           onEndReached={() => { if (thread?.page.hasMore) void chat.loadOlder(conversationId).catch(() => {}); }}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          // Reading older messages stays put while a reply grows; at the latest message, new content is followed.
+          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 80 }}
         />
         </>
       )}

@@ -154,15 +154,7 @@ export function createApiClient(options: ApiClientOptions) {
         userMessageId: response.headers.get("x-klui-user-message-id") || ""
       });
       if (!response.body) throw new Error("Streaming is not available on this device.");
-      // A throw from onEvent is the caller's bug, not the network's; it passes through as is.
-      let callbackError: unknown;
-      try {
-        await readSseStream(response.body, (event) => {
-          try { onEvent(event); } catch (error) { callbackError = error; throw error; }
-        });
-      } catch (error) {
-        throw error === callbackError ? error : transportError(error, signal);
-      }
+      await readSseStream(response.body, onEvent, (error) => transportError(error, signal));
     },
 
     cancelTurn: (conversationId: string, turnRunId: string) =>

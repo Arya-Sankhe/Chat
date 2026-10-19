@@ -30,16 +30,19 @@ export class SseParser {
   }
 }
 
+/** `readError` maps failures of the read itself; parse errors and throws from
+    `onEvent` pass through untouched. */
 export async function readSseStream(
   body: ReadableStream<Uint8Array>,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
+  readError: (error: unknown) => unknown = (error) => error
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   const parser = new SseParser();
   try {
     while (!parser.done) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((error: unknown) => { throw readError(error); });
       if (done) break;
       for (const event of parser.push(decoder.decode(value, { stream: true }))) onEvent(event);
     }

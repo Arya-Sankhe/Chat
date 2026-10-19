@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, NetworkError, type ApiClient, type StreamOptions } from "../src/api";
-import { createChatController, selectDisplayItems } from "../src/chatStore";
+import { CONNECTION_LOST_MESSAGE, createChatController, selectDisplayItems } from "../src/chatStore";
 import type { ConversationDetail, SendPayload, StoredMessage, StreamEvent } from "../src/types";
 
 /* A scripted server: each streamMessage call takes the next script, which
@@ -209,6 +209,22 @@ describe("half-open connections", () => {
     expect(calls[1]).toEqual({ turnRunId: "r1" });
     release();
     await vi.waitFor(() => expect(chat.store.getState().runs[id]).toBeUndefined());
+  });
+
+  it("a stream that keeps going silent ends as a lost connection, not a stop", async () => {
+    const silent: Script = async (emit, signal) => {
+      emit({ type: "turn:submitted", turnRunId: "r1" });
+      emit(delta("Start. "));
+      await waitForAbort(signal);
+    };
+    const { api } = fakeApi({ scripts: [silent, silent] });
+    const chat = createChatController({ api, randomId: () => "id", publishIntervalMs: 0, rejoinDelaysMs: [0], stallMs: 30 });
+
+    const id = await chat.send({ conversationId: null, text: "Go" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("failed"));
+    const run = chat.store.getState().runs[id]!;
+    expect(run.assistant.stopped).toBe(false);
+    expect(run.assistant.error).toBe(CONNECTION_LOST_MESSAGE);
   });
 });
 

@@ -8,10 +8,9 @@ type Crypto_ = { getRandomValues: typeof Crypto.getRandomValues; subtle: Partial
 
 target.crypto ??= {};
 target.crypto.getRandomValues ??= Crypto.getRandomValues;
-target.crypto.subtle ??= {
-  digest: (algorithm: AlgorithmIdentifier, data: BufferSource) => {
-    const name = typeof algorithm === "string" ? algorithm : algorithm.name;
-    if (name.toUpperCase() !== "SHA-256") return Promise.reject(new Error(`Unsupported digest ${name}`));
-    return Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, data);
-  }
+target.crypto.subtle ??= {};
+target.crypto.subtle.digest ??= (algorithm: AlgorithmIdentifier, data: BufferSource) => {
+  const name = typeof algorithm === "string" ? algorithm : algorithm.name;
+  if (name.toUpperCase() !== "SHA-256") return Promise.reject(new Error(`Unsupported digest ${name}`));
+  return Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, data);
 };

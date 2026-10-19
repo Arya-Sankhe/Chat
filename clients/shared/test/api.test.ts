@@ -44,5 +44,10 @@ describe("api client transport errors", () => {
     const healthy = clientWith(async () => new Response(droppingBody()));
     const callbackError = await healthy.streamMessage("c1", {}, { onEvent: (event) => { if (event.choices) throw bug; } }).catch((error) => error);
     expect(callbackError).toBe(bug);
+
+    // A malformed payload is a protocol error, not a connectivity one.
+    const garbled = clientWith(async () => new Response("data: {not json\n\n"));
+    const parseError = await garbled.streamMessage("c1", {}, { onEvent: () => {} }).catch((error) => error);
+    expect(parseError).toBeInstanceOf(SyntaxError);
   });
 });

@@ -408,7 +408,9 @@ export function createChatController(options: ChatControllerOptions) {
         await finish(conversationId, handle);
         return;
       }
-      if (isAbort(error) || handle.cancelRequested) handle.assistant.stopped = true;
+      // A rejoinable failure that ran out of retries is a lost connection, even when
+      // it surfaced as the watchdog's own abort; only a user stop is a stop.
+      if (handle.cancelRequested || (isAbort(error) && !rejoinable)) handle.assistant.stopped = true;
       else handle.assistant.error = rejoinable ? CONNECTION_LOST_MESSAGE : (error as Error).message || "Request failed.";
       if (!handle.accepted) {
         // Nothing reached the server, so there is nothing to reload: keep the failure on screen.
