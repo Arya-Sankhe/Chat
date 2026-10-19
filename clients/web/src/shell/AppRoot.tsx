@@ -1,15 +1,19 @@
 // The children of #app, in the old index.html's order. Each region keeps the
 // old markup (ids, classes, mounted-but-hidden elements) because the old
 // stylesheets, :has() rules included, depend on that exact tree.
+import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
 import { useApp } from "../state/app";
 import { useBodyState } from "../state/body";
+import { mountCameraSheet } from "../state/camera";
+import { homeModes, mountHomeModes } from "../state/homeModes";
 import { AccountDrawer } from "./AccountDrawer";
 import { AppUpdateDialog } from "./AppUpdateDialog";
 import { AppUpdateToast } from "./AppUpdateToast";
 import { AuthDialog } from "./AuthDialog";
 import { BetaWelcome } from "./BetaWelcome";
 import { ChatPanel } from "./ChatPanel";
+import { BodySheets } from "./ComposerSheets";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CourseCreateDialog } from "./CourseCreateDialog";
 import { CourseRenameDialog } from "./CourseRenameDialog";
@@ -50,8 +54,26 @@ const MOVED_NOTICE_CSS = `
         #movedNotice .moved-open:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
       `;
 
+/** homeModesController.render() wherever the old app called it: after the
+   body classes it reads (chat-empty, mobile-ui) are applied above. */
+function useHomeModes() {
+  const chatEmpty = useApp((s) => s.chatEmpty);
+  const mobile = useApp((s) => s.mobile);
+  const compareEnabled = useApp((s) => s.settings.compareEnabled);
+  const compareMode = useApp((s) => s.settings.compareMode);
+  const temporaryChat = useApp((s) => s.temporaryChat);
+  const researchMode = useApp((s) => s.researchMode);
+  const skills = useApp((s) => s.composerSkillIds);
+  const shellRender = useApp((s) => s.shellRender);
+  useLayoutEffect(mountHomeModes, []);
+  useLayoutEffect(() => homeModes.render(), [chatEmpty, mobile, compareEnabled, compareMode, temporaryChat, researchMode, skills, shellRender]);
+}
+
 export function AppRoot() {
   useBodyState();
+  // After BodySheets' backdrop has been appended.
+  useLayoutEffect(mountCameraSheet, []);
+  useHomeModes();
   const view = useApp((s) => s.view);
   const settings = useApp((s) => s.settings);
   const systemDark = useApp((s) => s.systemDark);
@@ -70,6 +92,7 @@ export function AppRoot() {
           <path className="temporary-chat-line temporary-chat-line-fragments" pathLength="1000" vectorEffect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94" />
           <path className="temporary-chat-line temporary-chat-line-connector" pathLength="1000" vectorEffect="non-scaling-stroke" d="M-2 6 C8 1 13 9 12 18 C11 31 21 34 27 25 C34 15 40 22 37 35 C34 48 45 52 52 42 C59 32 67 39 64 53 C61 67 73 74 80 63 C87 51 94 66 102 94" />
         </svg>
+        {" "}
         <button className="native-nav-backdrop" id="nativeNavBackdrop" type="button" aria-label="Close navigation" />
         <Sidebar />
         <ChatPanel />
@@ -100,6 +123,7 @@ export function AppRoot() {
       <AppUpdateDialog />
       <Lightbox />
       <PastedTextDialog />
+      <BodySheets />
     </>
   );
 }

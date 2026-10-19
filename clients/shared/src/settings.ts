@@ -8,6 +8,12 @@ export const PINNED_CHATS_KEY = "klui.pinnedChats.v1";
 export const OPENROUTER_TEXT_MODEL = "deepseek/deepseek-v4-flash-0731";
 export const OPENROUTER_PRO_MODEL = "openai/gpt-6-luna";
 export const OPENROUTER_NITRO_MODEL = "inclusionai/ling-3.0-flash";
+export const OPENROUTER_VISION_MODEL = "xiaomi/mimo-v2.6-flash";
+export const OPENROUTER_COUNCIL_HY3_MODEL = "tencent/hy3";
+export const OPENROUTER_SOLAR_PRO = "upstage/solar-pro4";
+// Compare: DeepSeek and Solar Pro. Council: four panelists.
+export const DEFAULT_COMPARE_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_SOLAR_PRO];
+export const DEFAULT_COUNCIL_MODELS = [OPENROUTER_TEXT_MODEL, OPENROUTER_COUNCIL_HY3_MODEL, OPENROUTER_VISION_MODEL, OPENROUTER_SOLAR_PRO];
 
 export const DEFAULT_REASONING_EFFORT = "high";
 export const SPECTRUM_N = 3;
@@ -187,3 +193,25 @@ export function appearanceAttributes(settings: ChatSettings, systemDark: boolean
     } as Record<string, string>
   };
 }
+
+/** The slider position (app.js spectrumLevelFromSettings). */
+export function spectrumLevel(settings: ChatSettings): number {
+  const stored = Number(settings.spectrumLevel);
+  if (Number.isInteger(stored) && stored >= 0 && stored < SPECTRUM_N) return stored;
+  const effort = normalizeThinkingEffort(settings.thinkingEffort);
+  const idx = SPECTRUM_STEPS.findIndex((s) => s.model === settings.model && s.effort === effort);
+  if (idx >= 0) return idx;
+  return settings.modelMode === "pro" ? SPECTRUM_N - 1 : 1;
+}
+
+export type TopBarMode = "nitro" | "thinking" | "pro" | "compare" | "council";
+
+/** What the phone's top-bar mode picker shows (app.js currentNativeTopBarMode). */
+export function topBarMode(settings: ChatSettings): TopBarMode {
+  if (settings.compareEnabled && settings.compareMode === "council") return "council";
+  if (settings.compareEnabled) return "compare";
+  const level = spectrumLevel(settings);
+  return level === 0 ? "nitro" : level === SPECTRUM_N - 1 ? "pro" : "thinking";
+}
+
+export const TOP_BAR_MODE_LABELS: Readonly<Record<TopBarMode, string>> = { nitro: "Nitro", thinking: "Think", pro: "Pro", compare: "Compare", council: "Council" };

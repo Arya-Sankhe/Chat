@@ -2,6 +2,7 @@
 // TSX so the new web client starts from byte-for-byte the same markup. The
 // output is hand-owned afterwards; this is kept only to re-derive a region.
 // Usage: node devtools/codegen/html-to-jsx.mjs <css-selector> [ComponentName]
+//   KLUI_HTML_SOURCE=devtools/parity/out/<state>/old.html for markup the old scripts build at startup.
 // Parses with Chromium (already a dev dependency) so the tree is exactly what a
 // browser builds from the file; inline <script> elements are dropped and listed.
 import fs from "node:fs";
@@ -10,7 +11,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const html = fs.readFileSync(path.join(here, "../../../public/index.html"), "utf8");
+// KLUI_HTML_SOURCE converts from a saved runtime DOM (a parity capture) instead.
+const html = fs.readFileSync(process.env.KLUI_HTML_SOURCE || path.join(here, "../../../public/index.html"), "utf8");
 const [selector, componentName = "Region"] = process.argv.slice(2);
 if (!selector) throw new Error("usage: html-to-jsx.mjs <selector> [ComponentName]");
 

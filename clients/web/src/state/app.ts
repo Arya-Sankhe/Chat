@@ -7,6 +7,12 @@ import { create } from "zustand";
 import {
   PINNED_CHATS_KEY,
   SETTINGS_KEY,
+  DEFAULT_COMPARE_MODELS,
+  DEFAULT_COUNCIL_MODELS,
+  SPECTRUM_N,
+  SPECTRUM_STEPS,
+  normalizeWritingStyle,
+  type TopBarMode,
   parseSettings,
   type ChatSettings,
   type ConversationSummary,
@@ -15,8 +21,10 @@ import {
   type Plan,
   type Project
 } from "@klui/shared";
+import { closeCameraSheet } from "./camera";
 
 export type View = "boot" | "setup" | "paywall" | "chat" | "research";
+export type SettingsTab = "general" | "voice" | "memory" | "storage" | "account";
 export type OverlayMode = "" | "search" | "settings" | "account" | "confirm" | "rename" | "auth" | "welcome";
 
 export interface AppState {
@@ -47,8 +55,23 @@ export interface AppState {
   sidebarOpen: boolean;
   profileMenuOpen: boolean;
   pinnedPopupOpen: boolean;
+  /** Skills marked in the prompt (syncComposerSkillState), e.g. ["slides"]. */
+  composerSkillIds: string[];
+  /** The skills the server offers the composer. */
+  composerSkills: { id: string; name?: string }[];
+  /** The composer's + menu: closed, its two pages, or the styles submenu. */
+  actionMenu: "" | "root" | "more" | "style";
+  /** The phone mode sheet (top-bar mode picker). */
+  modeSheetOpen: boolean;
+  /** The model spectrum popover beside the composer. */
+  spectrumOpen: boolean;
   searchOpen: boolean;
   settingsOpen: boolean;
+  settingsTab: SettingsTab;
+  /** data-mobile-page on the drawer: phones open on an overview of the tabs. Unset until first opened. */
+  settingsPage: "" | "overview" | "detail";
+  /** What showMobileSettingsOverview() last wrote into the overview's profile. */
+  settingsProfile: { name: string; initials: string; plan: string; email: string } | null;
   authOpen: boolean;
   /** #authNotice: why sign-in can't proceed. */
   authNotice: string;
@@ -101,8 +124,16 @@ export const useApp = create<AppState>(() => ({
   sidebarOpen: false,
   profileMenuOpen: false,
   pinnedPopupOpen: false,
+  composerSkillIds: [],
+  composerSkills: [],
+  actionMenu: "",
+  modeSheetOpen: false,
+  spectrumOpen: false,
   searchOpen: false,
   settingsOpen: false,
+  settingsTab: "general",
+  settingsPage: "",
+  settingsProfile: null,
   authOpen: false,
   authNotice: "",
   authArtLoaded: false,
@@ -250,7 +281,9 @@ export function togglePinnedPopup() {
 }
 
 export function toggleSidebar() {
-  // dismissComposerKeyboard / closeActionMenu / closeMobileModeSheet: composer slice.
+  dismissComposerKeyboard();
+  closeActionMenu();
+  closeMobileModeSheet();
   closeProfileMenu();
   closePinnedPopup();
   closeConversationMenus();
@@ -258,6 +291,133 @@ export function toggleSidebar() {
   if (!signedIn && !mobile) return;
   if (mobile) set((s) => ({ sidebarOpen: !s.sidebarOpen }));
   else set((s) => ({ sidebarExpanded: !s.sidebarExpanded }));
+}
+
+/* ─── Composer menus ─── */
+
+/** The prompt keeps focus on phones until something else takes the screen. */
+export function dismissComposerKeyboard() {
+  const input = document.getElementById("promptInput");
+  if (input && document.activeElement === input) input.blur();
+}
+
+export function closeMobileModeSheet() {
+  set({ modeSheetOpen: false });
+}
+
+export function toggleMobileModeSheet() {
+  const open = !get().modeSheetOpen;
+  if (open) { dismissComposerKeyboard(); closeActionMenu(); }
+  set({ modeSheetOpen: open });
+}
+
+export function closeActionMenu() {
+  set({ actionMenu: "" });
+}
+
+export function toggleActionMenu() {
+  const open = !get().actionMenu;
+  if (open) { dismissComposerKeyboard(); closeMobileModeSheet(); }
+  set({ actionMenu: open ? "root" : "" });
+}
+
+export const openActionMenuRoot = () => set({ actionMenu: "root" });
+export const openActionMenuMore = () => set({ actionMenu: "more" });
+export const openWritingStyleMenu = () => set({ actionMenu: "style" });
+
+export function setWritingStyle(value: string) {
+  updateSetting("writingStyle", normalizeWritingStyle(value));
+  closeActionMenu();
+  document.getElementById("promptInput")?.focus();
+}
+
+export function toggleModelDropdown() {
+  set((s) => ({ spectrumOpen: !s.spectrumOpen }));
+}
+
+export function closeModelDropdown() {
+  set({ spectrumOpen: false });
+}
+
+/** applySpectrumLevel(): pick Nitro, Think or Pro. Vision attachments (which
+   Nitro can't read) arrive with the attachment slice. */
+export function applySpectrumLevel(level: number) {
+  const n = Math.max(0, Math.min(SPECTRUM_N - 1, level | 0));
+  const step = SPECTRUM_STEPS[n]!;
+  const settings = { ...get().settings, spectrumScale: 3, spectrumLevel: n, modelMode: step.mode, thinkingEffort: step.effort, model: step.model };
+  set({ settings });
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+/* Compare and Council (public/js/compare.js, council.js): fixed model sets. */
+function updateSettings(patch: Partial<ChatSettings>) {
+  const settings = { ...get().settings, ...patch };
+  set({ settings });
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+export function activateCompareMode() {
+  updateSettings({ compareMode: "compare", compareModels: [...DEFAULT_COMPARE_MODELS], compareEnabled: true });
+}
+
+export function cancelCompareMode() {
+  updateSettings({ compareEnabled: false, compareModels: [] });
+}
+
+/** enterCouncilMode(): Council can't read documents; that check joins with the attachment slice. */
+export function enterCouncilMode() {
+  updateSettings({ compareMode: "council", compareModels: [...DEFAULT_COUNCIL_MODELS], compareEnabled: true });
+  return true;
+}
+
+export const isCouncilMode = () => Boolean(get().settings.compareEnabled && get().settings.compareMode === "council");
+
+export function setResearchMode(enabled: boolean) {
+  const next = Boolean(enabled);
+  if (next && get().temporaryChat) {
+    showToast("Deep Research is not available in temporary chat.");
+    return;
+  }
+  set({ researchMode: next });
+  if (next && get().settings.compareEnabled) cancelCompareMode();
+  closeActionMenu();
+  const input = document.getElementById("promptInput");
+  if (next || !get().mobile) {
+    input?.focus();
+    return;
+  }
+  const composer = input?.closest(".composer");
+  if (composer?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+}
+
+/** applyNativeTopBarMode(): the phone mode sheet's choice. */
+export function applyNativeTopBarMode(mode: TopBarMode) {
+  if (mode === "compare" || mode === "council") {
+    if (get().researchMode) setResearchMode(false);
+    if (mode === "compare") activateCompareMode();
+    else enterCouncilMode();
+    return;
+  }
+  if (get().settings.compareEnabled) cancelCompareMode();
+  applySpectrumLevel(mode === "nitro" ? 0 : mode === "pro" ? SPECTRUM_N - 1 : 1);
+}
+
+/** closeTopNativeSurface(): back gesture, sheet backdrop and Escape close the
+   topmost surface first. Returns whether something closed. Surfaces from
+   later slices join this list as they arrive, in the old order. */
+export function closeTopNativeSurface() {
+  if (closeCameraSheet()) return true;
+  const s = get();
+  if (s.modeSheetOpen) { closeMobileModeSheet(); return true; }
+  if (s.actionMenu) { closeActionMenu(); return true; }
+  if (s.spectrumOpen) { closeModelDropdown(); return true; }
+  if (s.settingsOpen) { closeSettings(); return true; }
+  if (s.authOpen) { closeAuthDialog(); return true; }
+  if (s.confirm) { closeConfirmDialog(); return true; }
+  if (s.rename) { closeRenameDialog(); return true; }
+  if (s.searchOpen) { closeSearchDialog(); return true; }
+  if (s.sidebarOpen) { set({ sidebarOpen: false }); return true; }
+  return false;
 }
 
 /* ─── Search ─── */
@@ -276,10 +436,38 @@ export function closeSearchDialog() {
 /* ─── Settings ─── */
 
 export function openSettings() {
-  set({ sidebarOpen: false, settingsOpen: true, overlay: "settings" });
+  dismissComposerKeyboard();
+  set({ sidebarOpen: false });
+  setSettingsTab("general");
+  if (get().mobile) showMobileSettingsOverview();
+  set({ settingsOpen: true, overlay: "settings" });
+}
+
+/** setSettingsTab(): voice, memory, storage and account load their data with their own slices. */
+export function setSettingsTab(tab: string) {
+  const selected = (["general", "voice", "memory", "storage", "account"] as const).find((t) => t === tab) || "general";
+  const main = document.querySelector("#settingsDrawer .settings-main");
+  if (main) main.scrollTop = 0;
+  set({ settingsPage: "detail", settingsTab: selected });
+}
+
+export function showMobileSettingsOverview() {
+  const user = get().me?.user;
+  const name = (user?.name as string | undefined) || (user?.email ? user.email.split("@")[0] : "") || "Klui";
+  set({
+    settingsPage: "overview",
+    settingsProfile: {
+      name,
+      initials: name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase(),
+      plan: get().me?.plan?.name ? `${get().me!.plan!.name} plan` : "Free plan",
+      email: user?.email || ""
+    }
+  });
 }
 
 export function closeSettings() {
+  const drawer = document.getElementById("settingsDrawer");
+  if (drawer?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
   set((s) => ({ settingsOpen: false, overlay: s.overlay === "settings" ? "" : s.overlay }));
 }
 

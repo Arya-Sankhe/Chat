@@ -9,7 +9,8 @@ export function Lightbox() {
       </button>
       {" "}
       <div className="lightbox-stage">
-        <img id="lightboxImg" src="" alt="Expanded image preview" />
+        {/* An empty src, as in the old markup; React drops src="" so it is set directly. */}
+        <img id="lightboxImg" ref={(img) => { if (img && !img.hasAttribute("src")) img.setAttribute("src", ""); }} alt="Expanded image preview" />
         {" "}
         <p className="lightbox-caption" id="lightboxCaption" hidden />
       </div>
