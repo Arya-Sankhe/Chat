@@ -74,7 +74,9 @@ npx expo start --dev-client     # Metro for the dev build
 
 `EXPO_PUBLIC_KLUI_API_ORIGIN` defaults to `https://klui.ai`. Against the mock,
 "Continue with Google" runs the real PKCE code path end to end (the mock's
-`/auth/v1/authorize` redirects straight back with a code).
+`/auth/v1/authorize` redirects straight back with a code). The dev client's
+floating tools button sits over the header's Sign out; hide it from the dev
+menu (Tools button) when testing.
 
 ## Decisions worth knowing
 
@@ -95,6 +97,13 @@ npx expo start --dev-client     # Metro for the dev build
 - **Retry** streams directly without a durable turn (server behavior), so a retry
   cannot be rejoined after a disconnect. Same as the current app.
 - **Streaming on native** uses `expo/fetch`; React Native's own fetch buffers bodies.
+  Its errors are plain `Error`s with native messages, so the API client turns
+  every transport failure into one `NetworkError` that the run controller
+  rejoins on, on every platform.
+- **PKCE on native.** Hermes has no Web Crypto, and supabase-js then silently
+  falls back to a `Math.random()` verifier with a `plain` challenge.
+  `mobile/src/lib/webCrypto.ts` supplies `getRandomValues` and SHA-256 from
+  expo-crypto so sign-in uses S256.
 - **Markdown on native** is rendered from `marked`'s lexer (the same parser as web),
   memoized per block so a streaming reply re-renders only its last block.
 - **No server keepalive.** The server sends no SSE heartbeat, so the client treats

@@ -1,7 +1,8 @@
 import { Stack, useLocalSearchParams, useNavigation } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardAvoidingView, useKeyboardState } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fontSize, space } from "@klui/shared";
 import { Composer } from "../../src/components/Composer";
@@ -17,6 +18,10 @@ export default function ChatScreen() {
   const list = useRef<FlatList>(null);
   const colors = useTheme();
   const insets = useSafeAreaInsets();
+  // The view starts below the stack header, so the keyboard overlaps it by that much less.
+  const headerHeight = useHeaderHeight();
+  // With the keyboard up, the home-indicator inset is under the keyboard, not under the composer.
+  const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const { thread, run, items } = useTranscript(conversationId);
   const title = useChat((state) => state.conversations.find((row) => row.id === conversationId)?.title ?? "");
   const draft = useChat((state) => (conversationId ? state.drafts[conversationId] ?? "" : ""));
@@ -45,7 +50,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: colors.bg }} keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: colors.bg }} keyboardVerticalOffset={headerHeight}>
       <Stack.Screen options={{ title: title || (conversationId ? "" : "New chat") }} />
       {!conversationId ? (
         <View style={styles.empty}><Text style={[styles.hero, { color: colors.text }]}>What can I help with?</Text></View>
@@ -78,7 +83,7 @@ export default function ChatScreen() {
         />
         </>
       )}
-      <View style={{ paddingBottom: insets.bottom }}>
+      <View style={{ paddingBottom: keyboardVisible ? 0 : insets.bottom }}>
         <Composer
           busy={busy}
           stopping={run?.status === "stopping"}

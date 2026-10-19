@@ -32,6 +32,9 @@ export default function ConversationsScreen() {
         ListEmptyComponent={
           <Text style={[styles.note, { color: status === "error" ? colors.danger : colors.textSecondary }]}>
             {status === "error" ? error : status === "loading" || status === "idle" ? "Loading chats…" : "No chats yet."}
+            {status === "error" ? (
+              <Text style={{ color: colors.text, textDecorationLine: "underline" }} onPress={() => void chat.loadConversations()}>{"\n"}Try again</Text>
+            ) : null}
           </Text>
         }
         renderItem={({ item }) => {

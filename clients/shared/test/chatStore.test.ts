@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type ApiClient, type StreamOptions } from "../src/api";
+import { ApiError, NetworkError, type ApiClient, type StreamOptions } from "../src/api";
 import { createChatController, selectDisplayItems } from "../src/chatStore";
 import type { ConversationDetail, SendPayload, StoredMessage, StreamEvent } from "../src/types";
 
@@ -101,7 +101,7 @@ describe("chat controller", () => {
         async (emit) => {
           emit({ type: "turn:submitted", turnRunId: "r1" });
           emit(delta("Part one. "));
-          throw new TypeError("Network request failed");
+          throw new NetworkError();
         },
         async (emit) => {
           emit({ type: "turn:submitted", turnRunId: "r1" });
@@ -217,7 +217,7 @@ describe("review round 1 regressions", () => {
     const { api } = fakeApi({
       scripts: [async (emit) => {
         emit({ type: "turn:submitted", turnRunId: "r1" });
-        throw new TypeError("Network request failed");
+        throw new NetworkError();
       }]
     });
     const chat = createChatController({ api, randomId: () => "id", publishIntervalMs: 0, rejoinDelaysMs: [50] });
@@ -252,7 +252,7 @@ describe("review round 1 regressions", () => {
     const replayThenDrop = async (emit: (event: StreamEvent) => void) => {
       emit({ type: "turn:submitted", turnRunId: "r1" });
       emit(delta("Same. "));
-      throw new TypeError("Network request failed");
+      throw new NetworkError();
     };
     const { api, calls } = fakeApi({ scripts: [replayThenDrop, replayThenDrop, replayThenDrop, replayThenDrop] });
     const chat = createChatController({ api, randomId: () => "id", publishIntervalMs: 0, rejoinDelaysMs: [0, 0] });

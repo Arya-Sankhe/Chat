@@ -1,3 +1,4 @@
+import "./webCrypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import * as WebBrowser from "expo-web-browser";
 import { create } from "zustand";

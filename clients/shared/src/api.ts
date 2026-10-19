@@ -16,6 +16,26 @@ export class ApiError extends Error {
   }
 }
 
+/** The request never got an answer: offline, refused, or cut off mid-stream.
+   Each platform's fetch words this differently (browsers throw TypeError,
+   expo/fetch throws plain Errors with native messages), so the client
+   normalizes them here and callers only check the class. */
+export class NetworkError extends Error {
+  constructor(cause?: unknown) {
+    super("Can't reach Klui. Check your connection and try again.", { cause });
+    this.name = "NetworkError";
+  }
+}
+
+function abortError(): Error {
+  return Object.assign(new Error("The operation was aborted."), { name: "AbortError" });
+}
+
+function transportError(error: unknown, signal: AbortSignal | null | undefined): unknown {
+  if (signal?.aborted || (error as { name?: string })?.name === "AbortError") return abortError();
+  return error instanceof ApiError ? error : new NetworkError(error);
+}
+
 export interface ApiClientOptions {
   /** "" for same-origin web, "https://klui.ai" for native. */
   baseUrl: string;
@@ -54,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
         ...(init.headers as Record<string, string> | undefined),
         ...(token ? { authorization: `Bearer ${token}` } : {})
       }
-    });
+    }).catch((error: unknown) => { throw transportError(error, init.signal); });
 
     let session = await options.session.ensureFresh();
     let response = await send(session?.access_token);
@@ -80,7 +100,8 @@ export function createApiClient(options: ApiClientOptions) {
 
   return {
     async fetchConfig(): Promise<KluiConfig> {
-      const response = await plainFetch(url("/api/config"), { cache: "no-store" });
+      const response = await plainFetch(url("/api/config"), { cache: "no-store" })
+        .catch((error: unknown) => { throw transportError(error, null); });
       if (!response.ok) throw new ApiError(await readProblem(response), response.status);
       return response.json() as Promise<KluiConfig>;
     },
@@ -133,7 +154,15 @@ export function createApiClient(options: ApiClientOptions) {
         userMessageId: response.headers.get("x-klui-user-message-id") || ""
       });
       if (!response.body) throw new Error("Streaming is not available on this device.");
-      await readSseStream(response.body, onEvent);
+      // A throw from onEvent is the caller's bug, not the network's; it passes through as is.
+      let callbackError: unknown;
+      try {
+        await readSseStream(response.body, (event) => {
+          try { onEvent(event); } catch (error) { callbackError = error; throw error; }
+        });
+      } catch (error) {
+        throw error === callbackError ? error : transportError(error, signal);
+      }
     },
 
     cancelTurn: (conversationId: string, turnRunId: string) =>

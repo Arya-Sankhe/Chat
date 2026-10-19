@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { ApiError, type ApiClient } from "./api";
+import { ApiError, NetworkError, type ApiClient } from "./api";
 import { textFromMessageContent } from "./content";
 import { applyStreamEvent, createLiveAssistant } from "./streamReducer";
 import type {
@@ -94,10 +94,7 @@ function isAbort(error: unknown): boolean {
   return (error as { name?: string })?.name === "AbortError";
 }
 
-function isDroppedConnection(error: unknown): boolean {
-  const e = error as { name?: string; message?: string };
-  return e?.name === "TypeError" && /fetch|network|load failed|connection|stream/i.test(e.message || "");
-}
+const isDroppedConnection = (error: unknown) => error instanceof NetworkError;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
