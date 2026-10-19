@@ -4,3 +4,6 @@ dist/
 mobile/android/
 mobile/ios/
 *.tsbuildinfo
+devtools/parity/out/
+devtools/local-backend/supabase/.temp/
+devtools/local-backend/supabase/.branches/
