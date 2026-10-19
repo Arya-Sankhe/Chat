@@ -42,12 +42,13 @@ function determinism() {
   });
 }
 
-async function settle(page) {
+async function settle(page, scenario) {
   // The old site's launch screen removes itself 500 ms after load.
   await page.waitForSelector("#mobileLaunchScreen", { state: "detached" });
   // Timers are faked: jump past timed UI (the home greeting types and deletes
   // lines for several seconds) so every capture lands on its settled frame.
-  await page.clock.runFor(30_000);
+  // Scenarios capturing transient UI (a toast) pass a shorter settleMs.
+  await page.clock.runFor(scenario.settleMs ?? 30_000);
   await page.evaluate(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].filter((img) => !img.complete).map((img) => new Promise((resolve) => { img.onload = img.onerror = resolve; })));
@@ -81,10 +82,12 @@ async function capture(browser, site, scenario, viewport, theme, sessions) {
   await page.goto(site.origin + (typeof scenario.path === "function" ? scenario.path(ctx) : scenario.path), { waitUntil: "load" });
   await scenario.ready(page, ctx);
   if (scenario.steps) await scenario.steps(page, ctx);
-  await settle(page);
+  await settle(page, scenario);
   const shot = await page.screenshot();
+  // The settled DOM is the spec the new client's markup is checked against.
+  const dom = await page.content();
   await context.close();
-  return { shot, errors };
+  return { shot, dom, errors };
 }
 
 function diff(oldPng, newPng) {
@@ -111,10 +114,12 @@ for (const scenario of scenarios.filter((s) => s.name.includes(filter))) {
       const shots = {};
       for (const key of only ? [only] : ["old", "new"]) {
         try {
-          const { shot, errors } = await capture(browser, SITES[key], scenario, viewport, theme, sessions);
+          const { shot, dom, errors } = await capture(browser, SITES[key], scenario, viewport, theme, sessions);
           fs.writeFileSync(path.join(dir, `${key}.png`), shot);
-          shots[key] = shot;
+          fs.writeFileSync(path.join(dir, `${key}.html`), dom);
+          // A page error fails the state even when the pixels match.
           if (errors.length) fs.writeFileSync(path.join(dir, `${key}.errors.txt`), errors.join("\n"));
+          else shots[key] = shot;
         } catch (error) {
           fs.writeFileSync(path.join(dir, `${key}.failure.txt`), String(error?.stack || error));
         }
