@@ -35,6 +35,9 @@ export type SessionListener = (session: Session | null) => void;
 export class SessionManager {
   private session: Session | null = null;
   private refreshing: Promise<Session | null> | null = null;
+  /* Bumped on every save. A refresh that finishes after the session changed
+     (sign-out, another account) must not write its result back. */
+  private generation = 0;
   private listeners = new Set<SessionListener>();
   private config: KluiConfig | null = null;
 
@@ -69,6 +72,8 @@ export class SessionManager {
   }
 
   async save(session: Session | null): Promise<void> {
+    this.generation += 1;
+    this.refreshing = null;
     this.session = session?.access_token ? session : null;
     if (this.session) await this.storage.set(AUTH_STORAGE_KEY, JSON.stringify(this.session));
     else await this.storage.remove(AUTH_STORAGE_KEY);
@@ -80,11 +85,16 @@ export class SessionManager {
     const session = this.session;
     if (!session?.refresh_token) return session;
     if (!force && session.expires_at - nowSeconds() > 120) return session;
-    this.refreshing ??= this.refresh(session).finally(() => { this.refreshing = null; });
+    if (!this.refreshing) {
+      const pending = this.refresh(session, this.generation).finally(() => {
+        if (this.refreshing === pending) this.refreshing = null;
+      });
+      this.refreshing = pending;
+    }
     return this.refreshing;
   }
 
-  private async refresh(session: Session): Promise<Session | null> {
+  private async refresh(session: Session, generation: number): Promise<Session | null> {
     const config = this.requireConfig();
     let response: Response;
     try {
@@ -95,8 +105,9 @@ export class SessionManager {
       });
     } catch {
       // Offline: keep the session; the request that needed it will fail on its own.
-      return session;
+      return generation === this.generation ? session : this.session;
     }
+    if (generation !== this.generation) return this.session;
     if (!response.ok) {
       // A 4xx means the refresh token is dead; a 5xx is Supabase having a moment.
       if (response.status >= 500) return session;
@@ -104,6 +115,7 @@ export class SessionManager {
       return null;
     }
     const next = sessionFromTokenPayload(await response.json(), session);
+    if (generation !== this.generation) return this.session;
     await this.save(next);
     return next;
   }

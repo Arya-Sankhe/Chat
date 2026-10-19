@@ -4,9 +4,11 @@ import { MessageView } from "./MessageView";
 
 const PIN_THRESHOLD = 120;
 
-export function Transcript({ items, conversationId, hasMore, onLoadOlder }: {
+export function Transcript({ items, conversationId, followKey, hasMore, onLoadOlder }: {
   items: DisplayItem[];
   conversationId: string;
+  /** Changes when a new reply starts; the view jumps back to the bottom to follow it. */
+  followKey: string;
   hasMore: boolean;
   onLoadOlder: () => Promise<void>;
 }) {
@@ -18,6 +20,10 @@ export function Transcript({ items, conversationId, hasMore, onLoadOlder }: {
   useLayoutEffect(() => {
     pinned.current = true;
   }, [conversationId]);
+
+  useLayoutEffect(() => {
+    if (followKey) pinned.current = true;
+  }, [followKey]);
 
   useLayoutEffect(() => {
     const el = scroller.current;

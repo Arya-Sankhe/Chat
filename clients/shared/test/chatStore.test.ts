@@ -211,3 +211,89 @@ describe("half-open connections", () => {
     await vi.waitFor(() => expect(chat.store.getState().runs[id]).toBeUndefined());
   });
 });
+
+describe("review round 1 regressions", () => {
+  it("stopping during a reconnect backoff settles the run instead of wedging it", async () => {
+    const { api } = fakeApi({
+      scripts: [async (emit) => {
+        emit({ type: "turn:submitted", turnRunId: "r1" });
+        throw new TypeError("Network request failed");
+      }]
+    });
+    const chat = createChatController({ api, randomId: () => "id", publishIntervalMs: 0, rejoinDelaysMs: [50] });
+
+    const id = await chat.send({ conversationId: null, text: "Go" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("reconnecting"));
+    await chat.stop(id);
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]).toBeUndefined());
+    await expect(chat.send({ conversationId: id, text: "Again" })).resolves.toBe(id);
+  });
+
+  it("keeps the live reply when the final reload fails, and an error the server never stored", async () => {
+    const { api } = fakeApi({
+      scripts: [
+        async (emit) => { emit({ type: "turn:submitted", turnRunId: "r1" }); emit(delta("Kept")); },
+        async (emit) => { emit({ type: "turn:submitted", turnRunId: "r2" }); emit({ type: "error", error: "Model overloaded." }); }
+      ]
+    });
+    api.fetchConversation.mockRejectedValueOnce(new Error("offline"));
+    const chat = controllerFor(api);
+
+    const id = await chat.send({ conversationId: null, text: "One" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("failed"));
+    expect(chat.store.getState().runs[id]?.assistant.content).toBe("Kept");
+
+    await chat.send({ conversationId: id, text: "Two" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.assistant.error).toBe("Model overloaded."));
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("failed"));
+  });
+
+  it("a replay that only repeats old events does not refill the reconnect budget", async () => {
+    const replayThenDrop = async (emit: (event: StreamEvent) => void) => {
+      emit({ type: "turn:submitted", turnRunId: "r1" });
+      emit(delta("Same. "));
+      throw new TypeError("Network request failed");
+    };
+    const { api, calls } = fakeApi({ scripts: [replayThenDrop, replayThenDrop, replayThenDrop, replayThenDrop] });
+    const chat = createChatController({ api, randomId: () => "id", publishIntervalMs: 0, rejoinDelaysMs: [0, 0] });
+
+    const id = await chat.send({ conversationId: null, text: "Go" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("failed"));
+    expect(calls).toHaveLength(3);
+    expect(chat.store.getState().runs[id]?.assistant.error).toMatch(/Connection lost/);
+  });
+
+  it("shows the user's message once when history loads mid-turn", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { api } = fakeApi({
+      scripts: [async (emit) => {
+        emit({ type: "turn:submitted", turnRunId: "r1", userMessageId: "u1" });
+        emit(delta("Hi"));
+        await gate;
+      }],
+      // Like the real schema: the stored user row has no turn_run_id.
+      detail: () => emptyDetail([{ id: "u1", role: "user", content: "Hello" }])
+    });
+    const chat = controllerFor(api);
+
+    const id = await chat.send({ conversationId: null, text: "Hello" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.userMessageId).toBe("u1"));
+    chat.store.setState((state) => ({ threads: { ...state.threads, [id]: { status: "ready", messages: [{ id: "u1", role: "user", content: "Hello" }], page: { hasMore: false, cursor: null }, error: "" } } }));
+    expect(selectDisplayItems(chat.store.getState(), id).map((item) => item.kind)).toEqual(["stored", "live"]);
+    release();
+  });
+
+  it("drops results that land after sign-out", async () => {
+    let resolveList!: (rows: unknown[]) => void;
+    const { api } = fakeApi();
+    api.listConversations.mockReturnValueOnce(new Promise((resolve) => { resolveList = resolve; }) as never);
+    const chat = controllerFor(api);
+
+    const loading = chat.loadConversations();
+    chat.reset();
+    resolveList([{ id: "a", title: "Account A secret" }]);
+    await loading;
+    expect(chat.store.getState().conversations).toEqual([]);
+  });
+});

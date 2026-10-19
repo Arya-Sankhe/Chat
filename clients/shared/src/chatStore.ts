@@ -32,6 +32,8 @@ export interface RunState {
   turnRunId: string;
   /** Shown until the server's copy of the user message is loaded. */
   userMessage: StoredMessage | null;
+  /** The server's id for that user message (x-klui-user-message-id). */
+  userMessageId: string;
   /** A retry replaces this stored assistant in place. */
   replacesMessageId: string;
   assistant: LiveAssistant;
@@ -111,7 +113,8 @@ export function buildDisplayItems(thread: ThreadState | undefined, run: RunState
 
   let userStored = false;
   for (const message of stored) {
-    if (run?.turnRunId && message.role === "user" && message.turn_run_id === run.turnRunId) userStored = true;
+    // The server does not stamp user rows with turn_run_id; its id comes back as a response header.
+    if (run?.userMessageId && message.id === run.userMessageId) userStored = true;
     if (run && run.replacesMessageId === message.id) {
       items.push(live());
       liveInserted = true;
@@ -165,14 +168,19 @@ export function createChatController(options: ChatControllerOptions) {
     accepted: boolean;
     cancelRequested: boolean;
     reattaching: boolean;
-    /** Consecutive reconnects without a single event in between. */
+    /** Consecutive reconnects that delivered nothing beyond what an earlier attempt had. */
     rejoinFailures: number;
+    /** Most events any attempt has delivered; a replay only counts as progress past this. */
+    eventHighWater: number;
     lastEventAt: number;
     publishTimer: ReturnType<typeof setTimeout> | null;
     draftText: string;
   }
   const handles = new Map<string, RunHandle>();
   const loadTokens = new Map<string, number>();
+  /* Bumped by reset(); async work started under an older epoch belongs to the
+     previous account and must not write into the store. */
+  let epoch = 0;
 
   const set = (fn: (state: ChatState) => Partial<ChatState>) => store.setState(fn);
 
@@ -226,37 +234,42 @@ export function createChatController(options: ChatControllerOptions) {
   }
 
   async function loadConversations(): Promise<void> {
+    const started = epoch;
     set(() => ({ conversationsStatus: "loading", conversationsError: "" }));
     try {
       const conversations = await api.listConversations();
-      set(() => ({ conversations, conversationsStatus: "ready" }));
+      if (started === epoch) set(() => ({ conversations, conversationsStatus: "ready" }));
     } catch (error) {
-      set(() => ({ conversationsStatus: "error", conversationsError: (error as Error).message }));
+      if (started === epoch) set(() => ({ conversationsStatus: "error", conversationsError: (error as Error).message }));
     }
   }
 
-  /** Loads the latest page. Returns the pending turns the server still holds. */
-  async function loadThread(conversationId: string): Promise<PendingTurn[] | null> {
+  type ThreadLoad = { status: "loaded"; pendingTurns: PendingTurn[] } | { status: "superseded" } | { status: "failed" };
+
+  /** Loads the latest page, reporting the pending turns the server still holds. */
+  async function loadThread(conversationId: string): Promise<ThreadLoad> {
     const token = (loadTokens.get(conversationId) ?? 0) + 1;
     loadTokens.set(conversationId, token);
     const hasMessages = Boolean(store.getState().threads[conversationId]?.messages.length);
     setThread(conversationId, { status: hasMessages ? "ready" : "loading", error: "" });
     try {
       const detail = await api.fetchConversation(conversationId);
-      if (loadTokens.get(conversationId) !== token) return null;
+      if (loadTokens.get(conversationId) !== token) return { status: "superseded" };
       setThread(conversationId, { status: "ready", messages: detail.messages, page: detail.page ?? EMPTY_PAGE });
-      return detail.pendingTurns ?? [];
+      return { status: "loaded", pendingTurns: detail.pendingTurns ?? [] };
     } catch (error) {
-      if (loadTokens.get(conversationId) !== token) return null;
+      if (loadTokens.get(conversationId) !== token) return { status: "superseded" };
       setThread(conversationId, { status: hasMessages ? "ready" : "error", error: (error as Error).message });
-      return null;
+      return { status: "failed" };
     }
   }
 
   async function loadOlder(conversationId: string): Promise<void> {
     const thread = store.getState().threads[conversationId];
     if (!thread?.page.hasMore || !thread.page.cursor) return;
+    const started = epoch;
     const detail = await api.fetchConversation(conversationId, { cursor: thread.page.cursor });
+    if (started !== epoch) return;
     const current = store.getState().threads[conversationId];
     if (!current) return;
     const known = new Set(current.messages.map((m) => m.id));
@@ -271,8 +284,8 @@ export function createChatController(options: ChatControllerOptions) {
     // A chat with a reply in flight reloads itself when that reply ends.
     const { runs, threads } = store.getState();
     if (runs[conversationId] && runs[conversationId].status !== "failed" && threads[conversationId]) return;
-    const pending = await loadThread(conversationId);
-    const turn = pending?.[0];
+    const load = await loadThread(conversationId);
+    const turn = load.status === "loaded" ? load.pendingTurns[0] : undefined;
     if (turn && !store.getState().runs[conversationId]) void resumeTurn(conversationId, turn.id);
   }
 
@@ -295,6 +308,7 @@ export function createChatController(options: ChatControllerOptions) {
       cancelRequested: false,
       reattaching: false,
       rejoinFailures: 0,
+      eventHighWater: 0,
       lastEventAt: Date.now(),
       publishTimer: null,
       draftText: start.draftText ?? ""
@@ -308,6 +322,7 @@ export function createChatController(options: ChatControllerOptions) {
           status: "streaming",
           turnRunId: handle.turnRunId,
           userMessage: start.userMessage,
+          userMessageId: "",
           replacesMessageId: start.replacesMessageId ?? "",
           assistant: { ...handle.assistant }
         }
@@ -317,15 +332,24 @@ export function createChatController(options: ChatControllerOptions) {
   }
 
   async function stream(conversationId: string, handle: RunHandle, payload: SendPayload): Promise<void> {
+    let attemptEvents = 0;
     const onEvent = (event: StreamEvent) => {
       if (handles.get(conversationId) !== handle) return;
       handle.lastEventAt = Date.now();
-      if (event.type !== "turn:submitted") handle.rejoinFailures = 0;
       if (event.type === "turn:submitted") {
         handle.accepted = true;
         if (typeof event.turnRunId === "string" && event.turnRunId) handle.turnRunId = event.turnRunId;
+        if (typeof event.userMessageId === "string" && event.userMessageId) {
+          patchRun(conversationId, { userMessageId: event.userMessageId });
+        }
         publish(conversationId, true);
         return;
+      }
+      // A reconnect replays from the start; only events past the earlier high-water mark are progress.
+      attemptEvents += 1;
+      if (attemptEvents > handle.eventHighWater) {
+        handle.eventHighWater = attemptEvents;
+        handle.rejoinFailures = 0;
       }
       if (event.type === "turn:claimed" && typeof event.turnRunId === "string") handle.turnRunId = event.turnRunId;
       applyStreamEvent(handle.assistant, event, { keepReasoning: options.keepReasoning?.() ?? false });
@@ -360,7 +384,12 @@ export function createChatController(options: ChatControllerOptions) {
         handle.lastEventAt = Date.now();
         patchRun(conversationId, { status: "reconnecting" });
         await sleep(delay);
-        if (handles.get(conversationId) !== handle || handle.cancelRequested) return;
+        if (handles.get(conversationId) !== handle) return;
+        if (handle.cancelRequested) {
+          handle.assistant.stopped = true;
+          await finish(conversationId, handle);
+          return;
+        }
         // The server replays the turn from its first event.
         handle.assistant = createLiveAssistant(handle.assistant.id);
         patchRun(conversationId, { status: "streaming" });
@@ -385,11 +414,26 @@ export function createChatController(options: ChatControllerOptions) {
     await finish(conversationId, handle);
   }
 
+  /* Swaps the live reply for the server's stored copy, unless that copy is
+     missing: then the live reply (and any error on it) stays on screen. */
   async function finish(conversationId: string, handle: RunHandle) {
     publish(conversationId, true);
-    await loadThread(conversationId);
+    const load = await loadThread(conversationId);
     if (handles.get(conversationId) !== handle) return;
-    dropRun(conversationId);
+    const messages = store.getState().threads[conversationId]?.messages ?? [];
+    const stored = handle.turnRunId
+      && messages.some((m) => m.role !== "user" && m.turn_run_id === handle.turnRunId);
+    const keepLive = load.status === "failed" || (Boolean(handle.assistant.error) && !stored);
+    if (keepLive) {
+      if (load.status === "failed" && !handle.assistant.error && !handle.assistant.stopped) {
+        handle.assistant.error = "This reply could not be saved to the chat yet. Reopen the chat to refresh it.";
+      }
+      publish(conversationId, true);
+      patchRun(conversationId, { status: "failed" });
+      handles.delete(conversationId);
+    } else {
+      dropRun(conversationId);
+    }
     void loadConversations();
   }
 
@@ -399,7 +443,9 @@ export function createChatController(options: ChatControllerOptions) {
     const prefs = preferences();
     let id = conversationId;
     if (!id) {
+      const started = epoch;
       const conversation = await api.createConversation({ role: prefs.role });
+      if (started !== epoch) throw new Error("You signed out before the chat was created.");
       id = conversation.id;
       touchConversation(conversation);
       setThread(id, { status: "ready" });
@@ -538,6 +584,7 @@ export function createChatController(options: ChatControllerOptions) {
     }
     handles.clear();
     loadTokens.clear();
+    epoch += 1;
     store.setState({ conversations: [], conversationsStatus: "idle", conversationsError: "", threads: {}, runs: {}, drafts: {} });
   }
 

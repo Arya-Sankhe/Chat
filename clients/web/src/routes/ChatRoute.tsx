@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useEffect, useRef } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { chat } from "../app/runtime";
 import { useChat, useTranscript } from "../app/useChat";
 import { Composer } from "../components/Composer";
@@ -8,6 +8,9 @@ import { Transcript } from "../components/Transcript";
 export function ChatRoute() {
   const { conversationId = null } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = useRef(location.pathname);
+  currentPath.current = location.pathname;
   const { thread, run, items } = useTranscript(conversationId);
   const draft = useChat((state) => (conversationId ? state.drafts[conversationId] ?? "" : ""));
 
@@ -21,8 +24,10 @@ export function ChatRoute() {
 
   const busy = Boolean(run && run.status !== "failed");
   const send = async (text: string) => {
+    const sentFrom = location.pathname;
     const id = await chat.send({ conversationId, text });
-    if (id !== conversationId) navigate(`/c/${id}`);
+    // Creating the chat takes a request; follow it only if the user is still where they sent from.
+    if (id !== conversationId && currentPath.current === sentFrom) navigate(`/c/${id}`, { replace: true });
   };
 
   return (
@@ -40,6 +45,7 @@ export function ChatRoute() {
         <Transcript
           items={items}
           conversationId={conversationId}
+          followKey={run?.assistant.id ?? ""}
           hasMore={Boolean(thread?.page.hasMore)}
           onLoadOlder={() => chat.loadOlder(conversationId)}
         />

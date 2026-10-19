@@ -127,7 +127,11 @@ export function createApiClient(options: ApiClientOptions) {
       );
       if (!response.ok) throw new ApiError(await readProblem(response), response.status);
       // Emitted on every accepted request, so callers know the server owns the turn now.
-      onEvent({ type: "turn:submitted", turnRunId: response.headers.get("x-klui-turn-run-id") || "" });
+      onEvent({
+        type: "turn:submitted",
+        turnRunId: response.headers.get("x-klui-turn-run-id") || "",
+        userMessageId: response.headers.get("x-klui-user-message-id") || ""
+      });
       if (!response.body) throw new Error("Streaming is not available on this device.");
       await readSseStream(response.body, onEvent);
     },

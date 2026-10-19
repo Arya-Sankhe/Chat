@@ -125,7 +125,13 @@ function startTurn({ conversationId, text, userMessageId, queued }) {
 }
 
 function follow(turn, res, { dropOnce = false } = {}) {
-  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-klui-turn-run-id": turn.id, "access-control-expose-headers": "x-klui-turn-run-id" });
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-klui-turn-run-id": turn.id,
+    "x-klui-user-message-id": turn.userMessageId,
+    "access-control-expose-headers": "x-klui-turn-run-id, x-klui-user-message-id"
+  });
   for (const chunk of turn.chunks) res.write(chunk);
   if (turn.done) return res.end();
   turn.followers.add(res);
@@ -243,8 +249,8 @@ async function handle(req, res) {
       if (/fail/i.test(text)) return send(res, 402, { error: "Daily limit reached. Try again tomorrow." });
       const userMessage = { id: randomUUID(), conversation_id: conversationId, role: "user", content: text, created_at: now() };
       rows.push(userMessage);
+      // Like the real schema, the user row is not stamped with turn_run_id.
       const turn = startTurn({ conversationId, text, userMessageId: userMessage.id, queued: /queue/i.test(text) });
-      userMessage.turn_run_id = turn.id;
       return follow(turn, res, { dropOnce: /drop/i.test(text) });
     }
 

@@ -50,3 +50,21 @@ describe("session refresh", () => {
     expect(storage.data[AUTH_STORAGE_KEY]).toBeUndefined();
   });
 });
+
+describe("session changes during a refresh", () => {
+  it("a refresh that finishes after sign-out does not sign the old account back in", async () => {
+    let respond!: (response: Response) => void;
+    const storage = memoryStorage({ [AUTH_STORAGE_KEY]: JSON.stringify(expiringSoon) });
+    const session = new SessionManager(storage, () => new Promise((resolve) => { respond = resolve; }));
+    session.setConfig(config);
+    await session.load();
+
+    const refreshing = session.ensureFresh();
+    await session.save(null);
+    respond(new Response(JSON.stringify({ access_token: "new", refresh_token: "r2", expires_in: 3600 })));
+
+    expect(await refreshing).toBeNull();
+    expect(session.current()).toBeNull();
+    expect(storage.data[AUTH_STORAGE_KEY]).toBeUndefined();
+  });
+});

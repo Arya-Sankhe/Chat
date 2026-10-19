@@ -1,5 +1,5 @@
-import { Stack, router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { Stack, useLocalSearchParams, useNavigation } from "expo-router";
+import { useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +13,8 @@ import { useChat, useTranscript } from "../../src/lib/useChat";
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const conversationId = id && id !== "new" ? id : null;
+  const navigation = useNavigation();
+  const list = useRef<FlatList>(null);
   const colors = useTheme();
   const insets = useSafeAreaInsets();
   const { thread, run, items } = useTranscript(conversationId);
@@ -29,10 +31,17 @@ export default function ChatScreen() {
     if (draft && conversationId) chat.takeDraft(conversationId);
   }, [draft, conversationId]);
 
+  // A new reply brings the view back to the newest message (offset 0 in an inverted list).
+  const followKey = run?.assistant.id;
+  useEffect(() => {
+    if (followKey) list.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [followKey]);
+
   const busy = Boolean(run && run.status !== "failed");
   const send = async (text: string) => {
     const next = await chat.send({ conversationId, text });
-    if (next !== conversationId) router.setParams({ id: next });
+    // Scoped to this screen, so a chat opened meanwhile is never retargeted.
+    if (next !== conversationId) navigation.setParams({ id: next } as never);
   };
 
   return (
@@ -49,6 +58,7 @@ export default function ChatScreen() {
         <View style={styles.empty}><ActivityIndicator color={colors.textSecondary} /></View>
       ) : (
         <FlatList
+          ref={list}
           inverted
           data={data}
           keyExtractor={(item) => item.key}
