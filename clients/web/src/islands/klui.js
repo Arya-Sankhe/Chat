@@ -1,0 +1,538 @@
+import { pixelKluiMarkup } from "./composerKlui.js";
+import { slotText } from "./slot-text/index.js";
+import { escapeHtml } from "./escapeHtml.js";
+import { mountKluiMotion } from "./klui-motion.js";
+
+const PHRASES = {
+  thinking: ["locking in", "connecting the dots", "big brain time"],
+  reading: ["taking notes", "highlighting the good bits", "skimming the page"],
+  searching: ["hunting for sources", "digging the web", "sifting results"],
+  writing: ["finding the words", "making it flow", "drafting"],
+  generating: ["making magic", "pixels are cooking", "stirring the ink"],
+  reviewing: ["sanity check", "final polish", "double checking"],
+};
+
+const MOUTHS = {
+  thinking: "M32 50 Q40 57 48 50",
+  reading: "M33 51 Q40 54 47 51",
+  searching: "M34 52 Q40 54 46 52",
+  writing: "M33 50 Q40 54 47 50",
+  generating: "M30 49 Q40 60 50 49",
+  reviewing: "M29 49 Q40 61 51 49",
+};
+
+const GREETING_LINES = [
+  { text: "how can i help you?", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
+  { text: "what's cooking?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
+  { text: "spill the tea_", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
+  { text: "say less, i'm ready", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
+  { text: "what we working on?", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
+  { text: "drop it here", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "no pressure, just vibes", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
+  { text: "awaiting input...", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
+  { text: "got something on your mind?", mood: "think", mouth: "M33 51 Q40 55 47 51" },
+  { text: "let's cook", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
+];
+
+const GUEST_LINES = [
+  { text: "what can i help you with?", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
+  ...GREETING_LINES.slice(1),
+];
+
+const TEMP_LINES = [
+  { text: "staying lowkey", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
+  { text: "this never happened_", mood: "sleepy", mouth: "M34 52 Q40 52 46 52" },
+  { text: "between us", mood: "curious", mouth: "M33 51 Q40 54 47 51" },
+  { text: "leave no receipts", mood: "think", mouth: "M33 51 Q40 55 47 51" },
+  { text: "ghost mode on", mood: "spark", mouth: "M30 49 Q40 59 50 49" },
+  { text: "off the record", mood: "hello", mouth: "M32 50 Q40 57 48 50" },
+  { text: "no cap, you're safe here", mood: "happy", mouth: "M29 49 Q40 61 51 49" },
+  { text: "incognito vibes only", mood: "wink", mouth: "M32 50 Q40 56 48 50" },
+];
+
+const controllers = new WeakMap();
+let greetingRun = 0;
+
+function accentFlash() {
+  const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#6366f1";
+  return (index, total) => `color-mix(in srgb, ${accent} ${Math.round(55 + (total <= 1 ? 0.5 : index / (total - 1)) * 45)}%, white)`;
+}
+
+function shuffle(list) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function pickOne(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+export function labelToKluiState(label) {
+  const l = String(label || "").toLowerCase();
+  if (l.includes("search")) return "searching";
+  if (l.includes("read") || l.includes("table")) return "reading";
+  if (l.includes("review") || l.startsWith("worked")) return "reviewing";
+  if (l.includes("creat") || l.includes("edit") || l.includes("export") || l.includes("writ") || l.includes("check") || l.includes("wrap") || l === "working") {
+    return "writing";
+  }
+  if (l.includes("generat")) return "generating";
+  return "thinking";
+}
+
+function fedoraMarkup(prefix) {
+  const felt = `${prefix}-felt`;
+  const band = `${prefix}-band`;
+  return `
+    <defs>
+      <linearGradient id="${felt}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#3a3a42"/>
+        <stop offset="55%" stop-color="#2a2a30"/>
+        <stop offset="100%" stop-color="#1c1c22"/>
+      </linearGradient>
+      <linearGradient id="${band}" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#6b1f2a"/>
+        <stop offset="50%" stop-color="#9a2f3d"/>
+        <stop offset="100%" stop-color="#6b1f2a"/>
+      </linearGradient>
+    </defs>
+    <g class="klui-fedora" aria-hidden="true">
+      <ellipse cx="40" cy="14.2" rx="34" ry="5.2" fill="#000" opacity=".18"/>
+      <path d="M8 13.5 C12 10.2, 22 8.4, 40 8.4 C58 8.4, 68 10.2, 72 13.5 C68.5 16.2, 55 17.8, 40 17.8 C25 17.8, 11.5 16.2, 8 13.5 Z" fill="url(#${felt})"/>
+      <path d="M8 13.5 C12 11.2, 22 9.6, 40 9.6 C58 9.6, 68 11.2, 72 13.5" fill="none" stroke="#4a4a55" stroke-width="1.1" opacity=".55"/>
+      <path d="M24 10.2 C26 3.2, 32 -.2, 40 -.2 C48 -.2, 54 3.2, 56 10.2 L54.2 11.6 C52.2 6.2, 47.2 3.6, 40 3.6 C32.8 3.6, 27.8 6.2, 25.8 11.6 Z" fill="url(#${felt})"/>
+      <path d="M26.2 9.4 C28.2 4.8, 33.2 2.4, 40 2.4 C46.8 2.4, 51.8 4.8, 53.8 9.4" fill="none" stroke="#555560" stroke-width="1" opacity=".4"/>
+      <rect x="25.4" y="8.8" width="29.2" height="3.4" rx="1.2" fill="url(#${band})"/>
+      <rect x="36.4" y="8.5" width="7.2" height="4" rx="0.9" fill="#c9a227" opacity=".92"/>
+      <rect x="37.2" y="9.1" width="5.6" height="2.8" rx="0.6" fill="none" stroke="#f0d878" stroke-width="0.7" opacity=".65"/>
+    </g>`;
+}
+
+function shadesMarkup() {
+  // Pitch-black square spy shades — sit over the eyes when temporary chat is on.
+  return `
+    <g class="klui-shades" aria-hidden="true">
+      <rect x="20.6" y="24.4" width="16.4" height="18.2" rx="2.4" fill="#000" opacity=".16"/>
+      <rect x="43" y="24.4" width="16.4" height="18.2" rx="2.4" fill="#000" opacity=".16"/>
+      <rect x="20.2" y="23.4" width="16.4" height="18" rx="2.3" fill="#0a0a0c"/>
+      <rect x="43.4" y="23.4" width="16.4" height="18" rx="2.3" fill="#0a0a0c"/>
+      <path d="M36.6 32.4 H43.4" stroke="#0a0a0c" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M20.2 31.2 H15.4" stroke="#0a0a0c" stroke-width="2.1" stroke-linecap="round"/>
+      <path d="M59.8 31.2 H64.6" stroke="#0a0a0c" stroke-width="2.1" stroke-linecap="round"/>
+      <rect x="21.8" y="25.2" width="5.6" height="2.2" rx="1" fill="#fff" opacity=".2"/>
+      <rect x="45" y="25.2" width="5.6" height="2.2" rx="1" fill="#fff" opacity=".2"/>
+    </g>`;
+}
+
+export function kluiSvgMarkup(prefix, { greeting = false, fedora = false } = {}) {
+  const face = `${prefix}-face`;
+  const rim = `${prefix}-rim`;
+  const hi = `${prefix}-hi`;
+  const shade = `${prefix}-shade`;
+  const aura = `${prefix}-aura`;
+  return `<svg class="klui-svg${fedora ? " has-fedora" : ""}" viewBox="${fedora ? "0 -6 80 86" : "0 0 80 80"}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <clipPath id="${prefix}-sheen-clip"><rect x="8" y="8" width="64" height="64" rx="21"/></clipPath>
+      <radialGradient id="${face}" cx="40%" cy="30%" r="68%">
+        <stop offset="0%" stop-color="#ffffff"/><stop offset="62%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e8f1fc"/>
+      </radialGradient>
+      <radialGradient id="${rim}" cx="50%" cy="48%" r="58%">
+        <stop offset="54%" stop-color="#9ec0f0" stop-opacity="0"/>
+        <stop offset="76%" stop-color="#9ec0f0" stop-opacity=".55"/>
+        <stop offset="100%" stop-color="#7eacf0" stop-opacity=".95"/>
+      </radialGradient>
+      <radialGradient id="${hi}" cx="30%" cy="22%" r="42%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="${shade}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="55%" stop-color="#7eacf0" stop-opacity="0"/><stop offset="100%" stop-color="#7eacf0" stop-opacity=".18"/>
+      </linearGradient>
+      <filter id="${aura}" x="-35%" y="-35%" width="170%" height="170%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="3.2" result="b"/>
+        <feFlood flood-color="#8eb6f0" flood-opacity=".45" result="c"/>
+        <feComposite in="c" in2="b" operator="in" result="g"/>
+        <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g filter="url(#${aura})">
+      <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#${face})"/>
+      <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#${rim})"/>
+      <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#${hi})"/>
+      <rect x="8" y="8" width="64" height="64" rx="21" ry="21" fill="url(#${shade})"/>
+      <rect x="9.2" y="9.2" width="61.6" height="61.6" rx="19.8" ry="19.8" fill="none" stroke="#a8c4ef" stroke-width="2.6" opacity=".85"/>
+    </g>
+    ${fedora ? fedoraMarkup(prefix) : ""}
+    <g class="face">
+      <g class="eyes">
+        <g class="eye-surface eye-surface-l"><rect class="eye eye-l" x="26" y="24" width="8" height="18" rx="4" fill="#4f74b8"/></g>
+        <g class="eye-surface eye-surface-r"><rect class="eye eye-r" x="46" y="24" width="8" height="18" rx="4" fill="#4f74b8"/></g>
+        <g class="fx fx-stars" fill="#4f74b8">
+          <path d="M30 24.5 l1.9 4.6 4.6 1.9 -4.6 1.9 -1.9 4.6 -1.9 -4.6 -4.6 -1.9 4.6 -1.9z"/>
+          <path d="M50 24.5 l1.9 4.6 4.6 1.9 -4.6 1.9 -1.9 4.6 -1.9 -4.6 -4.6 -1.9 4.6 -1.9z"/>
+        </g>
+        <g class="fx fx-happy" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round">
+          <path d="M24 34 Q30 26 36 34"/><path d="M44 34 Q50 26 56 34"/>
+        </g>
+        ${greeting ? "" : `<circle class="fx fx-search" cx="50" cy="32.5" r="9" fill="none" stroke="#4f74b8" stroke-width="2.6"/>`}
+      </g>
+      <path class="mouth mouth-normal" d="M32 50 Q40 57 48 50" fill="none" stroke="#4f74b8" stroke-width="3.4" stroke-linecap="round"/>
+      ${greeting ? "" : `<path class="fx fx-tongue" d="M40 52.5 q2.8 0 2.8 2.8 q0 2.8 -2.8 2.8 q-2.8 0 -2.8 -2.8 q0 -2.8 2.8 -2.8z" fill="#f19ab6"/>`}
+      ${fedora ? shadesMarkup() : ""}
+    </g>
+    <g class="fx fx-think" fill="#a8c4ef">
+      <circle cx="64" cy="14" r="2.2"/><circle cx="70" cy="7" r="3"/><circle cx="77" cy="-1" r="3.8"/>
+    </g>
+    ${greeting ? "" : `
+    <g class="fx fx-pencil">
+      <rect x="62" y="42" width="6" height="16" rx="1.5" fill="#f6b73c" transform="rotate(28 65 50)"/>
+      <path d="M70 58.5 l4 6 -7 -1.2z" fill="#e9a06b"/>
+    </g>
+    <g clip-path="url(#${prefix}-sheen-clip)"><rect class="fx fx-sheen" x="10" y="10" width="14" height="60" rx="7" fill="#fff" transform="skewX(-18)"/></g>
+    <g class="fx fx-check">
+      <circle cx="66" cy="14" r="8" fill="#22c55e"/>
+      <path d="M61.8 14 l2.9 3.1 5.6 -5.9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>`}
+    <g class="fx fx-sparkles">
+      <path d="M8 10 l1.5 3.6 3.6 1.5 -3.6 1.5 -1.5 3.6 -1.5 -3.6 -3.6 -1.5 3.6 -1.5z"/>
+      <path d="M68 58 l1.3 3.2 3.2 1.3 -3.2 1.3 -1.3 3.2 -1.3 -3.2 -3.2 -1.3 3.2 -1.3z"/>
+      <path d="M66 4 l1.1 2.8 2.8 1.1 -2.8 1.1 -1.1 2.8 -1.1 -2.8 -2.8 -1.1 2.8 -1.1z"/>
+    </g>
+  </svg>`;
+}
+
+function setFaceExtras(bar, state) {
+  const on = (sel, yes) => bar.querySelector(sel)?.classList.toggle("is-on", !!yes);
+  on(".fx-think", state === "thinking");
+  on(".fx-search", state === "searching");
+  on(".fx-tongue", state === "writing");
+  on(".fx-pencil", state === "writing");
+  on(".fx-stars", state === "generating");
+  on(".fx-sparkles", state === "generating");
+  on(".fx-sheen", state === "generating");
+  on(".fx-happy", state === "reviewing");
+  on(".fx-check", state === "reviewing");
+  bar.querySelector(".mouth-normal")?.setAttribute("d", MOUTHS[state] || MOUTHS.thinking);
+}
+
+function idPrefixFromMessage(message) {
+  const raw = String(message?.id || "x").replace(/[^a-zA-Z0-9_-]/g, "");
+  return `k${raw.slice(0, 14) || "x"}`;
+}
+
+const FEED_VISIBLE = 3;
+const FEED_COLLAPSED_KEY = "klui.activityFeed.collapsed";
+const FEED_ICONS = {
+  search: `<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.25"/><path d="m10.2 10.2 3.3 3.3"/></svg>`,
+  read: `<svg viewBox="0 0 16 16"><path d="M4 2.5h5.2L12 5.3v8.2H4z"/><path d="M6.2 8h3.6M6.2 10.5h3.6"/></svg>`,
+  sources: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.4 2.3 5.5S9.6 11.9 8 13.5C6.4 11.9 5.7 10.1 5.7 8S6.4 4.1 8 2.5"/></svg>`,
+  thought: pixelKluiMarkup(),
+  step: `<svg viewBox="0 0 16 16"><path d="m10.4 3 2.6 2.6-6.9 6.9-3.2.6.6-3.2z"/></svg>`,
+  error: `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.2 6.2l3.6 3.6M9.8 6.2l-3.6 3.6"/></svg>`
+};
+
+function feedCollapsed() {
+  try { return localStorage.getItem(FEED_COLLAPSED_KEY) === "1"; } catch { return false; }
+}
+
+function feedIcon(entry) {
+  if (entry.kind === "sources" && entry.hosts?.length) {
+    return `<span class="klui-feed-favicons">${entry.hosts.map((host) => `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32" alt="" width="14" height="14" decoding="async">`).join("")}</span>`;
+  }
+  return FEED_ICONS[entry.kind] || FEED_ICONS.step;
+}
+
+function feedRowHtml(entry) {
+  return `<li class="klui-feed-row${entry.live ? " is-live" : ""}" data-kind="${escapeHtml(entry.kind)}" data-key="${escapeHtml(entry.key)}"><div class="klui-feed-row-inner"><span class="klui-feed-icon" aria-hidden="true">${feedIcon(entry)}</span><span class="klui-feed-text">${escapeHtml(entry.text)}</span></div></li>`;
+}
+
+function elapsedText(startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(startedAt || Date.now())) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+// feed: the message's activity entries, or null for bars without a feed (council, research).
+export function renderKluiThinkingStatus(message, { label, active, feed = null, startedAt = 0 }) {
+  const state = labelToKluiState(label);
+  const prefix = idPrefixFromMessage(message);
+  const safeLabel = escapeHtml(label);
+  const hasFeed = Array.isArray(feed) && active;
+  const collapsed = hasFeed && feedCollapsed();
+  return `<div class="thinking-status klui-bar ${active ? "is-active" : "is-done"}${hasFeed ? " has-feed" : ""}${collapsed ? " feed-collapsed" : ""}" data-state="${state}" data-label="${safeLabel}" data-started="${Number(startedAt) || Date.now()}" role="status" aria-live="polite">
+    <div class="klui" aria-hidden="true">${kluiSvgMarkup(prefix)}</div>
+    <div class="klui-copy">
+      <span class="klui-state">${safeLabel}</span>
+      <span class="klui-sub"><span class="klui-phrase">${escapeHtml(PHRASES[state][0])}</span>${hasFeed ? `<button type="button" class="klui-feed-toggle" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Show" : "Hide"} live updates"><span class="klui-feed-time">${elapsedText(startedAt)}</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></button>` : ""}</span>
+    </div>
+    ${hasFeed ? `<ol class="klui-feed" aria-label="What Klui is doing">${feed.slice(-FEED_VISIBLE).map(feedRowHtml).join("")}</ol>` : ""}
+  </div>`;
+}
+
+// Adds new rows, settles finished ones and lets the oldest slide away, keeping the last few.
+function syncFeed(bar, feed) {
+  const list = bar.querySelector(".klui-feed");
+  if (!list || !Array.isArray(feed)) return;
+  const wanted = feed.slice(-FEED_VISIBLE);
+  const keys = new Set(wanted.map((entry) => String(entry.key)));
+  for (const row of list.querySelectorAll(".klui-feed-row:not(.is-leaving)")) {
+    if (keys.has(row.dataset.key)) continue;
+    row.classList.add("is-leaving");
+    setTimeout(() => row.remove(), 320);
+  }
+  for (const entry of wanted) {
+    let row = [...list.children].find((child) => child.dataset.key === String(entry.key) && !child.classList.contains("is-leaving"));
+    if (!row) {
+      list.insertAdjacentHTML("beforeend", feedRowHtml(entry));
+      row = list.lastElementChild;
+      row.classList.add("is-entering");
+      row.addEventListener("animationend", () => row.classList.remove("is-entering"), { once: true });
+      continue;
+    }
+    row.classList.toggle("is-live", Boolean(entry.live));
+    if (row.dataset.kind !== entry.kind) {
+      row.dataset.kind = entry.kind;
+      row.querySelector(".klui-feed-icon").innerHTML = feedIcon(entry);
+    }
+    const text = row.querySelector(".klui-feed-text");
+    if (text.textContent !== entry.text) text.textContent = entry.text;
+  }
+}
+
+function mountBar(bar) {
+  if (controllers.has(bar)) return controllers.get(bar);
+
+  const stateEl = bar.querySelector(".klui-state");
+  const phraseEl = bar.querySelector(".klui-phrase");
+  if (!stateEl || !phraseEl) return null;
+
+  mountKluiMotion(bar.querySelector(".klui"));
+  const initialState = bar.dataset.state || "thinking";
+  const initialLabel = bar.dataset.label || "Thinking";
+  const stateSlot = slotText(stateEl, initialLabel);
+  const phraseSlot = slotText(phraseEl, (PHRASES[initialState] || PHRASES.thinking)[0]);
+  let phraseIdx = 0;
+  let phraseTimer = null;
+  let dirUp = true;
+  let state = initialState;
+  let pendingLabel = null;
+  let coalesce = false;
+
+  function startPhraseCycle() {
+    clearInterval(phraseTimer);
+    phraseIdx = 0;
+    const phrases = PHRASES[state] || PHRASES.thinking;
+    const roll = () => {
+      dirUp = !dirUp;
+      phraseSlot.set(phrases[phraseIdx], {
+        direction: dirUp ? "up" : "down",
+        skipUnchanged: true,
+        interrupt: false,
+        color: accentFlash(),
+      });
+    };
+    roll();
+    // Reduced motion: keep the first phrase still instead of rolling new ones in.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    phraseTimer = setInterval(() => {
+      if (!bar.isConnected || bar.classList.contains("is-leaving")) {
+        clearInterval(phraseTimer);
+        return;
+      }
+      phraseIdx = (phraseIdx + 1) % phrases.length;
+      roll();
+    }, 2600);
+  }
+
+  const timeEl = bar.querySelector(".klui-feed-time");
+  const clock = timeEl && setInterval(() => {
+    if (!bar.isConnected || !bar.classList.contains("is-active")) return clearInterval(clock);
+    timeEl.textContent = elapsedText(bar.dataset.started);
+  }, 1000);
+  bar.querySelector(".klui-feed-toggle")?.addEventListener("click", (event) => {
+    const collapsed = bar.classList.toggle("feed-collapsed");
+    event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
+    event.currentTarget.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} live updates`);
+    try { localStorage.setItem(FEED_COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* Storage is optional. */ }
+  });
+
+  function applyNow(label, { feed = null, active = true } = {}) {
+    const next = labelToKluiState(label);
+    const labelChanged = label !== (bar.dataset.label || "");
+    const stateChanged = next !== state;
+    bar.dataset.state = next;
+    bar.dataset.label = label;
+    bar.classList.toggle("is-active", active);
+    bar.classList.toggle("is-done", !active);
+    setFaceExtras(bar, next);
+    if (labelChanged) {
+      stateSlot.set(label, { direction: "up", skipUnchanged: true, interrupt: false, color: accentFlash() });
+    }
+    syncFeed(bar, feed);
+    state = next;
+    if (stateChanged || !phraseTimer) startPhraseCycle();
+  }
+
+  function apply(label, { feed = null, active = true } = {}) {
+    pendingLabel = { label, feed, active };
+    if (coalesce) return;
+    coalesce = true;
+    requestAnimationFrame(() => {
+      coalesce = false;
+      const next = pendingLabel;
+      pendingLabel = null;
+      if (next) applyNow(next.label, next);
+    });
+  }
+
+  setFaceExtras(bar, state);
+  applyNow(initialLabel, { active: !bar.classList.contains("is-done") });
+
+  const api = {
+    apply,
+  };
+  controllers.set(bar, api);
+  return api;
+}
+
+export function updateKluiBar(bar, { label, feed = null, active = true } = {}) {
+  if (!bar || !label) return;
+  const api = controllers.get(bar) || mountBar(bar);
+  api?.apply(label, { feed, active });
+}
+
+export function hydrateKluiBars(root = document) {
+  root.querySelectorAll?.(".klui-bar")?.forEach((bar) => {
+    if (bar.classList.contains("is-leaving")) return;
+    mountBar(bar);
+  });
+}
+
+export function renderHomeGreetingHtml({ guest = false, temporary = false } = {}) {
+  const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const native = document.body.classList.contains("capacitor-native") || window.matchMedia("(max-width: 860px)").matches;
+  if (native) {
+    // Mobile/native keeps the pixel mascot but restores the rotating typed
+    // lines: type-text + caret let startHomeGreeting cycle phrases again.
+    const launchText = temporary ? "A little space to think" : window.__kluiLaunchGreeting || pickOne(pool).text;
+    const initialText = temporary ? launchText : launchText;
+    return `<div class="empty-state mobile-home-greeting"><div class="hero-line${initialText.length > 22 ? " is-long" : ""}"><div class="klui" aria-hidden="true">${pixelKluiMarkup()}</div><p class="type-line"><span class="type-text">${escapeHtml(initialText)}</span><span class="caret"></span></p></div></div>`;
+  }
+  const first = pool[0];
+  const launchText = temporary ? "" : window.__kluiLaunchGreeting;
+  const initialText = native ? launchText || pickOne(pool).text : "";
+  return `<div class="empty-state${temporary ? " is-temporary" : ""}">
+    <div class="hero-line${initialText.length > 22 ? " is-long" : ""}">
+      ${native ? "" : `<div class="klui" data-mood="${first.mood}" aria-hidden="true">${kluiSvgMarkup("home", { greeting: true, fedora: temporary })}</div>`}
+      <p class="type-line"><span class="type-text">${initialText}</span><span class="caret${initialText ? "" : " is-solid"}"></span></p>
+    </div>
+  </div>`;
+}
+
+export function stopHomeGreeting() {
+  greetingRun += 1;
+}
+
+export function startHomeGreeting({ guest = false, temporary = false } = {}) {
+  const root = document.querySelector(".empty-state .hero-line");
+  if (!root) return;
+  const typeEl = root.querySelector(".type-text");
+  const caret = root.querySelector(".caret");
+  const klui = root.querySelector(".klui");
+  const mouth = root.querySelector(".mouth-normal, .mouth");
+  if (!typeEl || !caret) return;
+  mountKluiMotion(klui);
+  const pool = temporary ? TEMP_LINES : guest ? GUEST_LINES : GREETING_LINES;
+  const initialText = typeEl.textContent;
+  if (document.body.classList.contains("capacitor-native") && initialText) {
+    caret.classList.add("is-hidden");
+  }
+  const run = ++greetingRun;
+  let timer = null;
+
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      clearTimeout(timer);
+      timer = setTimeout(resolve, ms);
+    });
+
+  function setMood(mood, mouthPath) {
+    if (!klui) return;
+    klui.dataset.mood = mood;
+    if (mouthPath) mouth?.setAttribute("d", mouthPath);
+  }
+
+  async function typeText(text) {
+    root.classList.toggle("is-long", text.length > 22);
+    caret.classList.remove("is-hidden");
+    caret.classList.add("is-solid");
+    for (let n = 1; n <= text.length; n++) {
+      if (run !== greetingRun || !root.isConnected) return;
+      typeEl.textContent = text.slice(0, n);
+      await sleep(42 + Math.random() * 28);
+    }
+    caret.classList.remove("is-solid");
+  }
+
+  async function deleteText() {
+    caret.classList.remove("is-hidden");
+    caret.classList.add("is-solid");
+    let text = typeEl.textContent;
+    while (text.length) {
+      if (run !== greetingRun || !root.isConnected) return;
+      text = text.slice(0, -1);
+      typeEl.textContent = text;
+      await sleep(28);
+    }
+  }
+
+  async function playLine(line, { hold = 2600, erase = true } = {}) {
+    setMood(line.mood, line.mouth);
+    await typeText(line.text);
+    if (run !== greetingRun) return;
+    if (!erase) {
+      caret.classList.add("is-hidden");
+      return;
+    }
+    await sleep(hold);
+    if (run !== greetingRun) return;
+    await deleteText();
+    if (run !== greetingRun) return;
+    await sleep(420);
+  }
+
+  (async () => {
+    if (temporary) {
+      if (initialText) return;
+      // One random incognito line — type once and stay.
+      const line = pickOne(pool);
+      await playLine(line, { hold: 0, erase: false });
+      return;
+    }
+
+    // Fresh load: two type/delete cycles, then land on a different final line.
+    if (initialText) {
+      await sleep(2600);
+      if (run !== greetingRun) return;
+      await deleteText();
+      if (run !== greetingRun) return;
+      await sleep(420);
+      const rest = shuffle(pool.filter((line) => line.text !== initialText));
+      await playLine(rest[0] || pickOne(pool));
+      if (run !== greetingRun) return;
+      await playLine(rest[1] || pickOne(pool), { hold: 0, erase: false });
+      return;
+    }
+
+    const order = shuffle(pool);
+    const first = order[0];
+    const second = order[1 % order.length];
+    await playLine(first);
+    if (run !== greetingRun) return;
+    await playLine(second);
+    if (run !== greetingRun) return;
+    const rest = pool.filter((line) => line !== first && line !== second);
+    await playLine(pickOne(rest.length ? rest : pool), { hold: 0, erase: false });
+  })();
+}

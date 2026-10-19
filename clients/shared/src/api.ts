@@ -1,10 +1,13 @@
 import { readSseStream } from "./sse";
 import type { SessionManager } from "./session";
 import type {
+  ChatSearchHit,
   ConversationDetail,
   ConversationSummary,
   KluiConfig,
   Me,
+  Plan,
+  Project,
   SendPayload,
   StreamEvent
 } from "./types";
@@ -44,6 +47,9 @@ export interface ApiClientOptions {
   /** A fetch whose response body streams. React Native passes expo/fetch here. */
   streamFetch?: typeof fetch;
   onSessionExpired?: () => void;
+  /** The web page starts /api/config and /api/plans before any script loads
+     (window.__kluiBoot); each prefetched response is used once, if it succeeded. */
+  takeBootResponse?: (name: "config" | "plans") => Promise<Response | null> | null;
 }
 
 export interface StreamOptions {
@@ -98,15 +104,25 @@ export function createApiClient(options: ApiClientOptions) {
     body: JSON.stringify(body)
   });
 
+  /** An unauthenticated GET, served from the boot prefetch when there is one. */
+  async function publicJson<T>(path: string, init: RequestInit, boot?: "config" | "plans"): Promise<T> {
+    const prefetched = boot ? await options.takeBootResponse?.(boot) : null;
+    const response = prefetched?.ok ? prefetched : await plainFetch(url(path), init)
+      .catch((error: unknown) => { throw transportError(error, null); });
+    if (!response.ok) throw new ApiError(await readProblem(response), response.status);
+    return response.json() as Promise<T>;
+  }
+
   return {
-    async fetchConfig(): Promise<KluiConfig> {
-      const response = await plainFetch(url("/api/config"), { cache: "no-store" })
-        .catch((error: unknown) => { throw transportError(error, null); });
-      if (!response.ok) throw new ApiError(await readProblem(response), response.status);
-      return response.json() as Promise<KluiConfig>;
-    },
+    fetchConfig: () => publicJson<KluiConfig>("/api/config", { cache: "no-store" }, "config"),
+    fetchPlans: () => publicJson<{ plans?: Plan[]; [key: string]: unknown }>("/api/plans", {}, "plans"),
+    fetchBuild: () => publicJson<{ buildId?: string }>("/api/build", { cache: "no-store" }),
 
     fetchMe: () => json<Me>("/api/me"),
+    fetchPaymentRequests: () => json<{ requests?: unknown[]; [key: string]: unknown }>("/api/payments/ziina"),
+    listProjects: () => json<{ projects?: Project[]; [key: string]: unknown }>("/api/projects"),
+    searchChats: (query: string) =>
+      json<{ results?: ChatSearchHit[] }>(`/api/conversations/search?q=${encodeURIComponent(query)}`),
 
     async listConversations({ limit }: { limit?: number } = {}): Promise<ConversationSummary[]> {
       const { conversations } = await json<{ conversations: ConversationSummary[] }>(

@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5180,
       strictPort: true,
-      proxy: { "/api": { target, changeOrigin: true } }
+      proxy: { "/api": { target, changeOrigin: true }, "/auth": { target, changeOrigin: true } }
     },
     build: { outDir: "dist", sourcemap: true, target: "es2022" }
   };

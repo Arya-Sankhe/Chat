@@ -32,6 +32,27 @@ export interface ConversationSummary {
   [key: string]: unknown;
 }
 
+export interface Plan {
+  id: string;
+  [key: string]: unknown;
+}
+
+export interface Project {
+  id: string;
+  name?: string;
+  kind?: string;
+  [key: string]: unknown;
+}
+
+/** A message-body match from `GET /api/conversations/search`. */
+export interface ChatSearchHit {
+  conversation_id: string;
+  title?: string;
+  snippet?: string;
+  matched_at?: string;
+  [key: string]: unknown;
+}
+
 export type ContentPart = string | { type: string; text?: string; [key: string]: unknown };
 export type MessageContent = string | ContentPart[] | null;
 

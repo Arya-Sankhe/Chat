@@ -11,6 +11,7 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { chromium } from "playwright";
 import { NOW, reset, session } from "../local-backend/fixtures.mjs";
+import { domDiff } from "./domdiff.mjs";
 import { scenarios } from "./scenarios.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,13 +27,11 @@ const SITES = {
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, phone: { width: 412, height: 915 } };
 const ALLOWED_HOSTS = new Set(["localhost", "127.0.0.1", "cdn.jsdelivr.net"]);
 
-// Runs before any page script: a seeded Math.random, and no motion.
+// Runs before any page script: a constant Math.random, and no motion. A
+// constant (not a seeded sequence) makes every random pick independent of how
+// many draws happened before it, so the two sites needn't draw in the same order.
 function determinism() {
-  let seed = 42;
-  Math.random = () => {
-    seed = (seed * 1664525 + 1013904223) % 4294967296;
-    return seed / 4294967296;
-  };
+  Math.random = () => 0.42;
   const style = "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;animation-iteration-count:1!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}";
   document.addEventListener("DOMContentLoaded", () => {
     const tag = document.createElement("style");
@@ -112,6 +111,7 @@ for (const scenario of scenarios.filter((s) => s.name.includes(filter))) {
       const dir = path.join(outDir, name);
       fs.mkdirSync(dir, { recursive: true });
       const shots = {};
+      const doms = {};
       for (const key of only ? [only] : ["old", "new"]) {
         try {
           const { shot, dom, errors } = await capture(browser, SITES[key], scenario, viewport, theme, sessions);
@@ -119,26 +119,35 @@ for (const scenario of scenarios.filter((s) => s.name.includes(filter))) {
           fs.writeFileSync(path.join(dir, `${key}.html`), dom);
           // A page error fails the state even when the pixels match.
           if (errors.length) fs.writeFileSync(path.join(dir, `${key}.errors.txt`), errors.join("\n"));
-          else shots[key] = shot;
+          else {
+            shots[key] = shot;
+            doms[key] = dom;
+          }
         } catch (error) {
           fs.writeFileSync(path.join(dir, `${key}.failure.txt`), String(error?.stack || error));
         }
       }
       let changed = null;
+      let domChanges = null;
       if (shots.old && shots.new) {
         const result = diff(shots.old, shots.new);
         changed = result.changed;
         if (result.image) fs.writeFileSync(path.join(dir, "diff.png"), result.image);
+        // Pixels only cover what is on screen; the DOM diff also catches
+        // hidden-state and attribute differences that later states depend on.
+        const lines = await domDiff(browser, doms.old, doms.new);
+        domChanges = lines.length;
+        fs.writeFileSync(path.join(dir, "dom-diff.txt"), lines.join("\n") || "identical\n");
       }
       const limit = scenario.maxChangedPixels ?? 0;
-      const status = changed == null ? (only && shots[only] ? "captured" : "failed") : changed <= limit ? "match" : "differs";
-      results.push({ name, status, changed });
-      console.log(`${status.padEnd(8)} ${name}${changed != null ? ` (${changed} px)` : ""}`);
+      const status = changed == null ? (only && shots[only] ? "captured" : "failed") : changed <= limit && domChanges === 0 ? "match" : "differs";
+      results.push({ name, status, changed, domChanges });
+      console.log(`${status.padEnd(8)} ${name}${changed != null ? ` (${changed} px, ${domChanges} dom)` : ""}`);
     }
   }
 }
 await browser.close();
 
-const rows = results.map((r) => `<tr><td>${r.name}<br><b>${r.status}</b>${r.changed != null ? ` ${r.changed} px` : ""}</td>${["old", "new", "diff"].map((k) => `<td><img src="${r.name}/${k}.png" loading="lazy"></td>`).join("")}</tr>`).join("");
+const rows = results.map((r) => `<tr><td>${r.name}<br><b>${r.status}</b>${r.changed != null ? ` ${r.changed} px, ${r.domChanges} dom` : ""}</td>${["old", "new", "diff"].map((k) => `<td><img src="${r.name}/${k}.png" loading="lazy"></td>`).join("")}</tr>`).join("");
 fs.writeFileSync(path.join(outDir, "report.html"), `<!doctype html><meta charset="utf-8"><title>Parity report</title><style>body{font:13px system-ui;margin:16px}td{vertical-align:top;padding:4px}img{width:420px;border:1px solid #ccc}</style><table><tr><th></th><th>old</th><th>new</th><th>diff</th></tr>${rows}</table>`);
 process.exitCode = results.some((r) => r.status === "differs" || r.status === "failed") ? 1 : 0;

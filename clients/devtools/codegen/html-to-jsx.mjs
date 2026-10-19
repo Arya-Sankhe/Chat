@@ -48,6 +48,9 @@ const RENAMED = {
 };
 const BOOLEAN = new Set(["hidden", "disabled", "readOnly", "multiple", "required", "noValidate", "autoFocus", "muted",
   "playsInline", "autoPlay", "allowFullScreen", "open", "loop", "controls", "defaultChecked", "selected", "inert"]);
+// React types these as numbers; the rendered attribute is the same.
+const NUMERIC = new Set(["maxLength", "minLength", "rows", "cols", "size", "span", "colSpan", "rowSpan", "tabIndex",
+  "aria-valuemin", "aria-valuemax", "aria-valuenow", "aria-level", "aria-posinset", "aria-setsize", "aria-colcount", "aria-rowcount"]);
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 const dropped = [];
 
@@ -77,6 +80,7 @@ function attrs(el) {
     const prop = propName(name, el);
     if (prop === "style") return ` style=${styleObject(value)}`;
     if (BOOLEAN.has(prop) && (value === "" || value === name)) return ` ${prop}`;
+    if (NUMERIC.has(prop) && /^-?\d+(\.\d+)?$/.test(value)) return ` ${prop}={${value}}`;
     return ` ${prop}=${/["{}<>\\\n]/.test(value) ? `{${str(value)}}` : `"${value}"`}`;
   }).join("");
 }

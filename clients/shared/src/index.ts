@@ -6,3 +6,4 @@ export * from "./api";
 export * from "./streamReducer";
 export * from "./chatStore";
 export * from "./tokens";
+export * from "./settings";

@@ -51,3 +51,23 @@ describe("api client transport errors", () => {
     expect(parseError).toBeInstanceOf(SyntaxError);
   });
 });
+
+describe("boot prefetch", () => {
+  it("uses each prefetched response once and refetches when the prefetch failed", async () => {
+    const boot: Record<string, Promise<Response | null> | undefined> = {
+      config: Promise.resolve(new Response('{"from":"prefetch"}')),
+      plans: Promise.resolve(new Response("down", { status: 503 }))
+    };
+    const fetched: string[] = [];
+    const client = createApiClient({
+      baseUrl: "",
+      session: new SessionManager(noStorage),
+      fetch: async (input) => { fetched.push(String(input)); return new Response('{"from":"network"}'); },
+      takeBootResponse: (name) => { const pending = boot[name] ?? null; delete boot[name]; return pending; }
+    });
+    expect(await client.fetchConfig()).toEqual({ from: "prefetch" });
+    expect(await client.fetchConfig()).toEqual({ from: "network" });
+    expect(await client.fetchPlans()).toEqual({ from: "network" });
+    expect(fetched).toEqual(["/api/config", "/api/plans"]);
+  });
+});

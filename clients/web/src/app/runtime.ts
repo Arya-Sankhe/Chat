@@ -10,7 +10,18 @@ const localStore: KeyValueStorage = {
 };
 
 export const session = new SessionManager(localStore);
-export const api = createApiClient({ baseUrl: "", session });
+// index.html starts /api/config and /api/plans with the page (window.__kluiBoot).
+const boot = (globalThis as { __kluiBoot?: Record<string, Promise<Response | null> | undefined> }).__kluiBoot;
+
+export const api = createApiClient({
+  baseUrl: "",
+  session,
+  takeBootResponse(name) {
+    const pending = boot?.[name] ?? null;
+    if (boot) delete boot[name];
+    return pending;
+  }
+});
 export const chat = createChatController({
   api,
   keepReasoning: () => false
