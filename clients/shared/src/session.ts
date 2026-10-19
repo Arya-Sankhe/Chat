@@ -38,6 +38,9 @@ export class SessionManager {
   /* Bumped on every save. A refresh that finishes after the session changed
      (sign-out, another account) must not write its result back. */
   private generation = 0;
+  /* Storage writes run one at a time in call order, so a sign-out queued
+     after a refresh's write always lands last. */
+  private writes: Promise<void> = Promise.resolve();
   private listeners = new Set<SessionListener>();
   private config: KluiConfig | null = null;
 
@@ -74,10 +77,14 @@ export class SessionManager {
   async save(session: Session | null): Promise<void> {
     this.generation += 1;
     this.refreshing = null;
-    this.session = session?.access_token ? session : null;
-    if (this.session) await this.storage.set(AUTH_STORAGE_KEY, JSON.stringify(this.session));
-    else await this.storage.remove(AUTH_STORAGE_KEY);
-    for (const listener of this.listeners) listener(this.session);
+    const next = session?.access_token ? session : null;
+    this.session = next;
+    const write = this.writes.then(() => (next
+      ? this.storage.set(AUTH_STORAGE_KEY, JSON.stringify(next))
+      : this.storage.remove(AUTH_STORAGE_KEY)));
+    this.writes = write.catch(() => {});
+    for (const listener of this.listeners) listener(next);
+    await write;
   }
 
   /** Returns a usable session, refreshing when it expires within two minutes or when forced. */
@@ -116,8 +123,11 @@ export class SessionManager {
     }
     const next = sessionFromTokenPayload(await response.json(), session);
     if (generation !== this.generation) return this.session;
-    await this.save(next);
-    return next;
+    const saving = this.save(next);
+    const saved = this.generation;
+    await saving;
+    // Signed out (or switched accounts) while the new tokens were being written.
+    return saved === this.generation ? next : this.session;
   }
 
   /** Web sign-in: exchanges a Google Identity Services credential. */

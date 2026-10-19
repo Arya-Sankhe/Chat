@@ -34,6 +34,8 @@ export interface RunState {
   userMessage: StoredMessage | null;
   /** The server's id for that user message (x-klui-user-message-id). */
   userMessageId: string;
+  /** The server accepted the request, so a reload can show what it kept. */
+  persisted: boolean;
   /** A retry replaces this stored assistant in place. */
   replacesMessageId: string;
   assistant: LiveAssistant;
@@ -178,6 +180,8 @@ export function createChatController(options: ChatControllerOptions) {
   }
   const handles = new Map<string, RunHandle>();
   const loadTokens = new Map<string, number>();
+  // Never reused, not even across reset(), so a stale response can't pass as current.
+  let loadSeq = 0;
   /* Bumped by reset(); async work started under an older epoch belongs to the
      previous account and must not write into the store. */
   let epoch = 0;
@@ -248,7 +252,7 @@ export function createChatController(options: ChatControllerOptions) {
 
   /** Loads the latest page, reporting the pending turns the server still holds. */
   async function loadThread(conversationId: string): Promise<ThreadLoad> {
-    const token = (loadTokens.get(conversationId) ?? 0) + 1;
+    const token = ++loadSeq;
     loadTokens.set(conversationId, token);
     const hasMessages = Boolean(store.getState().threads[conversationId]?.messages.length);
     setThread(conversationId, { status: hasMessages ? "ready" : "loading", error: "" });
@@ -285,6 +289,10 @@ export function createChatController(options: ChatControllerOptions) {
     const { runs, threads } = store.getState();
     if (runs[conversationId] && runs[conversationId].status !== "failed" && threads[conversationId]) return;
     const load = await loadThread(conversationId);
+    // A kept failure the server knows about gives way to whatever the server has now:
+    // the stored reply, or the turn still running (rejoined below).
+    const failed = store.getState().runs[conversationId];
+    if (load.status === "loaded" && failed?.status === "failed" && failed.persisted) dropRun(conversationId);
     const turn = load.status === "loaded" ? load.pendingTurns[0] : undefined;
     if (turn && !store.getState().runs[conversationId]) void resumeTurn(conversationId, turn.id);
   }
@@ -323,6 +331,7 @@ export function createChatController(options: ChatControllerOptions) {
           turnRunId: handle.turnRunId,
           userMessage: start.userMessage,
           userMessageId: "",
+          persisted: handle.accepted,
           replacesMessageId: start.replacesMessageId ?? "",
           assistant: { ...handle.assistant }
         }
@@ -338,6 +347,7 @@ export function createChatController(options: ChatControllerOptions) {
       handle.lastEventAt = Date.now();
       if (event.type === "turn:submitted") {
         handle.accepted = true;
+        patchRun(conversationId, { persisted: true });
         if (typeof event.turnRunId === "string" && event.turnRunId) handle.turnRunId = event.turnRunId;
         if (typeof event.userMessageId === "string" && event.userMessageId) {
           patchRun(conversationId, { userMessageId: event.userMessageId });
@@ -485,7 +495,9 @@ export function createChatController(options: ChatControllerOptions) {
   }
 
   async function retry(conversationId: string, assistantMessageId: string): Promise<void> {
-    if (store.getState().runs[conversationId]) return;
+    const existing = store.getState().runs[conversationId];
+    if (existing && existing.status !== "failed") return;
+    if (existing) dropRun(conversationId);
     const messages = store.getState().threads[conversationId]?.messages ?? [];
     const index = messages.findIndex((m) => m.id === assistantMessageId);
     const failed = messages[index];

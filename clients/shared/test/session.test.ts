@@ -68,3 +68,24 @@ describe("session changes during a refresh", () => {
     expect(storage.data[AUTH_STORAGE_KEY]).toBeUndefined();
   });
 });
+
+describe("persistence order", () => {
+  it("a sign-out issued while refreshed tokens are being written is what stays stored", async () => {
+    let finishWrite!: () => void;
+    const storage = memoryStorage({ [AUTH_STORAGE_KEY]: JSON.stringify(expiringSoon) });
+    const slowSet = storage.set.bind(storage);
+    storage.set = (key, value) => new Promise((resolve) => { finishWrite = () => void slowSet(key, value).then(resolve); });
+    const session = new SessionManager(storage, async () => new Response(JSON.stringify({ access_token: "new", refresh_token: "r2", expires_in: 3600 })));
+    session.setConfig(config);
+    await session.load();
+
+    const refreshing = session.ensureFresh();
+    await vi.waitFor(() => expect(finishWrite).toBeTypeOf("function"));
+    const signingOut = session.save(null);
+    finishWrite();
+    await Promise.all([refreshing, signingOut]);
+
+    expect(await refreshing).toBeNull();
+    expect(storage.data[AUTH_STORAGE_KEY]).toBeUndefined();
+  });
+});

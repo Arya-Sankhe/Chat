@@ -34,7 +34,7 @@ export function ChatRoute() {
     <section className="chat">
       {!conversationId ? (
         <div className="empty-state"><h1>What can I help with?</h1></div>
-      ) : thread?.status === "error" ? (
+      ) : thread?.status === "error" && !items.length ? (
         <div className="empty-state">
           <p className="form-error">{thread.error}</p>
           <button className="link-button" type="button" onClick={() => void chat.openConversation(conversationId)}>Try again</button>
@@ -42,6 +42,12 @@ export function ChatRoute() {
       ) : thread?.status === "loading" && !items.length ? (
         <div className="empty-state"><p className="message-status shimmer">Loading…</p></div>
       ) : (
+        <>
+        {thread?.error ? (
+          <p className="thread-banner" role="alert">
+            {thread.error} <button className="link-button" type="button" onClick={() => void chat.openConversation(conversationId)}>Refresh</button>
+          </p>
+        ) : null}
         <Transcript
           items={items}
           conversationId={conversationId}
@@ -49,6 +55,7 @@ export function ChatRoute() {
           hasMore={Boolean(thread?.page.hasMore)}
           onLoadOlder={() => chat.loadOlder(conversationId)}
         />
+        </>
       )}
       <Composer
         busy={busy}

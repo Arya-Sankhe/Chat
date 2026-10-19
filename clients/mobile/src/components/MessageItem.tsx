@@ -39,11 +39,9 @@ export const MessageItem = memo(function MessageItem({ item, conversationId }: {
         {message.content ? <Markdown text={message.content} /> : null}
         {label ? <Text style={[styles.status, { color: colors.textSecondary }]}>{label}</Text> : null}
         {message.stopped ? <Text style={[styles.status, { color: colors.textTertiary }]}>Stopped</Text> : null}
-        {message.error ? (
-          <View style={styles.errorRow}>
-            <Text style={[styles.error, { color: colors.danger }]} accessibilityRole="alert">{message.error}</Text>
-            {status === "failed" ? <Text style={[styles.action, { color: colors.textSecondary }]} onPress={() => chat.dismissFailedRun(conversationId)}>Dismiss</Text> : null}
-          </View>
+        {message.error ? <Text style={[styles.error, { color: colors.danger }]} accessibilityRole="alert">{message.error}</Text> : null}
+        {status === "failed" ? (
+          <Text accessibilityRole="button" style={[styles.action, { color: colors.textSecondary }]} onPress={() => chat.dismissFailedRun(conversationId)}>Dismiss</Text>
         ) : null}
       </View>
     );
@@ -75,7 +73,6 @@ const styles = StyleSheet.create({
   userBubble: { maxWidth: "85%", paddingHorizontal: space.lg, paddingVertical: 10, borderRadius: 20, overflow: "hidden", fontSize: fontSize.md, lineHeight: 22 },
   assistant: { gap: space.xs },
   status: { fontSize: fontSize.sm },
-  errorRow: { flexDirection: "row", gap: space.md, alignItems: "baseline", flexWrap: "wrap" },
   error: { fontSize: fontSize.sm },
   actions: { flexDirection: "row", gap: space.lg, marginTop: 2 },
   action: { fontSize: fontSize.sm, borderRadius: radius.sm }

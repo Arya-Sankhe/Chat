@@ -297,3 +297,40 @@ describe("review round 1 regressions", () => {
     expect(chat.store.getState().conversations).toEqual([]);
   });
 });
+
+describe("review round 2 regressions", () => {
+  it("a transcript requested before sign-out never shows after signing back in", async () => {
+    const pending: Array<(detail: ConversationDetail) => void> = [];
+    const { api } = fakeApi();
+    api.fetchConversation.mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }) as never);
+    const chat = controllerFor(api);
+
+    void chat.openConversation("c1");
+    chat.reset();
+    void chat.openConversation("c1");
+    pending[0]!(emptyDetail([{ id: "a-secret", role: "user", content: "Account A" }]));
+    await settle();
+    expect(chat.store.getState().threads.c1?.messages).toEqual([]);
+    pending[1]!(emptyDetail([{ id: "b1", role: "user", content: "Account B" }]));
+    await vi.waitFor(() => expect(chat.store.getState().threads.c1?.messages.map((m) => m.id)).toEqual(["b1"]));
+  });
+
+  it("reopening a chat replaces a kept failure with the server's stored reply", async () => {
+    const stored: StoredMessage[] = [
+      { id: "u1", role: "user", content: "Q" },
+      { id: "a1", role: "assistant", content: "Stored answer", turn_run_id: "r1" }
+    ];
+    const { api } = fakeApi({
+      scripts: [async (emit) => { emit({ type: "turn:submitted", turnRunId: "r1" }); emit(delta("Partial")); }],
+      detail: () => emptyDetail(stored)
+    });
+    api.fetchConversation.mockRejectedValueOnce(new Error("offline"));
+    const chat = controllerFor(api);
+
+    const id = await chat.send({ conversationId: null, text: "Q" });
+    await vi.waitFor(() => expect(chat.store.getState().runs[id]?.status).toBe("failed"));
+    await chat.openConversation(id);
+    expect(chat.store.getState().runs[id]).toBeUndefined();
+    expect(selectDisplayItems(chat.store.getState(), id).map((item) => item.key)).toEqual(["u1", "a1"]);
+  });
+});

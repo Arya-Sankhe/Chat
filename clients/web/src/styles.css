@@ -93,6 +93,7 @@ button { font: inherit; color: inherit; }
 .empty-state h1 { font-size: 28px; font-weight: 600; margin: 0; }
 .transcript { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 .transcript-inner { max-width: var(--content-max); margin: 0 auto; padding: 24px 20px 8px; display: flex; flex-direction: column; gap: 20px; }
+.thread-banner { margin: 8px auto 0; max-width: var(--content-max); padding: 8px 20px; color: var(--danger); font-size: 14px; }
 .load-older { align-self: center; background: var(--surface); border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 13px; color: var(--text-secondary); }
 
 .message.user { display: flex; justify-content: flex-end; }

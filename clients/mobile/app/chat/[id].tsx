@@ -49,7 +49,7 @@ export default function ChatScreen() {
       <Stack.Screen options={{ title: title || (conversationId ? "" : "New chat") }} />
       {!conversationId ? (
         <View style={styles.empty}><Text style={[styles.hero, { color: colors.text }]}>What can I help with?</Text></View>
-      ) : thread?.status === "error" ? (
+      ) : thread?.status === "error" && !items.length ? (
         <View style={styles.empty}>
           <Text style={{ color: colors.danger, textAlign: "center" }}>{thread.error}</Text>
           <Text style={{ color: colors.text, textDecorationLine: "underline" }} onPress={() => void chat.openConversation(conversationId)}>Try again</Text>
@@ -57,6 +57,12 @@ export default function ChatScreen() {
       ) : thread?.status === "loading" && !items.length ? (
         <View style={styles.empty}><ActivityIndicator color={colors.textSecondary} /></View>
       ) : (
+        <>
+        {thread?.error ? (
+          <Text style={[styles.banner, { color: colors.danger }]} accessibilityRole="alert" onPress={() => void chat.openConversation(conversationId)}>
+            {thread.error} Tap to refresh.
+          </Text>
+        ) : null}
         <FlatList
           ref={list}
           inverted
@@ -70,6 +76,7 @@ export default function ChatScreen() {
           onEndReached={() => { if (thread?.page.hasMore) void chat.loadOlder(conversationId).catch(() => {}); }}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
+        </>
       )}
       <View style={{ paddingBottom: insets.bottom }}>
         <Composer
@@ -88,5 +95,6 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: space.md, padding: space.xl },
   hero: { fontSize: fontSize.xl, fontWeight: "600" },
+  banner: { paddingHorizontal: space.lg, paddingVertical: space.sm, fontSize: fontSize.sm },
   list: { paddingHorizontal: space.lg, paddingVertical: space.lg, gap: space.xl }
 });

@@ -31,13 +31,9 @@ export function MessageView({ item, conversationId }: { item: DisplayItem; conve
         {message.content ? <Markdown text={message.content} /> : null}
         {busy ? <LiveStatus message={message} status={status} /> : null}
         {message.stopped ? <p className="message-note">Stopped</p> : null}
-        {message.error ? (
-          <div className="message-error" role="alert">
-            <span>{message.error}</span>
-            {status === "failed" ? (
-              <button className="link-button" type="button" onClick={() => chat.dismissFailedRun(conversationId)}>Dismiss</button>
-            ) : null}
-          </div>
+        {message.error ? <div className="message-error" role="alert"><span>{message.error}</span></div> : null}
+        {status === "failed" ? (
+          <button className="link-button" type="button" onClick={() => chat.dismissFailedRun(conversationId)}>Dismiss</button>
         ) : null}
       </div>
     );
