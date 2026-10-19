@@ -22,6 +22,7 @@ import {
   type Project
 } from "@klui/shared";
 import { closeCameraSheet } from "./camera";
+import { homeModes } from "./homeModes";
 
 export type View = "boot" | "setup" | "paywall" | "chat" | "research";
 export type SettingsTab = "general" | "voice" | "memory" | "storage" | "account";
@@ -415,6 +416,9 @@ export function applyNativeTopBarMode(mode: TopBarMode) {
    later slices join this list as they arrive, in the old order. */
 export function closeTopNativeSurface() {
   if (closeCameraSheet()) return true;
+  const deckDialog = document.getElementById("deckPresetDialog") as HTMLDialogElement | null;
+  if (deckDialog?.open) { deckDialog.close(); return true; }
+  if (homeModes.closePicker()) return true;
   const s = get();
   if (s.modeSheetOpen) { closeMobileModeSheet(); return true; }
   if (s.actionMenu) { closeActionMenu(); return true; }

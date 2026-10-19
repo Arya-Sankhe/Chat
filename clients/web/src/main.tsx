@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { AppRoot } from "./shell/AppRoot";
 import { runLaunchScript } from "./shell/launch";
-import { initDocumentViewerWidth } from "./state/body";
+import { initDocumentViewerWidth, installBodyState } from "./state/body";
 import { bootstrap } from "./state/boot";
 
 // URLs are handled as the current site does (pushState + popstate in the
@@ -9,6 +9,7 @@ import { bootstrap } from "./state/boot";
 // Math.random on mount, so a development double-mount would change what plays.
 runLaunchScript();
 initDocumentViewerWidth();
+installBodyState();
 void bootstrap();
 
 createRoot(document.getElementById("app")!).render(

@@ -5,7 +5,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { SPECTRUM_N, SPECTRUM_STEPS, WRITING_STYLE_LABELS, normalizeWritingStyle, spectrumLevel } from "@klui/shared";
 import { createComposerKlui } from "../islands/composerKlui.js";
-import { applySpectrumLevel, closeActionMenu, closeModelDropdown, setWritingStyle, toggleActionMenu, toggleModelDropdown, updateSetting, useApp } from "../state/app";
+import { homeModes } from "../state/homeModes";
+import { activateCompareMode, applySpectrumLevel, cancelCompareMode, closeActionMenu, enterCouncilMode, setResearchMode, closeModelDropdown, setWritingStyle, toggleActionMenu, toggleModelDropdown, updateSetting, useApp } from "../state/app";
 import { ActionMenu, DeckPickerPop, NativeModeWrap, WritingStyleMenu } from "./ComposerSheets";
 import { cx } from "./cx";
 
@@ -16,7 +17,20 @@ function voiceModeSupported() {
   return Boolean(typeof navigator.mediaDevices?.getUserMedia === "function" && recordable && (window.AudioContext || (window as any).webkitAudioContext));
 }
 
-const setComposerHasText = (composerHasText: boolean) => useApp.setState({ composerHasText });
+/** applyComposerHeight(): desktop sizes the prompt to its content; phones keep one
+   line and, once the text wraps, show a sliver of the line above. */
+function applyComposerHeight(input: HTMLElement, mobile: boolean) {
+  input.style.height = "auto";
+  if (!mobile) {
+    input.classList.remove("is-multiline");
+    input.style.height = `${Math.min(200, input.scrollHeight)}px`;
+    return;
+  }
+  const line = parseFloat(getComputedStyle(input).lineHeight) || 26;
+  const multiline = input.scrollHeight > line * 1.5;
+  input.classList.toggle("is-multiline", multiline);
+  input.style.height = multiline ? `${Math.round(line * 1.4)}px` : "";
+}
 
 const CHIP_LABELS = { research: "Deep research", compare: "Compare", council: "Council" } as const;
 type ChipMode = keyof typeof CHIP_LABELS | "";
@@ -114,6 +128,22 @@ export function Composer() {
     toggleModelDropdown();
   };
 
+  // The composer's Compare and Council switches: a second click returns to one model.
+  const onAnswerModeClick = (event: React.MouseEvent, which: "compare" | "council") => {
+    event.stopPropagation();
+    closeActionMenu();
+    closeModelDropdown();
+    if (researchMode) setResearchMode(false);
+    const s = useApp.getState().settings;
+    if (s.compareEnabled && (s.compareMode === "council") === (which === "council")) {
+      cancelCompareMode();
+      return;
+    }
+    if (which === "compare") activateCompareMode();
+    else if (!enterCouncilMode()) return;
+    homeModes.showAnswerModeExplainer();
+  };
+
   const onSpectrumPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -133,20 +163,29 @@ export function Composer() {
     window.addEventListener("pointerup", up);
   };
 
-  // applyComposerHeight(): desktop sizes the prompt to its content; phones use the stylesheet's line.
+  useLayoutEffect(() => applyComposerHeight(promptRef.current!, mobile), [mobile]);
+
+  // updateComposerPlaceholder(). The prompt's classes are written here and in
+  // applyComposerHeight, never through React, which would overwrite them.
+  const skillIds = useApp((s) => s.composerSkillIds);
+  const docsSkill = skillIds.includes("docs");
+  const placeholder = docsSkill ? "Describe the document you want" : skillIds.length ? "" : running ? "Queue message" : "Ask Klui";
   useLayoutEffect(() => {
     const input = promptRef.current!;
-    input.style.height = "auto";
-    if (!mobile) {
-      input.classList.remove("is-multiline");
-      input.style.height = `${Math.min(200, input.scrollHeight)}px`;
-      return;
-    }
-    const line = parseFloat(getComputedStyle(input).lineHeight) || 26;
-    const multiline = input.scrollHeight > line * 1.5;
-    input.classList.toggle("is-multiline", multiline);
-    input.style.height = multiline ? `${Math.round(line * 1.4)}px` : "";
-  }, [mobile]);
+    input.dataset.placeholder = placeholder;
+    input.setAttribute("aria-label", placeholder || "Ask Klui");
+    input.classList.toggle("is-placeholder", !composerHasText && !skillIds.length && Boolean(placeholder));
+    input.classList.toggle("is-skill-hint", docsSkill && skillIds.length > 0 && !composerHasText);
+  }, [placeholder, composerHasText, skillIds, docsSkill]);
+
+  // The prompt's input handler; clarifications, skill marks, the context meter
+  // and the slash menu join with the composer input slice.
+  const onPromptInput = (event: React.FormEvent<HTMLDivElement>) => {
+    const input = event.currentTarget;
+    input.closest(".composer")?.classList.remove("compact");
+    applyComposerHeight(input, mobile);
+    useApp.setState({ composerHasText: Boolean(input.textContent?.trim()), sendButtonSynced: true });
+  };
 
   // Pixel Klui on the composer (syncComposerKlui): only beside a running chat on desktop.
   const klui = useRef<ReturnType<typeof createComposerKlui> | null>(null);
@@ -213,7 +252,7 @@ export function Composer() {
                 {" "}
                 <span className="research-mode-chip-label">{chipLabel}</span>
                 {" "}
-                <button type="button" id="researchModeClose" aria-label={mode && mode !== "research" ? `Turn off ${CHIP_LABELS[mode]}` : "Turn off Deep Research"}>
+                <button type="button" id="researchModeClose" onClick={() => { if (researchMode) setResearchMode(false); else if (settings.compareEnabled) cancelCompareMode(); }} aria-label={mode && mode !== "research" ? `Turn off ${CHIP_LABELS[mode]}` : "Turn off Deep Research"}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M18 6 6 18" />
                     <path d="M6 6l12 12" />
@@ -223,7 +262,7 @@ export function Composer() {
               {mobile && <ContextWrap />}
               <div className="composer-input">
                 <div className="composer-deck-thumb hidden" id="composerDeckThumb" aria-hidden="true" />
-                <div ref={promptRef} onInput={(event) => setComposerHasText(Boolean(event.currentTarget.textContent?.trim()))} id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
+                <div ref={promptRef} onInput={onPromptInput} id="promptInput" className="composer-prompt is-placeholder" contentEditable="true" role="textbox" aria-label="Ask Klui" aria-multiline="true" spellCheck="true" data-placeholder="Ask Klui" aria-haspopup="listbox" aria-controls="skillCommandMenu" aria-expanded="false" />
               </div>
               <div className="composer-bottom">
                 <div className="composer-actions">
@@ -257,7 +296,7 @@ export function Composer() {
                         </div>
                       </div>
                       {" "}
-                      <button className={cx("composer-model-btn heat-btn", { "nitro-active": level === 0, "think-active": level === 1, "pro-active": level === SPECTRUM_N - 1 })} id="modelButton" type="button" aria-haspopup="dialog" aria-expanded={spectrumOpen} aria-controls="spectrumPop" title={heatLabel} aria-label="Think" disabled={running} onClick={onModelButtonClick}>
+                      <button className={cx("composer-model-btn heat-btn", { "nitro-active": level === 0, "think-active": level === 1, "pro-active": level === SPECTRUM_N - 1 })} id="modelButton" type="button" aria-haspopup="dialog" aria-expanded={spectrumOpen} aria-controls="spectrumPop" title={heatLabel} aria-label={level === SPECTRUM_N - 1 ? "PRO" : level === 0 ? "Nitro" : "Think"} disabled={running} onClick={onModelButtonClick}>
                         <svg className="mode-switch-icon" width="22" height="14" viewBox="0 2.5 16 10" shapeRendering="crispEdges" aria-hidden="true">
                           <g fill="#8fd3fb">
                             <rect x="5" y="9.5" width="1" height="2.5" />
@@ -282,7 +321,7 @@ export function Composer() {
                       </button>
                       {" "}
                       {" "}
-                      <span className="composer-model-label hidden" id="modelLabel" hidden>Think</span>
+                      <span className="composer-model-label hidden" id="modelLabel" hidden>{settings.modelMode === "pro" ? roleLabel(roles, "pro", "Pro") : roleLabel(roles, "think", "Think")}</span>
                       {" "}
                       <span className="composer-model-price hidden" id="modelPriceBadge" hidden>4x</span>
                       {" "}
@@ -291,7 +330,7 @@ export function Composer() {
                       </div>
                     </div>
                     <div className="composer-compare-wrap" id="compareWrap">
-                      <button className={cx("compare-btn", { active: compareActive })} id="compareButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Compare models" title={temporaryChat ? "Temporary chat uses one model" : compareActive ? "Compare mode on" : "Compare two answers"} aria-pressed={compareActive} disabled={running || temporaryChat}>
+                      <button className={cx("compare-btn", { active: compareActive })} id="compareButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Compare models" title={temporaryChat ? "Temporary chat uses one model" : compareActive ? "Compare mode on" : "Compare two answers"} aria-pressed={compareActive} disabled={running || temporaryChat} onClick={(event) => onAnswerModeClick(event, "compare")}>
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <rect x="3" y="4" width="7" height="16" rx="2" />
                           <rect x="14" y="4" width="7" height="16" rx="2" />
@@ -339,7 +378,7 @@ export function Composer() {
                       </div>
                     </div>
                     <div className="composer-compare-wrap" id="councilWrap">
-                      <button className={cx("compare-btn council-btn", { active: councilActive, "council-active": councilActive })} id="councilButton" type="button" aria-pressed={councilActive} aria-label="Council mode" title={temporaryChat ? "Temporary chat uses one model" : councilActive ? "Council mode on" : "Council mode"} disabled={running || temporaryChat}>
+                      <button className={cx("compare-btn council-btn", { active: councilActive, "council-active": councilActive })} id="councilButton" type="button" aria-pressed={councilActive} onClick={(event) => onAnswerModeClick(event, "council")} aria-label="Council mode" title={temporaryChat ? "Temporary chat uses one model" : councilActive ? "Council mode on" : "Council mode"} disabled={running || temporaryChat}>
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <circle cx="12" cy="7.4" r="2.35" />
                           <circle cx="5" cy="9" r="1.85" />

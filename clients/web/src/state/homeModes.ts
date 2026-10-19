@@ -70,5 +70,6 @@ export const homeModes = {
   render: () => controller?.render(),
   closePicker: () => controller?.closePicker() ?? false,
   selectMode: (mode: string) => controller?.selectMode(mode),
-  handleGalleryClick: (event: Event) => controller?.handleGalleryClick(event)
+  handleGalleryClick: (event: Event) => controller?.handleGalleryClick(event),
+  showAnswerModeExplainer: () => controller?.showAnswerModeExplainer()
 };

@@ -1,11 +1,10 @@
 /* The one writer of <body>/<html> classes, data attributes and CSS variables.
    The old stylesheets key layout off these (body.chat-empty, data-mode, the
-   wallpaper variables), so they are applied in a layout effect, before paint
-   and before anything measures. Only the names listed here are touched; the
+   wallpaper variables), so they are applied from a store subscription, before
+   React commits and before anything measures. Only the names listed here are touched; the
    pre-React boot script in index.html sets the same ones for the first frame. */
-import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
-import { useApp } from "./app";
+import { useApp, type AppState } from "./app";
 
 /** documentViewer.js setDocumentViewerWidth/initDocumentViewerWidth (run once at load). */
 const VIEWER_WIDTH_KEY = "klui.documentViewer.width.v1";
@@ -28,38 +27,30 @@ export function initDocumentViewerWidth() {
 
 const WALLPAPER_VARS = ["--home-wallpaper-image", "--chat-outline-image", "--home-wallpaper-base"];
 
-export function useBodyState() {
-  const settings = useApp((s) => s.settings);
-  const systemDark = useApp((s) => s.systemDark);
-  const mobile = useApp((s) => s.mobile);
-  const booted = useApp((s) => s.shellRender > 0);
-  const signedIn = useApp((s) => s.signedIn);
-  const chatEmpty = useApp((s) => s.chatEmpty);
-  const sidebarExpanded = useApp((s) => s.sidebarExpanded);
-  const sidebarOpen = useApp((s) => s.sidebarOpen);
-  const temporaryChat = useApp((s) => s.temporaryChat);
+function apply(state: AppState) {
+  const { accent, mode, wallpaper, style } = appearanceAttributes(state.settings, state.systemDark);
+  const body = document.body;
+  body.dataset.accent = accent;
+  body.dataset.mode = mode;
+  body.dataset.wallpaper = wallpaper;
+  for (const name of WALLPAPER_VARS) {
+    if (style[name]) body.style.setProperty(name, style[name]);
+    else body.style.removeProperty(name);
+  }
+  const list = body.classList;
+  list.toggle("capacitor-native", state.mobile);
+  list.toggle("mobile-ui", state.mobile);
+  list.toggle("chat-empty", state.chatEmpty);
+  list.toggle("temporary-chat", state.temporaryChat);
+  list.toggle("sidebar-expanded", state.sidebarExpanded);
+  list.toggle("sidebar-open", state.sidebarOpen);
+  // Before the first renderShell() the page is the static markup, as before.
+  if (state.shellRender > 0) list.toggle("guest-mode", !state.signedIn);
+}
 
-  useLayoutEffect(() => {
-    const { accent, mode, wallpaper, style } = appearanceAttributes(settings, systemDark);
-    const body = document.body;
-    body.dataset.accent = accent;
-    body.dataset.mode = mode;
-    body.dataset.wallpaper = wallpaper;
-    for (const name of WALLPAPER_VARS) {
-      if (style[name]) body.style.setProperty(name, style[name]);
-      else body.style.removeProperty(name);
-    }
-  }, [settings, systemDark]);
-
-  useLayoutEffect(() => {
-    const list = document.body.classList;
-    list.toggle("capacitor-native", mobile);
-    list.toggle("mobile-ui", mobile);
-    list.toggle("chat-empty", chatEmpty);
-    list.toggle("temporary-chat", temporaryChat);
-    list.toggle("sidebar-expanded", sidebarExpanded);
-    list.toggle("sidebar-open", sidebarOpen);
-    // Before the first renderShell() the page is the static markup, as before.
-    if (booted) list.toggle("guest-mode", !signedIn);
-  }, [mobile, chatEmpty, temporaryChat, sidebarExpanded, sidebarOpen, booted, signedIn]);
+/** Applied on every store change, synchronously: before React commits and
+   before any layout effect measures, as the old code set classes first. */
+export function installBodyState() {
+  apply(useApp.getState());
+  useApp.subscribe(apply);
 }

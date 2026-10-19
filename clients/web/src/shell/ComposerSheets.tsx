@@ -4,7 +4,7 @@
    rendered there through BodySheets and inline otherwise. */
 import { createPortal } from "react-dom";
 import { normalizeWritingStyle, TOP_BAR_MODE_LABELS, topBarMode, WRITING_STYLE_LABELS } from "@klui/shared";
-import { applyNativeTopBarMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, useApp } from "../state/app";
+import { applyNativeTopBarMode, setResearchMode, closeActionMenu, closeMobileModeSheet, closeTopNativeSurface, openActionMenuMore, openActionMenuRoot, openWritingStyleMenu, setWritingStyle, toggleMobileModeSheet, useApp } from "../state/app";
 import { openCameraSheet } from "../state/camera";
 import { homeModes } from "../state/homeModes";
 import { cx } from "./cx";
@@ -135,7 +135,7 @@ export function ActionMenu() {
             <span>Camera</span>
           </button>
           {" "}
-          <button className={cx("composer-action-menu-item", { hidden: !researchAvailable, active: researchMode })} type="button" id="deepResearchToggle" role="menuitem" aria-pressed={researchMode} data-menu-page="root" disabled={running || !researchAvailable}>
+          <button className={cx("composer-action-menu-item", { hidden: !researchAvailable, active: researchMode })} type="button" id="deepResearchToggle" role="menuitem" aria-pressed={researchMode} data-menu-page="root" disabled={running || !researchAvailable} onClick={(event) => { event.stopPropagation(); setResearchMode(!researchMode); }}>
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M8 14.2 16.6 5.6a1.05 1.05 0 0 1 1.48 0l1.15 1.15a1.05 1.05 0 0 1 0 1.48L10.6 16.8z" />
               <path d="M6.2 15.6 8.4 13.4" />

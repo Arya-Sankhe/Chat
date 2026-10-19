@@ -130,7 +130,12 @@ export async function bootstrap() {
     const [config, plansPayload] = await Promise.all([api.fetchConfig(), api.fetchPlans()]);
     session.setConfig(config);
     const saved = urlSession ? (await session.save(urlSession), urlSession) : await session.load();
-    set({ config, buildId: String((config as any)?.buildId || ""), plans: plansPayload.plans || [] });
+    set({
+      config,
+      buildId: String((config as any)?.buildId || ""),
+      plans: plansPayload.plans || [],
+      composerSkills: Array.isArray((config as any)?.skills) ? (config as any).skills : []
+    });
     startWebBuildMonitor();
     const authError = authErrorFromUrl();
     if (authError) showToast(authError);

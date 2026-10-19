@@ -4,7 +4,6 @@
 import { useLayoutEffect } from "react";
 import { appearanceAttributes } from "@klui/shared";
 import { closeAuthDialog, closeConfirmDialog, closeRenameDialog, closeSearchDialog, closeSettings, useApp } from "../state/app";
-import { useBodyState } from "../state/body";
 import { mountCameraSheet } from "../state/camera";
 import { installGlobalEvents } from "../state/globalEvents";
 import { homeModes, mountHomeModes } from "../state/homeModes";
@@ -75,7 +74,7 @@ function Toast() {
 }
 
 /** homeModesController.render() wherever the old app called it: after the
-   body classes it reads (chat-empty, mobile-ui) are applied above. */
+   body classes it reads (chat-empty, mobile-ui) are already applied (state/body.ts). */
 function useHomeModes() {
   const chatEmpty = useApp((s) => s.chatEmpty);
   const mobile = useApp((s) => s.mobile);
@@ -90,7 +89,6 @@ function useHomeModes() {
 }
 
 export function AppRoot() {
-  useBodyState();
   // After BodySheets' backdrop has been appended.
   useLayoutEffect(mountCameraSheet, []);
   useLayoutEffect(installGlobalEvents, []);

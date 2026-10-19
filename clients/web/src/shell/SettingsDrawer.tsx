@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { COLOR_PRESETS } from "@klui/shared";
 import { session } from "../app/runtime";
-import { closeSettings, setSettingsTab, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
+import { closeSettings, setSettingsTab, signOutAndReset, showMobileSettingsOverview, updateSetting, useApp } from "../state/app";
 import { cx } from "./cx";
 import { AccountUsage } from "./Sidebar";
 
@@ -128,7 +128,7 @@ export function SettingsDrawer() {
             <span className="mobile-settings-description">{(profile && profile.email) || "Profile and subscription"}</span>
           </button>
           <div id="mobileSettingsUsage" className="mobile-settings-usage" hidden={profile ? !usageShown : undefined}>{profile && <AccountUsage />}</div>
-          <button type="button" className="mobile-settings-logout" onClick={() => { closeSettings(); void session.signOut(); }}>
+          <button type="button" className="mobile-settings-logout" onClick={() => { closeSettings(); void signOutAndReset(() => session.signOut()); }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M9 5H4v14h5m5-14 7 7-7 7M8 12h13" /></svg><span>Log out</span>
           </button>
         </nav>
