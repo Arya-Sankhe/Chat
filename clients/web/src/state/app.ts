@@ -49,6 +49,15 @@ export interface AppState {
   pinnedPopupOpen: boolean;
   searchOpen: boolean;
   settingsOpen: boolean;
+  authOpen: boolean;
+  /** #authNotice: why sign-in can't proceed. */
+  authNotice: string;
+  /** The auth dialog's artwork loads on first open (or when idle for guests). */
+  authArtLoaded: boolean;
+  /** openDeleteConfirm(): open when set. */
+  confirm: { title: string; body: string; confirmLabel: string; chatId: string; onConfirm: (() => Promise<void> | void) | null } | null;
+  /** openRenameDialog(): open when set; `onSave` renames something other than a chat. */
+  rename: { title: string; value: string; chatId: string; onSave: ((title: string) => Promise<void>) | null } | null;
   overlay: OverlayMode;
   toast: { message: string; visible: boolean };
   appUpdateAvailable: boolean;
@@ -94,6 +103,11 @@ export const useApp = create<AppState>(() => ({
   pinnedPopupOpen: false,
   searchOpen: false,
   settingsOpen: false,
+  authOpen: false,
+  authNotice: "",
+  authArtLoaded: false,
+  confirm: null,
+  rename: null,
   overlay: "",
   toast: { message: "", visible: false },
   appUpdateAvailable: false,
@@ -278,4 +292,178 @@ export function toggleProfileMenu(openAuthDialog: () => void) {
     return;
   }
   set((s) => ({ profileMenuOpen: !s.profileMenuOpen }));
+}
+
+/* ─── Auth dialog, new chat, sign-out ─── */
+
+export function openAuthDialog() {
+  set({ authOpen: true, authArtLoaded: true, overlay: "auth" });
+}
+
+export function closeAuthDialog() {
+  set((s) => ({ authOpen: false, overlay: s.overlay === "auth" ? "" : s.overlay }));
+}
+
+/** startSidebarLogin(): the web build always signs in through the dialog. */
+export const startSidebarLogin = openAuthDialog;
+
+function syncConversationUrl({ replace = false } = {}) {
+  const id = get().activeConversationId;
+  const target = id ? `/c/${encodeURIComponent(id)}` : "/";
+  if (window.location.pathname === target) return;
+  window.history[replace ? "replaceState" : "pushState"]({ conversationId: id || "" }, "", target);
+}
+
+/** openNewChat(): the parts that belong to the shell; composer and message
+   state reset with their own slices. */
+export function openNewChat({ replaceUrl = false } = {}) {
+  set({ activeConversationId: "", conversationLoading: false });
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
+  syncConversationUrl({ replace: replaceUrl });
+  renderShell();
+  document.getElementById("promptInput")?.focus();
+}
+
+/** addConversation(): guests are asked to sign in first. */
+export function addConversation() {
+  if (!get().signedIn) return openAuthDialog();
+  openNewChat();
+}
+
+function closeAllDrawers() {
+  closeSettings();
+  closeProfileMenu();
+  closeAuthDialog();
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
+}
+
+export async function signOutAndReset(signOut: () => Promise<void>) {
+  await signOut();
+  set({ signedIn: false, me: null, conversations: [], pinnedChatIds: [], temporaryChat: false, activeConversationId: "" });
+  syncConversationUrl({ replace: true });
+  closeAllDrawers();
+  renderShell();
+}
+
+/* ─── Confirm and rename dialogs ─── */
+
+export function openDeleteConfirm({ title, body, chatId = "", onConfirm = null, confirmLabel = "Delete" }: {
+  title: string; body: string; chatId?: string; onConfirm?: (() => Promise<void> | void) | null; confirmLabel?: string;
+}) {
+  closeConversationMenus();
+  closePinnedPopup();
+  closeProfileMenu();
+  set({ confirm: { title, body, chatId, onConfirm, confirmLabel }, overlay: "confirm" });
+}
+
+export function openConfirmDialog(chatId: string) {
+  const conversation = get().conversations.find((item) => item.id === chatId);
+  if (!conversation) return;
+  openDeleteConfirm({ title: "Delete chat?", body: `Delete "${conversation.title || "New chat"}" from your account?`, chatId });
+}
+
+export function closeConfirmDialog() {
+  set((s) => ({
+    confirm: null,
+    // Back to whichever drawer the dialog opened over.
+    overlay: s.overlay === "confirm" ? (s.settingsOpen ? "settings" : "") : s.overlay
+  }));
+}
+
+export async function confirmPendingDelete(deleteConversation: (id: string) => Promise<unknown>) {
+  const pending = get().confirm;
+  if (!pending) return;
+  if (pending.onConfirm) {
+    closeConfirmDialog();
+    await pending.onConfirm();
+    return;
+  }
+  if (pending.chatId) await removeConversation(pending.chatId, deleteConversation);
+}
+
+/** removeConversation(): optimistic, restored if the server refuses. */
+async function removeConversation(id: string, deleteConversation: (id: string) => Promise<unknown>) {
+  const { conversations, pinnedChatIds, activeConversationId } = get();
+  const index = conversations.findIndex((conversation) => conversation.id === id);
+  closeConfirmDialog();
+  if (index < 0) {
+    await deleteConversation(id).catch((error: Error) => showToast(error.message || "Chat could not be deleted."));
+    return;
+  }
+  const deleted = conversations[index]!;
+  const wasActive = activeConversationId === id;
+  closeConversationMenus();
+  set({ conversations: conversations.filter((conversation) => conversation.id !== id) });
+  unpinChat(id);
+  if (wasActive) {
+    set({ activeConversationId: "" });
+    syncConversationUrl({ replace: true });
+  }
+  renderShell();
+  try {
+    await deleteConversation(id);
+  } catch (error) {
+    const current = get().conversations;
+    if (!current.some((conversation) => conversation.id === id)) {
+      const restored = [...current];
+      restored.splice(Math.min(index, restored.length), 0, deleted);
+      set({ conversations: restored });
+    }
+    set({ pinnedChatIds });
+    savePinnedChatIds(pinnedChatIds);
+    if (wasActive && !get().activeConversationId && window.location.pathname === "/") {
+      set({ activeConversationId: id });
+      syncConversationUrl({ replace: true });
+    }
+    renderShell();
+    showToast((error as Error).message || "Chat could not be deleted.");
+  }
+}
+
+export function openRenameDialog(chatId: string) {
+  const conversation = get().conversations.find((item) => item.id === chatId);
+  if (!conversation) return;
+  closeConversationMenus();
+  closePinnedPopup();
+  closeProfileMenu();
+  set({ rename: { title: "Rename chat", value: conversation.title || "New chat", chatId, onSave: null }, overlay: "rename" });
+}
+
+export function closeRenameDialog() {
+  set((s) => ({ rename: null, overlay: s.overlay === "rename" ? "" : s.overlay }));
+}
+
+export async function saveRenameDialog(input: string, renameConversation: (id: string, title: string) => Promise<ConversationSummary>) {
+  const pending = get().rename;
+  if (!pending) return;
+  const title = input.trim();
+  if (!title) return showToast(pending.onSave ? "Enter a name." : "Enter a chat title.");
+  try {
+    if (pending.onSave) await pending.onSave(title);
+    else {
+      const updated = await renameConversation(pending.chatId, title);
+      set((s) => ({ conversations: s.conversations.map((item) => (item.id === pending.chatId ? { ...item, ...updated } : item)) }));
+    }
+    closeRenameDialog();
+  } catch (error) {
+    showToast((error as Error).message || "Could not rename.");
+  }
+}
+
+/* ─── Opening a conversation ─── */
+
+/** The shell half of openConversation(): select it, update the URL and show
+   its loading state. Loading and rendering its messages is the message slice. */
+export function openConversation(id: string) {
+  if (!id) return;
+  set({ activeConversationId: id, sidebarOpen: false, conversationLoading: true });
+  closeSearchDialog();
+  closePinnedPopup();
+  closeConversationMenus();
+  syncConversationUrl();
+  renderShell();
 }

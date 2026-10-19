@@ -13,10 +13,7 @@
     "@klui/shared": "*",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-router": "8.5.0",
-    "zustand": "5.0.15",
-    "marked": "18.0.3",
-    "dompurify": "3.4.17"
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

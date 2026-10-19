@@ -2,7 +2,7 @@
    order, concurrency and render points follow the old code, because what the
    page shows (and how many times the home greeting restarts) depends on them. */
 import { api, session } from "../app/runtime";
-import { loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
+import { closeAuthDialog, hasChatAccess, loadPinnedChatIds, renderShell, showToast, useApp } from "./app";
 
 const set = useApp.setState;
 const get = useApp.getState;
@@ -41,6 +41,11 @@ function authErrorFromUrl() {
   const search = query.toString();
   window.history.replaceState({}, document.title, `${window.location.pathname}${search ? `?${search}` : ""}`);
   return error.replace(/\+/g, " ");
+}
+
+function whenIdle(callback: () => void) {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(callback, { timeout: 4000 });
+  else setTimeout(callback, 2500);
 }
 
 export async function loadMe() {
@@ -149,6 +154,10 @@ export async function bootstrap() {
     }
     set({ signedIn });
     renderShell();
+    // Guests are likely to open the sign-in dialog: fetch its art when idle.
+    whenIdle(() => {
+      if (!get().signedIn) set({ authArtLoaded: true });
+    });
     if (signedIn) void loadPaymentRequests();
     if (signedIn && get().me?.access?.active) await loadChatApp();
   } catch (error) {
@@ -165,3 +174,27 @@ session.subscribe((next) => {
     renderShell();
   }
 });
+
+/** handleAuthenticatedSession(): after Google sign-in completes. */
+export async function signInWithGoogleCredential(credential: string) {
+  try {
+    if (!credential) throw new Error("Google did not return a sign-in token.");
+    await session.signInWithGoogleIdToken(credential);
+  } catch (error) {
+    set({ authNotice: (error as Error).message || "Google sign-in failed." });
+    return;
+  }
+  set({ signedIn: true, authNotice: "" });
+  closeAuthDialog();
+  renderShell();
+  try {
+    await withTimeout(loadMe(), 8000, "Account load");
+    await loadPaymentRequests();
+    renderShell();
+    if (hasChatAccess()) await loadChatApp();
+  } catch (error) {
+    const notice = (error as Error)?.message || "Signed in, but your account could not be loaded.";
+    set({ authNotice: notice });
+    showToast(notice);
+  }
+}
