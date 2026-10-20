@@ -432,6 +432,7 @@ export const chatHooks = {
   deletePendingAttachment: async (_id: string) => {},
   deletePendingProject: async (_id: string) => {},
   openStudyHub: () => {},
+  openAdminDrawer: () => {},
   /** Pending attachments block Deep Research: shows why and returns true. */
   researchBlocked: () => false,
   /** Clears clarifications (and, turning research on, the slash menu). */
@@ -456,7 +457,8 @@ export const chatSurfaces = {
   compareDropdown: () => false,
   lightbox: () => false,
   viewer: () => false,
-  guestContinue: () => false
+  guestContinue: () => false,
+  account: () => false
 };
 
 /** closeTopNativeSurface(): back gesture, sheet backdrop and Escape close the
@@ -478,6 +480,7 @@ export function closeTopNativeSurface() {
   if (chatSurfaces.viewer()) return true;
   if (s.view === "paywall") { renderShell(); return true; }
   if (s.settingsOpen) { closeSettings(); return true; }
+  if (chatSurfaces.account()) return true;
   if (s.authOpen) { closeAuthDialog(); return true; }
   if (chatSurfaces.guestContinue()) return true;
   if (s.confirm) { closeConfirmDialog(); return true; }
@@ -566,6 +569,7 @@ export const startSidebarLogin = openAuthDialog;
 
 export function closeAllDrawers() {
   closeSettings();
+  chatSurfaces.account();
   closeProfileMenu();
   closeAuthDialog();
   closeConfirmDialog();

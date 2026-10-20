@@ -140,7 +140,12 @@ import {
   transcribeVoiceTurn,
   updateMemory,
   uploadFile,
-  warmVoiceMode
+  warmVoiceMode,
+  approveAdminPayment,
+  fetchAdminSummary,
+  rejectAdminPayment,
+  resolveAdminReport,
+  updateAdminSettings
 } from "./api.js";
 import { guestDraftHasPreview, guestPreviewContent, liveGuestImages, serializeGuestDraft } from "./guestSend.js";
 import {
@@ -156,6 +161,8 @@ import { renderMindMap } from "./mindMap.js";
 import { extractReasoningDelta } from "./reasoning.js";
 import { createStreamReducer } from "./streaming.js";
 import { reconcilePendingTurnMessages } from "./pendingTurns.js";
+import { SETTINGS_KEY } from "@klui/shared";
+import { createAdminPanel } from "./adminPanel.js";
 import { createDocumentViewer } from "./documentViewer.js";
 import { createResearchController } from "./research.js";
 import { createCompareController } from "./compare.js";
@@ -242,10 +249,29 @@ function renderResearchMode() {
 // The storage meter renders from `me` in React (SettingsDrawer).
 function renderSettingsStorage() {}
 
-/* ─── Later slices ─── */
+/* ─── The admin dashboard (adminPanel.js) ─── */
 
-// The admin dashboard.
-const adminPanel = { saveGlobalSystemPrompt() {} };
+const adminPanel = createAdminPanel({
+  // React mounts the drawers after this module loads: look them up on use.
+  elements: {
+    get adminOutput() { return els.adminOutput; },
+    get loadAdminButton() { return els.loadAdminButton; },
+    get saveSystemPromptButton() { return els.saveSystemPromptButton; },
+    get systemPromptInput() { return els.systemPromptInput; }
+  },
+  state,
+  fetchAdminSummary,
+  updateAdminSettings,
+  approveAdminPayment,
+  rejectAdminPayment,
+  resolveAdminReport,
+  escapeHtml,
+  isAdminUser: () => isAdminUser(),
+  showToast: (message) => showToast(message),
+  // saveSettings(); the store keeps the settings, this persists them.
+  saveSettings: () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)),
+  syncSettingsInputs: () => syncSettingsInputs()
+});
 
 /* ─── From public/js/app.js ─── */
 
@@ -6347,13 +6373,32 @@ async function clearMemorySettings() {
   }
 }
 
+// The overlay is the store's.
 function closeAccount() {
   els.accountDrawer.classList.remove("open");
   els.accountDrawer.setAttribute("aria-hidden", "true");
-  if (els.overlay.dataset.mode === "account") {
-    els.overlay.hidden = true;
-    delete els.overlay.dataset.mode;
-  }
+  set((s) => ({ overlay: s.overlay === "account" ? "" : s.overlay }));
+}
+
+function openStorageDrawer() {
+  if (!state.session) return;
+  closeProfileMenu();
+  set({ sidebarOpen: false });
+  renderAccount();
+  els.accountDrawer.classList.add("open");
+  els.accountDrawer.setAttribute("aria-hidden", "false");
+  set({ overlay: "account" });
+  loadMe()
+    .then(() => {
+      renderAccount();
+      renderProfileMenu();
+    })
+    .catch(() => {});
+}
+
+function openAdminDrawer() {
+  set({ sidebarOpen: false });
+  openStorageDrawer();
 }
 
 function renderVoiceSettings() {
@@ -8188,6 +8233,32 @@ function bindSettingsEvents() {
   els.settingsStorageList?.addEventListener("click", handleAccountStorageClick);
 }
 
+/* ─── Events: the account drawer and the admin dashboard (bindEvents) ─── */
+function bindAccountEvents() {
+  els.signOutButton.addEventListener("click", signOutAndReset);
+  els.closeAccountButton.addEventListener("click", closeAccount);
+  els.loadAdminButton.addEventListener("click", () => { void adminPanel.loadAdminDashboard(); });
+  els.adminOutput.addEventListener("click", (e) => {
+    const tab = e.target.closest("[data-admin-tab]");
+    if (tab) {
+      adminPanel.setAdminQueueTab(tab.dataset.adminTab);
+      return;
+    }
+    const done = e.target.closest("[data-resolve-report]");
+    if (done) {
+      adminPanel.resolveReport(done.dataset.resolveReport, done.dataset.resolveStatus);
+      return;
+    }
+    const approve = e.target.closest("[data-approve-payment]");
+    if (approve) {
+      adminPanel.updateAdminPayment(approve.dataset.approvePayment, "approve");
+      return;
+    }
+    const reject = e.target.closest("[data-reject-payment]");
+    if (reject) adminPanel.updateAdminPayment(reject.dataset.rejectPayment, "reject");
+  });
+}
+
 /** syncSettingsInputs(): the appearance controls and the storage meter are React's. */
 function syncSettingsInputs() {
   els.systemPromptInput.value = state.settings.systemPrompt;
@@ -8881,9 +8952,11 @@ export function mountChat() {
   bindPaywallEvents();
   bindSelectionEvents();
   bindStudyEvents();
+  bindAccountEvents();
   bindHistoryEvents();
   Object.assign(chatHooks, {
     openUpgradePlans,
+    openAdminDrawer,
     deletePendingAttachment,
     deletePendingProject,
     openStudyHub: () => { void loadStudyHub().then((hub) => hub.openCourses()); },
@@ -8950,6 +9023,11 @@ export function mountChat() {
     guestContinue: () => {
       if (!isGuestContinueOpen()) return false;
       dismissGuestContinue();
+      return true;
+    },
+    account: () => {
+      if (!els.accountDrawer.classList.contains("open")) return false;
+      closeAccount();
       return true;
     }
   });

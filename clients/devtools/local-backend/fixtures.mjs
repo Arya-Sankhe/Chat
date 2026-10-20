@@ -97,12 +97,17 @@ export async function setUserMetadata(name, metadata) {
   if (!response.ok) throw new Error(await response.text());
 }
 
+/** Sets one user's profile role (e.g. "admin") until the next reset(). */
+export async function setRole(name, role) {
+  sql(`update public.profiles set role = ${lit(role)} where id = ${lit(USERS[name].id)};`);
+}
+
 export async function reset() {
   for (const user of Object.values(USERS)) {
     await ensureUser(user);
     // Everything a user owns hangs off profiles/auth.users with cascades; clearing
     // conversations and projects covers what the fixtures and scenarios create.
-    sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email;
+    sql(`insert into public.profiles (id, email, created_at, updated_at) values (${lit(user.id)}, ${lit(user.email)}, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z') on conflict (id) do update set email = excluded.email, role = 'user';
          delete from public.conversations where user_id = ${lit(user.id)};
          delete from public.projects where user_id = ${lit(user.id)};
          ${fixtureSql(user)}`);

@@ -1,5 +1,7 @@
 // Island change: the sidebar closes through an injected closeSidebar() (the new client's
 // store owns body.sidebar-open); the default is the old direct class removal.
+// Island change: state.conversations is the store's, so course-chat edits replace
+// the list rather than write into it.
 import { copyText } from "./platform/index.js";
 import { renderMindMap } from "./mindMap.js";
 import { createCourseContextPicker } from "./studyContext.js";
@@ -2174,8 +2176,9 @@ export function createStudyHubController({
   function patchCourseChat(id, patch) {
     const apply = (list) => (list || []).map((item) => item.id === id ? { ...item, ...patch } : item);
     const index = (state.conversations || []).findIndex((item) => item.id === id);
-    if (index >= 0) state.conversations[index] = { ...state.conversations[index], ...patch };
-    else state.conversations.unshift({ id, project_id: state.activeCourseId, ...patch });
+    state.conversations = index >= 0
+      ? apply(state.conversations)
+      : [{ id, project_id: state.activeCourseId, ...patch }, ...(state.conversations || [])];
     if (state.studyProjectDetail?.conversations) {
       const has = state.studyProjectDetail.conversations.some((item) => item.id === id);
       state.studyProjectDetail = {
@@ -2211,7 +2214,7 @@ export function createStudyHubController({
     if (!conversation) return;
     quizMenuKey = "";
     render();
-    if (!state.conversations.some((item) => item.id === id)) state.conversations.unshift(conversation);
+    if (!state.conversations.some((item) => item.id === id)) state.conversations = [conversation, ...state.conversations];
     openDeleteConfirm({
       title: "Delete chat?",
       body: `Delete "${conversation.title || "New chat"}" from your account?`,

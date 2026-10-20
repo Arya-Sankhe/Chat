@@ -53,6 +53,7 @@ function onKeydown(event: KeyboardEvent) {
   if (s.authOpen) return closeAuthDialog();
   if (s.betaWelcomeOpen) return closeBetaWelcome();
   if (chatSurfaces.guestContinue()) return;
+  if (chatSurfaces.account()) return;
   if (s.settingsOpen) return closeSettings();
 }
 

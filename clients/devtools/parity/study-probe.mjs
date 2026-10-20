@@ -36,6 +36,15 @@ for (const site of SITES) {
       errors.push(`blocked ${new URL(route.request().url()).host}`);
       return route.abort();
     });
+    // The server fetches a website source through a hosted reader, which the
+    // browser blocker above can't see: refuse any website source outright.
+    await page.route(/\/api\/study\/courses\/[^/]+\/materials$/, (route) => {
+      if (route.request().method() === "POST" && route.request().postDataJSON()?.kind !== "text") {
+        errors.push("blocked website source");
+        return route.abort();
+      }
+      return route.fallback();
+    });
     const shots = {};
     const out = {};
     const snap = async (name) => {
